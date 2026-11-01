@@ -2067,12 +2067,56 @@ struct RoundAnswers {
 /// ⟨r2.10⟩ What `inspect grants` shows of one grant's pending remote part: its own
 /// obligations' highest attempt count (ADR-0006 §13.13 item 3), the record's last
 /// round, whether its retries stopped (the record, or every obligation of the
-/// grant at its cap) and whether a responsible adapter is not configured.
+/// grant at its cap) and why its obligations are still pending.
+///
+/// ⟨r2.12⟩ ADR-0006 §13.15 item 2 (review round 5 U01): a grant can be covered by
+/// several records (a delegated child is in its own root's record and in an
+/// ancestor's); its view combines all of them ([`RemoteView::combine`]).
 struct RemoteView {
     attempts: u32,
     last_attempt_at: Timestamp,
     stopped: bool,
-    unavailable: bool,
+    /// Every reason present, each once, in first-seen order.
+    reasons: Vec<RemotePendingReason>,
+}
+
+impl RemoteView {
+    /// The view of `grant` from the one record `r` that covers it.
+    fn of(r: &PendingRemoteRevocation, grant: &GrantId) -> Self {
+        let own: Vec<&RemoteObligation> =
+            r.obligations.iter().filter(|o| &o.grant == grant).collect();
+        let mut reasons = Vec::new();
+        for reason in own.iter().filter_map(|o| o.reason) {
+            if !reasons.contains(&reason) {
+                reasons.push(reason);
+            }
+        }
+        Self {
+            attempts: own
+                .iter()
+                .map(|o| r.obligation_attempts(o))
+                .max()
+                .unwrap_or(r.attempts),
+            last_attempt_at: r.last_attempt_at,
+            stopped: r.stopped || (!own.is_empty() && own.iter().all(|o| o.stopped)),
+            reasons,
+        }
+    }
+
+    /// ⟨r2.12⟩ §13.15 item 2: two records' views of one grant, combined: stopped
+    /// only if every remaining obligation of both is, every reason of either, the
+    /// highest attempt count and the latest round.
+    fn combine(mut self, other: Self) -> Self {
+        self.attempts = self.attempts.max(other.attempts);
+        self.last_attempt_at = self.last_attempt_at.max(other.last_attempt_at);
+        self.stopped = self.stopped && other.stopped;
+        for reason in other.reasons {
+            if !self.reasons.contains(&reason) {
+                self.reasons.push(reason);
+            }
+        }
+        self
+    }
 }
 
 /// ⟨r2.9⟩ ADR-0006 §13.12 item 2: the adapters responsible for the remote effect
@@ -2102,6 +2146,18 @@ fn responsible_adapters(
         mechanism: origin.map(|o| o.mechanism).unwrap_or_default(),
         instance: String::new(),
     }])
+}
+
+/// ⟨r2.11⟩ ADR-0006 §13.14 item 2: whether `grant`'s remote state is unknown
+/// rather than known empty: an `Attempted`, `Confirmed` (applied) or `Uncertain`
+/// effect receipt is on record for it, or its origin records the preparing adapter
+/// (written with the first `Attempted` receipt, so it survives the receipts'
+/// retention).
+fn had_effect(tx: &mut Txn<'_>, grant: &GrantId) -> heimdall_store::Result<bool> {
+    if tx.grant_origin(grant)?.is_some_and(|o| o.adapter.is_some()) {
+        return Ok(true);
+    }
+    tx.grant_has_effect_receipt(grant)
 }
 
 /// ⟨r2.10⟩ A fresh obligation of `grant` to `adapter` (no attempt counted yet).
@@ -2245,7 +2301,12 @@ fn forget_interrupted(interrupted: &Mutex<BTreeSet<GrantId>>, root: &GrantId) {
 /// → revoked`, a denied waiting grant) is asked of each responsible adapter that
 /// is configured, and each such call is an obligation too, recorded here before
 /// the call: only that adapter's confirmation clears it, a pending answer keeps
-/// it and the supervisor retries it (no untracked one-off call). When any call is
+/// it and the supervisor retries it (no untracked one-off call). ⟨r2.11⟩ ADR-0006
+/// §13.14 item 2: such a grant whose responsible adapter is not configured is an
+/// obligation too when it has an effect receipt ([`had_effect`]): its remote state
+/// is unknown, so it waits with reason `adapter_unavailable` (no call, no attempt
+/// consumed) until that adapter is configured again; one with no effect receipt
+/// owes nothing. When any call is
 /// owed the round is claimed: `attempts + 1` and `claimed_at` (§13.12 item 1),
 /// and each called obligation counts it (§13.13 item 3); a round with no call
 /// consumes no attempt. `rearm` (an authorized explicit revoke, ADR-0006 §13.11
@@ -2281,9 +2342,15 @@ fn claim_first_round_in(
         let revoking = tx
             .grant(g)?
             .is_some_and(|s| s.state == GrantState::Revoking);
+        let mut effect: Option<bool> = None;
         for adapter in responsible_adapters(tx, g)? {
             let owed = obligation(g, adapter);
-            let tracked = revoking || configured.iter().any(|a| owed.served_by(a));
+            let tracked = revoking
+                || configured.iter().any(|a| owed.served_by(a))
+                || match effect {
+                    Some(e) => e,
+                    None => *effect.insert(had_effect(tx, g)?),
+                };
             if tracked
                 && !record
                     .obligations
@@ -4795,7 +4862,29 @@ impl Operations {
 
     /// Best-effort local revocation of a credential prepared for an activation
     /// that did not happen (cancelled, revoked, expired or refused at commit).
+    ///
+    /// ⟨r2.12⟩ ADR-0006 §13.15 item 3 (one owner for revocation calls): nothing is
+    /// called for a grant that a pending remote revocation record covers; that
+    /// record's supervisor-owned rounds own its calls (§13.6 item 4, §13.13 item 2:
+    /// no untracked call). A grant with no record is cleaned up as before, and so
+    /// is one whose records cannot be read (best effort, as before).
     async fn cleanup(&self, grant: &GrantId) {
+        let g = grant.clone();
+        match self
+            .write(move |tx, _| {
+                Ok(tx
+                    .remote_revocations()?
+                    .iter()
+                    .any(|r| r.grants.contains(&g)))
+            })
+            .await
+        {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(code = %e.code, "pending remote revocations could not be read before cleanup");
+            }
+        }
         let now = self.inner.config.clock.wall();
         for a in &self.inner.config.adapters {
             let _ = a.revoke(grant, now).await;
@@ -5614,27 +5703,16 @@ impl Operations {
                     // a grant that ended before activation keeps its pending remote
                     // part visible too (item 2; R-AU-04), so such a terminal grant
                     // stays listed while it has an obligation.
+                    // ⟨r2.12⟩ §13.15 item 2: every record covering a grant counts.
                     let mut remote: BTreeMap<GrantId, RemoteView> = BTreeMap::new();
                     for r in tx.remote_revocations()? {
                         for g in &r.grants {
-                            let own: Vec<&RemoteObligation> =
-                                r.obligations.iter().filter(|o| &o.grant == g).collect();
-                            remote.insert(
-                                g.clone(),
-                                RemoteView {
-                                    attempts: own
-                                        .iter()
-                                        .map(|o| r.obligation_attempts(o))
-                                        .max()
-                                        .unwrap_or(r.attempts),
-                                    last_attempt_at: r.last_attempt_at,
-                                    stopped: r.stopped
-                                        || (!own.is_empty() && own.iter().all(|o| o.stopped)),
-                                    unavailable: own.iter().any(|o| {
-                                        o.reason == Some(RemotePendingReason::AdapterUnavailable)
-                                    }),
-                                },
-                            );
+                            let view = RemoteView::of(&r, g);
+                            let view = match remote.remove(g) {
+                                Some(seen) => seen.combine(view),
+                                None => view,
+                            };
+                            remote.insert(g.clone(), view);
                         }
                     }
                     let mut listed: Vec<(GrantSnapshot, bool)> = tx
@@ -5699,12 +5777,13 @@ impl Operations {
                                         "remote_pending".to_owned(),
                                         serde_json::json!(true),
                                     );
-                                    if r.unavailable {
+                                    // ⟨r2.12⟩ §13.15 item 2 / §13.16 item 1: every
+                                    // reason present, always as an array (one
+                                    // stable shape, whatever the reason count).
+                                    if !r.reasons.is_empty() {
                                         map.insert(
-                                            "remote_pending_reason".to_owned(),
-                                            serde_json::to_value(
-                                                RemotePendingReason::AdapterUnavailable,
-                                            )?,
+                                            "remote_pending_reasons".to_owned(),
+                                            serde_json::to_value(&r.reasons)?,
                                         );
                                     }
                                     map.insert(
@@ -8273,5 +8352,32 @@ mod tests {
         let u = approval_needed(false, "dec_x", "m");
         assert_eq!(u.code, Code::InteractionRequired);
         assert_eq!(u.state(), OperationState::AwaitingApproval);
+    }
+
+    /// ⟨r2.12⟩ ADR-0006 §13.15 item 2: combining the views of the records that
+    /// cover one grant is independent of their order: stopped only if both are,
+    /// every reason of either (each once), the highest count and the latest round.
+    #[test]
+    fn remote_views_combine_whatever_the_record_order() {
+        let at = |s: &str| -> Timestamp { s.parse().unwrap() };
+        let view = |attempts, last: &str, stopped, reasons: &[RemotePendingReason]| RemoteView {
+            attempts,
+            last_attempt_at: at(last),
+            stopped,
+            reasons: reasons.to_vec(),
+        };
+        let unavailable = RemotePendingReason::AdapterUnavailable;
+        let capped = || view(3, "2026-10-02T00:00:10Z", true, &[]);
+        let retryable = || view(1, "2026-10-02T00:01:00Z", false, &[unavailable]);
+        for v in [capped().combine(retryable()), retryable().combine(capped())] {
+            assert_eq!(v.attempts, 3);
+            assert_eq!(v.last_attempt_at, at("2026-10-02T00:01:00Z"));
+            assert!(!v.stopped, "one obligation remains retryable");
+            assert_eq!(v.reasons, vec![unavailable]);
+        }
+        let both = capped().combine(view(2, "2026-10-02T00:00:01Z", true, &[unavailable]));
+        assert!(both.stopped, "every obligation stopped");
+        let twice = retryable().combine(retryable());
+        assert_eq!(twice.reasons, vec![unavailable], "each reason once");
     }
 }

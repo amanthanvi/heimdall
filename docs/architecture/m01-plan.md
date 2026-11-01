@@ -386,8 +386,8 @@ integrator with an ADR-0006 revision.
   * Item 2: obligations are kept per grant and responsible adapter (recovery intents
     and receipts; origin mechanism when those were purged); a round asks only that
     adapter and only its confirmation clears the obligation; with it not configured
-    the obligation stays pending (`inspect grants` adds `remote_pending_reason:
-    "adapter_unavailable"`), no attempt is consumed and the supervisor backs off.
+    the obligation stays pending (`inspect grants` adds `remote_pending_reasons:
+    ["adapter_unavailable"]`, §13.16 item 1), no attempt is consumed and the supervisor backs off.
   * Tests `model_operations::{r1312_1_*, r1312_2_*, r1312_props::*}` (the first half
     of `r1310_2_a_degraded_grant_returns_only_when_revalidation_passes` now expects
     `revoking` until the grant's own adapter confirms),
@@ -431,6 +431,44 @@ integrator with an ADR-0006 revision.
     `integration_store::grant_origin_gains_its_preparing_adapter_once`,
     `heimdall_domain::{grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged,
     revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation}`
+    (ADR-0006 §14.5 row).
+* **⟨r2.11⟩ ADR-0006 §13.14 items 2 and 3 (M01-rulings-13-14).** **Additive**
+  `store::Txn::grant_has_effect_receipt(&GrantId) -> Result<bool>` (U4b paths: true
+  when a stage receipt of an operation whose recovery intent pins the grant is
+  `Attempted`, `Confirmed` or `Uncertain`). No other signature change.
+  * Item 2: at the first local denial (an explicit revoke or a withdrawal), a grant
+    that is not `revoking` and whose responsible adapter is not configured is an
+    obligation when its remote state is unknown: its origin records the preparing
+    adapter, or it has an effect receipt. It waits with reason
+    `adapter_unavailable` (no call, no attempt consumed, rounds back off, visible in
+    `inspect grants`) until that adapter is configured again. A grant with no effect
+    receipt still owes nothing.
+  * Item 3: the remaining §13.12 and §13.13 store and domain tests are indexed under
+    A07 and A17-local; `required-inventory.json` regenerated.
+  * Tests `model_operations::{r1314_2_a_revoked_preparing_grant_with_an_effect_and_no_adapter_waits_for_it,
+    r1314_2_a_revoked_preparing_grant_without_an_effect_receipt_owes_nothing}`,
+    `integration_store::grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it`
+    (ADR-0006 §14.5 row).
+* **⟨r2.12⟩ ADR-0006 §13.15 items 1–5 (M01-rulings-13-15).** No public signature
+  change.
+  * Item 1 (review round 5 U02): regression for the reviewer's exact path (an
+    `Attempted` receipt and a partial result; a restart without the preparing
+    adapter; recovery fails the grant; an explicit revoke): an `adapter_unavailable`
+    obligation, visible in the revoke result and `inspect grants`.
+  * Item 2 (U01): `inspect grants` combines every pending remote record covering a
+    grant: `stopped` only if every remaining obligation across them is stopped,
+    `attempts` the maximum, `last_attempt_at` the latest, `remote_pending_reasons`
+    every reason present, always an array (§13.16 item 1).
+  * Item 3: the best-effort `cleanup` makes no `revoke()` call for a grant a
+    pending remote record covers; the record's rounds own those calls. Unchanged
+    without a record.
+  * Item 4: confirmed, no change. Item 5: `tests/model/time.rs` `props_rev2` never
+    pairs `sync: true` with a drift, has a fixed default seed (`PROPTEST_RNG_SEED`
+    overrides), and pins the shrunk case and the disclosed synchronized-clock
+    limitation as named tests; no production time change.
+  * Tests `model_operations::r1315_*` (five), `heimdall_app-unit::operations::tests::remote_views_combine_whatever_the_record_order`,
+    `model_time::props_rev2::{regression_synchronized_reboot_at_the_true_bound_is_not_admitted,
+    a_clock_lying_by_d_while_reporting_synchronized_admits_at_most_d_past_the_true_bound}`
     (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no

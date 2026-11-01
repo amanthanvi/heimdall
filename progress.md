@@ -160,6 +160,28 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - interrupted rounds are due immediately.
 - Running: task M01-rulings-13-13 (shared checkout), for §13.13 items 1–4, plus the case index (8 Unix-only tests marked platform_only; r1310/r1312 indexed).
 - Then, at that commit and in parallel: Codex review round 5 and the final native evidence run. Then the M01 exit record.
+- §13.13 items 1–4 and the case index are committed as b933d3eb.
+  - I pruned target/ (9.5G to 0) and ran check.sh from a clean build: exit 0, 675 passed. The 20 mutations were all caught.
+  - ADR-0006 §13.14 rulings:
+    - the preparing adapter is the only responsible adapter in M01;
+    - an effect receipt with the adapter unavailable becomes an adapter_unavailable obligation;
+    - the remaining store/domain tests get indexed.
+- Running:
+  - Codex review round 5 at b933d3eb, writing to `review-m01-code/round5.md`;
+  - task M01-rulings-13-14 for §13.14 items 2–3, in the shared checkout.
+- Next:
+  - integrate those;
+  - run the final native evidence at the resulting commit;
+  - write the M01 exit record.
+- Codex review round 5 (`review-m01-code/round5.md`): T01 and T02 are fixed. U02 (major) is the §13.14 item 2 gap; U01 (minor) is the inspect view overwriting overlapping records.
+- Task M01-rulings-13-14 is done (uncommitted): 678 passed, 4 mutations caught. It surfaced an existing intermittent time-property failure: props_rev2 has no fixed seed, and a synchronized reboot with drift −1 is admitted at the true bound.
+- My ADR-0006 §13.15 rulings:
+  - U02 regression for the reviewer's path;
+  - U01: inspect combines every record covering a grant;
+  - recovery cleanup never calls revoke for a grant that has a pending record;
+  - time property: `sync: true` ⇒ drift 0 (trusted-sync assumption), a named limitation test, a fixed seed.
+- Running: task M01-rulings-13-15.
+- Then: validate, commit, final native evidence and a small final review check, then the M01 exit record.
 - After that, at one commit and in parallel:
   - native evidence runs (devbox, the Windows PC) and regenerated m01 records;
   - a final Codex check of 01747a6b..HEAD.

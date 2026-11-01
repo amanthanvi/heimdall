@@ -1237,10 +1237,17 @@ fn cutoff_after_tolerant_reanchor_stops_admission_by_the_true_cutoff() {
     );
 }
 
+/// ⟨r2.12⟩ ADR-0006 §13.15 item 5: the generator pairs a nonzero reboot drift only
+/// with an unsynchronized report. A `Synchronized` report is trusted as-is (§13.3
+/// item 4 as amended by N05: truthful platform time is an explicit ASSUMPTION,
+/// with native evidence due in M04/G09), so a synchronized clock that lies is not a
+/// case the bound can hold against; the disclosed limitation is pinned by its own
+/// named test below instead. The module has a fixed default seed
+/// (`PROPTEST_RNG_SEED` still overrides it; m01-plan.md §0).
 mod props_rev2 {
     use super::*;
     use proptest::prelude::*;
-    use proptest::test_runner::FileFailurePersistence;
+    use proptest::test_runner::{FileFailurePersistence, RngSeed};
 
     /// Steps the owner, the machine and the clock may take. Truth = t0 + real.
     #[derive(Debug, Clone)]
@@ -1250,7 +1257,8 @@ mod props_rev2 {
         WallJump(i64),
         Restart,
         /// Downtime in seconds, wall drift from the truth after the reboot, and
-        /// whether the platform reports synchronized time afterwards.
+        /// whether the platform reports synchronized time afterwards. The
+        /// generator draws a nonzero `drift` only with `sync: false`.
         Reboot {
             down: u64,
             drift: i64,
@@ -1265,85 +1273,236 @@ mod props_rev2 {
         Cutoff(i64),
     }
 
+    fn reboot() -> impl Strategy<Value = Step> {
+        prop_oneof![
+            // Synchronized: the wall clock shows the truth (the trusted report).
+            (0u64..7200).prop_map(|down| Step::Reboot {
+                down,
+                drift: 0,
+                sync: true
+            }),
+            // Unsynchronized: any drift; the gate needs a confirmation or fails
+            // closed, and the tolerance deduction applies.
+            (0u64..7200, -120i64..3600).prop_map(|(down, drift)| Step::Reboot {
+                down,
+                drift,
+                sync: false
+            }),
+        ]
+    }
+
     fn step() -> impl Strategy<Value = Step> {
         prop_oneof![
             (1u64..1200).prop_map(Step::Pass),
             (1u64..1200).prop_map(Step::FrozenWall),
             (-7200i64..7200).prop_map(Step::WallJump),
             Just(Step::Restart),
-            (0u64..7200, -120i64..3600, any::<bool>())
-                .prop_map(|(down, drift, sync)| Step::Reboot { down, drift, sync }),
+            reboot(),
             Just(Step::Confirm),
             Just(Step::Reanchor),
             (-600i64..7200).prop_map(Step::Cutoff),
         ]
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig {
+    fn config() -> ProptestConfig {
+        let mut config = ProptestConfig {
             cases: 384,
-            failure_persistence: Some(Box::new(FileFailurePersistence::WithSource("proptest-regressions"))),
+            failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+                "proptest-regressions",
+            ))),
             ..ProptestConfig::default()
-        })]
+        };
+        // `ProptestConfig::default()` honours PROPTEST_RNG_SEED; otherwise pin a
+        // seed so runs are reproducible.
+        if matches!(config.rng_seed, RngSeed::Random) {
+            config.rng_seed = RngSeed::Fixed(0x4130_385f_5245_5632);
+        }
+        config
+    }
+
+    /// One trace: the model, the time granted and the real (true) time elapsed.
+    struct Trace {
+        m: Model,
+        granted: Duration,
+        real: Duration,
+    }
+
+    impl Trace {
+        fn new(minutes: u64) -> Self {
+            Self {
+                m: Model::activate(&format!("{minutes}m")),
+                granted: Duration::from_secs(minutes * 60),
+                real: Duration::ZERO,
+            }
+        }
+
+        fn truth(&self) -> Timestamp {
+            shift(t0(), secs(self.real))
+        }
+
+        fn apply(&mut self, s: &Step) {
+            let m = &mut self.m;
+            match *s {
+                Step::Pass(d) => {
+                    m.clock.advance(Duration::from_secs(d));
+                    self.real += Duration::from_secs(d);
+                }
+                Step::FrozenWall(d) => {
+                    m.clock.advance_continuous_only(Duration::from_secs(d));
+                    self.real += Duration::from_secs(d);
+                }
+                Step::WallJump(d) => m.clock.set_wall(shift(m.clock.wall(), d)),
+                Step::Restart => m.restart(),
+                Step::Reboot { down, drift, sync } => {
+                    self.real += Duration::from_secs(down);
+                    let wall = shift(shift(t0(), secs(self.real)), drift);
+                    let m = &mut self.m;
+                    m.reboot(wall);
+                    m.sync.set(if sync {
+                        SyncStatus::Synchronized
+                    } else {
+                        SyncStatus::Unknown
+                    });
+                    m.restart();
+                }
+                Step::Confirm => {
+                    let truth = shift(t0(), secs(self.real));
+                    let off = m.clock.wall().duration_since(truth).unsigned_abs();
+                    if off <= m.policy.max_tolerated_skew {
+                        m.confirm_time();
+                    }
+                }
+                Step::Reanchor => {
+                    let _ = m.reanchor();
+                }
+                Step::Cutoff(after) => {
+                    m.cutoff(shift(m.clock.wall(), after));
+                }
+            }
+        }
+
+        /// Whether the grant is admitted now at or past the true bound (the time
+        /// granted, or the current `min(deadline, cutoff)`).
+        fn admitted_past_true_bound(&mut self) -> bool {
+            let admitted = self.m.admits();
+            admitted && (self.real >= self.granted || self.truth() >= self.m.current_bound())
+        }
+    }
+
+    proptest! {
+        #![proptest_config(config())]
 
         /// No admission after the true (current) bound `min(deadline, cutoff)`,
-        /// across sleep, jumps, restarts, reboots (synchronized or not), attended
-        /// confirmations, tolerance-aware re-anchors and cutoffs (N01).
+        /// across sleep, jumps, restarts, reboots (synchronized with a truthful
+        /// clock, or unsynchronized with any drift), attended confirmations,
+        /// tolerance-aware re-anchors and cutoffs (N01).
         #[test]
         fn no_admission_after_true_bound_with_reboot_and_confirmation(
             minutes in 1u64..=720,
             steps in prop::collection::vec(step(), 1..60),
         ) {
-            let mut m = Model::activate(&format!("{minutes}m"));
-            let granted = Duration::from_secs(minutes * 60);
-            let mut real = Duration::ZERO;
-            let truth = |real: Duration| shift(t0(), secs(real));
+            let mut t = Trace::new(minutes);
             for s in steps {
-                match s {
-                    Step::Pass(d) => {
-                        m.clock.advance(Duration::from_secs(d));
-                        real += Duration::from_secs(d);
-                    }
-                    Step::FrozenWall(d) => {
-                        m.clock.advance_continuous_only(Duration::from_secs(d));
-                        real += Duration::from_secs(d);
-                    }
-                    Step::WallJump(d) => m.clock.set_wall(shift(m.clock.wall(), d)),
-                    Step::Restart => m.restart(),
-                    Step::Reboot { down, drift, sync } => {
-                        real += Duration::from_secs(down);
-                        m.reboot(shift(truth(real), drift));
-                        m.sync.set(if sync { SyncStatus::Synchronized } else { SyncStatus::Unknown });
-                        m.restart();
-                    }
-                    Step::Confirm => {
-                        let off = m.clock.wall().duration_since(truth(real)).unsigned_abs();
-                        if off <= m.policy.max_tolerated_skew {
-                            m.confirm_time();
-                        }
-                    }
-                    Step::Reanchor => {
-                        let _ = m.reanchor();
-                    }
-                    Step::Cutoff(after) => {
-                        m.cutoff(shift(m.clock.wall(), after));
-                    }
+                if let Step::Reboot { drift, sync: true, .. } = s {
+                    prop_assert_eq!(drift, 0, "a synchronized reboot is never paired with a drift");
                 }
-                let admitted = m.admits();
+                t.apply(&s);
+                let admitted = t.m.admits();
                 prop_assert!(
-                    !(admitted && real >= granted),
-                    "admitted after {real:?} of {granted:?}"
+                    !(admitted && t.real >= t.granted),
+                    "admitted after {:?} of {:?}",
+                    t.real,
+                    t.granted
                 );
                 prop_assert!(
-                    !(admitted && truth(real) >= m.current_bound()),
+                    !(admitted && t.truth() >= t.m.current_bound()),
                     "admitted at {:?} at/after the current bound {:?}",
-                    truth(real),
-                    m.current_bound()
+                    t.truth(),
+                    t.m.current_bound()
                 );
-                if !m.state.permits_use() {
-                    prop_assert!(m.state.is_terminal());
+                if !t.m.state.permits_use() {
+                    prop_assert!(t.m.state.is_terminal());
                 }
             }
+        }
+    }
+
+    /// The shrunk failure of the property before §13.15 item 5, in the form the
+    /// generator can now produce it: `minutes = 69`, `[Pass(444), Reboot { down:
+    /// 3696, sync: true }, Reanchor]` with the drift a synchronized report is paired
+    /// with (0; it was −1). The reboot lands exactly on the true bound (444 s +
+    /// 3696 s = 69 min), so the re-anchored grant has no budget left: never
+    /// admitted at or past the bound.
+    #[test]
+    fn regression_synchronized_reboot_at_the_true_bound_is_not_admitted() {
+        let mut t = Trace::new(69);
+        for s in [
+            Step::Pass(444),
+            Step::Reboot {
+                down: 3696,
+                drift: 0,
+                sync: true,
+            },
+            Step::Reanchor,
+        ] {
+            t.apply(&s);
+            assert!(
+                !t.admitted_past_true_bound(),
+                "admitted at {:?} of {:?} after {s:?}",
+                t.real,
+                t.granted
+            );
+        }
+        assert_eq!(t.real, t.granted, "the trace reached the true bound");
+        assert!(!t.m.admits());
+    }
+
+    /// The disclosed limitation (ADR-0006 §13.15 item 5; §13.3 item 4 and N05: a
+    /// `Synchronized` report is trusted as-is). A clock that reads `d` seconds
+    /// behind the truth while the platform reports it synchronized is accepted
+    /// after a reboot without a skew deduction, so the re-anchored grant is
+    /// admitted for up to `d` seconds past the true bound, and never longer. The
+    /// first case is the property's original shrunk failure (`drift: -1`). This
+    /// pins the bounded overshoot, not zero; native evidence about the
+    /// synchronization signal is M04/G09.
+    #[test]
+    fn a_clock_lying_by_d_while_reporting_synchronized_admits_at_most_d_past_the_true_bound() {
+        for d in [1i64, 30, 120] {
+            let mut t = Trace::new(69);
+            for s in [
+                Step::Pass(444),
+                Step::Reboot {
+                    down: 3696,
+                    drift: -d,
+                    sync: true,
+                },
+                Step::Reanchor,
+            ] {
+                t.apply(&s);
+            }
+            assert_eq!(
+                t.real, t.granted,
+                "d = {d}: the reboot lands on the true bound"
+            );
+            // Walk true time forward a second at a time and find the last admission.
+            let mut last_admitted = None;
+            for _ in 0..(2 * d + 10) {
+                if t.m.admits() {
+                    last_admitted = Some(t.real);
+                }
+                t.apply(&Step::Pass(1));
+            }
+            let last = last_admitted.expect("the lying clock is admitted past the true bound");
+            let overshoot = last - t.granted;
+            assert!(
+                overshoot < Duration::from_secs(d.unsigned_abs()),
+                "d = {d}: admitted {overshoot:?} past the true bound, more than the clock's error"
+            );
+            assert!(
+                overshoot + Duration::from_secs(1) >= Duration::from_secs(d.unsigned_abs()),
+                "d = {d}: the overshoot ({overshoot:?}) is the clock's error (the limitation is real)"
+            );
+            assert!(!t.m.admits(), "d = {d}: never admitted beyond the error");
         }
     }
 }

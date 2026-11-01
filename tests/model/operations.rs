@@ -5205,8 +5205,8 @@ async fn r1310_2_a_degraded_grant_returns_only_when_revalidation_passes() {
         "authority_withdrawn"
     );
     assert_eq!(
-        r1310_view(&w, &g.grant_id).await["remote_pending_reason"],
-        "adapter_unavailable"
+        r1310_view(&w, &g.grant_id).await["remote_pending_reasons"],
+        serde_json::json!(["adapter_unavailable"])
     );
     w.restart().await;
     let sup = r138_supervisor(&w);
@@ -5809,7 +5809,8 @@ async fn r1312_assert_waiting_for_adapter(
     assert_eq!(view["state"], "revoking");
     assert_eq!(view["remote_pending"], true);
     assert_eq!(
-        view["remote_pending_reason"], "adapter_unavailable",
+        view["remote_pending_reasons"],
+        serde_json::json!(["adapter_unavailable"]),
         "the obligation stays visible with its reason: {view}"
     );
     assert_eq!(view["remote_retries"]["attempts"], attempts);
@@ -6619,7 +6620,10 @@ async fn r1313_3_one_adapters_rounds_never_exhaust_another_adapters_obligation()
         "A's obligation has neither cleared nor reached its cap"
     );
     let pv = r1310_view(&w, &parent.grant_id).await;
-    assert_eq!(pv["remote_pending_reason"], "adapter_unavailable");
+    assert_eq!(
+        pv["remote_pending_reasons"],
+        serde_json::json!(["adapter_unavailable"])
+    );
     assert_eq!(
         pv["remote_retries"]["attempts"], 0,
         "B's rounds consumed none of A's attempts: {pv}"
@@ -6878,4 +6882,537 @@ async fn r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its
     assert_eq!(rec.attempts, 3);
     assert_eq!(rec.obligations[0].attempts, Some(3));
     assert!(rec.stopped);
+}
+
+// =================================================================================
+// ⟨r2.11⟩ ADR-0006 §13.14 item 2: unknown remote state counts as pending
+// =================================================================================
+
+/// In-process restart with only [`r1312_other_adapter`] configured (the fixture
+/// grants' responsible adapter is removed) while recovery's drive of the still
+/// running ensure fails once before `next` (production `StageHook` seam), so the
+/// grant stays `preparing` until the revoke denies it.
+async fn r1314_remove_adapter(w: &mut World, next: EnsureStage) -> Arc<FakeCredentialAdapter> {
+    w.hook = ScriptedStageHook::new([(next, Code::ServiceUnavailable)], []);
+    let other = r1312_other_adapter();
+    r1312_restart_with(w, vec![other.clone() as Arc<dyn CredentialAdapter>]).await;
+    other
+}
+
+/// The ensure's effect receipts for `op` (`NotAttempted` excluded).
+fn r1314_effects(w: &World, op: &OperationId) -> Vec<heimdall_domain::operation::EffectReceipt> {
+    w.store
+        .transaction(|tx| tx.stage_receipts(op))
+        .unwrap()
+        .into_iter()
+        .map(|r| r.effect)
+        .filter(|e| !matches!(e, heimdall_domain::operation::EffectReceipt::NotAttempted))
+        .collect()
+}
+
+/// Red (§13.14 item 2). A grant revoked while `preparing`, with an `Attempted`
+/// effect receipt on record (its `Reconcile` stage recorded the effect, then the
+/// ensure failed; the operation still runs), whose responsible adapter was removed
+/// before the revoke: no call can be made and nothing is reported, yet the remote
+/// state is unknown, so the first local denial records an obligation on the
+/// preparing adapter with reason `adapter_unavailable`. It consumes no attempt,
+/// stays visible in `inspect grants` (the terminal grant stays listed), is never
+/// served by another adapter, and rounds keep backing off without a call. Once the
+/// adapter is configured again, its confirmation clears the obligation.
+#[tokio::test]
+async fn r1314_2_a_revoked_preparing_grant_with_an_effect_and_no_adapter_waits_for_it() {
+    let hook = ScriptedStageHook::new([], [(EnsureStage::Reconcile, Code::ServiceUnavailable)]);
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r1314-2a", "r1314-2a-work", &[("h1", "deploy")]),
+        )
+        .await);
+    let op = e.operation_id.clone().unwrap();
+    let gid = r1313_grant_of(&w, &op);
+    assert!(
+        r1314_effects(&w, &op).iter().any(|r| matches!(
+            r,
+            heimdall_domain::operation::EffectReceipt::Attempted { .. }
+        )),
+        "an `Attempted` effect receipt is on record"
+    );
+    let other = r1314_remove_adapter(&mut w, EnsureStage::Probe).await;
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    let done = r1313_revoke(&w, &gid, "r1314-2a-revoke").await;
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Revoked,
+        "preparing → revoked"
+    );
+    assert_eq!(adapter.calls(), 0, "no call can be made");
+    assert_eq!(
+        done.remote_pending,
+        vec![gid.clone()],
+        "the unknown remote state is pending"
+    );
+    let rec = r1312_record(&w, &gid).expect("an obligation is recorded");
+    assert_eq!(rec.grants, vec![gid.clone()]);
+    assert_eq!(rec.obligations.len(), 1);
+    assert_eq!(rec.obligations[0].adapter, descriptor().identity);
+    assert_eq!(
+        rec.obligations[0].reason,
+        Some(heimdall_domain::revocation::RemotePendingReason::AdapterUnavailable)
+    );
+    assert_eq!(rec.attempts, 0, "no attempt is consumed");
+    assert_eq!(rec.obligations[0].attempts, Some(0));
+    assert!(!rec.stopped);
+    let view = r1310_view(&w, &gid).await;
+    assert_eq!(view["state"], "revoked");
+    assert_eq!(view["remote_pending"], true, "visible: {view}");
+    assert_eq!(
+        view["remote_pending_reasons"],
+        serde_json::json!(["adapter_unavailable"])
+    );
+    assert_eq!(view["remote_retries"]["attempts"], 0);
+    let sup = r1312_supervisor(&w, 3);
+    for _ in 0..6 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    assert_eq!(adapter.calls(), 0);
+    assert!(
+        !other.revocations.lock().unwrap().contains(&gid),
+        "another adapter is never asked about this obligation"
+    );
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    assert_eq!(rec.attempts, 0, "rounds without a call consume nothing");
+    assert!(!rec.stopped);
+    // The responsible adapter is configured again and confirms. Recovery settles
+    // the still-running ensure first (its grant is revoked) without its
+    // best-effort cleanup call (⟨r2.12⟩ §13.15 item 3: the record's rounds own
+    // the calls). The obligation's own round then serves it.
+    adapter.pending.store(false, Ordering::SeqCst);
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(w.op(&op).state, OperationState::Failed);
+    assert_eq!(adapter.calls(), 0, "recovery makes no call for the grant");
+    assert!(r1312_record(&w, &gid).is_some(), "still pending");
+    let sup = r1312_supervisor(&w, 3);
+    sup.scheduler_pass().await.unwrap();
+    w.clock.advance(10 * Duration::from_secs(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 1, "served once the adapter returns");
+    assert_eq!(adapter.confirmations(), 1);
+    assert!(
+        r1312_record(&w, &gid).is_none(),
+        "cleared by the confirmation"
+    );
+    assert_eq!(w.grant(&gid).state, GrantState::Revoked);
+}
+
+/// Store fault hook and pipeline hook in one: armed when `Reconcile` starts, it
+/// lets the next commit (the grant's creation, `requested → preparing`) through
+/// and fails the one after it (the `Attempted` receipt's), once: the grant is left
+/// `preparing` with no effect receipt and no effect.
+struct R1314FailAttemptCommit {
+    armed: AtomicBool,
+    passed: AtomicUsize,
+}
+
+impl FaultHook for R1314FailAttemptCommit {
+    fn at(&self, point: FaultPoint) -> FaultAction {
+        if point != FaultPoint::BeforeCommit || !self.armed.load(Ordering::SeqCst) {
+            return FaultAction::Continue;
+        }
+        if self.passed.fetch_add(1, Ordering::SeqCst) == 0 {
+            return FaultAction::Continue;
+        }
+        self.armed.store(false, Ordering::SeqCst);
+        FaultAction::Fail
+    }
+}
+
+impl StageHook for R1314FailAttemptCommit {
+    fn before(&self, stage: EnsureStage) -> Result<(), Code> {
+        if stage == EnsureStage::Reconcile && self.passed.load(Ordering::SeqCst) == 0 {
+            self.armed.store(true, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+    fn after(&self, _stage: EnsureStage) -> Result<(), Code> {
+        Ok(())
+    }
+}
+
+/// Guard (§13.14 item 2). The same, but the grant's preparation never recorded an
+/// effect (the commit of its `Attempted` receipt failed; no effect was applied):
+/// with no effect receipt nothing can exist remotely, so the revoke records no
+/// obligation and reports nothing pending.
+#[tokio::test]
+async fn r1314_2_a_revoked_preparing_grant_without_an_effect_receipt_owes_nothing() {
+    let fault = Arc::new(R1314FailAttemptCommit {
+        armed: AtomicBool::new(false),
+        passed: AtomicUsize::new(0),
+    });
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        hook: fault.clone(),
+        faults: fault.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r1314-2b", "r1314-2b-work", &[("h1", "deploy")]),
+        )
+        .await);
+    let op = e.operation_id.clone().unwrap();
+    let gid = r1313_grant_of(&w, &op);
+    assert!(r1314_effects(&w, &op).is_empty(), "no effect receipt");
+    assert_eq!(w.effects(), 0, "no effect was applied");
+    let other = r1314_remove_adapter(&mut w, EnsureStage::Reconcile).await;
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    let done = r1313_revoke(&w, &gid, "r1314-2b-revoke").await;
+    assert_eq!(w.grant(&gid).state, GrantState::Revoked);
+    assert_eq!(adapter.calls(), 0);
+    assert!(!other.revocations.lock().unwrap().contains(&gid));
+    assert!(done.remote_pending.is_empty(), "nothing is pending");
+    assert!(
+        r1312_record(&w, &gid).is_none(),
+        "no obligation is recorded"
+    );
+}
+
+// =================================================================================
+// ⟨r2.12⟩ ADR-0006 §13.15 items 1–3 (review round 5 U01, U02; one call owner)
+// =================================================================================
+
+/// Red at b933d3eb (§13.15 item 1; review round 5 U02, the reviewer's exact path).
+/// Preparation records its `Attempted` receipt and the ensure returns a partial
+/// result, leaving the grant `preparing`; the runtime restarts with no adapter at
+/// all (the preparing adapter is gone), and restart recovery fails the operation,
+/// moving the grant to `failed`; then the owner revokes it explicitly. The remote
+/// state is unknown, so the revoke records an `adapter_unavailable` obligation on
+/// the preparing adapter (no call, no attempt consumed) that stays visible in the
+/// revoke result and in `inspect grants` across supervisor passes; once that
+/// adapter is configured again, its confirmation clears it.
+#[tokio::test]
+async fn r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke()
+ {
+    let hook = ScriptedStageHook::new([], [(EnsureStage::Reconcile, Code::ServiceUnavailable)]);
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r1315-1", "r1315-1-work", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(e.effect_status, EffectStatus::Partial, "a partial result");
+    let op = e.operation_id.clone().unwrap();
+    let gid = r1313_grant_of(&w, &op);
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    assert!(
+        r1314_effects(&w, &op).iter().any(|r| matches!(
+            r,
+            heimdall_domain::operation::EffectReceipt::Attempted { .. }
+        )),
+        "an `Attempted` effect receipt is on record"
+    );
+    assert_eq!(
+        w.store
+            .transaction(|tx| tx.grant_origin(&gid))
+            .unwrap()
+            .and_then(|o| o.adapter),
+        Some(descriptor().identity),
+        "the preparing adapter is persisted with the grant"
+    );
+    let calls_before = adapter.calls();
+    r1312_restart_with(&mut w, vec![]).await;
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Failed,
+        "recovery without the adapter fails the grant"
+    );
+    let done = r1313_revoke(&w, &gid, "r1315-1-revoke").await;
+    assert_eq!(adapter.calls(), calls_before, "no call can be made");
+    assert_eq!(
+        done.remote_pending,
+        vec![gid.clone()],
+        "the revoke result names the unknown remote state pending"
+    );
+    let rec = r1312_record(&w, &gid).expect("an obligation is recorded");
+    assert_eq!(rec.grants, vec![gid.clone()]);
+    assert_eq!(rec.obligations.len(), 1);
+    assert_eq!(rec.obligations[0].adapter, descriptor().identity);
+    assert_eq!(
+        rec.obligations[0].reason,
+        Some(heimdall_domain::revocation::RemotePendingReason::AdapterUnavailable)
+    );
+    assert_eq!(rec.attempts, 0, "no attempt is consumed");
+    let sup = r1312_supervisor(&w, 3);
+    for _ in 0..6 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    let view = r1310_view(&w, &gid).await;
+    assert_eq!(view["state"], "failed");
+    assert_eq!(view["remote_pending"], true, "still visible: {view}");
+    assert_eq!(
+        view["remote_pending_reasons"],
+        serde_json::json!(["adapter_unavailable"])
+    );
+    assert_eq!(view["remote_retries"]["attempts"], 0);
+    assert_eq!(view["remote_retries"]["stopped"], false);
+    assert_eq!(adapter.calls(), calls_before);
+    // The preparing adapter returns and confirms: only its own round clears it.
+    adapter.pending.store(false, Ordering::SeqCst);
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(
+        adapter.calls(),
+        calls_before,
+        "restart recovery makes no call"
+    );
+    let sup = r1312_supervisor(&w, 3);
+    sup.scheduler_pass().await.unwrap();
+    w.clock.advance(10 * Duration::from_secs(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), calls_before + 1, "served once it returns");
+    assert!(
+        r1312_record(&w, &gid).is_none(),
+        "cleared by the confirmation"
+    );
+}
+
+/// Red (§13.15 item 2; review round 5 U01, the reviewer's overlapping roots). A
+/// parent and its delegated child, both with pending remote effects. The greater
+/// of the two IDs is revoked first and its record is run to its cap (3); then the
+/// other is revoked with a new request. Both records hold an obligation for the
+/// child, one stopped and one retryable. The child's inspect view combines both:
+/// not stopped (one obligation remains retryable), `attempts` the maximum and
+/// `last_attempt_at` the latest across them, whatever the records' root order.
+/// After a restart with no adapter, only the retryable record's round can mark its
+/// obligation `adapter_unavailable`; the reason is shown whichever record carries
+/// it.
+#[tokio::test]
+async fn r1315_2_inspect_combines_every_pending_record_that_covers_a_grant() {
+    let (mut w, _adapter) = r1310_pending_world().await;
+    let parent = r136_ready(&w, "r1315-2", "r1315-2-work", "h1", "1h").await;
+    let child = ok(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&parent, "r1315-2-c", "30m"))
+        .await)
+    .data;
+    let (first, second) = if parent.grant_id.as_str() > child.grant_id.as_str() {
+        (parent.grant_id.clone(), child.grant_id.clone())
+    } else {
+        (child.grant_id.clone(), parent.grant_id.clone())
+    };
+    let cap = 3u32;
+    r1313_revoke(&w, &first, "r1315-2-revoke-1").await;
+    let sup = r1312_supervisor(&w, cap);
+    for _ in 0..8 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    sup.scheduler_pass().await.unwrap();
+    assert!(
+        r1312_record(&w, &first).expect("first record").stopped,
+        "the first record ran to its cap"
+    );
+    w.clock.advance(MINUTE);
+    r1313_revoke(&w, &second, "r1315-2-revoke-2").await;
+    let recs = [
+        r1312_record(&w, &first).expect("first record"),
+        r1312_record(&w, &second).expect("second record"),
+    ];
+    let cg = &child.grant_id;
+    for r in &recs {
+        assert!(
+            r.obligations.iter().any(|o| &o.grant == cg),
+            "both records owe the child: {r:?}"
+        );
+    }
+    let own = |r: &heimdall_domain::revocation::PendingRemoteRevocation| {
+        r.obligations
+            .iter()
+            .filter(|o| &o.grant == cg)
+            .map(|o| (r.obligation_attempts(o), o.stopped || r.stopped))
+            .collect::<Vec<_>>()
+    };
+    assert!(own(&recs[0]).iter().all(|(_, s)| *s), "first: stopped");
+    assert!(own(&recs[1]).iter().all(|(_, s)| !*s), "second: retryable");
+    let max_attempts = recs.iter().flat_map(own).map(|(a, _)| a).max().unwrap();
+    assert_eq!(max_attempts, cap);
+    let latest = recs.iter().map(|r| r.last_attempt_at).max().unwrap();
+    assert!(recs[0].last_attempt_at < latest);
+    let v = r1310_view(&w, cg).await;
+    assert_eq!(v["remote_pending"], true);
+    assert_eq!(
+        v["remote_retries"]["stopped"], false,
+        "one obligation remains retryable: {v}"
+    );
+    assert_eq!(v["remote_retries"]["attempts"], max_attempts);
+    assert_eq!(
+        v["remote_retries"]["last_attempt_at"],
+        serde_json::json!(latest)
+    );
+    assert!(
+        v.get("remote_pending_reasons").is_none(),
+        "no reason yet: {v}"
+    );
+    // No adapter: the retryable record's next round finds its adapter missing.
+    r1312_restart_with(&mut w, vec![]).await;
+    let sup = r1312_supervisor(&w, cap);
+    for _ in 0..3 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    let second_rec = r1312_record(&w, &second).expect("second record");
+    assert!(
+        second_rec.obligations.iter().any(|o| &o.grant == cg
+            && o.reason
+                == Some(heimdall_domain::revocation::RemotePendingReason::AdapterUnavailable)),
+        "the retryable record marks the child's obligation: {second_rec:?}"
+    );
+    assert!(
+        r1312_record(&w, &first)
+            .expect("first record")
+            .obligations
+            .iter()
+            .all(|o| o.reason.is_none()),
+        "the stopped record has no round, so no reason"
+    );
+    let v = r1310_view(&w, cg).await;
+    assert_eq!(
+        v["remote_pending_reasons"],
+        serde_json::json!(["adapter_unavailable"]),
+        "every reason present is shown: {v}"
+    );
+    assert_eq!(v["remote_retries"]["stopped"], false);
+}
+
+/// Red (§13.15 item 3). A grant revoked while `preparing` whose adapter reports
+/// its remote effect pending has a pending record; its ensure is still running.
+/// Restart recovery settles that ensure (its grant is revoked) without the
+/// best-effort cleanup call: the record's rounds own the calls. Counted through
+/// recovery and the following passes, the adapter is called only by the first
+/// local denial and by scheduled rounds, one per due instant.
+#[tokio::test]
+async fn r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record() {
+    let hook = ScriptedStageHook::new([], [(EnsureStage::Reconcile, Code::ServiceUnavailable)]);
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r1315-3", "r1315-3-work", &[("h1", "deploy")]),
+        )
+        .await);
+    let op = e.operation_id.clone().unwrap();
+    let gid = r1313_grant_of(&w, &op);
+    r1313_revoke(&w, &gid, "r1315-3-revoke").await;
+    assert_eq!(adapter.calls(), 1, "the first local denial");
+    assert!(r1312_record(&w, &gid).is_some(), "a pending record");
+    assert_eq!(w.op(&op).state, OperationState::Running);
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(
+        w.op(&op).state,
+        OperationState::Failed,
+        "recovery settled the ensure"
+    );
+    assert_eq!(adapter.calls(), 1, "recovery made no call for the grant");
+    let sup = r1312_supervisor(&w, 8);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 1, "the first pass only schedules");
+    for n in 2..=4 {
+        w.clock.advance(10 * Duration::from_secs(1));
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(adapter.calls(), n, "one scheduled round per due instant");
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(adapter.calls(), n);
+    }
+    let rec = r1312_record(&w, &gid).expect("still pending");
+    assert_eq!(rec.attempts, 4, "every call is a counted round");
+}
+
+/// Guard (§13.15 item 3: unchanged without a record). The same, but the adapter
+/// confirms the first local denial, so no record is left: restart recovery's
+/// best-effort cleanup still calls the adapter for the revoked grant.
+#[tokio::test]
+async fn r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record() {
+    let hook = ScriptedStageHook::new([], [(EnsureStage::Reconcile, Code::ServiceUnavailable)]);
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    adapter.pending.store(false, Ordering::SeqCst);
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r1315-3b", "r1315-3b-work", &[("h1", "deploy")]),
+        )
+        .await);
+    let op = e.operation_id.clone().unwrap();
+    let gid = r1313_grant_of(&w, &op);
+    r1313_revoke(&w, &gid, "r1315-3b-revoke").await;
+    assert_eq!(adapter.calls(), 1);
+    assert!(r1312_record(&w, &gid).is_none(), "confirmed: no record");
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(w.op(&op).state, OperationState::Failed);
+    assert_eq!(adapter.calls(), 2, "the best-effort cleanup call");
+    assert!(r1312_record(&w, &gid).is_none());
+}
+
+/// Red (§13.15 item 3, a grant covered by another root's record). A delegated
+/// child is revoked through its parent while its own preparation is still running
+/// (`Attempted` receipt, partial result); the parent's record covers it. Restart
+/// recovery settles the child's operation without a cleanup call for it: the
+/// parent's record owns its calls.
+#[tokio::test]
+async fn r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record() {
+    let (mut w, adapter) = r1310_pending_world().await;
+    let parent = r136_ready(&w, "r1315-3c", "r1315-3c-work", "h1", "1h").await;
+    w.hook = ScriptedStageHook::new([], [(EnsureStage::Reconcile, Code::ServiceUnavailable)]);
+    r1310_restart_pending(&mut w, &adapter).await;
+    let e = err(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&parent, "r1315-3c-c", "30m"))
+        .await);
+    assert_eq!(e.effect_status, EffectStatus::Partial);
+    let op = e.operation_id.clone().unwrap();
+    let child = r1313_grant_of(&w, &op);
+    assert_eq!(w.grant(&child).state, GrantState::Preparing);
+    r1313_revoke(&w, &parent.grant_id, "r1315-3c-revoke").await;
+    let rec = r1312_record(&w, &parent.grant_id).expect("the parent's record");
+    assert!(rec.grants.contains(&child), "it covers the child: {rec:?}");
+    assert!(
+        r1312_record(&w, &child).is_none(),
+        "the child has no own record"
+    );
+    assert_eq!(w.op(&op).state, OperationState::Running);
+    let calls = adapter.calls();
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_ne!(
+        w.op(&op).state,
+        OperationState::Running,
+        "recovery settled it"
+    );
+    assert_eq!(
+        adapter.calls(),
+        calls,
+        "recovery made no call for the child"
+    );
 }

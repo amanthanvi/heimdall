@@ -1148,6 +1148,25 @@ impl Txn<'_> {
         Ok(out)
     }
 
+    /// ⟨r2.11⟩ ADR-0006 §13.14 item 2: whether a stage receipt of an operation whose
+    /// recovery intent pins `grant` (`resolved.grant`) records an external effect
+    /// (`Attempted`, `Confirmed` or `Uncertain`). `false` when none is recorded
+    /// (never attempted, or purged with its settled operation; the grant's origin
+    /// `adapter`, written with the first `Attempted` receipt, outlives the purge).
+    pub fn grant_has_effect_receipt(&mut self, grant: &GrantId) -> Result<bool> {
+        let receipts: Vec<StageReceipt> = self.docs(
+            "SELECT s.record_json FROM stage_receipts s
+             JOIN recovery_intents r ON r.operation_id = s.operation_id
+             WHERE json_valid(r.record_json)
+               AND json_extract(r.record_json, '$.resolved.grant') = ?1
+             ORDER BY s.operation_id, s.ordinal",
+            [grant.as_str()],
+        )?;
+        Ok(receipts
+            .iter()
+            .any(|r| !matches!(r.effect, EffectReceipt::NotAttempted)))
+    }
+
     // --- R5: recovery intent and stage receipts ----------------------------------------
 
     /// Persist the redacted recovery intent (written before any effect).

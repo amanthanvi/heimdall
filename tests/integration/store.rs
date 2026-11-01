@@ -3621,3 +3621,67 @@ fn grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant() {
             .is_empty()
     );
 }
+
+/// ⟨r2.11⟩ ADR-0006 §13.14 item 2: `grant_has_effect_receipt` is `true` only for a
+/// grant pinned by an operation with an `Attempted`, `Confirmed` or `Uncertain`
+/// receipt; a `NotAttempted` receipt, an intent with no receipt, another grant's
+/// receipts and a grant nothing pins give `false`.
+#[test]
+fn grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it() {
+    let s = mem();
+    let grants: Vec<GrantId> = (81u8..=86)
+        .map(|b| GrantId::from_random_bytes([b; 16]))
+        .collect();
+    let effects = [
+        Some(EffectReceipt::Attempted {
+            adapter: adapter(),
+            effect_token: "tok-a".into(),
+        }),
+        Some(EffectReceipt::Confirmed {
+            adapter: adapter(),
+            credential_ref: "cred-ref-c".into(),
+        }),
+        Some(EffectReceipt::Uncertain {
+            adapter: adapter(),
+            effect_token: "tok-u".into(),
+        }),
+        Some(EffectReceipt::NotAttempted),
+        None,
+    ];
+    s.transaction(|tx| {
+        for (n, (g, effect)) in grants.iter().zip(effects.iter()).enumerate() {
+            let (op, i) = simple_op(21 + n as u64);
+            tx.insert_operation(&op, &i)?;
+            tx.set_recovery_intent(
+                &op.id,
+                &RecoveryIntent {
+                    request: request_doc(21 + n as u64),
+                    resolved: Some(ResolvedIntent {
+                        grant: Some(g.clone()),
+                        adapter: Some(adapter()),
+                        ..resolved_intent()
+                    }),
+                },
+            )?;
+            if let Some(effect) = effect {
+                tx.append_stage_receipt(
+                    &op.id,
+                    &StageReceipt {
+                        stage: "reconcile".into(),
+                        recorded_at: plus(t0(), 1),
+                        effect: effect.clone(),
+                    },
+                )?;
+            }
+        }
+        Ok(())
+    })
+    .unwrap();
+    let has = |g: &GrantId| s.transaction(|tx| tx.grant_has_effect_receipt(g)).unwrap();
+    assert!(has(&grants[0]), "attempted");
+    assert!(has(&grants[1]), "confirmed (applied)");
+    assert!(has(&grants[2]), "uncertain");
+    assert!(!has(&grants[3]), "not attempted");
+    assert!(!has(&grants[4]), "an intent without a receipt");
+    assert!(!has(&grants[5]), "a grant nothing pins");
+}

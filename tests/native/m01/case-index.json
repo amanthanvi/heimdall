@@ -125,7 +125,10 @@
           "grant_approval_is_written_once_and_survives_operation_purge",
           "upsert_environment_advances_the_authority_generation_on_every_write",
           "remote_revocation_records_need_a_tombstone_and_round_trip",
-          "grant_origin_gains_its_preparing_adapter_once"
+          "grant_origin_gains_its_preparing_adapter_once",
+          "remote_revocation_obligations_name_exactly_the_record_grants",
+          "grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant",
+          "grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it"
         ],
         "model_operations": [
           "delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one",
@@ -160,11 +163,23 @@
           "r1313_1_the_preparing_adapter_stays_responsible_after_operation_retention",
           "r1313_2_a_grant_revoked_while_preparing_is_tracked_until_its_adapter_confirms",
           "r1313_3_one_adapters_rounds_never_exhaust_another_adapters_obligation",
-          "r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its_obligations"
+          "r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its_obligations",
+          "r1314_2_a_revoked_preparing_grant_with_an_effect_and_no_adapter_waits_for_it",
+          "r1314_2_a_revoked_preparing_grant_without_an_effect_receipt_owes_nothing",
+          "r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke",
+          "r1315_2_inspect_combines_every_pending_record_that_covers_a_grant",
+          "r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record",
+          "r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record",
+          "r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record"
         ],
         "heimdall_domain-unit": [
           "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged",
-          "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation"
+          "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation",
+          "revocation::tests::a_pending_record_without_obligations_reads_unchanged",
+          "revocation::tests::only_the_responsible_adapter_serves_an_obligation"
+        ],
+        "heimdall_app-unit": [
+          "operations::tests::remote_views_combine_whatever_the_record_order"
         ]
       },
       "not_modelled": [
@@ -498,7 +513,11 @@
           "r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart",
           "r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart",
           "r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again",
-          "r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once"
+          "r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once",
+          "r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke",
+          "r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record",
+          "r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record",
+          "r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record"
         ],
         "model_revocation": [
           "ended_grants_never_return_and_restart_never_resets_the_clock",
@@ -516,7 +535,10 @@
           "damaged_page_is_corrupt_not_fresh",
           "truncated_file_is_corrupt_not_fresh",
           "newer_schema_is_refused_and_untouched",
-          "withdrawal_report_is_recorded_once_per_tombstoned_root"
+          "withdrawal_report_is_recorded_once_per_tombstoned_root",
+          "remote_revocation_obligations_name_exactly_the_record_grants",
+          "grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant",
+          "grant_origin_gains_its_preparing_adapter_once"
         ],
         "integration_ipc_unix": [
           "dead_socket_of_ours_is_replaced",
@@ -529,6 +551,11 @@
           "eight_concurrent_clients_start_exactly_one_runtime",
           "service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent",
           "service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable"
+        ],
+        "heimdall_domain-unit": [
+          "revocation::tests::a_pending_record_without_obligations_reads_unchanged",
+          "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation",
+          "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged"
         ]
       },
       "labels": {
@@ -559,7 +586,11 @@
           "model_operations::r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery",
           "model_operations::r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart",
           "model_operations::r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart",
-          "model_operations::r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again"
+          "model_operations::r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again",
+          "model_operations::r1315_1_an_attempted_grant_failed_by_recovery_without_its_adapter_stays_pending_after_revoke",
+          "model_operations::r1315_3_recovery_cleanup_never_calls_for_a_grant_with_a_pending_record",
+          "model_operations::r1315_3_recovery_cleanup_still_calls_for_a_grant_without_a_record",
+          "model_operations::r1315_3_recovery_cleanup_never_calls_for_a_child_covered_by_its_parents_record"
         ]
       },
       "not_modelled": [
