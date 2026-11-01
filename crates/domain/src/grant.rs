@@ -6,7 +6,7 @@ use heimdall_contract::{GrantState, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::evidence::EnforcementEvidence;
-use crate::operation::CoveredBasis;
+use crate::operation::{AdapterIdentity, CoveredBasis};
 use crate::policy::{AuthorityGeneration, PolicyRevision};
 use crate::principal::CallerContext;
 use crate::scope::Scope;
@@ -71,6 +71,10 @@ pub struct GrantSnapshot {
 /// the grant is created; operation retention never touches it. A grant without a
 /// recorded origin is the only case whose re-validation is undetermined (refuse
 /// the use, end nothing).
+///
+/// Add-only afterwards (`heimdall_store::Txn::set_grant_origin`): each optional
+/// field ([`Self::covered`], ⟨r2.10⟩ [`Self::adapter`]) may be recorded once when
+/// absent and is then immutable; every other field never changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GrantOrigin {
     /// Profile pinned at resolution.
@@ -92,6 +96,15 @@ pub struct GrantOrigin {
     /// add-only (recorded once, never replaced or cleared).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covered: Option<CoveredBasis>,
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 1: the full identity (mechanism **and**
+    /// instance) of the adapter that prepared the grant, recorded in the transaction
+    /// that writes the grant's first `Attempted` receipt, then immutable. It is the
+    /// grant's responsible adapter for every later remote revocation obligation, so
+    /// operation retention (which purges recovery intents and stage receipts) cannot
+    /// remove it. Absent for a grant written before the field existed, and for one
+    /// whose preparation was never attempted; omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<AdapterIdentity>,
 }
 
 /// ⟨r2.7⟩ Why a `degraded` grant is degraded (spec §6.3 "some capability
@@ -141,5 +154,37 @@ mod tests {
             serde_json::from_value::<DegradedReason>(v).unwrap(),
             DegradedReason::MechanismUnavailable
         );
+    }
+
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 1: an origin written before the preparing
+    /// adapter was recorded reads without it (no migration); the field round-trips
+    /// with mechanism and instance and is omitted when absent.
+    #[test]
+    fn an_origin_without_its_preparing_adapter_reads_unchanged() {
+        let old = serde_json::json!({
+            "profile": "dev",
+            "profile_revision": 1,
+            "policy_revision": 1,
+            "caller": {"principal": {"kind": "unix_user", "uid": 501}, "role": "owner"},
+            "mechanism": "fake_agent",
+        });
+        let o: GrantOrigin = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(o.adapter, None);
+        assert_eq!(
+            serde_json::to_value(&o).unwrap(),
+            old,
+            "omitted when absent"
+        );
+        let with = GrantOrigin {
+            adapter: Some(AdapterIdentity {
+                mechanism: "fake_agent".into(),
+                instance: "fixture-1".into(),
+            }),
+            ..o
+        };
+        let v = serde_json::to_value(&with).unwrap();
+        assert_eq!(v["adapter"]["mechanism"], "fake_agent");
+        assert_eq!(v["adapter"]["instance"], "fixture-1");
+        assert_eq!(serde_json::from_value::<GrantOrigin>(v).unwrap(), with);
     }
 }

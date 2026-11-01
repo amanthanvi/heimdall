@@ -3144,6 +3144,7 @@ fn grant_origin(revision: u64) -> heimdall_domain::grant::GrantOrigin {
         caller: caller(501),
         mechanism: "fake_agent".into(),
         covered: None,
+        adapter: None,
     }
 }
 
@@ -3220,6 +3221,87 @@ fn grant_origin_is_written_once_and_gains_only_a_covered_basis() {
     assert_eq!(origin, Some(expected));
     assert_eq!(none, None);
     assert_eq!(stored.map(|g| g.state), Some(GrantState::Active));
+}
+
+/// ⟨r2.10⟩ ADR-0006 §13.13 item 1: the preparing adapter (mechanism and instance)
+/// is added to a recorded origin once, add-only like the covered basis: the same
+/// identity again is a no-op, another identity or clearing it conflicts, the two
+/// optional fields are added independently (in either order), and the adapter
+/// survives operation retention (it lives in the grant row).
+#[test]
+fn grant_origin_gains_its_preparing_adapter_once() {
+    let s = mem();
+    let g = grant(3, None, plus(t0(), 7200), GrantState::Preparing);
+    let prepared = adapter();
+    let with_adapter = heimdall_domain::grant::GrantOrigin {
+        adapter: Some(prepared.clone()),
+        ..grant_origin(1)
+    };
+    s.transaction(|tx| {
+        tx.insert_grant(&g)?;
+        tx.set_grant_origin(&g.id, &grant_origin(1))?;
+        tx.set_grant_origin(&g.id, &with_adapter)?;
+        tx.set_grant_origin(&g.id, &with_adapter) // repeat: no-op
+    })
+    .unwrap();
+    let other = heimdall_domain::grant::GrantOrigin {
+        adapter: Some(heimdall_domain::operation::AdapterIdentity {
+            instance: "fixture-9".into(),
+            ..prepared.clone()
+        }),
+        ..grant_origin(1)
+    };
+    for (bad, why) in [
+        (&other, "another identity is refused"),
+        (&grant_origin(1), "clearing the adapter is refused"),
+    ] {
+        let e = s
+            .transaction(|tx| tx.set_grant_origin(&g.id, bad))
+            .unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)), "{why}");
+    }
+    let covered = heimdall_domain::operation::CoveredBasis {
+        generation: AuthorityGeneration(4),
+        policy_revision: Some(PolicyRevision(3)),
+    };
+    s.transaction(|tx| {
+        assert!(
+            tx.set_grant_covered(&g.id, &covered)?,
+            "the covered basis is added too"
+        );
+        Ok(())
+    })
+    .unwrap();
+    let far = plus(t0(), 400 * 86_400);
+    let origin = s
+        .transaction(|tx| {
+            tx.purge_operations_before(far)?;
+            tx.grant_origin(&g.id)
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(origin.adapter, Some(prepared.clone()));
+    assert_eq!(origin.covered, Some(covered.clone()));
+    // The other order: covered first, then the adapter.
+    let h = grant(4, None, plus(t0(), 7200), GrantState::Preparing);
+    s.transaction(|tx| {
+        tx.insert_grant(&h)?;
+        tx.set_grant_origin(&h.id, &grant_origin(1))?;
+        assert!(tx.set_grant_covered(&h.id, &covered)?);
+        tx.set_grant_origin(
+            &h.id,
+            &heimdall_domain::grant::GrantOrigin {
+                covered: Some(covered.clone()),
+                ..with_adapter.clone()
+            },
+        )?;
+        assert_eq!(
+            tx.grant_origin(&h.id)?.and_then(|o| o.adapter),
+            Some(prepared.clone())
+        );
+        Ok(())
+    })
+    .unwrap();
 }
 
 /// §13.9 item 3: the completion report of a withdrawal is recorded once per
@@ -3405,6 +3487,8 @@ fn remote_revocation_obligations_name_exactly_the_record_grants() {
         grant: g.clone(),
         adapter: adapter(),
         reason,
+        attempts: Some(2),
+        stopped: false,
     };
     let record = PendingRemoteRevocation {
         root: root.clone(),

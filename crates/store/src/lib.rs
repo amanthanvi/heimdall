@@ -2285,6 +2285,7 @@ mod tests {
                     generation: AuthorityGeneration(5),
                     policy_revision: Some(PolicyRevision(7)),
                 }),
+                adapter: None,
             };
             assert_eq!(tx.grant_origin(&pinned)?, Some(from_intent.clone()));
             let from_binding = GrantOrigin {
@@ -2297,6 +2298,7 @@ mod tests {
                 },
                 mechanism: "fake_agent".into(),
                 covered: None,
+                adapter: None,
             };
             assert_eq!(tx.grant_origin(&bound)?, Some(from_binding));
             assert_eq!(

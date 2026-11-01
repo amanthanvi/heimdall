@@ -77,6 +77,18 @@ pub struct Tombstone {
 ///   have one. A record written before the field existed has `grants` alone and is
 ///   read with each grant's responsible adapter from its recovery intent and
 ///   receipts (`heimdall_store::Txn::grant_adapters`).
+///
+/// ⟨r2.10⟩ ADR-0006 §13.13:
+/// * **Item 2.** Every pending answer of a responsible adapter is an obligation,
+///   whatever the grant's state (a grant that ended before activation, e.g.
+///   `preparing → revoked`, included): a call for a grant that is not `revoking` is
+///   recorded as an obligation in the round's claim, before the call, and only its
+///   adapter's confirmation clears it.
+/// * **Item 3.** Attempts and the cap are counted per obligation
+///   ([`RemoteObligation::attempts`], [`RemoteObligation::stopped`]); one adapter's
+///   rounds never consume another's attempts. `attempts` here counts the rounds
+///   claimed for the record as a whole (the schedule's round count). `stopped` is
+///   set only when every obligation has reached its cap ([`Self::capped`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingRemoteRevocation {
     /// The grant carrying the tombstone.
@@ -84,13 +96,17 @@ pub struct PendingRemoteRevocation {
     /// The root and the descendants its tombstone covers whose remote effect is
     /// still unresolved: exactly the grants named by `obligations` (when present).
     pub grants: Vec<GrantId>,
-    /// Adapter `revoke()` rounds claimed so far (a round that called no adapter,
-    /// because no responsible adapter was configured, is not counted).
+    /// Adapter `revoke()` rounds claimed so far for the record as a whole (a round
+    /// that called no adapter, because no responsible adapter was configured or
+    /// every served obligation was capped, is not counted). ⟨r2.10⟩ The cap applies
+    /// per obligation ([`RemoteObligation::attempts`]); this count drives the
+    /// supervisor's back-off and identifies a claim.
     pub attempts: u32,
     /// When the last claimed round ran (or the record was created).
     pub last_attempt_at: Timestamp,
     /// The capped retries are exhausted: no further round until an explicit owner
-    /// action or a new completion signal.
+    /// action or a new completion signal. ⟨r2.10⟩ Set only when every obligation
+    /// left has reached its own cap.
     pub stopped: bool,
     /// ⟨r2.9⟩ The unresolved obligations, one per grant and responsible adapter
     /// (ADR-0006 §13.12 item 2). Empty in a record written before §13.12 (read as
@@ -118,6 +134,50 @@ pub struct RemoteObligation {
     /// Why it is still pending, when not simply unconfirmed. Omitted when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<RemotePendingReason>,
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 3: the rounds claimed that owed this obligation
+    /// a call to its responsible adapter. Absent in a record written before the
+    /// field existed: it is then read as the record's own `attempts`
+    /// ([`PendingRemoteRevocation::obligation_attempts`]), conservatively, as the
+    /// rounds of that record were already used. Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempts: Option<u32>,
+    /// ⟨r2.10⟩ This obligation reached its cap without a confirmation: no round
+    /// calls its adapter again until an explicit owner action re-arms the record.
+    /// Omitted when `false`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
+}
+
+impl PendingRemoteRevocation {
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 3: the attempts counted for `obligation`: its
+    /// own count, or for an obligation recorded before per-obligation counts
+    /// existed, the record's `attempts` (conservative: every earlier round of the
+    /// record counts against it).
+    #[must_use]
+    pub fn obligation_attempts(&self, obligation: &RemoteObligation) -> u32 {
+        obligation.attempts.unwrap_or(self.attempts)
+    }
+
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 3: whether `obligation` reached its cap of
+    /// `max_attempts` rounds (or was stopped there).
+    #[must_use]
+    pub fn obligation_capped(&self, obligation: &RemoteObligation, max_attempts: u32) -> bool {
+        obligation.stopped || self.obligation_attempts(obligation) >= max_attempts
+    }
+
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 3: whether every obligation left reached its
+    /// cap, so no round can call any adapter for this record any more. A record
+    /// written before obligations existed (grant list only) is judged on its own
+    /// `attempts`.
+    #[must_use]
+    pub fn capped(&self, max_attempts: u32) -> bool {
+        if self.obligations.is_empty() {
+            return self.attempts >= max_attempts;
+        }
+        self.obligations
+            .iter()
+            .all(|o| self.obligation_capped(o, max_attempts))
+    }
 }
 
 /// ⟨r2.9⟩ Why a remote obligation is still pending (ADR-0006 §13.12 item 2). Wire
@@ -208,6 +268,8 @@ mod tests {
                 grant: g.clone(),
                 adapter: adapter.clone(),
                 reason: Some(RemotePendingReason::AdapterUnavailable),
+                attempts: None,
+                stopped: false,
             }],
             claimed_at: Some("2026-10-02T09:00:01Z".parse().unwrap()),
             ..r
@@ -235,6 +297,8 @@ mod tests {
             grant: GrantId::from_random_bytes([3; 16]),
             adapter: a,
             reason: None,
+            attempts: None,
+            stopped: false,
         };
         let exact = o(id("fake_agent", "fixture-1"));
         assert!(exact.served_by(&id("fake_agent", "fixture-1")));
@@ -244,6 +308,80 @@ mod tests {
         assert!(by_mechanism.served_by(&id("fake_agent", "fixture-9")));
         assert!(!by_mechanism.served_by(&id("fake_other", "fixture-1")));
         assert!(o(id("", "")).served_by(&id("fake_other", "x")));
+    }
+
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 3: an obligation without its own count (a
+    /// record written before per-obligation counts) reads the record's count
+    /// conservatively; the new fields round-trip and are omitted when unset; the
+    /// record is capped only when every obligation reached its cap.
+    #[test]
+    fn obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation() {
+        let g = GrantId::from_random_bytes([4; 16]);
+        let a = AdapterIdentity {
+            mechanism: "fake_agent".into(),
+            instance: "fixture-1".into(),
+        };
+        let b = AdapterIdentity {
+            mechanism: "fake_agent".into(),
+            instance: "fixture-2".into(),
+        };
+        let legacy = serde_json::json!({
+            "root": g,
+            "grants": [g],
+            "attempts": 3,
+            "last_attempt_at": "2026-10-02T09:00:00Z",
+            "stopped": false,
+            "obligations": [{"grant": g, "adapter": a}],
+        });
+        let r: PendingRemoteRevocation = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(r.obligations[0].attempts, None);
+        assert!(!r.obligations[0].stopped);
+        assert_eq!(
+            serde_json::to_value(&r).unwrap(),
+            legacy,
+            "omitted when unset"
+        );
+        assert_eq!(
+            r.obligation_attempts(&r.obligations[0]),
+            3,
+            "the record's count"
+        );
+        assert!(r.capped(3));
+        assert!(!r.capped(4));
+        let two = PendingRemoteRevocation {
+            obligations: vec![
+                RemoteObligation {
+                    grant: g.clone(),
+                    adapter: a,
+                    reason: Some(RemotePendingReason::AdapterUnavailable),
+                    attempts: Some(0),
+                    stopped: false,
+                },
+                RemoteObligation {
+                    grant: g.clone(),
+                    adapter: b,
+                    reason: None,
+                    attempts: Some(3),
+                    stopped: true,
+                },
+            ],
+            ..r
+        };
+        let v = serde_json::to_value(&two).unwrap();
+        assert_eq!(v["obligations"][0]["attempts"], 0);
+        assert!(v["obligations"][0].get("stopped").is_none());
+        assert_eq!(v["obligations"][1]["attempts"], 3);
+        assert_eq!(v["obligations"][1]["stopped"], true);
+        assert_eq!(
+            serde_json::from_value::<PendingRemoteRevocation>(v).unwrap(),
+            two
+        );
+        assert!(!two.capped(3), "the waiting obligation has its full cap");
+        assert!(
+            two.obligation_capped(&two.obligations[1], 99),
+            "stopped stays stopped"
+        );
+        assert!(!two.obligation_capped(&two.obligations[0], 1));
     }
 
     #[test]

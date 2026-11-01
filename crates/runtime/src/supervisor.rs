@@ -41,6 +41,11 @@
 //!   interrupted still counts and the cap bounds the calls; a round that found no
 //!   responsible adapter configured calls nothing and consumes no attempt, and the
 //!   next one is backed off further (`RevocationReport::waiting`).
+//!   ⟨r2.10⟩ ADR-0006 §13.13: the cap counts each (grant, adapter) obligation's own
+//!   rounds, so one adapter's rounds never exhaust another's obligation and the
+//!   record stops only when every obligation has cleared or reached its cap; at
+//!   startup a round a previous run claimed and never completed is due at once (it
+//!   still counts).
 //! * **Caller operations are not retried here.** An operation whose adapter
 //!   `prepare` reports `Unavailable` is answered once with
 //!   `SERVICE_UNAVAILABLE` (exit 5) by the operations path and is not retried by
@@ -517,6 +522,14 @@ impl Supervisor {
     /// round that found no responsible adapter configured (same count, not
     /// stopped; §13.12 item 2) is listed in `waiting` and the next one is scheduled
     /// `retry_delay(backoff, n + k, jitter)` later after `k` such rounds in a row.
+    ///
+    /// ⟨r2.10⟩ ADR-0006 §13.13: the cap applies per (grant, adapter) obligation
+    /// (item 3): a record is stopped without a call only when every obligation
+    /// reached its own cap (`PendingRemoteRevocation::capped`), and a round whose
+    /// remaining callable obligations all wait for an unconfigured adapter is a
+    /// `waiting` round like any other. A record first seen carrying a round that a
+    /// previous run claimed and never completed (`Operations::round_interrupted`;
+    /// item 4) gets that round in this pass, not after a back-off.
     pub async fn revocation_pass(&self) -> Result<RevocationReport, heimdall_app::OpError> {
         let mut report = RevocationReport::default();
         let Some((_, clock)) = self.state.clone() else {
@@ -538,11 +551,13 @@ impl Supervisor {
                 .get(&p.root)
                 .filter(|s| s.attempts == p.attempts)
                 .copied();
-            let Some(slot) = scheduled else {
-                if p.attempts >= cap {
-                    // Capped already (by the first local denial, a lower cap, or a
-                    // claimed round whose completion failed): stop without another
-                    // call.
+            let slot = match scheduled {
+                Some(slot) => slot,
+                None if p.capped(cap) => {
+                    // ⟨r2.10⟩ Every obligation reached its own cap already (by the
+                    // first local denial, a lower cap, or a claimed round whose
+                    // completion failed; ADR-0006 §13.13 item 3): stop without
+                    // another call.
                     if self
                         .operations
                         .retry_remote_revocation(&p.root, cap)
@@ -554,17 +569,26 @@ impl Supervisor {
                     ex.due.remove(&p.root);
                     continue;
                 }
-                let delay = retry_delay(&backoff, p.attempts, self.jitter.as_ref());
-                ex.due.insert(
-                    p.root.clone(),
-                    ScheduledRound {
-                        attempts: p.attempts,
-                        at: now + delay,
-                        idle: 0,
-                    },
-                );
-                report.scheduled.push((p.root.clone(), p.attempts, delay));
-                continue;
+                // ⟨r2.10⟩ ADR-0006 §13.13 item 4: a round a previous run claimed and
+                // never completed is due now, not after a back-off (it counted).
+                None if self.operations.round_interrupted(&p) => ScheduledRound {
+                    attempts: p.attempts,
+                    at: now,
+                    idle: 0,
+                },
+                None => {
+                    let delay = retry_delay(&backoff, p.attempts, self.jitter.as_ref());
+                    ex.due.insert(
+                        p.root.clone(),
+                        ScheduledRound {
+                            attempts: p.attempts,
+                            at: now + delay,
+                            idle: 0,
+                        },
+                    );
+                    report.scheduled.push((p.root.clone(), p.attempts, delay));
+                    continue;
+                }
             };
             if slot.at > now {
                 continue;

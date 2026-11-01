@@ -5262,6 +5262,11 @@ async fn r1310_2_a_degraded_grant_returns_only_when_revalidation_passes() {
 /// arms it, so the next commit (the round's completion) fails; while `hang` is set,
 /// the next `revoke` is counted, signals `entered` and never returns (the in-process
 /// crash point after the adapter call and before its completion).
+///
+/// ⟨r2.10⟩ ADR-0006 §13.13 item 4: while `stall` is set, the next `revoke` signals
+/// `entered` and never returns **without** being counted or reaching the fake (the
+/// in-process crash point after the round's claim committed and before the adapter
+/// acted on the call).
 struct PendingCounter {
     inner: Arc<FakeCredentialAdapter>,
     pending: AtomicBool,
@@ -5269,6 +5274,7 @@ struct PendingCounter {
     confirms: AtomicUsize,
     faults: std::sync::Mutex<Option<Arc<Armed>>>,
     hang: AtomicBool,
+    stall: AtomicBool,
     entered: tokio::sync::Notify,
 }
 
@@ -5281,6 +5287,7 @@ impl PendingCounter {
             confirms: AtomicUsize::new(0),
             faults: std::sync::Mutex::new(None),
             hang: AtomicBool::new(false),
+            stall: AtomicBool::new(false),
             entered: tokio::sync::Notify::new(),
         })
     }
@@ -5341,6 +5348,12 @@ impl CredentialAdapter for PendingCounter {
         'life1: 'async_trait,
         Self: 'async_trait,
     {
+        if self.stall.swap(false, Ordering::SeqCst) {
+            return Box::pin(async move {
+                self.entered.notify_one();
+                std::future::pending().await
+            });
+        }
         self.revokes.fetch_add(1, Ordering::SeqCst);
         let pending = self.pending.load(Ordering::SeqCst);
         if let Some(f) = self.faults.lock().unwrap().as_ref() {
@@ -5888,7 +5901,8 @@ async fn r1312_1_a_crash_between_the_adapter_call_and_its_completion_counts_the_
 /// Red (T01, an explicit revoke). The revoke's first local denial is interrupted
 /// after the adapter call; restart recovery settles the operation without calling
 /// the adapter again (the claimed round counts) and reports the grant as pending;
-/// later rounds come only from the supervisor's schedule.
+/// later rounds come only from the supervisor (⟨r2.10⟩ §13.13 item 4: the first
+/// pass after the restart runs the interrupted round's successor at once).
 #[tokio::test]
 async fn r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery() {
     let (mut w, adapter) = r1310_pending_world().await;
@@ -5929,14 +5943,17 @@ async fn r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery(
     assert_eq!(done.data.remote_pending, vec![g.grant_id.clone()]);
     assert_eq!(adapter.calls(), 1, "a same-key replay calls nothing");
     adapter.pending.store(false, Ordering::SeqCst);
+    // ⟨r2.10⟩ ADR-0006 §13.13 item 4: the claimed round never completed, so the
+    // first supervisor pass after the restart runs the next round at once (it was
+    // "only schedules" before §13.13); the interrupted round still counted.
     let sup = r1312_supervisor(&w, 8);
     sup.scheduler_pass().await.unwrap();
-    assert_eq!(adapter.calls(), 1, "the first pass only schedules");
-    w.clock.advance(10 * Duration::from_secs(1));
-    sup.scheduler_pass().await.unwrap();
-    assert_eq!(adapter.calls(), 2);
+    assert_eq!(adapter.calls(), 2, "the interrupted round is due at once");
     assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoked);
     assert!(r1312_record(&w, &g.grant_id).is_none());
+    w.clock.advance(10 * Duration::from_secs(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 2, "nothing is called again");
 }
 
 /// Red (T02, the reviewer's probe). A pending withdrawal on the fixture adapter; a
@@ -6118,6 +6135,11 @@ mod r1312_props {
 
     /// One step of a sequence. Every round-driving step runs a pass (which may only
     /// schedule), advances past the longest delay and runs the pass that is due.
+    ///
+    /// ⟨r2.10⟩ ADR-0006 §13.13: the tree has two obligations, the parent's on the
+    /// original adapter A and its delegated child's on adapter B, so the adapter
+    /// steps add and remove each of them; `Stall` interrupts a round after its
+    /// claim and before the call.
     #[derive(Debug, Clone, Copy)]
     enum Step {
         /// A due round.
@@ -6126,14 +6148,23 @@ mod r1312_props {
         FailCompletion,
         /// A due round interrupted after the adapter call; then a restart.
         Crash,
+        /// ⟨r2.10⟩ A due round interrupted after its claim, before the call; then a
+        /// restart.
+        Stall,
         /// Restart with only another mechanism's adapter.
         RemoveAdapter,
         /// Restart with no adapter.
         NoAdapters,
-        /// Restart with the original adapter.
+        /// Restart with the original adapter A only.
         RestoreAdapter,
+        /// ⟨r2.10⟩ Restart with adapter B only.
+        OnlyB,
+        /// ⟨r2.10⟩ Restart with both A and B.
+        Both,
         /// The original adapter now reports done (`true`) or pending (`false`).
         Done(bool),
+        /// ⟨r2.10⟩ Adapter B now reports done (`true`) or pending (`false`).
+        DoneB(bool),
     }
 
     fn step() -> impl Strategy<Value = Step> {
@@ -6141,104 +6172,710 @@ mod r1312_props {
             3 => Just(Step::Round),
             2 => Just(Step::FailCompletion),
             2 => Just(Step::Crash),
+            2 => Just(Step::Stall),
             1 => Just(Step::RemoveAdapter),
             1 => Just(Step::NoAdapters),
             2 => Just(Step::RestoreAdapter),
+            2 => Just(Step::OnlyB),
+            2 => Just(Step::Both),
             2 => any::<bool>().prop_map(Step::Done),
+            2 => any::<bool>().prop_map(Step::DoneB),
         ]
+    }
+
+    /// Drive `fut` until it finishes (`false`) or `a` or `b` enters a hanging or
+    /// stalled `revoke` (`true`; the future is dropped there).
+    async fn until_either<F: std::future::Future>(
+        a: &PendingCounter,
+        b: &PendingCounter,
+        fut: F,
+    ) -> bool {
+        tokio::select! {
+            biased;
+            () = a.entered.notified() => true,
+            () = b.entered.notified() => true,
+            _ = fut => false,
+        }
+    }
+
+    /// The obligation of `grant` in `record`, with its counted attempts.
+    fn owed(
+        record: &heimdall_domain::revocation::PendingRemoteRevocation,
+        grant: &heimdall_contract::ids::GrantId,
+    ) -> Option<u32> {
+        record
+            .obligations
+            .iter()
+            .find(|o| &o.grant == grant)
+            .map(|o| record.obligation_attempts(o))
     }
 
     proptest! {
         #![proptest_config(config(0x1312_0001))]
 
-        /// For any sequence of rounds, completion faults, crashes and adapter
-        /// removal or restoration (cap 2 to 4 rounds, the first local denial
-        /// included): the original adapter is called at most `cap` times; the
-        /// obligation is never cleared (record gone, grant `revoked`) unless that
-        /// adapter confirmed; another adapter is never asked; while the grant is
-        /// `revoking` its record stays visible.
+        /// For any sequence of rounds, completion faults, crashes before and after
+        /// the call and adapter removal or restoration (cap 2 to 4 rounds per
+        /// obligation, the first local denial included), over a withdrawn parent
+        /// whose obligation is the original adapter A's and its delegated child
+        /// whose obligation is adapter B's:
+        /// * each adapter is called at most `cap` times (⟨r2.10⟩ the cap is per
+        ///   obligation, §13.13 item 3), and an obligation's counted attempts never
+        ///   exceed the cap nor fall below its adapter's calls;
+        /// * an obligation is never cleared (the grant `revoked`) unless its own
+        ///   adapter confirmed; another mechanism's adapter is never asked;
+        /// * while a grant is `revoking` its obligation stays in the record, and the
+        ///   record is stopped only when every obligation reached its cap;
+        /// * finally, with both adapters configured again and reporting done, every
+        ///   obligation either clears or had reached its own cap: one adapter's
+        ///   rounds never exhausted the other's obligation.
         #[test]
         fn r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation(
             cap in 2u32..5,
-            steps in proptest::collection::vec(step(), 1..12),
+            steps in proptest::collection::vec(step(), 1..14),
         ) {
             block(async move {
                 let faults = Armed::new(FaultPoint::BeforeCommit);
-                let (mut w, adapter) = r1312_pending_world_with(Setup {
+                let (mut w, a) = r1312_pending_world_with(Setup {
                     faults: faults.clone(),
                     ..Setup::default()
                 })
                 .await;
-                let g = r1310_withdrawn_pending(&w, &adapter, "r1312-p").await;
+                let b = r1313_instance("fixture-2");
+                let (parent, child) = r1313_tree(&mut w, &a, &b, "r1312-p").await;
+                let (pg, cg) = (parent.grant_id.clone(), child.grant_id.clone());
+                // Withdrawal of the parent (its child in the cascade): round 1
+                // reaches both adapters.
+                r138_set_automatic_activation(&w, false);
+                let e = err(r136_bind(&w, &parent.binding_id, "r1312-p-b1").await);
+                prop_assert_eq!(e.code, Code::CredentialExpired);
+                prop_assert_eq!(w.grant(&pg).state, GrantState::Revoking);
+                prop_assert_eq!(w.grant(&cg).state, GrantState::Revoking);
+                prop_assert_eq!((a.calls(), b.calls()), (1, 1));
                 let other = r1312_other_adapter();
-                let original = adapter.clone() as Arc<dyn CredentialAdapter>;
+                let (ad, bd) = (
+                    a.clone() as Arc<dyn CredentialAdapter>,
+                    b.clone() as Arc<dyn CredentialAdapter>,
+                );
+                let mut current = vec![bd.clone(), ad.clone()];
                 let mut sup = r1312_supervisor(&w, cap);
                 for s in steps {
+                    let restart_with = match s {
+                        Step::RemoveAdapter => Some(vec![other.clone() as Arc<dyn CredentialAdapter>]),
+                        Step::NoAdapters => Some(Vec::new()),
+                        Step::RestoreAdapter => Some(vec![ad.clone()]),
+                        Step::OnlyB => Some(vec![bd.clone()]),
+                        Step::Both => Some(vec![ad.clone(), bd.clone()]),
+                        _ => None,
+                    };
                     match s {
-                        Step::Round | Step::FailCompletion | Step::Crash => {
+                        Step::Round | Step::FailCompletion | Step::Crash | Step::Stall => {
                             let _ = sup.scheduler_pass().await;
                             w.clock.advance(10 * Duration::from_secs(1));
-                            match s {
-                                Step::FailCompletion => {
-                                    *adapter.faults.lock().unwrap() = Some(faults.clone());
+                            for x in [&a, &b] {
+                                match s {
+                                    Step::FailCompletion => {
+                                        *x.faults.lock().unwrap() = Some(faults.clone());
+                                    }
+                                    Step::Crash => x.hang.store(true, Ordering::SeqCst),
+                                    Step::Stall => x.stall.store(true, Ordering::SeqCst),
+                                    _ => {}
                                 }
-                                Step::Crash => adapter.hang.store(true, Ordering::SeqCst),
-                                _ => {}
                             }
-                            let crashed = r1312_until_crash(&adapter, sup.scheduler_pass()).await;
-                            *adapter.faults.lock().unwrap() = None;
+                            let crashed = until_either(&a, &b, sup.scheduler_pass()).await;
+                            for x in [&a, &b] {
+                                *x.faults.lock().unwrap() = None;
+                                x.hang.store(false, Ordering::SeqCst);
+                                x.stall.store(false, Ordering::SeqCst);
+                            }
                             faults.armed.store(false, Ordering::SeqCst);
-                            adapter.hang.store(false, Ordering::SeqCst);
                             if crashed {
-                                r1312_restart_with(&mut w, vec![original.clone()]).await;
+                                r1312_restart_with(&mut w, current.clone()).await;
                                 sup = r1312_supervisor(&w, cap);
                             }
                         }
-                        Step::RemoveAdapter => {
-                            r1312_restart_with(
-                                &mut w,
-                                vec![other.clone() as Arc<dyn CredentialAdapter>],
-                            )
-                            .await;
-                            sup = r1312_supervisor(&w, cap);
-                        }
-                        Step::NoAdapters => {
-                            r1312_restart_with(&mut w, Vec::new()).await;
-                            sup = r1312_supervisor(&w, cap);
-                        }
-                        Step::RestoreAdapter => {
-                            r1312_restart_with(&mut w, vec![original.clone()]).await;
-                            sup = r1312_supervisor(&w, cap);
-                        }
-                        Step::Done(done) => adapter.pending.store(!done, Ordering::SeqCst),
+                        Step::Done(done) => a.pending.store(!done, Ordering::SeqCst),
+                        Step::DoneB(done) => b.pending.store(!done, Ordering::SeqCst),
+                        _ => {}
                     }
-                    let state = w.grant(&g.grant_id).state;
-                    let record = r1312_record(&w, &g.grant_id);
+                    if let Some(adapters) = restart_with {
+                        current = adapters;
+                        r1312_restart_with(&mut w, current.clone()).await;
+                        sup = r1312_supervisor(&w, cap);
+                    }
+                    let record = r1312_record(&w, &pg);
                     prop_assert!(
-                        adapter.calls() <= cap as usize,
-                        "calls {} > cap {cap} (record {:?})", adapter.calls(), record
+                        a.calls() <= cap as usize && b.calls() <= cap as usize,
+                        "calls a={} b={} > cap {cap} (record {:?})", a.calls(), b.calls(), record
                     );
+                    let asked = other.revocations.lock().unwrap().clone();
                     prop_assert!(
-                        !other.revocations.lock().unwrap().contains(&g.grant_id),
-                        "another adapter was asked"
+                        !asked.contains(&pg) && !asked.contains(&cg),
+                        "another mechanism's adapter was asked"
                     );
-                    match record {
-                        Some(r) if state != GrantState::Revoked => {
-                            prop_assert_eq!(state, GrantState::Revoking);
-                            prop_assert!(r.attempts <= cap);
+                    for (g, x) in [(&pg, &a), (&cg, &b)] {
+                        match w.grant(g).state {
+                            GrantState::Revoked => prop_assert!(
+                                x.confirmations() > 0,
+                                "cleared without its adapter's confirmation"
+                            ),
+                            state => {
+                                prop_assert_eq!(state, GrantState::Revoking);
+                                let r = record.as_ref().expect("a revoking grant keeps its record");
+                                let n = owed(r, g).expect("a revoking grant keeps its obligation");
+                                prop_assert!(n <= cap, "attempts {n} > cap {cap}");
+                                prop_assert!(n as usize >= x.calls(), "attempts {n} < calls {}", x.calls());
+                            }
                         }
-                        record => {
-                            prop_assert_eq!(state, GrantState::Revoked);
-                            prop_assert!(record.is_none());
-                            prop_assert!(
-                                adapter.confirmations() > 0,
-                                "cleared without the adapter's confirmation"
-                            );
-                        }
+                    }
+                    if let Some(r) = &record {
+                        prop_assert!(!r.stopped || r.capped(cap), "stopped before every cap: {r:?}");
+                    }
+                }
+                // Both adapters configured again and done: every obligation clears
+                // unless it had reached its own cap.
+                a.pending.store(false, Ordering::SeqCst);
+                b.pending.store(false, Ordering::SeqCst);
+                r1312_restart_with(&mut w, vec![ad.clone(), bd.clone()]).await;
+                let sup = r1312_supervisor(&w, cap);
+                for _ in 0..(cap + 3) {
+                    sup.scheduler_pass().await.unwrap();
+                    w.clock.advance(10 * Duration::from_secs(1));
+                }
+                let record = r1312_record(&w, &pg);
+                for (g, x) in [(&pg, &a), (&cg, &b)] {
+                    if w.grant(g).state != GrantState::Revoked {
+                        let r = record.as_ref().expect("still pending");
+                        prop_assert_eq!(
+                            owed(r, g),
+                            Some(cap),
+                            "an obligation neither cleared nor capped by its own rounds: {:?}", r
+                        );
+                        prop_assert!(x.calls() <= cap as usize);
                     }
                 }
                 Ok(())
             })?;
         }
     }
+}
+
+// =================================================================================
+// ⟨r2.10⟩ ADR-0006 §13.13 (M01-rulings-13-13).
+//
+// Item 1: the adapter that prepared a grant (mechanism and instance) is persisted
+// with the grant when its first `Attempted` receipt is recorded, so operation
+// retention cannot remove it; the mechanism-only fallback is for grants written
+// before the field existed.
+// Item 2: every pending answer of a responsible adapter is tracked as an obligation,
+// whatever the grant's state (a grant revoked while `preparing` included); no
+// untracked one-off call.
+// Item 3: attempts and the cap are counted per (grant, adapter) obligation; one
+// adapter's rounds never exhaust another's obligation; the record stops only when
+// every obligation has cleared or reached its cap.
+// Item 4: at startup a claimed but uncompleted round is due at once (it still
+// counts as attempted).
+//
+// The standalone cases use only public APIs that exist at the base commit d64503f5,
+// so they run (red) there. "Crash" and "restart" are in-process (module docs).
+// =================================================================================
+
+/// A [`PendingCounter`] over a fresh fake whose identity is `fake_agent/<instance>`:
+/// the fixture adapter's mechanism, another instance.
+fn r1313_instance(instance: &str) -> Arc<PendingCounter> {
+    let mut d = descriptor();
+    d.identity.instance = instance.into();
+    PendingCounter::new(FakeCredentialAdapter::new(
+        d,
+        vec![FakeStep::Prepare(outcome())],
+    ))
+}
+
+/// An explicit owner revoke of `grant`; its result data.
+async fn r1313_revoke(
+    w: &World,
+    grant: &heimdall_contract::ids::GrantId,
+    rid: &str,
+) -> heimdall_contract::request::RevokeData {
+    ok(w.ops
+        .revoke(
+            &unattended(501),
+            RevokeRequest {
+                grant_id: grant.clone(),
+                request_id: RequestId::parse(rid).unwrap(),
+            },
+        )
+        .await)
+    .data
+}
+
+/// The grant `op` pinned in its recovery intent.
+fn r1313_grant_of(w: &World, op: &OperationId) -> heimdall_contract::ids::GrantId {
+    w.store
+        .transaction(|tx| tx.recovery_intent(op))
+        .unwrap()
+        .unwrap()
+        .resolved
+        .unwrap()
+        .grant
+        .unwrap()
+}
+
+/// A parent prepared by `a` (the world's only adapter), then, after a restart with
+/// `b` first and `a`, a delegated child prepared by `b`: two grants of one tree
+/// whose responsible adapters differ.
+async fn r1313_tree(
+    w: &mut World,
+    a: &Arc<PendingCounter>,
+    b: &Arc<PendingCounter>,
+    tag: &str,
+) -> (EnsureData, EnsureData) {
+    let parent = r136_ready(w, tag, &format!("{tag}-work"), "h1", "1h").await;
+    r1312_restart_with(
+        w,
+        vec![
+            b.clone() as Arc<dyn CredentialAdapter>,
+            a.clone() as Arc<dyn CredentialAdapter>,
+        ],
+    )
+    .await;
+    let child = ok(w
+        .ops
+        .delegate(
+            &unattended(501),
+            u10_delegate(&parent, &format!("{tag}-c"), "30m"),
+        )
+        .await)
+    .data;
+    let adapters = |g: &heimdall_contract::ids::GrantId| {
+        w.store.transaction(|tx| tx.grant_adapters(g)).unwrap()
+    };
+    assert_eq!(
+        adapters(&parent.grant_id),
+        vec![a.descriptor().identity.clone()]
+    );
+    assert_eq!(
+        adapters(&child.grant_id),
+        vec![b.descriptor().identity.clone()]
+    );
+    (parent, child)
+}
+
+/// Red (§13.13 item 1). After operation retention purged every recovery intent and
+/// stage receipt that named the grant's adapter, an explicit revoke still owes its
+/// confirmation to exactly the adapter that prepared the grant (mechanism **and**
+/// instance): another instance of the same mechanism is never asked and clears
+/// nothing, the obligation waits (`adapter_unavailable`, no attempt consumed), and
+/// the original instance's confirmation completes the revocation.
+#[tokio::test]
+async fn r1313_1_the_preparing_adapter_stays_responsible_after_operation_retention() {
+    let (mut w, adapter) = r1310_pending_world().await;
+    adapter.pending.store(false, Ordering::SeqCst);
+    let g = r136_ready(&w, "r1313-1", "r1313-1-work", "h1", "1h").await;
+    let purged = w
+        .store
+        .transaction(|tx| tx.purge_operations_before(shift(t0(), 60 * 86_400)))
+        .unwrap();
+    assert!(purged >= 1, "the settled ensure was purged");
+    assert!(
+        w.store
+            .transaction(|tx| tx.grant_adapters(&g.grant_id))
+            .unwrap()
+            .is_empty(),
+        "no intent or receipt names the adapter any more"
+    );
+    let sibling = r1313_instance("fixture-9");
+    sibling.pending.store(false, Ordering::SeqCst);
+    r1312_restart_with(&mut w, vec![sibling.clone() as Arc<dyn CredentialAdapter>]).await;
+    let done = r1313_revoke(&w, &g.grant_id, "r1313-1-revoke").await;
+    assert_eq!(sibling.calls(), 0, "another instance is never asked");
+    assert_eq!(done.remote_pending, vec![g.grant_id.clone()]);
+    let rec = r1312_record(&w, &g.grant_id).expect("pending on the preparing adapter");
+    assert_eq!(rec.obligations.len(), 1);
+    assert_eq!(rec.obligations[0].adapter, descriptor().identity);
+    r1312_assert_waiting_for_adapter(&w, &g.grant_id, 0).await;
+    // The preparing instance is configured again (next to the sibling): its
+    // confirmation, and only its, completes the revocation.
+    r1312_restart_with(
+        &mut w,
+        vec![
+            sibling.clone() as Arc<dyn CredentialAdapter>,
+            adapter.clone() as Arc<dyn CredentialAdapter>,
+        ],
+    )
+    .await;
+    let sup = r1312_supervisor(&w, 8);
+    sup.scheduler_pass().await.unwrap();
+    w.clock.advance(10 * Duration::from_secs(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!((adapter.calls(), sibling.calls()), (1, 0));
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoked);
+    assert!(r1312_record(&w, &g.grant_id).is_none());
+}
+
+/// Red (§13.13 item 2). A grant revoked while `preparing` (its preparation's
+/// `Attempted` receipt is on record, the operation still running) goes `preparing →
+/// revoked`; its adapter's local denial reports a remote effect pending. That answer
+/// is tracked: the record holds the obligation, the revoke's result and the inspect
+/// view (the grant stays listed although terminal) name it pending, and the
+/// supervisor retries it on its bounded schedule until the adapter confirms; then
+/// the record is gone and nothing is called again.
+#[tokio::test]
+async fn r1313_2_a_grant_revoked_while_preparing_is_tracked_until_its_adapter_confirms() {
+    let hook = ScriptedStageHook::new([], [(EnsureStage::Reconcile, Code::ServiceUnavailable)]);
+    let (w, adapter) = r1312_pending_world_with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r1313-2", "r1313-2-work", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(e.effect_status, EffectStatus::Partial);
+    let gid = r1313_grant_of(&w, e.operation_id.as_ref().unwrap());
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    let done = r1313_revoke(&w, &gid, "r1313-2-revoke").await;
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Revoked,
+        "preparing → revoked"
+    );
+    assert_eq!(
+        adapter.calls(),
+        1,
+        "local denial asked the responsible adapter"
+    );
+    assert_eq!(done.remote_pending, vec![gid.clone()]);
+    let rec = r1312_record(&w, &gid).expect("the pending answer is tracked");
+    assert_eq!(rec.grants, vec![gid.clone()]);
+    assert_eq!(rec.obligations.len(), 1);
+    assert_eq!(rec.obligations[0].adapter, descriptor().identity);
+    let view = r1310_view(&w, &gid).await;
+    assert_eq!(view["state"], "revoked");
+    assert_eq!(
+        view["remote_pending"], true,
+        "the pending remote part is visible"
+    );
+    let sup = r1312_supervisor(&w, 8);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 1, "the first pass only schedules");
+    w.clock.advance(10 * Duration::from_secs(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 2, "retried when due");
+    assert!(r1312_record(&w, &gid).is_some(), "still pending");
+    adapter.pending.store(false, Ordering::SeqCst);
+    w.clock.advance(10 * Duration::from_secs(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 3);
+    assert_eq!(adapter.confirmations(), 1);
+    assert!(
+        r1312_record(&w, &gid).is_none(),
+        "cleared by the confirmation"
+    );
+    assert_eq!(w.grant(&gid).state, GrantState::Revoked);
+    for _ in 0..3 {
+        w.clock.advance(MINUTE);
+        sup.scheduler_pass().await.unwrap();
+    }
+    assert_eq!(adapter.calls(), 3, "nothing is called again");
+}
+
+/// Red (§13.13 item 3). A parent prepared by adapter A and its delegated child
+/// prepared by adapter B; A is not configured when the parent is revoked. B's
+/// rounds reach their cap (3, the first local denial included) while A's
+/// obligation waits: B's obligation is capped, A's has consumed nothing and the
+/// record is not stopped. When A is configured again it is served for its own full
+/// cap (B is not called again), and only then is the record stopped.
+#[tokio::test]
+async fn r1313_3_one_adapters_rounds_never_exhaust_another_adapters_obligation() {
+    let (mut w, a) = r1310_pending_world().await;
+    let b = r1313_instance("fixture-2");
+    let (parent, child) = r1313_tree(&mut w, &a, &b, "r1313-3").await;
+    r1312_restart_with(&mut w, vec![b.clone() as Arc<dyn CredentialAdapter>]).await;
+    let done = r1313_revoke(&w, &parent.grant_id, "r1313-3-revoke").await;
+    let pending: BTreeSet<_> = done.remote_pending.into_iter().collect();
+    assert_eq!(
+        pending,
+        [parent.grant_id.clone(), child.grant_id.clone()]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!((a.calls(), b.calls()), (0, 1), "round 1 reaches B only");
+    let cap = 3u32;
+    let sup = r1312_supervisor(&w, cap);
+    for _ in 0..8 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(b.calls(), cap as usize, "B's obligation reached its cap");
+    assert_eq!(a.calls(), 0);
+    let rec = r1312_record(&w, &parent.grant_id).expect("still pending");
+    assert!(
+        !rec.stopped,
+        "A's obligation has neither cleared nor reached its cap"
+    );
+    let pv = r1310_view(&w, &parent.grant_id).await;
+    assert_eq!(pv["remote_pending_reason"], "adapter_unavailable");
+    assert_eq!(
+        pv["remote_retries"]["attempts"], 0,
+        "B's rounds consumed none of A's attempts: {pv}"
+    );
+    assert_eq!(pv["remote_retries"]["stopped"], false);
+    let cv = r1310_view(&w, &child.grant_id).await;
+    assert_eq!(cv["remote_retries"]["attempts"], cap);
+    assert_eq!(cv["remote_retries"]["stopped"], true, "{cv}");
+    // A returns: its obligation continues within its own, full cap.
+    r1312_restart_with(
+        &mut w,
+        vec![
+            a.clone() as Arc<dyn CredentialAdapter>,
+            b.clone() as Arc<dyn CredentialAdapter>,
+        ],
+    )
+    .await;
+    // Its rounds still follow the bounded back-off (the record's own round count is
+    // past the cap, which caps nothing): never in the pass that first sees the
+    // record, one round per due instant, never one in every pass.
+    let sup = r1312_supervisor(&w, cap);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(
+        a.calls(),
+        0,
+        "the first pass after the restart only schedules"
+    );
+    for n in 1..=cap as usize {
+        w.clock.advance(10 * Duration::from_secs(1));
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(a.calls(), n, "A's round {n} is due");
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(a.calls(), n, "one round per due instant");
+    }
+    for _ in 0..4 {
+        w.clock.advance(10 * Duration::from_secs(1));
+        sup.scheduler_pass().await.unwrap();
+    }
+    assert_eq!(a.calls(), cap as usize, "A is served for its full cap");
+    assert_eq!(b.calls(), cap as usize, "B is not called again");
+    let rec = r1312_record(&w, &parent.grant_id).expect("still pending");
+    assert!(rec.stopped, "every obligation reached its cap");
+    for g in [&parent.grant_id, &child.grant_id] {
+        assert_eq!(w.grant(g).state, GrantState::Revoking);
+        let v = r1310_view(&w, g).await;
+        assert_eq!(v["remote_retries"]["attempts"], cap);
+        assert_eq!(v["remote_retries"]["stopped"], true);
+    }
+}
+
+/// Red (§13.13 item 4). An explicit revoke interrupted after its round's claim
+/// committed and before the adapter acted on the call; restart recovery settles the
+/// operation from the record without calling. The first supervisor pass after the
+/// restart calls the adapter (the round is due at once, not after a back-off), and
+/// the attempt count includes the interrupted round. Later rounds follow the
+/// bounded schedule again.
+#[tokio::test]
+async fn r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart() {
+    let (mut w, adapter) = r1310_pending_world().await;
+    let g = r136_ready(&w, "r1313-4a", "r1313-4a-work", "h1", "1h").await;
+    adapter.stall.store(true, Ordering::SeqCst);
+    let owner = unattended(501);
+    let revoke = w.ops.revoke(
+        &owner,
+        RevokeRequest {
+            grant_id: g.grant_id.clone(),
+            request_id: RequestId::parse("r1313-4a-revoke").unwrap(),
+        },
+    );
+    assert!(
+        r1312_until_crash(&adapter, revoke).await,
+        "crashed after the claim, before the call"
+    );
+    assert_eq!(adapter.calls(), 0, "the adapter never acted on the call");
+    let rec = r1312_record(&w, &g.grant_id).expect("the round was claimed");
+    assert_eq!(rec.attempts, 1);
+    assert!(rec.claimed_at.is_some());
+    r1310_restart_pending(&mut w, &adapter).await;
+    assert_eq!(adapter.calls(), 0, "recovery settles from the record");
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoking);
+    let sup = r1312_supervisor(&w, 8);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(
+        adapter.calls(),
+        1,
+        "the first pass after the restart calls the adapter"
+    );
+    let rec = r1312_record(&w, &g.grant_id).expect("still pending");
+    assert_eq!(rec.attempts, 2, "the interrupted round counts");
+    assert_eq!(rec.claimed_at, None);
+    assert_eq!(
+        r1310_view(&w, &g.grant_id).await["remote_retries"]["attempts"],
+        2
+    );
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 1, "the next round waits for its back-off");
+    adapter.pending.store(false, Ordering::SeqCst);
+    w.clock.advance(10 * Duration::from_secs(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 2);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Revoked);
+    assert!(r1312_record(&w, &g.grant_id).is_none());
+}
+
+/// Red (§13.13 item 4). The same for a supervisor retry round interrupted between
+/// its claim and its call: after the restart the first pass calls at once and the
+/// count includes the interrupted round.
+#[tokio::test]
+async fn r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart() {
+    let (mut w, adapter) = r1310_pending_world().await;
+    let g = r1310_withdrawn_pending(&w, &adapter, "r1313-4b").await;
+    let sup = r1312_supervisor(&w, 8);
+    sup.scheduler_pass().await.unwrap();
+    w.clock.advance(10 * Duration::from_secs(1));
+    adapter.stall.store(true, Ordering::SeqCst);
+    assert!(r1312_until_crash(&adapter, sup.scheduler_pass()).await);
+    assert_eq!(adapter.calls(), 1, "only the first local denial acted");
+    let rec = r1312_record(&w, &g.grant_id).expect("claimed");
+    assert_eq!(rec.attempts, 2);
+    assert!(rec.claimed_at.is_some());
+    r1310_restart_pending(&mut w, &adapter).await;
+    let sup = r1312_supervisor(&w, 8);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 2, "due at once after the restart");
+    let rec = r1312_record(&w, &g.grant_id).expect("still pending");
+    assert_eq!(rec.attempts, 3, "the interrupted round counts");
+    assert_eq!(rec.claimed_at, None);
+}
+
+/// §13.13 item 4, the boundary: a round claimed **in this process** and still in
+/// flight (its adapter call has not returned) is not an interrupted round. A
+/// supervisor pass that sees its claim schedules the next round on the back-off and
+/// calls nothing at once. (Green at the base commit; it guards the startup
+/// condition against a reading that treats every open claim as due.)
+#[tokio::test]
+async fn r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once() {
+    let (w, adapter) = r1310_pending_world().await;
+    let g = r136_ready(&w, "r1313-4c", "r1313-4c-work", "h1", "1h").await;
+    adapter.hang.store(true, Ordering::SeqCst);
+    let owner = unattended(501);
+    let revoke = w.ops.revoke(
+        &owner,
+        RevokeRequest {
+            grant_id: g.grant_id.clone(),
+            request_id: RequestId::parse("r1313-4c-revoke").unwrap(),
+        },
+    );
+    tokio::pin!(revoke);
+    tokio::select! {
+        biased;
+        () = adapter.entered.notified() => {}
+        _ = &mut revoke => panic!("the revoke's adapter call hangs"),
+    }
+    assert_eq!(adapter.calls(), 1);
+    let rec = r1312_record(&w, &g.grant_id).expect("claimed");
+    assert!(rec.claimed_at.is_some());
+    let sup = r1312_supervisor(&w, 8);
+    sup.scheduler_pass().await.unwrap();
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(
+        adapter.calls(),
+        1,
+        "nothing is called at once for a round in flight"
+    );
+    assert_eq!(r1312_record(&w, &g.grant_id).unwrap().attempts, 1);
+}
+
+/// §13.13 item 4, the boundary after the restart: once this process claimed the
+/// successor of an interrupted round, that claim is its own. When the successor's
+/// completion commit fails, the next pass does not treat the record as interrupted
+/// again: the following round waits for its back-off.
+#[tokio::test]
+async fn r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again() {
+    let faults = Armed::new(FaultPoint::BeforeCommit);
+    let (mut w, adapter) = r1312_pending_world_with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let g = r1310_withdrawn_pending(&w, &adapter, "r1313-4d").await;
+    let sup = r1312_supervisor(&w, 8);
+    sup.scheduler_pass().await.unwrap();
+    w.clock.advance(10 * Duration::from_secs(1));
+    adapter.stall.store(true, Ordering::SeqCst);
+    assert!(r1312_until_crash(&adapter, sup.scheduler_pass()).await);
+    r1310_restart_pending(&mut w, &adapter).await;
+    // The successor runs at once; its completion commit fails.
+    *adapter.faults.lock().unwrap() = Some(faults.clone());
+    let sup = r1312_supervisor(&w, 8);
+    let _ = sup.scheduler_pass().await;
+    *adapter.faults.lock().unwrap() = None;
+    faults.armed.store(false, Ordering::SeqCst);
+    assert_eq!(
+        faults.fired.load(Ordering::SeqCst),
+        1,
+        "the completion failed"
+    );
+    assert_eq!(
+        adapter.calls(),
+        2,
+        "the successor of the interrupted round ran"
+    );
+    let rec = r1312_record(&w, &g.grant_id).expect("still pending");
+    assert_eq!(rec.attempts, 3);
+    assert!(
+        rec.claimed_at.is_some(),
+        "this process's claim, uncompleted"
+    );
+    sup.scheduler_pass().await.unwrap();
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(
+        adapter.calls(),
+        2,
+        "no round at once for this process's own claim"
+    );
+    w.clock.advance(10 * Duration::from_secs(1));
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(adapter.calls(), 3, "the next round when due");
+}
+
+/// §13.13 item 3, backward compatibility: a record written before per-obligation
+/// counts existed (its obligations without their own `attempts`) keeps its record
+/// count, mapped onto each obligation conservatively: with 2 of a cap of 3 rounds
+/// already used, the obligation gets exactly one more call and the record then
+/// stops. (The base commit, where the count was the record's, behaves the same;
+/// this case reads the new per-obligation field, so it does not compile there and
+/// its evidence is the mutation check that maps the count to 0.)
+#[tokio::test]
+async fn r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its_obligations() {
+    let (w, adapter) = r1310_pending_world().await;
+    let g = r1310_withdrawn_pending(&w, &adapter, "r1313-3b").await;
+    let legacy: heimdall_domain::revocation::PendingRemoteRevocation =
+        serde_json::from_value(serde_json::json!({
+            "root": g.grant_id,
+            "grants": [g.grant_id],
+            "attempts": 2,
+            "last_attempt_at": t0(),
+            "stopped": false,
+            "obligations": [{"grant": g.grant_id, "adapter": descriptor().identity}],
+        }))
+        .unwrap();
+    w.store
+        .transaction(|tx| tx.set_remote_revocation(&legacy))
+        .unwrap();
+    let sup = r1312_supervisor(&w, 3);
+    for _ in 0..6 {
+        sup.scheduler_pass().await.unwrap();
+        w.clock.advance(10 * Duration::from_secs(1));
+    }
+    assert_eq!(
+        adapter.calls(),
+        2,
+        "the first local denial, then exactly one more"
+    );
+    let rec = r1312_record(&w, &g.grant_id).expect("still pending");
+    assert_eq!(rec.attempts, 3);
+    assert_eq!(rec.obligations[0].attempts, Some(3));
+    assert!(rec.stopped);
 }

@@ -328,6 +328,12 @@ struct Inner {
     /// grant and its publication attempt: 1 for a reservation, one more for each
     /// re-reservation handed back to the issuer (ADR-0006 §13.8 item 1).
     reserved_here: Mutex<HashMap<IssuanceId, (GrantId, usize)>>,
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 4: the roots whose pending remote record
+    /// carried a claimed but uncompleted round when this runtime started (a crash
+    /// between a round's claim and its completion). Read before restart recovery
+    /// runs; a root leaves the set in the transaction of the next round this process
+    /// claims for it, so a claim of this process is never mistaken for one.
+    interrupted_rounds: Arc<Mutex<BTreeSet<GrantId>>>,
 }
 
 impl std::fmt::Debug for Operations {
@@ -781,6 +787,8 @@ fn origin_of(r: &ResolvedIntent, caller: &CallerContext) -> Option<GrantOrigin> 
         caller: caller.clone(),
         mechanism: r.adapter.as_ref()?.mechanism.clone(),
         covered: None,
+        // ⟨r2.10⟩ Recorded with the first `Attempted` receipt (§13.13 item 1).
+        adapter: None,
     })
 }
 
@@ -2056,33 +2064,65 @@ struct RoundAnswers {
     adapter_expiry: Option<Timestamp>,
 }
 
+/// ⟨r2.10⟩ What `inspect grants` shows of one grant's pending remote part: its own
+/// obligations' highest attempt count (ADR-0006 §13.13 item 3), the record's last
+/// round, whether its retries stopped (the record, or every obligation of the
+/// grant at its cap) and whether a responsible adapter is not configured.
+struct RemoteView {
+    attempts: u32,
+    last_attempt_at: Timestamp,
+    stopped: bool,
+    unavailable: bool,
+}
+
 /// ⟨r2.9⟩ ADR-0006 §13.12 item 2: the adapters responsible for the remote effect
-/// of `grant`: the identities its recovery intents and stage receipts record
-/// ([`Txn::grant_adapters`]). When none is left (the operations were purged with
-/// their settled records), the grant's recorded origin mechanism with an empty
+/// of `grant`.
+///
+/// ⟨r2.10⟩ ADR-0006 §13.13 item 1: first the adapter that prepared the grant,
+/// persisted with its origin (mechanism and instance; it survives operation
+/// retention). Without it (a grant written before the field existed, or one whose
+/// preparation was never attempted): the identities its recovery intents and
+/// stage receipts record ([`Txn::grant_adapters`]); when none is left (purged with
+/// their settled operations), the grant's recorded origin mechanism with an empty
 /// instance, and with no origin either, an empty identity
 /// ([`RemoteObligation::served_by`]). Never another mechanism.
 fn responsible_adapters(
     tx: &mut Txn<'_>,
     grant: &GrantId,
 ) -> heimdall_store::Result<Vec<AdapterIdentity>> {
+    let origin = tx.grant_origin(grant)?;
+    if let Some(adapter) = origin.as_ref().and_then(|o| o.adapter.clone()) {
+        return Ok(vec![adapter]);
+    }
     let recorded = tx.grant_adapters(grant)?;
     if !recorded.is_empty() {
         return Ok(recorded);
     }
-    let mechanism = tx
-        .grant_origin(grant)?
-        .map(|o| o.mechanism)
-        .unwrap_or_default();
     Ok(vec![AdapterIdentity {
-        mechanism,
+        mechanism: origin.map(|o| o.mechanism).unwrap_or_default(),
         instance: String::new(),
     }])
 }
 
+/// ⟨r2.10⟩ A fresh obligation of `grant` to `adapter` (no attempt counted yet).
+fn obligation(grant: &GrantId, adapter: AdapterIdentity) -> RemoteObligation {
+    RemoteObligation {
+        grant: grant.clone(),
+        adapter,
+        reason: None,
+        attempts: Some(0),
+        stopped: false,
+    }
+}
+
 /// ⟨r2.9⟩ The pending remote record of `root` with its obligations: a record
 /// written before ADR-0006 §13.12 (its grant list alone) gains one obligation per
-/// grant and responsible adapter ([`responsible_adapters`]).
+/// grant still `revoking` and responsible adapter ([`responsible_adapters`]); a
+/// grant of such a record that left `revoking` has nothing left to complete.
+///
+/// ⟨r2.10⟩ ADR-0006 §13.13 item 3: every obligation carries its own attempt
+/// count; one recorded before per-obligation counts existed is read with the
+/// record's count (and stop), conservatively, as those rounds were already used.
 fn load_remote_record(
     tx: &mut Txn<'_>,
     root: &GrantId,
@@ -2092,13 +2132,25 @@ fn load_remote_record(
     };
     if r.obligations.is_empty() {
         for g in r.grants.clone() {
+            if !tx
+                .grant(&g)?
+                .is_some_and(|s| s.state == GrantState::Revoking)
+            {
+                continue;
+            }
             for adapter in responsible_adapters(tx, &g)? {
                 r.obligations.push(RemoteObligation {
-                    grant: g.clone(),
-                    adapter,
-                    reason: None,
+                    attempts: None,
+                    ..obligation(&g, adapter)
                 });
             }
+        }
+    }
+    let (attempts, stopped) = (r.attempts, r.stopped);
+    for o in &mut r.obligations {
+        if o.attempts.is_none() {
+            o.attempts = Some(attempts);
+            o.stopped |= stopped;
         }
     }
     Ok(Some(r))
@@ -2129,19 +2181,56 @@ fn push_call(calls: &mut Vec<RoundCall>, grant: &GrantId, adapter: &AdapterIdent
 /// the configured adapters responsible for it and to no other. An obligation whose
 /// responsible adapter is not configured gets no call and the reason
 /// `adapter_unavailable`; one that is called loses any reason.
+///
+/// ⟨r2.10⟩ ADR-0006 §13.13 item 3: an obligation that reached its own cap
+/// (`stopped`, or `max_attempts` rounds counted) gets no call; every obligation
+/// that gets one counts this round (the caller claims it before any call).
 fn plan_obligation_calls(
     obligations: &mut [RemoteObligation],
     configured: &[AdapterIdentity],
+    max_attempts: Option<u32>,
     calls: &mut Vec<RoundCall>,
 ) {
     for o in obligations {
+        let counted = o.attempts.unwrap_or(0);
+        if o.stopped || max_attempts.is_some_and(|m| counted >= m) {
+            continue;
+        }
         let mut served = false;
         for a in configured.iter().filter(|a| o.served_by(a)) {
             push_call(calls, &o.grant, a);
             served = true;
         }
         o.reason = (!served).then_some(RemotePendingReason::AdapterUnavailable);
+        if served {
+            o.attempts = Some(counted.saturating_add(1));
+        }
     }
+}
+
+/// ⟨r2.10⟩ ADR-0006 §13.13 item 3: mark every obligation that reached
+/// `max_attempts` rounds `stopped`; the record is `stopped` only when every
+/// obligation left is.
+fn stop_capped_obligations(r: &mut PendingRemoteRevocation, max_attempts: u32) {
+    let record = r.attempts;
+    for o in &mut r.obligations {
+        if o.attempts.unwrap_or(record) >= max_attempts {
+            o.stopped = true;
+        }
+    }
+    if !r.obligations.is_empty() && r.obligations.iter().all(|o| o.stopped) {
+        r.stopped = true;
+    }
+}
+
+/// ⟨r2.10⟩ ADR-0006 §13.13 item 4: `root`'s next round is claimed by this
+/// process (inside the claiming transaction), so its record no longer carries a
+/// round a previous run left uncompleted.
+fn forget_interrupted(interrupted: &Mutex<BTreeSet<GrantId>>, root: &GrantId) {
+    interrupted
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(root);
 }
 
 /// ⟨r2.9⟩ ADR-0006 §13.12: plan and claim the first local denial of the
@@ -2151,13 +2240,17 @@ fn plan_obligation_calls(
 /// withdrawal's own claim).
 ///
 /// Every grant now `revoking` owes each of its responsible adapters a confirmation
-/// (an obligation, kept with any the record already holds); a grant that already
-/// left usable states another way (`preparing → revoked`, a denied waiting grant)
-/// gets one local-denial call to its responsible adapters, not tracked. When a
-/// call is owed to an obligation the round is claimed: `attempts + 1` and
-/// `claimed_at` (item 1); a round with no such call consumes no attempt. `rearm`
-/// (an authorized explicit revoke, ADR-0006 §13.11 item 4) restarts the count and
-/// lifts a stop first. The record is written when any obligation exists.
+/// (an obligation, kept with any the record already holds). ⟨r2.10⟩ ADR-0006
+/// §13.13 item 2: a grant that already left usable states another way (`preparing
+/// → revoked`, a denied waiting grant) is asked of each responsible adapter that
+/// is configured, and each such call is an obligation too, recorded here before
+/// the call: only that adapter's confirmation clears it, a pending answer keeps
+/// it and the supervisor retries it (no untracked one-off call). When any call is
+/// owed the round is claimed: `attempts + 1` and `claimed_at` (§13.12 item 1),
+/// and each called obligation counts it (§13.13 item 3); a round with no call
+/// consumes no attempt. `rearm` (an authorized explicit revoke, ADR-0006 §13.11
+/// item 4) restarts every count, lifts every stop and supersedes an unfinished
+/// claim first. The record is written when any obligation exists.
 fn claim_first_round_in(
     tx: &mut Txn<'_>,
     root: &GrantId,
@@ -2178,53 +2271,36 @@ fn claim_first_round_in(
     if rearm {
         record.attempts = 0;
         record.stopped = false;
+        record.claimed_at = None;
+        for o in &mut record.obligations {
+            o.attempts = Some(0);
+            o.stopped = false;
+        }
     }
-    let mut untracked: Vec<(GrantId, Vec<AdapterIdentity>)> = Vec::new();
     for g in grants {
         let revoking = tx
             .grant(g)?
             .is_some_and(|s| s.state == GrantState::Revoking);
-        let responsible = responsible_adapters(tx, g)?;
-        if !revoking {
-            untracked.push((g.clone(), responsible));
-            continue;
-        }
-        for adapter in responsible {
-            if !record
-                .obligations
-                .iter()
-                .any(|o| &o.grant == g && o.adapter == adapter)
+        for adapter in responsible_adapters(tx, g)? {
+            let owed = obligation(g, adapter);
+            let tracked = revoking || configured.iter().any(|a| owed.served_by(a));
+            if tracked
+                && !record
+                    .obligations
+                    .iter()
+                    .any(|o| o.grant == owed.grant && o.adapter == owed.adapter)
             {
-                record.obligations.push(RemoteObligation {
-                    grant: g.clone(),
-                    adapter,
-                    reason: None,
-                });
+                record.obligations.push(owed);
             }
         }
     }
     let mut calls = Vec::new();
-    plan_obligation_calls(&mut record.obligations, configured, &mut calls);
-    let owed = !calls.is_empty();
-    for (g, responsible) in untracked {
-        for a in configured {
-            if responsible.iter().any(|r| {
-                RemoteObligation {
-                    grant: g.clone(),
-                    adapter: r.clone(),
-                    reason: None,
-                }
-                .served_by(a)
-            }) {
-                push_call(&mut calls, &g, a);
-            }
-        }
-    }
+    plan_obligation_calls(&mut record.obligations, configured, None, &mut calls);
     if record.obligations.is_empty() {
         return Ok(Round { calls, claim: None });
     }
     let mut claim = None;
-    if owed {
+    if !calls.is_empty() {
         record.attempts = record.attempts.saturating_add(1);
         record.claimed_at = Some(now);
         record.last_attempt_at = now;
@@ -2249,11 +2325,16 @@ enum RetryClaim {
 /// ⟨r2.9⟩ ADR-0006 §13.12: claim a retry round of the revocation rooted at
 /// `root` in its own transaction, before any adapter is called: `attempts + 1`,
 /// `claimed_at`, and the calls owed to each obligation's responsible adapter. A
-/// stopped record, one at the cap (stopped now) or one whose responsible adapters
-/// are all unconfigured (reason `adapter_unavailable`, no attempt consumed) is
-/// returned without a claim. Obligations of a grant no longer `revoking` (only a
-/// record written before §13.12 can hold one) have nothing left to complete and
-/// are dropped.
+/// stopped record, one whose every obligation reached its cap (stopped now) or
+/// one whose callable obligations' responsible adapters are all unconfigured
+/// (reason `adapter_unavailable`, no attempt consumed) is returned without a
+/// claim. A record written before §13.12 whose grants all left `revoking` has
+/// nothing left to complete and is removed.
+///
+/// ⟨r2.10⟩ ADR-0006 §13.13: the cap is applied per obligation (item 3): an
+/// obligation at its cap is stopped and gets no call while the others continue,
+/// each within its own cap; an obligation of a grant in any state is kept until
+/// its adapter confirms (item 2).
 fn claim_retry_round_in(
     tx: &mut Txn<'_>,
     root: &GrantId,
@@ -2265,16 +2346,6 @@ fn claim_retry_round_in(
     let Some(mut r) = load_remote_record(tx, root)? else {
         return Ok(RetryClaim::Gone);
     };
-    let mut live: Vec<RemoteObligation> = Vec::new();
-    for o in std::mem::take(&mut r.obligations) {
-        if tx
-            .grant(&o.grant)?
-            .is_some_and(|g| g.state == GrantState::Revoking)
-        {
-            live.push(o);
-        }
-    }
-    r.obligations = live;
     if r.obligations.is_empty() {
         tx.clear_remote_revocation(root)?;
         return Ok(RetryClaim::Gone);
@@ -2283,13 +2354,18 @@ fn claim_retry_round_in(
     if r.stopped {
         return Ok(RetryClaim::Unchanged(r));
     }
-    if r.attempts >= max_attempts {
-        r.stopped = true;
+    stop_capped_obligations(&mut r, max_attempts);
+    if r.stopped {
         tx.set_remote_revocation(&r)?;
         return Ok(RetryClaim::Unchanged(r));
     }
     let mut calls = Vec::new();
-    plan_obligation_calls(&mut r.obligations, configured, &mut calls);
+    plan_obligation_calls(
+        &mut r.obligations,
+        configured,
+        Some(max_attempts),
+        &mut calls,
+    );
     if calls.is_empty() {
         if stored.as_ref() != Some(&r) {
             tx.set_remote_revocation(&r)?;
@@ -2315,10 +2391,12 @@ fn claim_retry_round_in(
 /// it confirmed in `answers` (and every responsible adapter asked confirmed);
 /// another adapter's answer, or no answer, clears nothing. When the record still
 /// carries this round's claim, the claim is completed (`claimed_at` cleared) and,
-/// with `max_attempts` given, the record is `stopped` at the cap. Every grant of
-/// `grants` with no obligation left (in this record or another root's) moves
-/// `revoking → revoked`; the record is removed once no obligation is left. The result reports the grants still pending
-/// (obligations, plus untracked calls that were not confirmed) and the residual
+/// with `max_attempts` given, ⟨r2.10⟩ each obligation that reached its own cap is
+/// `stopped`, the record only once every obligation left is (ADR-0006 §13.13
+/// item 3). Every grant of `grants` with no obligation left (in this record or
+/// another root's) moves `revoking → revoked`; the record is removed once no
+/// obligation is left. The result reports the grants still pending (obligations,
+/// plus any call that was not confirmed) and the residual
 /// ([`complete_revocation_in`]).
 #[allow(clippy::too_many_arguments)]
 fn complete_round_in(
@@ -2351,8 +2429,8 @@ fn complete_round_in(
             && r.attempts == attempts
         {
             r.claimed_at = None;
-            if max_attempts.is_some_and(|m| r.attempts >= m) {
-                r.stopped = true;
+            if let Some(m) = max_attempts {
+                stop_capped_obligations(&mut r, m);
             }
         }
         pending.extend(r.obligations.iter().map(|o| o.grant.clone()));
@@ -3209,6 +3287,7 @@ impl Operations {
             adapter_slots: tokio::sync::Semaphore::new(slots),
             changed: tokio::sync::Notify::new(),
             reserved_here: Mutex::new(HashMap::new()),
+            interrupted_rounds: Arc::new(Mutex::new(BTreeSet::new())),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -3417,6 +3496,32 @@ impl Operations {
                     e
                 }
             })?;
+        // ⟨r2.10⟩ ADR-0006 §13.13 item 4: remember, before anything below can claim
+        // a round, which pending remote records a previous run left with a claimed
+        // but uncompleted round; the supervisor runs those at once. Best effort: an
+        // unreadable record keeps its normal back-off.
+        match self
+            .write(|tx, _| {
+                Ok(tx
+                    .remote_revocations()?
+                    .into_iter()
+                    .filter(|r| r.claimed_at.is_some())
+                    .map(|r| r.root)
+                    .collect::<BTreeSet<GrantId>>())
+            })
+            .await
+        {
+            Ok(claimed) => {
+                *self
+                    .inner
+                    .interrupted_rounds
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = claimed;
+            }
+            Err(e) => {
+                tracing::warn!(code = %e.code, "interrupted remote revocation rounds could not be read");
+            }
+        }
         for op in open.into_iter().chain(unresolved) {
             if op.environment != self.inner.config.environment {
                 continue;
@@ -4547,6 +4652,22 @@ impl Operations {
                         }
                         match gate.admission(tx, &gid, &safe)? {
                             Admission::Open => {
+                                // ⟨r2.10⟩ ADR-0006 §13.13 item 1: the adapter that
+                                // prepares the grant is persisted with it in the
+                                // transaction of its first `Attempted` receipt
+                                // (written once, then immutable), so operation
+                                // retention cannot remove its responsible adapter.
+                                if let Some(origin) = tx.grant_origin(&gid)?
+                                    && origin.adapter.is_none()
+                                {
+                                    tx.set_grant_origin(
+                                        &gid,
+                                        &GrantOrigin {
+                                            adapter: Some(ident.clone()),
+                                            ..origin
+                                        },
+                                    )?;
+                                }
                                 tx.append_stage_receipt(
                                     &id2,
                                     &receipt(
@@ -5488,19 +5609,47 @@ impl Operations {
                     // ⟨r2.7⟩ ADR-0006 §13.10 item 3: a pending remote revocation stays
                     // visible on each grant it covers. ⟨r2.9⟩ §13.12 item 2: with the
                     // reason `adapter_unavailable` while a responsible adapter of one
-                    // of its obligations is not configured.
-                    let mut remote: BTreeMap<GrantId, (PendingRemoteRevocation, bool)> =
-                        BTreeMap::new();
+                    // of its obligations is not configured. ⟨r2.10⟩ §13.13: the retry
+                    // count and stop are the grant's own obligations' (item 3), and
+                    // a grant that ended before activation keeps its pending remote
+                    // part visible too (item 2; R-AU-04), so such a terminal grant
+                    // stays listed while it has an obligation.
+                    let mut remote: BTreeMap<GrantId, RemoteView> = BTreeMap::new();
                     for r in tx.remote_revocations()? {
                         for g in &r.grants {
-                            let unavailable = r.obligations.iter().any(|o| {
-                                &o.grant == g
-                                    && o.reason == Some(RemotePendingReason::AdapterUnavailable)
-                            });
-                            remote.insert(g.clone(), (r.clone(), unavailable));
+                            let own: Vec<&RemoteObligation> =
+                                r.obligations.iter().filter(|o| &o.grant == g).collect();
+                            remote.insert(
+                                g.clone(),
+                                RemoteView {
+                                    attempts: own
+                                        .iter()
+                                        .map(|o| r.obligation_attempts(o))
+                                        .max()
+                                        .unwrap_or(r.attempts),
+                                    last_attempt_at: r.last_attempt_at,
+                                    stopped: r.stopped
+                                        || (!own.is_empty() && own.iter().all(|o| o.stopped)),
+                                    unavailable: own.iter().any(|o| {
+                                        o.reason == Some(RemotePendingReason::AdapterUnavailable)
+                                    }),
+                                },
+                            );
                         }
                     }
-                    for g in tx.grants_due(Timestamp::MAX)? {
+                    let mut listed: Vec<(GrantSnapshot, bool)> = tx
+                        .grants_due(Timestamp::MAX)?
+                        .into_iter()
+                        .map(|g| (g, false))
+                        .collect();
+                    for gid in remote.keys() {
+                        if let Some(g) = tx.grant(gid)?
+                            && g.state.is_terminal()
+                        {
+                            listed.push((g, true));
+                        }
+                    }
+                    for (g, ended) in listed {
                         let refs = tx.grant_references(&g.id)?;
                         let mut visible = ctx.is_owner();
                         for r in refs {
@@ -5511,6 +5660,11 @@ impl Operations {
                                 && may_act_on(&b, &ctx)
                             {
                                 visible = true;
+                                if ended {
+                                    // Listed for its pending remote part only; its
+                                    // bindings are not live.
+                                    continue;
+                                }
                                 bindings.push(serde_json::json!({
                                     "binding_id": b.id,
                                     "grant_id": b.grant,
@@ -5540,14 +5694,12 @@ impl Operations {
                                         serde_json::to_value(reason)?,
                                     );
                                 }
-                                if g.state == GrantState::Revoking
-                                    && let Some((r, unavailable)) = remote.get(&g.id)
-                                {
+                                if let Some(r) = remote.get(&g.id) {
                                     map.insert(
                                         "remote_pending".to_owned(),
                                         serde_json::json!(true),
                                     );
-                                    if *unavailable {
+                                    if r.unavailable {
                                         map.insert(
                                             "remote_pending_reason".to_owned(),
                                             serde_json::to_value(
@@ -6460,6 +6612,7 @@ impl Operations {
         // them again and completes from the record.
         let id2 = id.clone();
         let root = req.grant_id.clone();
+        let interrupted = Arc::clone(&self.inner.interrupted_rounds);
         let (grants, round) = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id2)? else {
@@ -6491,6 +6644,9 @@ impl Operations {
                     retention,
                 )?;
                 let round = claim_first_round_in(tx, &root, &all, &configured, now, true)?;
+                // ⟨r2.10⟩ §13.13 item 4: the re-armed record's claim (if any) is this
+                // process's; an interrupted one found at startup is superseded.
+                forget_interrupted(&interrupted, &root);
                 op_to(&mut op, OperationEvent::Start, now)?;
                 tx.update_operation(&op)?;
                 emit.op(tx, &op)?;
@@ -6607,12 +6763,17 @@ impl Operations {
         // from the supervisor's bounded schedule.
         let configured = self.adapter_identities();
         let (r, g) = (root.clone(), grants.clone());
+        let interrupted = Arc::clone(&self.inner.interrupted_rounds);
         let claimed = self
             .write(move |tx, _| {
                 if tx.remote_revocation(&r)?.is_some() {
                     return Ok(Round::default());
                 }
-                claim_first_round_in(tx, &r, &g, &configured, now, false)
+                let round = claim_first_round_in(tx, &r, &g, &configured, now, false)?;
+                if round.claim.is_some() {
+                    forget_interrupted(&interrupted, &r);
+                }
+                Ok(round)
             })
             .await;
         let round = match claimed {
@@ -6749,6 +6910,24 @@ impl Operations {
         self.write(|tx, _| tx.remote_revocations()).await
     }
 
+    /// ⟨r2.10⟩ ADR-0006 §13.13 item 4: whether `record` carries a claimed but
+    /// uncompleted round that a previous run of the runtime left behind (found when
+    /// this runtime started, and not claimed again by it since). The supervisor runs
+    /// such a round at once instead of after a back-off; the interrupted round
+    /// still counts as attempted (§13.12 item 1). A round claimed by this process
+    /// and still in flight, or one whose completion failed in this process, is not
+    /// interrupted in this sense.
+    #[must_use]
+    pub fn round_interrupted(&self, record: &PendingRemoteRevocation) -> bool {
+        record.claimed_at.is_some()
+            && self
+                .inner
+                .interrupted_rounds
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains(&record.root)
+    }
+
     /// ⟨r2.7⟩ ADR-0006 §13.10 item 3: one round of the bounded retries of the
     /// pending remote part of the revocation rooted at `root`, called by the
     /// supervisor's single retry owner when the round is due on its jittered
@@ -6787,8 +6966,15 @@ impl Operations {
         let now = self.narrowing_now().await;
         let configured = self.adapter_identities();
         let r = root.clone();
+        let interrupted = Arc::clone(&self.inner.interrupted_rounds);
         let claimed = self
-            .write(move |tx, _| claim_retry_round_in(tx, &r, &configured, now, max_attempts))
+            .write(move |tx, _| {
+                let claimed = claim_retry_round_in(tx, &r, &configured, now, max_attempts)?;
+                if matches!(claimed, RetryClaim::Claimed(..)) {
+                    forget_interrupted(&interrupted, &r);
+                }
+                Ok(claimed)
+            })
             .await?;
         let (round, grants) = match claimed {
             RetryClaim::Gone => return Ok(None),

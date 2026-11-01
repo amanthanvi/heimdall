@@ -922,9 +922,11 @@ impl Txn<'_> {
     /// (ADR-0006 §13.9 item 2: re-validation derives its context from the grant's
     /// own record, never from a consumer binding or an operation record).
     ///
-    /// Written once: recording the same origin again is a no-op. The only change
-    /// accepted afterwards is add-only: a stored origin without a `covered` basis
-    /// may gain one (§13.7 item 2), every other field unchanged. Anything else is a
+    /// Written once: recording the same origin again is a no-op. The only changes
+    /// accepted afterwards are add-only: a stored origin without a `covered` basis
+    /// may gain one (§13.7 item 2), and ⟨r2.10⟩ one without the preparing
+    /// `adapter` may gain it (ADR-0006 §13.13 item 1), every other field
+    /// unchanged; once recorded, neither is replaced or cleared. Anything else is a
     /// [`StoreError::GenerationConflict`] and leaves the stored origin unchanged. A
     /// missing grant is `Sqlite(QueryReturnedNoRows)`.
     pub fn set_grant_origin(&mut self, grant: &GrantId, origin: &GrantOrigin) -> Result<()> {
@@ -935,13 +937,16 @@ impl Txn<'_> {
             if existing == *origin {
                 return Ok(());
             }
-            let gains_covered = existing.covered.is_none()
-                && origin.covered.is_some()
-                && GrantOrigin {
-                    covered: None,
-                    ..origin.clone()
-                } == existing;
-            if !gains_covered {
+            // The stored origin with only its absent optional fields filled in
+            // from the new one must be exactly the new one.
+            let mut added = existing.clone();
+            if added.covered.is_none() {
+                added.covered.clone_from(&origin.covered);
+            }
+            if added.adapter.is_none() {
+                added.adapter.clone_from(&origin.adapter);
+            }
+            if added != *origin {
                 return Err(conflict(format!(
                     "grant {grant} already records its origin"
                 )));

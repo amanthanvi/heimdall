@@ -153,6 +153,13 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Ruled in §13.12 item 4: those 8 are marked platform_only; the Windows owner-only ACL check moves to M04.
   - The validator (`minischema.validate`) returns errors and never raises, so the earlier one-line checks were vacuous.
   - New check.sh step `evidence-records`, which self-checks. Re-check: 86 records, 0 invalid.
+- T01/T02 are fixed: the fixer's worktree diff is applied and committed as d64503f5. My check.sh run: exit 0, 664 passed, 0 failed, 2 ignored. ADR-0006 §13.13 rulings:
+  - the adapter identity is stored on the grant origin;
+  - every pending answer is tracked;
+  - the retry cap is per obligation;
+  - interrupted rounds are due immediately.
+- Running: task M01-rulings-13-13 (shared checkout), for §13.13 items 1–4, plus the case index (8 Unix-only tests marked platform_only; r1310/r1312 indexed).
+- Then, at that commit and in parallel: Codex review round 5 and the final native evidence run. Then the M01 exit record.
 - After that, at one commit and in parallel:
   - native evidence runs (devbox, the Windows PC) and regenerated m01 records;
   - a final Codex check of 01747a6b..HEAD.

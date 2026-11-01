@@ -395,6 +395,43 @@ integrator with an ADR-0006 revision.
     grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant}`,
     `heimdall_domain::revocation::tests::{a_pending_record_without_obligations_reads_unchanged,
     only_the_responsible_adapter_serves_an_obligation}` (ADR-0006 §14.5 row).
+* **⟨r2.10⟩ ADR-0006 §13.13 items 1–4 (M01-rulings-13-13).** **Additive** field
+  `domain::grant::GrantOrigin.adapter: Option<AdapterIdentity>` (serde default,
+  omitted when absent; struct literals need it; stored in `grants.origin_json`, no
+  migration, `SCHEMA_VERSION` stays 4); **additive** fields
+  `domain::revocation::RemoteObligation.{attempts: Option<u32>, stopped: bool}`
+  (serde default, omitted when absent/`false`; struct literals need them) and
+  methods `PendingRemoteRevocation::{obligation_attempts(&self, &RemoteObligation) ->
+  u32, obligation_capped(&self, &RemoteObligation, u32) -> bool, capped(&self, u32)
+  -> bool}`; **additive** `Operations::round_interrupted(&self,
+  &PendingRemoteRevocation) -> bool`. Store (U4b paths): `Txn::set_grant_origin`
+  (signature unchanged) also accepts adding `adapter`, add-only like `covered`.
+  * Item 1: the transaction that writes a grant's first `Attempted` receipt records
+    the preparing adapter (mechanism and instance) in its origin, written once; it is
+    the grant's responsible adapter first, before the recovery intents and receipts
+    (`grant_adapters`); the mechanism-only fallback remains for grants without it.
+  * Item 2: a round's call for a grant that is not `revoking` (it ended before
+    activation, e.g. `preparing → revoked`) is an obligation recorded in the claim
+    before the call; a pending answer keeps it and the supervisor retries it; no
+    untracked call remains. `inspect grants` keeps listing such a terminal grant
+    while it has an obligation (`remote_pending`, `remote_retries`).
+  * Item 3: each obligation counts the claimed rounds that called its adapter and
+    stops at its own cap; the record stops only when every obligation is cleared or
+    capped; a record written before the field maps its count onto each obligation.
+    `inspect grants`' `remote_retries.{attempts, stopped}` are the grant's own
+    obligations'.
+  * Item 4: the roots whose record carried a claimed but uncompleted round when the
+    runtime started are remembered before restart recovery; the next round this
+    process claims for a root forgets it.
+  * Tests `model_operations::{r1313_1_*, r1313_2_*, r1313_3_*, r1313_4_*}`, the
+    extended property `r1312_props::r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation`
+    (two obligations on two adapters; adapter add/remove and stall steps), the updated
+    `r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery` (the
+    first pass after the restart now runs the next round at once),
+    `integration_store::grant_origin_gains_its_preparing_adapter_once`,
+    `heimdall_domain::{grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged,
+    revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation}`
+    (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.
@@ -569,6 +606,11 @@ integrator with an ADR-0006 revision.
   row (nothing spins). A round whose completion failed is rescheduled; the next pass
   sees the durable count its claim wrote, so a record at the cap is stopped without
   another call.
+* **⟨r2.10⟩ ADR-0006 §13.13, U8 side (M01-rulings-13-13):** no signature change.
+  `revocation_pass` stops a record without a call only when every obligation reached
+  its own cap (`PendingRemoteRevocation::capped`), and runs a round at once, instead
+  of after a back-off, for a record first seen with a round a previous run claimed and
+  never completed (`Operations::round_interrupted`); the interrupted round counted.
 
 ### U9 — CLI client, test adapter wiring, schema export — **wave 2**
 

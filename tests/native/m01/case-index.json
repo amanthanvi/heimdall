@@ -1,5 +1,5 @@
 {
-  "description": "M01-U10 case index: each spec §17 case group (model and local-runtime variants) and each plan §5 / m01-plan §3 M01 exit claim mapped to concrete Cargo test targets and test names. check-case-index.py verifies every name against real run logs. kind: model | integration | e2e | process-crash | in-process | substrate | property. expect: ok (must have run and passed) or gap-ignored (exists, #[ignore]d because the product does not implement the ruling yet; must have run with --ignored and failed).",
+  "description": "M01-U10 case index: each spec §17 case group (model and local-runtime variants) and each plan §5 / m01-plan §3 M01 exit claim mapped to concrete Cargo test targets and test names. check-case-index.py verifies every name against real run logs. kind: model | integration | e2e | process-crash | in-process | substrate | property. expect: ok (must have run and passed) or gap-ignored (exists, #[ignore]d because the product does not implement the ruling yet; must have run with --ignored and failed). platform_only: {\"<target>\" | \"<target>::<test name prefix>\": [platforms]} limits the platforms a test applies to; platform_only_rationale gives the reason for an entry (ADR-0006 §13.12 item 4).",
   "groups": {
     "A06": {
       "title": "Idempotency and interrupted requests (model and local-runtime variants)",
@@ -124,7 +124,8 @@
           "grant_origin_is_written_once_and_gains_only_a_covered_basis",
           "grant_approval_is_written_once_and_survives_operation_purge",
           "upsert_environment_advances_the_authority_generation_on_every_write",
-          "remote_revocation_records_need_a_tombstone_and_round_trip"
+          "remote_revocation_records_need_a_tombstone_and_round_trip",
+          "grant_origin_gains_its_preparing_adapter_once"
         ],
         "model_operations": [
           "delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one",
@@ -149,7 +150,21 @@
           "r1310_3_a_pending_remote_effect_completes_when_the_adapter_later_reports_done",
           "r1310_3_a_settled_explicit_revoke_left_pending_is_retried_only_when_due",
           "r1310_3_the_revocation_backoff_is_injectable_and_caps_the_rounds",
-          "r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule"
+          "r1310_props::r1310_3_rounds_follow_the_jittered_capped_schedule",
+          "r1312_1_failed_completion_commits_never_allow_more_adapter_calls_than_the_cap",
+          "r1312_2_removing_the_original_adapter_never_completes_its_pending_revocation",
+          "r1312_2_an_empty_adapter_list_never_completes_a_pending_revocation",
+          "r1312_2_a_withdrawal_while_the_responsible_adapter_is_missing_waits_for_it",
+          "r1312_2_a_record_written_before_obligations_keeps_its_responsible_adapter",
+          "r1312_props::r1312_calls_stay_within_the_cap_and_only_the_adapter_clears_its_obligation",
+          "r1313_1_the_preparing_adapter_stays_responsible_after_operation_retention",
+          "r1313_2_a_grant_revoked_while_preparing_is_tracked_until_its_adapter_confirms",
+          "r1313_3_one_adapters_rounds_never_exhaust_another_adapters_obligation",
+          "r1313_3_a_record_count_from_before_per_obligation_counts_still_caps_its_obligations"
+        ],
+        "heimdall_domain-unit": [
+          "grant::tests::an_origin_without_its_preparing_adapter_reads_unchanged",
+          "revocation::tests::obligation_attempts_map_a_record_count_conservatively_and_cap_per_obligation"
         ]
       },
       "not_modelled": [
@@ -218,7 +233,16 @@
       },
       "not_modelled": [
         "native OS sleep, logout and reboot with real clocks and boot IDs: M04"
-      ]
+      ],
+      "platform_only": {
+        "e2e_cli_m01::time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines": [
+          "macos",
+          "linux"
+        ]
+      },
+      "platform_only_rationale": {
+        "e2e_cli_m01::time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines": "Pseudo-terminal e2e test (#[cfg(unix)]). On Windows the attendance and prompt order is covered by the CLI unit seams; ConPTY tests are an M04 item (ADR-0006 §13.12 item 4)."
+      }
     },
     "A19": {
       "title": "Structured operations and uncertainty (model and local-runtime variants)",
@@ -321,6 +345,30 @@
         "heimdall_contract-unit": [
           "request::tests::shutdown_wire_form_and_predicates"
         ]
+      },
+      "platform_only": {
+        "e2e_cli_m01::non_interactive_with_a_pending_decision_exits_3_with_decision_ref_and_no_prompt": [
+          "macos",
+          "linux"
+        ],
+        "e2e_cli_m01::owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once": [
+          "macos",
+          "linux"
+        ],
+        "e2e_cli_m01::interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready": [
+          "macos",
+          "linux"
+        ],
+        "e2e_cli_m01::widening_resume_needs_an_owner_decision_completed_on_a_pty": [
+          "macos",
+          "linux"
+        ]
+      },
+      "platform_only_rationale": {
+        "e2e_cli_m01::non_interactive_with_a_pending_decision_exits_3_with_decision_ref_and_no_prompt": "Pseudo-terminal e2e test (#[cfg(unix)]). On Windows the attendance and prompt order is covered by the CLI unit seams; ConPTY tests are an M04 item (ADR-0006 §13.12 item 4).",
+        "e2e_cli_m01::owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once": "Pseudo-terminal e2e test (#[cfg(unix)]). On Windows the attendance and prompt order is covered by the CLI unit seams; ConPTY tests are an M04 item (ADR-0006 §13.12 item 4).",
+        "e2e_cli_m01::interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready": "Pseudo-terminal e2e test (#[cfg(unix)]). On Windows the attendance and prompt order is covered by the CLI unit seams; ConPTY tests are an M04 item (ADR-0006 §13.12 item 4).",
+        "e2e_cli_m01::widening_resume_needs_an_owner_decision_completed_on_a_pty": "Pseudo-terminal e2e test (#[cfg(unix)]). On Windows the attendance and prompt order is covered by the CLI unit seams; ConPTY tests are an M04 item (ADR-0006 §13.12 item 4)."
       }
     },
     "A29": {
@@ -392,11 +440,23 @@
         ],
         "heimdall_ipc-unit::windows::": [
           "windows"
+        ],
+        "integration_runtime::instance_insecure_files_are_refused": [
+          "macos",
+          "linux"
+        ],
+        "integration_runtime::paths_tighten_existing_permissive_dirs_and_refuse_symlinks": [
+          "macos",
+          "linux"
         ]
       },
       "not_modelled": [
         "cross-user Windows pipe refusal with a real second account: blocked on the disposable second Windows account (ADR-0004 §3)"
-      ]
+      ],
+      "platform_only_rationale": {
+        "integration_runtime::instance_insecure_files_are_refused": "Tests POSIX modes and symlinks (#[cfg(unix)]). On Windows the state directory relies on the per-user %LOCALAPPDATA% ACL; M01 makes no Windows claim that the state directory is owner-only, and an explicit Windows ACL check with a native test is an M04 item (ADR-0006 §13.12 item 4).",
+        "integration_runtime::paths_tighten_existing_permissive_dirs_and_refuse_symlinks": "Tests POSIX modes and symlinks (#[cfg(unix)]). On Windows the state directory relies on the per-user %LOCALAPPDATA% ACL; M01 makes no Windows claim that the state directory is owner-only, and an explicit Windows ACL check with a native test is an M04 item (ADR-0006 §13.12 item 4)."
+      }
     },
     "A17-local": {
       "title": "Crash and stale cleanup: local restart recovery (local-runtime variant)",
@@ -432,7 +492,13 @@
           "r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart",
           "r139_3_the_scheduler_pass_completes_an_interrupted_withdrawal_once",
           "r139_3_a_pending_remote_effect_completes_in_a_later_pass_without_a_second_report",
-          "r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused"
+          "r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused",
+          "r1312_1_a_crash_between_the_adapter_call_and_its_completion_counts_the_round",
+          "r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery",
+          "r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart",
+          "r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart",
+          "r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again",
+          "r1313_4_a_round_in_flight_in_this_process_is_not_called_again_at_once"
         ],
         "model_revocation": [
           "ended_grants_never_return_and_restart_never_resets_the_clock",
@@ -488,7 +554,12 @@
           "model_operations::r139_3_a_crash_between_the_withdrawal_tombstone_and_its_completion_completes_on_restart",
           "model_revocation::r138_5_a_restart_after_the_creators_cancellation_completes_the_shared_preparation",
           "model_revocation::review_a04_minimums_survive_recovery",
-          "model_operations::r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused"
+          "model_operations::r1310_2_a_restart_while_degraded_keeps_the_grant_degraded_and_refused",
+          "model_operations::r1312_1_a_crash_between_the_adapter_call_and_its_completion_counts_the_round",
+          "model_operations::r1312_1_an_interrupted_explicit_revoke_is_not_called_again_by_recovery",
+          "model_operations::r1313_4_an_explicit_revoke_interrupted_before_its_call_is_due_at_once_after_restart",
+          "model_operations::r1313_4_a_retry_round_interrupted_before_its_call_is_due_at_once_after_restart",
+          "model_operations::r1313_4_a_round_claimed_after_the_restart_follows_the_back_off_again"
         ]
       },
       "not_modelled": [
@@ -498,7 +569,14 @@
         "e2e_cli_m01::service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable": [
           "macos",
           "linux"
+        ],
+        "integration_runtime::instance_stale_records_are_ignored": [
+          "macos",
+          "linux"
         ]
+      },
+      "platform_only_rationale": {
+        "integration_runtime::instance_stale_records_are_ignored": "Tests POSIX modes and symlinks (#[cfg(unix)]). On Windows the state directory relies on the per-user %LOCALAPPDATA% ACL; M01 makes no Windows claim that the state directory is owner-only, and an explicit Windows ACL check with a native test is an M04 item (ADR-0006 §13.12 item 4)."
       }
     }
   },
