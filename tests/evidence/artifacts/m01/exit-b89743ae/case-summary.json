@@ -1,0 +1,1113 @@
+{
+  "groups": {
+    "A06": {
+      "tests": 30,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 30,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 30,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 30,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ]
+    },
+    "A07": {
+      "tests": 139,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 139,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 139,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 139,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ]
+    },
+    "A08": {
+      "tests": 92,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 92,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 92,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 91,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        },
+        {
+          "platform": "native OS sleep, logout and reboot (macOS, Linux, Windows)",
+          "status": "blocked",
+          "blocked_on": "M04 native lifecycle evidence (real sleep, logout and reboot with the platform continuous clock and boot ID)"
+        }
+      ]
+    },
+    "A19": {
+      "tests": 156,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 156,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 92,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [
+            "contracts::canonical_props::array_order_changes_canonical_bytes_and_hash",
+            "contracts::canonical_props::canonical_output_is_valid_json_and_idempotent",
+            "contracts::canonical_props::context_participates_in_the_hash",
+            "contracts::canonical_props::decimal_text_reaches_a_canonical_fixed_point",
+            "contracts::canonical_props::float_roundtrip_parsed_number_canonicalizes_identically",
+            "contracts::canonical_props::floats_hash_consistently_and_round_trip_text",
+            "contracts::canonical_props::golden_request_hash_vectors",
+            "contracts::canonical_props::hash_equality_iff_bytes_equality_with_floats",
+            "contracts::canonical_props::hash_equality_iff_canonical_byte_equality",
+            "contracts::canonical_props::hash_hex_round_trips",
+            "contracts::canonical_props::hash_parser_is_bounded_and_total",
+            "contracts::canonical_props::integer_documents_reparse_to_identical_canonical_bytes",
+            "contracts::canonical_props::key_order_does_not_change_canonical_bytes",
+            "contracts::canonical_props::numbers_keep_their_serde_json_form",
+            "contracts::canonical_props::object_keys_sort_bytewise_not_by_utf16_or_locale",
+            "contracts::canonical_props::strings_use_deterministic_escapes",
+            "contracts::code_table::adr_13_1_rulings_hold",
+            "contracts::code_table::code_set_has_no_duplicates_and_covers_the_spec_list",
+            "contracts::code_table::code_spelling_is_exact_on_the_wire",
+            "contracts::code_table::decision_stale_row_is_in_table_order",
+            "contracts::code_table::envelope_with_an_unknown_code_parses_and_is_not_success",
+            "contracts::code_table::error_envelope_golden_json_for_every_code",
+            "contracts::code_table::every_code_matches_its_golden_row",
+            "contracts::code_table::exit_numbers_are_the_documented_wire_numbers",
+            "contracts::code_table::golden_file_matches_the_adr_table",
+            "contracts::code_table::retryable_never_applies_to_uncertain_or_refused_outcomes",
+            "contracts::code_table::unknown_code_reads_as_an_error_with_exit_one_and_round_trips",
+            "contracts::examples::attend_and_subscribed_examples_parse_to_the_documented_shapes",
+            "contracts::examples::client_hello_interaction_defaults_to_non_interactive",
+            "contracts::examples::decide_and_confirm_time_examples_are_attended_only_requests",
+            "contracts::examples::decision_stale_example_matches_its_table_row",
+            "contracts::examples::emitted_documents_always_materialize_next_and_warnings",
+            "contracts::examples::error_examples_cover_every_exit_class_and_agree_with_the_code_table",
+            "contracts::examples::every_example_round_trips_exactly_through_the_typed_model",
+            "contracts::examples::every_example_validates_against_generated_and_checked_in_schemas",
+            "contracts::examples::missing_schema_version_is_not_defaulted",
+            "contracts::examples::schema_validator_is_not_vacuous_for_the_examples",
+            "contracts::examples::state_matches_code_in_the_examples",
+            "contracts::examples::success_examples_carry_no_private_material_fields",
+            "contracts::examples::unknown_fields_are_tolerated_at_every_nesting_level",
+            "contracts::examples::unsupported_schema_major_is_rejected_explicitly",
+            "contracts::ids::generated_ids_use_the_documented_wire_form",
+            "contracts::ids::hostile_inputs_are_rejected_without_panic",
+            "contracts::ids::length_bound_is_exactly_128_bytes",
+            "contracts::ids::prefixed_ids_require_their_own_prefix",
+            "contracts::ids::prefixed_parsers_accept_only_prefixed_tokens",
+            "contracts::ids::random_bytes_always_make_parseable_ids",
+            "contracts::ids::serde_enforces_the_same_bounds",
+            "contracts::ids::token_parsers_match_the_bound_oracle",
+            "contracts::jsonschema_lite::tests::accepts_and_rejects_basic_shapes",
+            "contracts::jsonschema_lite::tests::one_of_requires_exactly_one_match",
+            "contracts::jsonschema_lite::tests::unique_items_detects_duplicates",
+            "contracts::jsonschema_lite::tests::unsupported_keywords_fail_loudly",
+            "contracts::limits::framing_and_connection_limits_match_adr_0006",
+            "contracts::limits::request_and_cursor_bounds_are_fixed",
+            "contracts::limits::versions_and_capability_names_are_stable",
+            "contracts::schema_export::checked_in_public_api_matches_the_model_exactly",
+            "contracts::schema_export::code_schema_enumerates_exactly_the_code_table",
+            "contracts::schema_export::codes_json_rows_equal_the_model_and_golden",
+            "contracts::schema_export::envelope_schemas_require_warnings_and_next",
+            "contracts::schema_export::envelope_without_warnings_and_next_still_deserializes",
+            "contracts::schema_export::every_schema_is_a_closed_set_of_supported_keywords",
+            "contracts::schema_export::export_is_byte_identical_across_runs",
+            "contracts::schema_export::schema_ids_are_never_secret_bearing_formats"
+          ],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 75,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [
+            "contracts::canonical_props::array_order_changes_canonical_bytes_and_hash",
+            "contracts::canonical_props::canonical_output_is_valid_json_and_idempotent",
+            "contracts::canonical_props::context_participates_in_the_hash",
+            "contracts::canonical_props::decimal_text_reaches_a_canonical_fixed_point",
+            "contracts::canonical_props::float_roundtrip_parsed_number_canonicalizes_identically",
+            "contracts::canonical_props::floats_hash_consistently_and_round_trip_text",
+            "contracts::canonical_props::golden_request_hash_vectors",
+            "contracts::canonical_props::hash_equality_iff_bytes_equality_with_floats",
+            "contracts::canonical_props::hash_equality_iff_canonical_byte_equality",
+            "contracts::canonical_props::hash_hex_round_trips",
+            "contracts::canonical_props::hash_parser_is_bounded_and_total",
+            "contracts::canonical_props::integer_documents_reparse_to_identical_canonical_bytes",
+            "contracts::canonical_props::key_order_does_not_change_canonical_bytes",
+            "contracts::canonical_props::numbers_keep_their_serde_json_form",
+            "contracts::canonical_props::object_keys_sort_bytewise_not_by_utf16_or_locale",
+            "contracts::canonical_props::strings_use_deterministic_escapes",
+            "contracts::code_table::adr_13_1_rulings_hold",
+            "contracts::code_table::code_set_has_no_duplicates_and_covers_the_spec_list",
+            "contracts::code_table::code_spelling_is_exact_on_the_wire",
+            "contracts::code_table::decision_stale_row_is_in_table_order",
+            "contracts::code_table::envelope_with_an_unknown_code_parses_and_is_not_success",
+            "contracts::code_table::error_envelope_golden_json_for_every_code",
+            "contracts::code_table::every_code_matches_its_golden_row",
+            "contracts::code_table::exit_numbers_are_the_documented_wire_numbers",
+            "contracts::code_table::golden_file_matches_the_adr_table",
+            "contracts::code_table::retryable_never_applies_to_uncertain_or_refused_outcomes",
+            "contracts::code_table::unknown_code_reads_as_an_error_with_exit_one_and_round_trips",
+            "contracts::examples::attend_and_subscribed_examples_parse_to_the_documented_shapes",
+            "contracts::examples::client_hello_interaction_defaults_to_non_interactive",
+            "contracts::examples::decide_and_confirm_time_examples_are_attended_only_requests",
+            "contracts::examples::decision_stale_example_matches_its_table_row",
+            "contracts::examples::emitted_documents_always_materialize_next_and_warnings",
+            "contracts::examples::error_examples_cover_every_exit_class_and_agree_with_the_code_table",
+            "contracts::examples::every_example_round_trips_exactly_through_the_typed_model",
+            "contracts::examples::every_example_validates_against_generated_and_checked_in_schemas",
+            "contracts::examples::missing_schema_version_is_not_defaulted",
+            "contracts::examples::schema_validator_is_not_vacuous_for_the_examples",
+            "contracts::examples::state_matches_code_in_the_examples",
+            "contracts::examples::success_examples_carry_no_private_material_fields",
+            "contracts::examples::unknown_fields_are_tolerated_at_every_nesting_level",
+            "contracts::examples::unsupported_schema_major_is_rejected_explicitly",
+            "contracts::ids::generated_ids_use_the_documented_wire_form",
+            "contracts::ids::hostile_inputs_are_rejected_without_panic",
+            "contracts::ids::length_bound_is_exactly_128_bytes",
+            "contracts::ids::prefixed_ids_require_their_own_prefix",
+            "contracts::ids::prefixed_parsers_accept_only_prefixed_tokens",
+            "contracts::ids::random_bytes_always_make_parseable_ids",
+            "contracts::ids::serde_enforces_the_same_bounds",
+            "contracts::ids::token_parsers_match_the_bound_oracle",
+            "contracts::jsonschema_lite::tests::accepts_and_rejects_basic_shapes",
+            "contracts::jsonschema_lite::tests::one_of_requires_exactly_one_match",
+            "contracts::jsonschema_lite::tests::unique_items_detects_duplicates",
+            "contracts::jsonschema_lite::tests::unsupported_keywords_fail_loudly",
+            "contracts::limits::framing_and_connection_limits_match_adr_0006",
+            "contracts::limits::request_and_cursor_bounds_are_fixed",
+            "contracts::limits::versions_and_capability_names_are_stable",
+            "contracts::schema_export::checked_in_public_api_matches_the_model_exactly",
+            "contracts::schema_export::code_schema_enumerates_exactly_the_code_table",
+            "contracts::schema_export::codes_json_rows_equal_the_model_and_golden",
+            "contracts::schema_export::envelope_schemas_require_warnings_and_next",
+            "contracts::schema_export::envelope_without_warnings_and_next_still_deserializes",
+            "contracts::schema_export::every_schema_is_a_closed_set_of_supported_keywords",
+            "contracts::schema_export::export_is_byte_identical_across_runs",
+            "contracts::schema_export::schema_ids_are_never_secret_bearing_formats"
+          ],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ]
+    },
+    "A29": {
+      "tests": 65,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 60,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 60,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 52,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        },
+        {
+          "platform": "Windows 11 with a second account",
+          "status": "blocked",
+          "blocked_on": "disposable second Windows account (ADR-0004 \u00a73): cross-user named-pipe refusal and the server-owner check against another user's pipe"
+        }
+      ]
+    },
+    "A17-local": {
+      "tests": 87,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 87,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 87,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 82,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ]
+    }
+  },
+  "exit_claims": {
+    "A06/A07/A08/A19/A29 model and local-runtime variants pass": {
+      "tests": 482,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 477,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 413,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [
+            "contracts::canonical_props::array_order_changes_canonical_bytes_and_hash",
+            "contracts::canonical_props::canonical_output_is_valid_json_and_idempotent",
+            "contracts::canonical_props::context_participates_in_the_hash",
+            "contracts::canonical_props::decimal_text_reaches_a_canonical_fixed_point",
+            "contracts::canonical_props::float_roundtrip_parsed_number_canonicalizes_identically",
+            "contracts::canonical_props::floats_hash_consistently_and_round_trip_text",
+            "contracts::canonical_props::golden_request_hash_vectors",
+            "contracts::canonical_props::hash_equality_iff_bytes_equality_with_floats",
+            "contracts::canonical_props::hash_equality_iff_canonical_byte_equality",
+            "contracts::canonical_props::hash_hex_round_trips",
+            "contracts::canonical_props::hash_parser_is_bounded_and_total",
+            "contracts::canonical_props::integer_documents_reparse_to_identical_canonical_bytes",
+            "contracts::canonical_props::key_order_does_not_change_canonical_bytes",
+            "contracts::canonical_props::numbers_keep_their_serde_json_form",
+            "contracts::canonical_props::object_keys_sort_bytewise_not_by_utf16_or_locale",
+            "contracts::canonical_props::strings_use_deterministic_escapes",
+            "contracts::code_table::adr_13_1_rulings_hold",
+            "contracts::code_table::code_set_has_no_duplicates_and_covers_the_spec_list",
+            "contracts::code_table::code_spelling_is_exact_on_the_wire",
+            "contracts::code_table::decision_stale_row_is_in_table_order",
+            "contracts::code_table::envelope_with_an_unknown_code_parses_and_is_not_success",
+            "contracts::code_table::error_envelope_golden_json_for_every_code",
+            "contracts::code_table::every_code_matches_its_golden_row",
+            "contracts::code_table::exit_numbers_are_the_documented_wire_numbers",
+            "contracts::code_table::golden_file_matches_the_adr_table",
+            "contracts::code_table::retryable_never_applies_to_uncertain_or_refused_outcomes",
+            "contracts::code_table::unknown_code_reads_as_an_error_with_exit_one_and_round_trips",
+            "contracts::examples::attend_and_subscribed_examples_parse_to_the_documented_shapes",
+            "contracts::examples::client_hello_interaction_defaults_to_non_interactive",
+            "contracts::examples::decide_and_confirm_time_examples_are_attended_only_requests",
+            "contracts::examples::decision_stale_example_matches_its_table_row",
+            "contracts::examples::emitted_documents_always_materialize_next_and_warnings",
+            "contracts::examples::error_examples_cover_every_exit_class_and_agree_with_the_code_table",
+            "contracts::examples::every_example_round_trips_exactly_through_the_typed_model",
+            "contracts::examples::every_example_validates_against_generated_and_checked_in_schemas",
+            "contracts::examples::missing_schema_version_is_not_defaulted",
+            "contracts::examples::schema_validator_is_not_vacuous_for_the_examples",
+            "contracts::examples::state_matches_code_in_the_examples",
+            "contracts::examples::success_examples_carry_no_private_material_fields",
+            "contracts::examples::unknown_fields_are_tolerated_at_every_nesting_level",
+            "contracts::examples::unsupported_schema_major_is_rejected_explicitly",
+            "contracts::ids::generated_ids_use_the_documented_wire_form",
+            "contracts::ids::hostile_inputs_are_rejected_without_panic",
+            "contracts::ids::length_bound_is_exactly_128_bytes",
+            "contracts::ids::prefixed_ids_require_their_own_prefix",
+            "contracts::ids::prefixed_parsers_accept_only_prefixed_tokens",
+            "contracts::ids::random_bytes_always_make_parseable_ids",
+            "contracts::ids::serde_enforces_the_same_bounds",
+            "contracts::ids::token_parsers_match_the_bound_oracle",
+            "contracts::jsonschema_lite::tests::accepts_and_rejects_basic_shapes",
+            "contracts::jsonschema_lite::tests::one_of_requires_exactly_one_match",
+            "contracts::jsonschema_lite::tests::unique_items_detects_duplicates",
+            "contracts::jsonschema_lite::tests::unsupported_keywords_fail_loudly",
+            "contracts::limits::framing_and_connection_limits_match_adr_0006",
+            "contracts::limits::request_and_cursor_bounds_are_fixed",
+            "contracts::limits::versions_and_capability_names_are_stable",
+            "contracts::schema_export::checked_in_public_api_matches_the_model_exactly",
+            "contracts::schema_export::code_schema_enumerates_exactly_the_code_table",
+            "contracts::schema_export::codes_json_rows_equal_the_model_and_golden",
+            "contracts::schema_export::envelope_schemas_require_warnings_and_next",
+            "contracts::schema_export::envelope_without_warnings_and_next_still_deserializes",
+            "contracts::schema_export::every_schema_is_a_closed_set_of_supported_keywords",
+            "contracts::schema_export::export_is_byte_identical_across_runs",
+            "contracts::schema_export::schema_ids_are_never_secret_bearing_formats"
+          ],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 387,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [
+            "contracts::canonical_props::array_order_changes_canonical_bytes_and_hash",
+            "contracts::canonical_props::canonical_output_is_valid_json_and_idempotent",
+            "contracts::canonical_props::context_participates_in_the_hash",
+            "contracts::canonical_props::decimal_text_reaches_a_canonical_fixed_point",
+            "contracts::canonical_props::float_roundtrip_parsed_number_canonicalizes_identically",
+            "contracts::canonical_props::floats_hash_consistently_and_round_trip_text",
+            "contracts::canonical_props::golden_request_hash_vectors",
+            "contracts::canonical_props::hash_equality_iff_bytes_equality_with_floats",
+            "contracts::canonical_props::hash_equality_iff_canonical_byte_equality",
+            "contracts::canonical_props::hash_hex_round_trips",
+            "contracts::canonical_props::hash_parser_is_bounded_and_total",
+            "contracts::canonical_props::integer_documents_reparse_to_identical_canonical_bytes",
+            "contracts::canonical_props::key_order_does_not_change_canonical_bytes",
+            "contracts::canonical_props::numbers_keep_their_serde_json_form",
+            "contracts::canonical_props::object_keys_sort_bytewise_not_by_utf16_or_locale",
+            "contracts::canonical_props::strings_use_deterministic_escapes",
+            "contracts::code_table::adr_13_1_rulings_hold",
+            "contracts::code_table::code_set_has_no_duplicates_and_covers_the_spec_list",
+            "contracts::code_table::code_spelling_is_exact_on_the_wire",
+            "contracts::code_table::decision_stale_row_is_in_table_order",
+            "contracts::code_table::envelope_with_an_unknown_code_parses_and_is_not_success",
+            "contracts::code_table::error_envelope_golden_json_for_every_code",
+            "contracts::code_table::every_code_matches_its_golden_row",
+            "contracts::code_table::exit_numbers_are_the_documented_wire_numbers",
+            "contracts::code_table::golden_file_matches_the_adr_table",
+            "contracts::code_table::retryable_never_applies_to_uncertain_or_refused_outcomes",
+            "contracts::code_table::unknown_code_reads_as_an_error_with_exit_one_and_round_trips",
+            "contracts::examples::attend_and_subscribed_examples_parse_to_the_documented_shapes",
+            "contracts::examples::client_hello_interaction_defaults_to_non_interactive",
+            "contracts::examples::decide_and_confirm_time_examples_are_attended_only_requests",
+            "contracts::examples::decision_stale_example_matches_its_table_row",
+            "contracts::examples::emitted_documents_always_materialize_next_and_warnings",
+            "contracts::examples::error_examples_cover_every_exit_class_and_agree_with_the_code_table",
+            "contracts::examples::every_example_round_trips_exactly_through_the_typed_model",
+            "contracts::examples::every_example_validates_against_generated_and_checked_in_schemas",
+            "contracts::examples::missing_schema_version_is_not_defaulted",
+            "contracts::examples::schema_validator_is_not_vacuous_for_the_examples",
+            "contracts::examples::state_matches_code_in_the_examples",
+            "contracts::examples::success_examples_carry_no_private_material_fields",
+            "contracts::examples::unknown_fields_are_tolerated_at_every_nesting_level",
+            "contracts::examples::unsupported_schema_major_is_rejected_explicitly",
+            "contracts::ids::generated_ids_use_the_documented_wire_form",
+            "contracts::ids::hostile_inputs_are_rejected_without_panic",
+            "contracts::ids::length_bound_is_exactly_128_bytes",
+            "contracts::ids::prefixed_ids_require_their_own_prefix",
+            "contracts::ids::prefixed_parsers_accept_only_prefixed_tokens",
+            "contracts::ids::random_bytes_always_make_parseable_ids",
+            "contracts::ids::serde_enforces_the_same_bounds",
+            "contracts::ids::token_parsers_match_the_bound_oracle",
+            "contracts::jsonschema_lite::tests::accepts_and_rejects_basic_shapes",
+            "contracts::jsonschema_lite::tests::one_of_requires_exactly_one_match",
+            "contracts::jsonschema_lite::tests::unique_items_detects_duplicates",
+            "contracts::jsonschema_lite::tests::unsupported_keywords_fail_loudly",
+            "contracts::limits::framing_and_connection_limits_match_adr_0006",
+            "contracts::limits::request_and_cursor_bounds_are_fixed",
+            "contracts::limits::versions_and_capability_names_are_stable",
+            "contracts::schema_export::checked_in_public_api_matches_the_model_exactly",
+            "contracts::schema_export::code_schema_enumerates_exactly_the_code_table",
+            "contracts::schema_export::codes_json_rows_equal_the_model_and_golden",
+            "contracts::schema_export::envelope_schemas_require_warnings_and_next",
+            "contracts::schema_export::envelope_without_warnings_and_next_still_deserializes",
+            "contracts::schema_export::every_schema_is_a_closed_set_of_supported_keywords",
+            "contracts::schema_export::export_is_byte_identical_across_runs",
+            "contracts::schema_export::schema_ids_are_never_secret_bearing_formats"
+          ],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        },
+        {
+          "platform": "native OS sleep, logout and reboot (macOS, Linux, Windows)",
+          "status": "blocked",
+          "blocked_on": "M04 native lifecycle evidence (real sleep, logout and reboot with the platform continuous clock and boot ID)"
+        },
+        {
+          "platform": "Windows 11 with a second account",
+          "status": "blocked",
+          "blocked_on": "disposable second Windows account (ADR-0004 \u00a73): cross-user named-pipe refusal and the server-owner check against another user's pipe"
+        }
+      ],
+      "note": null
+    },
+    "Revocation races fail closed": {
+      "tests": 14,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 14,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 14,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 14,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ],
+      "note": null
+    },
+    "No external side effects needed to verify core semantics": {
+      "tests": 2,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 2,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 2,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 2,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ],
+      "note": "Every A06/A07/A08/A19/A29/A17-local test above uses testkit::FakeCredentialAdapter (in-memory or a disposable ledger file in a temp dir), VirtualClock/ScriptedTimeSync or the host clock, Store::open_in_memory or a temp-dir database, and owner-only Unix sockets / named pipes in temp dirs; no network, provider or remote host is contacted by any test (the remote hosts only executed the binaries)."
+    },
+    "Crash recovery cannot reset a deadline, revive a pause, or change environment identity": {
+      "tests": 15,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 15,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 15,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 15,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ],
+      "note": null
+    },
+    "Time rule of ADR-0005 \u00a73.6 holds under sleep, restart, reboot, rollback": {
+      "tests": 92,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 92,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 92,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 91,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        },
+        {
+          "platform": "native OS sleep, logout and reboot (macOS, Linux, Windows)",
+          "status": "blocked",
+          "blocked_on": "M04 native lifecycle evidence (real sleep, logout and reboot with the platform continuous clock and boot ID)"
+        }
+      ],
+      "note": null
+    },
+    "G08 contract baseline recorded (revision 2)": {
+      "tests": 64,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 64,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        }
+      ],
+      "note": null
+    },
+    "Model portions of G05/G09": {
+      "tests": 25,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 25,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 25,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 25,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ],
+      "note": null
+    },
+    "N06 exit cases (m01-plan U10 r2.1)": {
+      "tests": 6,
+      "rows": [
+        {
+          "platform": "macos-arm64",
+          "status": "verified",
+          "passed": 6,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "check.sh": 0
+          },
+          "artifact_digest": "check.txt sha256:7caeedd3d3fb9f344324f84fc2f48d6db7a450f32d0a4481bf2c5db7bc6d6e8c",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/macos/check.txt"
+          ]
+        },
+        {
+          "platform": "linux-x86_64 (linux-a)",
+          "status": "verified",
+          "passed": 6,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-linux.sh": 0,
+            "ssh uname -m": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/linux-a/build.txt; tests.txt sha256:81023a0c12872d67fdcde2c25c733f911d1ba74ec66de4dc91ce938c4cb817de",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/linux-a/tests.txt"
+          ]
+        },
+        {
+          "platform": "windows-11-x86_64",
+          "status": "verified",
+          "passed": 6,
+          "failed": [],
+          "ignored": [],
+          "not_run_on_this_platform": [],
+          "platform_neutral_run_elsewhere": [],
+          "exit_codes": {
+            "run-windows.sh": 0,
+            "cargo test --no-run (cross-build)": 0,
+            "create scratch dirs": 0,
+            "every test binary": 0,
+            "canary scan": 0
+          },
+          "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-b89743ae/windows-11/build.txt; tests.txt sha256:1d07d8fa154ad67c65dd475d22e9f63fe20316fbaa56f73182fa106d3f05cdcb",
+          "logs": [
+            "tests/evidence/artifacts/m01/exit-b89743ae/windows-11/tests.txt"
+          ]
+        }
+      ],
+      "note": "N06 (a) and (b) run through the production Supervisor cleanup executor with a fake ResourceCleaner (in-process); the substrate-only case and the operations-path reading (no automatic retry of an operation) are indexed under A17-local only, not counted here."
+    }
+  }
+}

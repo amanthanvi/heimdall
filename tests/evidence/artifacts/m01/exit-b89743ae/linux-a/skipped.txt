@@ -1,0 +1,2 @@
+contracts: not run on the remote host: it reads schemas/ and tests/contracts/golden at the compile-time CARGO_MANIFEST_DIR path on the build host (platform-neutral; run on the build host)
+integration_runtime::config_schema_export_matches_checked_in_file: skipped on the remote host (reads schemas/configuration at the compile-time CARGO_MANIFEST_DIR path)

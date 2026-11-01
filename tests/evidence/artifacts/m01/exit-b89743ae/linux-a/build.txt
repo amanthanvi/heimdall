@@ -1,0 +1,160 @@
+   Compiling cfg-if v1.0.5
+   Compiling zeroize v1.9.1
+   Compiling libc v0.2.191
+   Compiling typenum v1.20.1
+   Compiling const-oid v0.9.6
+   Compiling subtle v2.6.1
+   Compiling cpufeatures v0.2.17
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling libm v0.2.16
+   Compiling zmij v1.0.23
+   Compiling rand_core v0.10.1
+   Compiling generic-array v0.14.7
+   Compiling num-traits v0.2.19
+   Compiling thiserror v2.0.21
+   Compiling serde_json v1.0.154
+   Compiling serde v1.0.229
+   Compiling ref-cast v1.0.27
+   Compiling memchr v2.8.3
+   Compiling jiff-core v0.1.1
+   Compiling bitflags v2.13.2
+   Compiling itoa v1.0.18
+   Compiling getrandom v0.4.3
+   Compiling dyn-clone v1.0.20
+   Compiling rustix v1.1.6
+   Compiling linux-raw-sys v0.12.1
+   Compiling smallvec v1.16.4
+   Compiling pin-project-lite v0.2.17
+   Compiling fastrand v2.5.0
+   Compiling fnv v1.0.7
+   Compiling bit-vec v0.10.1
+   Compiling cpufeatures v0.3.1
+   Compiling quick-error v1.2.3
+   Compiling tracing-core v0.1.36
+   Compiling rand_xorshift v0.5.0
+   Compiling core_detect v1.0.0
+   Compiling chacha20 v0.10.2
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling foldhash v0.2.0
+   Compiling base64ct v1.8.3
+   Compiling libsqlite3-sys v0.39.1
+   Compiling bit-set v0.11.1
+   Compiling fallible-iterator v0.3.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling bytes v1.12.1
+   Compiling der v0.7.10
+   Compiling hashbrown v0.17.1
+   Compiling tracing v0.1.44
+   Compiling base16ct v0.2.0
+   Compiling zerocopy v0.8.63
+   Compiling spin v0.9.9
+   Compiling lazy_static v1.5.1
+   Compiling num-bigint-dig v0.8.6
+   Compiling curve25519-dalek v4.1.3
+   Compiling pem-rfc7468 v0.7.0
+   Compiling futures-sink v0.3.34
+   Compiling futures-core v0.3.34
+   Compiling secrecy v0.10.3
+   Compiling futures-task v0.3.34
+   Compiling byteorder v1.5.0
+   Compiling slab v0.4.12
+   Compiling winnow v1.0.4
+   Compiling sharded-slab v0.1.7
+   Compiling thread_local v1.1.10
+   Compiling futures-util v0.3.34
+   Compiling etcetera v0.11.0
+   Compiling clap_lex v1.1.1
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling hashlink v0.12.2
+   Compiling anstyle v1.0.14
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling inout v0.1.4
+   Compiling clap_builder v4.6.7
+   Compiling tracing-subscriber v0.3.23
+   Compiling digest v0.10.7
+   Compiling cipher v0.4.4
+   Compiling sha2 v0.10.9
+   Compiling hmac v0.12.1
+   Compiling spki v0.7.3
+   Compiling sec1 v0.7.3
+   Compiling rfc6979 v0.4.0
+   Compiling num-integer v0.1.47
+   Compiling getrandom v0.2.17
+   Compiling wait-timeout v0.2.1
+   Compiling errno v0.3.14
+   Compiling mio v1.2.4
+   Compiling socket2 v0.6.5
+   Compiling pkcs8 v0.10.2
+   Compiling rand_core v0.6.4
+   Compiling rand v0.10.3
+   Compiling num-iter v0.1.46
+   Compiling signal-hook-registry v1.4.8
+   Compiling ssh-encoding v0.2.0
+   Compiling pkcs1 v0.7.5
+   Compiling ff v0.13.1
+   Compiling signature v2.2.0
+   Compiling crypto-bigint v0.5.5
+   Compiling tokio v1.54.1
+   Compiling group v0.13.0
+   Compiling ed25519 v2.2.3
+   Compiling ssh-cipher v0.2.0
+   Compiling ed25519-dalek v2.2.0
+   Compiling tempfile v3.27.0
+   Compiling jiff v0.2.38
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling rusty-fork v0.3.1
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling proptest v1.12.0
+   Compiling rusqlite v0.41.1
+   Compiling elliptic-curve v0.13.8
+   Compiling primeorder v0.13.6
+   Compiling ecdsa v0.16.9
+   Compiling clap v4.6.7
+   Compiling p256 v0.13.2
+   Compiling p521 v0.13.3
+   Compiling p384 v0.13.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_chacha v0.3.1
+   Compiling rand v0.8.8
+   Compiling schemars v1.2.3
+   Compiling tokio-util v0.7.20
+   Compiling heimdall-contract v0.1.0-m01 (<home>/.t3/worktrees/heimdall/t3-db32d72c/crates/contract)
+   Compiling rsa v0.9.10
+   Compiling ssh-key v0.6.7
+   Compiling ssh-agent-lib v0.6.0
+   Compiling heimdall-domain v0.1.0-m01 (<home>/.t3/worktrees/heimdall/t3-db32d72c/crates/domain)
+   Compiling heimdall-ipc v0.1.0-m01 (<home>/.t3/worktrees/heimdall/t3-db32d72c/crates/ipc)
+   Compiling heimdall-store v0.1.0-m01 (<home>/.t3/worktrees/heimdall/t3-db32d72c/crates/store)
+   Compiling heimdall-app v0.1.0-m01 (<home>/.t3/worktrees/heimdall/t3-db32d72c/crates/app)
+   Compiling heimdall-testkit v0.1.0-m01 (<home>/.t3/worktrees/heimdall/t3-db32d72c/crates/testkit)
+   Compiling heimdall-runtime v0.1.0-m01 (<home>/.t3/worktrees/heimdall/t3-db32d72c/crates/runtime)
+   Compiling heimdall v0.1.0-m01 (<home>/.t3/worktrees/heimdall/t3-db32d72c/crates/heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.48s
+adversarial_agent_frames sha256: 655447c93baafe25ad15fc3ea27d1cd3e07bc3242518490e53fcc537d8a18f47
+adversarial_ipc_frames sha256: 909959b36a9f2ba5d1923da68289c98cb58b493fbf81fef1c59899312f4708cd
+e2e_cli_m01 sha256: e28135db9e060507cff6079c6bc23df1f313f6874404950c95fcc5d5c5b27842
+heimdall-unit sha256: 296673182f279b6ca32470fb33ba90058f8a3662aade964854c24f05ed9d5088
+heimdall_app-unit sha256: 1b2ceeb140ba98105581c18565e183e8afcc24e8a98d51d0d61b111aba2a65d6
+heimdall_contract-unit sha256: c5ea60551de82695d16da222e0401adfa5138508e50b580ef9fa2581d0158729
+heimdall_domain-unit sha256: 9bc78305f654918bdf18a07e42f579c514098e80cd93f040c27de994773de5a5
+heimdall_ipc-unit sha256: 3a8cce763f74cefba2306775ab9bce6147e2ce86b1eac8d3accacc8c2dd65135
+heimdall_runtime-unit sha256: 7f56bbde47e3d3c5326e466056161736e0fbc520f4f432c739f5ff1bf9b256c2
+heimdall_store-unit sha256: 64419f54677bd3195d00674a536ebc573b2db81e3096b2ef0dd9e11757484c88
+heimdall_testkit-unit sha256: c2275e5ed053daddb10ec6e00854c6a666a53dcad2e3d289046246f151fedf9c
+integration_ipc_unix sha256: e0ad499c6f0f8a3484384d6039086202f5fcbd2d39979a525b6d2dee8cf66441
+integration_runtime sha256: 924627fc1cfc8332b6057000f8bd303d320bd611e11c2f12b25ea059bfbf9b94
+integration_store sha256: 00adbc64d7acf2369c22c17ed3544fcebe608a806580b0b41a3e4f12a3e377d2
+model_authority sha256: d6e3b17fc6a2419a219cbbeb903d93090ff71cf1a1535537c4c3be494e0e4db7
+model_events sha256: 7f7512d4889c1111687a0dbb47a7a49346c6a6fb02d1a560291e16d81eba1cdf
+model_idempotency sha256: f77512d77250528803765572413dcf71db2081e3dc44799b8c16126ab989dc36
+model_lifecycle sha256: c100e34fc257b8b2267c66eca66bb3132f0059ab15927131d1d5d0f15bd53375
+model_operations sha256: 3c525332384051ca643d1b2d561bf86bd5658e0c8bb670dade40e586c86b5eb8
+model_revocation sha256: 88cc4385829c3be5873008b19616a2b5663f541895477e3b413ebc6127bd18cf
+model_time sha256: 3d36d01734a3dc89a9d60dd87a89255e974f271ed88aac633de13a3d8750f0eb
+model_timegate sha256: 71a56978ad984b5450baa27520e308213007fa452bf6d7a43f6b4a9802eafee3
+heimdall (CLI for e2e_cli_m01) sha256: 1354ad6f6c7d5e4bfc4c44ac1fdfa0312cfc532562343727ccc1b2d79fbc34f5
+toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13); zig 0.17.0; target x86_64-unknown-linux-gnu (glibc floor 2.31)

@@ -1,0 +1,8 @@
+os=macOS 27.0.1 (26A434) arm64
+toolchain=rustc 1.99.1 (58cf8f9c3 2026-10-13); cargo 1.99.1 (5f94df478 2026-08-27); host aarch64-apple-darwin
+zig=0.17.0
+commit=b89743aeccc06cafca85dce6783cc99e3b7f4903
+worktree=HEAD b89743ae, git status clean when the task started; during check.sh the only working-tree change was this new artifact directory (check.txt being written); no source, test, schema or record file differed from the commit; check.sh finished before the cross-builds
+check.sh started_at=2026-11-01T13:51:26Z
+check.sh finished_at=2026-11-01T13:53:27Z
+check.sh exit 0

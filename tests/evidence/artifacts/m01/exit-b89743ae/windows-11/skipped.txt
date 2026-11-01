@@ -1,0 +1,3 @@
+contracts: not run on Windows: it reads schemas/ and tests/contracts/golden at the compile-time CARGO_MANIFEST_DIR path on the build host (platform-neutral; run on the build host)
+integration_runtime::config_schema_export_matches_checked_in_file: skipped on Windows (reads schemas/configuration at the compile-time CARGO_MANIFEST_DIR path)
+e2e_cli_m01 pseudo-terminal cases (non_interactive_with_a_pending_decision..., owner_prompt_on_a_pty..., interactive_ensure_on_a_pty..., widening_resume..._on_a_pty, time_confirmation_on_a_pty...): cfg(unix), not compiled for Windows (script(1)); the attendance order and prompt outcomes are covered by heimdall-unit cli::tests on every platform

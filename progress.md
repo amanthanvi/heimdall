@@ -1,6 +1,6 @@
 # Progress
 
-**Current milestone:** M00 closing → M01 (deterministic core) started 2026-10-31
+**Current milestone:** M01 exited 2026-11-01 at b89743ae (docs/architecture/m01-exit.md) → M02 (existing-access slice) design in review
 **Owner decisions:** delegated to the orchestrator on 2026-10-31 ("I trust your judgement on all of these and the rest of the decisions. Continue until all open items are done and the product is ready for release"). Recorded in ADR-0004: **G02 D1 = Rust + Ratatui**; G04 recipe B1 (ADR-0005); all other open items decided or blocked on a named physical input (below).
 
 | Task | Status | Notes |
@@ -12,6 +12,8 @@
 | M00-T04 G04 managed credentials | implemented_unverified | Committed in b44c312. Experiments verified (mechanism level). Recipe B1 pending. Lock probes blocked on owner |
 | M00-T05 G02 language/TUI + ADR | verified | ADR-0002 revision 3 (re-scored, reviewed twice) and its 2026-10-31 recorded decision: Rust + Ratatui (ADR-0004 §1) |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
+| M01-T01..T06 deterministic core | verified (M01 exit 2026-11-01, b89743ae) | `docs/architecture/m01-exit.md`; records A06, A07, A17-local and A19 are verified. A08 and A29-local are blocked only on M04 native sleep/logout/reboot and the second Windows account. 8 independent code-review rounds; the last one says ship |
+| M02-T00 design | in_progress | m02-plan.md and ADR-0007 rev 3 → rev 4 (design-fix-3 running); 3 design reviews so far |
 
 ## Owner decisions under delegation (2026-10-31)
 
@@ -392,3 +394,14 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - rendered nonsecret target bytes durable in SetupIntent;
     - atomic admission.
   - Running: task M02-T00-design-fix-3 (docs only).
+- The W01/W02 fixes are committed as b89743ae: claim_seq, effect_seq, cleanup intents in the settling transaction, a real-transition property at 1024 cases, and visible cleanup_pending.
+  - check.sh exit 0, 735 passed, 0 failed, 2 ignored. ADR-0006 §13.20 recorded.
+- Running at b89743ae, each in its own worktree:
+  - task M01-evidence-b89743ae, native macOS/devbox/Windows evidence;
+  - task M01-code-review-round8, Codex.
+- Also running, in the main checkout: M02-T00-design-fix-3 (docs only).
+- **M01 exited** at b89743ae.
+  - Native evidence (`exit-b89743ae/`): macOS 735/0/2, Linux devbox 670/0/2, Windows 11 629/0/1, all exits 0.
+  - Every platform row is verified. Code review round 8 says ship, with no findings.
+  - Exit record: docs/architecture/m01-exit.md, including the limits carried forward.
+- Running: M02-T00-design-fix-3. Then a focused design check, then M02 wave 0.
