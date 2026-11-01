@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "failed",
+  "code": "REQUEST_CONFLICT",
+  "data": {
+    "error": {
+      "code": "REQUEST_CONFLICT",
+      "effect_status": "none",
+      "retryable": false,
+      "resource": {"kind": "operation", "id": "op_00112233445566778899aabbccddeeff"},
+      "next": {"action": "new_request_id", "operation_id": "op_00112233445566778899aabbccddeeff"},
+      "message": "request id reused with different parameters"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "new_request_id", "operation_id": "op_00112233445566778899aabbccddeeff"}
+}

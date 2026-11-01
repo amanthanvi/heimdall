@@ -1,0 +1,15 @@
+{
+  "op": "ensure",
+  "profile": "default",
+  "profile_revision": 3,
+  "scope": [{"destination": "dest-1", "account": "deploy"}],
+  "work_id": "work-42",
+  "until": {"kind": "duration", "value": "2h"},
+  "required_capabilities": {
+    "capabilities": ["ssh-authentication"],
+    "destination_scope_at_least": "client_routing"
+  },
+  "request_id": "req-0001",
+  "interaction": "non_interactive",
+  "wait": {"mode": "sync", "timeout_ms": 30000}
+}

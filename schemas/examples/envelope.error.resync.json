@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "failed",
+  "code": "RESYNC_REQUIRED",
+  "data": {
+    "error": {
+      "code": "RESYNC_REQUIRED",
+      "effect_status": "none",
+      "retryable": false,
+      "resource": {"kind": "environment"},
+      "next": {"action": "resync", "cursor": "Y3Vyc29yLXNuYXBzaG90"},
+      "message": "cursor expired; resume from the snapshot cursor"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "resync", "cursor": "Y3Vyc29yLXNuYXBzaG90"}
+}

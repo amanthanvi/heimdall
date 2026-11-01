@@ -1,0 +1,7 @@
+{
+  "op": "observe",
+  "kind": "events",
+  "cursor": "AQEBAAAAAAAB",
+  "filter": {"types": ["operation_state_changed", "decision"]},
+  "limit": 100
+}

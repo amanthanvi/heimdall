@@ -1,0 +1,13 @@
+{
+  "type": "response",
+  "in_reply_to": 1,
+  "envelope": {
+    "schema_version": "1",
+    "operation_id": "op_00112233445566778899aabbccddeeff",
+    "state": "cancelled",
+    "code": "OPERATION_CANCELLED",
+    "data": {},
+    "warnings": [],
+    "next": {"action": "none"}
+  }
+}

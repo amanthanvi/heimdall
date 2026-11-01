@@ -1,0 +1,16 @@
+
+running 11 tests
+test windows::tests::bind_outside_runtime_errors_instead_of_panicking ... ok
+test windows::tests::bind_refuses_non_pipe_names_and_non_sid_owners ... ok
+test windows::tests::classify_path_namespace_rules ... ok
+test windows::tests::current_user_sid_is_a_literal_sid ... ok
+test windows::tests::dacl_denies_unlisted_principal ... ok
+test windows::tests::existing_name_makes_bind_fail_first_instance ... ok
+test windows::tests::missing_pipe_is_not_found ... ok
+test windows::tests::non_pipe_endpoints_refused_before_any_open ... ok
+test windows::tests::same_user_connect_reports_owner_sid_and_owner_only_dacl ... ok
+test windows::tests::sid_mismatch_is_disconnected_and_listener_keeps_waiting ... ok
+test windows::tests::sid_string_validation_rejects_aliases_and_injection ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 1.52s
+

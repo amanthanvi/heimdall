@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "cancelled",
+  "code": "OPERATION_CANCELLED",
+  "data": {
+    "error": {
+      "code": "OPERATION_CANCELLED",
+      "effect_status": "partial",
+      "retryable": false,
+      "resource": {"kind": "operation", "id": "op_00112233445566778899aabbccddeeff"},
+      "next": {"action": "none"},
+      "message": "cancelled after a partial effect"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "none"}
+}

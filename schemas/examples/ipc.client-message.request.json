@@ -1,0 +1,5 @@
+{
+  "type": "request",
+  "seq": 1,
+  "request": {"op": "cancel", "operation_id": "op_00112233445566778899aabbccddeeff"}
+}

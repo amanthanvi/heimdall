@@ -1,0 +1,9 @@
+{
+  "type": "hello",
+  "protocol": 1,
+  "schema_version": "1",
+  "server": {"name": "heimdall-service", "version": "0.1.0"},
+  "capabilities": ["operations/1"],
+  "principal": {"kind": "os_user_unix", "uid": 1000},
+  "environment_id": "env_fedcba9876543210fedcba9876543210"
+}

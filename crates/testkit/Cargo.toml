@@ -20,3 +20,26 @@ jiff = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+
+# M01-U2 authority model/property tests (m01-plan.md §1 U2). Hosted here because
+# this crate already depends on heimdall-domain, heimdall-contract and proptest, so
+# the test target needs no new dependency edge and no Cargo.lock change.
+[[test]]
+name = "model_authority"
+path = "../../tests/model/authority.rs"
+
+# M01-U4 state store integration, property and fault tests (m01-plan.md §1 U4).
+# Hosted here for the same reason as U2: no new dependency edge, no Cargo.lock change.
+[[test]]
+name = "integration_store"
+path = "../../tests/integration/store.rs"
+
+# M01-U3 time and lifecycle model suites (m01-plan.md §1 U3). Same hosting as U2/U4;
+# U10's tests/model/mod.rs harness may later absorb all tests/model targets.
+[[test]]
+name = "model_time"
+path = "../../tests/model/time.rs"
+
+[[test]]
+name = "model_lifecycle"
+path = "../../tests/model/lifecycle.rs"

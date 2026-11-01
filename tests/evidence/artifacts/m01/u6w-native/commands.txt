@@ -1,0 +1,4 @@
+exit 0: cargo test --target x86_64-pc-windows-gnu -p heimdall-ipc --lib --no-run --locked (zig linker shims)
+exit 0: scp test binary to WSL scratch
+exit 0: remote: heimdall_ipc_tests.exe windows:: --test-threads=1 as the non-elevated user (exit of the windows:: run)
+exit 0: canary-prefix scan over saved output (count = 0)

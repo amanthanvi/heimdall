@@ -1,0 +1,201 @@
+{
+  "source": "ADR-0006 section 5 table, transcribed mechanically; independent of the Rust implementation",
+  "rows": [
+    {
+      "code": "OK",
+      "exit": 0,
+      "retryable": false,
+      "effect": "applied",
+      "next": "none"
+    },
+    {
+      "code": "ACCESS_READY",
+      "exit": 0,
+      "retryable": false,
+      "effect": "applied",
+      "next": "use_binding"
+    },
+    {
+      "code": "ACCEPTED",
+      "exit": 0,
+      "retryable": false,
+      "effect": "none",
+      "next": "observe"
+    },
+    {
+      "code": "APPROVAL_REQUIRED",
+      "exit": 3,
+      "retryable": false,
+      "effect": "none",
+      "next": "observe"
+    },
+    {
+      "code": "INTERACTION_REQUIRED",
+      "exit": 3,
+      "retryable": false,
+      "effect": "none",
+      "next": "interact"
+    },
+    {
+      "code": "PROVIDER_LOCKED",
+      "exit": 3,
+      "retryable": true,
+      "effect": "none",
+      "next": "interact"
+    },
+    {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "exit": 4,
+      "retryable": false,
+      "effect": "none",
+      "next": "narrow_request"
+    },
+    {
+      "code": "POLICY_PAUSED",
+      "exit": 4,
+      "retryable": false,
+      "effect": "none",
+      "next": "owner_decision"
+    },
+    {
+      "code": "POLICY_CUTOFF",
+      "exit": 4,
+      "retryable": false,
+      "effect": "none",
+      "next": "owner_decision"
+    },
+    {
+      "code": "CREDENTIAL_EXPIRED",
+      "exit": 4,
+      "retryable": false,
+      "effect": "none",
+      "next": "new_work"
+    },
+    {
+      "code": "HOST_TRUST_CHANGED",
+      "exit": 4,
+      "retryable": false,
+      "effect": "none",
+      "next": "review_host_trust"
+    },
+    {
+      "code": "DELEGATION_EXCEEDS_PARENT",
+      "exit": 4,
+      "retryable": false,
+      "effect": "none",
+      "next": "narrow_request"
+    },
+    {
+      "code": "OPERATION_CANCELLED",
+      "exit": 4,
+      "retryable": false,
+      "effect": "partial",
+      "next": "none"
+    },
+    {
+      "code": "DESTINATION_UNREACHABLE",
+      "exit": 5,
+      "retryable": true,
+      "effect": "none",
+      "next": "retry_after"
+    },
+    {
+      "code": "TIME_UNCERTAIN",
+      "exit": 5,
+      "retryable": true,
+      "effect": "none",
+      "next": "retry_after"
+    },
+    {
+      "code": "UNSUPPORTED_CLIENT",
+      "exit": 5,
+      "retryable": false,
+      "effect": "none",
+      "next": "change_client"
+    },
+    {
+      "code": "SERVICE_UNAVAILABLE",
+      "exit": 5,
+      "retryable": true,
+      "effect": "none",
+      "next": "retry_after"
+    },
+    {
+      "code": "STATE_UNAVAILABLE",
+      "exit": 5,
+      "retryable": true,
+      "effect": "none",
+      "next": "retry_after"
+    },
+    {
+      "code": "BACKPRESSURE",
+      "exit": 5,
+      "retryable": true,
+      "effect": "none",
+      "next": "retry_after"
+    },
+    {
+      "code": "REQUEST_CONFLICT",
+      "exit": 6,
+      "retryable": false,
+      "effect": "none",
+      "next": "new_request_id"
+    },
+    {
+      "code": "CONFIG_CONFLICT",
+      "exit": 6,
+      "retryable": false,
+      "effect": "none",
+      "next": "review_config"
+    },
+    {
+      "code": "REQUEST_EXPIRED",
+      "exit": 6,
+      "retryable": false,
+      "effect": "none",
+      "next": "new_request_id"
+    },
+    {
+      "code": "RESYNC_REQUIRED",
+      "exit": 6,
+      "retryable": false,
+      "effect": "none",
+      "next": "resync"
+    },
+    {
+      "code": "OUTCOME_UNKNOWN",
+      "exit": 7,
+      "retryable": false,
+      "effect": "unknown",
+      "next": "reconcile"
+    },
+    {
+      "code": "USAGE_ERROR",
+      "exit": 2,
+      "retryable": false,
+      "effect": "none",
+      "next": "fix_request"
+    },
+    {
+      "code": "SCHEMA_UNSUPPORTED",
+      "exit": 2,
+      "retryable": false,
+      "effect": "none",
+      "next": "fix_request"
+    },
+    {
+      "code": "NOT_FOUND",
+      "exit": 2,
+      "retryable": false,
+      "effect": "none",
+      "next": "fix_request"
+    },
+    {
+      "code": "INTERNAL_ERROR",
+      "exit": 1,
+      "retryable": false,
+      "effect": "none",
+      "next": "report"
+    }
+  ]
+}

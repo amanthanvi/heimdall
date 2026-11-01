@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "event_id": "evt_0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f",
+  "type": "operation_state_changed",
+  "environment_id": "env_fedcba9876543210fedcba9876543210",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "resource": {"kind": "operation", "id": "op_00112233445566778899aabbccddeeff"},
+  "timestamp": "2026-10-31T12:00:01Z",
+  "cursor": "AQEBAAAAAAAB",
+  "payload": {"from": "queued", "to": "running"}
+}

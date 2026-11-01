@@ -1,0 +1,5 @@
+windows-tests-exit=0
+all-tests-exit=0
+leftover-test-processes=0
+integrity=Medium Mandatory Level
+os=Microsoft Windows [Version 10.0.26300.9711]

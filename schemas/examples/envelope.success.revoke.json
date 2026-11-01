@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_11112222333344445555666677778888",
+  "state": "succeeded",
+  "code": "OK",
+  "data": {
+    "local_applied": true,
+    "remote_pending": ["grant_aaaaaaaabbbbbbbbccccccccdddddddd"],
+    "latest_possible_credential_expiry": "2026-10-31T17:55:00Z"
+  },
+  "warnings": [],
+  "next": null
+}

@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "awaiting_approval",
+  "code": "APPROVAL_REQUIRED",
+  "data": {
+    "error": {
+      "code": "APPROVAL_REQUIRED",
+      "effect_status": "none",
+      "retryable": false,
+      "resource": {"kind": "operation", "id": "op_00112233445566778899aabbccddeeff"},
+      "next": {"action": "observe", "operation_id": "op_00112233445566778899aabbccddeeff", "decision_ref": "decision-7"},
+      "message": "additional owner authority is required"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "observe", "operation_id": "op_00112233445566778899aabbccddeeff", "decision_ref": "decision-7"}
+}

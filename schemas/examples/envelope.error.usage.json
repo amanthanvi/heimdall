@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "state": "failed",
+  "code": "USAGE_ERROR",
+  "data": {
+    "error": {
+      "code": "USAGE_ERROR",
+      "effect_status": "none",
+      "retryable": false,
+      "next": {"action": "fix_request"},
+      "message": "invalid request body"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "fix_request"}
+}

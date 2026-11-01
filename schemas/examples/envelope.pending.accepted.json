@@ -1,0 +1,9 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "queued",
+  "code": "ACCEPTED",
+  "data": {},
+  "warnings": [],
+  "next": {"action": "observe", "operation_id": "op_00112233445566778899aabbccddeeff"}
+}

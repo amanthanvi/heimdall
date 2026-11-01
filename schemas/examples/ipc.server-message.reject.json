@@ -1,0 +1,17 @@
+{
+  "type": "reject",
+  "schema_version": "1",
+  "state": "failed",
+  "code": "SCHEMA_UNSUPPORTED",
+  "data": {
+    "error": {
+      "code": "SCHEMA_UNSUPPORTED",
+      "effect_status": "none",
+      "retryable": false,
+      "next": {"action": "fix_request"},
+      "message": "unsupported schema major"
+    }
+  },
+  "warnings": [],
+  "next": null
+}

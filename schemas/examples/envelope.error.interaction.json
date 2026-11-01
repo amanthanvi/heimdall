@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "failed",
+  "code": "INTERACTION_REQUIRED",
+  "data": {
+    "error": {
+      "code": "INTERACTION_REQUIRED",
+      "effect_status": "none",
+      "retryable": false,
+      "resource": {"kind": "binding"},
+      "next": {"action": "interact"},
+      "message": "a terminal interaction is required and non-interactive mode is set"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "interact"}
+}

@@ -1,0 +1,6 @@
+{
+  "op": "policy",
+  "action": "cutoff",
+  "policy_id": "policy-default",
+  "at": "2026-10-31T20:00:00Z"
+}

@@ -7,12 +7,30 @@
 //! endpoint answers `SSH_AGENT_IDENTITIES_ANSWER` with zero keys and
 //! `SSH_AGENT_FAILURE` to everything else, which already exercises the boundary.
 //!
-//! Message types are parsed with `ssh_agent_lib::proto` (no `agent` feature: its
-//! listener helpers are not used because they cannot apply our DACL/peer checks).
-//! Limits: frame ≤ `MAX_SIGNING_FRAME_BYTES`, ≤ `MAX_IDENTITIES`, idle timeout,
-//! bounded concurrency.
+//! The `ssh_agent_lib` listener helpers are not used (no `agent` feature): they
+//! cannot apply our DACL/peer checks. M01 never parses key material: the type
+//! byte is classified ([`classify`]) and a sign request is split into its three
+//! draft-miller fields (`string key_blob, string data, uint32 flags`) by a
+//! zero-copy reader that checks every declared length against the bytes present
+//! before slicing and refuses trailing bytes. Key blobs stay opaque until M03.
+//! Answers are encoded with the same grammar; the tests decode them with
+//! `ssh_agent_lib::proto::Response` to check interoperability.
+//!
+//! Connection rules (each violation closes the connection without a reply):
+//! a declared frame length of zero or above `MAX_SIGNING_FRAME_BYTES` (checked
+//! from the 4-byte header, before the body buffer exists), EOF inside a frame,
+//! and no complete frame within `IDLE_TIMEOUT_MS`. A well-framed message that is
+//! not allowed, malformed, or refused by the signer gets `SSH_AGENT_FAILURE` and
+//! the connection stays usable. Answers never exceed the frame limit or list
+//! more than `MAX_IDENTITIES`. Per-endpoint concurrency
+//! (`MAX_SIGNING_CONNECTIONS`) is enforced by the accept loop that calls
+//! [`serve`].
+
+use std::io;
+use std::time::Duration;
 
 use heimdall_contract::ipc::MAX_SIGNING_FRAME_BYTES;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Maximum identities ever listed.
 pub const MAX_IDENTITIES: usize = 64;
@@ -96,16 +114,243 @@ pub trait Signer: Send + Sync {
     async fn sign(&self, key_blob: &[u8], data: &[u8], flags: u32) -> Option<Vec<u8>>;
 }
 
+/// A signer with no identities that refuses every signature: the M01 endpoint
+/// behaviour (empty identity list, `SSH_AGENT_FAILURE` otherwise).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoIdentities;
+
+#[async_trait::async_trait]
+impl Signer for NoIdentities {
+    async fn identities(&self) -> Vec<(Vec<u8>, String)> {
+        Vec::new()
+    }
+
+    async fn sign(&self, _key_blob: &[u8], _data: &[u8], _flags: u32) -> Option<Vec<u8>> {
+        None
+    }
+}
+
 /// Serve one signing connection with the bounded framer.
+///
+/// Returns `Ok(())` when the peer closes between frames, the connection is idle
+/// for `IDLE_TIMEOUT_MS`, or `shutdown` fires; returns an `InvalidData` /
+/// `UnexpectedEof` error for a framing violation. The connection is closed in
+/// every case.
 pub async fn serve<S>(
-    _stream: S,
-    _signer: std::sync::Arc<dyn Signer>,
-    _shutdown: tokio_util::sync::CancellationToken,
+    stream: S,
+    signer: std::sync::Arc<dyn Signer>,
+    shutdown: tokio_util::sync::CancellationToken,
 ) -> std::io::Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
 {
-    todo!("M01-T04: read length-prefixed agent frames, classify, answer; M03 wires the real signer")
+    serve_with_idle(
+        stream,
+        signer,
+        shutdown,
+        Duration::from_millis(IDLE_TIMEOUT_MS),
+    )
+    .await
+}
+
+/// [`serve`] with an explicit idle timeout (tests use short ones).
+pub(crate) async fn serve_with_idle<S>(
+    mut stream: S,
+    signer: std::sync::Arc<dyn Signer>,
+    shutdown: tokio_util::sync::CancellationToken,
+    idle: Duration,
+) -> std::io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    loop {
+        let read = tokio::select! {
+            biased;
+            () = shutdown.cancelled() => return Ok(()),
+            r = tokio::time::timeout(idle, read_agent_frame(&mut stream)) => r,
+        };
+        let payload = match read {
+            Err(_idle) => return Ok(()),
+            Ok(Ok(None)) => return Ok(()),
+            Ok(Ok(Some(payload))) => payload,
+            Ok(Err(e)) => return Err(e),
+        };
+        let reply = answer(&payload, signer.as_ref()).await;
+        let write = async {
+            stream.write_all(&reply).await?;
+            stream.flush().await
+        };
+        tokio::select! {
+            biased;
+            () = shutdown.cancelled() => return Ok(()),
+            r = tokio::time::timeout(idle, write) => match r {
+                Ok(r) => r?,
+                Err(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "agent peer did not read the answer in time",
+                    ));
+                }
+            },
+        }
+    }
+}
+
+fn violation(kind: io::ErrorKind, msg: &'static str) -> io::Error {
+    io::Error::new(kind, msg)
+}
+
+/// Read one agent frame body. `Ok(None)` is a clean EOF before any header byte.
+/// The declared length is checked before the body buffer is allocated.
+pub(crate) async fn read_agent_frame<S>(stream: &mut S) -> io::Result<Option<Vec<u8>>>
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
+    let mut header = [0u8; 4];
+    if stream.read(&mut header[..1]).await? == 0 {
+        return Ok(None);
+    }
+    stream.read_exact(&mut header[1..]).await.map_err(|e| {
+        if e.kind() == io::ErrorKind::UnexpectedEof {
+            violation(io::ErrorKind::UnexpectedEof, "agent frame header truncated")
+        } else {
+            e
+        }
+    })?;
+    let len = u32::from_be_bytes(header) as usize;
+    if len == 0 {
+        return Err(violation(
+            io::ErrorKind::InvalidData,
+            "zero-length agent frame",
+        ));
+    }
+    if len > MAX_SIGNING_FRAME_BYTES {
+        return Err(violation(
+            io::ErrorKind::InvalidData,
+            "agent frame exceeds the signing frame limit",
+        ));
+    }
+    let mut body = vec![0u8; len];
+    stream.read_exact(&mut body).await.map_err(|e| {
+        if e.kind() == io::ErrorKind::UnexpectedEof {
+            violation(io::ErrorKind::UnexpectedEof, "agent frame body truncated")
+        } else {
+            e
+        }
+    })?;
+    Ok(Some(body))
+}
+
+/// Zero-copy reader for the draft-miller grammar.
+struct Fields<'a>(&'a [u8]);
+
+impl<'a> Fields<'a> {
+    fn u32(&mut self) -> Option<u32> {
+        let (head, rest) = self.0.split_first_chunk::<4>()?;
+        self.0 = rest;
+        Some(u32::from_be_bytes(*head))
+    }
+
+    fn string(&mut self) -> Option<&'a [u8]> {
+        let len = self.u32()? as usize;
+        if len > self.0.len() {
+            return None;
+        }
+        let (s, rest) = self.0.split_at(len);
+        self.0 = rest;
+        Some(s)
+    }
+}
+
+/// A parsed `SSH_AGENTC_SIGN_REQUEST` body (after the type byte).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SignFields<'a> {
+    pub(crate) key_blob: &'a [u8],
+    pub(crate) data: &'a [u8],
+    pub(crate) flags: u32,
+}
+
+/// Split a sign request body; `None` on any overrun, short field or trailing
+/// byte.
+pub(crate) fn parse_sign_request(body: &[u8]) -> Option<SignFields<'_>> {
+    let mut f = Fields(body);
+    let key_blob = f.string()?;
+    let data = f.string()?;
+    let flags = f.u32()?;
+    if !f.0.is_empty() {
+        return None;
+    }
+    Some(SignFields {
+        key_blob,
+        data,
+        flags,
+    })
+}
+
+fn put_string(out: &mut Vec<u8>, s: &[u8]) -> Option<()> {
+    out.extend_from_slice(&u32::try_from(s.len()).ok()?.to_be_bytes());
+    out.extend_from_slice(s);
+    Some(())
+}
+
+fn frame(body: &[u8]) -> Option<Vec<u8>> {
+    if body.is_empty() || body.len() > MAX_SIGNING_FRAME_BYTES {
+        return None;
+    }
+    let mut out = Vec::with_capacity(4 + body.len());
+    out.extend_from_slice(&u32::try_from(body.len()).ok()?.to_be_bytes());
+    out.extend_from_slice(body);
+    Some(out)
+}
+
+/// `SSH_AGENT_IDENTITIES_ANSWER` listing at most [`MAX_IDENTITIES`] identities, in
+/// the signer's order, stopping before the frame limit would be exceeded.
+pub(crate) fn identities_frame(identities: &[(Vec<u8>, String)]) -> Vec<u8> {
+    let mut body = vec![12u8, 0, 0, 0, 0];
+    let mut count: u32 = 0;
+    for (blob, comment) in identities.iter().take(MAX_IDENTITIES) {
+        let need = 8 + blob.len() + comment.len();
+        if body.len() + need > MAX_SIGNING_FRAME_BYTES {
+            break;
+        }
+        if put_string(&mut body, blob).is_none()
+            || put_string(&mut body, comment.as_bytes()).is_none()
+        {
+            break;
+        }
+        count += 1;
+    }
+    body[1..5].copy_from_slice(&count.to_be_bytes());
+    frame(&body).unwrap_or_else(|| empty_identities_frame().to_vec())
+}
+
+/// `SSH_AGENT_SIGN_RESPONSE` (14) or `None` if it would exceed the frame limit.
+pub(crate) fn sign_response_frame(signature: &[u8]) -> Option<Vec<u8>> {
+    let mut body = Vec::with_capacity(5 + signature.len());
+    body.push(14);
+    put_string(&mut body, signature)?;
+    frame(&body)
+}
+
+/// The complete answer frame for one well-framed agent message.
+pub(crate) async fn answer(payload: &[u8], signer: &dyn Signer) -> Vec<u8> {
+    let failure = || failure_frame().to_vec();
+    match classify(payload) {
+        Ok(AllowedRequest::RequestIdentities) if payload.len() == 1 => {
+            identities_frame(&signer.identities().await)
+        }
+        Ok(AllowedRequest::SignRequest) => {
+            let Some(req) = payload.get(1..).and_then(parse_sign_request) else {
+                return failure();
+            };
+            match signer.sign(req.key_blob, req.data, req.flags).await {
+                Some(sig) => sign_response_frame(&sig).unwrap_or_else(failure),
+                None => failure(),
+            }
+        }
+        // session-bind is verified by the M03 signer; until then: failure.
+        Ok(AllowedRequest::SessionBind | AllowedRequest::RequestIdentities) | Err(_) => failure(),
+    }
 }
 
 #[cfg(test)]
@@ -142,3 +387,7 @@ mod tests {
         assert_eq!(&empty_identities_frame()[..4], &5u32.to_be_bytes());
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/adversarial/agent_frames.rs"]
+mod agent_frames;

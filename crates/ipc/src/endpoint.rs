@@ -43,9 +43,36 @@ pub struct EndpointPaths {
 impl EndpointPaths {
     /// Derive from the owner-only runtime directory (Unix) or an unpredictable
     /// instance token (Windows; names carry no labels, g03 §3.1 N2).
+    ///
+    /// Unix ignores `instance_token` (the owner-only directory is the namespace);
+    /// Windows ignores `runtime_dir` (pipes live in the pipe namespace). The
+    /// token is used verbatim: the runtime generates it from a CSPRNG and it must
+    /// not carry user names or labels.
     #[must_use]
-    pub fn for_runtime(_runtime_dir: &Path, _instance_token: &str) -> Self {
-        todo!("M01-T04: platform-specific derivation")
+    pub fn for_runtime(runtime_dir: &Path, instance_token: &str) -> Self {
+        #[cfg(windows)]
+        {
+            let _ = runtime_dir;
+            let pipe = |kind: EndpointKind| {
+                PathBuf::from(format!(
+                    r"\\.\pipe\heimdall-{instance_token}-{}",
+                    kind.name()
+                ))
+            };
+            Self {
+                control: pipe(EndpointKind::Control),
+                signing: pipe(EndpointKind::Signing),
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = instance_token;
+            let sock = |kind: EndpointKind| runtime_dir.join(format!("{}.sock", kind.name()));
+            Self {
+                control: sock(EndpointKind::Control),
+                signing: sock(EndpointKind::Signing),
+            }
+        }
     }
 
     /// Path for a kind.
@@ -125,6 +152,31 @@ pub fn verify_peer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_paths_are_distinct_and_under_the_runtime_dir() {
+        let dir = Path::new("/run/test-runtime/heimdall");
+        let p = EndpointPaths::for_runtime(dir, "ignored");
+        assert_eq!(p.control, dir.join("control.sock"));
+        assert_eq!(p.signing, dir.join("signing.sock"));
+        assert_ne!(p.path(EndpointKind::Control), p.path(EndpointKind::Signing));
+        assert!(EndpointKind::Signing.max_frame_bytes() < EndpointKind::Control.max_frame_bytes());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_pipe_names_carry_only_the_token() {
+        let p = EndpointPaths::for_runtime(Path::new("C:\\ignored"), "0123abcd");
+        assert_eq!(
+            p.control,
+            PathBuf::from(r"\\.\pipe\heimdall-0123abcd-control")
+        );
+        assert_eq!(
+            p.signing,
+            PathBuf::from(r"\\.\pipe\heimdall-0123abcd-signing")
+        );
+    }
 
     #[test]
     fn only_same_user_passes() {

@@ -1,0 +1,5 @@
+{
+  "type": "goodbye",
+  "code": "BACKPRESSURE",
+  "message": "too many connections"
+}

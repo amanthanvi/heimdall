@@ -78,7 +78,8 @@ pub fn decode_frame<T: serde::de::DeserializeOwned>(
     if buf.len() < 4 + len {
         return Ok(None);
     }
-    let msg = serde_json::from_slice(&buf[4..4 + len])?;
+    // Sanitized parse: serde messages can quote untrusted peer bytes.
+    let msg = crate::session::parse_frame(&buf[4..4 + len])?;
     Ok(Some((msg, 4 + len)))
 }
 
@@ -101,6 +102,26 @@ mod tests {
         let partial: Option<(serde_json::Value, usize)> =
             decode_frame(&bytes[..bytes.len() - 1], 1024).unwrap();
         assert!(partial.is_none());
+    }
+
+    #[test]
+    fn decode_error_does_not_echo_peer_bytes() {
+        #[derive(Debug, serde::Deserialize)]
+        #[allow(dead_code)]
+        enum Kind {
+            Hello,
+        }
+        let marker = "HEIMDALL_CANARY_FRAME_DECODE";
+        let body = format!("\"{marker}\"");
+        let mut bytes = u32::try_from(body.len()).unwrap().to_be_bytes().to_vec();
+        bytes.extend_from_slice(body.as_bytes());
+        let err = decode_frame::<Kind>(&bytes, 1024).unwrap_err();
+        let shown = format!("{err} {err:?}");
+        assert!(matches!(err, FrameError::Json(_)));
+        assert!(
+            !shown.contains("HEIMDALL_CANARY_"),
+            "decode error echoed input"
+        );
     }
 
     #[test]

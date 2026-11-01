@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "succeeded",
+  "code": "ACCESS_READY",
+  "data": {
+    "binding_id": "binding_0123456789abcdef0123456789abcdef",
+    "environment_id": "env_fedcba9876543210fedcba9876543210",
+    "profile_revision": 3,
+    "grant_id": "grant_aaaaaaaabbbbbbbbccccccccdddddddd",
+    "expires_at": "2026-10-31T18:00:00Z",
+    "usable_until": "2026-10-31T17:55:00Z",
+    "offline_until": "2026-10-31T17:30:00Z",
+    "refresh_dependency": "local_issuer",
+    "credential_mechanism": "managed_certificate",
+    "enforcement": {
+      "destination_scope": "verified_server_principals",
+      "new_authentication_expiry": "credential_and_signer",
+      "workload_isolation": "shared_os_user",
+      "existing_connections": "graceful_dedicated_connections",
+      "revocation": "bounded_by_credential_expiry"
+    },
+    "consumer": {
+      "signing_endpoint": "/run/user/1000/heimdall/binding_0123456789abcdef0123456789abcdef/signing.sock",
+      "environment": [["SSH_AUTH_SOCK", "/run/user/1000/heimdall/binding_0123456789abcdef0123456789abcdef/signing.sock"]]
+    }
+  },
+  "warnings": [
+    {"code": "SHARED_OS_USER", "message": "isolation is same-user convenience only"}
+  ],
+  "next": {"action": "use_binding", "binding_id": "binding_0123456789abcdef0123456789abcdef"}
+}

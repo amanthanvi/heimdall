@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "failed",
+  "code": "POLICY_PAUSED",
+  "data": {
+    "error": {
+      "code": "POLICY_PAUSED",
+      "effect_status": "none",
+      "retryable": false,
+      "resource": {"kind": "policy", "id": "policy-default"},
+      "next": {"action": "owner_decision"},
+      "message": "the standing policy is paused"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "owner_decision"}
+}

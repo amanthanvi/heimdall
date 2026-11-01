@@ -31,6 +31,7 @@ use heimdall_domain::resource::{ManagedResource, ResourceGeneration};
 use heimdall_domain::revocation::Tombstone;
 use heimdall_domain::time::TimeAnchor;
 
+mod codec;
 pub mod migrations;
 
 /// Store errors. Mapped to `STATE_UNAVAILABLE` by the application layer.
@@ -136,219 +137,1341 @@ pub struct EventPage {
     /// Events in sequence order.
     pub events: Vec<Event>,
     /// Highest sequence number in this environment's log (for snapshot cursors).
+    /// Sequences are monotonic per environment (never reused, not contiguous:
+    /// one store-wide counter feeds every environment).
     pub head_seq: u64,
-    /// Lowest sequence still retained (a cursor below it is expired).
+    /// Retention boundary: the highest sequence removed by [`Txn::trim_events`]
+    /// for this environment (0 when nothing was trimmed). A cursor whose
+    /// consumed-through sequence is below it is expired (`RESYNC_REQUIRED`); every
+    /// event after a cursor at or above it is still retained.
     pub tail_seq: u64,
+}
+
+/// Consult `hook` at `point`: continue, fail with [`StoreError::InjectedFault`], or
+/// abort the process (child-process crash tests).
+pub(crate) fn fire(hook: &dyn FaultHook, point: FaultPoint) -> Result<()> {
+    match hook.at(point) {
+        FaultAction::Continue => Ok(()),
+        FaultAction::Fail => Err(StoreError::InjectedFault(point)),
+        FaultAction::Crash => std::process::abort(),
+    }
+}
+
+/// Tables schema version 1 must contain; a versioned file missing one is corrupt.
+const REQUIRED_TABLES: &[&str] = &[
+    "meta",
+    "operations",
+    "idempotency",
+    "policies",
+    "profiles",
+    "environments",
+    "grants",
+    "grant_references",
+    "bindings",
+    "tombstones",
+    "resources",
+    "events",
+];
+
+const META_SELF_ENVIRONMENT: &str = "self_environment_id";
+const META_AUTHORITY_GENERATION: &str = "authority_generation";
+const META_TIME_ANCHOR: &str = "time_anchor";
+/// Per-environment retention boundary: `event_tail:<environment id>`.
+const META_EVENT_TAIL_PREFIX: &str = "event_tail:";
+
+/// Prefix of the store-level sequence marker placed in [`Event::cursor`] by
+/// [`Txn::events_after`]; see [`event_seq`].
+const STORE_SEQ_PREFIX: &str = "store-seq:";
+
+/// Sequence number of an event returned by [`Txn::events_after`].
+///
+/// The store cannot build reader-scoped cursors (they depend on the authenticated
+/// reader, ADR-0006 §8), so it places a store-internal marker in `Event::cursor`;
+/// the application must replace it with the reader-scoped opaque cursor before the
+/// event leaves the process. Returns `None` for any other cursor form.
+#[must_use]
+pub fn event_seq(event: &Event) -> Option<u64> {
+    event
+        .cursor
+        .0
+        .strip_prefix(STORE_SEQ_PREFIX)
+        .and_then(|s| s.parse().ok())
 }
 
 impl Store {
     /// Open or create the store at `path`, applying migrations (with a backup of
     /// the file before the first schema change). Refuses a newer schema.
-    pub fn open(_path: &Path, _faults: Arc<dyn FaultHook>) -> Result<Self> {
-        todo!("M01-T03: open with WAL/synchronous=FULL/foreign_keys, integrity_check, migrate")
+    ///
+    /// A file that is not a state database, fails `integrity_check` or
+    /// `foreign_key_check`, has schema objects without a version, or misses a
+    /// required table is [`StoreError::Corrupt`]; nothing is rewritten in that case
+    /// (spec §15.2: corrupt state stops unsafe operations and is never silently
+    /// reinitialized). Only a missing or zero-length file is a new installation.
+    pub fn open(path: &Path, faults: Arc<dyn FaultHook>) -> Result<Self> {
+        Self::open_with_steps(path, faults, migrations::MIGRATIONS, true)
     }
 
     /// In-memory store for tests; same schema and code paths.
-    pub fn open_in_memory(_faults: Arc<dyn FaultHook>) -> Result<Self> {
-        todo!("M01-T03: open :memory: and migrate")
+    pub fn open_in_memory(faults: Arc<dyn FaultHook>) -> Result<Self> {
+        let mut conn = rusqlite::Connection::open_in_memory().map_err(codec::classify)?;
+        configure(&conn, false)?;
+        migrations::apply_steps(&mut conn, faults.as_ref(), migrations::MIGRATIONS)?;
+        verify_schema(&conn)?;
+        Ok(Self {
+            conn: std::sync::Mutex::new(conn),
+            faults,
+        })
+    }
+
+    pub(crate) fn open_with_steps(
+        path: &Path,
+        faults: Arc<dyn FaultHook>,
+        steps: &[migrations::Migration],
+        verify_tables: bool,
+    ) -> Result<Self> {
+        create_owner_only(path)?;
+        let mut conn = rusqlite::Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
+                | rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+                | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(codec::classify)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(codec::classify)?;
+        // Read-only checks first: nothing is written to a newer, foreign or damaged
+        // file.
+        let current = migrations::check_version(&conn, steps)?;
+        integrity_check(&conn)?;
+        configure(&conn, true)?;
+        if current > 0 && current < migrations::target_version(steps) {
+            backup(&conn, path, current)?;
+        }
+        migrations::apply_steps(&mut conn, faults.as_ref(), steps)?;
+        if verify_tables {
+            verify_schema(&conn)?;
+        }
+        Ok(Self {
+            conn: std::sync::Mutex::new(conn),
+            faults,
+        })
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+        // A panic inside `transaction` drops the open `rusqlite::Transaction`, which
+        // rolls back; the connection is consistent, so poisoning carries no state.
+        self.conn
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Run `f` inside one transaction. Fault points fire before the transaction,
     /// before commit and after commit.
     pub fn transaction<R>(&self, f: impl FnOnce(&mut Txn<'_>) -> Result<R>) -> Result<R> {
-        let _ = &self.faults;
-        let _ = &self.conn;
-        let _ = f;
-        todo!("M01-T03: BEGIN IMMEDIATE, run f, consult FaultHook, COMMIT")
+        fire(self.faults.as_ref(), FaultPoint::BeforeTransaction)?;
+        let mut conn = self.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(codec::classify)?;
+        let mut txn = Txn { tx };
+        let out = f(&mut txn).map_err(codec::reclassify)?;
+        // Dropping `txn` on any early return rolls back.
+        fire(self.faults.as_ref(), FaultPoint::BeforeCommit)?;
+        txn.tx.commit().map_err(codec::classify)?;
+        fire(self.faults.as_ref(), FaultPoint::AfterCommit)?;
+        Ok(out)
     }
 
     /// Schema version on disk.
     pub fn schema_version(&self) -> Result<u32> {
-        todo!("M01-T03")
+        migrations::user_version(&self.lock())
     }
 }
 
+/// Create a missing database file with owner-only permissions before SQLite opens
+/// it (WAL and SHM files inherit the database file's mode). Existing files are left
+/// untouched.
+fn create_owner_only(path: &Path) -> Result<()> {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opts.mode(0o600);
+    }
+    match opts.open(path) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(StoreError::Sqlite(rusqlite::Error::ToSqlConversionFailure(
+            Box::new(std::io::Error::new(
+                e.kind(),
+                "cannot create state database file",
+            )),
+        ))),
+    }
+}
+
+/// Durability and safety pragmas.
+fn configure(conn: &rusqlite::Connection, file_backed: bool) -> Result<()> {
+    if file_backed {
+        let mode: String = conn
+            .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
+            .map_err(codec::classify)?;
+        if !mode.eq_ignore_ascii_case("wal") {
+            return Err(StoreError::Corrupt(
+                "state database refused write-ahead logging".into(),
+            ));
+        }
+    }
+    conn.pragma_update(None, "synchronous", "FULL")
+        .map_err(codec::classify)?;
+    conn.pragma_update(None, "foreign_keys", "ON")
+        .map_err(codec::classify)?;
+    conn.pragma_update(None, "trusted_schema", "OFF")
+        .map_err(codec::classify)?;
+    Ok(())
+}
+
+/// `PRAGMA integrity_check` and `PRAGMA foreign_key_check`; any finding is
+/// [`StoreError::Corrupt`] (the finding text names pages and tables, never values).
+fn integrity_check(conn: &rusqlite::Connection) -> Result<()> {
+    let mut stmt = conn
+        .prepare("PRAGMA integrity_check")
+        .map_err(codec::classify)?;
+    let findings: Vec<String> = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(codec::classify)?
+        .collect::<std::result::Result<_, _>>()
+        .map_err(codec::classify)?;
+    if findings.len() != 1 || findings[0] != "ok" {
+        return Err(StoreError::Corrupt(format!(
+            "integrity_check reported {} finding(s)",
+            findings.len()
+        )));
+    }
+    let fk_violation = conn
+        .prepare("PRAGMA foreign_key_check")
+        .and_then(|mut s| s.exists([]))
+        .map_err(codec::classify)?;
+    if fk_violation {
+        return Err(StoreError::Corrupt(
+            "foreign_key_check reported violations".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Every table of the current schema exists.
+fn verify_schema(conn: &rusqlite::Connection) -> Result<()> {
+    for table in REQUIRED_TABLES {
+        let present: bool = conn
+            .query_row(
+                "SELECT count(*) > 0 FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                [table],
+                |r| r.get(0),
+            )
+            .map_err(codec::classify)?;
+        if !present {
+            return Err(StoreError::Corrupt(format!(
+                "required table {table} is missing"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Consistent copy of the database (`VACUUM INTO`) next to it, named
+/// `<file>.v<version>.backup[.<n>]`, owner-only, never overwriting an older backup.
+fn backup(
+    conn: &rusqlite::Connection,
+    path: &Path,
+    from_version: u32,
+) -> Result<std::path::PathBuf> {
+    let io_err = |msg: &'static str| {
+        StoreError::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(
+            std::io::Error::other(msg),
+        )))
+    };
+    let base = path.as_os_str().to_owned();
+    for n in 0u32..1000 {
+        let mut name = base.clone();
+        name.push(format!(".v{from_version}.backup"));
+        if n > 0 {
+            name.push(format!(".{n}"));
+        }
+        let target = std::path::PathBuf::from(name);
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            opts.mode(0o600);
+        }
+        match opts.open(&target) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return Err(io_err("cannot create migration backup file")),
+        }
+        let Some(target_str) = target.to_str() else {
+            let _ = std::fs::remove_file(&target);
+            return Err(io_err("backup path is not valid UTF-8"));
+        };
+        if let Err(e) = conn.execute("VACUUM INTO ?1", [target_str]) {
+            let _ = std::fs::remove_file(&target);
+            return Err(codec::classify(e));
+        }
+        tracing::info!(from_version, "state store backed up before migration");
+        return Ok(target);
+    }
+    Err(io_err("too many migration backups present"))
+}
+
+/// Terminal operation states that retention may purge. `outcome_unknown` is
+/// terminal on the wire but unresolved: it stays until reconciled.
+const PURGEABLE_OPERATION_STATES: &[OperationState] = &[
+    OperationState::Succeeded,
+    OperationState::Failed,
+    OperationState::Cancelled,
+];
+
+/// Operation states restart recovery resumes (non-terminal, spec §11.4).
+const OPEN_OPERATION_STATES: &[OperationState] = &[
+    OperationState::Queued,
+    OperationState::Running,
+    OperationState::AwaitingApproval,
+];
+
+fn sql_in_list<T: serde::Serialize>(values: &[T]) -> Result<String> {
+    let mut out = String::new();
+    for (i, v) in values.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        // Enum names are `[a-z_A-Z]` only, so quoting is safe.
+        let s = codec::enum_str(v)?;
+        if !s.bytes().all(|b| b.is_ascii_alphabetic() || b == b'_') {
+            return Err(codec::doc_error("unexpected enum name"));
+        }
+        out.push('\'');
+        out.push_str(&s);
+        out.push('\'');
+    }
+    Ok(out)
+}
+
+fn caller_doc(key: &IdempotencyKey) -> Result<String> {
+    codec::doc(&key.caller)
+}
+
+/// Whether `new` withdraws anything `old` allowed (or changes what it is about).
+/// Used to bump the authority generation even when the caller did not flag the
+/// change (fail closed: an extra bump only invalidates more).
+fn policy_narrows(old: &StandingPolicy, new: &StandingPolicy) -> bool {
+    use heimdall_domain::policy::PauseState;
+    let scope_shrinks = !old.scope.is_subset_of(&new.scope);
+    let envs_shrink = !old.environments.is_subset(&new.environments);
+    let window_shrinks = new.max_window < old.max_window;
+    let pauses =
+        matches!(old.pause, PauseState::Active) && matches!(new.pause, PauseState::Paused { .. });
+    let cutoff_tightens = match (old.cutoff_at, new.cutoff_at) {
+        (None, Some(_)) => true,
+        (Some(a), Some(b)) => b < a,
+        _ => false,
+    };
+    let retargeted = old.profile != new.profile || old.workspace != new.workspace;
+    scope_shrinks || envs_shrink || window_shrinks || pauses || cutoff_tightens || retargeted
+}
+
 impl Txn<'_> {
+    fn meta(&self, key: &str) -> Result<Option<String>> {
+        use rusqlite::OptionalExtension as _;
+        Ok(self
+            .tx
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
+            .optional()?)
+    }
+
+    fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.tx.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [key, value],
+        )?;
+        Ok(())
+    }
+
+    fn docs<T: serde::de::DeserializeOwned>(
+        &self,
+        sql: &str,
+        params: impl rusqlite::Params,
+    ) -> Result<Vec<T>> {
+        let mut stmt = self.tx.prepare_cached(sql)?;
+        let rows = stmt.query_map(params, |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(codec::parse_doc(&row?)?);
+        }
+        Ok(out)
+    }
+
+    fn one_doc<T: serde::de::DeserializeOwned>(
+        &self,
+        sql: &str,
+        params: impl rusqlite::Params,
+    ) -> Result<Option<T>> {
+        use rusqlite::OptionalExtension as _;
+        let s: Option<String> = self.tx.query_row(sql, params, |r| r.get(0)).optional()?;
+        s.as_deref().map(codec::parse_doc).transpose()
+    }
+
     // --- operations and idempotency (spec §11.4) ---------------------------------
 
     /// Insert a new operation and its idempotency record atomically.
+    ///
+    /// Both rows are written in this transaction, before any external step
+    /// (ADR-0006 §7.3). A second record for the same key is refused by the primary
+    /// key; callers classify with [`Txn::idempotency_record`] first.
     pub fn insert_operation(
         &mut self,
-        _op: &OperationRecord,
-        _idem: &IdempotencyRecord,
+        op: &OperationRecord,
+        idem: &IdempotencyRecord,
     ) -> Result<()> {
-        let _ = &self.tx;
-        todo!("M01-T03")
+        if idem.operation_id != op.id || idem.key != op.key || idem.request_hash != op.request_hash
+        {
+            return Err(codec::doc_error(
+                "idempotency record does not describe the operation",
+            ));
+        }
+        let record = codec::doc(op)?;
+        let result = op.result.as_ref().map(codec::doc).transpose()?;
+        let code = op.code.as_ref().map(codec::enum_str).transpose()?;
+        let terminal_at = PURGEABLE_OPERATION_STATES
+            .contains(&op.state)
+            .then(|| codec::ts(op.updated_at));
+        self.tx.execute(
+            "INSERT INTO operations (id, kind, environment, caller_json, request_id,
+                 request_hash, effect_class, state, code, effect_status, result_json,
+                 record_json, created_at, updated_at, terminal_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            rusqlite::params![
+                op.id.as_str(),
+                op.kind.as_str(),
+                op.environment.as_str(),
+                caller_doc(&op.key)?,
+                op.key.request_id.as_str(),
+                op.request_hash.to_hex(),
+                codec::enum_str(&op.effect_class)?,
+                codec::enum_str(&op.state)?,
+                code,
+                codec::enum_str(&op.effect_status)?,
+                result,
+                record,
+                codec::ts(op.created_at),
+                codec::ts(op.updated_at),
+                terminal_at,
+            ],
+        )?;
+        self.tx.execute(
+            "INSERT INTO idempotency (caller_json, kind, request_id, request_hash,
+                 operation_id, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                caller_doc(&idem.key)?,
+                idem.key.kind.as_str(),
+                idem.key.request_id.as_str(),
+                idem.request_hash.to_hex(),
+                idem.operation_id.as_str(),
+                codec::ts(idem.created_at),
+                codec::ts(idem.expires_at),
+            ],
+        )?;
+        Ok(())
     }
 
     /// Look up an idempotency record by key.
     pub fn idempotency_record(
         &mut self,
-        _key: &IdempotencyKey,
+        key: &IdempotencyKey,
     ) -> Result<Option<IdempotencyRecord>> {
-        todo!("M01-T03")
+        use rusqlite::OptionalExtension as _;
+        let row: Option<(String, String, String, String)> = self
+            .tx
+            .query_row(
+                "SELECT request_hash, operation_id, created_at, expires_at FROM idempotency
+                 WHERE caller_json = ?1 AND kind = ?2 AND request_id = ?3",
+                rusqlite::params![caller_doc(key)?, key.kind.as_str(), key.request_id.as_str()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        let Some((hash, op, created, expires)) = row else {
+            return Ok(None);
+        };
+        Ok(Some(IdempotencyRecord {
+            key: key.clone(),
+            request_hash: heimdall_contract::canonical::RequestHash::from_hex(&hash)
+                .map_err(|_| codec::doc_error("stored request hash is malformed"))?,
+            operation_id: OperationId::parse(&op)
+                .map_err(|_| codec::doc_error("stored operation id is malformed"))?,
+            created_at: codec::parse_ts(&created)?,
+            expires_at: codec::parse_ts(&expires)?,
+        }))
     }
 
     /// Load an operation.
-    pub fn operation(&mut self, _id: &OperationId) -> Result<Option<OperationRecord>> {
-        todo!("M01-T03")
+    pub fn operation(&mut self, id: &OperationId) -> Result<Option<OperationRecord>> {
+        self.one_doc(
+            "SELECT record_json FROM operations WHERE id = ?1",
+            [id.as_str()],
+        )
     }
 
     /// Persist a state change; the caller has already validated the transition.
-    pub fn update_operation(&mut self, _op: &OperationRecord) -> Result<()> {
-        todo!("M01-T03")
+    ///
+    /// Identity columns (kind, environment, idempotency key, request hash, effect
+    /// class, creation time) are immutable: a record that changes them is refused
+    /// with [`StoreError::GenerationConflict`], as is any state change out of a
+    /// resolved terminal state (`succeeded`, `failed`, `cancelled`). A missing
+    /// operation is `Sqlite(QueryReturnedNoRows)`.
+    pub fn update_operation(&mut self, op: &OperationRecord) -> Result<()> {
+        let Some(old) = self.operation(&op.id)? else {
+            return Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+        };
+        if old.kind != op.kind
+            || old.environment != op.environment
+            || old.key != op.key
+            || old.request_hash != op.request_hash
+            || old.effect_class != op.effect_class
+            || old.created_at != op.created_at
+        {
+            return Err(StoreError::GenerationConflict(format!(
+                "operation {} identity is immutable",
+                op.id
+            )));
+        }
+        if PURGEABLE_OPERATION_STATES.contains(&old.state) && old.state != op.state {
+            return Err(StoreError::GenerationConflict(format!(
+                "operation {} is already terminal",
+                op.id
+            )));
+        }
+        let record = codec::doc(op)?;
+        let result = op.result.as_ref().map(codec::doc).transpose()?;
+        let code = op.code.as_ref().map(codec::enum_str).transpose()?;
+        let terminal_at = PURGEABLE_OPERATION_STATES
+            .contains(&op.state)
+            .then(|| codec::ts(op.updated_at));
+        self.tx.execute(
+            "UPDATE operations SET state = ?2, code = ?3, effect_status = ?4,
+                 result_json = ?5, record_json = ?6, updated_at = ?7,
+                 terminal_at = COALESCE(terminal_at, ?8)
+             WHERE id = ?1",
+            rusqlite::params![
+                op.id.as_str(),
+                codec::enum_str(&op.state)?,
+                code,
+                codec::enum_str(&op.effect_status)?,
+                result,
+                record,
+                codec::ts(op.updated_at),
+                terminal_at,
+            ],
+        )?;
+        Ok(())
     }
 
-    /// Operations not in a terminal state (restart recovery, spec §13.3).
+    /// Operations not in a terminal state (restart recovery, spec §13.3):
+    /// `queued`, `running`, `awaiting_approval`, oldest first. `outcome_unknown`
+    /// is terminal on the wire and is not listed here; it is never purged either.
     pub fn open_operations(&mut self) -> Result<Vec<OperationRecord>> {
-        todo!("M01-T03")
+        let sql = format!(
+            "SELECT record_json FROM operations WHERE state IN ({}) ORDER BY created_at, id",
+            sql_in_list(OPEN_OPERATION_STATES)?
+        );
+        self.docs(&sql, [])
     }
 
     /// Purge terminal operations and idempotency records past `before`
     /// (retention contract, ADR-0006 §7.4). Never touches tombstones or policies.
-    pub fn purge_operations_before(&mut self, _before: Timestamp) -> Result<u64> {
-        todo!("M01-T03")
+    ///
+    /// An operation is purged only when it reached `succeeded`, `failed` or
+    /// `cancelled` before `before` **and** its idempotency record expired before
+    /// `before`, so a retry inside the record's window is always deduplicated.
+    /// `outcome_unknown` and open operations are kept. Idempotency rows go with
+    /// their operation (`ON DELETE CASCADE`). Returns the operations removed.
+    pub fn purge_operations_before(&mut self, before: Timestamp) -> Result<u64> {
+        let sql = format!(
+            "DELETE FROM operations
+             WHERE terminal_at IS NOT NULL AND terminal_at < ?1
+               AND state IN ({})
+               AND NOT EXISTS (SELECT 1 FROM idempotency i
+                               WHERE i.operation_id = operations.id AND i.expires_at >= ?1)",
+            sql_in_list(PURGEABLE_OPERATION_STATES)?
+        );
+        let n = self.tx.execute(&sql, [codec::ts(before)])?;
+        Ok(n as u64)
     }
 
     // --- grants, references, tombstones, generation (spec §6.3, §6.7) -----------
 
     /// Insert a grant snapshot.
-    pub fn insert_grant(&mut self, _grant: &GrantSnapshot) -> Result<()> {
-        todo!("M01-T03")
+    pub fn insert_grant(&mut self, grant: &GrantSnapshot) -> Result<()> {
+        if grant.parent.as_ref() == Some(&grant.id) {
+            return Err(codec::doc_error("a grant cannot be its own parent"));
+        }
+        self.tx.execute(
+            "INSERT INTO grants (id, environment, parent, state, starts_at,
+                 deadline_effective, deadline_json, scope_json, generation, record_json,
+                 updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?5)",
+            rusqlite::params![
+                grant.id.as_str(),
+                grant.environment.as_str(),
+                grant.parent.as_ref().map(GrantId::as_str),
+                codec::enum_str(&grant.state)?,
+                codec::ts(grant.starts_at),
+                codec::ts(grant.deadline.effective),
+                codec::doc(&grant.deadline)?,
+                codec::doc(&grant.scope)?,
+                codec::int(grant.generation.0)?,
+                codec::doc(grant)?,
+            ],
+        )?;
+        Ok(())
     }
 
     /// Load a grant.
-    pub fn grant(&mut self, _id: &GrantId) -> Result<Option<GrantSnapshot>> {
-        todo!("M01-T03")
+    pub fn grant(&mut self, id: &GrantId) -> Result<Option<GrantSnapshot>> {
+        self.one_doc(
+            "SELECT record_json FROM grants WHERE id = ?1",
+            [id.as_str()],
+        )
     }
 
     /// Update a grant's state and enforcement; scope and deadline columns are
     /// immutable and the statement must not touch them.
-    pub fn update_grant_state(&mut self, _grant: &GrantSnapshot) -> Result<()> {
-        todo!("M01-T03")
+    ///
+    /// Only `state` and `enforcement` are taken from `grant`; every other field
+    /// (scope, deadline, start, parent, source, generation, environment) keeps its
+    /// stored value even if the caller's copy differs. Terminal grant states are
+    /// absorbing: changing one is [`StoreError::GenerationConflict`]. The
+    /// `updated_at` column is not maintained (the store reads no clock).
+    pub fn update_grant_state(&mut self, grant: &GrantSnapshot) -> Result<()> {
+        let Some(mut stored) = self.grant(&grant.id)? else {
+            return Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+        };
+        if stored.state.is_terminal() && stored.state != grant.state {
+            return Err(StoreError::GenerationConflict(format!(
+                "grant {} is already terminal",
+                grant.id
+            )));
+        }
+        stored.state = grant.state;
+        stored.enforcement = grant.enforcement.clone();
+        self.tx.execute(
+            "UPDATE grants SET state = ?2, record_json = ?3 WHERE id = ?1",
+            rusqlite::params![
+                grant.id.as_str(),
+                codec::enum_str(&stored.state)?,
+                codec::doc(&stored)?,
+            ],
+        )?;
+        Ok(())
     }
 
     /// Grants whose deadline is at or before `now` and that are not terminal.
-    pub fn grants_due(&mut self, _now: Timestamp) -> Result<Vec<GrantSnapshot>> {
-        todo!("M01-T03")
+    pub fn grants_due(&mut self, now: Timestamp) -> Result<Vec<GrantSnapshot>> {
+        let all: Vec<GrantSnapshot> = self.docs(
+            "SELECT record_json FROM grants WHERE deadline_effective <= ?1
+             ORDER BY deadline_effective, id",
+            [codec::ts(now)],
+        )?;
+        Ok(all.into_iter().filter(|g| !g.state.is_terminal()).collect())
     }
 
     /// Descendants of a grant (transitive children).
-    pub fn grant_descendants(&mut self, _id: &GrantId) -> Result<Vec<GrantId>> {
-        todo!("M01-T03")
+    pub fn grant_descendants(&mut self, id: &GrantId) -> Result<Vec<GrantId>> {
+        let mut stmt = self.tx.prepare_cached(
+            "WITH RECURSIVE d(id) AS (
+                 SELECT id FROM grants WHERE parent = ?1
+                 UNION
+                 SELECT g.id FROM grants g JOIN d ON g.parent = d.id
+             )
+             SELECT id FROM d WHERE id <> ?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map([id.as_str()], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(
+                GrantId::parse(&row?)
+                    .map_err(|_| codec::doc_error("stored grant id is malformed"))?,
+            );
+        }
+        Ok(out)
     }
 
-    /// Add a consumer reference.
-    pub fn add_grant_reference(&mut self, _reference: &GrantReference) -> Result<()> {
-        todo!("M01-T03")
+    /// Add a consumer reference. Adding the same `(binding, grant)` twice is a
+    /// no-op (references are ownership-aware, not counters).
+    pub fn add_grant_reference(&mut self, reference: &GrantReference) -> Result<()> {
+        self.tx.execute(
+            "INSERT INTO grant_references (binding, grant_id, acquired_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(binding, grant_id) DO NOTHING",
+            rusqlite::params![
+                reference.binding.as_str(),
+                reference.grant.as_str(),
+                codec::ts(reference.acquired_at),
+            ],
+        )?;
+        Ok(())
     }
 
     /// Drop a consumer reference; returns remaining references for the grant.
-    pub fn remove_grant_reference(&mut self, _reference: &GrantReference) -> Result<u64> {
-        todo!("M01-T03")
+    pub fn remove_grant_reference(&mut self, reference: &GrantReference) -> Result<u64> {
+        self.tx.execute(
+            "DELETE FROM grant_references WHERE binding = ?1 AND grant_id = ?2",
+            [reference.binding.as_str(), reference.grant.as_str()],
+        )?;
+        let n: i64 = self.tx.query_row(
+            "SELECT count(*) FROM grant_references WHERE grant_id = ?1",
+            [reference.grant.as_str()],
+            |r| r.get(0),
+        )?;
+        codec::uint(n)
     }
 
     /// Persist a tombstone and bump the authority generation in the same transaction.
-    pub fn insert_tombstone(&mut self, _tombstone: &Tombstone) -> Result<AuthorityGeneration> {
-        todo!("M01-T03")
+    ///
+    /// The returned generation is authoritative and is what the stored tombstone
+    /// records (the caller's `generation` field is overwritten). A second tombstone
+    /// for the same grant keeps the first (evidence is never rewritten) but still
+    /// bumps the generation.
+    pub fn insert_tombstone(&mut self, tombstone: &Tombstone) -> Result<AuthorityGeneration> {
+        let next = self.authority_generation()?.next();
+        self.set_meta(META_AUTHORITY_GENERATION, &next.0.to_string())?;
+        let mut stored = tombstone.clone();
+        stored.generation = next;
+        self.tx.execute(
+            "INSERT INTO tombstones (grant_id, generation, revoked_at, record_json)
+             VALUES (?1, ?2, ?3, ?4) ON CONFLICT(grant_id) DO NOTHING",
+            rusqlite::params![
+                stored.grant.as_str(),
+                codec::int(next.0)?,
+                codec::ts(stored.revoked_at),
+                codec::doc(&stored)?,
+            ],
+        )?;
+        Ok(next)
     }
 
     /// Current authority generation.
     pub fn authority_generation(&mut self) -> Result<AuthorityGeneration> {
-        todo!("M01-T03")
+        match self.meta(META_AUTHORITY_GENERATION)? {
+            None => Ok(AuthorityGeneration(0)),
+            Some(s) => s
+                .parse()
+                .map(AuthorityGeneration)
+                .map_err(|_| StoreError::Corrupt("authority generation is malformed".into())),
+        }
     }
 
     // --- policies, profiles, environments ------------------------------------------
 
     /// Upsert a standing policy at a new revision; bumps the authority generation
     /// when the change narrows, pauses or cuts off.
+    ///
+    /// The revision must be strictly greater than the stored one, otherwise
+    /// [`StoreError::GenerationConflict`] (a stale writer never overwrites a newer
+    /// policy). The generation is bumped when `narrowing` is set **or** the store
+    /// itself sees a withdrawal (scope or environments shrink, window shortens,
+    /// pause, earlier or new cutoff, different profile/workspace).
     pub fn upsert_policy(
         &mut self,
-        _policy: &StandingPolicy,
-        _narrowing: bool,
+        policy: &StandingPolicy,
+        narrowing: bool,
     ) -> Result<AuthorityGeneration> {
-        todo!("M01-T03")
+        let existing = self.policy(&policy.id)?;
+        if let Some(old) = &existing
+            && old.revision >= policy.revision
+        {
+            return Err(StoreError::GenerationConflict(format!(
+                "policy {} revision {} is not newer than stored {}",
+                policy.id, policy.revision.0, old.revision.0
+            )));
+        }
+        let detected = existing
+            .as_ref()
+            .is_some_and(|old| policy_narrows(old, policy));
+        let updated_at = match &policy.source {
+            heimdall_domain::policy::PolicySource::OwnerDecision { decided_at } => {
+                codec::ts(*decided_at)
+            }
+            heimdall_domain::policy::PolicySource::SetupDefault => String::new(),
+        };
+        self.tx.execute(
+            "INSERT INTO policies (id, revision, record_json, updated_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET revision = excluded.revision,
+                 record_json = excluded.record_json, updated_at = excluded.updated_at",
+            rusqlite::params![
+                policy.id.as_str(),
+                codec::int(policy.revision.0)?,
+                codec::doc(policy)?,
+                updated_at,
+            ],
+        )?;
+        let current = self.authority_generation()?;
+        if narrowing || detected {
+            let next = current.next();
+            self.set_meta(META_AUTHORITY_GENERATION, &next.0.to_string())?;
+            return Ok(next);
+        }
+        Ok(current)
     }
 
     /// Load a policy.
-    pub fn policy(&mut self, _id: &PolicyId) -> Result<Option<StandingPolicy>> {
-        todo!("M01-T03")
+    pub fn policy(&mut self, id: &PolicyId) -> Result<Option<StandingPolicy>> {
+        self.one_doc(
+            "SELECT record_json FROM policies WHERE id = ?1",
+            [id.as_str()],
+        )
     }
 
     /// This runtime's own environment ID (created at first start, never reset by
     /// recovery; R-RT-07).
     pub fn self_environment(&mut self) -> Result<Option<EnvironmentId>> {
-        todo!("M01-T03")
+        self.meta(META_SELF_ENVIRONMENT)?
+            .map(|s| {
+                EnvironmentId::parse(&s)
+                    .map_err(|_| StoreError::Corrupt("self environment id is malformed".into()))
+            })
+            .transpose()
     }
 
     /// Record this runtime's environment ID once.
-    pub fn init_self_environment(&mut self, _id: &EnvironmentId) -> Result<()> {
-        todo!("M01-T03")
+    ///
+    /// Recording the same ID again is a no-op; a different ID is refused with
+    /// [`StoreError::GenerationConflict`] (identity never changes, R-RT-07).
+    pub fn init_self_environment(&mut self, id: &EnvironmentId) -> Result<()> {
+        match self.self_environment()? {
+            Some(existing) if existing == *id => Ok(()),
+            Some(_) => Err(StoreError::GenerationConflict(
+                "self environment is already initialized".into(),
+            )),
+            None => {
+                self.tx.execute(
+                    "INSERT INTO meta (key, value) VALUES (?1, ?2)",
+                    [META_SELF_ENVIRONMENT, id.as_str()],
+                )?;
+                Ok(())
+            }
+        }
     }
 
     // --- managed resources (spec §13.5) ------------------------------------------------
 
     /// Upsert with compare-and-swap on generation.
+    ///
+    /// `expected = None` inserts and fails if the resource exists; `Some(g)`
+    /// updates only when the stored generation equals `g` and the new generation is
+    /// not lower than `g`. Any mismatch is [`StoreError::GenerationConflict`] and
+    /// leaves the stored row unchanged.
     pub fn upsert_resource(
         &mut self,
-        _resource: &ManagedResource,
-        _expected: Option<ResourceGeneration>,
+        resource: &ManagedResource,
+        expected: Option<ResourceGeneration>,
     ) -> Result<()> {
-        todo!("M01-T03")
+        let conflict = || StoreError::GenerationConflict(format!("resource {}", resource.id));
+        let record = codec::doc(resource)?;
+        let owner = codec::doc(&resource.owner)?;
+        let kind = codec::enum_str(&resource.kind)?;
+        let desired = codec::enum_str(&resource.desired)?;
+        let observed = codec::enum_str(&resource.observed)?;
+        let generation = codec::int(resource.generation.0)?;
+        let updated_at = codec::ts(resource.updated_at);
+        match expected {
+            None => {
+                let n = self.tx.execute(
+                    "INSERT INTO resources (id, kind, owner_json, generation, desired, observed,
+                         locator, record_json, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                     ON CONFLICT(id) DO NOTHING",
+                    rusqlite::params![
+                        resource.id.as_str(),
+                        kind,
+                        owner,
+                        generation,
+                        desired,
+                        observed,
+                        resource.locator,
+                        record,
+                        updated_at,
+                    ],
+                )?;
+                if n == 0 {
+                    return Err(conflict());
+                }
+            }
+            Some(expected) => {
+                if resource.generation < expected {
+                    return Err(conflict());
+                }
+                let n = self.tx.execute(
+                    "UPDATE resources SET kind = ?3, owner_json = ?4, generation = ?5,
+                         desired = ?6, observed = ?7, locator = ?8, record_json = ?9,
+                         updated_at = ?10
+                     WHERE id = ?1 AND generation = ?2",
+                    rusqlite::params![
+                        resource.id.as_str(),
+                        codec::int(expected.0)?,
+                        kind,
+                        owner,
+                        generation,
+                        desired,
+                        observed,
+                        resource.locator,
+                        record,
+                        updated_at,
+                    ],
+                )?;
+                if n == 0 {
+                    return Err(conflict());
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Load a resource.
-    pub fn resource(&mut self, _id: &ResourceId) -> Result<Option<ManagedResource>> {
-        todo!("M01-T03")
+    pub fn resource(&mut self, id: &ResourceId) -> Result<Option<ManagedResource>> {
+        self.one_doc(
+            "SELECT record_json FROM resources WHERE id = ?1",
+            [id.as_str()],
+        )
     }
 
     /// Resources whose desired and observed states differ.
     pub fn resources_needing_reconcile(&mut self) -> Result<Vec<ManagedResource>> {
-        todo!("M01-T03")
+        self.docs(
+            "SELECT record_json FROM resources WHERE desired <> observed ORDER BY id",
+            [],
+        )
     }
 
     // --- events (spec §11.5) -------------------------------------------------------------
 
     /// Append an event; assigns the next per-environment sequence and the event ID.
-    pub fn append_event(&mut self, _event_without_cursor: &Event) -> Result<(EventId, u64)> {
-        todo!("M01-T03")
+    ///
+    /// The caller's `event_id` and `cursor` are ignored: the event ID is 16 random
+    /// bytes from SQLite's PRNG (OS-seeded; uniqueness is enforced by the column),
+    /// and the sequence comes from one store-wide `AUTOINCREMENT` counter, so it is
+    /// strictly increasing within every environment and never reused after trims.
+    /// The payload must already be redacted; key armor is refused.
+    pub fn append_event(&mut self, event_without_cursor: &Event) -> Result<(EventId, u64)> {
+        let bytes: Vec<u8> = self
+            .tx
+            .query_row("SELECT randomblob(16)", [], |r| r.get(0))?;
+        let bytes: [u8; 16] = bytes
+            .try_into()
+            .map_err(|_| codec::doc_error("random event id has the wrong length"))?;
+        let event_id = EventId::from_random_bytes(bytes);
+        let mut stored = event_without_cursor.clone();
+        stored.event_id = event_id.clone();
+        stored.cursor = heimdall_contract::event::Cursor(String::new());
+        self.tx.execute(
+            "INSERT INTO events (event_id, environment, type, operation_id, timestamp, record_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                event_id.as_str(),
+                stored.environment_id.as_str(),
+                codec::enum_str(&stored.event_type)?,
+                stored.operation_id.as_ref().map(OperationId::as_str),
+                codec::ts(stored.timestamp),
+                codec::doc(&stored)?,
+            ],
+        )?;
+        let seq = codec::uint(self.tx.last_insert_rowid())?;
+        Ok((event_id, seq))
+    }
+
+    fn event_tail(&self, environment: &EnvironmentId) -> Result<u64> {
+        let key = format!("{META_EVENT_TAIL_PREFIX}{environment}");
+        match self.meta(&key)? {
+            None => Ok(0),
+            Some(s) => s
+                .parse()
+                .map_err(|_| StoreError::Corrupt("event retention boundary is malformed".into())),
+        }
     }
 
     /// Read events after `after_seq` (bounded by `limit`).
+    ///
+    /// Each returned event carries a store-level marker in `cursor` from which
+    /// [`event_seq`] recovers its sequence; the application replaces it with a
+    /// reader-scoped cursor. `head_seq`/`tail_seq` are unfiltered environment-wide
+    /// values (see [`EventPage`]).
     pub fn events_after(
         &mut self,
-        _environment: &EnvironmentId,
-        _after_seq: u64,
-        _filter: &EventFilter,
-        _limit: u32,
+        environment: &EnvironmentId,
+        after_seq: u64,
+        filter: &EventFilter,
+        limit: u32,
     ) -> Result<EventPage> {
-        todo!("M01-T03")
+        use rusqlite::types::Value;
+        let mut sql =
+            String::from("SELECT seq, record_json FROM events WHERE environment = ?1 AND seq > ?2");
+        let mut params: Vec<Value> = vec![
+            Value::Text(environment.as_str().to_owned()),
+            Value::Integer(i64::try_from(after_seq).unwrap_or(i64::MAX)),
+        ];
+        if let Some(op) = &filter.operation_id {
+            params.push(Value::Text(op.as_str().to_owned()));
+            sql.push_str(&format!(" AND operation_id = ?{}", params.len()));
+        }
+        if !filter.types.is_empty() {
+            let mut placeholders = Vec::with_capacity(filter.types.len());
+            for t in &filter.types {
+                params.push(Value::Text(codec::enum_str(t)?));
+                placeholders.push(format!("?{}", params.len()));
+            }
+            sql.push_str(&format!(" AND type IN ({})", placeholders.join(",")));
+        }
+        params.push(Value::Integer(i64::from(limit)));
+        sql.push_str(&format!(" ORDER BY seq LIMIT ?{}", params.len()));
+
+        let mut events = Vec::new();
+        {
+            let mut stmt = self.tx.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (seq, json) = row?;
+                let mut event: Event = codec::parse_doc(&json)?;
+                event.cursor = heimdall_contract::event::Cursor(format!("{STORE_SEQ_PREFIX}{seq}"));
+                events.push(event);
+            }
+        }
+        let tail_seq = self.event_tail(environment)?;
+        let max_seq: Option<i64> = self.tx.query_row(
+            "SELECT max(seq) FROM events WHERE environment = ?1",
+            [environment.as_str()],
+            |r| r.get(0),
+        )?;
+        let head_seq = max_seq
+            .map(codec::uint)
+            .transpose()?
+            .unwrap_or(0)
+            .max(tail_seq);
+        Ok(EventPage {
+            events,
+            head_seq,
+            tail_seq,
+        })
     }
 
     /// Trim the event log to retention; returns the new tail sequence.
+    ///
+    /// Removes a prefix of the environment's log: everything up to the newest
+    /// event older than `keep_after`, and further oldest events until at most
+    /// `max_rows` remain. The returned value is the retention boundary described on
+    /// [`EventPage::tail_seq`]; it never decreases.
     pub fn trim_events(
         &mut self,
-        _environment: &EnvironmentId,
-        _keep_after: Timestamp,
-        _max_rows: u64,
+        environment: &EnvironmentId,
+        keep_after: Timestamp,
+        max_rows: u64,
     ) -> Result<u64> {
-        todo!("M01-T03")
+        let env = environment.as_str();
+        let by_age: Option<i64> = self.tx.query_row(
+            "SELECT max(seq) FROM events WHERE environment = ?1 AND timestamp < ?2",
+            rusqlite::params![env, codec::ts(keep_after)],
+            |r| r.get(0),
+        )?;
+        let total: i64 = self.tx.query_row(
+            "SELECT count(*) FROM events WHERE environment = ?1",
+            [env],
+            |r| r.get(0),
+        )?;
+        let excess = codec::uint(total)?.saturating_sub(max_rows);
+        let by_count: Option<i64> = if excess > 0 {
+            Some(self.tx.query_row(
+                "SELECT seq FROM events WHERE environment = ?1 ORDER BY seq LIMIT 1 OFFSET ?2",
+                rusqlite::params![env, codec::int(excess - 1)?],
+                |r| r.get(0),
+            )?)
+        } else {
+            None
+        };
+        let old_tail = self.event_tail(environment)?;
+        let Some(boundary) = by_age.max(by_count) else {
+            return Ok(old_tail);
+        };
+        self.tx.execute(
+            "DELETE FROM events WHERE environment = ?1 AND seq <= ?2",
+            rusqlite::params![env, boundary],
+        )?;
+        let new_tail = old_tail.max(codec::uint(boundary)?);
+        self.set_meta(
+            &format!("{META_EVENT_TAIL_PREFIX}{environment}"),
+            &new_tail.to_string(),
+        )?;
+        Ok(new_tail)
     }
 
     // --- time anchors (spec §6.4) ---------------------------------------------------------
 
     /// Last persisted anchor.
     pub fn time_anchor(&mut self) -> Result<Option<TimeAnchor>> {
-        todo!("M01-T03")
+        self.meta(META_TIME_ANCHOR)?
+            .as_deref()
+            .map(codec::parse_doc)
+            .transpose()
     }
 
     /// Persist the anchor.
-    pub fn set_time_anchor(&mut self, _anchor: &TimeAnchor) -> Result<()> {
-        todo!("M01-T03")
+    pub fn set_time_anchor(&mut self, anchor: &TimeAnchor) -> Result<()> {
+        self.set_meta(META_TIME_ANCHOR, &codec::doc(anchor)?)
     }
 
     /// Count of operations by state (status/inspect).
     pub fn operation_counts(&mut self) -> Result<Vec<(OperationState, u64)>> {
-        todo!("M01-T03")
+        let mut stmt = self.tx.prepare_cached(
+            "SELECT state, count(*) FROM operations GROUP BY state ORDER BY state",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (state, n) = row?;
+            out.push((codec::enum_parse(&state)?, codec::uint(n)?));
+        }
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use migrations::Migration;
+
+    const V1: &[Migration] = &[Migration {
+        version: 1,
+        name: "one",
+        sql: "CREATE TABLE t (x INTEGER NOT NULL) STRICT;",
+    }];
+    const V2: &[Migration] = &[
+        V1[0],
+        Migration {
+            version: 2,
+            name: "two",
+            sql: "ALTER TABLE t ADD COLUMN y INTEGER;",
+        },
+    ];
+    const V2_BROKEN: &[Migration] = &[
+        V1[0],
+        Migration {
+            version: 2,
+            name: "broken",
+            sql: "ALTER TABLE t ADD COLUMN y INTEGER; NOT SQL;",
+        },
+    ];
+
+    fn backup_path(db: &Path, suffix: &str) -> std::path::PathBuf {
+        let mut s = db.as_os_str().to_owned();
+        s.push(suffix);
+        std::path::PathBuf::from(s)
+    }
+
+    fn row_count(path: &Path) -> (u32, i64) {
+        let c = rusqlite::Connection::open(path).unwrap();
+        let v = migrations::user_version(&c).unwrap();
+        let n = c
+            .query_row("SELECT count(*) FROM t", [], |r| r.get(0))
+            .unwrap();
+        (v, n)
+    }
+
+    #[test]
+    fn fresh_file_needs_no_backup_and_pending_step_is_backed_up_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        {
+            let s = Store::open_with_steps(&db, Arc::new(NoFaults), V1, false).unwrap();
+            s.lock()
+                .execute("INSERT INTO t (x) VALUES (42)", [])
+                .unwrap();
+        }
+        assert!(!backup_path(&db, ".v0.backup").exists());
+        assert!(!backup_path(&db, ".v1.backup").exists());
+
+        // A failing v2 step: backup written, store left at v1 with its data.
+        assert!(Store::open_with_steps(&db, Arc::new(NoFaults), V2_BROKEN, false).is_err());
+        let b0 = backup_path(&db, ".v1.backup");
+        assert_eq!(row_count(&b0), (1, 1));
+        assert_eq!(row_count(&db), (1, 1));
+
+        // Retry with a good v2: a second backup, never overwriting the first.
+        let s = Store::open_with_steps(&db, Arc::new(NoFaults), V2, false).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 2);
+        drop(s);
+        let b1 = backup_path(&db, ".v1.backup.1");
+        assert_eq!(row_count(&b1), (1, 1));
+        assert_eq!(row_count(&db), (2, 1));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            for p in [&db, &b0, &b1] {
+                let mode = std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+                assert_eq!(mode, 0o600);
+            }
+        }
+    }
+
+    struct FailAt(FaultPoint);
+    impl FaultHook for FailAt {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == self.0 {
+                FaultAction::Fail
+            } else {
+                FaultAction::Continue
+            }
+        }
+    }
+
+    #[test]
+    fn migration_fault_points_fire_and_leave_consistent_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        let e = Store::open_with_steps(
+            &db,
+            Arc::new(FailAt(FaultPoint::BeforeMigration)),
+            V1,
+            false,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            e,
+            StoreError::InjectedFault(FaultPoint::BeforeMigration)
+        ));
+        let c = rusqlite::Connection::open(&db).unwrap();
+        assert_eq!(migrations::user_version(&c).unwrap(), 0);
+        drop(c);
+        let e =
+            Store::open_with_steps(&db, Arc::new(FailAt(FaultPoint::AfterMigration)), V1, false)
+                .unwrap_err();
+        assert!(matches!(
+            e,
+            StoreError::InjectedFault(FaultPoint::AfterMigration)
+        ));
+        let c = rusqlite::Connection::open(&db).unwrap();
+        assert_eq!(migrations::user_version(&c).unwrap(), 1);
+    }
+
+    fn raw_counts(s: &Store) -> (i64, i64, Vec<(String, String)>) {
+        let c = s.lock();
+        let tomb: i64 = c
+            .query_row("SELECT count(*) FROM tombstones", [], |r| r.get(0))
+            .unwrap();
+        let pol: i64 = c
+            .query_row("SELECT count(*) FROM policies", [], |r| r.get(0))
+            .unwrap();
+        let mut stmt = c
+            .prepare("SELECT key, value FROM meta ORDER BY key")
+            .unwrap();
+        let meta = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        (tomb, pol, meta)
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig {
+            cases: 256,
+            ..proptest::prelude::ProptestConfig::default()
+        })]
+
+        /// plan §6.3 #6 (retention part): for any purge instant, tombstones,
+        /// policies and every meta key (self environment, authority generation,
+        /// time anchor, event tails) survive; only operation rows can go.
+        #[test]
+        fn purge_never_touches_tombstones_policies_or_meta(
+            purge_offset_s in -86_400i64 * 400..86_400 * 400,
+            n_tombstones in 0u8..5,
+        ) {
+            use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource};
+            let s = Store::open_in_memory(Arc::new(NoFaults)).unwrap();
+            let t0: Timestamp = "2026-10-01T00:00:00Z".parse().unwrap();
+            let env = EnvironmentId::from_random_bytes([1; 16]);
+            s.transaction(|tx| {
+                tx.init_self_environment(&env)?;
+                for b in 0..n_tombstones {
+                    tx.insert_tombstone(&Tombstone {
+                        grant: GrantId::from_random_bytes([b; 16]),
+                        cascade: Vec::new(),
+                        generation: AuthorityGeneration(0),
+                        revoked_at: t0,
+                        remote_pending: Vec::new(),
+                    })?;
+                }
+                tx.upsert_policy(
+                    &StandingPolicy {
+                        id: PolicyId::parse("personal").unwrap(),
+                        revision: PolicyRevision(1),
+                        profile: heimdall_contract::ids::ProfileId::parse("default").unwrap(),
+                        workspace: None,
+                        scope: heimdall_domain::scope::Scope::empty(),
+                        environments: std::collections::BTreeSet::new(),
+                        max_window: std::time::Duration::from_secs(3600),
+                        pause: PauseState::Paused { since: t0 },
+                        cutoff_at: Some(t0),
+                        source: PolicySource::SetupDefault,
+                    },
+                    true,
+                )?;
+                tx.set_time_anchor(&TimeAnchor {
+                    wall: t0,
+                    monotonic: std::time::Duration::ZERO,
+                    process_generation: 1,
+                })?;
+                tx.append_event(&Event {
+                    schema_version: heimdall_contract::SchemaVersion::current(),
+                    event_id: EventId::from_random_bytes([0; 16]),
+                    event_type: heimdall_contract::event::EventType::PolicyChanged,
+                    environment_id: env.clone(),
+                    operation_id: None,
+                    resource: None,
+                    timestamp: t0,
+                    cursor: heimdall_contract::event::Cursor(String::new()),
+                    payload: serde_json::Value::Null,
+                })?;
+                tx.trim_events(&env, t0, 0)?;
+                Ok(())
+            })
+            .unwrap();
+            let before = raw_counts(&s);
+            let at = t0
+                .checked_add(jiff::SignedDuration::from_secs(purge_offset_s))
+                .unwrap();
+            s.transaction(|tx| tx.purge_operations_before(at)).unwrap();
+            proptest::prop_assert_eq!(raw_counts(&s), before);
+        }
+    }
+
+    #[test]
+    fn event_seq_marker_parses_only_store_markers() {
+        let mut e = Event {
+            schema_version: heimdall_contract::SchemaVersion::current(),
+            event_id: EventId::from_random_bytes([1; 16]),
+            event_type: heimdall_contract::event::EventType::Decision,
+            environment_id: EnvironmentId::from_random_bytes([2; 16]),
+            operation_id: None,
+            resource: None,
+            timestamp: "2026-10-01T00:00:00Z".parse().unwrap(),
+            cursor: heimdall_contract::event::Cursor("store-seq:17".into()),
+            payload: serde_json::Value::Null,
+        };
+        assert_eq!(event_seq(&e), Some(17));
+        e.cursor = heimdall_contract::event::Cursor("AAEC".into());
+        assert_eq!(event_seq(&e), None);
     }
 }
