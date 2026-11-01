@@ -1437,6 +1437,7 @@ mod tests {
                         generation: AuthorityGeneration(0),
                         revoked_at: t0,
                         remote_pending: Vec::new(),
+                        cause: heimdall_domain::revocation::RevocationCause::Revoke,
                     })?;
                 }
                 tx.upsert_policy(
@@ -1601,6 +1602,7 @@ mod tests {
                 generation: AuthorityGeneration(0),
                 revoked_at: ts("2026-10-01T00:00:00Z"),
                 remote_pending: Vec::new(),
+                cause: heimdall_domain::revocation::RevocationCause::Revoke,
             })?;
             for i in 0..3i64 {
                 tx.append_event(&Event {
@@ -1906,6 +1908,7 @@ mod tests {
                 generation: AuthorityGeneration(0),
                 revoked_at: ts("2026-10-01T00:00:00Z"),
                 remote_pending: Vec::new(),
+                cause: heimdall_domain::revocation::RevocationCause::Revoke,
             })?;
             Ok(())
         })

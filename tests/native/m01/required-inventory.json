@@ -521,7 +521,11 @@
           "live_events_are_delivered_in_sequence_order_when_announced_in_reverse",
           "observe_pages_events_after_a_cursor_in_order_without_gaps",
           "operations_publish_ordered_redacted_events_per_environment",
-          "props_announce::live_stream_never_passes_a_gap_under_catch_up_faults",
+          "props_announce::live_stream_never_passes_a_gap_under_catch_up_faults_and_retention",
+          "r03_age_retention_before_an_announcement_requires_a_resync",
+          "r03_retention_between_a_failed_catch_up_and_its_retry_requires_a_resync",
+          "r03_retention_gap_reaches_session_receivers_through_the_relay_as_a_lag",
+          "retention_of_delivered_history_needs_no_resync",
           "subscribe_from_a_cursor_replays_the_backlog_personalized_for_the_reader",
           "subscribe_without_a_cursor_starts_from_a_consistent_snapshot",
           "subscribed_cursor_is_the_head_boundary_not_the_clients_cursor"

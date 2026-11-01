@@ -103,6 +103,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - R03 (major): retention can silently drop a held-back event.
   - R04–R09 are the §13.7 items now being implemented.
   - Next: fix R01–R03, then a targeted round-3 re-check.
+- The §13.7 items are implemented (workflow `wf_b2f9242d-155`) and committed as c0af11a6. My check.sh run: exit 0, 595 passed. Migration 0003 sets SCHEMA_VERSION 3. The ADR-0006 §13.8 rulings are recorded.
+- Running: workflow `wf_a33d445a-5c2`, the §13.8 rulings, with three fixers:
+  - H1, operations: R01 issuer re-reservation, R02 one wait bound per request, terminal transitions for withdrawn authority, and creator cancel after approval;
+  - H2, events: R03 retention-gap resync;
+  - H3, runtime: descriptor hygiene for the intermittent concurrent-start hang.
+  - The integrator runs check.sh twice, to catch flakiness.
   - Workflow `wf_b2f9242d-155`, implementing §13.7 items 2–6 and 8: G1 authority (items 2–5, maybe a store migration 0003) and G2 evidence/CLI (items 6 and 8), then an integrator.
 - After that: native reruns on devbox and the Windows PC from one commit, regenerated m01 records (G14), and the M01 exit record.
 - Next:

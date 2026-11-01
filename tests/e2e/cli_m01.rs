@@ -192,6 +192,80 @@ impl Home {
         out
     }
 
+    /// [`run`](Self::run) with every wait bounded by `limit`: `Err` when the
+    /// client does not exit, or exits but its output pipes do not reach end of
+    /// file, in time (a copy of the client's pipe held open by another process,
+    /// such as a runtime that inherited it: ADR-0006 §13.8 item 7). A client
+    /// still running at the bound is killed through its exact handle.
+    fn run_bounded(&self, args: &[&str], limit: Duration) -> Result<Out, String> {
+        let deadline = Instant::now() + limit;
+        let mut child = self
+            .command(args, &[])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn heimdall");
+        let (tx, rx) = mpsc::channel::<(usize, Vec<u8>)>();
+        let streams: [Box<dyn Read + Send>; 2] = [
+            Box::new(child.stdout.take().unwrap()),
+            Box::new(child.stderr.take().unwrap()),
+        ];
+        for (i, mut stream) in streams.into_iter().enumerate() {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                let _ = stream.read_to_end(&mut buf);
+                let _ = tx.send((i, buf));
+            });
+        }
+        drop(tx);
+        let Some(code) = wait_timeout(
+            &mut child,
+            deadline.saturating_duration_since(Instant::now()),
+        ) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("client {args:?} did not exit within {limit:?}"));
+        };
+        let mut out = [Vec::new(), Vec::new()];
+        for _ in 0..2 {
+            match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok((i, bytes)) => out[i] = bytes,
+                Err(_) => {
+                    return Err(format!(
+                        "client {args:?} exited ({code}) but its output did not reach end of \
+                         file within {limit:?}: another process holds its pipe"
+                    ));
+                }
+            }
+        }
+        let [stdout, stderr] = out.map(|b| String::from_utf8_lossy(&b).into_owned());
+        scan("stdout", &stdout);
+        scan("stderr", &stderr);
+        Ok(Out {
+            code,
+            stdout,
+            stderr,
+        })
+    }
+
+    /// A command running `heimdall args…` with one extra descriptor, number 9,
+    /// inherited **without** close-on-exec: whatever is passed as the command's
+    /// stdin becomes fd 9 of the binary (`/bin/sh` duplicates it, then `exec`s
+    /// the binary with stdin from `/dev/null`; same PID). The marker for the
+    /// "no inherited descriptor" checks (ADR-0006 §13.8 item 7).
+    #[cfg(unix)]
+    fn command_with_marker_fd(&self, args: &[&str]) -> Command {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c")
+            .arg(r#"exec "$0" "$@" 9<&0 0</dev/null"#)
+            .arg(bin())
+            .args(args);
+        self.apply_env(&mut cmd, &[]);
+        cmd
+    }
+
     /// Run with stdin on a pseudo-terminal. `input` is written once the owner
     /// prompt is visible; stdin stays open until the child exits. Unix only
     /// (`script(1)`); on Windows the prompt flows are covered by the CLI's unit
@@ -258,15 +332,23 @@ impl Home {
 
     /// Start `service run` in the foreground as this test's child.
     fn start_service(&self, extra: &[(&str, &str)]) -> Svc {
+        let mut cmd = self.command(&["service", "run"], extra);
+        cmd.stdin(Stdio::null());
+        self.start_service_cmd(cmd)
+    }
+
+    /// [`start_service`](Self::start_service) with a prepared `service run`
+    /// command (environment and stdin already set). The command, and with it
+    /// any descriptor it holds for the child, is dropped before this returns.
+    fn start_service_cmd(&self, mut cmd: Command) -> Svc {
         let n = std::fs::read_dir(self.path()).unwrap().count();
         let err_path = self.file(&format!("svc-{n}.err"));
         let out_path = self.file(&format!("svc-{n}.out"));
-        let mut cmd = self.command(&["service", "run"], extra);
         cmd.env("HEIMDALL_LOG", "debug")
-            .stdin(Stdio::null())
             .stdout(std::fs::File::create(&out_path).unwrap())
             .stderr(std::fs::File::create(&err_path).unwrap());
         let child = cmd.spawn().expect("spawn service");
+        drop(cmd);
         let mut svc = Svc {
             child: Some(child),
             err_path,
@@ -1115,8 +1197,11 @@ fn operation_events_follow_resumes_from_cursor() {
 // Launcher: on-demand start with the real binary
 // =================================================================================
 
-#[test]
-fn eight_concurrent_clients_start_exactly_one_runtime() {
+/// One round of eight clients racing to start the runtime on demand in a fresh
+/// home: every client answers `ACCESS_READY` with its output complete within
+/// `limit` (no client pipe held by the runtime), exactly one runtime process
+/// ran, and it stops on request.
+fn concurrent_start_round(round: usize, limit: Duration) {
     let home = Arc::new(Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]));
     let barrier = Arc::new(std::sync::Barrier::new(8));
     let handles: Vec<_> = (0..8)
@@ -1127,24 +1212,112 @@ fn eight_concurrent_clients_start_exactly_one_runtime() {
                 let req = format!("req-l{i}");
                 let work = format!("work-l{i}");
                 barrier.wait();
-                home.run(&ensure_args(&req, &work, "h1:deploy"))
+                home.run_bounded(&ensure_args(&req, &work, "h1:deploy"), limit)
             })
         })
         .collect();
     for h in handles {
-        let out = h.join().unwrap();
-        assert_eq!(out.code, 0, "{out:?}");
-        assert_eq!(out.code_str(), "ACCESS_READY");
+        let out = h
+            .join()
+            .unwrap()
+            .unwrap_or_else(|e| panic!("round {round}: {e}"));
+        assert_eq!(out.code, 0, "round {round}: {out:?}");
+        assert_eq!(out.code_str(), "ACCESS_READY", "round {round}");
     }
     let starts = std::fs::read_to_string(home.file("state/test-service-starts")).unwrap();
-    assert_eq!(starts.lines().count(), 1, "exactly one runtime process ran");
+    assert_eq!(
+        starts.lines().count(),
+        1,
+        "round {round}: exactly one runtime process ran"
+    );
     let pid: u32 = starts.trim().parse().unwrap();
-    assert_eq!(home.instance_pid(), Some(pid));
-    let stop = home.run(&["service", "stop", "--json"]);
-    assert_eq!(stop.code, 0, "{stop:?}");
-    assert_eq!(stop.json()["data"]["pid"], pid);
+    assert_eq!(home.instance_pid(), Some(pid), "round {round}");
+    let stop = home
+        .run_bounded(&["service", "stop", "--json"], limit)
+        .unwrap_or_else(|e| panic!("round {round}: {e}"));
+    assert_eq!(stop.code, 0, "round {round}: {stop:?}");
+    assert_eq!(stop.json()["data"]["pid"], pid, "round {round}");
     assert_eq!(home.run(&["service", "status", "--json"]).code, 5);
     home.scan_logs();
+}
+
+#[test]
+fn eight_concurrent_clients_start_exactly_one_runtime() {
+    concurrent_start_round(0, Duration::from_secs(60));
+}
+
+/// ADR-0006 §13.8 item 7: the intermittent hang of the case above, repeated.
+/// Twenty rounds in one test, each wait bounded (a hang fails the round instead
+/// of blocking the suite).
+#[test]
+fn concurrent_start_stress_twenty_rounds_never_hang() {
+    let started = Instant::now();
+    for round in 0..20 {
+        concurrent_start_round(round, Duration::from_secs(30));
+    }
+    eprintln!("20 concurrent-start rounds in {:?}", started.elapsed());
+}
+
+/// Waits, bounded, for `reader` to reach end of file: `true` when every write
+/// end is closed. A reader thread left blocked after `false` ends once the
+/// holder exits (the test's `Home` stops its runtime on drop).
+#[cfg(unix)]
+fn reaches_eof(reader: std::io::PipeReader, limit: Duration) -> bool {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut sink = Vec::new();
+        let _ = tx.send(reader.read_to_end(&mut sink).map(|_| sink.len()));
+    });
+    matches!(rx.recv_timeout(limit), Ok(Ok(0)))
+}
+
+/// ADR-0006 §13.8 item 7, launcher side: the client inherits a marker pipe
+/// (fd 9, not close-on-exec) and starts the runtime on demand; once the client
+/// has exited, the runtime must not hold the marker (its reader sees end of
+/// file while the runtime still runs).
+#[cfg(unix)]
+#[test]
+fn on_demand_runtime_keeps_no_descriptor_inherited_through_its_client() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let (reader, writer) = std::io::pipe().unwrap();
+    let mut cmd = home.command_with_marker_fd(&ensure_args("req-fd", "work-fd", "h1:deploy"));
+    cmd.stdin(writer)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = cmd.spawn().unwrap();
+    // The test's own write end goes with the command.
+    drop(cmd);
+    let out = finish_client(child, Duration::from_secs(60));
+    assert_eq!(out.code, 0, "{out:?}");
+    assert_eq!(out.code_str(), "ACCESS_READY");
+    let pid = home.instance_pid().expect("the client started a runtime");
+    assert!(
+        reaches_eof(reader, Duration::from_secs(30)),
+        "the on-demand runtime holds a descriptor inherited from its client"
+    );
+    assert_eq!(home.instance_pid(), Some(pid), "the runtime still runs");
+    let stop = home.run(&["service", "stop", "--json"]);
+    assert_eq!(stop.code, 0, "{stop:?}");
+}
+
+/// ADR-0006 §13.8 item 7, runtime side: `service run` started with a marker
+/// pipe as fd 9 (not close-on-exec) closes it at start-up (its reader sees end
+/// of file while the runtime serves).
+#[cfg(unix)]
+#[test]
+fn runtime_closes_every_descriptor_inherited_at_startup() {
+    let home = Home::new(&[SYNCED]);
+    let (reader, writer) = std::io::pipe().unwrap();
+    let mut cmd = home.command_with_marker_fd(&["service", "run"]);
+    cmd.stdin(writer);
+    // Drops the command, and with it the test's own write end.
+    let svc = home.start_service_cmd(cmd);
+    assert!(
+        reaches_eof(reader, Duration::from_secs(30)),
+        "the runtime holds a descriptor inherited from its parent"
+    );
+    svc.stop(&home);
 }
 
 // =================================================================================

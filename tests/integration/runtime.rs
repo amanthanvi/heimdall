@@ -828,6 +828,42 @@ fn process_start_time_identifies_this_process() {
     assert_eq!(platform::process_start_time(u32::MAX), None);
 }
 
+/// An exited process that its parent has not reaped yet (a zombie) is not
+/// alive: `service stop` waits for the advertised runtime to end, and a test (or
+/// any parent) that reaps its child only after the stop would otherwise make
+/// every stop time out (observed natively on Linux, where `/proc/<pid>/stat`
+/// outlives the exit until the reap).
+#[cfg(unix)]
+#[test]
+fn process_start_time_treats_an_unreaped_exited_child_as_gone() {
+    use std::io::Read as _;
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", "read -r _; exit 0"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    let started = platform::process_start_time(pid);
+    assert!(started.is_some(), "a running child has a start time");
+    // Let it exit, then wait for its stdout to close (it has exited) without
+    // reaping it.
+    drop(child.stdin.take());
+    let mut sink = Vec::new();
+    child.stdout.take().unwrap().read_to_end(&mut sink).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut gone = false;
+    while Instant::now() < deadline {
+        if platform::process_start_time(pid) != started {
+            gone = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    child.wait().unwrap();
+    assert!(gone, "an exited, unreaped child still looks alive");
+}
+
 #[test]
 fn system_time_sync_is_unknown_in_m01() {
     // Fail-closed default (ADR-0006 §10): no platform signal is trusted yet.
@@ -3297,5 +3333,110 @@ mod jitter_props {
         let draws: Vec<f64> = (0..64).map(|_| RandomJitter.unit()).collect();
         assert!(draws.iter().all(|u| (0.0..=1.0).contains(u)));
         assert!(draws.windows(2).any(|w| w[0] != w[1]), "not constant");
+    }
+}
+
+// ===========================================================================
+// ADR-0006 §13.8 item 7: the detached child gets only null standard descriptors
+// ===========================================================================
+
+#[cfg(unix)]
+mod fd_hygiene {
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use heimdall_runtime::launcher::spawn_detached;
+
+    /// Turns [`detached_spawn_probe`] into the probing process; the value is the
+    /// report file the detached probe writes.
+    const PROBE_ENV: &str = "HEIMDALL_FD_PROBE_REPORT";
+    const PROBE_TEST: &str = "fd_hygiene::detached_spawn_probe";
+
+    /// Reports, from inside the detached child, whether descriptors 0-2 are
+    /// `/dev/null` and whether descriptor 9 is open. `(true >&9)` runs in a
+    /// subshell so a failed redirection never ends the reporting shell.
+    const PROBE_SCRIPT: &str = r#"r=""
+for n in 0 1 2; do
+  if [ /dev/fd/$n -ef /dev/null ]; then r="$r $n=null"; else r="$r $n=other"; fi
+done
+if (true >&9) 2>/dev/null; then r="$r 9=open"; else r="$r 9=closed"; fi
+echo "$r" > "$1.tmp" && mv "$1.tmp" "$1""#;
+
+    fn wait_for(path: &Path, limit: Duration) -> Option<String> {
+        let start = Instant::now();
+        while start.elapsed() < limit {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                return Some(text);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        None
+    }
+
+    /// Child-process entry, not a test of its own: re-executed by
+    /// `detached_child_receives_only_null_standard_descriptors` with fd 9 open
+    /// and not close-on-exec, it starts the probe through the production
+    /// `launcher::spawn_detached` and waits for its report.
+    #[test]
+    #[ignore = "child-process entry for the descriptor test; runs only when re-executed by it"]
+    fn detached_spawn_probe() {
+        let Some(report) = std::env::var_os(PROBE_ENV) else {
+            return;
+        };
+        let report = PathBuf::from(report);
+        let args = [
+            OsStr::new("-c"),
+            OsStr::new(PROBE_SCRIPT),
+            OsStr::new("sh"),
+            report.as_os_str(),
+        ];
+        let mut child = spawn_detached(Path::new("/bin/sh"), &args).unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success(), "probe shell failed: {status:?}");
+    }
+
+    #[test]
+    fn detached_child_receives_only_null_standard_descriptors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let report = tmp.path().join("report");
+        let exe = std::env::current_exe().unwrap();
+        // fd 9 of the probing process: a descriptor it inherited without
+        // close-on-exec (as a client can inherit one from its caller).
+        let mut probe = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(r#"exec "$0" "$@" 9>/dev/null"#)
+            .arg(&exe)
+            .args([PROBE_TEST, "--exact", "--ignored", "--test-threads=1"])
+            .env(PROBE_ENV, &report)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap();
+        let text = wait_for(&report, Duration::from_secs(60));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let status = loop {
+            if let Some(s) = probe.try_wait().unwrap() {
+                break Some(s);
+            }
+            if Instant::now() >= deadline {
+                let _ = probe.kill();
+                let _ = probe.wait();
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        assert!(
+            status.is_some_and(|s| s.success()),
+            "probing process failed: {status:?}"
+        );
+        let text = text.expect("the detached probe wrote its report");
+        assert_eq!(
+            text.split_whitespace().collect::<Vec<_>>(),
+            ["0=null", "1=null", "2=null", "9=closed"],
+            "the detached child's descriptors"
+        );
     }
 }

@@ -33,7 +33,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use heimdall_app::ensure::{EnsureStage, NoStageHook, StageHook};
-use heimdall_app::operations::{IssuanceFacts, IssuanceRequest, Limits};
+use heimdall_app::operations::{IssuanceFacts, IssuanceRequest, Limits, Publication};
 use heimdall_app::ports::{
     AdapterDescriptor, AdapterError, CredentialAdapter, InteractionRequirement, LockContinuity,
     PrepareOutcome, PrepareRequest, ReconcileOutcome, RevokeOutcome,
@@ -195,6 +195,9 @@ struct Gated {
     entered: Notify,
     release: Semaphore,
     revoke_fails: AtomicBool,
+    /// Grants the production code asked this adapter to revoke (local denial or
+    /// cleanup of a prepared credential), in call order.
+    revoked: std::sync::Mutex<Vec<GrantId>>,
 }
 
 impl Gated {
@@ -206,7 +209,17 @@ impl Gated {
             entered: Notify::new(),
             release: Semaphore::new(0),
             revoke_fails: AtomicBool::new(false),
+            revoked: std::sync::Mutex::new(Vec::new()),
         })
+    }
+
+    fn revoked(&self, grant: &GrantId) -> usize {
+        self.revoked
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|g| *g == grant)
+            .count()
     }
 }
 
@@ -238,6 +251,7 @@ impl CredentialAdapter for Gated {
     }
 
     async fn revoke(&self, grant: &GrantId, now: Timestamp) -> Result<RevokeOutcome, AdapterError> {
+        self.revoked.lock().unwrap().push(grant.clone());
         if self.revoke_fails.load(Ordering::SeqCst) {
             return Err(AdapterError::Unavailable(format!(
                 "{CANARY_PREFIX}unreachable"
@@ -501,6 +515,28 @@ fn facts() -> IssuanceFacts {
         subject_registered: true,
         critical_option: false,
     }
+}
+
+/// The issuer's side of publication (ADR-0005 §3.5 with its 2026-11-01 amendment;
+/// ADR-0006 §13.8 item 1): publish; on `Rereserved`, sign exactly the returned
+/// bounds (nothing to sign in M01: no cryptography before M03) and publish that
+/// reservation, until it is published or refused. Bounded.
+async fn issue(
+    w: &World,
+    first: &heimdall_contract::ids::IssuanceId,
+    facts: &IssuanceFacts,
+) -> Result<heimdall_domain::issuance::IssuanceEntry, OpError> {
+    let mut id = first.clone();
+    for _ in 0..8 {
+        match w.ops.publish_issuance(&id, facts).await? {
+            Publication::Published(e) => return Ok(e),
+            Publication::Rereserved { reservation } => {
+                assert_eq!(reservation.state, IssuanceState::Reserved);
+                id = reservation.id;
+            }
+        }
+    }
+    panic!("publication did not converge within 8 round trips");
 }
 
 fn entry(w: &World, grant: &GrantId) -> heimdall_domain::issuance::IssuanceEntry {
@@ -801,11 +837,9 @@ async fn reserve_then(between: Between) -> (World, GrantId, Result<(), OpError>)
             w.clock.set_wall(at(-600));
         }
     }
-    let published = w
-        .ops
-        .publish_issuance(&reserved.id, &facts())
-        .await
-        .map(|_| ());
+    // The issuer's round trips (§13.8 item 1): a re-reservation is signed and
+    // published again.
+    let published = issue(&w, &reserved.id, &facts()).await.map(|_| ());
     (w, g.grant_id, published)
 }
 
@@ -819,7 +853,9 @@ async fn a07_publish_rechecks_every_predicate_and_voids_after_each_change() {
     // ADR-0006 §13.6 item 5: a revision of an applicable policy moves the
     // generation too, so the reservation made before it is voided because reserve
     // and publish saw different generations. The chain re-validates against the
-    // new revision, so since §13.6 item 11 the same call re-reserves and publishes.
+    // new revision, so publication re-reserves (§13.6 item 11), hands the fresh
+    // reservation back to the issuer, and its next round trip publishes it (§13.8
+    // item 1).
     let (w, g, r) = reserve_then(Between::PolicyRevision).await;
     r.unwrap();
     let entries = w.store.transaction(|tx| tx.issuance_entries(&g)).unwrap();
@@ -1421,11 +1457,7 @@ async fn a07_permitted_extensions_come_from_the_grant_snapshot_not_the_caller() 
     let mut pty = issuance(&g.grant_id, at(600));
     pty.extensions.insert("permit-pty".into());
     let reserved = w.ops.reserve_issuance(pty).await.unwrap();
-    let published = w
-        .ops
-        .publish_issuance(&reserved.id, &facts())
-        .await
-        .unwrap();
+    let published = issue(&w, &reserved.id, &facts()).await.unwrap();
     assert_eq!(published.state, IssuanceState::Published);
     assert_eq!(
         published.bounds.extensions,
@@ -2749,48 +2781,250 @@ async fn review_a07_cancel_and_deny_of_a_shared_decision() {
     assert_eq!(w.fake.effect_count(), 0);
 }
 
-/// ADR-0006 §13.6 item 11: a publish voided only by an unrelated generation move
-/// (the grant and its chain are still valid) re-validates and re-reserves within
-/// the same call, then publishes the fresh reservation.
-#[tokio::test]
-async fn review_13_6_11_an_unrelated_generation_move_rereserves_and_publishes() {
-    let w = World::new().await;
-    let g = w.ready("req-r11", "work-r11", &["h1"], None).await;
-    let reserved = w
+/// What the test issuer did, in order (ADR-0006 §13.8 item 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum IssuerStep {
+    /// Signed exactly the bounds of this reservation.
+    Signed(heimdall_contract::ids::IssuanceId),
+    /// Asked to publish this reservation; the answer.
+    Published(heimdall_contract::ids::IssuanceId),
+    Rereserved(
+        heimdall_contract::ids::IssuanceId,
+        heimdall_contract::ids::IssuanceId,
+    ),
+    Refused(heimdall_contract::ids::IssuanceId, Code),
+}
+
+/// A test issuer that records the order of signing and publishing. "Signing" has
+/// no cryptography in M01: it records the reservation's ID and checks that the
+/// reservation is `reserved` in the store at that moment (never published before
+/// it is signed).
+struct Issuer<'w> {
+    w: &'w World,
+    log: Vec<IssuerStep>,
+}
+
+impl<'w> Issuer<'w> {
+    fn new(w: &'w World) -> Self {
+        Self { w, log: Vec::new() }
+    }
+
+    fn sign(&mut self, e: &heimdall_domain::issuance::IssuanceEntry) {
+        let stored = entries_of(self.w, &e.grant)
+            .into_iter()
+            .find(|x| x.id == e.id)
+            .expect("the reservation is on record");
+        assert_eq!(
+            stored.state,
+            IssuanceState::Reserved,
+            "nothing is published before the issuer signed it"
+        );
+        assert_eq!(
+            stored.bounds, e.bounds,
+            "the issuer signs exactly the reserved bounds"
+        );
+        self.log.push(IssuerStep::Signed(e.id.clone()));
+    }
+
+    async fn publish(
+        &mut self,
+        id: &heimdall_contract::ids::IssuanceId,
+    ) -> Result<Publication, OpError> {
+        let r = self.w.ops.publish_issuance(id, &facts()).await;
+        self.log.push(match &r {
+            Ok(Publication::Published(e)) => {
+                assert_eq!(&e.id, id);
+                IssuerStep::Published(id.clone())
+            }
+            Ok(Publication::Rereserved { reservation }) => {
+                IssuerStep::Rereserved(id.clone(), reservation.id.clone())
+            }
+            Err(e) => IssuerStep::Refused(id.clone(), e.code.clone()),
+        });
+        r
+    }
+
+    /// Every publication in the log was preceded by a signature of the same ID.
+    fn signed_before_published(&self) {
+        for (i, step) in self.log.iter().enumerate() {
+            if let IssuerStep::Published(id) = step {
+                assert!(
+                    self.log[..i].contains(&IssuerStep::Signed(id.clone())),
+                    "published {id} before signing it: {:?}",
+                    self.log
+                );
+            }
+        }
+    }
+}
+
+/// The replacement reservation of a publish voided only by an unrelated
+/// generation move: reserve, sign S1, an unrelated generation move, publish S1 ⇒
+/// `Rereserved` with S2 (unpublished). Returns the issuer, the grant and S2.
+async fn rereserved<'w>(
+    w: &'w World,
+    tag: &str,
+) -> (
+    Issuer<'w>,
+    GrantId,
+    heimdall_domain::issuance::IssuanceEntry,
+    heimdall_domain::issuance::IssuanceEntry,
+) {
+    let g = w
+        .ready(&format!("req-{tag}"), &format!("work-{tag}"), &["h1"], None)
+        .await;
+    let mut issuer = Issuer::new(w);
+    let s1 = w
         .ops
         .reserve_issuance(issuance(&g.grant_id, at(1800)))
         .await
         .unwrap();
+    issuer.sign(&s1);
     bump_unrelated(&w.store, 1);
-    let published = w
-        .ops
-        .publish_issuance(&reserved.id, &facts())
-        .await
-        .unwrap_or_else(|e| panic!("healthy publish refused: {} {}", e.code, e.message));
-    assert_eq!(published.state, IssuanceState::Published);
-    assert_ne!(
-        published.id, reserved.id,
-        "a fresh reservation was published"
-    );
-    assert_eq!(published.generation, generation(&w));
-    assert_eq!(published.bounds.valid_before, reserved.bounds.valid_before);
-    assert_eq!(published.bounds.principal, reserved.bounds.principal);
+    let s2 = match issuer.publish(&s1.id).await {
+        Ok(Publication::Rereserved { reservation }) => reservation,
+        other => panic!("an unrelated generation move must re-reserve: {other:?}"),
+    };
+    (issuer, g.grant_id, s1, s2)
+}
+
+/// ADR-0006 §13.8 item 1 (review R01; replaces the §13.6 item 11 test that
+/// expected `Published` after an internal re-reservation): a publish voided only
+/// by an unrelated generation move returns the fresh reservation **unpublished**;
+/// the issuer signs exactly those bounds and publishes again; the recorded order is
+/// sign S1, publish S1 ⇒ re-reserved S2, sign S2, publish S2 ⇒ published.
+#[tokio::test]
+async fn r138_1_a_rereservation_returns_to_the_issuer_unpublished() {
+    let w = World::new().await;
+    let (mut issuer, gid, s1, s2) = rereserved(&w, "r138-1").await;
+    assert_ne!(s2.id, s1.id, "a fresh entry");
+    assert_ne!(s2.bounds.serial, s1.bounds.serial, "a fresh serial");
     assert_eq!(
-        published.bounds.subject_fingerprint,
-        reserved.bounds.subject_fingerprint
+        CertificateBoundsView::of(&s2),
+        CertificateBoundsView::of(&s1),
+        "otherwise the same bounds"
     );
-    let original = entries_of(&w, &g.grant_id)
+    assert_eq!(s2.state, IssuanceState::Reserved);
+    assert_eq!(s2.generation, generation(&w));
+    let original = entries_of(&w, &gid)
         .into_iter()
-        .find(|e| e.id == reserved.id)
+        .find(|e| e.id == s1.id)
         .unwrap();
     assert_eq!(original.state, IssuanceState::Voided);
     assert_eq!(original.void_reason, Some(IssuanceRefusal::StaleGeneration));
-    assert_eq!(residual(&w, &g.grant_id), Some(at(1800)));
+    assert_eq!(residual(&w, &gid), Some(at(1800)), "the reservation counts");
+    issuer.sign(&s2);
+    let published = match issuer.publish(&s2.id).await {
+        Ok(Publication::Published(e)) => e,
+        other => panic!("the signed re-reservation publishes: {other:?}"),
+    };
+    assert_eq!(published.id, s2.id);
+    assert_eq!(published.state, IssuanceState::Published);
+    assert_eq!(
+        issuer.log,
+        vec![
+            IssuerStep::Signed(s1.id.clone()),
+            IssuerStep::Rereserved(s1.id.clone(), s2.id.clone()),
+            IssuerStep::Signed(s2.id.clone()),
+            IssuerStep::Published(s2.id.clone()),
+        ]
+    );
+    issuer.signed_before_published();
+    assert_eq!(residual(&w, &gid), Some(at(1800)));
+    // Publishing a settled entry again is a conflict, never a second publication.
+    let again = w.ops.publish_issuance(&s2.id, &facts()).await.unwrap_err();
+    assert_eq!(
+        again.code,
+        Code::CredentialExpired,
+        "no longer this runtime's reservation"
+    );
 }
 
-/// ADR-0006 §13.6 item 11: still racing after 3 attempts within the same call ⇒
+/// ADR-0006 §13.8 item 1: a revoke between signing the replacement and publishing
+/// it voids the replacement in the final publish's own transaction; nothing is
+/// released and the residual counts nothing.
+#[tokio::test]
+async fn r138_1_a_revoke_between_signing_the_replacement_and_publishing_it_voids_it() {
+    let w = World::new().await;
+    let (mut issuer, gid, _s1, s2) = rereserved(&w, "r138-1r").await;
+    issuer.sign(&s2);
+    w.revoke(&gid, "req-r138-1r-rv").await.unwrap();
+    let e = issuer.publish(&s2.id).await.unwrap_err();
+    assert_no_canary(&e.message);
+    assert_eq!(e.code, Code::CredentialExpired);
+    let replacement = entries_of(&w, &gid)
+        .into_iter()
+        .find(|x| x.id == s2.id)
+        .unwrap();
+    assert_eq!(replacement.state, IssuanceState::Voided);
+    assert!(
+        entries_of(&w, &gid)
+            .iter()
+            .all(|x| x.state != IssuanceState::Published),
+        "nothing published"
+    );
+    assert_eq!(residual(&w, &gid), None);
+    issuer.signed_before_published();
+    assert!(matches!(
+        issuer.log.last(),
+        Some(IssuerStep::Refused(id, Code::CredentialExpired)) if id == &s2.id
+    ));
+}
+
+/// ADR-0006 §13.8 item 1: an expiry (the grant's deadline passes) between signing
+/// the replacement and publishing it voids the replacement.
+#[tokio::test]
+async fn r138_1_an_expiry_between_signing_the_replacement_and_publishing_it_voids_it() {
+    let w = World::new().await;
+    let (mut issuer, gid, _s1, s2) = rereserved(&w, "r138-1e").await;
+    issuer.sign(&s2);
+    // The policy window is 2 h: safe time (wall and continuous) runs past it.
+    w.clock.advance(3 * HOUR);
+    let e = issuer.publish(&s2.id).await.unwrap_err();
+    assert_no_canary(&e.message);
+    assert_eq!(e.code, Code::CredentialExpired);
+    let replacement = entries_of(&w, &gid)
+        .into_iter()
+        .find(|x| x.id == s2.id)
+        .unwrap();
+    assert_eq!(replacement.state, IssuanceState::Voided);
+    assert!(matches!(
+        replacement.void_reason,
+        Some(IssuanceRefusal::BoundPassed | IssuanceRefusal::BudgetExpired)
+    ));
+    assert_eq!(residual(&w, &gid), None);
+}
+
+/// The bounds of an entry other than its serial (a re-reservation keeps them).
+#[derive(Debug, PartialEq, Eq)]
+struct CertificateBoundsView {
+    key_id: String,
+    principal: String,
+    valid_after: Timestamp,
+    valid_before: Timestamp,
+    extensions: BTreeSet<String>,
+    subject_fingerprint: String,
+    pair: AccessPair,
+}
+
+impl CertificateBoundsView {
+    fn of(e: &heimdall_domain::issuance::IssuanceEntry) -> Self {
+        Self {
+            key_id: e.bounds.key_id.clone(),
+            principal: e.bounds.principal.clone(),
+            valid_after: e.bounds.valid_after,
+            valid_before: e.bounds.valid_before,
+            extensions: e.bounds.extensions.clone(),
+            subject_fingerprint: e.bounds.subject_fingerprint.clone(),
+            pair: e.pair.clone(),
+        }
+    }
+}
+
+/// ADR-0006 §13.6 item 11 with §13.8 item 1: still racing after 3 attempts ⇒
 /// `SERVICE_UNAVAILABLE` (exit 5, retryable) with a retry `next`; nothing left
-/// reserved or published.
+/// reserved or published. The bound counts the issuer's round trips: the original
+/// reservation and two re-reservations, each handed back unpublished.
 #[tokio::test]
 async fn review_13_6_11_a_generation_still_racing_after_three_attempts_is_service_unavailable() {
     let bumper = Arc::new(Bumper::default());
@@ -2807,12 +3041,19 @@ async fn review_13_6_11_a_generation_still_racing_after_three_attempts_is_servic
         .await
         .unwrap();
     bumper.arm(usize::MAX);
-    let e = w
-        .ops
-        .publish_issuance(&reserved.id, &facts())
-        .await
-        .unwrap_err();
+    let mut round_trips = 0;
+    let mut id = reserved.id.clone();
+    let e = loop {
+        round_trips += 1;
+        assert!(round_trips <= 3, "at most 3 attempts");
+        match w.ops.publish_issuance(&id, &facts()).await {
+            Ok(Publication::Rereserved { reservation }) => id = reservation.id,
+            Ok(Publication::Published(p)) => panic!("published while racing: {p:?}"),
+            Err(e) => break e,
+        }
+    };
     bumper.arm(0);
+    assert_eq!(round_trips, 3, "three round trips");
     assert_no_canary(&e.message);
     assert_eq!(e.code, Code::ServiceUnavailable);
     assert_eq!(e.code.exit_code(), heimdall_contract::ExitCode::Unavailable);
@@ -2905,9 +3146,10 @@ fn interleave() -> impl Strategy<Value = Interleave> {
 proptest! {
     #![proptest_config(prop_config(0x5235_3131_5055_4231))]
 
-    /// A01 with ADR-0006 §13.6 item 11: whatever happens between reserve and
-    /// publish, and however often the generation races during the publish call,
-    /// publication answers from the state and time of its own transaction:
+    /// A01 with ADR-0006 §13.6 item 11 and §13.8 item 1: whatever happens between
+    /// reserve and publish, and however often the generation races during the
+    /// issuer's publication round trips, publication answers from the state and
+    /// time of its own transaction:
     /// published exactly when the grant is still issuable, safe time holds and its
     /// bound has not passed and the generation settled within 3 attempts; refused
     /// with the denial's own code otherwise; `SERVICE_UNAVAILABLE` (retryable)
@@ -2955,13 +3197,28 @@ proptest! {
             }
             let expired = advanced >= 120;
             bumper.arm(racing);
-            let r = w.ops.publish_issuance(&reserved.id, &facts()).await;
+            // The issuer's round trips (§13.8 item 1): each re-reservation comes back
+            // unpublished, is "signed" and published again.
+            let mut id = reserved.id.clone();
+            let mut round_trips = 0;
+            let r = loop {
+                round_trips += 1;
+                prop_assert!(round_trips <= 3, "at most 3 attempts");
+                match w.ops.publish_issuance(&id, &facts()).await {
+                    Ok(Publication::Rereserved { reservation }) => {
+                        prop_assert_eq!(&reservation.state, &IssuanceState::Reserved);
+                        id = reservation.id;
+                    }
+                    Ok(Publication::Published(e)) => break Ok(e),
+                    Err(e) => break Err(e),
+                }
+            };
             bumper.arm(0);
             let entries = entries_of(&w, &g.grant_id);
             let published: Vec<_> = entries.iter().filter(|e| e.state == IssuanceState::Published).collect();
             let reserved_left = entries.iter().filter(|e| e.state == IssuanceState::Reserved).count();
-            prop_assert_eq!(reserved_left, 0, "a publish call never leaves a reservation behind");
-            prop_assert!(entries.len() <= 3, "at most 3 attempts in one call");
+            prop_assert_eq!(reserved_left, 0, "the issuer's round trips leave no reservation behind");
+            prop_assert!(entries.len() <= 3, "at most 3 attempts");
             let refused = revoked || cut || uncertain || expired;
             match r {
                 Ok(e) => {
@@ -3576,6 +3833,9 @@ proptest! {
     /// (current standing policy ∪ the approved delta): the approved delta is empty
     /// for a standing-policy grant and `request − initial policy` for an
     /// owner-approved one, and it is never lost to a purge; a pause never matters.
+    /// ⟨r2.5⟩ §13.8 item 4: the first use that finds the grant uncovered ends it
+    /// (`revoked`, cause `authority_withdrawn`), so every later use is refused even
+    /// if the policy widens again.
     #[test]
     fn continuing_use_is_allowed_exactly_within_policy_and_approved_delta(
         initial in 0u8..8,
@@ -3600,6 +3860,7 @@ proptest! {
                 }
             };
             let mut policy = initial;
+            let mut ended = false;
             for (i, step) in steps.iter().enumerate() {
                 match step {
                     PolicyStep::SetPolicy(m) => {
@@ -3623,7 +3884,14 @@ proptest! {
                 }
                 let covered = request & !(policy | approved) == 0;
                 let r = w.bind(&g.binding_id, &format!("req-p3-b{i}")).await;
-                let want = if covered { Code::AccessReady } else { Code::CredentialExpired };
+                let want = if covered && !ended { Code::AccessReady } else { Code::CredentialExpired };
+                ended |= !covered;
+                let state = w.grant(&g.grant_id).state;
+                prop_assert_eq!(
+                    state,
+                    if ended { GrantState::Revoked } else { GrantState::Active },
+                    "step {}: a grant ends exactly when a use finds it uncovered", i
+                );
                 prop_assert_eq!(
                     code_of(&r),
                     want,
@@ -3726,4 +3994,332 @@ proptest! {
             Ok(())
         })?;
     }
+}
+
+// =================================================================================
+// ADR-0006 §13.8 rulings (M01-rulings-13-8-H1): item 1 (review R01), item 2 (review
+// R02) and item 5. Each case was first run against the base commit and failed there
+// (red); it passes with the change. Only production hooks and public APIs are used.
+// =================================================================================
+
+/// `n` equivalent waiting requests sharing one decision and one grant, each
+/// admitted one virtual second after the previous (the first creates it).
+async fn shared_n(w: &World, tag: &str, n: usize) -> (Vec<OperationId>, DecisionId, GrantId) {
+    let work = format!("work-{tag}");
+    let mut ops = Vec::new();
+    let mut first: Option<DecisionId> = None;
+    for i in 1..=n {
+        w.clock.advance(Duration::from_secs(1));
+        let e = w
+            .ensure(
+                &format!("req-{tag}-{i}"),
+                &work,
+                &["h1", "h3"],
+                shared_until(),
+            )
+            .await
+            .unwrap_err();
+        let d = dec_of(&e);
+        assert_eq!(first.get_or_insert(d.clone()), &d, "one shared decision");
+        ops.push(e.operation_id.clone().unwrap());
+    }
+    let gid = grant_of_op(w, &ops[0]);
+    (ops, first.unwrap(), gid)
+}
+
+/// Retry `rid` (same key) until its operation settles; bounded.
+async fn settled(w: &World, rid: &str, work: &str) -> OpResult<EnsureData> {
+    for _ in 0..200 {
+        let r = w.ensure(rid, work, &["h1", "h3"], shared_until()).await;
+        match &r {
+            Err(e)
+                if matches!(
+                    e.code,
+                    Code::Accepted | Code::ServiceUnavailable | Code::TimeUncertain
+                ) =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            _ => return r,
+        }
+    }
+    panic!("{rid} did not settle");
+}
+
+/// §13.8 item 2 (R02): a `decide` that resumes several waiters applies ONE overall
+/// `max_wait` to the request. With the creator's preparation held by the adapter
+/// and five waiters, the approval returns its durable decision result after about
+/// one `max_wait` (never one per waiter), every waiter's operation is still
+/// observable as `running`, and once the adapter is released all five complete
+/// with one effect.
+///
+/// Margin: the bound asserted is `2 × max_wait` (160 ms): one `max_wait` (80 ms)
+/// plus up to another 80 ms for the deciding transaction and task scheduling on a
+/// loaded debug build. Waiting one after another takes about `5 × max_wait`
+/// (≥ 400 ms), so the margin separates the two by more than 2×.
+#[tokio::test]
+async fn r138_2_a_decision_resuming_five_waiters_waits_one_bound_in_total() {
+    const MAX_WAIT: Duration = Duration::from_millis(80);
+    let w = World::with_opts(Opts {
+        limits: Limits {
+            max_wait: MAX_WAIT,
+            ..Limits::default()
+        },
+        ..Opts::default()
+    })
+    .await;
+    let (ops, d, gid) = shared_n(&w, "r138-2", 5).await;
+    // The creator's prepare (the first adapter call) is held until released.
+    w.gated.hold_call.store(1, Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    let done = decide_as(&w, &d, Verdict::Approve).await;
+    let elapsed = started.elapsed();
+    let done = done.unwrap_or_else(|e| panic!("approve: {} {}", e.code, e.message));
+    assert!(
+        elapsed < 2 * MAX_WAIT,
+        "one wait bound per request: {elapsed:?} with max_wait {MAX_WAIT:?} and 5 waiters"
+    );
+    assert_eq!(
+        done.data["state"], "approved",
+        "the durable decision result"
+    );
+    assert_eq!(done.data["operation_state"], "running");
+    for op in &ops {
+        assert_eq!(
+            op_of(&w, op).state,
+            heimdall_contract::OperationState::Running,
+            "every waiter's operation is observable and still running"
+        );
+    }
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    w.gated.release.add_permits(1);
+    for i in 1..=5 {
+        let r = settled(&w, &format!("req-r138-2-{i}"), "work-r138-2").await;
+        let r = r.unwrap_or_else(|e| panic!("waiter {i}: {} {}", e.code, e.message));
+        assert_eq!(r.code, Code::AccessReady);
+        assert_eq!(r.data.grant_id, gid);
+    }
+    assert_eq!(w.fake.effect_count(), 1, "one effect");
+}
+
+/// Pipeline hook (production `StageHook`): while armed, every drive is
+/// interrupted right before `Probe`, i.e. after `Reconcile` confirmed the effect
+/// (`SERVICE_UNAVAILABLE`, the operation stays running). Only the shared grant's
+/// owner reaches `Probe` before the grant is active, so its preparation stops
+/// with its receipts and effect token on record.
+#[derive(Default)]
+struct StopBeforeProbe {
+    armed: AtomicBool,
+}
+
+impl StageHook for StopBeforeProbe {
+    fn before(&self, stage: EnsureStage) -> Result<(), Code> {
+        if stage == EnsureStage::Probe && self.armed.load(Ordering::SeqCst) {
+            return Err(Code::ServiceUnavailable);
+        }
+        Ok(())
+    }
+    fn after(&self, _stage: EnsureStage) -> Result<(), Code> {
+        Ok(())
+    }
+}
+
+/// The JSON data of a successful cancel.
+async fn cancel_data(w: &World, id: &OperationId) -> serde_json::Value {
+    let r = w
+        .ops
+        .cancel(
+            &owner(501),
+            heimdall_contract::request::CancelRequest {
+                operation_id: id.clone(),
+            },
+        )
+        .await;
+    scan(&r);
+    r.unwrap().data
+}
+
+/// §13.8 item 5: cancelling the creator AFTER approval while other waiters remain
+/// settles the creator's operation `cancelled` with `may_have_external_effect:
+/// true`; the shared preparation (held in the adapter at that moment) continues
+/// with the creator's receipts and effect token; the remaining waiters attach as
+/// normal; the creator gets no binding; one effect.
+#[tokio::test]
+async fn r138_5_cancelling_the_creator_after_approval_leaves_the_preparation_to_the_waiters() {
+    let w = World::with_opts(Opts {
+        limits: Limits {
+            max_wait: Duration::from_millis(50),
+            ..Limits::default()
+        },
+        ..Opts::default()
+    })
+    .await;
+    let (ops, d, gid) = shared_n(&w, "r138-5a", 3).await;
+    w.gated.hold_call.store(1, Ordering::SeqCst);
+    decide_as(&w, &d, Verdict::Approve).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), w.gated.entered.notified())
+        .await
+        .expect("the creator's prepare started");
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    let data = cancel_data(&w, &ops[0]).await;
+    assert_eq!(data["state"], "cancelled");
+    assert_eq!(data["may_have_external_effect"], true);
+    assert_eq!(
+        op_of(&w, &ops[0]).state,
+        heimdall_contract::OperationState::Cancelled
+    );
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Preparing,
+        "the shared preparation continues"
+    );
+    w.gated.release.add_permits(1);
+    let rb = settled(&w, "req-r138-5a-2", "work-r138-5a")
+        .await
+        .unwrap_or_else(|e| panic!("waiter b: {} {}", e.code, e.message));
+    let rc = settled(&w, "req-r138-5a-3", "work-r138-5a")
+        .await
+        .unwrap_or_else(|e| panic!("waiter c: {} {}", e.code, e.message));
+    assert_eq!(rb.operation_id.as_ref(), Some(&ops[1]));
+    assert_eq!(rc.operation_id.as_ref(), Some(&ops[2]));
+    assert_eq!(rb.data.grant_id, gid);
+    assert_eq!(rc.data.grant_id, gid);
+    assert_ne!(rb.data.binding_id, rc.data.binding_id);
+    assert_eq!(w.grant(&gid).state, GrantState::Active);
+    let bindings: BTreeSet<_> = w
+        .store
+        .transaction(|tx| tx.bindings_for_work(&env_id(), &WorkId::parse("work-r138-5a").unwrap()))
+        .unwrap()
+        .into_iter()
+        .map(|b| b.id)
+        .collect();
+    assert_eq!(
+        bindings,
+        [rb.data.binding_id.clone(), rc.data.binding_id.clone()]
+            .into_iter()
+            .collect(),
+        "the creator gets no binding"
+    );
+    assert_eq!(w.fake.effect_count(), 1, "one effect");
+    assert_eq!(attempts_of(&w, &ops[0]), 1, "on the creator's effect token");
+    assert_eq!(attempts_of(&w, &ops[1]) + attempts_of(&w, &ops[2]), 0);
+    let ra = w
+        .ensure(
+            "req-r138-5a-1",
+            "work-r138-5a",
+            &["h1", "h3"],
+            shared_until(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        ra.code,
+        Code::OperationCancelled,
+        "the creator stays cancelled"
+    );
+    assert_eq!(w.gated.revoked(&gid), 0, "nothing was cleaned up");
+}
+
+/// §13.8 item 5 with a crash: the creator's preparation confirmed its effect and
+/// was interrupted before `Probe`; the creator is cancelled; then the runtime
+/// restarts (in-process). Recovery drives the remaining waiters, which complete the
+/// shared preparation from the creator's receipts and effect token (no second
+/// effect) and attach; the creator stays cancelled with no binding.
+#[tokio::test]
+async fn r138_5_a_restart_after_the_creators_cancellation_completes_the_shared_preparation() {
+    let hook = Arc::new(StopBeforeProbe::default());
+    let mut w = World::with_hook(hook.clone()).await;
+    let (ops, d, gid) = shared_n(&w, "r138-5b", 3).await;
+    hook.armed.store(true, Ordering::SeqCst);
+    decide_as(&w, &d, Verdict::Approve).await.unwrap();
+    assert_eq!(
+        w.fake.effect_count(),
+        1,
+        "the creator's effect is confirmed"
+    );
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    let data = cancel_data(&w, &ops[0]).await;
+    assert_eq!(data["state"], "cancelled");
+    assert_eq!(data["may_have_external_effect"], true);
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    hook.armed.store(false, Ordering::SeqCst);
+    w.restart().await;
+    let rb = settled(&w, "req-r138-5b-2", "work-r138-5b")
+        .await
+        .unwrap_or_else(|e| panic!("waiter b: {} {}", e.code, e.message));
+    let rc = settled(&w, "req-r138-5b-3", "work-r138-5b")
+        .await
+        .unwrap_or_else(|e| panic!("waiter c: {} {}", e.code, e.message));
+    assert_eq!(rb.data.grant_id, gid);
+    assert_eq!(rc.data.grant_id, gid);
+    assert_eq!(w.grant(&gid).state, GrantState::Active);
+    assert_eq!(
+        w.store
+            .transaction(
+                |tx| tx.bindings_for_work(&env_id(), &WorkId::parse("work-r138-5b").unwrap())
+            )
+            .unwrap()
+            .len(),
+        2,
+        "the creator gets no binding"
+    );
+    assert_eq!(w.fake.effect_count(), 1, "no second effect");
+    assert_eq!(attempts_of(&w, &ops[0]), 1);
+    let ra = w
+        .ensure(
+            "req-r138-5b-1",
+            "work-r138-5b",
+            &["h1", "h3"],
+            shared_until(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(ra.code, Code::OperationCancelled);
+}
+
+/// §13.8 item 5: when the last attached operation cancels (after the creator was
+/// cancelled post-approval), the shared grant is cancelled and its prepared
+/// credential cleaned up through the usual path (local revocation through the
+/// recorded adapter); a restart afterwards resurrects nothing.
+#[tokio::test]
+async fn r138_5_the_last_attached_cancellation_cancels_and_cleans_up_the_grant() {
+    let hook = Arc::new(StopBeforeProbe::default());
+    let mut w = World::with_hook(hook.clone()).await;
+    let (ops, d, gid) = shared_n(&w, "r138-5c", 3).await;
+    hook.armed.store(true, Ordering::SeqCst);
+    decide_as(&w, &d, Verdict::Approve).await.unwrap();
+    assert_eq!(w.fake.effect_count(), 1);
+    assert_eq!(
+        cancel_data(&w, &ops[0]).await["may_have_external_effect"],
+        true
+    );
+    assert_eq!(w.grant(&gid).state, GrantState::Preparing);
+    cancel_data(&w, &ops[2]).await;
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Preparing,
+        "one attached operation remains"
+    );
+    assert_eq!(w.gated.revoked(&gid), 0);
+    cancel_data(&w, &ops[1]).await;
+    assert_eq!(w.grant(&gid).state, GrantState::Cancelled);
+    assert!(
+        w.gated.revoked(&gid) >= 1,
+        "the prepared credential is cleaned up"
+    );
+    hook.armed.store(false, Ordering::SeqCst);
+    w.restart().await;
+    assert_eq!(
+        w.grant(&gid).state,
+        GrantState::Cancelled,
+        "nothing resurrects it"
+    );
+    for (i, op) in ops.iter().enumerate() {
+        assert_eq!(
+            op_of(&w, op).state,
+            heimdall_contract::OperationState::Cancelled,
+            "op {i}"
+        );
+    }
+    assert_eq!(w.fake.effect_count(), 1);
 }

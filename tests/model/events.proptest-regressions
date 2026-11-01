@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc cdf873e54c931c82aa227e4b962fddc1336479b6bfef85deada8a51f56cacedb # shrinks to (n, steps) = (2, [(1, 1), (0, 0), (0, 0)])
+cc 50f2f798134d5364e4f1d1a9f7b90fdb3b040f2cfede3097382816e5d21288e3 # shrinks to (n, steps) = (2, [Announce { index: 1, fail: 1 }, Announce { index: 0, fail: 1 }, TrimRows { max_rows: 0 }])
+cc 5fc96cb291bfbb4a8db9553aa6a05ba6c957f8a1ba500dc249999fe5aa9048da # shrinks to (n, steps) = (2, [Announce { index: 1, fail: 1 }, Announce { index: 0, fail: 1 }, TrimRows { max_rows: 1 }])

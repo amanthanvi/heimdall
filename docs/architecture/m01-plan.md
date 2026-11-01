@@ -259,6 +259,11 @@ integrator with an ADR-0006 revision.
   `EventPublisher::retry_held() -> bool`; `announce` holds back an event behind an
   unread gap after a failed catch-up read and retries from the retained position
   (ADR-0006 §14.5).
+* **⟨r2.5⟩ ADR-0006 §13.8 item 3 (M01-rulings-13-8-H2):** no signature change. A
+  catch-up page whose retained tail (same transaction) is above the delivery boundary
+  forces every live subscriber to `ResyncRequired` at its last delivered cursor;
+  nothing past the gap is fanned out. Tests `model_events::r03_*`, property
+  `props_announce::live_stream_never_passes_a_gap_under_catch_up_faults_and_retention`.
 * **Review A01–A04, A06, A07, §13.6 item 11 (M01-review-fix-R1-operations):**
   **additive** `domain::operation::{ResolvedIntent.approval, ApprovalBasis}` (store:
   add-only). Time is assessed in the acting transaction (crate-private
@@ -286,6 +291,24 @@ integrator with an ADR-0006 revision.
     decision to the oldest remaining waiter (decision stays pending); the last
     cancellation cancels the grant and withdraws the decision; deny settles all.
   * Tests `model_revocation::r137_*` and two properties (ADR-0006 §14.5 row).
+* **⟨r2.5⟩ ADR-0006 §13.8 items 1, 2, 4, 5 (M01-rulings-13-8-H1).** **Changed**
+  `Operations::publish_issuance -> Result<Publication, OpError>` with **new**
+  `app::operations::Publication { Published(IssuanceEntry), Rereserved { reservation } }`;
+  **additive** `domain::revocation::{RevocationCause, Tombstone.cause}` (serde default
+  `revoke`; no migration).
+  * Item 1: a re-reservation goes back to the issuer unpublished; it signs and
+    publishes again; 3 attempts counted across round trips.
+  * Item 2: `decide` resumes every waiter at once under one `max_wait`.
+  * Item 4: a failed re-validation of an active/degraded grant, detected at use or
+    in `tick` (scheduler pass), ends it: `expired`, or `authority_withdrawn`
+    tombstone ⇒ `revoking` ⇒ `revoked` with the residual in an event; never for a
+    pause, uncertain time or an undetermined re-validation.
+  * Item 5: the owner cancelled after approval settles `cancelled`
+    (`may_have_external_effect: true`); its preparation continues for the attached
+    operations on its own receipts and token; the last attached cancellation
+    cancels and cleans up the grant.
+  * Tests `model_revocation::r138_*`, `model_operations::r138_4_*` (ADR-0006 §14.5
+    row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.
@@ -415,6 +438,18 @@ integrator with an ADR-0006 revision.
     The launcher clears the inherit flag on the client's own stdio before the
     detached spawn (`runtime::platform::disinherit_standard_handles`): native run 1
     showed the runtime inheriting the client's stdio pipes otherwise.
+* **⟨r2.5⟩ ADR-0006 §13.8 item 7 (M01-rulings-13-8-H3):** **additive**
+  `runtime::platform::{disinherit_descriptors_above_stdio(), close_inherited_descriptors()}`
+  (Unix; no-ops on Windows). `launcher::spawn_detached` marks every client
+  descriptor above 2 close-on-exec before the spawn (stdio stays null), and
+  `service run` closes every descriptor above 2 before it opens anything. Tests:
+  e2e `concurrent_start_stress_twenty_rounds_never_hang`,
+  `on_demand_runtime_keeps_no_descriptor_inherited_through_its_client`,
+  `runtime_closes_every_descriptor_inherited_at_startup` (Unix), the bounded
+  `eight_concurrent_clients_start_exactly_one_runtime`;
+  `integration_runtime::fd_hygiene::detached_child_receives_only_null_standard_descriptors`
+  (Unix). `platform::process_start_time` (signature unchanged) treats a Linux zombie
+  as not alive (`integration_runtime::process_start_time_treats_an_unreaped_exited_child_as_gone`).
 * **Review B02/B04 (M01-review-fix-R2-runtime-harness):** **additive**
   `SupervisorConfig.resume_check_interval` (default 2 s),
   `SupervisorConfig::resume_bound() -> Duration` (clamped to

@@ -6,7 +6,8 @@
 //!   closes the endpoints, removes `instance.json` and releases the lock last.
 //!   `--detach` (used by on-demand start, which already spawned this process with
 //!   null stdio in its own process group) logs to the bounded file sink instead
-//!   of stderr and ignores SIGHUP.
+//!   of stderr and ignores SIGHUP. Before anything else it closes every
+//!   descriptor above 2 it inherited (Unix; ADR-0006 §13.8 item 7).
 //! * `status` validates the advertisement (pid + OS start time + owner-only
 //!   endpoints) and performs a hello; it never starts a runtime.
 //! * `stop` (every platform, ADR-0006 §13.6 item 8) connects to the owner's
@@ -96,6 +97,11 @@ fn load_config(paths: &Paths) -> Result<Config, ConfigError> {
 
 /// `service run [--detach]`.
 pub fn run(ctx: &Ctx, detach: bool) -> ExitCode {
+    // First, before this process opens anything: the long-lived runtime keeps no
+    // descriptor above 2 inherited from whatever started it (a client's or a
+    // caller's pipe would otherwise never reach end of file; ADR-0006 §13.8
+    // item 7). Unix only; a no-op on Windows.
+    heimdall_runtime::platform::close_inherited_descriptors();
     let requested = crate::testcfg::requested();
     if let Some(msg) = crate::testcfg::refusal(crate::testcfg::AVAILABLE, requested)
         .or_else(|| crate::testcfg::home_refusal(requested, ctx.home.is_some()))

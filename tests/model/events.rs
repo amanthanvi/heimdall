@@ -6,7 +6,9 @@
 //! publisher: snapshots with cursor boundaries, reader-scoped cursors, backlog
 //! replay, resync on expired/foreign/malformed cursors, at-least-once delivery
 //! deduplicated by `event_id`, a mutation during the snapshot and a publish during
-//! replay-to-live delivered exactly once, and lag past the 256-event buffer.
+//! replay-to-live delivered exactly once, lag past the 256-event buffer, and
+//! retention that removes an undelivered event ⇒ an explicit resync, never a
+//! silent gap (ADR-0006 §13.8 item 3; review R03).
 //!
 //! The session's merge (backlog, then live events with `seq > boundary_seq`, lag
 //! ⇒ one `ResyncRequired`) is the IPC layer's (U6b); [`Consumer`] below applies
@@ -947,15 +949,228 @@ async fn held_back_events_are_delivered_in_order_once_the_store_is_readable() {
     assert!(w.publisher().retry_held(), "nothing is held back any more");
 }
 
+/// Commit one event through `w`'s publisher without announcing it.
+fn commit_unannounced(w: &World, n: u32) -> SequencedEvent {
+    let p = w.publisher().clone();
+    w.store
+        .transaction(|tx| {
+            p.append_in(
+                tx,
+                EventType::ResourceChanged,
+                None,
+                None,
+                serde_json::json!({ "writer": n }),
+            )
+        })
+        .unwrap()
+}
+
+/// Retention boundary of the fixture environment.
+fn retained_tail(w: &World) -> u64 {
+    w.store
+        .transaction(|tx| tx.stored_events_after(&env_id(), 0, &EventFilter::default(), 1))
+        .unwrap()
+        .tail_seq
+}
+
+/// After an explicit resync the subscriber's last delivered cursor is not a
+/// resume point past the gap: a strict resume from it is refused, never answered
+/// with a backlog that silently skips the trimmed event.
+async fn assert_resume_is_refused(w: &World, c: &Consumer) {
+    let r = w
+        .publisher()
+        .subscribe(
+            &reader(501),
+            EventFilter::default(),
+            Some(c.last_cursor.clone()),
+            true,
+        )
+        .await;
+    assert_eq!(r.unwrap_err(), SubscribeRefusal::ResyncRequired);
+}
+
+/// ADR-0006 §13.8 item 3 (review R03, the review's probe): commit `N` and
+/// `N + 1`; announce `N + 1` while the catch-up read of `N` fails, so `N + 1` is
+/// held back; retention then removes `N` (row cap) before `retry_held`. The retry
+/// must not claim continuity: the subscriber gets an explicit resync carrying its
+/// last delivered cursor (before `N`) and `N + 1` is never delivered as if `N`
+/// had been.
+#[tokio::test]
+async fn r03_retention_between_a_failed_catch_up_and_its_retry_requires_a_resync() {
+    let w = World::new().await;
+    let start = w
+        .publisher()
+        .subscribe(&reader(501), EventFilter::default(), None, false)
+        .await
+        .unwrap();
+    let mut c = Consumer::new(start);
+    let before_gap = c.last_cursor.clone();
+    let n = commit_unannounced(&w, 1);
+    let n1 = commit_unannounced(&w, 2);
+    w.hook.fail_commits.store(1, Ordering::SeqCst);
+    w.publisher().announce(n1.clone());
+    assert_eq!(w.hook.fail_commits.load(Ordering::SeqCst), 0);
+    c.drain();
+    assert!(c.delivered.is_empty(), "N + 1 is held back behind N");
+    // Retention removes N (one row kept: N + 1).
+    let tail = w
+        .store
+        .transaction(|tx| tx.trim_events(&env_id(), t0(), 1))
+        .unwrap();
+    assert!(tail >= n.seq && tail < n1.seq);
+    w.publisher().retry_held();
+    c.drain();
+    assert_eq!(
+        (c.delivered.len(), c.resyncs),
+        (0, 1),
+        "explicit resync, nothing delivered past the trimmed event: {:?}",
+        c.ids()
+    );
+    assert_eq!(c.last_cursor, before_gap, "the last delivered cursor");
+    assert_resume_is_refused(&w, &c).await;
+    // Later announcements continue after the resynchronized position; the
+    // trimmed history is never reported again.
+    assert!(w.publisher().retry_held(), "nothing is held back any more");
+    let n2 = commit_unannounced(&w, 3);
+    w.publisher().announce(n2.clone());
+    c.drain();
+    assert_eq!(c.ids(), vec![n2.event.event_id.to_string()]);
+    assert_eq!(c.resyncs, 1);
+}
+
+/// §13.8 item 3 through the runtime's relay: the retention gap reaches every
+/// session's receiver as a lag (which the session turns into one
+/// `ResyncRequired` at its last delivered cursor), never as the surviving event.
+#[tokio::test]
+async fn r03_retention_gap_reaches_session_receivers_through_the_relay_as_a_lag() {
+    use tokio::sync::broadcast::error::TryRecvError as SessionRecv;
+    let w = World::new().await;
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let relay = heimdall_runtime::dispatch::EventRelay::spawn(&w.ops, shutdown.clone());
+    let mut session = relay.subscribe();
+    let boundary = w.publisher().head_cursor(&reader(501)).unwrap();
+    let boundary = cursor::decode(&boundary).unwrap().seq;
+    let n = commit_unannounced(&w, 1);
+    let n1 = commit_unannounced(&w, 2);
+    w.hook.fail_commits.store(1, Ordering::SeqCst);
+    w.publisher().announce(n1.clone());
+    w.store
+        .transaction(|tx| tx.trim_events(&env_id(), t0(), 1))
+        .unwrap();
+    assert!(retained_tail(&w) >= n.seq);
+    w.publisher().retry_held();
+    // Let the relay task run (current-thread runtime).
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    let mut lagged = false;
+    let mut after_boundary = Vec::new();
+    loop {
+        match session.try_recv() {
+            Ok(e) if e.seq > boundary => after_boundary.push(e.event.event_id.to_string()),
+            Ok(_) => {}
+            Err(SessionRecv::Lagged(_)) => lagged = true,
+            Err(SessionRecv::Empty | SessionRecv::Closed) => break,
+        }
+    }
+    shutdown.cancel();
+    assert!(
+        lagged,
+        "the session receiver lags, so it emits ResyncRequired"
+    );
+    assert!(
+        after_boundary.is_empty(),
+        "nothing past the gap is relayed: {after_boundary:?}"
+    );
+}
+
+/// §13.8 item 3, age retention between announcements: `N` and `N + 1` are
+/// committed, retention by age removes `N` before anything is announced, then
+/// `N + 1` is announced. The catch-up read sees the retained tail beyond the
+/// delivery boundary in its own transaction and requires a resync.
+#[tokio::test]
+async fn r03_age_retention_before_an_announcement_requires_a_resync() {
+    let w = World::new().await;
+    let start = w
+        .publisher()
+        .subscribe(&reader(501), EventFilter::default(), None, false)
+        .await
+        .unwrap();
+    let mut c = Consumer::new(start);
+    let before_gap = c.last_cursor.clone();
+    let n = commit_unannounced(&w, 1);
+    // Events committed from here on are newer than the age cut.
+    w.clock.advance(HOUR);
+    let n1 = commit_unannounced(&w, 2);
+    let cut = t0()
+        .checked_add(jiff::SignedDuration::from_mins(30))
+        .unwrap();
+    assert!(n.event.timestamp < cut && n1.event.timestamp >= cut);
+    let tail = w
+        .store
+        .transaction(|tx| tx.trim_events(&env_id(), cut, u64::MAX))
+        .unwrap();
+    assert!(tail >= n.seq && tail < n1.seq);
+    w.publisher().announce(n1.clone());
+    c.drain();
+    assert_eq!((c.delivered.len(), c.resyncs), (0, 1), "{:?}", c.ids());
+    assert_eq!(c.last_cursor, before_gap);
+    assert!(retained_tail(&w) > cursor::decode(&before_gap).unwrap().seq);
+    assert_resume_is_refused(&w, &c).await;
+    // A late announcement of the trimmed event is not delivered either.
+    w.publisher().announce(n.clone());
+    c.drain();
+    assert!(c.delivered.is_empty());
+    assert_eq!(c.resyncs, 1);
+}
+
+/// §13.8 item 3, no false alarm: retention that removes only events already
+/// delivered never causes a resync, and an event trimmed after its contiguous
+/// announcement was fanned out (it was never missing) is delivered normally.
+#[tokio::test]
+async fn retention_of_delivered_history_needs_no_resync() {
+    let w = World::new().await;
+    let start = w
+        .publisher()
+        .subscribe(&reader(501), EventFilter::default(), None, false)
+        .await
+        .unwrap();
+    let mut c = Consumer::new(start);
+    let e1 = commit_unannounced(&w, 1);
+    w.publisher().announce(e1.clone());
+    let e2 = commit_unannounced(&w, 2);
+    let e3 = commit_unannounced(&w, 3);
+    // Retention removes e1 (delivered) and e2 (committed, not yet announced).
+    w.store
+        .transaction(|tx| tx.trim_events(&env_id(), t0(), 1))
+        .unwrap();
+    // e2 is the very next position: delivered as announced, no read needed.
+    w.publisher().announce(e2.clone());
+    w.publisher().announce(e3.clone());
+    c.drain();
+    assert_eq!(c.resyncs, 0);
+    assert_eq!(
+        c.ids(),
+        [&e1, &e2, &e3]
+            .iter()
+            .map(|e| e.event.event_id.to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
 // =====================================================================================
-// Property (review A05): for any announcement order and any transient catch-up
-// read faults, the live stream is a gap-free, strictly increasing prefix of the
-// committed events; a resume from its latest cursor recovers exactly the rest;
-// and once the store is readable `retry_held` completes the stream.
+// Property (review A05; ADR-0006 §13.8 item 3, review R03): for any announcement
+// order, any transient catch-up read faults, and retention (by rows and by age)
+// between a failure and its retry and between announcements, the live stream is a
+// gap-free, strictly increasing prefix of the committed events until, at most, one
+// explicit resync; a resync happens only when retention removed an event that was
+// not delivered, and after it the last delivered cursor is never a resume point
+// past the gap. Every run ends in either complete delivery or an explicit resync.
 // =====================================================================================
 
 mod props_announce {
     use super::*;
+    use heimdall_domain::time::Clock;
     use proptest::prelude::*;
     use proptest::test_runner::{FileFailurePersistence, RngSeed};
 
@@ -994,10 +1209,36 @@ mod props_announce {
         }
     }
 
-    /// Announcement plan: indexes into the committed events (a shuffled order
-    /// with duplicates appended) and, per announcement, how many store reads
-    /// fail from then on (0 = readable).
-    fn plan() -> impl Strategy<Value = (usize, Vec<(usize, usize)>)> {
+    /// One step of a trace.
+    #[derive(Debug, Clone)]
+    enum Step {
+        /// Announce committed event `index` while the next `fail` store reads
+        /// fail (0 = readable).
+        Announce { index: usize, fail: usize },
+        /// `retry_held` while the next `fail` store reads fail.
+        Retry { fail: usize },
+        /// Retention by row cap: keep at most `max_rows` events.
+        TrimRows { max_rows: u64 },
+        /// Retention by age: remove every event older than committed event
+        /// `before` (one minute apart).
+        TrimAge { before: usize },
+    }
+
+    /// An optional step inserted after an announcement: nothing (most often), a
+    /// retry, or retention.
+    fn extra(n: usize) -> impl Strategy<Value = Option<Step>> {
+        prop_oneof![
+            4 => Just(None),
+            2 => (0usize..=2).prop_map(|fail| Some(Step::Retry { fail })),
+            1 => (0..=n as u64).prop_map(|max_rows| Some(Step::TrimRows { max_rows })),
+            1 => (0..=n).prop_map(|before| Some(Step::TrimAge { before })),
+        ]
+    }
+
+    /// Trace plan: every committed event announced once in a shuffled order plus
+    /// duplicates, each announcement with a fault count and up to two extra steps
+    /// after it (so "fail, trim, retry" and "trim between announcements" occur).
+    fn plan() -> impl Strategy<Value = (usize, Vec<Step>)> {
         (1usize..=10).prop_flat_map(|n| {
             let order = Just((0..n).collect::<Vec<_>>()).prop_shuffle();
             let dups = prop::collection::vec(0..n, 0..4);
@@ -1006,22 +1247,66 @@ mod props_announce {
                 let len = all.len();
                 (
                     Just(n),
-                    prop::collection::vec(0usize..=2, len).prop_map(move |faults| {
-                        all.iter().copied().zip(faults).collect::<Vec<_>>()
-                    }),
+                    prop::collection::vec((0usize..=2, extra(n), extra(n)), len).prop_map(
+                        move |per| {
+                            let mut steps = Vec::new();
+                            for (&index, (fail, a, b)) in all.iter().zip(per) {
+                                steps.push(Step::Announce { index, fail });
+                                steps.extend(a);
+                                steps.extend(b);
+                            }
+                            steps
+                        },
+                    ),
                 )
             })
         })
     }
 
-    async fn trace(n: usize, steps: Vec<(usize, usize)>) -> Result<(), TestCaseError> {
+    /// The live receiver as a subscriber sees it: deliveries until a lag, which
+    /// is the explicit resync (the session turns it into one `ResyncRequired` at
+    /// the last delivered cursor and drops the buffered rest).
+    struct Live {
+        rx: tokio::sync::broadcast::Receiver<Arc<SequencedEvent>>,
+        delivered: Vec<SequencedEvent>,
+        resynced: bool,
+    }
+
+    impl Live {
+        fn drain(&mut self) {
+            loop {
+                match self.rx.try_recv() {
+                    Ok(e) if !self.resynced => self.delivered.push((*e).clone()),
+                    Ok(_) => {}
+                    Err(TryRecvError::Lagged(_)) => self.resynced = true,
+                    Err(TryRecvError::Empty) => return,
+                    Err(e) => panic!("unexpected receiver state: {e:?}"),
+                }
+            }
+        }
+    }
+
+    fn tail(store: &Store) -> u64 {
+        store
+            .transaction(|tx| tx.stored_events_after(&env_id(), 0, &EventFilter::default(), 1))
+            .unwrap()
+            .tail_seq
+    }
+
+    async fn trace(n: usize, steps: Vec<Step>) -> Result<(), TestCaseError> {
         let faults = Arc::new(Faults::default());
         let store = Arc::new(Store::open_in_memory(faults.clone()).unwrap());
         seed(&store);
-        let publisher = EventPublisher::new(store.clone(), env_id());
-        let mut live = publisher.live_receiver();
+        let clock = VirtualClock::at(t0());
+        let publisher = EventPublisher::new(store.clone(), env_id()).with_clock(clock.clone());
+        let mut live = Live {
+            rx: publisher.live_receiver(),
+            delivered: Vec::new(),
+            resynced: false,
+        };
         let committed: Vec<SequencedEvent> = (0..n)
             .map(|i| {
+                clock.advance(Duration::from_secs(60));
                 store
                     .transaction(|tx| {
                         publisher.append_in(
@@ -1035,62 +1320,122 @@ mod props_announce {
                     .unwrap()
             })
             .collect();
-        let mut delivered: Vec<SequencedEvent> = Vec::new();
-        let mut drain = |delivered: &mut Vec<SequencedEvent>| loop {
-            match live.try_recv() {
-                Ok(e) => delivered.push((*e).clone()),
-                Err(TryRecvError::Empty) => return,
-                Err(e) => panic!("unexpected receiver state: {e:?}"),
-            }
+        let me = reader(501);
+        let baseline = committed[0].seq - 1;
+        let position = |live: &Live| {
+            live.delivered
+                .last()
+                .map_or(baseline, |e: &SequencedEvent| e.seq)
         };
         let mut max_announced = 0u64;
-        for (i, fail) in steps {
-            faults.fail_commits.store(fail, Ordering::SeqCst);
-            let event = committed[i].clone();
-            max_announced = max_announced.max(event.seq);
-            publisher.announce(event);
-            faults.fail_commits.store(0, Ordering::SeqCst);
-            drain(&mut delivered);
-            // A gap-free, strictly increasing prefix of the committed events,
-            // never beyond what was announced.
-            prop_assert!(delivered.len() <= committed.len());
-            prop_assert_eq!(&delivered[..], &committed[..delivered.len()]);
-            prop_assert!(delivered.last().is_none_or(|e| e.seq <= max_announced));
-            if fail == 0 {
+        // The position the subscriber held when its resync arrived.
+        let mut resynced_at: Option<u64> = None;
+        for step in steps {
+            let readable = match step {
+                Step::Announce { index, fail } => {
+                    faults.fail_commits.store(fail, Ordering::SeqCst);
+                    let event = committed[index].clone();
+                    max_announced = max_announced.max(event.seq);
+                    publisher.announce(event);
+                    faults.fail_commits.store(0, Ordering::SeqCst);
+                    fail == 0
+                }
+                Step::Retry { fail } => {
+                    faults.fail_commits.store(fail, Ordering::SeqCst);
+                    publisher.retry_held();
+                    faults.fail_commits.store(0, Ordering::SeqCst);
+                    fail == 0
+                }
+                Step::TrimRows { max_rows } => {
+                    store
+                        .transaction(|tx| tx.trim_events(&env_id(), t0(), max_rows))
+                        .unwrap();
+                    false
+                }
+                Step::TrimAge { before } => {
+                    let keep_after = committed
+                        .get(before)
+                        .map_or_else(|| Clock::wall(&*clock), |e| e.event.timestamp);
+                    store
+                        .transaction(|tx| tx.trim_events(&env_id(), keep_after, u64::MAX))
+                        .unwrap();
+                    false
+                }
+            };
+            let was_resynced = live.resynced;
+            live.drain();
+            // Until the resync: a gap-free, strictly increasing prefix of the
+            // committed events, never beyond what was announced.
+            prop_assert!(live.delivered.len() <= committed.len());
+            prop_assert_eq!(&live.delivered[..], &committed[..live.delivered.len()]);
+            prop_assert!(live.delivered.last().is_none_or(|e| e.seq <= max_announced));
+            if live.resynced && !was_resynced {
+                // Justified: retention removed an event after the delivered
+                // position (and continuity from there is never offered).
+                let at = position(&live);
+                prop_assert!(tail(&store) > at, "resync without a trimmed gap");
+                resynced_at = Some(at);
+            }
+            if readable && !live.resynced {
                 // A readable store catches up through everything announced.
-                prop_assert_eq!(delivered.last().map(|e| e.seq), Some(max_announced));
+                prop_assert_eq!(position(&live), max_announced);
             }
         }
-        // A resume from the latest delivered position recovers exactly the rest.
-        let me = reader(501);
-        let at = delivered
-            .last()
-            .map_or_else(|| committed[0].seq - 1, |e| e.seq);
-        let resumed = publisher
-            .subscribe(
+        let at = position(&live);
+        let strict_resume = || {
+            publisher.subscribe(
                 &me,
                 EventFilter::default(),
                 Some(publisher.cursor_at(&me, at)),
                 true,
             )
-            .await
-            .unwrap();
-        let rest: Vec<String> = committed[delivered.len()..]
-            .iter()
-            .map(|e| e.event.event_id.to_string())
-            .collect();
-        prop_assert_eq!(
-            resumed
-                .backlog
-                .iter()
-                .map(|e| e.event_id.to_string())
-                .collect::<Vec<_>>(),
-            rest
-        );
-        // The store is readable: an explicit retry completes the stream.
+        };
+        if !live.resynced {
+            // Before the final retry: a resume from the latest delivered position
+            // recovers exactly the rest, or is refused because retention removed
+            // part of it; it never skips a trimmed event silently.
+            match strict_resume().await {
+                Ok(resumed) => {
+                    let rest: Vec<String> = committed[live.delivered.len()..]
+                        .iter()
+                        .map(|e| e.event.event_id.to_string())
+                        .collect();
+                    prop_assert_eq!(
+                        resumed
+                            .backlog
+                            .iter()
+                            .map(|e| e.event_id.to_string())
+                            .collect::<Vec<_>>(),
+                        rest
+                    );
+                }
+                Err(refusal) => {
+                    prop_assert_eq!(refusal, SubscribeRefusal::ResyncRequired);
+                    prop_assert!(tail(&store) > at);
+                }
+            }
+        }
+        // The store is readable: an explicit retry finishes the run.
         prop_assert!(publisher.retry_held());
-        drain(&mut delivered);
-        prop_assert_eq!(&delivered[..], &committed[..]);
+        let was_resynced = live.resynced;
+        live.drain();
+        if live.resynced {
+            // Explicit resync: justified, and its cursor is not a resume point.
+            let at = resynced_at.unwrap_or_else(|| position(&live));
+            prop_assert!(was_resynced || tail(&store) > at);
+            let refused = publisher
+                .subscribe(
+                    &me,
+                    EventFilter::default(),
+                    Some(publisher.cursor_at(&me, at)),
+                    true,
+                )
+                .await;
+            prop_assert_eq!(refused.unwrap_err(), SubscribeRefusal::ResyncRequired);
+        } else {
+            // Complete delivery, in order, each event once.
+            prop_assert_eq!(&live.delivered[..], &committed[..]);
+        }
         Ok(())
     }
 
@@ -1098,7 +1443,9 @@ mod props_announce {
         #![proptest_config(config())]
 
         #[test]
-        fn live_stream_never_passes_a_gap_under_catch_up_faults((n, steps) in plan()) {
+        fn live_stream_never_passes_a_gap_under_catch_up_faults_and_retention(
+            (n, steps) in plan()
+        ) {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()

@@ -197,6 +197,19 @@ impl std::fmt::Debug for EventPublisher {
     }
 }
 
+/// Result of the publisher's catch-up read (see [`EventPublisher::announce`]).
+enum CatchUp {
+    /// Committed events read in order; `complete` is `false` after a store
+    /// failure (the events are then a gap-free prefix).
+    Read {
+        events: Vec<SequencedEvent>,
+        complete: bool,
+    },
+    /// Retention removed an event after the delivery boundary before it was
+    /// fanned out; `tail` is the retention boundary read in the same transaction.
+    Trimmed { tail: u64 },
+}
+
 /// How a subscription's start was resolved inside the boundary transaction.
 enum StartFrom {
     Backlog(Vec<heimdall_store::StoredEvent>),
@@ -327,6 +340,14 @@ impl EventPublisher {
     /// the gap, so resuming from it reads the held-back events from the store. A
     /// subscriber therefore never receives `N + 1` before `N`, and never receives
     /// `N + 1` at all while `N` is unread.
+    ///
+    /// Retention never hides a gap (ADR-0006 §13.8 item 3; review R03): each
+    /// catch-up read checks the retained tail against the delivery boundary in the
+    /// same transaction. If retention removed an event that was never fanned out
+    /// (for example `N` while `N + 1` was held back), nothing past the gap is
+    /// fanned out as continuous: every subscriber gets one explicit
+    /// `ResyncRequired` carrying its last delivered cursor (every live receiver
+    /// is made to lag), and the stream continues after the gap.
     pub fn announce(&self, event: SequencedEvent) {
         let mut st = self
             .announced
@@ -377,7 +398,22 @@ impl EventPublisher {
             // The next position: nothing can be missing, no read needed.
             (Vec::new(), true)
         } else {
-            self.committed_through(last, target)
+            match self.committed_through(last, target) {
+                CatchUp::Read { events, complete } => (events, complete),
+                CatchUp::Trimmed { tail } => {
+                    // Retention removed an event no subscriber has received
+                    // (ADR-0006 §13.8 item 3): continuity is not claimed.
+                    // Nothing at or below the gap is fanned out; every receiver
+                    // is made to lag, so each subscriber gets one explicit
+                    // `ResyncRequired` at its own last delivered cursor, which
+                    // precedes the gap (and is below the retained tail, so a
+                    // strict resume from it is refused).
+                    self.force_resync();
+                    st.last = Some(target.max(tail));
+                    st.held = None;
+                    return;
+                }
+            }
         };
         for stored in read {
             // The announced event itself is sent as announced, at its position.
@@ -402,34 +438,86 @@ impl EventPublisher {
         st.held = (target > delivered).then_some(target);
     }
 
-    /// Committed events with `after < seq <= through`, in order (bounded pages),
-    /// and whether the read completed. On a store failure the events read so far
-    /// are returned (a gap-free prefix) with `false`.
-    fn committed_through(&self, after: u64, through: u64) -> (Vec<SequencedEvent>, bool) {
+    /// Committed events with `after < seq <= through`, in order (bounded pages).
+    ///
+    /// On a store failure the events read so far are returned (a gap-free prefix)
+    /// with `complete: false`. Each page is read in one transaction together with
+    /// the environment's retention tail; when the tail lies beyond the position
+    /// the page continues from, retention removed an event after the delivery
+    /// boundary that was never fanned out, and the result is
+    /// [`CatchUp::Trimmed`] (review R03): a short page is never taken as proof
+    /// of continuity.
+    fn committed_through(&self, after: u64, through: u64) -> CatchUp {
         const PAGE: u32 = 256;
-        let mut out = Vec::new();
+        let mut events = Vec::new();
         let mut from = after;
         loop {
             let page = self.store.transaction(|tx| {
                 tx.stored_events_after(&self.environment, from, &EventFilter::default(), PAGE)
             });
             let Ok(page) = page else {
-                return (out, false);
+                return CatchUp::Read {
+                    events,
+                    complete: false,
+                };
             };
+            if page.tail_seq > from {
+                // The tail is the sequence of a removed event of this
+                // environment, so an event in `(from, tail]` existed and was
+                // removed before it was fanned out.
+                return CatchUp::Trimmed {
+                    tail: page.tail_seq,
+                };
+            }
             let full = page.events.len() == PAGE as usize;
             for stored in page.events {
                 if stored.seq > through {
-                    return (out, true);
+                    return CatchUp::Read {
+                        events,
+                        complete: true,
+                    };
                 }
                 from = stored.seq;
-                out.push(SequencedEvent {
+                events.push(SequencedEvent {
                     seq: stored.seq,
                     event: stored.event,
                 });
             }
             if !full || from >= through {
-                return (out, true);
+                return CatchUp::Read {
+                    events,
+                    complete: true,
+                };
             }
+        }
+    }
+
+    /// Make every live receiver lag: one burst of
+    /// `EVENT_BUFFER_PER_SUBSCRIPTION + 1` sequence-0 placeholders, sent without
+    /// yielding. Each receiver's unread position is overwritten, so its next
+    /// receive reports lag, which the relay and the session turn into exactly one
+    /// `ResyncRequired` at that subscriber's last delivered cursor (ADR-0006 §8).
+    /// The placeholders themselves are never delivered: a receiver that does not
+    /// lag drops them as covered by its boundary (every boundary is `>= 0`). Like
+    /// the relay's burst, this relies on the current-thread executor (overview
+    /// §4): no receiver drains the burst concurrently.
+    fn force_resync(&self) {
+        let filler = Arc::new(SequencedEvent {
+            seq: 0,
+            event: Event {
+                schema_version: heimdall_contract::SchemaVersion::current(),
+                event_id: EventId::from_random_bytes([0; 16]),
+                event_type: EventType::ResyncRequired,
+                environment_id: self.environment.clone(),
+                operation_id: None,
+                resource: None,
+                timestamp: Timestamp::UNIX_EPOCH,
+                cursor: Cursor(String::new()),
+                payload: serde_json::json!({ "reason": "history_trimmed" }),
+            },
+        });
+        for _ in 0..=heimdall_contract::ipc::EVENT_BUFFER_PER_SUBSCRIPTION {
+            let _ = self.live.send(filler.clone());
         }
     }
 

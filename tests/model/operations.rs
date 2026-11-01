@@ -1988,6 +1988,31 @@ fn u10_issuance(
     }
 }
 
+/// The issuer's side of publication (ADR-0005 §3.5 with its 2026-11-01 amendment;
+/// ADR-0006 §13.8 item 1): publish; on `Rereserved`, sign exactly the returned
+/// bounds (nothing to sign in M01) and publish that reservation, until it is
+/// published or refused. Bounded.
+async fn issue(
+    w: &World,
+    first: &heimdall_contract::ids::IssuanceId,
+    facts: &heimdall_app::operations::IssuanceFacts,
+) -> Result<heimdall_domain::issuance::IssuanceEntry, OpError> {
+    let mut id = first.clone();
+    for _ in 0..8 {
+        match w.ops.publish_issuance(&id, facts).await? {
+            heimdall_app::operations::Publication::Published(e) => return Ok(e),
+            heimdall_app::operations::Publication::Rereserved { reservation } => {
+                assert_eq!(
+                    reservation.state,
+                    heimdall_domain::issuance::IssuanceState::Reserved
+                );
+                id = reservation.id;
+            }
+        }
+    }
+    panic!("publication did not converge within 8 round trips");
+}
+
 fn u10_delegate(parent: &EnsureData, rid: &str, until: &str) -> DelegateRequest {
     DelegateRequest {
         parent_binding_id: parent.binding_id.clone(),
@@ -2049,9 +2074,7 @@ async fn u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_r
         .reserve_issuance(u10_issuance(&child.grant_id, shift(t0(), 600)))
         .await
         .unwrap_or_else(|e| panic!("healthy child issuance refused: {} {}", e.code, e.message));
-    let published = w
-        .ops
-        .publish_issuance(&reserved.id, &u10_issuance(&child.grant_id, t0()).facts)
+    let published = issue(&w, &reserved.id, &u10_issuance(&child.grant_id, t0()).facts)
         .await
         .unwrap_or_else(|e| panic!("healthy child publish refused: {} {}", e.code, e.message));
     assert_eq!(
@@ -3266,16 +3289,18 @@ async fn r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline
                 e.code, e.message
             )
         });
-    let published = w
-        .ops
-        .publish_issuance(&reserved.id, &r136_issuance(&a.grant_id, t0(), false).facts)
-        .await
-        .unwrap_or_else(|e| {
-            panic!(
-                "publish within the grant refused under a pause: {} {}",
-                e.code, e.message
-            )
-        });
+    let published = issue(
+        &w,
+        &reserved.id,
+        &r136_issuance(&a.grant_id, t0(), false).facts,
+    )
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "publish within the grant refused under a pause: {} {}",
+            e.code, e.message
+        )
+    });
     assert_eq!(
         published.state,
         heimdall_domain::issuance::IssuanceState::Published
@@ -3446,8 +3471,21 @@ async fn r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it() {
     );
     let b = r136_ready(&w, "r1d-b", "r1d-work-b", "h2", "1h").await;
     assert!(b.expires_at <= cutoff || b.usable_until <= cutoff);
-    // Past the cutoff.
+    // Past the cutoff. A new activation answers POLICY_CUTOFF; ⟨r2.5⟩ ADR-0006
+    // §13.8 item 4: that use finds the grant past its bound and ends it
+    // (`expired`), so every later use of it is CREDENTIAL_EXPIRED.
     w.clock.advance(16 * MINUTE);
+    let activation = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(cutoff, 600), true))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        activation.code,
+        Code::PolicyCutoff,
+        "new activation past the cutoff"
+    );
+    assert_eq!(w.grant(&a.grant_id).state, GrantState::Expired);
     let used = err(r136_bind(&w, &a.binding_id, "r1d-bind-2").await);
     assert_eq!(
         used.code,
@@ -3463,16 +3501,6 @@ async fn r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it() {
         issued.code,
         Code::CredentialExpired,
         "renewal past the cutoff"
-    );
-    let activation = w
-        .ops
-        .reserve_issuance(r136_issuance(&a.grant_id, shift(cutoff, 600), true))
-        .await
-        .unwrap_err();
-    assert_eq!(
-        activation.code,
-        Code::PolicyCutoff,
-        "new activation past the cutoff"
     );
     for (rid, work) in [("r1d-fresh-rid", "r1d-work-a"), ("r1d-fresh", "r1d-work-c")] {
         let mut req = ensure_req(rid, work, &[("h1", "deploy")]);
@@ -3513,9 +3541,7 @@ async fn r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_p
         gen_before,
         "a pause on an applicable policy moves the generation"
     );
-    let republished = w
-        .ops
-        .publish_issuance(&e1.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+    let republished = issue(&w, &e1.id, &r136_issuance(&a.grant_id, t0(), false).facts)
         .await
         .unwrap_or_else(|e| panic!("item 11 re-reservation refused: {} {}", e.code, e.message));
     assert_ne!(republished.id, e1.id, "a fresh reservation was published");
@@ -3555,9 +3581,7 @@ async fn r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_p
         .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), false))
         .await
         .unwrap_or_else(|e| panic!("continuing issuance refused: {} {}", e.code, e.message));
-    let p2 = w
-        .ops
-        .publish_issuance(&e2.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+    let p2 = issue(&w, &e2.id, &r136_issuance(&a.grant_id, t0(), false).facts)
         .await
         .unwrap_or_else(|e| panic!("continuing publish refused: {} {}", e.code, e.message));
     assert_eq!(
@@ -3593,10 +3617,10 @@ async fn r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publis
     )
     .await);
     // The cutoff voids the reservation; the reservation's bounds stay before the
-    // cutoff, so the same call re-reserves and publishes (§13.6 item 11).
-    let republished = w
-        .ops
-        .publish_issuance(&e1.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+    // cutoff, so publication re-reserves (§13.6 item 11) and hands the fresh
+    // reservation back to the issuer, whose next round trip publishes it (§13.8
+    // item 1).
+    let republished = issue(&w, &e1.id, &r136_issuance(&a.grant_id, t0(), false).facts)
         .await
         .unwrap();
     assert_ne!(republished.id, e1.id);
@@ -3632,9 +3656,7 @@ async fn r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publis
         gen_before,
         "a widening revision of an applicable policy moves the generation"
     );
-    let again = w
-        .ops
-        .publish_issuance(&e2.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+    let again = issue(&w, &e2.id, &r136_issuance(&a.grant_id, t0(), false).facts)
         .await
         .unwrap();
     assert_ne!(again.id, e2.id);
@@ -3993,4 +4015,395 @@ async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
         .await);
     assert_eq!(rl.data["grant_state"], "released");
     w.events();
+}
+
+// =================================================================================
+// ADR-0006 §13.8 item 4 (M01-rulings-13-8-H1): what "ends the grant" means. When
+// re-validation of an active or degraded grant fails, the grant moves to a terminal
+// state on detection, at use and in the supervisor's scheduler pass: a passed
+// deadline or cutoff ⇒ `expired`; withdrawn authority (a revoke on the chain, a
+// narrowing outside the approval, a removed environment permission) ⇒ `revoking`
+// with a tombstone whose cause is `authority_withdrawn`, then `revoked` once local
+// denial is applied, the residual reported as for any revocation. A pause and
+// uncertain time never end a grant. The cases marked red were first run against the
+// base commit and failed there.
+// =================================================================================
+
+/// The standing policy `pol` covers exactly `hosts` at its next revision (a
+/// setup-level write; it moves the authority generation).
+fn r138_set_policy_hosts(w: &World, hosts: &[&str]) {
+    w.store
+        .transaction(|tx| {
+            let mut p = tx.policy(&policy_id())?.expect("policy");
+            p.scope.pairs = hosts.iter().map(|h| pair(h, "deploy")).collect();
+            p.revision = PolicyRevision(p.revision.0 + 1);
+            tx.upsert_policy(&p, true).map(|_| ())
+        })
+        .unwrap();
+}
+
+/// The environment's automatic activation on or off (an environment write; it
+/// moves the authority generation, ADR-0006 §13.7 item 5).
+fn r138_set_automatic_activation(w: &World, on: bool) {
+    w.store
+        .transaction(|tx| {
+            let mut e = tx.environment(&env_id())?.expect("environment");
+            e.permissions.automatic_activation = on;
+            tx.upsert_environment(&e)
+        })
+        .unwrap();
+}
+
+/// A revocation recorded for `grant` alone (a tombstone on it, no cascade, the
+/// grant row untouched): what a grant below it sees as "a revoke on the chain".
+/// Built from its wire form so it names no field this suite does not own.
+fn r138_tombstone_only(w: &World, grant: &heimdall_contract::ids::GrantId) {
+    let t: heimdall_domain::revocation::Tombstone = serde_json::from_value(serde_json::json!({
+        "grant": grant,
+        "cascade": [],
+        "generation": 0,
+        "revoked_at": w.clock.wall(),
+        "remote_pending": [],
+    }))
+    .unwrap();
+    w.store
+        .transaction(|tx| tx.insert_tombstone(&t).map(|_| ()))
+        .unwrap();
+}
+
+/// The stored tombstone of `grant` as JSON, if any.
+fn r138_tombstone(w: &World, grant: &heimdall_contract::ids::GrantId) -> Option<serde_json::Value> {
+    w.store
+        .transaction(|tx| tx.tombstone(grant))
+        .unwrap()
+        .map(|t| serde_json::to_value(t).unwrap())
+}
+
+/// The `authority_withdrawn` credential-lifecycle event of `grant`, if any.
+fn r138_withdrawal(
+    w: &World,
+    grant: &heimdall_contract::ids::GrantId,
+) -> Option<serde_json::Value> {
+    w.events()
+        .into_iter()
+        .filter(|e| e.event.event_type == EventType::CredentialLifecycle)
+        .map(|e| e.event.payload)
+        .find(|p| p["grant_id"] == serde_json::json!(grant) && p["event"] == "authority_withdrawn")
+}
+
+/// Withdrawn authority: `revoked` (local denial applied through the fake adapter,
+/// which reports nothing pending), a tombstone whose cause is
+/// `authority_withdrawn`, and the residual in the event.
+fn r138_assert_withdrawn(
+    w: &World,
+    grant: &heimdall_contract::ids::GrantId,
+    residual: Option<Timestamp>,
+) {
+    assert_eq!(
+        w.grant(grant).state,
+        GrantState::Revoked,
+        "withdrawn ⇒ revoked"
+    );
+    let t = r138_tombstone(w, grant).expect("a tombstone");
+    assert_eq!(t["cause"], "authority_withdrawn");
+    let ev = r138_withdrawal(w, grant).expect("the withdrawal is reported");
+    assert_eq!(ev["local_applied"], true);
+    assert_eq!(ev["remote_pending"], serde_json::json!([]));
+    assert_eq!(
+        ev["latest_possible_credential_expiry"],
+        serde_json::json!(residual),
+        "the residual is reported as for any revocation"
+    );
+}
+
+/// An owner-approved h1+h3 grant (policy h1,h2; approved delta h3), active.
+async fn r138_approved(w: &World, rid: &str, work: &str) -> EnsureData {
+    let pending = err(w
+        .ops
+        .ensure(&unattended(501), approval_req(rid, work))
+        .await);
+    ok(decide(w, &attended(501), &decision_ref(&pending), Verdict::Approve).await);
+    ok(w.ops
+        .ensure(&unattended(501), approval_req(rid, work))
+        .await)
+    .data
+}
+
+/// A delegated child (h1, 30 min) of an h1 parent (1 h).
+async fn r138_parent_and_child(w: &World, tag: &str) -> (EnsureData, EnsureData) {
+    let parent = r136_ready(w, &format!("{tag}-p"), &format!("{tag}-work"), "h1", "1h").await;
+    let child = ok(w
+        .ops
+        .delegate(
+            &unattended(501),
+            u10_delegate(&parent, &format!("{tag}-c"), "30m"),
+        )
+        .await)
+    .data;
+    (parent, child)
+}
+
+/// The supervisor over this world (deadline scheduler only; no cleaner).
+fn r138_supervisor(w: &World) -> heimdall_runtime::supervisor::Supervisor {
+    heimdall_runtime::supervisor::Supervisor::new(
+        w.ops.clone(),
+        heimdall_runtime::supervisor::SupervisorConfig::default(),
+    )
+    .with_state(w.store.clone(), w.clock.clone())
+}
+
+/// Red. Withdrawn authority detected at use (bind): a narrowing that removes h1,
+/// which the owner's approval (h3) did not cover, ends the owner-approved grant:
+/// `revoked` with an `authority_withdrawn` tombstone; the reservation made before
+/// counts in the reported residual; every later use is refused.
+#[tokio::test]
+async fn r138_4_a_narrowing_outside_the_approval_ends_the_grant_at_use() {
+    let w = World::new().await;
+    let g = r138_approved(&w, "r138-4a", "r138-4a-work").await;
+    w.ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 1800)))
+        .await
+        .unwrap();
+    r138_set_policy_hosts(&w, &["h2"]);
+    let e = err(r136_bind(&w, &g.binding_id, "r138-4a-b1").await);
+    assert_eq!(e.code, Code::CredentialExpired);
+    r138_assert_withdrawn(&w, &g.grant_id, Some(shift(t0(), 1800)));
+    let again = err(r136_bind(&w, &g.binding_id, "r138-4a-b2").await);
+    assert_eq!(again.code, Code::CredentialExpired);
+    let refused = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code, Code::CredentialExpired);
+}
+
+/// Red. Withdrawn authority detected at use (issuance reserve): the environment no
+/// longer permits automatic activation, so a standing-policy grant ends.
+#[tokio::test]
+async fn r138_4_a_removed_environment_permission_ends_the_grant_at_use() {
+    let w = World::new().await;
+    let g = r136_ready(&w, "r138-4b", "r138-4b-work", "h1", "1h").await;
+    r138_set_automatic_activation(&w, false);
+    let refused = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_err();
+    assert_no_canary(&refused.message);
+    assert_eq!(refused.code, Code::CredentialExpired);
+    r138_assert_withdrawn(&w, &g.grant_id, None);
+    let e = err(r136_bind(&w, &g.binding_id, "r138-4b-b1").await);
+    assert_eq!(e.code, Code::CredentialExpired);
+}
+
+/// Red. A revoke on the chain detected at use: a tombstone on the parent (the
+/// child's row untouched) ends the child when it is next used.
+#[tokio::test]
+async fn r138_4_a_revoke_on_the_chain_ends_the_grant_at_use() {
+    let w = World::new().await;
+    let (parent, child) = r138_parent_and_child(&w, "r138-4c").await;
+    r138_tombstone_only(&w, &parent.grant_id);
+    assert_eq!(w.grant(&child.grant_id).state, GrantState::Active);
+    let e = err(r136_bind(&w, &child.binding_id, "r138-4c-b1").await);
+    assert_eq!(e.code, Code::CredentialExpired);
+    r138_assert_withdrawn(&w, &child.grant_id, None);
+}
+
+/// Red. A passed deadline, or a passed cutoff, detected at use: `expired` (no
+/// tombstone: nothing was withdrawn).
+#[tokio::test]
+async fn r138_4_a_passed_deadline_or_cutoff_expires_the_grant_at_use() {
+    let w = World::new().await;
+    let g = r136_ready(&w, "r138-4d", "r138-4d-work", "h1", "1h").await;
+    w.clock.advance(61 * MINUTE);
+    let e = err(r136_bind(&w, &g.binding_id, "r138-4d-b1").await);
+    assert_eq!(e.code, Code::CredentialExpired);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Expired);
+    assert!(r138_tombstone(&w, &g.grant_id).is_none());
+
+    let w = World::new().await;
+    let g = r136_ready(&w, "r138-4e", "r138-4e-work", "h1", "1h").await;
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Cutoff {
+            policy_id: policy_id(),
+            at: shift(t0(), 600),
+        },
+    )
+    .await);
+    w.clock.advance(11 * MINUTE);
+    let refused = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 1800)))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code, Code::CredentialExpired);
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Expired);
+    assert!(r138_tombstone(&w, &g.grant_id).is_none());
+}
+
+/// Red. Withdrawn authority detected by the supervisor's scheduler pass, with no
+/// use at all: a narrowing outside the approval, a removed environment permission,
+/// and a revoke on the chain each end their grant (`revoked`, `authority_withdrawn`).
+#[tokio::test]
+async fn r138_4_the_scheduler_pass_ends_grants_whose_authority_was_withdrawn() {
+    // A narrowing outside the owner's approval.
+    let w = World::new().await;
+    let g = r138_approved(&w, "r138-4f", "r138-4f-work").await;
+    r138_set_policy_hosts(&w, &["h2"]);
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    r138_assert_withdrawn(&w, &g.grant_id, None);
+    // A removed environment permission.
+    let w = World::new().await;
+    let g = r136_ready(&w, "r138-4g", "r138-4g-work", "h1", "1h").await;
+    r138_set_automatic_activation(&w, false);
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    r138_assert_withdrawn(&w, &g.grant_id, None);
+    // A revoke on the chain.
+    let w = World::new().await;
+    let (parent, child) = r138_parent_and_child(&w, "r138-4h").await;
+    r138_tombstone_only(&w, &parent.grant_id);
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    r138_assert_withdrawn(&w, &child.grant_id, None);
+}
+
+/// A passed deadline and a passed cutoff are detected by the scheduler pass as
+/// `expired` (already so at the base commit; kept as the item's scheduler-pass
+/// evidence for these causes).
+#[tokio::test]
+async fn r138_4_the_scheduler_pass_expires_grants_past_their_deadline_or_cutoff() {
+    let w = World::new().await;
+    let g = r136_ready(&w, "r138-4i", "r138-4i-work", "h1", "1h").await;
+    w.clock.advance(61 * MINUTE);
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Expired);
+    assert!(r138_tombstone(&w, &g.grant_id).is_none());
+
+    let w = World::new().await;
+    let g = r136_ready(&w, "r138-4j", "r138-4j-work", "h1", "1h").await;
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Cutoff {
+            policy_id: policy_id(),
+            at: shift(t0(), 600),
+        },
+    )
+    .await);
+    w.clock.advance(11 * MINUTE);
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&g.grant_id).state, GrantState::Expired);
+}
+
+/// A pause and uncertain time never end a grant, neither at use nor in the
+/// scheduler pass: under a pause the binding still binds; with authority
+/// withdrawn while time is uncertain, every use answers `TIME_UNCERTAIN` and the
+/// grant stays `active` (with no tombstone) until time is safe again; then the
+/// next pass ends it.
+#[tokio::test]
+async fn r138_4_a_pause_or_uncertain_time_never_ends_a_grant() {
+    let w = World::new().await;
+    let g = r136_ready(&w, "r138-4k", "r138-4k-work", "h1", "1h").await;
+    let sup = r138_supervisor(&w);
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Pause {
+            policy_id: policy_id(),
+        },
+    )
+    .await);
+    let bound = ok(r136_bind(&w, &g.binding_id, "r138-4k-b1").await);
+    assert_eq!(bound.code, Code::AccessReady);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(
+        w.grant(&g.grant_id).state,
+        GrantState::Active,
+        "a pause never ends a grant"
+    );
+
+    // Authority withdrawn, then the wall clock steps back: time is uncertain.
+    r138_set_policy_hosts(&w, &["h2"]);
+    w.clock.set_wall(
+        w.clock
+            .wall()
+            .checked_sub(jiff::SignedDuration::from_mins(2))
+            .unwrap(),
+    );
+    let e = err(r136_bind(&w, &g.binding_id, "r138-4k-b2").await);
+    assert_eq!(e.code, Code::TimeUncertain);
+    let refused = w
+        .ops
+        .reserve_issuance(u10_issuance(&g.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.code, Code::TimeUncertain);
+    sup.scheduler_pass().await.unwrap();
+    assert_eq!(
+        w.grant(&g.grant_id).state,
+        GrantState::Active,
+        "uncertain time never ends a grant"
+    );
+    assert!(r138_tombstone(&w, &g.grant_id).is_none());
+    // Once the wall clock is back where the continuous clock says it should be,
+    // time is safe again and the next scheduler pass detects the withdrawal.
+    w.clock.set_wall(
+        w.clock
+            .wall()
+            .checked_add(jiff::SignedDuration::from_mins(2))
+            .unwrap(),
+    );
+    sup.scheduler_pass().await.unwrap();
+    r138_assert_withdrawn(&w, &g.grant_id, None);
+}
+
+/// Re-validation that cannot be determined is no withdrawal: a delegated parent
+/// whose consumer released its binding lives on through its child's reference
+/// (ADR-0006 §13.5 ruling 1) and has no consumer context of its own; an unrelated
+/// generation move and a scheduler pass leave both `active` (nothing was
+/// withdrawn, so nothing is ended or tombstoned).
+#[tokio::test]
+async fn r138_4_an_undetermined_revalidation_ends_nothing() {
+    let w = World::new().await;
+    let (parent, child) = r138_parent_and_child(&w, "r138-4l").await;
+    ok(w.ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: parent.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(w.grant(&parent.grant_id).state, GrantState::Active);
+    // An unrelated policy (another profile) moves the global generation.
+    w.store
+        .transaction(|tx| {
+            tx.upsert_policy(
+                &StandingPolicy {
+                    id: PolicyId::parse("pol-other").unwrap(),
+                    revision: PolicyRevision(1),
+                    profile: ProfileId::parse("other").unwrap(),
+                    workspace: None,
+                    scope: Scope {
+                        pairs: [pair("h9", "deploy")].into_iter().collect(),
+                        capabilities: ssh_only(),
+                    },
+                    environments: [env_id()].into_iter().collect(),
+                    max_window: HOUR,
+                    pause: PauseState::Active,
+                    cutoff_at: None,
+                    source: PolicySource::SetupDefault,
+                },
+                false,
+            )
+            .map(|_| ())
+        })
+        .unwrap();
+    r138_supervisor(&w).scheduler_pass().await.unwrap();
+    assert_eq!(w.grant(&parent.grant_id).state, GrantState::Active);
+    assert_eq!(w.grant(&child.grant_id).state, GrantState::Active);
+    assert!(r138_tombstone(&w, &parent.grant_id).is_none());
+    assert!(r138_tombstone(&w, &child.grant_id).is_none());
 }

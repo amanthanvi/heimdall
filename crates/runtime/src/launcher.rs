@@ -161,6 +161,15 @@ pub async fn ensure_running_with(
 /// aimed at the client does not reach the service. The returned child is never
 /// killed by dropping it.
 ///
+/// **Descriptors** (ADR-0006 §13.8 item 7): the child receives exactly its three
+/// standard descriptors, all null. **Unix:** the spawn sets 0-2 to `/dev/null`
+/// and, before it, every descriptor above 2 of this process is marked
+/// close-on-exec ([`crate::platform::disinherit_descriptors_above_stdio`]), so
+/// one this client inherited without the flag (a caller's pipe) never reaches
+/// the long-lived runtime; this process keeps using its descriptors. The runtime
+/// also closes every descriptor above 2 at start-up
+/// ([`crate::platform::close_inherited_descriptors`]).
+///
 /// **Windows** (ADR-0006 §13.6 item 8): `DETACHED_PROCESS` (no console and no
 /// console window) and `CREATE_NEW_PROCESS_GROUP` (Ctrl-C/Ctrl-Break aimed at the
 /// client's group never reaches the service). Handle inheritance: the standard
@@ -170,7 +179,10 @@ pub async fn ensure_running_with(
 /// inheritable, i.e. its own stdio; so the client first clears the inherit flag
 /// on its standard handles ([`crate::platform::disinherit_standard_handles`]).
 /// The client's files, locks and pipe handles (opened without inheritance) are
-/// never passed on.
+/// never passed on. Residual: a non-standard handle the client itself inherited
+/// as inheritable from its own parent would still pass on; restricting the list
+/// (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`) is not reachable through the stable
+/// standard library (`CommandExt::raw_attribute` is unstable).
 pub fn spawn_detached(program: &Path, args: &[&OsStr]) -> std::io::Result<std::process::Child> {
     use std::process::{Command, Stdio};
     let mut cmd = Command::new(program);
@@ -182,6 +194,8 @@ pub fn spawn_detached(program: &Path, args: &[&OsStr]) -> std::io::Result<std::p
     {
         use std::os::unix::process::CommandExt as _;
         cmd.process_group(0);
+        // Only the three null standard descriptors reach the child (see below).
+        crate::platform::disinherit_descriptors_above_stdio();
     }
     #[cfg(windows)]
     {

@@ -260,8 +260,14 @@ integration,adversarial}` hold cross-crate tests as `m01-plan.md` assigns them.
    (`proc_pidinfo`; `OpenProcess`/`GetProcessTimes`/`GetExitCodeProcess`/
    `CloseHandle`), and, on Windows, `SetHandleInformation(std handle,
    HANDLE_FLAG_INHERIT, 0)` in `disinherit_standard_handles` so the detached runtime
-   never inherits the client's stdio pipes (ADR-0006 §13.6 item 8). The module's own
-   table lists each call with its invariant.
+   never inherits the client's stdio pipes (ADR-0006 §13.6 item 8), and, on Unix,
+   the descriptor hygiene of ADR-0006 §13.8 item 7: `syscall(SYS_close_range, 3,
+   ~0, flags)` (Linux x86_64/aarch64), `fcntl(F_GETFD/F_SETFD, FD_CLOEXEC)`,
+   `close` and `getrlimit(RLIMIT_NOFILE)` in `disinherit_descriptors_above_stdio`
+   (the launcher, before the spawn: every descriptor above 2 close-on-exec) and
+   `close_inherited_descriptors` (`service run`, before it opens anything: every
+   descriptor above 2 closed). The module's own table lists each call with its
+   invariant.
 
 Each call is wrapped in a safe function with its invariants documented; no `unsafe`
 leaves either module. Unix IPC needs none (tokio provides `peer_cred`; std provides

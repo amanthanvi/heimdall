@@ -239,6 +239,7 @@ fn tombstone(b: u8) -> Tombstone {
         generation: AuthorityGeneration(0),
         revoked_at: t0(),
         remote_pending: Vec::new(),
+        cause: heimdall_domain::revocation::RevocationCause::Revoke,
     }
 }
 
@@ -687,6 +688,38 @@ fn tombstones_bump_the_authority_generation_atomically() {
         s.transaction(|tx| tx.authority_generation()).unwrap(),
         AuthorityGeneration(0)
     );
+}
+
+/// ⟨r2.5⟩ ADR-0006 §13.8 item 4: a tombstone carries its cause; an
+/// `authority_withdrawn` one round-trips through the store, and the first record
+/// for a grant is kept whatever the later one's cause (evidence is never
+/// rewritten).
+#[test]
+fn tombstone_cause_round_trips_and_the_first_record_is_kept() {
+    use heimdall_domain::revocation::RevocationCause;
+    let s = mem();
+    let withdrawn = Tombstone {
+        cause: RevocationCause::AuthorityWithdrawn,
+        ..tombstone(7)
+    };
+    let stored = s
+        .transaction(|tx| {
+            tx.insert_tombstone(&withdrawn)?;
+            tx.insert_tombstone(&tombstone(7))?;
+            tx.tombstone(&withdrawn.grant)
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.cause, RevocationCause::AuthorityWithdrawn);
+    assert_eq!(stored.grant, withdrawn.grant);
+    let explicit = s
+        .transaction(|tx| {
+            tx.insert_tombstone(&tombstone(8))?;
+            tx.tombstone(&tombstone(8).grant)
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(explicit.cause, RevocationCause::Revoke);
 }
 
 #[test]

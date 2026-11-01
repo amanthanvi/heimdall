@@ -18,7 +18,8 @@
 //!   /status`) [I]. `Unknown` fails closed in the gate (ADR-0006 §10).
 //! * **Process start time** ([`process_start_time`]): defeats PID reuse when an
 //!   `instance.json` is validated (spec §4.2, §13.3). Linux `/proc/<pid>/stat`
-//!   field 22 qualified by the boot ID; macOS `proc_pidinfo(PROC_PIDTBSDINFO)`;
+//!   field 22 qualified by the boot ID (`None` in state `Z`/`X`: exited, even
+//!   if not yet reaped); macOS `proc_pidinfo(PROC_PIDTBSDINFO)`;
 //!   Windows `OpenProcess` + `GetProcessTimes` creation time.
 //!
 //! **Failure policy (fail closed).** The continuous reading is clamped so it
@@ -48,6 +49,16 @@
 //! | Windows | `RegGetValueW(HKLM, subkey, "BootId", RRF_RT_REG_DWORD, null, &mut v, &mut 4)` | NUL-terminated UTF-16 names; 4-byte out-buffer and size |
 //! | Windows | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)` / `GetProcessTimes` / `GetExitCodeProcess` / `CloseHandle` | handle checked non-null, closed exactly once |
 //! | Windows | `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)` | this process's own standard handle as std holds it (null skipped); only the inherit flag changes, the handle stays open and valid; a failure is ignored |
+//! | Linux (x86_64, aarch64) | `syscall(SYS_close_range, 3, ~0, 0 \| CLOSE_RANGE_CLOEXEC)` | integers only, this process's descriptors above 2; result checked, failure selects the fallback; `0` (close) only under the precondition below |
+//! | Unix | `fcntl(fd, F_GETFD)` / `fcntl(fd, F_SETFD, flags \| FD_CLOEXEC)` | integers only; a number that is not open returns -1 (checked); only the close-on-exec flag is added |
+//! | Unix | `close(fd)` (fd > 2) | only from `close_inherited_descriptors`, called by `service run` before it opens anything, so no live object owns the descriptor; EBADF for gaps ignored |
+//! | Unix | `getrlimit(RLIMIT_NOFILE, &mut rl)` | valid, aligned, writable out-pointer; return code checked |
+//!
+//! **Inherited descriptors** ([`disinherit_descriptors_above_stdio`],
+//! [`close_inherited_descriptors`]; ADR-0006 §13.8 item 7): the launcher marks
+//! every descriptor above 2 of the client close-on-exec before it spawns the
+//! detached runtime, and `service run` closes every descriptor above 2 before it
+//! opens anything, so the long-lived runtime never holds a caller's pipe.
 //!
 //! **Detached children** ([`disinherit_standard_handles`]; ADR-0006 §13.6 item 8):
 //! before the launcher spawns the on-demand runtime, Windows clients clear the
@@ -175,10 +186,47 @@ pub fn read_boot_id_uncached() -> std::io::Result<String> {
 /// Windows: clear `HANDLE_FLAG_INHERIT` on this process's standard input,
 /// output and error handles, so a child spawned afterwards (the detached
 /// on-demand runtime) never holds the caller's console or pipe handles. This
-/// process keeps using them normally. Unix: nothing to do (the spawn replaces
-/// descriptors 0-2 and every other descriptor is close-on-exec).
+/// process keeps using them normally. Unix: nothing to do here (the spawn
+/// replaces descriptors 0-2); descriptors above 2 are handled by
+/// [`disinherit_descriptors_above_stdio`].
 pub fn disinherit_standard_handles() {
     os::disinherit_standard_handles();
+}
+
+/// Unix: mark every open descriptor above 2 of this process close-on-exec
+/// (ADR-0006 §13.8 item 7), so a child spawned afterwards (the detached
+/// on-demand runtime) receives only the three standard descriptors the spawn
+/// sets. The standard library opens its own descriptors close-on-exec, but a
+/// descriptor this process **inherited** without the flag (from a caller, or
+/// leaked into it by a caller's concurrent spawn) would otherwise pass on to the
+/// long-lived runtime and keep the caller's pipe open (observed: the e2e
+/// concurrent-start case hung on exactly that). This process keeps using every
+/// descriptor normally; only children it executes later lose them.
+///
+/// Linux (x86_64, aarch64) uses `close_range(3, ~0, CLOSE_RANGE_CLOEXEC)`; when
+/// that fails (kernel before 5.11) and elsewhere, the open descriptors are listed
+/// from `/proc/self/fd` (Linux) or `/dev/fd`, and when that fails every number
+/// below the `RLIMIT_NOFILE` soft limit (at most 65 536) is visited. Windows: a
+/// no-op (see [`disinherit_standard_handles`]).
+pub fn disinherit_descriptors_above_stdio() {
+    #[cfg(unix)]
+    fds::above_stdio(fds::Action::CloseOnExec);
+}
+
+/// Unix: close every descriptor above 2 (ADR-0006 §13.8 item 7). The runtime
+/// calls this first thing at start-up, before it opens any descriptor of its
+/// own, so it holds nothing inherited from whatever started it (a client's
+/// output pipe held by the long-lived runtime keeps that client's caller waiting
+/// for end of file). Same mechanisms and fallbacks as
+/// [`disinherit_descriptors_above_stdio`], with `close` in place of the flag.
+///
+/// **Precondition:** no live object of this process owns a descriptor above 2
+/// (it is called before anything is opened); never call it from a process that
+/// has opened files, sockets or pipes, such as a test harness. Windows: a no-op
+/// (the launcher passes no handle beyond the null standard handles).
+pub fn close_inherited_descriptors() {
+    #[cfg(unix)]
+    fds::above_stdio(fds::Action::Close);
 }
 
 /// Opaque OS start time of process `pid`, or `None` when the process does not
@@ -190,6 +238,134 @@ pub fn process_start_time(pid: u32) -> Option<String> {
         return None;
     }
     os::process_start_time(pid)
+}
+
+/// Descriptor hygiene for the detached runtime (ADR-0006 §13.8 item 7; see
+/// [`disinherit_descriptors_above_stdio`] and [`close_inherited_descriptors`]).
+#[cfg(unix)]
+mod fds {
+    use libc::c_int;
+
+    /// Upper bound of the last-resort loop over descriptor numbers.
+    const FALLBACK_CAP: c_int = 1 << 16;
+
+    /// What to do with each descriptor above 2.
+    #[derive(Debug, Clone, Copy)]
+    pub(super) enum Action {
+        /// `close`.
+        Close,
+        /// Set `FD_CLOEXEC`.
+        CloseOnExec,
+    }
+
+    pub(super) fn above_stdio(action: Action) {
+        if close_range(action) {
+            return;
+        }
+        if let Some(listed) = listed() {
+            for fd in listed {
+                apply(fd, action);
+            }
+            return;
+        }
+        for fd in 3..rlimit_bound() {
+            apply(fd, action);
+        }
+    }
+
+    /// Linux 5.11+: one `close_range` call covers every descriptor above 2.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    fn close_range(action: Action) -> bool {
+        let flags: libc::c_uint = match action {
+            Action::Close => 0,
+            Action::CloseOnExec => libc::CLOSE_RANGE_CLOEXEC,
+        };
+        // SAFETY: `close_range(first, last, flags)` takes three integers and no
+        // pointer; it closes or flags descriptors of this process only. For
+        // `Close` the precondition of `close_inherited_descriptors` holds (no
+        // live object owns a descriptor above 2). The result is checked; any
+        // failure (ENOSYS on an older kernel, EINVAL) selects the fallback.
+        let rc = unsafe {
+            libc::syscall(
+                libc::SYS_close_range,
+                3 as libc::c_uint,
+                libc::c_uint::MAX,
+                flags,
+            )
+        };
+        rc == 0
+    }
+
+    #[cfg(not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )))]
+    fn close_range(_action: Action) -> bool {
+        false
+    }
+
+    /// Open descriptors above 2, from the kernel's per-process listing. `None`
+    /// when the listing is unavailable or unreadable (the caller then loops).
+    /// The listing's own directory descriptor appears in it; it is closed when
+    /// the iterator drops, before any entry is acted on, so acting on its number
+    /// afterwards fails harmlessly with `EBADF`.
+    fn listed() -> Option<Vec<c_int>> {
+        let dir = if cfg!(any(target_os = "linux", target_os = "android")) {
+            "/proc/self/fd"
+        } else {
+            "/dev/fd"
+        };
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).ok()? {
+            let name = entry.ok()?.file_name();
+            let fd: c_int = name.to_str()?.parse().ok()?;
+            if fd > 2 {
+                out.push(fd);
+            }
+        }
+        Some(out)
+    }
+
+    /// Exclusive bound of the last-resort loop: the `RLIMIT_NOFILE` soft limit,
+    /// at most [`FALLBACK_CAP`].
+    fn rlimit_bound() -> c_int {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: `limit` is a valid, aligned, writable `rlimit`; the call only
+        // writes it and its return code is checked before the value is used.
+        let rc = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) };
+        if rc != 0 {
+            return FALLBACK_CAP;
+        }
+        c_int::try_from(limit.rlim_cur).map_or(FALLBACK_CAP, |n| n.min(FALLBACK_CAP))
+    }
+
+    fn apply(fd: c_int, action: Action) {
+        match action {
+            Action::Close => {
+                // SAFETY: `close` takes an integer; a number that is not open
+                // fails with EBADF, which is ignored. The precondition of
+                // `close_inherited_descriptors` (no live object of this process
+                // owns a descriptor above 2) rules out closing one in use.
+                unsafe { libc::close(fd) };
+            }
+            Action::CloseOnExec => {
+                // SAFETY: `fcntl(fd, F_GETFD)` takes an integer and returns the
+                // descriptor flags or -1 (not open), checked below.
+                let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+                if flags >= 0 && flags & libc::FD_CLOEXEC == 0 {
+                    // SAFETY: as above; only the close-on-exec flag is added, the
+                    // descriptor stays open and usable by this process.
+                    unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
+                }
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -313,7 +489,14 @@ mod os {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
         let after = stat.get(stat.rfind(')')? + 1..)?;
         // `after` starts at field 3 (state); starttime is field 22 → index 19.
-        let start = after.split_whitespace().nth(19)?;
+        let mut fields = after.split_whitespace();
+        // A process that has exited is not alive, even while its parent has not
+        // reaped it (`Z` zombie, `X` dead): as on Windows (exit code checked) and
+        // macOS (no BSD info for a zombie).
+        if matches!(fields.next(), Some("Z" | "X") | None) {
+            return None;
+        }
+        let start = fields.nth(18)?;
         if start.is_empty() || !start.bytes().all(|b| b.is_ascii_digit()) {
             return None;
         }

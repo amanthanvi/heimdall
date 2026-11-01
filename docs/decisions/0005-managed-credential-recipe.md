@@ -245,8 +245,9 @@ generations, cutoffs and tombstones (spec §13.3). The issuer runs the protocol 
    its chain are still valid. Then the entry is voided as above, and a fresh reservation is
    made with a new serial and entry ID, reserved under step 1's rules. That reservation is
    returned to the issuer, which signs exactly the returned bounds and publishes again. At
-   most 3 attempts are made per call. The voided certificate was never released, so the
-   residual is unchanged.
+   most 3 reserve–sign–publish round trips are made per issuance (ADR-0006 §13.8 item 1);
+   the third failure is answered `SERVICE_UNAVAILABLE`. The voided certificate was never
+   released, so the residual is unchanged.
 4. **Install** at the receiver. The receiving signer, local or on a runner, checks its own view of
    the grant before installing the certificate or admitting anything with it: generation,
    tombstones, and a safe deadline under §3.6 (on a runner, the deadline derived in §3.6 from the
