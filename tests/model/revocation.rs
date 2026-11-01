@@ -720,8 +720,8 @@ async fn reserve_then(between: Between) -> (World, GrantId, Result<(), OpError>)
                 .unwrap();
         }
         Between::PolicyRevision => {
-            // A widening approved by the owner moves the revision, not the
-            // generation.
+            // A widening approved by the owner moves the revision and, since
+            // ADR-0006 §13.6 item 5, the generation.
             let e = w
                 .ops
                 .policy(
@@ -784,10 +784,10 @@ async fn a07_publish_rechecks_every_predicate_and_voids_after_each_change() {
         // A cutoff is a policy change: the first failing predicate is the moved
         // revision (the cutoff itself would refuse next).
         (Between::Cutoff, IssuanceRefusal::StalePolicyRevision),
-        (
-            Between::PolicyRevision,
-            IssuanceRefusal::StalePolicyRevision,
-        ),
+        // ADR-0006 §13.6 item 5: a revision of an applicable policy moves the
+        // generation too; the chain re-validates against the new revision, so the
+        // publish is voided because reserve and publish saw different generations.
+        (Between::PolicyRevision, IssuanceRefusal::StaleGeneration),
         (Between::BudgetExpiry, IssuanceRefusal::BudgetExpired),
         (Between::WallDeadline, IssuanceRefusal::BoundPassed),
         (Between::TimeUncertain, IssuanceRefusal::TimeUncertain),
@@ -1102,8 +1102,16 @@ proptest! {
                     }
                     Narrow::BindBase => {
                         let r = w.bind(&base.binding_id, &format!("req-bind-{n}")).await;
+                        scan(&r);
+                        let c = code_of(&r);
                         if revoked {
-                            prop_assert!(code_of(&r) != Code::AccessReady, "a revoked binding never binds");
+                            prop_assert!(c != Code::AccessReady, "a revoked binding never binds");
+                        } else if cut || w.clock.wall() >= base.expires_at {
+                            // ADR-0006 §13.6 item 1: existing use past min(deadline, cutoff).
+                            prop_assert_eq!(c, Code::CredentialExpired);
+                        } else {
+                            // A pause never stops an existing binding before its deadline.
+                            prop_assert_eq!(c, Code::AccessReady, "paused={}", paused);
                         }
                     }
                     Narrow::Advance(m) => {

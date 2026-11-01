@@ -41,4 +41,5 @@ fn versions_and_capability_names_are_stable() {
     assert_eq!(capability::EVENTS_V1, "events/1");
     assert_eq!(capability::OWNER_POLICY_V1, "owner-policy/1");
     assert_eq!(capability::SCHEMA_DISCOVERY_V1, "schema-discovery/1");
+    assert_eq!(capability::SERVICE_CONTROL_V1, "service-control/1");
 }

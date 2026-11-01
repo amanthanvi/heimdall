@@ -256,7 +256,12 @@ integration,adversarial}` hold cross-crate tests as `m01-plan.md` assigns them.
 2. `crates/runtime/src/platform.rs` (`#![allow(unsafe_code)]`): the boot-scoped
    continuous clock and boot ID syscalls (`clock_gettime(CLOCK_BOOTTIME)`,
    `mach_continuous_time`/`mach_timebase_info`, `sysctlbyname`,
-   `QueryInterruptTime`, the `BootId` registry read).
+   `QueryInterruptTime`, the `BootId` registry read), the process-identity reads
+   (`proc_pidinfo`; `OpenProcess`/`GetProcessTimes`/`GetExitCodeProcess`/
+   `CloseHandle`), and, on Windows, `SetHandleInformation(std handle,
+   HANDLE_FLAG_INHERIT, 0)` in `disinherit_standard_handles` so the detached runtime
+   never inherits the client's stdio pipes (ADR-0006 §13.6 item 8). The module's own
+   table lists each call with its invariant.
 
 Each call is wrapped in a safe function with its invariants documented; no `unsafe`
 leaves either module. Unix IPC needs none (tokio provides `peer_cred`; std provides

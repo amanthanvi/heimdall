@@ -154,7 +154,10 @@ session, not a confirmation of any particular action.
 
 `operations/1` (the six primitives), `events/1` (subscriptions and cursors),
 `owner-policy/1` (pause/resume/cutoff/clear), `schema-discovery/1` (`inspect
-capabilities` returns schema names and the code table; R-AP-08). A remote paired
+capabilities` returns schema names and the code table; R-AP-08), `service-control/1`
+(⟨r2.3⟩ `Request::Shutdown`, §13.6 item 8). Shutdown is accepted only from the owner
+principal. Without the negotiated capability it is refused with `SCHEMA_UNSUPPORTED`;
+from a non-owner role it is refused with `CAPABILITY_UNAVAILABLE`. A remote paired
 client (G07) negotiates a subset; its role is carried in the caller context, never
 inferred from the capability list.
 
@@ -235,8 +238,12 @@ Added authority (spec §5.3), the widening policy actions `resume`/`clear_cutoff
   Ctrl-C, a prompt timeout, a non-TTY stdin, `--non-interactive`, an explicit `n`,
   or any other input sends **nothing**: the decision stays `pending` until it
   expires, and the CLI exits 3 with code `INTERACTION_REQUIRED`, `next.decision_ref`
-  and a "not confirmed" message. `Attend` may be sent only for the session that
-  then shows this prompt. **Disclosure:** the server cannot verify that the client
+  and a "not confirmed" message. A conforming client sends `Attend` only on an
+  interactive TTY session, before an owner-present request: `access ensure`,
+  `resume`, either direction of `cutoff`, `decision approve|deny`, or `time
+  confirm` (§13.6 item 7). It never sends `Attend` with `--non-interactive` or on a
+  non-TTY stdin, and never for narrowing-only actions. Attendance authorizes nothing
+  by itself. **Disclosure:** the server cannot verify that the client
   prompted; a same-user program can send `Attend` and `Decide` itself (same-user
   imitation, below). The prompt is the owner workflow the contract requires of
   conforming clients, not a server-enforced boundary.
@@ -775,6 +782,20 @@ escalations, workflow `wf_11ee3572-cd2` (summary in `progress.md`).
    configured user, so runs on that host are `blocked` on that owner setting. Changing
    access to a live server is outside the delegation (ADR-0004 §5). The Linux x86-64
    rows use the other host.
+10. **Readings from the §13.6 fix round, confirmed** (2026-11-01):
+    * A request still waiting for added authority counts as a new grant under a
+      pause. A same-key retry answers `POLICY_PAUSED` (exit 4), the operation stays
+      `awaiting_approval`, and no fresh decision record is issued until the pause is
+      lifted. A cutoff that passes while it waits ends it with `CREDENTIAL_EXPIRED`.
+    * `choose_policy` pins the first applicable policy by ID. Blocks come from the
+      merged view of every applicable policy. Inserting a policy record also moves
+      the generation.
+11. **A publish voided only by an unrelated generation move** (the grant and its
+    chain are still valid). Reporting `CREDENTIAL_EXPIRED` for it is misleading. The
+    application re-validates and re-reserves automatically, at most 3 attempts within
+    the same call. If the generation is still racing after that, the answer is
+    `SERVICE_UNAVAILABLE` (exit 5, retryable) with a retry `next`. If re-validation
+    fails, the answer is that denial's own code. The code table is unchanged.
 
 ## 14. ⟨rev2⟩ Change log and substrate added by revision 2
 
@@ -893,6 +914,11 @@ revision 2 adds `Denial::DeadlinePassed` for it, mapped to `CREDENTIAL_EXPIRED`
 | ⟨r2.2⟩ §13.5 ruling 3 (gap G07) | `IssuanceFacts.permitted_extensions` **removed** (app API, not a contract type); `app::operations::permitted_extensions(grant, pair)` derives them inside the reserve and publish transactions |
 | gap G03/G04 (N06) | **additive** `app::ports::ResourceCleaner`, `app::reconcile::{CleanupPoint, CleanupHook, NoCleanupHook}`, `runtime::supervisor::{Supervisor::{with_cleaner, cleanup_pass}, CleanupReport}` |
 | gap G06/G18 | §8 (live fan-out in `seq` order; `Subscribed.cursor` is the head boundary); `heimdall schema export --config-out` |
+| ⟨r2.3⟩ §13.6 items 1, 3, 5, 6 (M01-rulings-13-6-F1) | No public signature change. Behaviour: `store::Txn::upsert_policy` bumps the generation on **every** accepted write (the `narrowing` argument no longer selects it); `domain::issuance::check` returns `CutoffPassed` only for `new_activation` (existing grants past the cutoff ⇒ `BoundPassed` ⇒ `CREDENTIAL_EXPIRED`); `app::operations` re-validation and continuing issuance ignore a pause (private `continuing_policy`), new grants/bindings check pause and cutoff before re-validation (`POLICY_PAUSED`/`POLICY_CUTOFF`), a waiting request under a pause answers `POLICY_PAUSED` and keeps waiting, the pinned applicable policy is the first by ID |
+| ⟨r2.3⟩ §13.6 item 4 (M01-rulings-13-6-F2) | **additive** `runtime::supervisor::{Jitter, RandomJitter, FixedJitter(f64), retry_delay(&Backoff, attempt, &dyn Jitter) -> Duration, Supervisor::with_jitter(Arc<dyn Jitter>)}`; the cleanup executor's retry delays are `Backoff::jittered` from the injected source (default `RandomJitter`, CSPRNG; unit `1.0` if randomness fails), and a failed scheduler pass is retried after a jittered delay; tests `integration_runtime::u8b::cleanup_retries_use_bounded_backoff_with_injected_jitter`, property `jitter_props::jittered_retry_delays_stay_within_the_bounded_backoff`; verified (no code change): `u8b::unavailable_prepare_is_answered_once_and_never_retried_by_the_supervisor_or_a_restart`, e2e `unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation`. `model_operations::g04_*` asserts the unjittered schedule and needs `.with_jitter(Arc::new(FixedJitter(1.0)))` (escalated; outside F2's paths) |
+| ⟨r2.3⟩ §13.6 item 7 (M01-rulings-13-6-F2) | No public signature change. CLI (`heimdall` bin): on an interactive TTY session `Attend` is sent **first** for `access ensure`, `access resume`, `access cutoff`, `decision approve|deny`, `time confirm` (never for `pause` or non-interactive/non-TTY invocations); the prompt shows the runtime's answer (`APPROVAL_REQUIRED`) and the exact recorded request; `Decide` only on `y`/`yes`. Crate-private test seam `cli::{Session, Prompter}`; unit tests `cli::tests::*attend*`, e2e pty cases (Unix) |
+| ⟨r2.3⟩ §13.6 item 8 (M01-rulings-13-6-F2) | **additive** `contract::ipc::capability::SERVICE_CONTROL_V1 = "service-control/1"` (§2.4 list gains it; text of §2.4 left to the integrator), `contract::request::{ShutdownRequest {}, Request::Shutdown(ShutdownRequest)}` (wire `{"op":"shutdown"}`), `Request::required_capability() -> Option<&'static str>`; `Request::is_effectful` is `false` for `Shutdown` (no operation, no idempotency record). `ipc::session::server_capabilities()` offers `service-control/1`; a request whose capability was not negotiated is answered `SCHEMA_UNSUPPORTED` and never dispatched; **additive** `ipc::session::Dispatcher::replied(&self, &SessionInfo, &'static str, &Code)` (default no-op), called after the response frame is written. `runtime::dispatch::OperationsDispatcher::{with_service_control(CancellationToken), handle_as(&Caller, Request)}`: owner role only (`CAPABILITY_UNAVAILABLE` otherwise), any session, answer `OK {"stopping": true, "already_stopping": bool}`, drain started from `replied` (same graceful drain as a signal); `#[doc(hidden)] ServiceOptions.endpoint_prefix` (Windows test pipe prefix `hmtest-`). CLI `service stop` sends `Shutdown` on every platform (`data.via = "control"`), Unix SIGTERM fallback (`"signal"`) only when the endpoint is unusable (Windows has no fallback: it waits for an already-stopping runtime, `"exited"`, or reports the endpoint error). No code-table change. Schemas re-exported (`request`, `ipc.client-message`); examples `schemas/examples/{request.shutdown,ipc.client-message.request-shutdown,ipc.server-message.response-shutdown}.json`. Windows: **additive** `runtime::platform::disinherit_standard_handles()` (one new `unsafe` call, `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)`, inside the existing `platform.rs` boundary; overview §9 inventory to be updated by the integrator), called by `launcher::spawn_detached` so the detached runtime never inherits the client's stdio pipes (native run 1 hung on exactly that). Runtime tests ported to Windows and run natively (`tests/evidence/artifacts/m01/rulings-13-6/windows/`) |
+| ⟨r2.3⟩ §13.6 items 4, 8 (M01-rulings-13-6-integrate) | No public signature change. `app::operations` `inspect capabilities` lists `service-control/1`, so discovery equals `ipc::session::server_capabilities()` (asserted by `integration_runtime::u8b::dispatcher_rechecks_attendance_and_renders_application_results`); example `schemas/examples/envelope.success.read.json` and `tests/contracts/limits.rs` gain the name. `tests/model/operations.rs` `supervisor_with` pins `FixedJitter(1.0)` so the g03/g04 cases assert the unjittered schedule. overview §9 `unsafe` inventory lists `SetHandleInformation` and the process-identity reads. §2.4 text not edited (outside the integrator's grant) |
 
 ### 13.1 Orchestrator rulings (2026-10-31)
 

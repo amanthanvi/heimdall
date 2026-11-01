@@ -1,0 +1,7 @@
+{
+  "type": "request",
+  "seq": 1,
+  "request": {
+    "op": "shutdown"
+  }
+}

@@ -47,6 +47,16 @@
 //! | Windows | `QueryInterruptTime(&mut t)` | valid out-pointer, cannot fail |
 //! | Windows | `RegGetValueW(HKLM, subkey, "BootId", RRF_RT_REG_DWORD, null, &mut v, &mut 4)` | NUL-terminated UTF-16 names; 4-byte out-buffer and size |
 //! | Windows | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)` / `GetProcessTimes` / `GetExitCodeProcess` / `CloseHandle` | handle checked non-null, closed exactly once |
+//! | Windows | `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)` | this process's own standard handle as std holds it (null skipped); only the inherit flag changes, the handle stays open and valid; a failure is ignored |
+//!
+//! **Detached children** ([`disinherit_standard_handles`]; ADR-0006 §13.6 item 8):
+//! before the launcher spawns the on-demand runtime, Windows clients clear the
+//! inherit flag on their own standard handles, because `CreateProcess` with
+//! inheritance (which the standard library always requests when stdio is set)
+//! passes **every** inheritable handle, not only the `NUL` stdio it sets; a
+//! client started with pipes as stdio would otherwise leave them open in the
+//! long-lived runtime, and its caller would never see end of output (observed
+//! natively: the e2e launcher case hung until its timeout).
 
 #![allow(unsafe_code)]
 
@@ -162,6 +172,15 @@ pub fn read_boot_id_uncached() -> std::io::Result<String> {
     os::boot_id().map(|s| s.trim().to_owned())
 }
 
+/// Windows: clear `HANDLE_FLAG_INHERIT` on this process's standard input,
+/// output and error handles, so a child spawned afterwards (the detached
+/// on-demand runtime) never holds the caller's console or pipe handles. This
+/// process keeps using them normally. Unix: nothing to do (the spawn replaces
+/// descriptors 0-2 and every other descriptor is close-on-exec).
+pub fn disinherit_standard_handles() {
+    os::disinherit_standard_handles();
+}
+
 /// Opaque OS start time of process `pid`, or `None` when the process does not
 /// exist (or cannot be queried). Equal strings mean the same process instance;
 /// the format is platform-specific and only compared for equality.
@@ -256,6 +275,8 @@ mod os {
             info.pbi_start_tvsec, info.pbi_start_tvusec
         ))
     }
+
+    pub(super) fn disinherit_standard_handles() {}
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -299,13 +320,18 @@ mod os {
         let boot = super::boot_id_cached().ok()?;
         Some(format!("{}:{start}", boot.0))
     }
+
+    pub(super) fn disinherit_standard_handles() {}
 }
 
 #[cfg(windows)]
 mod os {
     use std::io;
 
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, FILETIME, STILL_ACTIVE};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_SUCCESS, FILETIME, HANDLE_FLAG_INHERIT, STILL_ACTIVE,
+        SetHandleInformation,
+    };
     use windows_sys::Win32::System::Registry::{
         HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RegGetValueW,
     };
@@ -388,6 +414,24 @@ mod os {
         let t = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
         Some(t.to_string())
     }
+
+    pub(super) fn disinherit_standard_handles() {
+        use std::os::windows::io::AsRawHandle as _;
+        for handle in [
+            std::io::stdin().as_raw_handle(),
+            std::io::stdout().as_raw_handle(),
+            std::io::stderr().as_raw_handle(),
+        ] {
+            if handle.is_null() {
+                continue;
+            }
+            // SAFETY: `handle` is this process's own standard handle as the
+            // standard library holds it (null skipped above); changing its
+            // inherit flag neither closes nor invalidates it. An invalid or
+            // console pseudo handle makes the call fail, which is ignored.
+            unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+        }
+    }
 }
 
 #[cfg(not(any(
@@ -410,4 +454,6 @@ mod os {
     pub(super) fn process_start_time(_pid: u32) -> Option<String> {
         None
     }
+
+    pub(super) fn disinherit_standard_handles() {}
 }

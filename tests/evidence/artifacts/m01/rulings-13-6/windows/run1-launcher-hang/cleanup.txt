@@ -1,0 +1,17 @@
+Post-run cleanup after run 1 (2026-11-01, task M01-rulings-13-6-F2), recorded by the agent:
+- e2e_cli_m01.exe hit the 1200 s timeout (exit 124) in eight_concurrent_clients_start_exactly_one_runtime;
+  the runner then reported leftover-test-processes=1 and test-pipes-after=2.
+- The leftover was one heimdall.exe started by that test (the launcher's detached runtime).
+  Identified by exact PID 48224 whose image path equalled the run's scratch copy
+  (%LOCALAPPDATA%\hm-m00\M01-rulings-13-6-F2\heimdall.exe) and whose start time (05:10:14Z)
+  fell inside the run; stopped with Stop-Process -Id 48224 (not elevated).
+  Afterwards: still-running=False, heimdall processes from the scratch path=0, heimdall-hmtest-* pipes=0.
+- Scratch directories (Windows %LOCALAPPDATA%\hm-m00\M01-rulings-13-6-F2 and the WSL copy) removed:
+  scratch-exists-after-cleanup=no, wsl-scratch=no; %LOCALAPPDATA%\heimdall absent before and after.
+Diagnosis: CreateProcess with handle inheritance (always requested by std when stdio is set) passed the
+CLI's own inherited stdio pipe handles to the detached runtime, so the test's Command::output() never saw
+EOF. Fixed by runtime::platform::disinherit_standard_handles() before the launcher's spawn (run 2).
+Second failure in run 1: integration_runtime::u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit
+replayed in-process as a fixed Unix principal (uid 501) while the first request came over the pipe as the
+Windows SID, so the idempotency key differed (a test defect; on the macOS build host uid 501 matched by
+coincidence). Fixed by replaying over the next instance's control endpoint (run 2).

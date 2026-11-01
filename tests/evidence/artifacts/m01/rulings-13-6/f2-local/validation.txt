@@ -1,0 +1,61 @@
+macOS build host, working tree = 93c60d3b + uncommitted F1/F2 changes (final local validation of M01-rulings-13-6-F2)
+$ bash tools/validation/check.sh
+== fmt: cargo fmt --all --check
+== fmt: exit 0
+== clippy: cargo clippy --workspace --all-targets --locked -- -D warnings
+== clippy: exit 0
+== clippy-windows: clippy_windows
+== clippy-windows: exit 0
+== test: test_step
+== test: exit 101
+== test-discovery: test_discovery
+== test-discovery: exit 0
+== schema: schema_check
+== schema: exit 0
+== overall: exit 1
+test g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff ... FAILED
+test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.63s
+
+check.sh stops `cargo test` at the first failing target; full run without fail-fast after the last edit:
+$ cargo test --workspace --locked --no-fail-fast  (exit 101)
+  Running unittests src/main.rs: ok 16 passed, 0 failed, 0 ignored
+  Running ../../tests/e2e/cli_m01.rs: ok 17 passed, 0 failed, 0 ignored
+  Running unittests src/lib.rs: ok 14 passed, 0 failed, 0 ignored
+  Running ../../tests/model/idempotency.rs: ok 3 passed, 0 failed, 0 ignored
+  Running ../../tests/model/revocation.rs: ok 12 passed, 0 failed, 0 ignored
+  Running unittests src/lib.rs: ok 21 passed, 0 failed, 0 ignored
+  Running ../../tests/contracts/mod.rs: ok 64 passed, 0 failed, 0 ignored
+  Running unittests src/lib.rs: ok 39 passed, 0 failed, 0 ignored
+  Running unittests src/lib.rs: ok 10 passed, 0 failed, 0 ignored
+  Running ../../tests/adversarial/agent_frames.rs: ok 16 passed, 0 failed, 0 ignored
+  Running ../../tests/adversarial/ipc_frames.rs: ok 10 passed, 0 failed, 0 ignored
+  Running ../../tests/integration/ipc_unix.rs: ok 39 passed, 0 failed, 0 ignored
+  Running unittests src/lib.rs: ok 6 passed, 0 failed, 0 ignored
+  Running ../../tests/integration/runtime.rs: ok 53 passed, 0 failed, 1 ignored
+  Running ../../tests/model/events.rs: ok 12 passed, 0 failed, 0 ignored
+  Running ../../tests/model/operations.rs: FAILED 58 passed, 1 failed, 0 ignored
+  Running ../../tests/model/timegate.rs: ok 27 passed, 0 failed, 0 ignored
+  Running unittests src/lib.rs: ok 13 passed, 0 failed, 0 ignored
+  Running unittests src/lib.rs: ok 7 passed, 0 failed, 0 ignored
+  Running ../../tests/integration/store.rs: ok 47 passed, 0 failed, 0 ignored
+  Running ../../tests/model/authority.rs: ok 21 passed, 0 failed, 0 ignored
+  Running ../../tests/model/lifecycle.rs: ok 12 passed, 0 failed, 0 ignored
+  Running ../../tests/model/time.rs: ok 23 passed, 0 failed, 0 ignored
+  Doc-tests heimdall_app: ok 0 passed, 0 failed, 0 ignored
+  Doc-tests heimdall_contract: ok 0 passed, 0 failed, 0 ignored
+  Doc-tests heimdall_domain: ok 0 passed, 0 failed, 0 ignored
+  Doc-tests heimdall_ipc: ok 0 passed, 0 failed, 0 ignored
+  Doc-tests heimdall_runtime: ok 0 passed, 0 failed, 0 ignored
+  Doc-tests heimdall_store: ok 0 passed, 0 failed, 0 ignored
+  Doc-tests heimdall_testkit: ok 0 passed, 0 failed, 0 ignored
+test g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff ... FAILED
+test result: FAILED. 58 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+$ cargo fmt --all --check: exit 0
+$ cargo clippy --workspace --all-targets --locked -- -D warnings: exit 0
+$ bash tools/validation/clippy-windows.sh (cargo clippy --target x86_64-pc-windows-gnu --workspace --all-targets --locked -- -D warnings): exit 0
+
+The only failure is model_operations::g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff
+(tests/model/operations.rs, outside F2's owner paths): it pins the unjittered retry offsets, which ADR-0006 §13.6 item 4
+replaces with jittered ones by default; its supervisor_with helper needs .with_jitter(Arc::new(FixedJitter(1.0)))
+(integration_runtime::jitter_props::fixed_unit_one_is_the_unjittered_schedule shows that restores the exact schedule).

@@ -483,25 +483,6 @@ fn caller_doc(key: &IdempotencyKey) -> Result<String> {
     codec::doc(&key.caller)
 }
 
-/// Whether `new` withdraws anything `old` allowed (or changes what it is about).
-/// Used to bump the authority generation even when the caller did not flag the
-/// change (fail closed: an extra bump only invalidates more).
-fn policy_narrows(old: &StandingPolicy, new: &StandingPolicy) -> bool {
-    use heimdall_domain::policy::PauseState;
-    let scope_shrinks = !old.scope.is_subset_of(&new.scope);
-    let envs_shrink = !old.environments.is_subset(&new.environments);
-    let window_shrinks = new.max_window < old.max_window;
-    let pauses =
-        matches!(old.pause, PauseState::Active) && matches!(new.pause, PauseState::Paused { .. });
-    let cutoff_tightens = match (old.cutoff_at, new.cutoff_at) {
-        (None, Some(_)) => true,
-        (Some(a), Some(b)) => b < a,
-        _ => false,
-    };
-    let retargeted = old.profile != new.profile || old.workspace != new.workspace;
-    scope_shrinks || envs_shrink || window_shrinks || pauses || cutoff_tightens || retargeted
-}
-
 impl Txn<'_> {
     pub(crate) fn meta(&self, key: &str) -> Result<Option<String>> {
         use rusqlite::OptionalExtension as _;
@@ -926,18 +907,21 @@ impl Txn<'_> {
 
     // --- policies, profiles, environments ------------------------------------------
 
-    /// Upsert a standing policy at a new revision; bumps the authority generation
-    /// when the change narrows, pauses or cuts off.
+    /// Upsert a standing policy at a new revision and bump the authority
+    /// generation in the same transaction.
     ///
     /// The revision must be strictly greater than the stored one, otherwise
     /// [`StoreError::GenerationConflict`] (a stale writer never overwrites a newer
-    /// policy). The generation is bumped when `narrowing` is set **or** the store
-    /// itself sees a withdrawal (scope or environments shrink, window shortens,
-    /// pause, earlier or new cutoff, different profile/workspace).
+    /// policy). **Every** accepted write moves the generation (ADR-0006 §13.6 item
+    /// 5): a new applicable policy, a pause, a cutoff, a narrowing, a widening and
+    /// any other revision, so re-validation (§13.5 ruling 2) runs and a
+    /// reservation made before the change is voided at publish. `narrowing` is the
+    /// caller's classification of the change (`_narrowing`); it no longer selects
+    /// whether the generation moves (kept so the signature is unchanged).
     pub fn upsert_policy(
         &mut self,
         policy: &StandingPolicy,
-        narrowing: bool,
+        _narrowing: bool,
     ) -> Result<AuthorityGeneration> {
         let existing = self.policy(&policy.id)?;
         if let Some(old) = &existing
@@ -948,9 +932,6 @@ impl Txn<'_> {
                 policy.id, policy.revision.0, old.revision.0
             )));
         }
-        let detected = existing
-            .as_ref()
-            .is_some_and(|old| policy_narrows(old, policy));
         let updated_at = match &policy.source {
             heimdall_domain::policy::PolicySource::OwnerDecision { decided_at } => {
                 codec::ts(*decided_at)
@@ -968,13 +949,9 @@ impl Txn<'_> {
                 updated_at,
             ],
         )?;
-        let current = self.authority_generation()?;
-        if narrowing || detected {
-            let next = current.next();
-            self.set_meta(META_AUTHORITY_GENERATION, &next.0.to_string())?;
-            return Ok(next);
-        }
-        Ok(current)
+        let next = self.authority_generation()?.next();
+        self.set_meta(META_AUTHORITY_GENERATION, &next.0.to_string())?;
+        Ok(next)
     }
 
     /// Load a policy.

@@ -4,7 +4,7 @@
   "code": "OK",
   "data": {
     "schemas": ["envelope", "request", "event"],
-    "capabilities": ["operations/1", "events/1", "owner-policy/1", "schema-discovery/1"]
+    "capabilities": ["operations/1", "events/1", "owner-policy/1", "schema-discovery/1", "service-control/1"]
   },
   "warnings": [],
   "next": null

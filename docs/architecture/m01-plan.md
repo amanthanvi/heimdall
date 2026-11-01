@@ -179,6 +179,35 @@ integrator with an ADR-0006 revision.
   * `permitted_extensions` comes from the grant's resolved scope (its snapshot
     capabilities), never from request fields. The M03 ADR-0005 §3.4 profile/route
     derivation replaces this source later.
+* **⟨r2.3⟩ Rulings on the wave-2 escalations (ADR-0006 §13.6), U5 side
+  (M01-rulings-13-6-F1).**
+  * Pause (item 1): new grants and new work bindings (fresh request or work ID,
+    delegation, coalesced attach, new-activation issuance) ⇒ `POLICY_PAUSED`, checked
+    before re-validation; re-validation and issuance within an existing grant use the
+    pause-free `continuing_policy` view, so existing bindings bind and issue until
+    their deadline; same-key replays return the recorded result; a request waiting
+    for added authority answers `POLICY_PAUSED`, keeps waiting and gets no fresh
+    decision while paused. Cutoff: existing use past `min(deadline, cutoff)` ⇒
+    `CREDENTIAL_EXPIRED` (`issuance::check` now returns `CutoffPassed` only for a new
+    activation, `BoundPassed` otherwise); a new activation or binding at/after it ⇒
+    `POLICY_CUTOFF`. The applicable policy whose revision is pinned is the first by
+    ID (blocks come from the merged view of every applicable policy).
+  * Generation (item 5): `Txn::upsert_policy` bumps the authority generation on every
+    accepted write (signature unchanged; `narrowing` no longer selects it). A chain
+    validated at the current generation is checked against the current applicable
+    revision; publish after any policy change is voided (`StaleGeneration`).
+  * Parent reference (item 3, amends the ⟨r2.2⟩ bullet above): released when the
+    child enters `revoking` or a terminal state (`put_grant`; verified, no change).
+    Items 2 and 6 verified as implemented (strict `DECISION_STALE`; later/cleared
+    cutoff is a widening decision, refused with `TIME_UNCERTAIN` while time is
+    uncertain; narrowing never blocked by time).
+  * Tests: `model_operations::r136_*` (items 1, 3, 5, 6), the updated
+    `a19_decision_issued_under_an_older_generation_is_stale`,
+    `g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant`,
+    `model_revocation::a07_publish_rechecks_every_predicate_and_voids_after_each_change`
+    and the property `tombstones_and_cutoffs_are_never_defeated_by_stale_callbacks_or_new_ids`
+    (now also: an existing binding binds under a pause before its deadline and is
+    `CREDENTIAL_EXPIRED` past it or a cutoff), `integration_store::policy_revisions_are_monotonic_and_narrowing_bumps_generation`.
 * **Property tests (plan §6.3 #3–#5, #7, #8):** retry convergence/conflict/expiry
   under random interleavings and purges; stale-generation callbacks refused; unrelated
   scopes never share a grant; a released reference never retains a grant past its
@@ -311,6 +340,35 @@ integrator with an ADR-0006 revision.
   short sleep-free interval monotonically and boot ID is stable across two reads
   (native sleep/reboot evidence is M04).
 * **Depends on:** U4b, U5, U6b.
+* **⟨r2.3⟩ ADR-0006 §13.6 items 4 and 8, U8 side (M01-rulings-13-6-F2).**
+  * Item 4: supervisor-owned retries are bounded **and jittered**: `Supervisor::
+    with_jitter(Arc<dyn Jitter>)` (default `RandomJitter`; tests inject a
+    deterministic source), `retry_delay = Backoff::jittered(n, unit)` for the
+    cleanup executor, and a jittered failed-scheduler-pass retry. M01 has no repair
+    executor (no repair port before M02); it will use `retry_delay`. Verified: a
+    caller's `prepare` `Unavailable` is answered once with `SERVICE_UNAVAILABLE`
+    (exit 5), never retried by the supervisor loop or a restart; the same key
+    replays. Tests: `integration_runtime::u8b::{cleanup_retries_use_bounded_backoff_with_injected_jitter,
+    unavailable_prepare_is_answered_once_and_never_retried_by_the_supervisor_or_a_restart}`,
+    property `jitter_props::jittered_retry_delays_stay_within_the_bounded_backoff`.
+    `model_operations::g04_*` (unjittered offsets) must inject `FixedJitter(1.0)`.
+  * Item 8: `Request::Shutdown` (`service-control/1`): owner role only, any session,
+    idempotent; `OK {"stopping", "already_stopping"}` first, then the graceful drain
+    (stop accepting, in-flight operations reach a durable stage, advertisement and
+    endpoints removed, `run` returns `Ok`). `OperationsDispatcher::
+    with_service_control`, `ipc::session::Dispatcher::replied`. Tests:
+    `u8b::shutdown_*` (owner drain and file removal, limited consumer refused,
+    idempotent, in-flight durable step completes before exit). Windows: the service
+    path (named pipes, instance lock, `instance.json`, detached launcher) and the
+    tests `service_second_start_is_already_running`,
+    `service_ignores_and_replaces_a_stale_instance_json`,
+    `launcher_eight_concurrent_clients_start_exactly_one_child`,
+    `control_socket_round_trip_against_a_real_service` and `shutdown_*` are no longer
+    `cfg(unix)`; native runs: `tests/native/m01/run-windows.sh` (pipes prefixed
+    `heimdall-hmtest-`), evidence `tests/evidence/artifacts/m01/rulings-13-6/windows/`.
+    The launcher clears the inherit flag on the client's own stdio before the
+    detached spawn (`runtime::platform::disinherit_standard_handles`): native run 1
+    showed the runtime inheriting the client's stdio pipes otherwise.
 
 ### U9 — CLI client, test adapter wiring, schema export — **wave 2**
 
@@ -351,6 +409,21 @@ integrator with an ADR-0006 revision.
   waiting client gets a stable code (`SERVICE_UNAVAILABLE`), the retry against the new
   socket replays/reconciles, never a second effect.
 * **Depends on:** U5, U6b, U8.
+* **⟨r2.3⟩ ADR-0006 §13.6 items 7 and 8, U9 side (M01-rulings-13-6-F2).**
+  * Item 7: on an interactive TTY session the CLI sends `Attend` **before** an
+    owner-present request (`access ensure|resume|cutoff`, `decision approve|deny`,
+    `time confirm`; never `pause`), so the runtime answers `APPROVAL_REQUIRED` +
+    `next.decision_ref`; the prompt shows that answer and the exact recorded
+    request; `Decide` only on `y`/`yes`; anything else sends nothing more (exit 3
+    `INTERACTION_REQUIRED` "not confirmed"). `--non-interactive`/non-TTY never
+    attends or prompts. Tests: `cli::tests` (session/prompt test seam, every
+    platform) and the e2e pty cases (Unix only: `script(1)`).
+  * Item 8: `service stop` sends `Request::Shutdown` on every platform
+    (`data.via = "control"`), Unix SIGTERM fallback only when the endpoint is
+    unusable (`"signal"`); idempotent. The e2e suite runs on Windows against
+    `heimdall.exe` (`HEIMDALL_E2E_BIN`); its pty cases are `cfg(unix)`. Tests:
+    `service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent`,
+    `unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation`.
 
 ### U10 — Cross-crate model suite and evidence records (M01 exit)
 

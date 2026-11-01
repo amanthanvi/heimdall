@@ -100,7 +100,9 @@ pub enum IssuanceRefusal {
     /// New activation under a paused policy.
     #[error("policy is paused")]
     PausedActivation,
-    /// After a cutoff.
+    /// New activation at or after a cutoff (ADR-0006 §13.6 item 1). Issuance
+    /// within an existing grant past the cutoff is [`IssuanceRefusal::BoundPassed`]
+    /// (the cutoff bounds the grant at `min(deadline, cutoff)`).
     #[error("policy cutoff passed")]
     CutoffPassed,
     /// Subject key not registered by this environment's signer for the grant.
@@ -281,8 +283,10 @@ fn ancestor_chain<'a>(
 ///    (`StaleAncestor`);
 /// 3. policy revision unchanged (`StalePolicyRevision`);
 /// 4. pair inside the snapshot and inside every ancestor's; exact principal;
-/// 5. `min(deadline, every ancestor deadline, cutoff)`: cutoff, pause (new
-///    activation only), bound passed;
+/// 5. `min(deadline, every ancestor deadline, cutoff)`: cutoff and pause refuse
+///    a **new activation** only (`CutoffPassed`, `PausedActivation`); issuance
+///    within an existing grant continues under a pause and past the bound is
+///    `BoundPassed` (ADR-0006 §13.6 item 1; ADR-0005 §3.5 refusals 3–4, §3.7);
 /// 6. time gate `Safe`; continuous budget open (`BudgetExpired`);
 /// 7. `valid_before` within the bound;
 /// 8. subject key registered; no critical option; extensions ⊆ permitted.
@@ -335,7 +339,7 @@ pub fn check(input: &IssuanceCheck<'_>) -> Result<(), IssuanceRefusal> {
     if let Some(policy) = input.policy {
         if let Some(cutoff) = policy.cutoff_at {
             bound = bound.min(cutoff);
-            if input.now >= cutoff {
+            if input.new_activation && input.now >= cutoff {
                 return Err(IssuanceRefusal::CutoffPassed);
             }
         }
@@ -755,9 +759,27 @@ mod predicate_tests {
                 Box::new(|w| w.bounds.principal = "deploy".into()),
             ),
             (
-                "cutoff passed",
+                "cutoff passed, new activation",
                 R::CutoffPassed,
+                Box::new(|w| {
+                    w.new_activation = true;
+                    w.policy.as_mut().unwrap().cutoff_at = Some(t(300));
+                }),
+            ),
+            (
+                // ADR-0006 §13.6 item 1: existing use past min(deadline, cutoff).
+                "cutoff passed, issuance within the existing grant",
+                R::BoundPassed,
                 Box::new(|w| w.policy.as_mut().unwrap().cutoff_at = Some(t(300))),
+            ),
+            (
+                // ADR-0006 §13.6 item 1: a pause never stops the existing grant.
+                "paused, issuance within the existing grant is not refused for the pause",
+                R::TimeUncertain,
+                Box::new(|w| {
+                    w.policy.as_mut().unwrap().pause = PauseState::Paused { since: t(1) };
+                    w.time = TimeStatus::Uncertain(TimeUncertainty::ContinuousWentBackwards);
+                }),
             ),
             (
                 "paused new activation",
@@ -904,7 +926,7 @@ mod predicate_tests {
             ),
             (
                 "cutoff reached between reserve and publish (no revision moves)",
-                R::CutoffPassed,
+                R::BoundPassed,
                 Box::new(|w| {
                     w.policy.as_mut().unwrap().cutoff_at = Some(t(900));
                     w.pass(300);

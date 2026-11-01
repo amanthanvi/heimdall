@@ -160,6 +160,17 @@ pub async fn ensure_running_with(
 /// detached console and new process group (Windows), so a terminal interrupt
 /// aimed at the client does not reach the service. The returned child is never
 /// killed by dropping it.
+///
+/// **Windows** (ADR-0006 §13.6 item 8): `DETACHED_PROCESS` (no console and no
+/// console window) and `CREATE_NEW_PROCESS_GROUP` (Ctrl-C/Ctrl-Break aimed at the
+/// client's group never reaches the service). Handle inheritance: the standard
+/// library creates every handle it opens non-inheritable and makes only the
+/// three `NUL` stdio handles it passes inheritable for the spawn, but
+/// `CreateProcess` also passes any handle the client **inherited** as
+/// inheritable, i.e. its own stdio; so the client first clears the inherit flag
+/// on its standard handles ([`crate::platform::disinherit_standard_handles`]).
+/// The client's files, locks and pipe handles (opened without inheritance) are
+/// never passed on.
 pub fn spawn_detached(program: &Path, args: &[&OsStr]) -> std::io::Result<std::process::Child> {
     use std::process::{Command, Stdio};
     let mut cmd = Command::new(program);
@@ -177,6 +188,8 @@ pub fn spawn_detached(program: &Path, args: &[&OsStr]) -> std::io::Result<std::p
         use std::os::windows::process::CommandExt as _;
         // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP.
         cmd.creation_flags(0x0000_0008 | 0x0000_0200);
+        // Only the NUL stdio handles may be inherited (see below).
+        crate::platform::disinherit_standard_handles();
     }
     cmd.spawn()
 }

@@ -849,9 +849,7 @@ mod u8b {
     use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    #[cfg(unix)]
     use std::sync::Mutex;
-    #[cfg(unix)]
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
@@ -861,7 +859,6 @@ mod u8b {
         PrepareOutcome,
     };
     use heimdall_app::{Caller, OpError, OpResult};
-    #[cfg(unix)]
     use heimdall_contract::envelope::Envelope;
     use heimdall_contract::ids::{
         AccountName, DestinationId, DeviceId, EnvironmentId, PolicyId, ProfileId, RequestId, WorkId,
@@ -888,7 +885,6 @@ mod u8b {
     use heimdall_runtime::config::Config;
     use heimdall_runtime::dispatch::caller_for;
     use heimdall_runtime::instance::{INSTANCE_FILE, InstanceError, InstanceInfo};
-    #[cfg(unix)]
     use heimdall_runtime::launcher::{LaunchError, LauncherConfig, Started, ensure_running_with};
     use heimdall_runtime::service::{STATE_DB_FILE, Service, ServiceError, ServiceOptions};
     use heimdall_store::{FaultAction, FaultHook, FaultPoint, NoFaults, Store};
@@ -1066,7 +1062,7 @@ mod u8b {
         }
 
         fn options(&self, fake: &Arc<FakeCredentialAdapter>) -> ServiceOptions {
-            let mut o = ServiceOptions::with_clock(self.clock.clone(), self.sync.clone());
+            let mut o = test_options(self.clock.clone(), self.sync.clone());
             o.adapters = vec![fake.clone() as Arc<dyn CredentialAdapter>];
             o
         }
@@ -1092,6 +1088,17 @@ mod u8b {
                 .len()
         }
     }
+
+    /// Options around the virtual clock; Windows pipes get the `hmtest-` prefix
+    /// (recognizable test pipes; the rest of the token stays random).
+    fn test_options(clock: Arc<VirtualClock>, sync: Arc<ScriptedTimeSync>) -> ServiceOptions {
+        let mut o = ServiceOptions::with_clock(clock, sync);
+        o.endpoint_prefix = TEST_PIPE_PREFIX.to_owned();
+        o
+    }
+
+    /// Windows pipe-name prefix of every service these tests start.
+    const TEST_PIPE_PREFIX: &str = "hmtest-";
 
     fn owner() -> Caller {
         Caller::unattended(CallerContext {
@@ -1206,44 +1213,77 @@ mod u8b {
             InstanceInfo::read_file(&rig.paths().runtime_dir).unwrap(),
             Some(advertised)
         );
-        #[cfg(unix)]
         assert_eq!(
             InstanceInfo::read_valid(&rig.paths().runtime_dir)
                 .unwrap()
                 .as_ref(),
             Some(first.instance())
         );
+        #[cfg(windows)]
+        assert!(
+            first
+                .instance()
+                .control_endpoint
+                .starts_with(&format!(r"\\.\pipe\heimdall-{TEST_PIPE_PREFIX}")),
+            "test pipes carry the test prefix"
+        );
 
         // Dropping the first releases the lock and removes its advertisement and
-        // sockets; a new start then succeeds.
+        // endpoints (sockets unlinked; pipes closed); a new start then succeeds.
         let endpoints = first.endpoints().clone();
         drop(first);
         assert!(!rig.paths().runtime_dir.join(INSTANCE_FILE).exists());
-        #[cfg(unix)]
-        assert!(!endpoints.control.exists() && !endpoints.signing.exists());
-        let _ = endpoints;
+        assert_endpoints_gone(&endpoints).await;
         let third = rig.service().await;
         assert_eq!(third.environment(), &env_id());
     }
 
-    #[cfg(unix)]
+    /// No advertised endpoint answers any more: Unix socket files unlinked;
+    /// Windows pipes closed (opening the name fails).
+    async fn assert_endpoints_gone(endpoints: &heimdall_ipc::EndpointPaths) {
+        #[cfg(unix)]
+        assert!(!endpoints.control.exists() && !endpoints.signing.exists());
+        #[cfg(windows)]
+        for pipe in [&endpoints.control, &endpoints.signing] {
+            assert!(
+                heimdall_ipc::windows::connect(pipe).await.is_err(),
+                "the pipe is gone"
+            );
+        }
+    }
+
+    /// A crashed instance's record (its start time does not match: PID reuse; on
+    /// Unix also a dead socket at the control path) is ignored, never trusted, and
+    /// replaced by the next start; a client that may not start anything sees "not
+    /// running". Runs on Unix and Windows (ADR-0006 §13.6 item 8).
     #[tokio::test]
     async fn service_ignores_and_replaces_a_stale_instance_json() {
         let tmp = tempfile::tempdir().unwrap();
         let rig = Rig::new(&tmp);
         let run = rig.paths().runtime_dir;
-        // A crashed instance left a record whose start time does not match (PID
-        // reuse) and a dead socket at the control path.
+        #[cfg(unix)]
+        let (control, signing) = (
+            run.join("control.sock").display().to_string(),
+            run.join("signing.sock").display().to_string(),
+        );
+        #[cfg(windows)]
+        let (control, signing) = (
+            format!(r"\\.\pipe\heimdall-{TEST_PIPE_PREFIX}stale-control"),
+            format!(r"\\.\pipe\heimdall-{TEST_PIPE_PREFIX}stale-signing"),
+        );
         let stale = InstanceInfo {
             pid: std::process::id(),
             started_at: "0.000000".to_owned(),
             version: "0.0.0".to_owned(),
-            control_endpoint: run.join("control.sock").display().to_string(),
-            signing_endpoint: run.join("signing.sock").display().to_string(),
+            control_endpoint: control,
+            signing_endpoint: signing,
         };
         stale.write(&run).unwrap();
-        drop(std::os::unix::net::UnixListener::bind(run.join("control.sock")).unwrap());
-        assert!(run.join("control.sock").exists());
+        #[cfg(unix)]
+        {
+            drop(std::os::unix::net::UnixListener::bind(run.join("control.sock")).unwrap());
+            assert!(run.join("control.sock").exists());
+        }
         assert_eq!(InstanceInfo::read_valid(&run).unwrap(), None);
 
         // A client that may not start anything sees "not running", not the record.
@@ -1256,14 +1296,36 @@ mod u8b {
         assert!(matches!(r, Err(LaunchError::NotRunning)));
         assert_eq!(spawned.load(Ordering::SeqCst), 0);
 
-        let svc = rig.service().await;
+        let fake = rig.fake(vec![FakeStep::Prepare(outcome())]);
+        let token = CancellationToken::new();
+        let svc = Service::start_with(
+            rig.paths(),
+            Config::default(),
+            rig.options(&fake),
+            token.clone(),
+        )
+        .await
+        .unwrap();
         let now = InstanceInfo::read_valid(&run).unwrap().unwrap();
         assert_eq!(&now, svc.instance());
+        let running = tokio::spawn(svc.run());
         assert_ne!(now.started_at, stale.started_at);
+        #[cfg(windows)]
+        assert_ne!(now.control_endpoint, stale.control_endpoint);
         // Now the launcher finds it without spawning.
         let r = ensure_running_with(&run, true, LauncherConfig::default(), &spawn).await;
         assert!(matches!(r, Ok(Started::AlreadyRunning)));
         assert_eq!(spawned.load(Ordering::SeqCst), 0);
+        // And a client reaches it at the advertised endpoint.
+        let c = control_client(
+            Path::new(&now.control_endpoint),
+            InteractionMode::NonInteractive,
+        )
+        .await;
+        assert_eq!(c.server().environment_id, env_id());
+        drop(c);
+        token.cancel();
+        running.await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -1277,7 +1339,7 @@ mod u8b {
             Service::start_with(
                 paths.clone(),
                 Config::default(),
-                ServiceOptions::with_clock(clock.clone(), sync.clone()),
+                test_options(clock.clone(), sync.clone()),
                 CancellationToken::new(),
             )
         };
@@ -1722,6 +1784,15 @@ mod u8b {
             .await;
         assert_eq!(caps.code, Code::Ok);
         assert!(caps.data["capabilities"].is_array());
+        // Discovery (`inspect capabilities`, §2.4) lists exactly what the hello
+        // offers, including `service-control/1` (ADR-0006 §13.6 item 8).
+        let discovered: std::collections::BTreeSet<String> = caps.data["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(discovered, heimdall_ipc::session::server_capabilities());
         let ready = d
             .handle(
                 &unattended,
@@ -1755,37 +1826,21 @@ mod u8b {
     // Full control-socket round trip against a real service
     // -----------------------------------------------------------------------
 
-    #[cfg(unix)]
     async fn client(
         path: &Path,
         mode: InteractionMode,
-    ) -> heimdall_ipc::session::ControlClient<tokio::net::UnixStream> {
-        let stream = heimdall_ipc::unix::connect(path).await.unwrap();
-        heimdall_ipc::session::ControlClient::handshake(
-            stream,
-            heimdall_contract::ipc::PeerInfo {
-                name: "u8b-test".into(),
-                version: "0".into(),
-            },
-            [heimdall_contract::ipc::capability::OPERATIONS_V1.to_owned()]
-                .into_iter()
-                .collect(),
-            mode,
-        )
-        .await
-        .unwrap()
+    ) -> heimdall_ipc::session::ControlClient<ControlStream> {
+        control_client(path, mode).await
     }
 
-    #[cfg(unix)]
     fn scan_envelope(env: &Envelope<serde_json::Value>) {
         assert_no_canary(&serde_json::to_string(env).unwrap());
     }
 
     /// Events on any subscription of `c` until none arrives for 500 ms; each is
     /// scanned for canaries and must carry a cursor.
-    #[cfg(unix)]
     async fn drain_events(
-        c: &mut heimdall_ipc::session::ControlClient<tokio::net::UnixStream>,
+        c: &mut heimdall_ipc::session::ControlClient<ControlStream>,
     ) -> Vec<heimdall_contract::event::Event> {
         let mut seen = Vec::new();
         while let Ok(next) = tokio::time::timeout(Duration::from_millis(500), c.next_event()).await
@@ -1801,7 +1856,9 @@ mod u8b {
         seen
     }
 
-    #[cfg(unix)]
+    /// Runs on Unix (socket) and Windows (named pipe; ADR-0006 §13.6 item 8):
+    /// hello, ensure with the fake adapter, subscribe, events, attendance, and the
+    /// end of the session at shutdown.
     #[tokio::test]
     async fn control_socket_round_trip_against_a_real_service() {
         use heimdall_contract::event::EventFilter;
@@ -1828,10 +1885,18 @@ mod u8b {
         // Hello: the server reports this runtime's environment and our principal.
         let mut c = client(&control, InteractionMode::NonInteractive).await;
         assert_eq!(c.server().environment_id, env_id());
+        #[cfg(unix)]
         assert_eq!(
             c.server().principal,
             PrincipalInfo::OsUserUnix {
                 uid: heimdall_ipc::unix::current_uid()
+            }
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            c.server().principal,
+            PrincipalInfo::OsUserWindows {
+                sid: heimdall_ipc::windows::current_user_sid().unwrap()
             }
         );
 
@@ -1996,7 +2061,12 @@ mod u8b {
             .unwrap()
             .unwrap();
         assert!(!rig.paths().runtime_dir.join(INSTANCE_FILE).exists());
-        assert!(!control.exists() && !signing.exists());
+        assert_endpoints_gone(&heimdall_ipc::EndpointPaths {
+            control,
+            signing,
+            issuer: PathBuf::new(),
+        })
+        .await;
         let again = rig.service().await;
         assert_eq!(again.environment(), &env_id());
     }
@@ -2008,13 +2078,13 @@ mod u8b {
     /// Environment variable that turns [`launcher_child_service`] into a service
     /// host for the given `HEIMDALL_HOME` layout.
     const CHILD_ENV: &str = "HEIMDALL_U8B_CHILD_HOME";
-    #[cfg(unix)]
     const CHILD_TEST: &str = "u8b::launcher_child_service";
 
     /// Child-process entry, not a test of its own: re-executed by
     /// `launcher_eight_concurrent_clients_start_exactly_one_child` with
-    /// `CHILD_ENV` set, it runs the production `Service::start` (system clock)
-    /// until a `stop` file appears in the home (or 60 s pass).
+    /// `CHILD_ENV` set, it runs the production service sources (system clock;
+    /// Windows pipes with the test prefix) until a `stop` file appears in the home
+    /// (or 60 s pass).
     #[test]
     #[ignore = "child-process entry for the launcher test; runs only when re-executed by it"]
     fn launcher_child_service() {
@@ -2025,9 +2095,16 @@ mod u8b {
         let rt = Service::runtime().unwrap();
         rt.block_on(async move {
             let shutdown = CancellationToken::new();
-            let svc = Service::start(Paths::under(&home), Config::default(), shutdown.clone())
-                .await
-                .unwrap();
+            let mut options = ServiceOptions::production().unwrap();
+            options.endpoint_prefix = TEST_PIPE_PREFIX.to_owned();
+            let svc = Service::start_with(
+                Paths::under(&home),
+                Config::default(),
+                options,
+                shutdown.clone(),
+            )
+            .await
+            .unwrap();
             let stop = home.join("stop");
             let token = shutdown.clone();
             tokio::spawn(async move {
@@ -2041,7 +2118,7 @@ mod u8b {
         });
     }
 
-    #[cfg(unix)]
+    /// Runs on Unix and Windows (ADR-0006 §13.6 item 8).
     #[test]
     fn launcher_eight_concurrent_clients_start_exactly_one_child() {
         use std::process::{Child, Command, Stdio};
@@ -2129,12 +2206,14 @@ mod u8b {
             &|| -> std::io::Result<()> { panic!("must not spawn") },
         ));
         // The child serves the control endpoint.
+        let control = advertised
+            .as_ref()
+            .map(|i| PathBuf::from(&i.control_endpoint))
+            .unwrap_or_default();
+        #[cfg(unix)]
+        assert_eq!(control, run_dir.join("control.sock"));
         let hello_env = Service::runtime().unwrap().block_on(async {
-            let c = client(
-                &run_dir.join("control.sock"),
-                InteractionMode::NonInteractive,
-            )
-            .await;
+            let c = client(&control, InteractionMode::NonInteractive).await;
             c.server().environment_id.clone()
         });
         let statuses = stop_child(&children);
@@ -2155,6 +2234,789 @@ mod u8b {
             "child exits cleanly on stop: {statuses:?}"
         );
         assert!(!run_dir.join(INSTANCE_FILE).exists());
+        #[cfg(unix)]
         assert!(!run_dir.join("control.sock").exists());
+    }
+
+    // -----------------------------------------------------------------------
+    // ADR-0006 §13.6 item 4: supervisor-owned retries are bounded and jittered
+    // -----------------------------------------------------------------------
+
+    /// A cleaner whose dependency is always unavailable; records the continuous
+    /// clock reading of every delete call.
+    struct UnavailableCleaner {
+        clock: Arc<VirtualClock>,
+        calls: std::sync::Mutex<Vec<Duration>>,
+    }
+
+    impl heimdall_app::ports::ResourceCleaner for UnavailableCleaner {
+        fn delete<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            _resource: &'life1 heimdall_domain::resource::ManagedResource,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<(), heimdall_app::ports::AdapterError>>
+                    + Send
+                    + 'async_trait,
+            >,
+        >
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            use heimdall_domain::time::Clock as _;
+            self.calls.lock().unwrap().push(self.clock.continuous());
+            Box::pin(async {
+                Err(heimdall_app::ports::AdapterError::Unavailable(
+                    "fixture dependency down".into(),
+                ))
+            })
+        }
+    }
+
+    /// Deterministic jitter: cycles through fixed units in `[0, 1)`.
+    struct CycleJitter {
+        units: Vec<f64>,
+        next: std::sync::atomic::AtomicUsize,
+    }
+
+    impl heimdall_runtime::supervisor::Jitter for CycleJitter {
+        fn unit(&self) -> f64 {
+            let i = self.next.fetch_add(1, Ordering::SeqCst);
+            self.units[i % self.units.len()]
+        }
+    }
+
+    fn ending_resource() -> heimdall_domain::resource::ManagedResource {
+        use heimdall_domain::resource::{
+            ManagedResource, OwnerRef, ResourceGeneration, ResourceKind, ResourceState,
+        };
+        ManagedResource {
+            id: heimdall_contract::ids::ResourceId::from_random_bytes([9; 16]),
+            kind: ResourceKind::Endpoint,
+            owner: OwnerRef::Runtime,
+            generation: ResourceGeneration(1),
+            desired: ResourceState::Absent,
+            observed: ResourceState::Present,
+            last_operation: None,
+            locator: "fixture-endpoint".into(),
+            updated_at: t0(),
+        }
+    }
+
+    /// The single cleanup executor retries an unavailable dependency with the
+    /// bounded backoff **jittered** by the injected source: each delay is
+    /// `delay(n) * (0.5 + 0.5 * unit)`, attempts stop at `max_attempts` (8), then
+    /// the stable code `SERVICE_UNAVAILABLE` is reported once. With the units
+    /// `0.0, 1.0, 0.5, ...` the schedule is exactly predictable (deterministic in
+    /// tests), and it differs from the unjittered one.
+    #[tokio::test]
+    async fn cleanup_retries_use_bounded_backoff_with_injected_jitter() {
+        use heimdall_app::reconcile::{Backoff, NoCleanupHook};
+        use heimdall_domain::time::Clock as _;
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let r = ending_resource();
+        svc.store()
+            .transaction(|tx| tx.upsert_resource(&r, None))
+            .unwrap();
+        let cleaner = Arc::new(UnavailableCleaner {
+            clock: rig.clock.clone(),
+            calls: std::sync::Mutex::new(Vec::new()),
+        });
+        let units = vec![0.0, 1.0, 0.5];
+        let sup = svc
+            .supervisor()
+            .with_cleaner(cleaner.clone(), Arc::new(NoCleanupHook), Backoff::default())
+            .with_jitter(Arc::new(CycleJitter {
+                units: units.clone(),
+                next: std::sync::atomic::AtomicUsize::new(0),
+            }));
+        let start = rig.clock.continuous();
+        let step = Duration::from_millis(125);
+        let mut scheduled = Vec::new();
+        let mut failed = Vec::new();
+        for _ in 0..(8 * 70) {
+            let report = sup.cleanup_pass().await.unwrap();
+            scheduled.extend(report.retry_scheduled.iter().map(|(_, n, d)| (*n, *d)));
+            failed.extend(report.failed);
+            rig.clock.advance(step);
+        }
+        let backoff = Backoff::default();
+        let expected_delays: Vec<(u32, Duration)> = (1..backoff.max_attempts)
+            .map(|n| {
+                let u = units[(n as usize - 1) % units.len()];
+                (n, backoff.jittered(n, u))
+            })
+            .collect();
+        assert_eq!(scheduled, expected_delays, "jittered, bounded delays");
+        let mut at = Duration::ZERO;
+        let mut expected_offsets = vec![Duration::ZERO];
+        for (_, d) in &expected_delays {
+            at += *d;
+            expected_offsets.push(at);
+        }
+        let offsets: Vec<Duration> = cleaner
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| c.saturating_sub(start))
+            .collect();
+        assert_eq!(offsets, expected_offsets);
+        assert_eq!(offsets.len(), 8, "attempts capped at max_attempts");
+        // Not the unjittered schedule.
+        let plain: Vec<Duration> = (1..8).map(|n| backoff.delay(n)).collect();
+        assert_ne!(
+            expected_delays.iter().map(|(_, d)| *d).collect::<Vec<_>>(),
+            plain
+        );
+        assert_eq!(failed, vec![(r.id.clone(), Code::ServiceUnavailable)]);
+        // After the cap nothing retries, whatever the clock does.
+        rig.clock.advance(HOUR);
+        let after = sup.cleanup_pass().await.unwrap();
+        assert!(after.retry_scheduled.is_empty() && after.failed.is_empty());
+        assert_eq!(cleaner.calls.lock().unwrap().len(), 8);
+        scan_events(&svc);
+    }
+
+    /// Counts `prepare` calls in front of the fake adapter.
+    struct CountingAdapter {
+        inner: Arc<FakeCredentialAdapter>,
+        prepares: std::sync::atomic::AtomicUsize,
+    }
+
+    type AdapterFut<'a, T> = std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<T, heimdall_app::ports::AdapterError>>
+                + Send
+                + 'a,
+        >,
+    >;
+
+    impl CredentialAdapter for CountingAdapter {
+        fn descriptor(&self) -> &AdapterDescriptor {
+            self.inner.descriptor()
+        }
+        fn prepare<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            req: heimdall_app::ports::PrepareRequest<'life1>,
+        ) -> AdapterFut<'async_trait, PrepareOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.prepares.fetch_add(1, Ordering::SeqCst);
+            self.inner.prepare(req)
+        }
+        fn renew<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            req: heimdall_app::ports::PrepareRequest<'life1>,
+        ) -> AdapterFut<'async_trait, PrepareOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.inner.renew(req)
+        }
+        fn reconcile<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            grant: &'life1 heimdall_contract::ids::GrantId,
+            effect_token: &'life2 str,
+        ) -> AdapterFut<'async_trait, heimdall_app::ports::ReconcileOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.inner.reconcile(grant, effect_token)
+        }
+        fn revoke<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            grant: &'life1 heimdall_contract::ids::GrantId,
+            now: Timestamp,
+        ) -> AdapterFut<'async_trait, heimdall_app::ports::RevokeOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.inner.revoke(grant, now)
+        }
+    }
+
+    /// ADR-0006 §13.6 item 4 (verify): a caller's operation whose `prepare`
+    /// reports `Unavailable` is answered **once** with `SERVICE_UNAVAILABLE`
+    /// (exit 5) and is not retried automatically: neither the running service's
+    /// supervisor loop (scheduler, time guard, cleanup executor, each at a short
+    /// interval while the virtual clock advances) nor a restart re-drives it; a
+    /// same-key retry replays the recorded failure without calling the adapter.
+    /// (In-process restart, labelled as such.)
+    #[tokio::test]
+    async fn unavailable_prepare_is_answered_once_and_never_retried_by_the_supervisor_or_a_restart()
+    {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let counting = Arc::new(CountingAdapter {
+            inner: rig.fake(vec![FakeStep::Fail(
+                heimdall_app::ports::AdapterError::Unavailable(format!("dependency {}", canary())),
+            )]),
+            prepares: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let options = || {
+            let mut o = test_options(rig.clock.clone(), rig.sync.clone());
+            o.adapters = vec![counting.clone() as Arc<dyn CredentialAdapter>];
+            o.supervisor = heimdall_runtime::supervisor::SupervisorConfig {
+                anchor_interval: Duration::from_millis(20),
+                max_idle_sleep: Duration::from_millis(20),
+                ..heimdall_runtime::supervisor::SupervisorConfig::default()
+            };
+            o
+        };
+        let shutdown = CancellationToken::new();
+        let svc = Service::start_with(rig.paths(), Config::default(), options(), shutdown.clone())
+            .await
+            .unwrap();
+        let e = err(svc
+            .operations()
+            .ensure(&owner(), ensure_req("req-un", "work-un", Some("1h")))
+            .await);
+        assert_eq!(e.code, Code::ServiceUnavailable);
+        assert_eq!(e.code.exit_code(), heimdall_contract::ExitCode::Unavailable);
+        assert_eq!(counting.prepares.load(Ordering::SeqCst), 1);
+        let op = e
+            .operation_id
+            .clone()
+            .expect("the failed operation is recorded");
+
+        // The real supervisor loop runs for a while; the clock moves on.
+        let running = tokio::spawn(svc.run());
+        for _ in 0..25 {
+            rig.clock.advance(MINUTE);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        shutdown.cancel();
+        running.await.unwrap().unwrap();
+        assert_eq!(
+            counting.prepares.load(Ordering::SeqCst),
+            1,
+            "no supervisor retry of a caller's operation"
+        );
+
+        // In-process restart: restart recovery does not prepare again either.
+        let again = Service::start_with(
+            rig.paths(),
+            Config::default(),
+            options(),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let sup = again.supervisor();
+        sup.scheduler_pass().await.unwrap();
+        sup.time_guard_pass().await.unwrap();
+        assert_eq!(
+            counting.prepares.load(Ordering::SeqCst),
+            1,
+            "no restart retry"
+        );
+        let state = again
+            .store()
+            .transaction(|tx| tx.operation(&op))
+            .unwrap()
+            .unwrap()
+            .state;
+        assert_eq!(state, OperationState::Failed);
+        // The caller retries with the same key: the recorded answer, no new call.
+        let replay = err(again
+            .operations()
+            .ensure(&owner(), ensure_req("req-un", "work-un", Some("1h")))
+            .await);
+        assert_eq!(replay.code, Code::ServiceUnavailable);
+        assert_eq!(replay.operation_id.as_ref(), Some(&op));
+        assert_eq!(counting.prepares.load(Ordering::SeqCst), 1);
+        assert_eq!(rig.ledger_entries(), 0, "no effect");
+        let decisions = again
+            .store()
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap();
+        assert!(
+            decisions.is_empty(),
+            "an unavailable dependency never prompts"
+        );
+        scan_events(&again);
+    }
+
+    // -----------------------------------------------------------------------
+    // ADR-0006 §13.6 item 8: Request::Shutdown (service-control/1)
+    // -----------------------------------------------------------------------
+
+    #[cfg(unix)]
+    type ControlStream = tokio::net::UnixStream;
+    #[cfg(windows)]
+    type ControlStream = tokio::net::windows::named_pipe::NamedPipeClient;
+
+    /// Connect to a running service's control endpoint the production way for the
+    /// platform (Unix: private socket + peer check; Windows: named pipe with the
+    /// server-owner check) and perform the hello.
+    async fn control_client(
+        endpoint: &Path,
+        mode: InteractionMode,
+    ) -> heimdall_ipc::session::ControlClient<ControlStream> {
+        #[cfg(unix)]
+        let stream = heimdall_ipc::unix::connect(endpoint).await.unwrap();
+        #[cfg(windows)]
+        let stream = heimdall_ipc::windows::connect_with_owner(
+            endpoint,
+            heimdall_ipc::windows::ServerOwner::CurrentUser,
+        )
+        .await
+        .unwrap();
+        heimdall_ipc::session::ControlClient::handshake(
+            stream,
+            heimdall_contract::ipc::PeerInfo {
+                name: "r136-test".into(),
+                version: "0".into(),
+            },
+            [heimdall_contract::ipc::capability::OPERATIONS_V1.to_owned()]
+                .into_iter()
+                .collect(),
+            mode,
+        )
+        .await
+        .unwrap()
+    }
+
+    fn shutdown_request() -> heimdall_contract::request::Request {
+        heimdall_contract::request::Request::Shutdown(
+            heimdall_contract::request::ShutdownRequest {},
+        )
+    }
+
+    /// Read until the session ends; the end must be `Goodbye(SERVICE_UNAVAILABLE)`.
+    async fn expect_goodbye(c: &mut heimdall_ipc::session::ControlClient<ControlStream>) {
+        let end = tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                match c.next_event().await {
+                    Ok((_, event)) => assert_no_canary(&serde_json::to_string(&event).unwrap()),
+                    Err(e) => break e,
+                }
+            }
+        })
+        .await
+        .expect("goodbye within the timeout");
+        match heimdall_ipc::session::server_refusal(&end) {
+            Some(heimdall_ipc::session::ServerRefusal::Goodbye { code, .. }) => {
+                assert_eq!(*code, Code::ServiceUnavailable);
+            }
+            other => panic!("expected a goodbye, got {other:?}"),
+        }
+    }
+
+    /// Shutdown from the owner over the control endpoint, on an unattended
+    /// non-interactive session: `OK {"stopping": true}` first, then the session's
+    /// goodbye; `run` returns `Ok` (the CLI exits 0), the advertisement and both
+    /// endpoints are gone, and the lock is free (a new instance starts with the
+    /// same identity).
+    #[tokio::test]
+    async fn shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let fake = rig.fake(vec![FakeStep::Prepare(outcome())]);
+        let svc = Service::start_with(
+            rig.paths(),
+            Config::default(),
+            rig.options(&fake),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let endpoints = svc.endpoints().clone();
+        let running = tokio::spawn(svc.run());
+
+        let mut c = control_client(&endpoints.control, InteractionMode::NonInteractive).await;
+        assert!(
+            c.server()
+                .capabilities
+                .contains(heimdall_contract::ipc::capability::SERVICE_CONTROL_V1)
+        );
+        let ready = c
+            .request(heimdall_contract::request::Request::Ensure(ensure_req(
+                "req-sd",
+                "work-sd",
+                Some("1h"),
+            )))
+            .await
+            .unwrap();
+        assert_eq!(ready.code, Code::AccessReady);
+        let env = c.request(shutdown_request()).await.unwrap();
+        assert_no_canary(&serde_json::to_string(&env).unwrap());
+        assert_eq!(env.code, Code::Ok, "{env:?}");
+        assert_eq!(env.data["stopping"], true);
+        assert_eq!(env.data["already_stopping"], false);
+        assert!(env.operation_id.is_none(), "not an operation");
+        expect_goodbye(&mut c).await;
+
+        tokio::time::timeout(Duration::from_secs(30), running)
+            .await
+            .expect("run returns after a Shutdown request")
+            .unwrap()
+            .unwrap();
+        assert!(!rig.paths().runtime_dir.join(INSTANCE_FILE).exists());
+        #[cfg(unix)]
+        assert!(!endpoints.control.exists() && !endpoints.signing.exists());
+        #[cfg(windows)]
+        assert!(
+            heimdall_ipc::windows::connect(&endpoints.control)
+                .await
+                .is_err(),
+            "the pipe is gone"
+        );
+        let again = rig.service().await;
+        assert_eq!(again.environment(), &env_id());
+        assert_eq!(rig.ledger_entries(), 1);
+    }
+
+    /// Shutdown is never accepted from a limited consumer (on any session,
+    /// attended or not), is idempotent for the owner (a repeat answers `OK` with
+    /// `already_stopping: true`), and starts the drain only from the reply hook,
+    /// after the answer was written.
+    #[tokio::test]
+    async fn shutdown_refused_for_a_limited_consumer_and_idempotent_for_the_owner() {
+        use heimdall_app::Attendance;
+        use heimdall_ipc::session::Dispatcher as _;
+        use heimdall_runtime::dispatch::{EventRelay, OperationsDispatcher};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let relay_stop = CancellationToken::new();
+        let relay = EventRelay::spawn(svc.operations(), relay_stop.clone());
+        let stop = CancellationToken::new();
+        let d = OperationsDispatcher::new(svc.operations().clone(), relay, rig.clock.clone())
+            .with_service_control(stop.clone());
+        let session = SessionInfo {
+            principal: PrincipalInfo::OsUserUnix { uid: 501 },
+            interaction: InteractionMode::Interactive,
+            attended: true,
+        };
+        for attendance in [Attendance::Unattended, Attendance::Attended { since: t0() }] {
+            let limited = Caller {
+                context: CallerContext {
+                    principal: PrincipalRef::UnixUser { uid: 501 },
+                    role: ClientRole::LimitedConsumer,
+                },
+                attendance,
+                interaction: InteractionMode::Interactive,
+            };
+            let env = d.handle_as(&limited, shutdown_request()).await;
+            assert_no_canary(&serde_json::to_string(&env).unwrap());
+            assert_eq!(env.code, Code::CapabilityUnavailable, "{env:?}");
+            d.replied(&session, "shutdown", &env.code);
+            assert!(
+                !stop.is_cancelled(),
+                "a limited consumer never stops the service"
+            );
+        }
+        // Owner, unattended: OK; nothing stops until the reply hook runs.
+        let first = d
+            .handle(
+                &SessionInfo {
+                    attended: false,
+                    ..session.clone()
+                },
+                shutdown_request(),
+            )
+            .await;
+        assert_eq!(first.code, Code::Ok);
+        assert_eq!(first.data["already_stopping"], false);
+        assert!(
+            !stop.is_cancelled(),
+            "the drain waits for the reply to be written"
+        );
+        d.replied(&session, "shutdown", &first.code);
+        assert!(stop.is_cancelled());
+        // Repeated (same or another session): idempotent.
+        for _ in 0..2 {
+            let again = d.handle(&session, shutdown_request()).await;
+            assert_eq!(again.code, Code::Ok);
+            assert_eq!(again.data["stopping"], true);
+            assert_eq!(again.data["already_stopping"], true);
+            d.replied(&session, "shutdown", &again.code);
+        }
+        // A dispatcher without service control does not support the request.
+        let plain = OperationsDispatcher::new(
+            svc.operations().clone(),
+            EventRelay::spawn(svc.operations(), relay_stop.clone()),
+            rig.clock.clone(),
+        );
+        assert_eq!(
+            plain.handle(&session, shutdown_request()).await.code,
+            Code::UsageError
+        );
+        relay_stop.cancel();
+    }
+
+    /// A slow adapter (`prepare` takes 800 ms) in front of the fake.
+    struct SlowAdapter {
+        inner: Arc<CountingAdapter>,
+        entered: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl CredentialAdapter for SlowAdapter {
+        fn descriptor(&self) -> &AdapterDescriptor {
+            self.inner.descriptor()
+        }
+        fn prepare<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            req: heimdall_app::ports::PrepareRequest<'life1>,
+        ) -> AdapterFut<'async_trait, PrepareOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.entered.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                self.inner.prepare(req).await
+            })
+        }
+        fn renew<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            req: heimdall_app::ports::PrepareRequest<'life1>,
+        ) -> AdapterFut<'async_trait, PrepareOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.inner.renew(req)
+        }
+        fn reconcile<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            grant: &'life1 heimdall_contract::ids::GrantId,
+            effect_token: &'life2 str,
+        ) -> AdapterFut<'async_trait, heimdall_app::ports::ReconcileOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.inner.reconcile(grant, effect_token)
+        }
+        fn revoke<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            grant: &'life1 heimdall_contract::ids::GrantId,
+            now: Timestamp,
+        ) -> AdapterFut<'async_trait, heimdall_app::ports::RevokeOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.inner.revoke(grant, now)
+        }
+    }
+
+    /// Graceful drain: an operation in flight when the owner's `Shutdown` arrives
+    /// (its `prepare` is still running) completes its durable steps before the
+    /// service exits: once `run` has returned, the store records it `succeeded`
+    /// with its `Confirmed` receipt and exactly one effect, and a same-key retry
+    /// against the next instance replays it without a second effect.
+    #[tokio::test]
+    async fn shutdown_lets_an_in_flight_durable_step_complete_before_exit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let counting = Arc::new(CountingAdapter {
+            inner: rig.fake(vec![FakeStep::Prepare(outcome())]),
+            prepares: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let entered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut options = test_options(rig.clock.clone(), rig.sync.clone());
+        options.adapters = vec![Arc::new(SlowAdapter {
+            inner: counting.clone(),
+            entered: entered.clone(),
+        }) as Arc<dyn CredentialAdapter>];
+        let svc = Service::start_with(
+            rig.paths(),
+            Config::default(),
+            options,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let control = svc.endpoints().control.clone();
+        let store = svc.store().clone();
+        let running = tokio::spawn(svc.run());
+
+        let mut c = control_client(&control, InteractionMode::NonInteractive).await;
+        let mut req = ensure_req("req-fl", "work-fl", Some("1h"));
+        req.wait = WaitMode::Async;
+        let accepted = c
+            .request(heimdall_contract::request::Request::Ensure(req))
+            .await
+            .unwrap();
+        assert_eq!(accepted.code, Code::Accepted, "{accepted:?}");
+        let op = accepted.operation_id.clone().unwrap();
+        // The prepare is in flight.
+        let start = std::time::Instant::now();
+        while entered.load(Ordering::SeqCst) == 0 {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "prepare never started"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(rig.ledger_entries(), 0, "the effect is not applied yet");
+        let env = c.request(shutdown_request()).await.unwrap();
+        assert_eq!(env.code, Code::Ok);
+        expect_goodbye(&mut c).await;
+        tokio::time::timeout(Duration::from_secs(30), running)
+            .await
+            .expect("run returns")
+            .unwrap()
+            .unwrap();
+
+        // After exit: the in-flight operation reached its durable end.
+        let (state, receipts) = store
+            .transaction(|tx| {
+                let state = tx.operation(&op)?.map(|o| o.state);
+                Ok((state, tx.stage_receipts(&op)?))
+            })
+            .unwrap();
+        assert_eq!(state, Some(OperationState::Succeeded));
+        assert!(
+            receipts
+                .iter()
+                .any(|r| matches!(r.effect, EffectReceipt::Confirmed { .. })),
+            "the effect's receipt was persisted before exit"
+        );
+        assert_eq!(rig.ledger_entries(), 1);
+        assert!(!rig.paths().runtime_dir.join(INSTANCE_FILE).exists());
+        drop(store);
+
+        // The next instance replays it for the same caller (the principal the
+        // endpoint authenticates; idempotency keys are per principal): same
+        // operation, no second effect.
+        let fake = rig.fake(vec![FakeStep::Prepare(outcome())]);
+        let token = CancellationToken::new();
+        let next = Service::start_with(
+            rig.paths(),
+            Config::default(),
+            rig.options(&fake),
+            token.clone(),
+        )
+        .await
+        .unwrap();
+        let control = next.endpoints().control.clone();
+        let running = tokio::spawn(next.run());
+        let mut c = control_client(&control, InteractionMode::NonInteractive).await;
+        let replay = c
+            .request(heimdall_contract::request::Request::Ensure(ensure_req(
+                "req-fl",
+                "work-fl",
+                Some("1h"),
+            )))
+            .await
+            .unwrap();
+        assert_no_canary(&serde_json::to_string(&replay).unwrap());
+        assert_eq!(replay.code, Code::AccessReady, "{replay:?}");
+        assert_eq!(replay.operation_id.as_ref(), Some(&op));
+        assert_eq!(rig.ledger_entries(), 1);
+        assert_eq!(counting.prepares.load(Ordering::SeqCst), 1);
+        drop(c);
+        token.cancel();
+        running.await.unwrap().unwrap();
+    }
+}
+
+// ===========================================================================
+// ADR-0006 §13.6 item 4: the jittered retry delay is bounded (property)
+// ===========================================================================
+
+mod jitter_props {
+    use std::time::Duration;
+
+    use heimdall_app::reconcile::Backoff;
+    use heimdall_runtime::supervisor::{FixedJitter, Jitter, RandomJitter, retry_delay};
+    use proptest::prelude::*;
+    use proptest::test_runner::{FileFailurePersistence, RngSeed};
+
+    /// 256 cases, fixed seed unless `PROPTEST_RNG_SEED` is set (reproduces).
+    fn config() -> ProptestConfig {
+        let mut c = ProptestConfig {
+            cases: 256,
+            failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+                "proptest-regressions",
+            ))),
+            ..ProptestConfig::default()
+        };
+        if matches!(c.rng_seed, RngSeed::Random) {
+            c.rng_seed = RngSeed::Fixed(0x4a49_5454_4552_3133);
+        }
+        c
+    }
+
+    proptest! {
+        #![proptest_config(config())]
+
+        /// Every jittered delay lies in `[delay/2, delay]` and never exceeds the
+        /// cap; a whole retry schedule is at most the unjittered one and at least
+        /// half of it, so jitter never lengthens recovery past the bound.
+        #[test]
+        fn jittered_retry_delays_stay_within_the_bounded_backoff(
+            base_ms in 1u64..5_000,
+            cap_s in 1u64..600,
+            max_attempts in 1u32..16,
+            units in proptest::collection::vec(0.0f64..=1.0, 1..40),
+        ) {
+            let backoff = Backoff {
+                base: Duration::from_millis(base_ms),
+                max: Duration::from_secs(cap_s),
+                max_attempts,
+            };
+            let mut total = Duration::ZERO;
+            let mut plain_total = Duration::ZERO;
+            for (i, u) in units.iter().enumerate() {
+                let attempt = u32::try_from(i).unwrap() + 1;
+                let plain = backoff.delay(attempt);
+                let d = retry_delay(&backoff, attempt, &FixedJitter(*u));
+                prop_assert!(d <= plain, "{d:?} > {plain:?}");
+                prop_assert!(d <= backoff.max);
+                // Equal jitter: at least half (allowing float rounding of 1 ns).
+                prop_assert!(d + Duration::from_nanos(1) >= plain / 2, "{d:?} < {plain:?}/2");
+                total += d;
+                plain_total += plain;
+            }
+            prop_assert!(total <= plain_total);
+        }
+    }
+
+    /// `FixedJitter(1.0)` reproduces the unjittered default schedule exactly (what a
+    /// test that pins the plain backoff offsets injects).
+    #[test]
+    fn fixed_unit_one_is_the_unjittered_schedule() {
+        let backoff = Backoff::default();
+        for n in 1..=backoff.max_attempts {
+            assert_eq!(
+                retry_delay(&backoff, n, &FixedJitter(1.0)),
+                backoff.delay(n)
+            );
+        }
+    }
+
+    /// The production source yields units in `[0, 1]` and is not constant.
+    #[test]
+    fn random_jitter_is_in_range_and_varies() {
+        let draws: Vec<f64> = (0..64).map(|_| RandomJitter.unit()).collect();
+        assert!(draws.iter().all(|u| (0.0..=1.0).contains(u)));
+        assert!(draws.windows(2).any(|w| w[0] != w[1]), "not constant");
     }
 }

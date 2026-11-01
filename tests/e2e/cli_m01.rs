@@ -20,7 +20,15 @@
 //! **Pseudo-terminal.** The owner-prompt cases run the binary under `script(1)`
 //! (BSD `script -q /dev/null …` on macOS, util-linux `script -qec … /dev/null`
 //! on Linux) so stdin is a terminal; input is written only after the prompt is
-//! shown and stdin is kept open until the child exits.
+//! shown and stdin is kept open until the child exits. They are Unix-only; on
+//! Windows (no `script(1)`) the attendance order and prompt outcomes are covered
+//! by the CLI's unit tests through its session/prompt test seam (`cli::tests`),
+//! and every other case here runs natively (`HEIMDALL_E2E_BIN`; ADR-0006 §13.6
+//! item 8).
+//!
+//! **Service stop.** `heimdall service stop` sends `Request::Shutdown` over the
+//! control endpoint on every platform (`via: "control"`); Unix signals are only
+//! its fallback.
 //!
 //! **Canaries.** The fake adapter's credential reference carries a synthetic
 //! `HEIMDALL_CANARY_*` value built at runtime by the service. Every byte of
@@ -28,17 +36,21 @@
 //! files are scanned with `heimdall_testkit::assert_no_canary`.
 //!
 //! Only processes this test started are stopped: by `heimdall service stop`
-//! (which signals the validated advertised PID of the runtime in this test's own
-//! temp home) or by the exact `Child` handle.
+//! (a `Shutdown` request to the runtime in this test's own temp home, whose
+//! advertised PID it validates) or by the exact `Child` handle.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
 
 use std::collections::BTreeSet;
-use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::io::Write;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+#[cfg(unix)]
+use std::sync::Mutex;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use heimdall_testkit::{FakeCredentialAdapter, assert_no_canary};
@@ -179,7 +191,10 @@ impl Home {
     }
 
     /// Run with stdin on a pseudo-terminal. `input` is written once the owner
-    /// prompt is visible; stdin stays open until the child exits.
+    /// prompt is visible; stdin stays open until the child exits. Unix only
+    /// (`script(1)`); on Windows the prompt flows are covered by the CLI's unit
+    /// tests through its test seam (`cli::tests`).
+    #[cfg(unix)]
     fn run_pty(&self, args: &[&str], input: Option<&[u8]>) -> Out {
         let mut cmd = pty_command(args);
         self.apply_env(&mut cmd, &[]);
@@ -311,6 +326,7 @@ impl Drop for Home {
     }
 }
 
+#[cfg(unix)]
 fn pty_command(args: &[&str]) -> Command {
     if cfg!(target_os = "linux") {
         let bin = bin();
@@ -367,6 +383,8 @@ impl Svc {
         let out = home.run(&["service", "stop", "--json"]);
         assert_eq!(out.code, 0, "{out:?}");
         assert_eq!(out.json()["data"]["stopped"], true);
+        // Through Request::Shutdown on every platform (ADR-0006 §13.6 item 8).
+        assert_eq!(out.json()["data"]["via"], "control", "{out:?}");
         let mut child = self.child.take().unwrap();
         let code = wait_timeout(&mut child, Duration::from_secs(30));
         if code.is_none() {
@@ -678,6 +696,7 @@ fn human_output_goes_to_stdout_and_messages_to_stderr() {
 // A19 / N04: decisions and the owner prompt
 // =================================================================================
 
+#[cfg(unix)]
 #[test]
 fn non_interactive_with_a_pending_decision_exits_3_with_decision_ref_and_no_prompt() {
     let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
@@ -714,15 +733,18 @@ fn decision_approve_without_a_terminal_or_non_interactive_sends_nothing_and_exit
     let dec = decision_ref(&pending);
     let op = pending.json()["operation_id"].as_str().unwrap().to_owned();
 
-    for out in [
+    #[allow(unused_mut)]
+    let mut outs = vec![
         home.run(&["decision", "approve", &dec, "--json"]),
         home.run(&["decision", "approve", &dec, "--non-interactive", "--json"]),
         home.run(&["decision", "deny", &dec, "--json"]),
-        home.run_pty(
-            &["decision", "approve", &dec, "--non-interactive", "--json"],
-            None,
-        ),
-    ] {
+    ];
+    #[cfg(unix)]
+    outs.push(home.run_pty(
+        &["decision", "approve", &dec, "--non-interactive", "--json"],
+        None,
+    ));
+    for out in outs {
         assert_eq!(out.code, 3, "{out:?}");
         assert!(!out.stdout.contains("[y/N]"), "no prompt: {out:?}");
         let env = out.json();
@@ -745,6 +767,7 @@ fn decision_approve_without_a_terminal_or_non_interactive_sends_nothing_and_exit
     svc.stop(&home);
 }
 
+#[cfg(unix)]
 #[test]
 fn owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once() {
     let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
@@ -800,6 +823,7 @@ fn owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once()
     svc.stop(&home);
 }
 
+#[cfg(unix)]
 #[test]
 fn interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready() {
     let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
@@ -807,12 +831,32 @@ fn interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready
     let out = home.run_pty(&ensure_args("req-i", "work-i", "h3:deploy"), Some(b"y\n"));
     assert_eq!(out.code, 0, "{out:?}");
     assert!(out.stdout.contains("\"destination\": \"h3\""));
+    // ADR-0006 §13.6 item 7: the CLI attended the session before the request, so
+    // the runtime answered APPROVAL_REQUIRED (an unattended request would have
+    // been answered INTERACTION_REQUIRED); the prompt shows that answer.
+    assert!(
+        out.stdout
+            .contains("The runtime answered APPROVAL_REQUIRED"),
+        "{out:?}"
+    );
     let env = out.json();
     assert_eq!(env["code"], "ACCESS_READY");
     assert!(pending_decisions(&home).is_empty());
     // Declining on a terminal leaves exit 3 with the reference.
     let declined = home.run_pty(&ensure_args("req-i2", "work-i2", "h3:deploy"), Some(b"\n"));
     assert_eq!(declined.code, 3, "{declined:?}");
+    assert!(
+        declined
+            .stdout
+            .contains("The runtime answered APPROVAL_REQUIRED")
+    );
+    assert_eq!(declined.json()["code"], "INTERACTION_REQUIRED");
+    assert!(
+        declined.json()["data"]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("not confirmed")
+    );
     let dec = declined.json()["next"]["decision_ref"]
         .as_str()
         .unwrap()
@@ -821,6 +865,7 @@ fn interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready
     svc.stop(&home);
 }
 
+#[cfg(unix)]
 #[test]
 fn widening_resume_needs_an_owner_decision_completed_on_a_pty() {
     let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
@@ -840,6 +885,11 @@ fn widening_resume_needs_an_owner_decision_completed_on_a_pty() {
     let ok = home.run_pty(&["access", "resume", "pol", "--json"], Some(b"yes\n"));
     assert_eq!(ok.code, 0, "{ok:?}");
     assert!(ok.stdout.contains("\"action\": \"resume\""), "{ok:?}");
+    // Attended before the request (§13.6 item 7): APPROVAL_REQUIRED.
+    assert!(
+        ok.stdout.contains("The runtime answered APPROVAL_REQUIRED"),
+        "{ok:?}"
+    );
     assert_eq!(
         ok.json()["data"]["decision_id"],
         dec.as_str(),
@@ -873,6 +923,7 @@ fn widening_resume_needs_an_owner_decision_completed_on_a_pty() {
     svc.stop(&home);
 }
 
+#[cfg(unix)]
 #[test]
 fn time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines() {
     // No scripted sync: the production stub's `unknown` at first start.
@@ -1317,5 +1368,84 @@ fn inspect_preview_and_require_capability_have_no_effect() {
     assert_eq!(ledger_len(&ledger), 1, "only the met request prepared");
     // The previews created no decision record.
     assert!(pending_decisions(&home).is_empty());
+    svc.stop(&home);
+}
+
+// =================================================================================
+// ADR-0006 §13.6 item 8: `service stop` through Request::Shutdown
+// =================================================================================
+
+/// `heimdall service stop` asks the runtime to stop with `Request::Shutdown` over
+/// the owner's control endpoint (`via: "control"`, on every platform; Unix
+/// signals are only the fallback): the runtime drains, removes its advertisement
+/// and endpoint, and exits 0; a repeated stop is idempotent (nothing running,
+/// exit 0).
+#[test]
+fn service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let mut svc = home.start_service(&[]);
+    let pid = svc.pid();
+    assert_eq!(
+        home.run(&ensure_args("req-st", "work-st", "h1:deploy"))
+            .code,
+        0
+    );
+    let out = home.run(&["service", "stop", "--json"]);
+    assert_eq!(out.code, 0, "{out:?}");
+    let env = out.json();
+    assert_eq!(env["code"], "OK");
+    assert_eq!(env["data"]["stopped"], true);
+    assert_eq!(env["data"]["via"], "control", "{env}");
+    assert_eq!(env["data"]["pid"], pid);
+    let mut child = svc.child.take().unwrap();
+    let code = wait_timeout(&mut child, Duration::from_secs(30));
+    if code.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert_eq!(
+        code,
+        Some(0),
+        "the runtime exits 0 after a Shutdown request"
+    );
+    svc.scan();
+    assert_eq!(home.instance_pid(), None, "advertisement removed");
+    #[cfg(unix)]
+    assert!(
+        !home.path().join("run").join("control.sock").exists(),
+        "endpoint removed"
+    );
+    // Idempotent: nothing is running any more.
+    let again = home.run(&["service", "stop", "--json"]);
+    assert_eq!(again.code, 0, "{again:?}");
+    assert_eq!(again.json()["data"]["running"], false);
+    assert_eq!(again.json()["data"]["stopped"], false);
+    assert_eq!(home.run(&["service", "status", "--json"]).code, 5);
+}
+
+/// ADR-0006 §13.6 item 4 (verify) through the real binary: a caller's
+/// operation whose `prepare` reports `Unavailable` is answered once with
+/// `SERVICE_UNAVAILABLE` (exit 5) and settled `failed`; it is not retried
+/// automatically (it stays failed while the runtime keeps running), and the
+/// caller's same-key retry replays the same operation.
+#[test]
+fn unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "unavailable,prepare")]);
+    let svc = home.start_service(&[]);
+    let args = ensure_args("req-ua", "work-ua", "h1:deploy");
+    let first = home.run(&args);
+    assert_eq!(first.code, 5, "{first:?}");
+    assert_eq!(first.code_str(), "SERVICE_UNAVAILABLE");
+    let op = first.json()["operation_id"].as_str().unwrap().to_owned();
+    std::thread::sleep(Duration::from_millis(1500));
+    // Still failed: nothing retried it (the script's next step would succeed).
+    let shown = home.run(&["operation", "show", &op, "--json"]);
+    assert_eq!(shown.json()["state"], "failed", "{shown:?}");
+    let replay = home.run(&args);
+    assert_eq!(replay.code, 5, "{replay:?}");
+    assert_eq!(replay.json()["operation_id"], op.as_str());
+    // A new request (new key) is a new operation and uses the next step.
+    let fresh = home.run(&ensure_args("req-ua2", "work-ua2", "h1:deploy"));
+    assert_eq!(fresh.code, 0, "{fresh:?}");
     svc.stop(&home);
 }

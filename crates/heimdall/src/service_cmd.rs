@@ -9,16 +9,22 @@
 //!   of stderr and ignores SIGHUP.
 //! * `status` validates the advertisement (pid + OS start time + owner-only
 //!   endpoints) and performs a hello; it never starts a runtime.
-//! * `stop` (Unix) sends SIGTERM to the **validated** advertised PID only (the
+//! * `stop` (every platform, ADR-0006 §13.6 item 8) connects to the owner's
+//!   control endpoint requiring `service-control/1` and sends `Request::Shutdown`;
+//!   on `OK` the runtime drains gracefully and this command waits, bounded, for
+//!   the **validated** advertised process (pid + OS start time) to end
+//!   (`via: "control"`). An explicit refusal by the runtime is reported as is,
+//!   never bypassed. Only when the control endpoint cannot be used (connect or
+//!   hello failure, an older runtime without the capability, a lost connection)
+//!   does Unix fall back to SIGTERM to the validated advertised PID only (the
 //!   advertisement is re-validated immediately before the signal, which goes
 //!   through `/bin/kill` or `/usr/bin/kill` by absolute path: no shell, no `PATH`
-//!   lookup, no `unsafe` in this crate), then waits, bounded, for that exact
-//!   process to end. Windows: not available in M01 (`USAGE_ERROR`).
+//!   lookup, no `unsafe` in this crate; `via: "signal"`); Windows then reports
+//!   `SERVICE_UNAVAILABLE`. Nothing running is success (`stopped: false`):
+//!   repeated stops are idempotent.
 
-#[cfg(unix)]
 use std::time::Duration;
 
-#[cfg(unix)]
 use heimdall_contract::envelope::EffectStatus;
 use heimdall_contract::envelope::{Envelope, ErrorData};
 use heimdall_contract::{Code, ExitCode};
@@ -33,7 +39,6 @@ use crate::client::{Ctx, error};
 use crate::output;
 
 /// Bound on waiting for a stopped runtime to exit.
-#[cfg(unix)]
 const STOP_WAIT: Duration = Duration::from_secs(20);
 
 fn finish(ctx: &Ctx, env: Envelope<serde_json::Value>) -> ExitCode {
@@ -281,30 +286,135 @@ pub fn stop(ctx: &Ctx) -> ExitCode {
         Ok(p) => p,
         Err(e) => return fail(ctx, *e),
     };
-    match InstanceInfo::read_valid(&paths.runtime_dir) {
-        Ok(None) => finish(
-            ctx,
-            Envelope::ok(serde_json::json!({ "running": false, "stopped": false })),
-        ),
-        Err(e) => fail(
-            ctx,
-            error(
-                Code::ServiceUnavailable,
-                &format!("the runtime advertisement is not trusted: {}", e.kind()),
-            ),
-        ),
-        Ok(Some(info)) => match terminate(&paths, &info) {
-            Ok(()) => finish(
+    let info = match InstanceInfo::read_valid(&paths.runtime_dir) {
+        Ok(None) => {
+            return finish(
                 ctx,
-                Envelope::ok(serde_json::json!({
-                    "running": false,
-                    "stopped": true,
-                    "pid": info.pid,
-                })),
-            ),
+                Envelope::ok(serde_json::json!({ "running": false, "stopped": false })),
+            );
+        }
+        Err(e) => {
+            return fail(
+                ctx,
+                error(
+                    Code::ServiceUnavailable,
+                    &format!("the runtime advertisement is not trusted: {}", e.kind()),
+                ),
+            );
+        }
+        Ok(Some(info)) => info,
+    };
+    let rt = match current_thread() {
+        Ok(rt) => rt,
+        Err(env) => return fail(ctx, env),
+    };
+    let stopped = |via: &str| {
+        Envelope::ok(serde_json::json!({
+            "running": false,
+            "stopped": true,
+            "pid": info.pid,
+            "via": via,
+        }))
+    };
+    match rt.block_on(request_shutdown(ctx)) {
+        Ok(()) => match wait_for_exit(&info) {
+            Ok(()) => finish(ctx, stopped("control")),
+            Err(env) => fail(ctx, env),
+        },
+        Err(StopFailure::Refused(env)) => fail(ctx, env),
+        Err(StopFailure::Unreachable(env)) => match fallback(&paths, &info, env) {
+            Ok(via) => finish(ctx, stopped(via)),
             Err(env) => fail(ctx, env),
         },
     }
+}
+
+/// Why `Request::Shutdown` did not start a drain.
+enum StopFailure {
+    /// The runtime answered with an error: reported as is, never bypassed.
+    Refused(Envelope<ErrorData>),
+    /// The control endpoint could not be used (connect, hello, transport).
+    Unreachable(Envelope<ErrorData>),
+}
+
+/// Send `Request::Shutdown` on a session that requires `service-control/1`.
+async fn request_shutdown(ctx: &Ctx) -> Result<(), StopFailure> {
+    use heimdall_contract::ipc::capability::SERVICE_CONTROL_V1;
+    use heimdall_contract::request::{Request, ShutdownRequest};
+    let mut client = crate::client::connect_requiring(ctx, false, &[SERVICE_CONTROL_V1])
+        .await
+        .map_err(|e| StopFailure::Unreachable(*e))?;
+    let env = client.request(Request::Shutdown(ShutdownRequest {})).await;
+    if env.code == Code::Ok {
+        return Ok(());
+    }
+    let refused =
+        env.data.get("error").cloned().and_then(|e| {
+            serde_json::from_value::<heimdall_contract::envelope::ErrorDetail>(e).ok()
+        });
+    let rendered = heimdall_app::OpError::new(
+        env.code.clone(),
+        refused.as_ref().map_or_else(
+            || "the runtime refused to stop".to_owned(),
+            |d| d.message.clone(),
+        ),
+    )
+    .with_effect(
+        refused
+            .as_ref()
+            .map_or(EffectStatus::None, |d| d.effect_status),
+    )
+    .into_envelope();
+    if env.code == Code::ServiceUnavailable {
+        // Transport loss after sending: the runtime may or may not be stopping.
+        Err(StopFailure::Unreachable(rendered))
+    } else {
+        Err(StopFailure::Refused(rendered))
+    }
+}
+
+/// Wait, bounded, until the exact advertised process (pid + start time) is gone.
+fn wait_for_exit(info: &InstanceInfo) -> Result<(), Envelope<ErrorData>> {
+    let deadline = std::time::Instant::now() + STOP_WAIT;
+    loop {
+        let alive = heimdall_runtime::platform::process_start_time(info.pid)
+            .is_some_and(|s| s == info.started_at);
+        if !alive {
+            return Ok(());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(heimdall_app::OpError::new(
+                Code::ServiceUnavailable,
+                "the runtime did not stop in time",
+            )
+            .with_effect(EffectStatus::Unknown)
+            .into_envelope());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Unix: the signal fallback to the validated advertised PID (`via: "signal"`).
+/// Elsewhere there is no fallback: a runtime that was asked over its endpoint
+/// may still be stopping, so wait for it (bounded; `via: "exited"`); otherwise
+/// report why the endpoint could not be used.
+#[cfg(unix)]
+fn fallback(
+    paths: &Paths,
+    info: &InstanceInfo,
+    _why: Envelope<ErrorData>,
+) -> Result<&'static str, Envelope<ErrorData>> {
+    tracing::debug!("control endpoint unavailable for stop; falling back to a signal");
+    terminate(paths, info).map(|()| "signal")
+}
+
+#[cfg(not(unix))]
+fn fallback(
+    _paths: &Paths,
+    info: &InstanceInfo,
+    why: Envelope<ErrorData>,
+) -> Result<&'static str, Envelope<ErrorData>> {
+    wait_for_exit(info).map(|()| "exited").map_err(|_| why)
 }
 
 #[cfg(unix)]
@@ -340,29 +450,5 @@ fn terminate(paths: &Paths, info: &InstanceInfo) -> Result<(), Envelope<ErrorDat
         // It may have exited in between; the wait below decides.
         tracing::debug!("kill utility reported failure");
     }
-    let deadline = std::time::Instant::now() + STOP_WAIT;
-    loop {
-        let alive = heimdall_runtime::platform::process_start_time(info.pid)
-            .is_some_and(|s| s == info.started_at);
-        if !alive {
-            return Ok(());
-        }
-        if std::time::Instant::now() >= deadline {
-            return Err(heimdall_app::OpError::new(
-                Code::ServiceUnavailable,
-                "the runtime did not stop in time",
-            )
-            .with_effect(EffectStatus::Unknown)
-            .into_envelope());
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-#[cfg(not(unix))]
-fn terminate(_paths: &Paths, _info: &InstanceInfo) -> Result<(), Envelope<ErrorData>> {
-    Err(error(
-        Code::UsageError,
-        "service stop is not available on this platform in this build",
-    ))
+    wait_for_exit(info)
 }

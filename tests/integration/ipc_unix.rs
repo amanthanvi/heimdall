@@ -2128,3 +2128,193 @@ async fn oversized_live_event_ends_the_subscription_at_the_last_delivered_cursor
     let (r, ()) = tokio::join!(server, client);
     r.unwrap();
 }
+
+// ---- ADR-0006 §13.6 item 8: Shutdown and the service-control/1 capability -----
+
+/// A session that did not negotiate `service-control/1` cannot send `Shutdown`:
+/// the session answers `SCHEMA_UNSUPPORTED` and never dispatches it. A session
+/// that negotiated it (the default client offer) has it dispatched, and the
+/// server offers the capability.
+#[tokio::test]
+async fn shutdown_needs_the_negotiated_service_control_capability() {
+    use heimdall_contract::request::ShutdownRequest;
+    assert!(server_capabilities().contains(capability::SERVICE_CONTROL_V1));
+    for negotiated in [false, true] {
+        let f = fixture();
+        let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+        let d = TestDispatcher::new();
+        let seen = d.seen.clone();
+        let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
+        let client = async {
+            let mut s = connect(&f.paths.control).await.unwrap();
+            let mut hello = client_hello("1", "t");
+            if !negotiated {
+                hello.capabilities.remove(capability::SERVICE_CONTROL_V1);
+            }
+            s.write_all(
+                &encode_frame(&ClientMessage::Hello(hello), MAX_HELLO_FRAME_BYTES).unwrap(),
+            )
+            .await
+            .unwrap();
+            let mut buf = Vec::new();
+            let hello = read_n(&mut s, &mut buf, 1).await;
+            let ServerMessage::Hello(h) = &hello[0] else {
+                panic!("{hello:?}");
+            };
+            assert_eq!(
+                h.capabilities.contains(capability::SERVICE_CONTROL_V1),
+                negotiated
+            );
+            s.write_all(&frame_of(&ClientMessage::Request {
+                seq: 1,
+                request: Request::Shutdown(ShutdownRequest {}),
+            }))
+            .await
+            .unwrap();
+            let reply = read_n(&mut s, &mut buf, 1).await;
+            drop(s);
+            reply
+        };
+        let (r, reply) = tokio::join!(server, client);
+        r.unwrap();
+        let ServerMessage::Response {
+            in_reply_to,
+            envelope,
+        } = &reply[0]
+        else {
+            panic!("{reply:?}");
+        };
+        assert_eq!(*in_reply_to, 1);
+        let dispatched: Vec<&str> = seen.lock().unwrap().iter().map(|(k, _)| *k).collect();
+        if negotiated {
+            assert_eq!(envelope.code, Code::Ok, "{envelope:?}");
+            assert_eq!(dispatched, vec!["shutdown"]);
+        } else {
+            assert_eq!(envelope.code, Code::SchemaUnsupported, "{envelope:?}");
+            assert_eq!(envelope.data["error"]["effect_status"], "none");
+            assert!(dispatched.is_empty(), "never dispatched: {dispatched:?}");
+        }
+    }
+}
+
+/// A dispatcher that cancels the session's shutdown token from
+/// [`Dispatcher::replied`] when a `shutdown` request was answered `OK`, the way
+/// the runtime starts its drain.
+#[derive(Clone)]
+struct StopOnReply {
+    inner: TestDispatcher,
+    stop: CancellationToken,
+    replied: Arc<Mutex<Vec<(&'static str, Code)>>>,
+}
+
+#[async_trait::async_trait]
+impl Dispatcher for StopOnReply {
+    async fn dispatch(
+        &self,
+        session: &SessionInfo,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
+        self.inner.dispatch(session, request).await
+    }
+
+    async fn subscribe(
+        &self,
+        session: &SessionInfo,
+        filter: EventFilter,
+        from: Option<Cursor>,
+    ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+        self.inner.subscribe(session, filter, from).await
+    }
+
+    fn replied(&self, _session: &SessionInfo, request_kind: &'static str, code: &Code) {
+        self.replied
+            .lock()
+            .unwrap()
+            .push((request_kind, code.clone()));
+        if request_kind == "shutdown" && *code == Code::Ok {
+            self.stop.cancel();
+        }
+    }
+}
+
+/// `Dispatcher::replied` runs after the response frame is written: a drain
+/// started from it reaches the requester only after its `OK` (response first,
+/// then `Goodbye(SERVICE_UNAVAILABLE)`, then close), every time. It runs once per
+/// dispatched request, with the request kind and the response code.
+#[tokio::test]
+async fn reply_hook_runs_after_the_response_so_the_requester_reads_ok_before_goodbye() {
+    use heimdall_contract::request::ShutdownRequest;
+    for round in 0..20 {
+        let f = fixture();
+        let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+        let stop = CancellationToken::new();
+        let d = StopOnReply {
+            inner: TestDispatcher::new(),
+            stop: stop.clone(),
+            replied: Arc::default(),
+        };
+        let replied = d.replied.clone();
+        let server = serve_one(&l, d, ConnectionLimits::default(), stop.clone());
+        let client = async {
+            let mut s = connect(&f.paths.control).await.unwrap();
+            s.write_all(&hello_frame("1", "t")).await.unwrap();
+            let mut buf = Vec::new();
+            let _hello = read_n(&mut s, &mut buf, 1).await;
+            s.write_all(&frame_of(&ClientMessage::Request {
+                seq: 1,
+                request: inspect(),
+            }))
+            .await
+            .unwrap();
+            let first = read_n(&mut s, &mut buf, 1).await;
+            s.write_all(&frame_of(&ClientMessage::Request {
+                seq: 2,
+                request: Request::Shutdown(ShutdownRequest {}),
+            }))
+            .await
+            .unwrap();
+            let mut rest = read_all_frames(&mut s).await;
+            // Frames already buffered by `read_n` come first.
+            let mut early = Vec::new();
+            while let Some((m, used)) =
+                decode_frame::<ServerMessage>(&buf, MAX_CONTROL_FRAME_BYTES).unwrap()
+            {
+                early.push(m);
+                buf.drain(..used);
+            }
+            early.append(&mut rest);
+            (first, early)
+        };
+        let (r, (first, frames)) = tokio::join!(server, client);
+        r.unwrap();
+        assert!(
+            matches!(&first[0], ServerMessage::Response { in_reply_to: 1, .. }),
+            "{first:?}"
+        );
+        assert_eq!(frames.len(), 2, "round {round}: {frames:?}");
+        match &frames[0] {
+            ServerMessage::Response {
+                in_reply_to,
+                envelope,
+            } => {
+                assert_eq!(*in_reply_to, 2);
+                assert_eq!(envelope.code, Code::Ok);
+            }
+            other => panic!("round {round}: the response comes first, got {other:?}"),
+        }
+        assert!(
+            matches!(
+                &frames[1],
+                ServerMessage::Goodbye {
+                    code: Code::ServiceUnavailable,
+                    ..
+                }
+            ),
+            "round {round}: {frames:?}"
+        );
+        assert_eq!(
+            *replied.lock().unwrap(),
+            vec![("inspect", Code::Ok), ("shutdown", Code::Ok)]
+        );
+    }
+}

@@ -689,25 +689,33 @@ fn tombstones_bump_the_authority_generation_atomically() {
 
 #[test]
 fn policy_revisions_are_monotonic_and_narrowing_bumps_generation() {
+    // ADR-0006 §13.6 item 5: **every** change to a policy (insert, pause, cutoff,
+    // narrowing, widening, any new revision) moves the authority generation, so
+    // re-validation runs and a reservation made before it is voided at publish.
     let s = mem();
     let p1 = policy(1);
     assert_eq!(
         s.transaction(|tx| tx.upsert_policy(&p1, false)).unwrap(),
-        AuthorityGeneration(0)
+        AuthorityGeneration(1),
+        "a new applicable policy is a change"
     );
-    // Stale or equal revision refused, stored policy intact.
+    // Stale or equal revision refused, stored policy and generation intact.
     let e = s
         .transaction(|tx| tx.upsert_policy(&p1, false))
         .unwrap_err();
     assert!(matches!(e, StoreError::GenerationConflict(_)));
-    // Widening without the flag: no bump.
+    assert_eq!(
+        s.transaction(|tx| tx.authority_generation()).unwrap(),
+        AuthorityGeneration(1)
+    );
+    // Widening without the flag: still a revision change, still a bump.
     let mut p2 = policy(2);
     p2.max_window = Duration::from_secs(24 * 3600);
     assert_eq!(
         s.transaction(|tx| tx.upsert_policy(&p2, false)).unwrap(),
-        AuthorityGeneration(0)
+        AuthorityGeneration(2)
     );
-    // Pause without the caller's flag is still detected as narrowing.
+    // Pause without the caller's flag bumps.
     let mut p3 = p2.clone();
     p3.revision = PolicyRevision(3);
     p3.pause = PauseState::Paused {
@@ -715,14 +723,14 @@ fn policy_revisions_are_monotonic_and_narrowing_bumps_generation() {
     };
     assert_eq!(
         s.transaction(|tx| tx.upsert_policy(&p3, false)).unwrap(),
-        AuthorityGeneration(1)
+        AuthorityGeneration(3)
     );
     // Caller-flagged narrowing bumps.
     let mut p4 = p3.clone();
     p4.revision = PolicyRevision(4);
     assert_eq!(
         s.transaction(|tx| tx.upsert_policy(&p4, true)).unwrap(),
-        AuthorityGeneration(2)
+        AuthorityGeneration(4)
     );
     // Cutoff set: bump.
     let mut p5 = p4.clone();
@@ -730,10 +738,27 @@ fn policy_revisions_are_monotonic_and_narrowing_bumps_generation() {
     p5.cutoff_at = Some(plus(t0(), 3600));
     assert_eq!(
         s.transaction(|tx| tx.upsert_policy(&p5, false)).unwrap(),
-        AuthorityGeneration(3)
+        AuthorityGeneration(5)
     );
-    let stored = s.transaction(|tx| tx.policy(&p5.id)).unwrap();
-    assert_eq!(stored, Some(p5));
+    // Cutoff moved later and resume (widening): bump.
+    let mut p6 = p5.clone();
+    p6.revision = PolicyRevision(6);
+    p6.cutoff_at = Some(plus(t0(), 7200));
+    p6.pause = PauseState::Active;
+    assert_eq!(
+        s.transaction(|tx| tx.upsert_policy(&p6, false)).unwrap(),
+        AuthorityGeneration(6)
+    );
+    // Cutoff cleared: bump.
+    let mut p7 = p6.clone();
+    p7.revision = PolicyRevision(7);
+    p7.cutoff_at = None;
+    assert_eq!(
+        s.transaction(|tx| tx.upsert_policy(&p7, false)).unwrap(),
+        AuthorityGeneration(7)
+    );
+    let stored = s.transaction(|tx| tx.policy(&p7.id)).unwrap();
+    assert_eq!(stored, Some(p7));
 }
 
 // --- resources ----------------------------------------------------------------------------

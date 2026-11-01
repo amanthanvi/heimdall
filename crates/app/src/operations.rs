@@ -387,23 +387,23 @@ fn unenrolled(id: &EnvironmentId) -> EnvironmentRecord {
     }
 }
 
-/// The applicable policy among several naming the profile and environment: one
-/// that blocks activation at `now` wins (pause/cutoff override allow), else the
-/// first by ID. Its scope, window and revision are the ones resolution used.
-fn choose_policy(policies: &[StandingPolicy], now: Timestamp) -> Option<&StandingPolicy> {
-    policies
-        .iter()
-        .find(|p| p.blocks_activation_at(now).is_some())
-        .or_else(|| policies.first())
+/// The applicable policy among several naming the profile and environment whose
+/// scope, window and revision resolution uses: the first by ID. Blocks need no
+/// preference here, because [`merged_policy`] carries every applicable pause and
+/// the earliest cutoff whichever policy is chosen; choosing by ID keeps the
+/// pinned revision stable when another applicable policy is paused (ADR-0006
+/// §13.6 items 1 and 5).
+fn choose_policy(policies: &[StandingPolicy]) -> Option<&StandingPolicy> {
+    policies.first()
 }
 
 /// The policy view every bound, block and issuance check uses: the chosen policy
 /// (scope, window, revision) restricted by **every** applicable policy's pause and
-/// cutoff (gap G08; plan §6.3 #2): the earliest cutoff of any applicable policy
-/// bounds the grant, and any applicable pause blocks activation. Never wider than
-/// the chosen policy alone.
-fn merged_policy(policies: &[StandingPolicy], now: Timestamp) -> Option<StandingPolicy> {
-    let mut merged = choose_policy(policies, now)?.clone();
+/// cutoff (gap G08; plan §6.3 #2; ADR-0006 §13.6 item 5): the earliest cutoff of
+/// any applicable policy bounds the grant, and any applicable pause blocks
+/// activation. Never wider than the chosen policy alone.
+fn merged_policy(policies: &[StandingPolicy]) -> Option<StandingPolicy> {
+    let mut merged = choose_policy(policies)?.clone();
     for p in policies {
         if let Some(c) = p.cutoff_at {
             merged.cutoff_at = Some(merged.cutoff_at.map_or(c, |m| m.min(c)));
@@ -418,6 +418,18 @@ fn merged_policy(policies: &[StandingPolicy], now: Timestamp) -> Option<Standing
         }
     }
     Some(merged)
+}
+
+/// The policy view for **continuing** work (ADR-0006 §13.6 item 1): the merged
+/// view without its pause. A pause blocks new grants and new work bindings only;
+/// running grants and their existing bindings continue until `min(deadline,
+/// cutoff)` (spec §5.6; ADR-0005 §3.5–§3.7), so re-validation and issuance
+/// within an existing grant never see the pause, while every applicable cutoff
+/// still bounds them.
+fn continuing_policy(policies: &[StandingPolicy]) -> Option<StandingPolicy> {
+    let mut view = merged_policy(policies)?;
+    view.pause = PauseState::Active;
+    Some(view)
 }
 
 /// Events committed with a transaction; announced to live subscribers after it.
@@ -657,11 +669,16 @@ fn revalidation_failed(msg: &str) -> OpError {
 
 /// ADR-0006 §13.5 ruling 2: when the global authority generation moved since a
 /// grant or an ancestor was last validated, re-run authority resolution against
-/// the **current** policy (every applicable pause and cutoff), tombstones and the
-/// parent chain, with the grant's unchanged scope and deadline as the request, no
+/// the **current** policy (every applicable cutoff), tombstones and the parent
+/// chain, with the grant's unchanged scope and deadline as the request, no
 /// widening and no prompt (spec §5.5 silent repair within saved authority). On
 /// success the new validated generation is recorded for every member; any
 /// failure denies (`CREDENTIAL_EXPIRED`, `next: new_work`; nothing is recorded).
+///
+/// ⟨r2.3⟩ §13.6 item 1: this is the check for **continuing** work, so it uses
+/// [`continuing_policy`]: a pause never fails it (a pause blocks new grants and
+/// new work bindings only, which their own paths refuse with `POLICY_PAUSED`); a
+/// cutoff that has passed does (`CREDENTIAL_EXPIRED`, use past the bound).
 ///
 /// Acceptance per authorization source: `StandingPolicy` and `Delegation` grants
 /// need `Allowed` (a narrowed policy that no longer covers the grant's scope or
@@ -818,8 +835,10 @@ fn resolve_existing(
     let env_record = tx
         .environment(environment)?
         .unwrap_or_else(|| unenrolled(environment));
+    // Re-validation is for continuing work: the pause does not apply (ADR-0006
+    // §13.6 item 1), every applicable cutoff does.
     let policies = tx.policies_for(&profile_id, environment)?;
-    let policy = merged_policy(&policies, now);
+    let policy = continuing_policy(&policies);
     let destinations: BTreeMap<DestinationId, DestinationCapability> = g
         .scope
         .pairs
@@ -947,9 +966,35 @@ fn authority_changed(msg: &str) -> OpError {
     OpError::new(Code::CredentialExpired, msg.to_owned()).with_resource("grant", None)
 }
 
+/// What an activation check admits (ADR-0006 §13.6 item 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Activation {
+    /// A new grant and its new work binding (`Recheck`/`Commit` of an ensure or a
+    /// delegation that prepared its own grant).
+    NewGrant,
+    /// A new work binding attached to an equivalent leader's live grant.
+    NewBinding,
+    /// Continuing use of an existing binding (`bind`): no new grant, no new
+    /// binding, so a pause does not apply.
+    Existing,
+}
+
+impl Activation {
+    fn attached(self) -> bool {
+        self != Self::NewGrant
+    }
+}
+
 /// Re-validate an activation inside the transaction that would write it
-/// (`Recheck` and `Commit`): grant state, tombstone on the grant or an ancestor,
-/// generation, ancestors, pause/cutoff, policy revision, deadline.
+/// (`Recheck` and `Commit`, and `bind`): grant state, tombstone on the grant or an
+/// ancestor, pause/cutoff for a new grant or binding, generation, ancestors,
+/// policy revision, deadline.
+///
+/// ⟨r2.3⟩ §13.6 item 1: a new grant or new binding is refused by an applicable
+/// pause (`POLICY_PAUSED`) or a cutoff at or before `now` (`POLICY_CUTOFF`)
+/// **before** re-validation, so neither is reported as an expiry. Continuing use
+/// ([`Activation::Existing`]) ignores the pause and ends at `min(deadline,
+/// cutoff)` with `CREDENTIAL_EXPIRED`.
 fn activation_refusal(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
@@ -957,9 +1002,9 @@ fn activation_refusal(
     intent: &ResolvedIntent,
     grant: &GrantSnapshot,
     now: Timestamp,
-    attached: bool,
+    activation: Activation,
 ) -> heimdall_store::Result<Option<Refusal>> {
-    let expected_ok = if attached {
+    let expected_ok = if activation.attached() {
         grant.state.permits_use()
     } else {
         grant.state == GrantState::Preparing
@@ -983,6 +1028,26 @@ fn activation_refusal(
         return Ok(Some(Refusal::new(
             authority_changed("the grant or an ancestor was revoked"),
             Some(GrantEvent::RevokeLocal),
+        )));
+    }
+    let policies = tx.policies_for(&intent.profile, environment)?;
+    let merged = merged_policy(&policies);
+    if activation != Activation::Existing
+        && let Some(p) = merged.as_ref()
+        && let Some(block) = p.blocks_activation_at(now)
+    {
+        let error = match block {
+            heimdall_domain::policy::ActivationBlock::Paused { .. } => {
+                OpError::new(Code::PolicyPaused, "the standing policy is paused")
+            }
+            heimdall_domain::policy::ActivationBlock::Cutoff { .. } => {
+                OpError::new(Code::PolicyCutoff, "a policy cutoff is in effect")
+            }
+        }
+        .with_resource("policy", Some(p.id.to_string()));
+        return Ok(Some(Refusal::new(
+            error,
+            Some(GrantEvent::PreparationFailed),
         )));
     }
     let current = tx.authority_generation()?;
@@ -1029,26 +1094,7 @@ fn activation_refusal(
             )));
         }
     }
-    let policies = tx.policies_for(&intent.profile, environment)?;
-    let merged = merged_policy(&policies, now);
     let policy = merged.as_ref();
-    if let Some(p) = policy
-        && let Some(block) = p.blocks_activation_at(now)
-    {
-        let error = match block {
-            heimdall_domain::policy::ActivationBlock::Paused { .. } => {
-                OpError::new(Code::PolicyPaused, "the standing policy is paused")
-            }
-            heimdall_domain::policy::ActivationBlock::Cutoff { .. } => {
-                OpError::new(Code::PolicyCutoff, "a policy cutoff is in effect")
-            }
-        }
-        .with_resource("policy", Some(p.id.to_string()));
-        return Ok(Some(Refusal::new(
-            error,
-            Some(GrantEvent::PreparationFailed),
-        )));
-    }
     if let Some(expected) = intent.policy_revision {
         let applicable = policy.filter(|p| p.profile == intent.profile);
         if applicable.is_none_or(|p| p.revision != expected) {
@@ -1276,7 +1322,7 @@ fn resolve_in(
         .environment(&inp.environment)?
         .unwrap_or_else(|| unenrolled(&inp.environment));
     let policies = tx.policies_for(&profile.id, &inp.environment)?;
-    let policy = merged_policy(&policies, inp.now);
+    let policy = merged_policy(&policies);
     let generation = tx.authority_generation()?;
     let base = parent.as_ref().map_or(&profile.scope, |p| &p.scope);
     let pairs = if inp.spec.pairs.is_empty() {
@@ -2772,8 +2818,13 @@ impl Operations {
                 let Some(mut g) = tx.grant(&gid)? else {
                     return Err(conflict("grant missing"));
                 };
+                let activation = if attached {
+                    Activation::NewBinding
+                } else {
+                    Activation::NewGrant
+                };
                 if let Some(refusal) =
-                    activation_refusal(tx, &env, &adapters, &resolved, &g, now, attached)?
+                    activation_refusal(tx, &env, &adapters, &resolved, &g, now, activation)?
                 {
                     if !attached
                         && let Some(ev) = refusal.grant_event
@@ -2787,7 +2838,7 @@ impl Operations {
                 }
                 let ancestors = ancestry(tx, &g)?;
                 let policies = tx.policies_for(&resolved.profile, &env)?;
-                let bound = grant_bound(&g, &ancestors, merged_policy(&policies, now).as_ref());
+                let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
                 let bound = anchor_bound(tx, &gid, bound)?;
                 tx.append_stage_receipt(
                     &id,
@@ -2838,7 +2889,6 @@ impl Operations {
                 let gid2 = gid.clone();
                 let env2 = env.clone();
                 let r2 = resolved.clone();
-                let now = s.wall();
                 let b = self
                     .write(move |tx, _| {
                         let Some(g) = tx.grant(&gid2)? else {
@@ -2846,8 +2896,7 @@ impl Operations {
                         };
                         let ancestors = ancestry(tx, &g)?;
                         let policies = tx.policies_for(&r2.profile, &env2)?;
-                        let bound =
-                            grant_bound(&g, &ancestors, merged_policy(&policies, now).as_ref());
+                        let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
                         anchor_bound(tx, &gid2, bound)
                     })
                     .await?;
@@ -2931,45 +2980,51 @@ impl Operations {
                 let Some(mut g) = tx.grant(&gid)? else {
                     return Err(conflict("grant missing"));
                 };
-                let refusal =
-                    match activation_refusal(tx, &env, &adapters, &resolved, &g, now, attached)? {
-                        Some(r) => Some(r),
-                        None => {
-                            // Continuous admission of the persisted anchor at the
-                            // accepted observation and at a fresh reading (stricter).
-                            match tx.grant_anchor(&gid)? {
-                                None => Some(Refusal::new(
-                                    OpError::new(
-                                        Code::TimeUncertain,
-                                        "time uncertain: the grant has no anchor in this boot",
-                                    )
-                                    .with_resource("clock", None),
-                                    None,
-                                )),
-                                Some(anchor) => {
-                                    let a1 = dtime::admission(&anchor, &safe.anchor);
-                                    let a2 = dtime::admission(&anchor, &clock.observe());
-                                    if a1 == Admission::Expired || a2 == Admission::Expired {
-                                        Some(Refusal::new(
-                                            OpError::new(
-                                                Code::CredentialExpired,
-                                                "the grant reached its deadline",
-                                            )
-                                            .with_resource("grant", Some(gid.to_string())),
-                                            Some(GrantEvent::DeadlineReached),
-                                        ))
-                                    } else if a1 == Admission::NeedsAnchor
-                                        || a2 == Admission::NeedsAnchor
-                                    {
-                                        // Another boot since the anchor: retry later.
-                                        return Ok(Some(Err(None)));
-                                    } else {
-                                        None
-                                    }
+                let activation = if attached {
+                    Activation::NewBinding
+                } else {
+                    Activation::NewGrant
+                };
+                let refusal = match activation_refusal(
+                    tx, &env, &adapters, &resolved, &g, now, activation,
+                )? {
+                    Some(r) => Some(r),
+                    None => {
+                        // Continuous admission of the persisted anchor at the
+                        // accepted observation and at a fresh reading (stricter).
+                        match tx.grant_anchor(&gid)? {
+                            None => Some(Refusal::new(
+                                OpError::new(
+                                    Code::TimeUncertain,
+                                    "time uncertain: the grant has no anchor in this boot",
+                                )
+                                .with_resource("clock", None),
+                                None,
+                            )),
+                            Some(anchor) => {
+                                let a1 = dtime::admission(&anchor, &safe.anchor);
+                                let a2 = dtime::admission(&anchor, &clock.observe());
+                                if a1 == Admission::Expired || a2 == Admission::Expired {
+                                    Some(Refusal::new(
+                                        OpError::new(
+                                            Code::CredentialExpired,
+                                            "the grant reached its deadline",
+                                        )
+                                        .with_resource("grant", Some(gid.to_string())),
+                                        Some(GrantEvent::DeadlineReached),
+                                    ))
+                                } else if a1 == Admission::NeedsAnchor
+                                    || a2 == Admission::NeedsAnchor
+                                {
+                                    // Another boot since the anchor: retry later.
+                                    return Ok(Some(Err(None)));
+                                } else {
+                                    None
                                 }
                             }
                         }
-                    };
+                    }
+                };
                 if let Some(refusal) = refusal {
                     if refusal.error.code == Code::TimeUncertain {
                         return Ok(Some(Err(None)));
@@ -3303,6 +3358,22 @@ impl Operations {
                     settle_failed(tx, emit, &mut op, &err, now, retention)?;
                     return Ok(Err(err.with_operation(id2.clone())));
                 }
+                // ⟨r2.3⟩ §13.6 item 1: the waiting grant is a new grant, which a
+                // pause refuses with POLICY_PAUSED. The pause is not an expiry and
+                // terminates nothing: the operation keeps waiting (until its
+                // deadline, a revoke, or a resume and a fresh decision), and no
+                // decision record is issued while the policy is paused.
+                let policies = tx.policies_for(&resolved.profile, &env)?;
+                if let Some(p) = merged_policy(&policies)
+                    && matches!(p.pause, PauseState::Paused { .. })
+                {
+                    return Ok(Err(OpError::new(
+                        Code::PolicyPaused,
+                        "the standing policy is paused; the request keeps waiting",
+                    )
+                    .with_resource("policy", Some(p.id.to_string()))
+                    .with_operation(id2.clone())));
+                }
                 let mine: Vec<DecisionRecord> = tx
                     .pending_decisions()?
                     .into_iter()
@@ -3420,6 +3491,7 @@ impl Operations {
                     heimdall_contract::ipc::capability::EVENTS_V1,
                     heimdall_contract::ipc::capability::OWNER_POLICY_V1,
                     heimdall_contract::ipc::capability::SCHEMA_DISCOVERY_V1,
+                    heimdall_contract::ipc::capability::SERVICE_CONTROL_V1,
                 ],
                 "schemas": heimdall_contract::schema::public_schemas()
                     .iter()
@@ -3747,7 +3819,7 @@ impl Operations {
                 };
                 let ancestors = ancestry(tx, &g)?;
                 let policies = tx.policies_for(&b.profile, &env)?;
-                let bound = grant_bound(&g, &ancestors, merged_policy(&policies, now).as_ref());
+                let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
                 let bound = anchor_bound(tx, &g.id, bound)?;
                 Ok(Some((g.id, bound, g.state.permits_use())))
             })
@@ -3815,11 +3887,19 @@ impl Operations {
                 binding: Some(b.id.clone()),
                 adapter: None,
             };
-            // An existing binding is not a new activation: pause does not stop it,
-            // revocation, generation, deadline and cutoff do.
-            let mut refusal = activation_refusal(tx, &env, &adapters, &resolved, &g, now, true)?
-                .map(|r| r.error)
-                .filter(|e| e.code != Code::PolicyPaused);
+            // An existing binding is not a new activation (ADR-0006 §13.6 item 1):
+            // a pause does not stop it (nor its re-validation); revocation and
+            // `min(deadline, cutoff)` do, the latter as CREDENTIAL_EXPIRED.
+            let mut refusal = activation_refusal(
+                tx,
+                &env,
+                &adapters,
+                &resolved,
+                &g,
+                now,
+                Activation::Existing,
+            )?
+            .map(|r| r.error);
             if refusal.is_none() {
                 let anchor = tx.grant_anchor(&g.id)?;
                 let adm = anchor.map(|a| {
@@ -3853,7 +3933,7 @@ impl Operations {
             }
             let ancestors = ancestry(tx, &g)?;
             let policies = tx.policies_for(&b.profile, &env)?;
-            let bound = grant_bound(&g, &ancestors, merged_policy(&policies, now).as_ref());
+            let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
             let data = ensure_data(&b, &g, &Facts::conservative(&g, now), bound);
             let value = serde_json::to_value(&data)?;
             settle_succeeded(tx, emit, &mut op, Code::AccessReady, value, now, retention)
@@ -4745,8 +4825,7 @@ impl Operations {
                         Some(p) => tx.policies_for(p, &env)?,
                         None => Vec::new(),
                     };
-                    let bound =
-                        grant_bound(&g, &ancestors, merged_policy(&policies, wall).as_ref());
+                    let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
                     let bound = anchor_bound(tx, &g.id, bound)?;
                     let anchor = tx.grant_anchor(&g.id)?;
                     out.push((g, bound, anchor));
@@ -5007,7 +5086,7 @@ impl Operations {
                     Some(p) => tx.policies_for(p, &env)?,
                     None => Vec::new(),
                 };
-                let bound = grant_bound(&g, &ancestors, merged_policy(&policies, now).as_ref());
+                let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
                 let bound = anchor_bound(tx, &gid2, bound)?;
                 Ok(Some((
                     g.state.permits_issuance(),
@@ -5115,8 +5194,32 @@ fn run_issuance_check(
         Some(p) => tx.policies_for(p, env)?,
         None => Vec::new(),
     };
-    let merged = merged_policy(&policies, now);
-    let policy = merged.as_ref();
+    // ⟨r2.3⟩ §13.6 item 1: issuance within an existing grant (renewal, re-issue
+    // under ADR-0005 §3.7) is continuing work and does not see a pause; a new
+    // activation does.
+    let view = if facts.new_activation {
+        merged_policy(&policies)
+    } else {
+        continuing_policy(&policies)
+    };
+    let policy = view.as_ref();
+    // §13.5 ruling 2 with §13.6 item 5: every change to an applicable policy
+    // moves the generation, so a chain validated at the current generation was
+    // validated against the current applicable revision. That revision is then the
+    // expected one (and the one the validated copy carries); a chain that failed
+    // re-validation keeps its recorded revision, so a changed policy refuses.
+    let mut subject = subject;
+    let mut expected_policy_revision = ctx.expected_policy_revision;
+    if !revalidation_failed
+        && let Some(p) = policy.filter(|p| Some(&p.profile) == ctx.profile.as_ref())
+    {
+        if let AuthorizationSource::StandingPolicy { revision } = &mut subject.source {
+            *revision = p.revision;
+        }
+        if expected_policy_revision.is_some() {
+            expected_policy_revision = Some(p.revision);
+        }
+    }
     let tombstoned = tx.denied_ancestor(&grant.id)?.is_some();
     // Continuous admission from the **same** observation the gate assessed.
     let admission = match (safe, tx.grant_anchor(&grant.id)?) {
@@ -5129,7 +5232,7 @@ fn run_issuance_check(
         parent,
         ancestors,
         policy,
-        expected_policy_revision: ctx.expected_policy_revision,
+        expected_policy_revision,
         current_generation,
         tombstoned,
         pair,

@@ -526,6 +526,21 @@ pub struct ConfirmTimeRequest {
     pub observed_wall: Timestamp,
 }
 
+/// Ask the runtime to stop (ADR-0006 §13.6 item 8; capability
+/// [`crate::ipc::capability::SERVICE_CONTROL_V1`]).
+///
+/// Accepted only from the owner principal on the control endpoint (never from a
+/// limited consumer), on any session (attended or not: stopping the service is an
+/// availability action, not a widening of authority; a same-user process could end
+/// the process anyway). Idempotent: a repeated request while the runtime is
+/// draining answers `OK` again. The runtime answers `OK {"stopping": true, ...}`
+/// first, then drains gracefully: it stops accepting, lets in-flight operations
+/// reach a durable stage (bounded; anything still running resumes through restart
+/// recovery), persists, removes its advertisement and endpoints, and exits 0.
+/// Not an operation: no operation ID, no idempotency record.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ShutdownRequest {}
+
 /// A request sent over the control endpoint. The variant is the operation kind.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -553,6 +568,9 @@ pub enum Request {
     Decide(DecideRequest),
     /// Attended confirmation of the current time (attended sessions only).
     ConfirmTime(ConfirmTimeRequest),
+    /// Graceful runtime stop (owner principal, control endpoint, any session;
+    /// needs the negotiated `service-control/1` capability).
+    Shutdown(ShutdownRequest),
 }
 
 impl Request {
@@ -571,6 +589,19 @@ impl Request {
             Request::Policy(_) => "policy",
             Request::Decide(_) => "decide",
             Request::ConfirmTime(_) => "confirm_time",
+            Request::Shutdown(_) => "shutdown",
+        }
+    }
+
+    /// The capability a session must have negotiated to send this request, when it
+    /// needs one beyond `operations/1` (ADR-0006 §2.4): `Shutdown` needs
+    /// `service-control/1`. A session without it gets `SCHEMA_UNSUPPORTED` and the
+    /// request is never dispatched.
+    #[must_use]
+    pub fn required_capability(&self) -> Option<&'static str> {
+        match self {
+            Request::Shutdown(_) => Some(crate::ipc::capability::SERVICE_CONTROL_V1),
+            _ => None,
         }
     }
 
@@ -601,9 +632,93 @@ impl Request {
     }
 
     /// Whether the request can have external effects (and therefore gets an
-    /// operation ID and journal entry).
+    /// operation ID and journal entry). `Shutdown` is a runtime lifecycle request,
+    /// not a journaled operation: it gets neither.
     #[must_use]
     pub fn is_effectful(&self) -> bool {
-        !matches!(self, Request::Inspect(_) | Request::Observe(_))
+        !matches!(
+            self,
+            Request::Inspect(_) | Request::Observe(_) | Request::Shutdown(_)
+        )
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::envelope::Envelope;
+    use crate::ipc::{ClientMessage, ServerMessage, capability};
+
+    /// ADR-0006 §13.6 item 8: `{"op":"shutdown"}` is the whole wire form, it needs
+    /// `service-control/1`, it is not attended-only, not a widening action and not
+    /// a journaled operation.
+    #[test]
+    fn shutdown_wire_form_and_predicates() {
+        let r: Request = serde_json::from_str(r#"{"op":"shutdown"}"#).unwrap();
+        assert_eq!(r, Request::Shutdown(ShutdownRequest {}));
+        assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"op":"shutdown"}"#);
+        assert_eq!(r.kind(), "shutdown");
+        assert_eq!(
+            r.required_capability(),
+            Some(capability::SERVICE_CONTROL_V1)
+        );
+        assert_eq!(capability::SERVICE_CONTROL_V1, "service-control/1");
+        assert!(!r.requires_attended_session());
+        assert!(!r.is_widening_policy_action());
+        assert!(!r.is_effectful());
+        // Unknown fields are tolerated (ADR-0006 §9).
+        let extra: Request = serde_json::from_str(r#"{"op":"shutdown","later":1}"#).unwrap();
+        assert_eq!(extra, r);
+        // No other request needs a capability beyond operations/1.
+        let decide = Request::Decide(DecideRequest {
+            decision_id: crate::ids::DecisionId::from_random_bytes([1; 16]),
+            verdict: Verdict::Deny,
+        });
+        assert_eq!(decide.required_capability(), None);
+    }
+
+    /// The checked-in examples (`schemas/examples/*shutdown*.json`) round-trip
+    /// exactly through the typed model.
+    #[test]
+    fn shutdown_examples_round_trip() {
+        fn exact<T: serde::Serialize + serde::de::DeserializeOwned>(text: &str) -> T {
+            let v: serde_json::Value = serde_json::from_str(text).unwrap();
+            let typed: T = serde_json::from_value(v.clone()).unwrap();
+            assert_eq!(serde_json::to_value(&typed).unwrap(), v);
+            typed
+        }
+        let r: Request = exact(include_str!(
+            "../../../schemas/examples/request.shutdown.json"
+        ));
+        assert_eq!(r, Request::Shutdown(ShutdownRequest {}));
+        let m: ClientMessage = exact(include_str!(
+            "../../../schemas/examples/ipc.client-message.request-shutdown.json"
+        ));
+        assert!(matches!(
+            m,
+            ClientMessage::Request {
+                request: Request::Shutdown(_),
+                ..
+            }
+        ));
+        let s: ServerMessage = exact(include_str!(
+            "../../../schemas/examples/ipc.server-message.response-shutdown.json"
+        ));
+        let ServerMessage::Response { envelope, .. } = s else {
+            panic!("a response");
+        };
+        let envelope: Envelope<serde_json::Value> = envelope;
+        assert_eq!(envelope.code, crate::Code::Ok);
+        assert_eq!(envelope.data["stopping"], true);
+    }
+
+    /// The generated request schema lists `shutdown` as an `op`.
+    #[test]
+    fn request_schema_names_shutdown() {
+        let schema = schemars::schema_for!(Request);
+        let text = serde_json::to_string(&schema).unwrap();
+        assert!(text.contains("\"shutdown\""), "{text}");
+        assert!(text.contains("ShutdownRequest"), "{text}");
     }
 }

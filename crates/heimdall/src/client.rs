@@ -106,8 +106,10 @@ impl Client {
         }
     }
 
-    /// Mark the session attended (sent only by the flow that shows the owner
-    /// prompt, right before the decision it confirms; ADR-0006 §3.1).
+    /// Mark the session attended. Sent only on an interactive TTY session, first,
+    /// before an owner-present action whose decision this session then shows
+    /// and confirms (ADR-0006 §3.1, §13.6 item 7); attendance authorizes nothing
+    /// by itself.
     pub async fn attend(&mut self) -> Envelope<serde_json::Value> {
         match self.inner.attend().await {
             Ok(env) => env,
@@ -151,6 +153,17 @@ fn launch_error(e: &LaunchError) -> Envelope<ErrorData> {
 /// Connect to the runtime, starting it first when `allow_start` (effectful
 /// commands only) and none is serving.
 pub async fn connect(ctx: &Ctx, allow_start: bool) -> Result<Client, Box<Envelope<ErrorData>>> {
+    connect_requiring(ctx, allow_start, &[]).await
+}
+
+/// [`connect`], also requiring `extra` capabilities in the hello (a runtime that
+/// lacks one rejects the hello with `SCHEMA_UNSUPPORTED`; `service stop` requires
+/// `service-control/1`).
+pub async fn connect_requiring(
+    ctx: &Ctx,
+    allow_start: bool,
+    extra: &[&str],
+) -> Result<Client, Box<Envelope<ErrorData>>> {
     let paths = ctx.paths()?;
     if allow_start {
         paths.ensure().map_err(|e| {
@@ -188,7 +201,10 @@ pub async fn connect(ctx: &Ctx, allow_start: bool) -> Result<Client, Box<Envelop
     .map_err(|e| Box::new(launch_error(&e)))?;
 
     let stream = open_stream(&paths).await?;
-    let required: BTreeSet<String> = [capability::OPERATIONS_V1.to_owned()].into_iter().collect();
+    let required: BTreeSet<String> = std::iter::once(capability::OPERATIONS_V1)
+        .chain(extra.iter().copied())
+        .map(str::to_owned)
+        .collect();
     let inner = ControlClient::handshake(
         stream,
         PeerInfo {

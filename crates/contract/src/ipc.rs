@@ -49,6 +49,10 @@ pub mod capability {
     pub const OWNER_POLICY_V1: &str = "owner-policy/1";
     /// Schema export on demand (R-AP-08).
     pub const SCHEMA_DISCOVERY_V1: &str = "schema-discovery/1";
+    /// Owner-channel service control: `Request::Shutdown` (ADR-0006 §2.4, §13.6
+    /// item 8). A session that did not negotiate it cannot send `Shutdown`
+    /// (`SCHEMA_UNSUPPORTED`).
+    pub const SERVICE_CONTROL_V1: &str = "service-control/1";
 }
 
 /// Identifies the peer software; informational only, never authority (spec §4.2).

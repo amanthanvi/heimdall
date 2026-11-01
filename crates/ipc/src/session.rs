@@ -18,6 +18,12 @@
 //!   the excess request is answered `BACKPRESSURE` with `retry_after_ms` and is
 //!   not dispatched. At most `max_subscriptions` subscriptions exist; the excess
 //!   subscribe is answered `BACKPRESSURE`.
+//! * A request that needs a capability beyond `operations/1`
+//!   (`Request::required_capability`: `Shutdown` needs `service-control/1`) is
+//!   answered `SCHEMA_UNSUPPORTED` and never dispatched unless the session
+//!   negotiated that capability (ADR-0006 §2.4, §13.6 item 8). After each
+//!   dispatched request's response is written, [`Dispatcher::replied`] runs (the
+//!   runtime starts a requested drain there).
 //! * When the peer disconnects, outstanding dispatch futures are dropped (the
 //!   application layer is cancellation-safe: a dropped caller never changes
 //!   operation state, plan §6.3 #7); on `shutdown` the server sends
@@ -98,6 +104,7 @@ pub fn server_capabilities() -> BTreeSet<String> {
         capability::EVENTS_V1,
         capability::OWNER_POLICY_V1,
         capability::SCHEMA_DISCOVERY_V1,
+        capability::SERVICE_CONTROL_V1,
     ]
     .into_iter()
     .map(str::to_owned)
@@ -471,6 +478,7 @@ pub struct ControlConnection<S> {
 enum Done {
     Response {
         seq: u64,
+        kind: &'static str,
         envelope: Envelope<serde_json::Value>,
     },
     Subscribed {
@@ -653,14 +661,16 @@ where
                 return Err(e);
             }
         };
-        match negotiate(&hello, principal.clone(), environment.clone(), server) {
+        let negotiated = match negotiate(&hello, principal.clone(), environment.clone(), server) {
             Ok(server_hello) => {
+                let negotiated = server_hello.capabilities.clone();
                 write_frame(
                     &mut wire,
                     &ServerMessage::Hello(server_hello),
                     MAX_HELLO_FRAME_BYTES,
                 )
                 .await?;
+                negotiated
             }
             Err(reject) => {
                 let _ = write_frame(
@@ -671,7 +681,7 @@ where
                 .await;
                 return Ok(());
             }
-        }
+        };
         wire.codec_mut().max = MAX_CONTROL_FRAME_BYTES;
 
         // ---- request / subscription loop ---------------------------------
@@ -702,9 +712,15 @@ where
                 }
                 Some(done) = inflight.next(), if !inflight.is_empty() => {
                     match done {
-                        Done::Response { seq, envelope } => {
+                        Done::Response { seq, kind, envelope } => {
+                            let code = envelope.code.clone();
                             let msg = ServerMessage::Response { in_reply_to: seq, envelope };
-                            if let Err(e) = send_or_internal(&mut wire, msg).await {
+                            let sent = send_or_internal(&mut wire, msg).await;
+                            // After the reply was written (or could not be): the
+                            // runtime starts a requested drain only now, so the
+                            // requester reads its answer before any goodbye.
+                            dispatcher.replied(&session, kind, &code);
+                            if let Err(e) = sent {
                                 break Err(e);
                             }
                         }
@@ -827,16 +843,21 @@ where
                     };
                     let reply = match msg {
                         ClientMessage::Request { seq, request } => {
-                            if request.requires_attended_session() && !session.attended {
+                            if request.required_capability().is_some_and(|c| !negotiated.contains(c)) {
+                                // ADR-0006 §2.4, §13.6 item 8: a request outside the
+                                // negotiated capabilities is never dispatched.
+                                Some(response(seq, Code::SchemaUnsupported, "this request needs a capability the session did not negotiate"))
+                            } else if request.requires_attended_session() && !session.attended {
                                 // Defence in depth: never dispatched (ADR-0006 §2.3).
                                 Some(response(seq, Code::InteractionRequired, "this request requires an attended interactive session"))
                             } else if inflight.len() >= limits.max_inflight {
                                 Some(response(seq, Code::Backpressure, "too many requests in flight on this connection"))
                             } else {
                                 let session = session.clone();
+                                let kind = request.kind();
                                 inflight.push(Box::pin(async move {
                                     let envelope = dispatcher.dispatch(&session, request).await;
-                                    Done::Response { seq, envelope }
+                                    Done::Response { seq, kind, envelope }
                                 }));
                                 None
                             }
@@ -1072,6 +1093,15 @@ pub trait Dispatcher: Send + Sync {
         filter: EventFilter,
         from: Option<Cursor>,
     ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>>;
+
+    /// Called once per dispatched request, **after** its response frame was
+    /// written to the peer (or the write failed), with the request's kind and the
+    /// response code. The runtime starts a requested graceful drain here
+    /// (`Shutdown`, ADR-0006 §13.6 item 8), so the requester reads its `OK` before
+    /// the session's `Goodbye`. Must not block. Default: nothing.
+    fn replied(&self, session: &SessionInfo, request_kind: &'static str, code: &Code) {
+        let _ = (session, request_kind, code);
+    }
 }
 
 /// Why the server ended a client's session. Carried inside

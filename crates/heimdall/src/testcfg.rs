@@ -21,7 +21,8 @@
 //! policy `pol` (covers `h1` and `h2`; `h3` is added authority), and profile `ops`
 //! (`h1`) fully covered by policy `pol-ops`, once per store,
 //! and appends this process's PID to `<state>/test-service-starts` before the
-//! instance lock is taken (the single-child launcher test counts the lines).
+//! instance lock is taken (the single-child launcher test counts the lines). On
+//! Windows its pipes carry the `hmtest-` prefix before the random token.
 //!
 //! **Release builds refuse it.** Without `debug_assertions` nothing in this
 //! module references `heimdall-testkit`, so none of it is linked, and
@@ -386,6 +387,8 @@ mod enabled {
         if let Some(v) = env(STAGE_FAIL_ENV) {
             options.stage_hook = stage_fail(&v.to_string_lossy())?;
         }
+        // Windows: test runtimes' pipes are recognizable (`heimdall-hmtest-<random>`).
+        options.endpoint_prefix = TEST_PIPE_PREFIX.to_owned();
         Ok(Some(TestSetup { _private: () }))
     }
 
@@ -411,6 +414,9 @@ mod enabled {
         hung: AtomicBool,
         slow: Option<Duration>,
     }
+
+    /// Windows pipe-name prefix of a runtime under the test configuration.
+    const TEST_PIPE_PREFIX: &str = "hmtest-";
 
     /// Bound on the hang, so an abandoned test service still ends its call.
     const HANG_BOUND: Duration = Duration::from_secs(300);

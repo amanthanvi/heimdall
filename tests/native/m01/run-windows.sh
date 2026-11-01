@@ -9,13 +9,16 @@
 #   HM_SSH_CONFIG  ssh config for the Windows host (required unless HM_BUILD_ONLY=1)
 #   HM_HOST        ssh host alias in that config (required unless HM_BUILD_ONLY=1)
 #   HM_TASK        scratch directory name (default: M01-U10)
+#   HM_ONLY        optional space-separated list of test target names to run (default: all)
 #   HM_BUILD_ONLY  1 = cross-build and record the binaries' hashes, then stop (no ssh)
 #
 # Binaries: every test executable `cargo test --workspace --no-run` produces for the
-# target, except (recorded in skipped.txt with the reason):
-#   * e2e_cli_m01: runs the CLI at the compile-time path CARGO_BIN_EXE_heimdall (a
-#     path on the build host) and drives it with script(1) and a SIGTERM-based
-#     `service stop`; none of that exists on the Windows host.
+# target, plus the `heimdall.exe` CLI binary (copied next to them; the e2e suite
+# finds it through HEIMDALL_E2E_BIN), except (recorded in skipped.txt with the
+# reason):
+#   * e2e_cli_m01's pseudo-terminal cases are `cfg(unix)` (script(1)); every other
+#     e2e case runs natively against heimdall.exe (`service stop` sends
+#     Request::Shutdown over the named pipe; ADR-0006 §13.6 item 8).
 #   * contracts: reads schemas/ and tests/contracts/golden at the compile-time
 #     CARGO_MANIFEST_DIR path (build host); platform-neutral, run on the build host.
 #   * integration_runtime::config_schema_export_matches_checked_in_file: same reason.
@@ -30,8 +33,10 @@
 # TEMP/TMP pointed inside the latter; both are removed at the end, pass or fail.
 # Nothing is elevated; no service, registry, firewall, ssh-agent state or ~/.ssh is
 # touched; no `wsl --shutdown`. Pipes created by the tests are per-process names
-# that die with the test process. The script records (existence only) whether
-# %LOCALAPPDATA%\heimdall existed before and after the run.
+# that die with the test process; runtime pipes carry the `heimdall-hmtest-`
+# prefix (counted before and after the run). The script records (existence only)
+# whether %LOCALAPPDATA%\heimdall existed before and after the run; every e2e and
+# runtime test uses its own temporary HEIMDALL_HOME under the scratch TEMP.
 #
 # Output (all redacted: <winuser>, <winhost>, <winhome>, <wsluser>, <wslhome>,
 # <wslhost>, S-1-5-21-<redacted>, build host <home>/<user>): build.txt (build log,
@@ -133,20 +138,30 @@ record "cargo test --target $triple --workspace --no-run --locked (zig linker/CC
 jq -r 'select(.reason == "compiler-artifact" and .profile.test == true and .executable != null)
        | [(if (.target.kind | index("test")) then .target.name else .target.name + "-unit" end), .executable] | @tsv' \
     "$shim/build.json" | sort -u >"$shim/all.tsv"
+cli_exe=$(jq -r 'select(.reason == "compiler-artifact" and .profile.test == false and .executable != null
+       and .target.name == "heimdall" and (.target.kind | index("bin"))) | .executable' "$shim/build.json" | sort -u | head -1)
+[ -n "$cli_exe" ] && [ -f "$cli_exe" ] || { echo "the heimdall.exe CLI binary was not built" >&2; exit 1; }
+only=${HM_ONLY:-}
 : >"$shim/run.tsv"
 : >"$out/skipped.txt"
 while IFS=$'\t' read -r name exe; do
     case "$name" in
-        e2e_cli_m01) echo "$name: not run on Windows: it executes the CLI at the compile-time path CARGO_BIN_EXE_heimdall on the build host, uses script(1) for a pseudo-terminal and a SIGTERM-based 'service stop' (USAGE_ERROR on Windows in this build)" >>"$out/skipped.txt" ;;
         contracts) echo "$name: not run on Windows: it reads schemas/ and tests/contracts/golden at the compile-time CARGO_MANIFEST_DIR path on the build host (platform-neutral; run on the build host)" >>"$out/skipped.txt" ;;
-        *) printf '%s\t%s\n' "$name" "$exe" >>"$shim/run.tsv" ;;
+        *)
+            if [ -n "$only" ] && ! printf ' %s ' "$only" | grep -q " $name "; then
+                echo "$name: not selected (HM_ONLY)" >>"$out/skipped.txt"
+            else
+                printf '%s\t%s\n' "$name" "$exe" >>"$shim/run.tsv"
+            fi ;;
     esac
 done <"$shim/all.tsv"
 echo "integration_runtime::config_schema_export_matches_checked_in_file: skipped on Windows (reads schemas/configuration at the compile-time CARGO_MANIFEST_DIR path)" >>"$out/skipped.txt"
+echo "e2e_cli_m01 pseudo-terminal cases (non_interactive_with_a_pending_decision..., owner_prompt_on_a_pty..., interactive_ensure_on_a_pty..., widening_resume..._on_a_pty, time_confirmation_on_a_pty...): cfg(unix), not compiled for Windows (script(1)); the attendance order and prompt outcomes are covered by heimdall-unit cli::tests on every platform" >>"$out/skipped.txt"
 
 while IFS=$'\t' read -r name exe; do
     echo "$name.exe sha256: $(shasum -a 256 "$exe" | cut -d' ' -f1)" >>"$out/build.txt"
 done <"$shim/run.tsv"
+echo "heimdall.exe (CLI) sha256: $(shasum -a 256 "$cli_exe" | cut -d' ' -f1)" >>"$out/build.txt"
 echo "toolchain: $(rustc --version); zig $(zig version); target $triple" >>"$out/build.txt"
 if [ "$build_only" = 1 ]; then
     redact_build_log
@@ -159,7 +174,8 @@ ssh -F "$ssh_config" -o BatchMode=yes "$host" "mkdir -p \"\$HOME/hm-m00/$task\""
 while IFS=$'\t' read -r name exe; do
     scp -F "$ssh_config" -q "$exe" "$host:hm-m00/$task/$name.exe"
 done <"$shim/run.tsv"
-record "scp $(wc -l <"$shim/run.tsv" | tr -d ' ') test binaries to WSL scratch" 0
+scp -F "$ssh_config" -q "$cli_exe" "$host:hm-m00/$task/heimdall.exe"
+record "scp $(wc -l <"$shim/run.tsv" | tr -d ' ') test binaries and heimdall.exe to WSL scratch" 0
 names=$(cut -f1 "$shim/run.tsv" | tr '\n' ' ')
 
 set +e
@@ -178,11 +194,23 @@ wl=$wroot/hm-m00/$task
 mkdir -p "$wl/tmp"
 cp "$HOME/hm-m00/$task/"*.exe "$wl/"
 cd "$wl" || return 1
-TEMP=$(wslpath -w "$wl/tmp"); TMP=$TEMP; WSLENV=TEMP/w:TMP/w
-export TEMP TMP WSLENV
+TEMP=$(wslpath -w "$wl/tmp"); TMP=$TEMP
+HEIMDALL_E2E_BIN=$(wslpath -w "$wl/heimdall.exe")
+WSLENV=TEMP/w:TMP/w:HEIMDALL_E2E_BIN/w
+export TEMP TMP HEIMDALL_E2E_BIN WSLENV
+# Count of named pipes whose name starts with heimdall-hmtest- (names only; the
+# command is passed base64/UTF-16LE encoded so no quoting crosses WSL interop).
+test_pipes() {
+    local ps enc
+    ps='@([System.IO.Directory]::GetFiles("\\.\pipe\") | Where-Object { $_ -like "*\heimdall-hmtest-*" }).Count'
+    enc=$(printf '%s' "$ps" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)
+    /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -NonInteractive \
+        -EncodedCommand "$enc" 2>/dev/null | tr -d '\r'
+}
 echo "integrity=$(/mnt/c/Windows/System32/whoami.exe /groups | grep -o 'Medium Mandatory Level\|High Mandatory Level\|System Mandatory Level' | head -1)"
 echo "os=$(/mnt/c/Windows/System32/cmd.exe /c ver | tr -d '\r' | grep -v '^$')"
 echo "localappdata-heimdall-before=$heimdall_before"
+echo "test-pipes-before=$(test_pipes)"
 echo "---tests---"
 arc=0
 for b in "$@"; do
@@ -197,11 +225,12 @@ for b in "$@"; do
 done
 echo "all-tests-exit=$arc"
 leftover=0
-for b in "$@"; do
+for b in "$@" heimdall; do
     n=$(/mnt/c/Windows/System32/tasklist.exe /NH /FI "IMAGENAME eq $b.exe" | tr -d '\r' | grep -c -i "^$b\.exe" || true)
     leftover=$((leftover + n))
 done
 echo "leftover-test-processes=$leftover"
+echo "test-pipes-after=$(test_pipes)"
 echo "localappdata-heimdall-after=$([ -e "$wroot/heimdall" ] && echo present || echo absent)"
 echo "---redaction---"
 echo "winuser=$(/mnt/c/Windows/System32/cmd.exe /c 'echo %USERNAME%' | tr -d '\r')"

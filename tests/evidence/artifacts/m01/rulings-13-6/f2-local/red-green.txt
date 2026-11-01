@@ -1,0 +1,156 @@
+## RED (before implementation) 2026-11-01T04:51:40Z
+$ cargo test -p heimdall-ipc --locked --test integration_ipc_unix shutdown_needs
+test shutdown_needs_the_negotiated_service_control_capability ... FAILED
+thread 'shutdown_needs_the_negotiated_service_control_capability' (57340329) panicked at crates/ipc/../../tests/integration/ipc_unix.rs:2141:5:
+assertion failed: server_capabilities().contains(capability::SERVICE_CONTROL_V1)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.00s
+exit: 101 (cargo test exit code observed in the identical run above)
+
+## GREEN ipc capability gate + reply hook (2026-11-01T04:52:46Z)
+$ cargo test -p heimdall-ipc --locked --test integration_ipc_unix -- shutdown_needs reply_hook_runs
+test shutdown_needs_the_negotiated_service_control_capability ... ok
+test reply_hook_runs_after_the_response_so_the_requester_reads_ok_before_goodbye ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.01s
+exit: 0
+
+## MUTATION check: hook before the write (expected to fail) (2026-11-01T04:52:56Z)
+$ cargo test -p heimdall-ipc --locked --test integration_ipc_unix -- reply_hook_runs
+test reply_hook_runs_after_the_response_so_the_requester_reads_ok_before_goodbye ... FAILED
+thread 'reply_hook_runs_after_the_response_so_the_requester_reads_ok_before_goodbye' (57344197) panicked at crates/ipc/../../tests/integration/ipc_unix.rs:2285:9:
+assertion `left == right` failed: round 0: [Goodbye { code: ServiceUnavailable, message: "x" }]
+  left: 1
+ right: 2
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.00s
+error: test failed, to rerun pass `-p heimdall-ipc --test integration_ipc_unix`
+exit: 101
+
+## RED item 4 jitter (before implementation) (2026-11-01T04:54:18Z)
+$ cargo test -p heimdall-runtime --locked --test integration_runtime cleanup_retries_use_bounded_backoff_with_injected_jitter
+error[E0405]: cannot find trait `Jitter` in module `heimdall_runtime::supervisor`
+error: could not compile `heimdall-runtime` (test "integration_runtime") due to 1 previous error
+exit: 101
+
+## GREEN item 4 jitter (2026-11-01T04:54:52Z)
+$ cargo test -p heimdall-runtime --locked --test integration_runtime cleanup_retries_use_bounded_backoff_with_injected_jitter
+test u8b::cleanup_retries_use_bounded_backoff_with_injected_jitter ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.05s
+exit: 0
+
+## VERIFY item 4: Unavailable prepare answered once, not retried (2026-11-01T04:55:57Z)
+$ cargo test -p heimdall-runtime --locked --test integration_runtime unavailable_prepare_is_answered_once
+test u8b::unavailable_prepare_is_answered_once_and_never_retried_by_the_supervisor_or_a_restart ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 49 filtered out; finished in 0.60s
+exit: 0
+
+## RED item 8: Shutdown over the control socket (before runtime handling) (2026-11-01T04:56:32Z)
+$ cargo test -p heimdall-runtime --locked --test integration_runtime shutdown_from_the_owner
+test u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints ... FAILED
+thread 'u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints' (57358736) panicked at crates/runtime/../../tests/integration/runtime.rs:2570:9:
+assertion `left == right` failed: Envelope { schema_version: SchemaVersion("1"), operation_id: None, state: Failed, code: UsageError, data: Object {"error": Object {"code": String("USAGE_ERROR"), "effect_status": String("none"), "message": String("this request kind is not supported by this runtime"), "next": Object {"action": String("fix_request")}, "retryable": Bool(false)}}, warnings: [], next: Some(NextAction { action: "fix_request", operation_id: None, binding_id: None, decision_ref: None, retry_after_ms: None, cursor: None }) }
+  left: UsageError
+ right: Ok
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 50 filtered out; finished in 0.04s
+error: test failed, to rerun pass `-p heimdall-runtime --test integration_runtime`
+exit: 101
+
+## GREEN item 8: Shutdown over the control socket (2026-11-01T04:56:59Z)
+$ cargo test -p heimdall-runtime --locked --test integration_runtime shutdown_from_the_owner
+test u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 50 filtered out; finished in 0.05s
+exit: 0
+
+## GREEN item 8: limited consumer refused, idempotent, in-flight completes (2026-11-01T04:57:35Z)
+$ cargo test -p heimdall-runtime --locked --test integration_runtime shutdown_
+test u8b::shutdown_refused_for_a_limited_consumer_and_idempotent_for_the_owner ... ok
+test u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints ... ok
+test u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit ... FAILED
+thread 'u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit' (57363419) panicked at crates/runtime/../../tests/integration/runtime.rs:2767:9:
+assertion `left == right` failed: the effect is not applied yet
+  left: 1
+ right: 0
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 50 filtered out; finished in 0.87s
+error: test failed, to rerun pass `-p heimdall-runtime --test integration_runtime`
+exit: 101
+
+## GREEN item 8: in-flight durable step completes before exit (2026-11-01T04:57:49Z)
+$ cargo test -p heimdall-runtime --locked --test integration_runtime shutdown_
+test u8b::shutdown_refused_for_a_limited_consumer_and_idempotent_for_the_owner ... ok
+test u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints ... ok
+test u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 50 filtered out; finished in 0.89s
+exit: 0
+
+## RED item 7: CLI attend order seam (before refactor) (2026-11-01T04:59:31Z)
+$ cargo test -p heimdall --locked --bin heimdall cli::tests
+error[E0405]: cannot find trait `Session` in this scope
+error[E0405]: cannot find trait `Prompter` in this scope
+error[E0425]: cannot find function `ensure_flow` in this scope
+error[E0425]: cannot find function `ensure_flow` in this scope
+error[E0425]: cannot find function `ensure_flow` in this scope
+error[E0425]: cannot find function `policy_flow` in this scope
+error[E0425]: cannot find function `decide_flow` in this scope
+error[E0425]: cannot find function `confirm_time_flow` in this scope
+error[E0425]: cannot find function `policy_flow` in this scope
+error[E0425]: cannot find function `policy_flow` in this scope
+error[E0425]: cannot find function `policy_flow` in this scope
+error[E0425]: cannot find function `decide_flow` in this scope
+error[E0425]: cannot find function `decide_flow` in this scope
+error[E0425]: cannot find function `confirm_time_flow` in this scope
+error[E0425]: cannot find function `confirm_time_flow` in this scope
+error: could not compile `heimdall` (bin "heimdall" test) due to 15 previous errors
+exit: 101
+
+## RED item 7: e2e pty (old CLI order: request first, then Attend) (2026-11-01T05:00:00Z)
+$ cargo test -p heimdall --locked --test e2e_cli_m01 -- interactive_ensure_on_a_pty widening_resume_needs
+test interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready ... FAILED
+test widening_resume_needs_an_owner_decision_completed_on_a_pty ... FAILED
+thread 'interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready' (57381126) panicked at crates/heimdall/../../tests/e2e/cli_m01.rs:813:5:
+thread 'widening_resume_needs_an_owner_decision_completed_on_a_pty' (57381127) panicked at crates/heimdall/../../tests/e2e/cli_m01.rs:859:5:
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.15s
+error: test failed, to rerun pass `-p heimdall --test e2e_cli_m01`
+exit: 101
+
+## GREEN item 7: CLI attend order seam (2026-11-01T05:00:46Z)
+$ cargo test -p heimdall --locked --bin heimdall cli::tests
+test cli::tests::interactive_needs_a_terminal_and_no_opt_out ... ok
+test cli::tests::pending_decision_needs_an_interaction_code_and_a_reference ... ok
+test cli::tests::not_confirmed_is_interaction_required_with_the_decision_ref ... ok
+test cli::tests::interactive_ensure_attends_before_the_request_and_decides_only_on_yes ... ok
+test cli::tests::non_interactive_or_non_tty_never_attends_or_prompts ... ok
+test cli::tests::interactive_ensure_sends_nothing_more_unless_confirmed ... ok
+test cli::tests::command_tree_is_consistent ... ok
+test cli::tests::owner_present_policy_and_decision_flows_attend_first ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+exit: 0
+
+## GREEN item 7: e2e pty cases (2026-11-01T05:00:56Z)
+$ cargo test -p heimdall --locked --test e2e_cli_m01 -- pty
+test widening_resume_needs_an_owner_decision_completed_on_a_pty ... ok
+test interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready ... ok
+test time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines ... ok
+test owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.44s
+exit: 0
+
+## RED item 8: CLI service stop (old: SIGTERM, no 'via') (2026-11-01T05:01:20Z)
+$ cargo test -p heimdall --locked --test e2e_cli_m01 -- service_stop_sends unavailable_prepare_exits
+test service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent ... FAILED
+test unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation ... FAILED
+thread 'service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent' (57391299) panicked at crates/heimdall/../../tests/e2e/cli_m01.rs:1368:5:
+assertion `left == right` failed: {"code":"OK","data":{"pid":25570,"running":false,"stopped":true},"next":null,"schema_version":"1","state":"succeeded","warnings":[]}
+  left: Null
+ right: "control"
+thread 'unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation' (57391300) panicked at crates/heimdall/../../tests/e2e/cli_m01.rs:371:9:
+assertion `left == right` failed: Out { code: 0, stdout: "{\"schema_version\":\"1\",\"state\":\"succeeded\",\"code\":\"OK\",\"data\":{\"pid\":25571,\"running\":false,\"stopped\":true},\"warnings\":[],\"next\":null}\n", stderr: "" }
+  left: Null
+ right: "control"
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 15 filtered out; finished in 1.68s
+error: test failed, to rerun pass `-p heimdall --test e2e_cli_m01`
+exit: 101
+
+## GREEN item 8: CLI service stop via Shutdown (2026-11-01T05:02:06Z)
+$ cargo test -p heimdall --locked --test e2e_cli_m01 -- service_stop_sends unavailable_prepare_exits
+test service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent ... ok
+test unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 1.68s
+exit: 0

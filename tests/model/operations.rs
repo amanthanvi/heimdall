@@ -683,12 +683,18 @@ async fn a19_decision_issued_under_an_older_generation_is_stale() {
     let stale_deny = err(decide(&w, &attended(501), &dec, Verdict::Deny).await);
     assert_eq!(stale_deny.code, Code::DecisionStale);
     assert_eq!(w.effects(), 0);
-    // The waiting operation can never complete under the old generation.
+    // The waiting operation can never complete under the old generation. ADR-0006
+    // §13.6 items 1–2: the pause is not an expiry; the operation keeps waiting and
+    // a same-key retry is refused as a new grant under the pause.
     let replay = err(w
         .ops
         .ensure(&attended(501), approval_req("req-d", "work-d"))
         .await);
-    assert_eq!(replay.code, Code::CredentialExpired);
+    assert_eq!(replay.code, Code::PolicyPaused);
+    assert_eq!(
+        w.op(replay.operation_id.as_ref().unwrap()).state,
+        OperationState::AwaitingApproval
+    );
 }
 
 #[tokio::test]
@@ -2708,13 +2714,15 @@ async fn g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant() {
         .unwrap_or_else(|e| panic!("valid_before at the cutoff refused: {}", e.code));
     assert!(at_cutoff.bounds.valid_before <= cutoff);
     // Once the cutoff passes, issuance stops although the chosen policy has none.
+    // ADR-0006 §13.6 item 1: renewal within the existing grant past its bound is
+    // CREDENTIAL_EXPIRED (POLICY_CUTOFF is for new activations).
     w.clock.advance(31 * MINUTE);
     let after = w
         .ops
         .reserve_issuance(u10_issuance(&ready.grant_id, shift(cutoff, 60)))
         .await
         .unwrap_err();
-    assert_eq!(after.code, Code::PolicyCutoff);
+    assert_eq!(after.code, Code::CredentialExpired);
     w.events();
 }
 
@@ -2922,6 +2930,10 @@ fn supervisor_with(
         hook,
         heimdall_app::reconcile::Backoff::default(),
     )
+    // ADR-0006 §13.6 item 4: production retries are jittered; a unit of 1.0 pins
+    // the unjittered schedule so these cases can assert exact offsets (the jitter
+    // bounds are covered by integration_runtime::jitter_props).
+    .with_jitter(Arc::new(heimdall_runtime::supervisor::FixedJitter(1.0)))
 }
 
 /// N06 (a) control: with no race the executor deletes generation N exactly once
@@ -3139,5 +3151,811 @@ async fn g02_a_revoked_child_frees_its_parent_without_revoking_it() {
             .unwrap()
             .is_empty()
     );
+    w.events();
+}
+
+// =================================================================================
+// ADR-0006 §13.6 rulings (2026-11-01), unit M01-rulings-13-6-F1: pause versus
+// cutoff versus revoke for existing work (item 1), the child-owned parent
+// reference (item 3), several applicable policies (item 5), cutoff direction and
+// time (item 6).
+// =================================================================================
+
+fn r136_issuance(
+    grant: &heimdall_contract::ids::GrantId,
+    valid_before: Timestamp,
+    new_activation: bool,
+) -> heimdall_app::operations::IssuanceRequest {
+    let mut r = u10_issuance(grant, valid_before);
+    r.facts.new_activation = new_activation;
+    r
+}
+
+async fn r136_ready(w: &World, rid: &str, work: &str, host: &str, until: &str) -> EnsureData {
+    let mut req = ensure_req(rid, work, &[(host, "deploy")]);
+    req.until = Some(DeadlineIntent::Duration(until.into()));
+    ok(w.ops.ensure(&unattended(501), req).await).data
+}
+
+async fn r136_bind(
+    w: &World,
+    binding: &heimdall_contract::ids::BindingId,
+    rid: &str,
+) -> OpResult<EnsureData> {
+    w.ops
+        .bind(
+            &unattended(501),
+            BindRequest {
+                binding_id: binding.clone(),
+                form: BindForm::Materialize,
+                request_id: RequestId::parse(rid).unwrap(),
+            },
+        )
+        .await
+}
+
+async fn r136_policy(
+    w: &World,
+    caller: &Caller,
+    action: PolicyAction,
+) -> OpResult<serde_json::Value> {
+    w.ops.policy(caller, action).await
+}
+
+/// A second policy for the same profile and environment (spec §13.4: separate
+/// policy records are legitimate), sorted after `pol`.
+fn r136_second_policy(w: &World, id: &str) -> PolicyId {
+    let pid = PolicyId::parse(id).unwrap();
+    w.store
+        .transaction(|tx| {
+            tx.upsert_policy(
+                &StandingPolicy {
+                    id: pid.clone(),
+                    revision: PolicyRevision(1),
+                    profile: ProfileId::parse("dev").unwrap(),
+                    workspace: None,
+                    scope: Scope {
+                        pairs: policy_pairs(),
+                        capabilities: ssh_only(),
+                    },
+                    environments: [env_id()].into_iter().collect(),
+                    max_window: 2 * HOUR,
+                    pause: PauseState::Active,
+                    cutoff_at: None,
+                    source: PolicySource::SetupDefault,
+                },
+                false,
+            )
+        })
+        .unwrap();
+    pid
+}
+
+/// §13.6 item 1: after a pause, a running grant and its existing binding continue
+/// until their deadline: the binding materializes again (fresh bind request), and
+/// issuance within the grant (renewal, `new_activation: false`) reserves and
+/// publishes. Re-validation under the pause never maps it to
+/// `CREDENTIAL_EXPIRED`. Only the deadline ends the grant.
+#[tokio::test]
+async fn r136_1_pause_lets_an_existing_binding_bind_and_issue_until_its_deadline() {
+    let w = World::new().await;
+    let a = r136_ready(&w, "r1-a", "r1-work-a", "h1", "1h").await;
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Pause {
+            policy_id: policy_id(),
+        },
+    )
+    .await);
+    let bound = r136_bind(&w, &a.binding_id, "r1-bind-1").await;
+    let bound = ok(bound);
+    assert_eq!(
+        bound.code,
+        Code::AccessReady,
+        "an existing binding continues under a pause"
+    );
+    assert_eq!(bound.data.grant_id, a.grant_id);
+    let reserved = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), false))
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "renewal within the grant refused under a pause: {} {}",
+                e.code, e.message
+            )
+        });
+    let published = w
+        .ops
+        .publish_issuance(&reserved.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "publish within the grant refused under a pause: {} {}",
+                e.code, e.message
+            )
+        });
+    assert_eq!(
+        published.state,
+        heimdall_domain::issuance::IssuanceState::Published
+    );
+    // An issuance that would activate a new grant is the pause's business.
+    let fresh = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), true))
+        .await
+        .unwrap_err();
+    assert_no_canary(&fresh.message);
+    assert_eq!(fresh.code, Code::PolicyPaused);
+    assert_eq!(fresh.code.exit_code(), ExitCode::Denied);
+    // The grant stays live across scheduler passes until its deadline.
+    w.clock.advance(30 * MINUTE);
+    w.ops.tick().await.unwrap();
+    assert_eq!(w.grant(&a.grant_id).state, GrantState::Active);
+    let later = ok(r136_bind(&w, &a.binding_id, "r1-bind-2").await);
+    assert_eq!(later.code, Code::AccessReady);
+    // At the deadline it ends: CREDENTIAL_EXPIRED, never a pause code.
+    w.clock.advance(31 * MINUTE);
+    let past = err(r136_bind(&w, &a.binding_id, "r1-bind-3").await);
+    assert_eq!(past.code, Code::CredentialExpired);
+    w.ops.tick().await.unwrap();
+    assert!(!w.grant(&a.grant_id).state.permits_use());
+    assert_eq!(
+        w.effects(),
+        1,
+        "nothing under the pause prepared a new credential"
+    );
+    w.events();
+}
+
+/// §13.6 item 1: a pause refuses new grants and new work bindings with
+/// `POLICY_PAUSED` (exit 4), including fresh request and work identifiers and a
+/// delegation; a same-key replay returns the recorded result.
+#[tokio::test]
+async fn r136_1_pause_refuses_new_grants_and_bindings_and_replays_recorded_results() {
+    let w = World::new().await;
+    let a = r136_ready(&w, "r1b-a", "r1b-work-a", "h1", "1h").await;
+    let bind_before = ok(r136_bind(&w, &a.binding_id, "r1b-bind").await);
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Pause {
+            policy_id: policy_id(),
+        },
+    )
+    .await);
+    let effects = w.effects();
+    for (rid, work) in [
+        ("r1b-fresh-rid", "r1b-work-a"),
+        ("r1b-fresh-both", "r1b-work-new"),
+    ] {
+        let mut req = ensure_req(rid, work, &[("h1", "deploy")]);
+        req.until = Some(DeadlineIntent::Duration("1h".into()));
+        let e = err(w.ops.ensure(&unattended(501), req).await);
+        assert_eq!(e.code, Code::PolicyPaused, "{rid}/{work}");
+        assert_eq!(e.code.exit_code(), ExitCode::Denied);
+    }
+    let child = err(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&a, "r1b-child", "10m"))
+        .await);
+    assert_eq!(
+        child.code,
+        Code::PolicyPaused,
+        "a delegation is a new grant"
+    );
+    assert_eq!(
+        w.bindings_for("r1b-work-a").len(),
+        1,
+        "no new binding under the pause"
+    );
+    assert!(w.bindings_for("r1b-work-new").is_empty());
+    // Same-key replays return the recorded results.
+    let mut again = ensure_req("r1b-a", "r1b-work-a", &[("h1", "deploy")]);
+    again.until = Some(DeadlineIntent::Duration("1h".into()));
+    let replay = ok(w.ops.ensure(&unattended(501), again).await);
+    assert_eq!(replay.code, Code::AccessReady);
+    assert_eq!(replay.data.binding_id, a.binding_id);
+    let bind_replay = ok(r136_bind(&w, &a.binding_id, "r1b-bind").await);
+    assert_eq!(bind_replay.operation_id, bind_before.operation_id);
+    assert_eq!(bind_replay.code, Code::AccessReady);
+    assert_eq!(w.effects(), effects);
+    w.events();
+}
+
+/// §13.6 items 1 and 2: a request waiting for added authority when the policy is
+/// paused: its decision is stale (strict), the operation keeps waiting, and a
+/// same-key retry answers `POLICY_PAUSED` (a new grant under the pause) with no
+/// fresh record and no effect; never `CREDENTIAL_EXPIRED`.
+#[tokio::test]
+async fn r136_1_a_waiting_request_under_a_pause_answers_policy_paused_and_keeps_waiting() {
+    let w = World::new().await;
+    let e = err(w
+        .ops
+        .ensure(&attended(501), approval_req("r1c", "r1c-work"))
+        .await);
+    let dec = decision_ref(&e);
+    let op = e.operation_id.clone().unwrap();
+    ok(r136_policy(
+        &w,
+        &attended(501),
+        PolicyAction::Pause {
+            policy_id: policy_id(),
+        },
+    )
+    .await);
+    let stale = err(decide(&w, &attended(501), &dec, Verdict::Approve).await);
+    assert_eq!(stale.code, Code::DecisionStale);
+    let retry = err(w
+        .ops
+        .ensure(&attended(501), approval_req("r1c", "r1c-work"))
+        .await);
+    assert_eq!(retry.code, Code::PolicyPaused);
+    assert_eq!(retry.operation_id, Some(op.clone()));
+    assert_eq!(w.op(&op).state, OperationState::AwaitingApproval);
+    let pending = w.store.transaction(|tx| tx.pending_decisions()).unwrap();
+    assert!(
+        pending.iter().all(|d| d.id == dec
+            || !matches!(
+                d.kind,
+                heimdall_domain::decision::DecisionKind::ApproveAuthority { .. }
+            )),
+        "no fresh approval record while paused"
+    );
+    assert_eq!(w.effects(), 0);
+}
+
+/// §13.6 item 1: a cutoff bounds every applicable grant at `min(deadline,
+/// cutoff)`. Before it, existing work continues (bind, issuance up to the
+/// cutoff) and new work activates bounded by it; at or after it, using the
+/// existing grant is `CREDENTIAL_EXPIRED` and new work (fresh request, fresh
+/// work, delegation, new-activation issuance) is `POLICY_CUTOFF`.
+#[tokio::test]
+async fn r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it() {
+    let w = World::new().await;
+    let a = r136_ready(&w, "r1d-a", "r1d-work-a", "h1", "1h").await;
+    let cutoff = shift(t0(), 20 * 60);
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Cutoff {
+            policy_id: policy_id(),
+            at: cutoff,
+        },
+    )
+    .await);
+    // Future cutoff: existing work continues until it.
+    w.clock.advance(5 * MINUTE);
+    ok(r136_bind(&w, &a.binding_id, "r1d-bind-1").await);
+    let r = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, cutoff, false))
+        .await
+        .unwrap_or_else(|e| panic!("issuance before the cutoff refused: {}", e.code));
+    assert!(r.bounds.valid_before <= cutoff);
+    let late = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(cutoff, 1), false))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        late.code,
+        Code::CapabilityUnavailable,
+        "valid_before past the cutoff"
+    );
+    let b = r136_ready(&w, "r1d-b", "r1d-work-b", "h2", "1h").await;
+    assert!(b.expires_at <= cutoff || b.usable_until <= cutoff);
+    // Past the cutoff.
+    w.clock.advance(16 * MINUTE);
+    let used = err(r136_bind(&w, &a.binding_id, "r1d-bind-2").await);
+    assert_eq!(
+        used.code,
+        Code::CredentialExpired,
+        "existing use past the cutoff"
+    );
+    let issued = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(cutoff, 600), false))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        issued.code,
+        Code::CredentialExpired,
+        "renewal past the cutoff"
+    );
+    let activation = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(cutoff, 600), true))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        activation.code,
+        Code::PolicyCutoff,
+        "new activation past the cutoff"
+    );
+    for (rid, work) in [("r1d-fresh-rid", "r1d-work-a"), ("r1d-fresh", "r1d-work-c")] {
+        let mut req = ensure_req(rid, work, &[("h1", "deploy")]);
+        req.until = Some(DeadlineIntent::Duration("1h".into()));
+        let e = err(w.ops.ensure(&unattended(501), req).await);
+        assert_eq!(e.code, Code::PolicyCutoff, "{rid}/{work}");
+        assert_eq!(e.code.exit_code(), ExitCode::Denied);
+    }
+    let child = err(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&a, "r1d-child", "10m"))
+        .await);
+    assert_eq!(child.code, Code::PolicyCutoff);
+    w.ops.tick().await.unwrap();
+    assert!(!w.grant(&a.grant_id).state.permits_use());
+    w.events();
+}
+
+/// §13.6 item 5: with two applicable policies, a pause on the second between
+/// reserve and publish voids the publish (the generation moved) and blocks new
+/// activations; the continuing grant reserves and publishes afresh.
+#[tokio::test]
+async fn r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_publish() {
+    let w = World::new().await;
+    let z = r136_second_policy(&w, "pol-z");
+    let a = r136_ready(&w, "r5-a", "r5-work-a", "h1", "1h").await;
+    let gen_before = w.store.transaction(|tx| tx.authority_generation()).unwrap();
+    let e1 = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), false))
+        .await
+        .unwrap();
+    ok(r136_policy(&w, &unattended(501), PolicyAction::Pause { policy_id: z }).await);
+    assert_ne!(
+        w.store.transaction(|tx| tx.authority_generation()).unwrap(),
+        gen_before,
+        "a pause on an applicable policy moves the generation"
+    );
+    let voided = w
+        .ops
+        .publish_issuance(&e1.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+        .await
+        .unwrap_err();
+    assert_no_canary(&voided.message);
+    let entries = w
+        .store
+        .transaction(|tx| tx.issuance_entries(&a.grant_id))
+        .unwrap();
+    assert_eq!(
+        entries.iter().find(|e| e.id == e1.id).unwrap().state,
+        heimdall_domain::issuance::IssuanceState::Voided
+    );
+    let blocked = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r5-new", "r5-work-new", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(blocked.code, Code::PolicyPaused);
+    let new_activation = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), true))
+        .await
+        .unwrap_err();
+    assert_eq!(new_activation.code, Code::PolicyPaused);
+    let e2 = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), false))
+        .await
+        .unwrap_or_else(|e| panic!("continuing issuance refused: {} {}", e.code, e.message));
+    let p2 = w
+        .ops
+        .publish_issuance(&e2.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+        .await
+        .unwrap_or_else(|e| panic!("continuing publish refused: {} {}", e.code, e.message));
+    assert_eq!(
+        p2.state,
+        heimdall_domain::issuance::IssuanceState::Published
+    );
+    w.events();
+}
+
+/// §13.6 item 5: a cutoff on the second policy between reserve and publish voids
+/// the publish and bounds the grant; at the cutoff new activations are
+/// `POLICY_CUTOFF`. A widening revision of an applicable policy (an approved
+/// `clear_cutoff`) moves the generation too and voids a reservation made before it.
+#[tokio::test]
+async fn r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publish_voids_the_publish()
+ {
+    let w = World::new().await;
+    let z = r136_second_policy(&w, "pol-z");
+    let a = r136_ready(&w, "r5c-a", "r5c-work-a", "h1", "1h").await;
+    let e1 = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), false))
+        .await
+        .unwrap();
+    let cutoff = shift(t0(), 30 * 60);
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Cutoff {
+            policy_id: z.clone(),
+            at: cutoff,
+        },
+    )
+    .await);
+    let voided = w
+        .ops
+        .publish_issuance(&e1.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+        .await;
+    assert!(voided.is_err(), "the cutoff voided the publish");
+    // A widening revision (approved clear_cutoff) also moves the generation.
+    let e2 = w
+        .ops
+        .reserve_issuance(r136_issuance(&a.grant_id, shift(t0(), 600), false))
+        .await
+        .unwrap();
+    let gen_before = w.store.transaction(|tx| tx.authority_generation()).unwrap();
+    let clear = err(r136_policy(
+        &w,
+        &attended(501),
+        PolicyAction::ClearCutoff {
+            policy_id: z.clone(),
+        },
+    )
+    .await);
+    ok(decide(&w, &attended(501), &decision_ref(&clear), Verdict::Approve).await);
+    assert_ne!(
+        w.store.transaction(|tx| tx.authority_generation()).unwrap(),
+        gen_before,
+        "a widening revision of an applicable policy moves the generation"
+    );
+    assert!(
+        w.ops
+            .publish_issuance(&e2.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+            .await
+            .is_err(),
+        "a reservation made before the revision is voided"
+    );
+    // Set the cutoff again and pass it: new activations are refused.
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Cutoff {
+            policy_id: z,
+            at: cutoff,
+        },
+    )
+    .await);
+    w.clock.advance(31 * MINUTE);
+    let blocked = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("r5c-new", "r5c-work-new", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(blocked.code, Code::PolicyCutoff);
+    let used = err(r136_bind(&w, &a.binding_id, "r5c-bind").await);
+    assert_eq!(used.code, Code::CredentialExpired);
+    w.events();
+}
+
+/// Delegates to the fake, except that `revoke` leaves a remote effect pending,
+/// so a revoked grant stays in `revoking`.
+struct PendingRevoke {
+    inner: Arc<FakeCredentialAdapter>,
+}
+
+impl CredentialAdapter for PendingRevoke {
+    fn descriptor(&self) -> &AdapterDescriptor {
+        self.inner.descriptor()
+    }
+    fn prepare<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.prepare(req)
+    }
+    fn renew<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.renew(req)
+    }
+    fn reconcile<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        grant: &'life1 heimdall_contract::ids::GrantId,
+        effect_token: &'life2 str,
+    ) -> U10Fut<'async_trait, heimdall_app::ports::ReconcileOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.reconcile(grant, effect_token)
+    }
+    fn revoke<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        _grant: &'life1 heimdall_contract::ids::GrantId,
+        _now: Timestamp,
+    ) -> U10Fut<'async_trait, heimdall_app::ports::RevokeOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            Ok(heimdall_app::ports::RevokeOutcome {
+                remote_pending: vec![DestinationId::parse("h1").unwrap()],
+                latest_possible_credential_expiry: None,
+            })
+        })
+    }
+}
+
+/// §13.6 item 3: the child-owned reference on the parent is released when the
+/// child **enters** `revoking` (here the remote effect stays pending, so the child
+/// never reaches `revoked`): a parent without consumers becomes `released`, with
+/// no tombstone and no cascade.
+#[tokio::test]
+async fn r136_3_a_child_entering_revoking_releases_its_parent_reference() {
+    let mut w = World::new().await;
+    let adapter = Arc::new(PendingRevoke {
+        inner: w.fake.clone(),
+    });
+    w.ops = Operations::start(OperationsConfig {
+        adapters: vec![adapter as Arc<dyn CredentialAdapter>],
+        ..w.config()
+    })
+    .await
+    .unwrap();
+    let parent = r136_ready(&w, "r3-p", "r3-parent", "h1", "1h").await;
+    let child = ok(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&parent, "r3-c", "30m"))
+        .await)
+    .data;
+    ok(w.ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: parent.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(w.grant(&parent.grant_id).state, GrantState::Active);
+    let rv = ok(w
+        .ops
+        .revoke(
+            &unattended(501),
+            RevokeRequest {
+                grant_id: child.grant_id.clone(),
+                request_id: RequestId::parse("r3-rv").unwrap(),
+            },
+        )
+        .await);
+    assert!(!rv.data.remote_pending.is_empty());
+    assert_eq!(w.grant(&child.grant_id).state, GrantState::Revoking);
+    assert_eq!(
+        w.grant(&parent.grant_id).state,
+        GrantState::Released,
+        "a dying child never keeps its parent alive"
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.grant_references(&parent.grant_id))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.tombstone(&parent.grant_id))
+            .unwrap()
+            .is_none(),
+        "release is never revoke"
+    );
+    w.events();
+}
+
+/// §13.6 item 3 / §13.5 ruling 1: the reference also goes when the child reaches
+/// a terminal state by expiry; the parent, still within its own deadline and
+/// without consumers, becomes `released`.
+#[tokio::test]
+async fn r136_3_an_expired_child_releases_its_parent_reference() {
+    let w = World::new().await;
+    let parent = r136_ready(&w, "r3e-p", "r3e-parent", "h1", "1h").await;
+    let child = ok(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&parent, "r3e-c", "10m"))
+        .await)
+    .data;
+    ok(w.ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: parent.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(w.grant(&parent.grant_id).state, GrantState::Active);
+    w.clock.advance(11 * MINUTE);
+    w.ops.tick().await.unwrap();
+    assert_eq!(w.grant(&child.grant_id).state, GrantState::Expired);
+    assert_eq!(w.grant(&parent.grant_id).state, GrantState::Released);
+    assert!(
+        w.store
+            .transaction(|tx| tx.grant_references(&parent.grant_id))
+            .unwrap()
+            .is_empty()
+    );
+    w.events();
+}
+
+/// §13.6 item 6: a later or cleared cutoff widens (decision record, attended
+/// `Decide`); an equal one changes nothing and an earlier one narrows at once.
+/// While time is uncertain every widening (later cutoff, clear, resume, and the
+/// attended approval of a pending widening) is `TIME_UNCERTAIN`, and every
+/// narrowing (pause, earlier cutoff, revoke, release, deny) still applies.
+#[tokio::test]
+async fn r136_6_cutoff_direction_and_narrowing_under_uncertain_time() {
+    let w = World::new().await;
+    let a = r136_ready(&w, "r6-a", "r6-work-a", "h1", "1h").await;
+    let b = r136_ready(&w, "r6-b", "r6-work-b", "h2", "1h").await;
+    let c2h = shift(t0(), 2 * 3600);
+    ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Cutoff {
+            policy_id: policy_id(),
+            at: c2h,
+        },
+    )
+    .await);
+    // Later: a decision record, nothing applied.
+    let later = err(r136_policy(
+        &w,
+        &attended(501),
+        PolicyAction::Cutoff {
+            policy_id: policy_id(),
+            at: shift(c2h, 3600),
+        },
+    )
+    .await);
+    assert_eq!(later.code, Code::ApprovalRequired);
+    let later_ref = decision_ref(&later);
+    let rec = w
+        .store
+        .transaction(|tx| tx.decision(&later_ref))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        rec.kind,
+        heimdall_domain::decision::DecisionKind::WidenPolicy { .. }
+    ));
+    let pol = |w: &World| {
+        w.store
+            .transaction(|tx| tx.policy(&policy_id()))
+            .unwrap()
+            .unwrap()
+    };
+    assert_eq!(pol(&w).cutoff_at, Some(c2h));
+    // Equal: unchanged; no record.
+    let same = ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Cutoff {
+            policy_id: policy_id(),
+            at: c2h,
+        },
+    )
+    .await);
+    assert_eq!(same.data["changed"], false);
+    // Clear: a decision record.
+    let clear = err(r136_policy(
+        &w,
+        &attended(501),
+        PolicyAction::ClearCutoff {
+            policy_id: policy_id(),
+        },
+    )
+    .await);
+    assert_eq!(clear.code, Code::ApprovalRequired);
+    let clear_ref = decision_ref(&clear);
+    // Time becomes uncertain: the wall clock rolls back within this boot, below
+    // the high-water mark by more than the rollback tolerance.
+    w.clock.set_wall(shift(t0(), -3600));
+    let later_u = err(r136_policy(
+        &w,
+        &attended(501),
+        PolicyAction::Cutoff {
+            policy_id: policy_id(),
+            at: shift(c2h, 7200),
+        },
+    )
+    .await);
+    assert_eq!(later_u.code, Code::TimeUncertain);
+    assert!(later_u.next.decision_ref.is_none());
+    let clear_u = err(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::ClearCutoff {
+            policy_id: policy_id(),
+        },
+    )
+    .await);
+    assert_eq!(clear_u.code, Code::TimeUncertain);
+    let approve_u = err(decide(&w, &attended(501), &clear_ref, Verdict::Approve).await);
+    assert_eq!(
+        approve_u.code,
+        Code::TimeUncertain,
+        "approving a widening needs safe time"
+    );
+    assert_eq!(
+        pol(&w).cutoff_at,
+        Some(c2h),
+        "nothing widened under uncertain time"
+    );
+    // Narrowing is never blocked by time.
+    ok(decide(&w, &attended(501), &later_ref, Verdict::Deny).await);
+    let earlier = ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Cutoff {
+            policy_id: policy_id(),
+            at: shift(t0(), 3600),
+        },
+    )
+    .await);
+    assert_eq!(earlier.data["changed"], true);
+    assert_eq!(pol(&w).cutoff_at, Some(shift(t0(), 3600)));
+    let paused = ok(r136_policy(
+        &w,
+        &unattended(501),
+        PolicyAction::Pause {
+            policy_id: policy_id(),
+        },
+    )
+    .await);
+    assert_eq!(paused.data["paused"], true);
+    let resume_u = err(r136_policy(
+        &w,
+        &attended(501),
+        PolicyAction::Resume {
+            policy_id: policy_id(),
+        },
+    )
+    .await);
+    assert_eq!(resume_u.code, Code::TimeUncertain);
+    let rv = ok(w
+        .ops
+        .revoke(
+            &unattended(501),
+            RevokeRequest {
+                grant_id: a.grant_id.clone(),
+                request_id: RequestId::parse("r6-rv").unwrap(),
+            },
+        )
+        .await);
+    assert!(rv.data.local_applied);
+    assert!(!w.grant(&a.grant_id).state.permits_use());
+    let rl = ok(w
+        .ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: b.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(rl.data["grant_state"], "released");
     w.events();
 }

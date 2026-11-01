@@ -1,0 +1,10 @@
+Native Windows run 2 (task M01-rulings-13-6-F2), after the run-1 fixes (see ../run1-launcher-hang/cleanup.txt).
+Build provenance: base commit 93c60d3b plus the uncommitted working tree at the time of the run (this unit's
+F2 changes and the concurrent F1 unit's in-progress changes); not reproducible from a commit until integrated.
+Targets run (HM_ONLY): integration_runtime e2e_cli_m01 heimdall-unit heimdall_runtime-unit heimdall_ipc-unit
+heimdall_contract-unit; all other targets are listed as "not selected" in skipped.txt (not run here).
+Runner: tests/native/m01/run-windows.sh (zig cross-build for x86_64-pc-windows-gnu, non-elevated user, scratch
+under %LOCALAPPDATA%\hm-m00\M01-rulings-13-6-F2 with TEMP/TMP inside it, removed at the end; runtime pipes
+prefixed heimdall-hmtest-; HEIMDALL_E2E_BIN = the copied heimdall.exe).
+Result: every selected binary exit 0 (tests.txt, commands.txt); leftover-test-processes=0, test-pipes-after=0,
+%LOCALAPPDATA%\heimdall absent before and after; canary scan 0.

@@ -11,11 +11,22 @@
 //!   `Superseded` and left alone), runs the hook again (`Guarded`), then calls the
 //!   generation-bound [`heimdall_app::ports::ResourceCleaner::delete`] and records
 //!   `observed = absent` with a generation CAS. `AdapterError::Unavailable` is
-//!   retried by this one executor with `reconcile::Backoff` (delays on the
-//!   continuous clock, attempts capped by `Backoff::max_attempts`), then the
-//!   resource stops being retried and a stable code (`SERVICE_UNAVAILABLE`) is
-//!   published as a `resource_changed` event. No operation, decision record or
-//!   prompt is ever created by a retry, and nothing else retries a resource.
+//!   retried by this one executor with `reconcile::Backoff` **and jitter**
+//!   ([`retry_delay`]: `delay(n) * (0.5 + 0.5 * unit)` from the injectable
+//!   [`Jitter`] source, [`RandomJitter`] in production, deterministic in tests;
+//!   ADR-0006 §13.6 item 4, spec §13.5), delays on the continuous clock, attempts
+//!   capped by `Backoff::max_attempts`; then the resource stops being retried and
+//!   a stable code (`SERVICE_UNAVAILABLE`) is published as a `resource_changed`
+//!   event. No operation, decision record or prompt is ever created by a retry,
+//!   and nothing else retries a resource. M01 has no repair executor (no repair
+//!   port exists before the M02 adapters); when it arrives it uses the same
+//!   [`retry_delay`]. A failed scheduler pass is retried by the loop after a
+//!   jittered delay too.
+//! * **Caller operations are not retried here.** An operation whose adapter
+//!   `prepare` reports `Unavailable` is answered once with
+//!   `SERVICE_UNAVAILABLE` (exit 5) by the operations path and is not retried by
+//!   the supervisor or a restart; the caller retries with the same request ID
+//!   (ADR-0006 §13.6 item 4).
 //!   M01 operations create no managed resources and M01 configures no
 //!   `ResourceCleaner` (the M02 adapters add both); the executor runs only when
 //!   [`Supervisor::with_cleaner`] supplied one.
@@ -91,12 +102,56 @@ const FAILED_PASS_RETRY: Duration = Duration::from_secs(5);
 /// sleep (re-evaluate immediately on wake).
 const SLEEP_DETECTION: Duration = Duration::from_secs(2);
 
+/// Source of retry jitter (spec §13.5 "bounded backoff and jitter"; ADR-0006
+/// §13.6 item 4). Production uses [`RandomJitter`]; tests inject a deterministic
+/// source with [`Supervisor::with_jitter`].
+pub trait Jitter: Send + Sync {
+    /// A value in `[0, 1]`; out-of-range values are clamped by the user.
+    fn unit(&self) -> f64;
+}
+
+/// Production jitter from the operating system's CSPRNG (`heimdall_app::ids`).
+/// If randomness is unavailable the unit is `1.0`: the full, unjittered delay, so
+/// a failure never shortens a retry interval.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RandomJitter;
+
+impl Jitter for RandomJitter {
+    fn unit(&self) -> f64 {
+        match heimdall_app::ids::random_u64() {
+            // 53 random bits: uniform in [0, 1).
+            Ok(v) => (v >> 11) as f64 / (1u64 << 53) as f64,
+            Err(_) => 1.0,
+        }
+    }
+}
+
+/// A constant jitter unit (tests; `FixedJitter(1.0)` reproduces the unjittered
+/// schedule).
+#[derive(Debug, Clone, Copy)]
+pub struct FixedJitter(pub f64);
+
+impl Jitter for FixedJitter {
+    fn unit(&self) -> f64 {
+        self.0
+    }
+}
+
+/// The delay before retry `attempt` (1-based) of a supervisor-owned retry: the
+/// bounded exponential backoff with equal jitter, `delay(attempt) * (0.5 + 0.5 *
+/// unit)`, so it lies in `[delay/2, delay]` and never exceeds `backoff.max`.
+#[must_use]
+pub fn retry_delay(backoff: &Backoff, attempt: u32, jitter: &dyn Jitter) -> Duration {
+    backoff.jittered(attempt, jitter.unit())
+}
+
 /// Runs the resource owners, the deadline scheduler and the time guard.
 pub struct Supervisor {
     operations: Operations,
     config: SupervisorConfig,
     state: Option<(Arc<Store>, Arc<dyn Clock>)>,
     cleanup: Option<tokio::sync::Mutex<CleanupExecutor>>,
+    jitter: Arc<dyn Jitter>,
 }
 
 /// The single cleanup executor's port, hook, backoff and per-resource retry state.
@@ -156,7 +211,16 @@ impl Supervisor {
             config,
             state: None,
             cleanup: None,
+            jitter: Arc::new(RandomJitter),
         }
+    }
+
+    /// Replace the retry jitter source (default [`RandomJitter`]); tests inject a
+    /// deterministic one (ADR-0006 §13.6 item 4).
+    #[must_use]
+    pub fn with_jitter(mut self, jitter: Arc<dyn Jitter>) -> Self {
+        self.jitter = jitter;
+        self
     }
 
     /// Own resource cleanup through `cleaner` (needs [`Self::with_state`]):
@@ -244,7 +308,9 @@ impl Supervisor {
                     Ok(next) => now + self.sleep_until_wall(next),
                     Err(e) => {
                         tracing::warn!(code = %e.code, "scheduler pass failed; retrying");
-                        now + FAILED_PASS_RETRY.min(self.config.max_idle_sleep)
+                        // Jittered like every supervisor-owned retry (§13.5).
+                        let base = FAILED_PASS_RETRY.min(self.config.max_idle_sleep);
+                        now + base.mul_f64(0.5 + 0.5 * self.jitter.unit().clamp(0.0, 1.0))
                     }
                 };
                 if self.cleanup.is_some() {
@@ -403,7 +469,7 @@ impl Supervisor {
                     let backoff = ex.backoff;
                     match should_retry(attempts, &backoff, true, !transient) {
                         Ok(()) => {
-                            let delay = backoff.delay(attempts);
+                            let delay = retry_delay(&backoff, attempts, self.jitter.as_ref());
                             ex.retries.insert(
                                 r.id.clone(),
                                 Retry {

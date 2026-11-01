@@ -15,16 +15,21 @@
 //! **Exit codes** follow ADR-0006 §6 through [`crate::output::exit_code_for`]:
 //! `ACCEPTED` exits 0 only with `--async`; an unknown code exits 1.
 //!
-//! **Interactive flow** (ADR-0006 §3.1 ⟨r2.1⟩ N04). When stdin is a terminal and
-//! `--non-interactive` is absent, the hello declares `interactive`. A result
-//! carrying `next.decision_ref` (added authority, `resume`, `cutoff --clear`, a
-//! later cutoff) and `decision approve|deny` lead to the owner prompt: the CLI
-//! fetches and shows the exact recorded request, requires a typed `y`/`yes`
-//! (default No), and only then sends `Attend` followed by `Decide` on that same
-//! session. Anything else sends nothing and exits 3 `INTERACTION_REQUIRED` with
-//! `next.decision_ref` ("not confirmed"). `time confirm` works the same way with
-//! the clock reading it shows. The runtime cannot verify that a client prompted:
-//! a same-user program can imitate this flow (disclosed limit, spec §14.2).
+//! **Interactive flow** (ADR-0006 §3.1 ⟨r2.1⟩ N04, §13.6 item 7). When stdin is a
+//! terminal and `--non-interactive` is absent, the hello declares `interactive`
+//! and, before an owner-present action (`access ensure`, `access resume`,
+//! `access cutoff`, `decision approve|deny`, `time confirm`), the CLI sends
+//! `Attend` **first**, so a request that needs an owner decision is answered
+//! `APPROVAL_REQUIRED` with `next.decision_ref`. The CLI then fetches and shows
+//! the exact recorded request (and the runtime's answer), requires a typed
+//! `y`/`yes` (default No), and only then sends `Decide` on that same session.
+//! Anything else (an explicit no, end of input, Ctrl-C, the prompt timeout) sends
+//! nothing more and exits 3 `INTERACTION_REQUIRED` with `next.decision_ref` ("not
+//! confirmed"). `time confirm` works the same way with the clock reading it
+//! shows. `--non-interactive` or a non-TTY stdin never prompts and never attends.
+//! Attendance authorizes nothing by itself. The runtime cannot verify that a
+//! client prompted: a same-user program can imitate this flow (disclosed limit,
+//! spec §14.2).
 
 use std::ffi::OsString;
 use std::io::IsTerminal as _;
@@ -724,41 +729,138 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
     };
     let is_async = a.r#async;
     let mut client = session(ctx, true).await?;
-    let env = client.request(Request::Ensure(request.clone())).await;
+    Ok(ensure_flow(&mut client, &mut TerminalPrompt, ctx, request, is_async).await)
+}
+
+/// What the owner-present flows need from a control session: [`Client`] in
+/// production; the unit tests drive the flows through a recording fake (the test
+/// seam for ADR-0006 §13.6 item 7).
+pub(crate) trait Session {
+    /// Send one request; a transport failure is an error envelope.
+    async fn request(&mut self, request: Request) -> Envelope<serde_json::Value>;
+    /// Send `Attend` for this session.
+    async fn attend(&mut self) -> Envelope<serde_json::Value>;
+}
+
+impl Session for Client {
+    async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+        Client::request(self, request).await
+    }
+    async fn attend(&mut self) -> Envelope<serde_json::Value> {
+        Client::attend(self).await
+    }
+}
+
+/// The owner confirmation prompt: the terminal in production, scripted answers in
+/// the unit tests.
+pub(crate) trait Prompter {
+    /// Show `text` and ask for a typed `yes` (default No).
+    async fn ask(&mut self, text: &str) -> Answer;
+}
+
+/// The terminal prompt ([`prompt::ask`]).
+struct TerminalPrompt;
+
+impl Prompter for TerminalPrompt {
+    async fn ask(&mut self, text: &str) -> Answer {
+        prompt::ask(text).await
+    }
+}
+
+/// Before an owner-present action on an interactive TTY session, mark the session
+/// attended **first** (ADR-0006 §13.6 item 7), so the runtime answers a request
+/// that needs an owner decision with `APPROVAL_REQUIRED` and `next.decision_ref`.
+/// Attendance authorizes nothing by itself (N04). `--non-interactive` or a
+/// non-TTY stdin never attends. `Err` carries the runtime's refusal.
+async fn attend_first<S: Session>(s: &mut S, ctx: &Ctx) -> Result<(), Done> {
+    if !ctx.interactive() {
+        return Ok(());
+    }
+    let attended = s.attend().await;
+    if attended.code.is_success() {
+        Ok(())
+    } else {
+        Err(Done::of(attended))
+    }
+}
+
+/// `access ensure` on a connected session: `Attend` first when interactive, the
+/// request, and on a pending decision the owner prompt, `Decide` on `yes`, then
+/// the same request again (same request ID: the runtime replays the approved
+/// operation).
+async fn ensure_flow<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    request: EnsureRequest,
+    is_async: bool,
+) -> Done {
+    if let Err(refused) = attend_first(s, ctx).await {
+        return refused;
+    }
+    let env = s.request(Request::Ensure(request.clone())).await;
     if let Some(decision) = pending_decision(&env)
         && ctx.interactive()
     {
         let decided = confirm_and_decide(
-            &mut client,
+            s,
+            p,
             ctx,
             &decision,
             Verdict::Approve,
             env.operation_id.clone(),
+            Some(&env.code),
         )
         .await;
         if decided.code != Code::Ok {
-            return Ok(Done::of(decided));
+            return Done::of(decided);
         }
-        // Same request ID: the runtime replays the (now approved) operation.
-        let again = client.request(Request::Ensure(request)).await;
+        let again = s.request(Request::Ensure(request)).await;
         let exit = output::exit_code_for(again.code.clone(), is_async);
-        return Ok(Done { env: again, exit });
+        return Done { env: again, exit };
     }
     let exit = output::exit_code_for(env.code.clone(), is_async);
-    Ok(Done { env, exit })
+    Done { env, exit }
 }
 
 async fn policy(ctx: &Ctx, action: PolicyAction) -> Result<Done, Done> {
     let mut client = session(ctx, true).await?;
-    let env = client.request(Request::Policy(action)).await;
-    if let Some(decision) = pending_decision(&env)
+    Ok(policy_flow(&mut client, &mut TerminalPrompt, ctx, action).await)
+}
+
+/// A policy action on a connected session. `resume` and `cutoff` (a later or
+/// cleared cutoff is widening, §13.6 item 6) are owner-present: `Attend` first
+/// when interactive, then the request, the prompt and `Decide` on `yes`. `pause`
+/// is narrowing and never attends.
+async fn policy_flow<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    action: PolicyAction,
+) -> Done {
+    let owner_present = !matches!(action, PolicyAction::Pause { .. });
+    if owner_present && let Err(refused) = attend_first(s, ctx).await {
+        return refused;
+    }
+    let env = s.request(Request::Policy(action)).await;
+    if owner_present
+        && let Some(decision) = pending_decision(&env)
         && ctx.interactive()
     {
-        return Ok(Done::of(
-            confirm_and_decide(&mut client, ctx, &decision, Verdict::Approve, None).await,
-        ));
+        return Done::of(
+            confirm_and_decide(
+                s,
+                p,
+                ctx,
+                &decision,
+                Verdict::Approve,
+                None,
+                Some(&env.code),
+            )
+            .await,
+        );
     }
-    Ok(Done::of(env))
+    Done::of(env)
 }
 
 async fn operation(ctx: &Ctx, command: OperationCommand) -> Result<Done, Done> {
@@ -850,14 +952,19 @@ fn not_confirmed(
     error_value(e.into_envelope())
 }
 
-/// Show the exact recorded request of `decision`, ask for a typed `yes`, and
-/// only then send `Attend` + `Decide` on this session (ADR-0006 §3.1 N04).
-async fn confirm_and_decide(
-    client: &mut Client,
+/// Show the exact recorded request of `decision` (and the runtime's answer that
+/// referred to it), ask for a typed `yes`, and only then send `Decide` on this
+/// session, which the caller already attended (ADR-0006 §3.1 N04, §13.6 item 7).
+/// Anything but `yes` sends nothing more: exit 3 `INTERACTION_REQUIRED` "not
+/// confirmed" with the reference.
+async fn confirm_and_decide<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
     ctx: &Ctx,
     decision: &str,
     verdict: Verdict,
     operation: Option<OperationId>,
+    answered: Option<&Code>,
 ) -> Envelope<serde_json::Value> {
     if !ctx.interactive() {
         let reason = if ctx.non_interactive {
@@ -870,7 +977,7 @@ async fn confirm_and_decide(
     let Ok(decision_id) = DecisionId::parse(decision) else {
         return usage("invalid decision reference");
     };
-    let listing = client
+    let listing = s
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Decisions,
             preview: None,
@@ -892,6 +999,9 @@ async fn confirm_and_decide(
         Verdict::Approve => "Approve",
         Verdict::Deny => "Deny",
     };
+    let answer_line = answered.map_or_else(String::new, |code| {
+        format!("The runtime answered {code} with this decision reference.\n")
+    });
     let text = match &record {
         Some(r) => {
             let request =
@@ -900,7 +1010,7 @@ async fn confirm_and_decide(
             let field = |k: &str| r.get(k).and_then(|v| v.as_str()).unwrap_or("?").to_owned();
             let expired = r.get("expired").and_then(serde_json::Value::as_bool) == Some(true);
             format!(
-                "Owner decision {decision}\n  kind: {}\n  expires: {}{}\n  recorded request (exactly what {} applies to):\n{}\n\
+                "{answer_line}Owner decision {decision}\n  kind: {}\n  expires: {}{}\n  recorded request (exactly what {} applies to):\n{}\n\
                  Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.\n\
                  {verb} exactly this request?\n",
                 field("kind"),
@@ -915,26 +1025,21 @@ async fn confirm_and_decide(
             )
         }
         None => format!(
-            "Owner decision {decision} is not pending in this runtime (completed, expired and replaced, or unknown).\n\
+            "{answer_line}Owner decision {decision} is not pending in this runtime (completed, expired and replaced, or unknown).\n\
              There is no recorded request to show; the runtime will refuse to {}.\n\
              {verb} it anyway?\n",
             verb.to_ascii_lowercase()
         ),
     };
-    let answer = prompt::ask(&text).await;
+    let answer = p.ask(&text).await;
     if answer != Answer::Yes {
         return not_confirmed(Some(decision), operation, answer.reason());
     }
-    let attended = client.attend().await;
-    if !attended.code.is_success() {
-        return attended;
-    }
-    client
-        .request(Request::Decide(DecideRequest {
-            decision_id,
-            verdict,
-        }))
-        .await
+    s.request(Request::Decide(DecideRequest {
+        decision_id,
+        verdict,
+    }))
+    .await
 }
 
 fn indent(text: &str) -> String {
@@ -950,32 +1055,68 @@ async fn decide_command(ctx: &Ctx, decision: &str, verdict: Verdict) -> Result<D
     }
     if !ctx.interactive() {
         // Nothing is sent, not even a connection is made.
-        return Ok(Done::of(not_confirmed(
-            Some(decision),
-            None,
-            if ctx.non_interactive {
-                "--non-interactive"
-            } else {
-                "stdin is not a terminal"
-            },
-        )));
+        return Ok(decide_without_session(ctx, decision));
     }
     let mut client = session(ctx, true).await?;
-    Ok(Done::of(
-        confirm_and_decide(&mut client, ctx, decision, verdict, None).await,
+    Ok(decide_flow(&mut client, &mut TerminalPrompt, ctx, decision, verdict).await)
+}
+
+fn non_interactive_reason(ctx: &Ctx) -> &'static str {
+    if ctx.non_interactive {
+        "--non-interactive"
+    } else {
+        "stdin is not a terminal"
+    }
+}
+
+fn decide_without_session(ctx: &Ctx, decision: &str) -> Done {
+    Done::of(not_confirmed(
+        Some(decision),
+        None,
+        non_interactive_reason(ctx),
     ))
+}
+
+/// `decision approve|deny` on a connected session: `Attend` first, the listing
+/// with the exact recorded request, the prompt, `Decide` on `yes`. Without a
+/// terminal (or with `--non-interactive`) nothing is sent.
+async fn decide_flow<S: Session, P: Prompter>(
+    s: &mut S,
+    p: &mut P,
+    ctx: &Ctx,
+    decision: &str,
+    verdict: Verdict,
+) -> Done {
+    if !ctx.interactive() {
+        return decide_without_session(ctx, decision);
+    }
+    if let Err(refused) = attend_first(s, ctx).await {
+        return refused;
+    }
+    Done::of(confirm_and_decide(s, p, ctx, decision, verdict, None, None).await)
 }
 
 async fn confirm_time(ctx: &Ctx) -> Result<Done, Done> {
     if !ctx.interactive() {
-        let reason = if ctx.non_interactive {
-            "--non-interactive"
-        } else {
-            "stdin is not a terminal"
-        };
-        return Ok(Done::of(not_confirmed(None, None, reason)));
+        return Ok(Done::of(not_confirmed(
+            None,
+            None,
+            non_interactive_reason(ctx),
+        )));
     }
     let mut client = session(ctx, true).await?;
+    Ok(confirm_time_flow(&mut client, &mut TerminalPrompt, ctx).await)
+}
+
+/// `time confirm` on a connected session: `Attend` first, the prompt with this
+/// machine's clock reading, `ConfirmTime` on `yes`; otherwise nothing more.
+async fn confirm_time_flow<S: Session, P: Prompter>(s: &mut S, p: &mut P, ctx: &Ctx) -> Done {
+    if !ctx.interactive() {
+        return Done::of(not_confirmed(None, None, non_interactive_reason(ctx)));
+    }
+    if let Err(refused) = attend_first(s, ctx).await {
+        return refused;
+    }
     // Same host, same clock: this is the wall time the runtime observes. The
     // runtime still checks agreement with its own reading within tolerance.
     let observed_wall = Timestamp::now();
@@ -985,19 +1126,14 @@ async fn confirm_time(ctx: &Ctx) -> Result<Done, Done> {
          Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.\n\
          Confirm this time?\n"
     );
-    let answer = prompt::ask(&text).await;
+    let answer = p.ask(&text).await;
     if answer != Answer::Yes {
-        return Ok(Done::of(not_confirmed(None, None, answer.reason())));
+        return Done::of(not_confirmed(None, None, answer.reason()));
     }
-    let attended = client.attend().await;
-    if !attended.code.is_success() {
-        return Ok(Done::of(attended));
-    }
-    Ok(Done::of(
-        client
-            .request(Request::ConfirmTime(ConfirmTimeRequest { observed_wall }))
+    Done::of(
+        s.request(Request::ConfirmTime(ConfirmTimeRequest { observed_wall }))
             .await,
-    ))
+    )
 }
 
 /// `operation events --follow`: the subscription envelope, then one event per
@@ -1196,6 +1332,292 @@ mod tests {
         assert_eq!(env.state, OperationState::AwaitingApproval);
         let msg = env.data["error"]["message"].as_str().unwrap_or_default();
         assert!(msg.starts_with("not confirmed"));
+    }
+
+    // ---- ADR-0006 §13.6 item 7: attendance order (test seam) -------------------
+
+    /// A recording control session: every message the flow sends, in order, and a
+    /// scripted answer per request kind.
+    struct Recorder {
+        sent: Vec<String>,
+        answers: std::collections::HashMap<&'static str, Vec<Envelope<serde_json::Value>>>,
+        attended: bool,
+    }
+
+    impl Recorder {
+        fn new() -> Self {
+            Self {
+                sent: Vec::new(),
+                answers: std::collections::HashMap::new(),
+                attended: false,
+            }
+        }
+        fn answer(mut self, kind: &'static str, env: Envelope<serde_json::Value>) -> Self {
+            self.answers.entry(kind).or_default().push(env);
+            self
+        }
+    }
+
+    impl Session for Recorder {
+        async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+            self.sent.push(request.kind().to_owned());
+            let queue = self.answers.entry(request.kind()).or_default();
+            if queue.is_empty() {
+                Envelope::ok(serde_json::json!({}))
+            } else {
+                queue.remove(0)
+            }
+        }
+        async fn attend(&mut self) -> Envelope<serde_json::Value> {
+            self.sent.push("attend".to_owned());
+            self.attended = true;
+            Envelope::ok(serde_json::json!({"attended": true}))
+        }
+    }
+
+    /// Scripted prompt answers; records the texts it was shown.
+    struct Script {
+        answers: Vec<Answer>,
+        shown: Vec<String>,
+    }
+
+    impl Prompter for Script {
+        async fn ask(&mut self, text: &str) -> Answer {
+            self.shown.push(text.to_owned());
+            assert!(!self.answers.is_empty(), "unexpected prompt: {text}");
+            self.answers.remove(0)
+        }
+    }
+
+    fn script(answers: &[Answer]) -> Script {
+        Script {
+            answers: answers.to_vec(),
+            shown: Vec::new(),
+        }
+    }
+
+    const DEC: &str = "dec_00112233445566778899aabbccddeeff";
+
+    /// What the runtime answers on an attended session (N04): a decision record.
+    fn approval_required() -> Envelope<serde_json::Value> {
+        error_value(
+            heimdall_app::OpError::new(Code::ApprovalRequired, "owner approval required")
+                .with_decision(DEC.to_owned())
+                .into_envelope(),
+        )
+    }
+
+    fn listing() -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({"decisions": [{
+            "decision_id": DEC,
+            "kind": "approve_authority",
+            "state": "pending",
+            "expires_at": "2026-11-01T00:15:00Z",
+            "request": {"added_scope": {"pairs": [{"destination": "h3", "account": "deploy"}]}},
+        }]}))
+    }
+
+    fn tty() -> Ctx {
+        Ctx {
+            json: true,
+            non_interactive: false,
+            home: None,
+            stdin_tty: true,
+        }
+    }
+
+    fn ensure_request() -> EnsureRequest {
+        EnsureRequest {
+            profile: ProfileId::parse("dev").unwrap_or_else(|_| unreachable!()),
+            profile_revision: None,
+            scope: std::collections::BTreeSet::new(),
+            environment: None,
+            work_id: WorkId::parse("w").unwrap_or_else(|_| unreachable!()),
+            until: None,
+            required_capabilities: RequiredCapabilities::default(),
+            request_id: RequestId::parse("r").unwrap_or_else(|_| unreachable!()),
+            interaction: heimdall_contract::request::InteractionMode::Interactive,
+            wait: WaitMode::default(),
+        }
+    }
+
+    fn block<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap_or_else(|_| unreachable!())
+            .block_on(f)
+    }
+
+    /// On an interactive TTY the CLI sends `Attend` **before** the request, so the
+    /// runtime answers `APPROVAL_REQUIRED` with `next.decision_ref`; the prompt
+    /// shows the exact recorded delta and the runtime's answer; `yes` sends
+    /// `Decide` and the original request replays.
+    #[test]
+    fn interactive_ensure_attends_before_the_request_and_decides_only_on_yes() {
+        let mut s = Recorder::new()
+            .answer("ensure", approval_required())
+            .answer("inspect", listing());
+        let mut p = script(&[Answer::Yes]);
+        let done = block(ensure_flow(&mut s, &mut p, &tty(), ensure_request(), false));
+        assert_eq!(s.sent, ["attend", "ensure", "inspect", "decide", "ensure"]);
+        assert_eq!(done.env.code, Code::Ok);
+        assert_eq!(p.shown.len(), 1);
+        assert!(p.shown[0].contains("APPROVAL_REQUIRED"), "{}", p.shown[0]);
+        assert!(
+            p.shown[0].contains("\"destination\": \"h3\""),
+            "{}",
+            p.shown[0]
+        );
+    }
+
+    /// Anything but `y`/`yes` (an explicit no, end of input, Ctrl-C, the prompt
+    /// timeout, unreadable input) sends nothing more after the decision listing
+    /// and exits 3 `INTERACTION_REQUIRED` "not confirmed" with the reference.
+    #[test]
+    fn interactive_ensure_sends_nothing_more_unless_confirmed() {
+        for answer in [
+            Answer::No,
+            Answer::Eof,
+            Answer::Interrupted,
+            Answer::TimedOut,
+            Answer::Unreadable,
+        ] {
+            let mut s = Recorder::new()
+                .answer("ensure", approval_required())
+                .answer("inspect", listing());
+            let mut p = script(&[answer]);
+            let done = block(ensure_flow(&mut s, &mut p, &tty(), ensure_request(), false));
+            assert_eq!(s.sent, ["attend", "ensure", "inspect"], "{answer:?}");
+            assert_eq!(done.env.code, Code::InteractionRequired, "{answer:?}");
+            assert_eq!(done.exit, ExitCode::InteractionRequired);
+            assert_eq!(
+                done.env
+                    .next
+                    .as_ref()
+                    .and_then(|n| n.decision_ref.as_deref()),
+                Some(DEC)
+            );
+            let msg = done.env.data["error"]["message"]
+                .as_str()
+                .unwrap_or_default();
+            assert!(msg.starts_with("not confirmed"), "{msg}");
+        }
+    }
+
+    /// `--non-interactive` or a non-TTY stdin never attends and never prompts.
+    #[test]
+    fn non_interactive_or_non_tty_never_attends_or_prompts() {
+        let unattended = || {
+            error_value(
+                heimdall_app::OpError::new(Code::InteractionRequired, "owner approval required")
+                    .with_decision(DEC.to_owned())
+                    .into_envelope(),
+            )
+        };
+        for ctx in [
+            Ctx {
+                non_interactive: true,
+                ..tty()
+            },
+            Ctx {
+                stdin_tty: false,
+                ..tty()
+            },
+        ] {
+            let mut s = Recorder::new().answer("ensure", unattended());
+            let mut p = script(&[]);
+            let done = block(ensure_flow(&mut s, &mut p, &ctx, ensure_request(), false));
+            assert_eq!(s.sent, ["ensure"]);
+            assert!(!s.attended);
+            assert_eq!(done.exit, ExitCode::InteractionRequired);
+            assert!(p.shown.is_empty());
+            for action in [
+                PolicyAction::Resume {
+                    policy_id: PolicyId::parse("pol").unwrap_or_else(|_| unreachable!()),
+                },
+                PolicyAction::ClearCutoff {
+                    policy_id: PolicyId::parse("pol").unwrap_or_else(|_| unreachable!()),
+                },
+            ] {
+                let mut s = Recorder::new().answer("policy", unattended());
+                let done = block(policy_flow(&mut s, &mut p, &ctx, action));
+                assert_eq!(s.sent, ["policy"]);
+                assert_eq!(done.exit, ExitCode::InteractionRequired);
+            }
+            let mut s = Recorder::new();
+            let done = block(decide_flow(&mut s, &mut p, &ctx, DEC, Verdict::Approve));
+            assert!(s.sent.is_empty(), "nothing sent: {:?}", s.sent);
+            assert_eq!(done.exit, ExitCode::InteractionRequired);
+            let mut s = Recorder::new();
+            let done = block(confirm_time_flow(&mut s, &mut p, &ctx));
+            assert!(s.sent.is_empty());
+            assert_eq!(done.exit, ExitCode::InteractionRequired);
+            assert!(p.shown.is_empty());
+        }
+    }
+
+    /// Widening policy actions and decision commands follow the same order:
+    /// `Attend`, the request (or the listing), the prompt, then `Decide` on yes.
+    /// A narrowing pause never attends.
+    #[test]
+    fn owner_present_policy_and_decision_flows_attend_first() {
+        let pol = || PolicyId::parse("pol").unwrap_or_else(|_| unreachable!());
+        for action in [
+            PolicyAction::Resume { policy_id: pol() },
+            PolicyAction::ClearCutoff { policy_id: pol() },
+        ] {
+            let mut s = Recorder::new()
+                .answer("policy", approval_required())
+                .answer("inspect", listing());
+            let mut p = script(&[Answer::Yes]);
+            let done = block(policy_flow(&mut s, &mut p, &tty(), action.clone()));
+            assert_eq!(
+                s.sent,
+                ["attend", "policy", "inspect", "decide"],
+                "{action:?}"
+            );
+            assert_eq!(done.env.code, Code::Ok);
+            let mut s = Recorder::new()
+                .answer("policy", approval_required())
+                .answer("inspect", listing());
+            let mut p = script(&[Answer::No]);
+            let done = block(policy_flow(&mut s, &mut p, &tty(), action));
+            assert_eq!(s.sent, ["attend", "policy", "inspect"]);
+            assert_eq!(done.exit, ExitCode::InteractionRequired);
+        }
+        let mut s = Recorder::new();
+        let mut p = script(&[]);
+        let done = block(policy_flow(
+            &mut s,
+            &mut p,
+            &tty(),
+            PolicyAction::Pause { policy_id: pol() },
+        ));
+        assert_eq!(s.sent, ["policy"], "narrowing: no attendance");
+        assert_eq!(done.env.code, Code::Ok);
+        // decision approve|deny: attend, listing, prompt, decide.
+        for verdict in [Verdict::Approve, Verdict::Deny] {
+            let mut s = Recorder::new().answer("inspect", listing());
+            let mut p = script(&[Answer::Yes]);
+            let _ = block(decide_flow(&mut s, &mut p, &tty(), DEC, verdict));
+            assert_eq!(s.sent, ["attend", "inspect", "decide"]);
+            let mut s = Recorder::new().answer("inspect", listing());
+            let mut p = script(&[Answer::Eof]);
+            let done = block(decide_flow(&mut s, &mut p, &tty(), DEC, verdict));
+            assert_eq!(s.sent, ["attend", "inspect"]);
+            assert_eq!(done.exit, ExitCode::InteractionRequired);
+        }
+        // time confirm: attend, prompt, confirm_time.
+        let mut s = Recorder::new();
+        let mut p = script(&[Answer::Yes]);
+        let _ = block(confirm_time_flow(&mut s, &mut p, &tty()));
+        assert_eq!(s.sent, ["attend", "confirm_time"]);
+        let mut s = Recorder::new();
+        let mut p = script(&[Answer::Interrupted]);
+        let done = block(confirm_time_flow(&mut s, &mut p, &tty()));
+        assert_eq!(s.sent, ["attend"]);
+        assert_eq!(done.exit, ExitCode::InteractionRequired);
     }
 
     #[test]

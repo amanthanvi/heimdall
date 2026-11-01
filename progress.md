@@ -63,9 +63,34 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - A later cutoff is widening.
     - The CLI sends Attend first.
     - New `Request::Shutdown` (`service-control/1`), with Windows runtime tests run natively.
+- Rulings committed as 93c60d3b.
+- Running:
+- Codex code reviews of 93c60d3b are done (`tests/evidence/artifacts/review-m01-code/area-{a,b,c}.md`). All three say "fix first".
+  - A: 7 majors and 1 minor, reproduced with probes.
+    - A01: publish uses a stale time observation.
+    - A02: commit is admitted under TIME_UNCERTAIN.
+    - A03: prepare runs after the deadline.
+    - A04: an unmet offline minimum still reports ACCESS_READY.
+    - A05: a failed event catch-up skips an event.
+    - A06: a fresh decision reuses the old delta.
+    - A07 (minor): duplicate approval records.
+    - A08: pause revalidation, covered by §13.6 item 1.
+  - B: 4 majors and 2 minors.
+    - B01: the harnesses `rm -rf` non-exclusive scratch directories.
+    - B02: a stale cleanup retry causes a zero-delay loop.
+    - B03: the Windows IPC harness masks a later suite's failure.
+    - B04 (minor): sleep detection waits for the next tick.
+    - B05 (minor): a pipe-name buffer length is given in bytes, not UTF-16 units.
+    - B06 (minor): the unsafe inventory is incomplete.
+    - B07/B09 (majors) and B08 (minor) are covered by §13.6.
+  - C: 2 majors and 1 minor.
+    - C01: a JSON usage error returns no envelope.
+    - C02: the evidence generator loses wildcard coverage when a target is missing.
+    - C03 (minor): a nonzero exit does not block `verified`.
+  - The reviewers confirmed sound: the idempotency, decision-completion, recovery, IPC permission, framing and exit-code paths.
+  - Fixes for all of these start once the §13.6 workflow finishes, because they touch the same files.
+  - Workflow `wf_c0198760-330`: F1 (app-side §13.6 items 1, 2, 3, 5, 6) and F2 (contract/runtime/CLI/Windows items 4, 7, 8, including native Windows runs), then an integrator.
 - Next:
-  - an independent Codex code review of wave 2, in 3 parallel areas;
-  - a fix round for the §13.6 rulings;
   - native reruns on Linux and Windows and regenerated records against a commit;
   - fixes for the review findings;
   - then M01 exit, then M02.

@@ -16,6 +16,18 @@
 //!   with a server-issued decision record (`APPROVAL_REQUIRED` attended,
 //!   `INTERACTION_REQUIRED` unattended, both with `next.decision_ref`) and never
 //!   executes them on dispatch (ADR-0006 §13.1 R5, §13.4 N04).
+//! * **Service control** (ADR-0006 §13.6 item 8). `Request::Shutdown` reaches this
+//!   dispatcher only on a session that negotiated `service-control/1` (the session
+//!   refuses it otherwise). It is accepted only from the **owner** role, on any
+//!   session (attended or not: an availability action, not a widening), and only
+//!   when the service gave this dispatcher its stop token
+//!   ([`OperationsDispatcher::with_service_control`]); a limited consumer gets
+//!   `CAPABILITY_UNAVAILABLE`. The answer is `OK {"stopping": true,
+//!   "already_stopping": <bool>}`; the drain itself starts from
+//!   [`Dispatcher::replied`], after that answer is written, by cancelling the
+//!   service token, which runs the same graceful drain as a signal. Repeated
+//!   requests are idempotent. This dispatcher serves the control endpoint only:
+//!   the signing endpoint speaks the agent protocol and has no such request.
 //! * **Subscriptions.** The application's [`heimdall_app::events::SubscriptionStart`]
 //!   carries a live receiver of `SequencedEvent`s; the session wants
 //!   [`LiveEvent`]s. One runtime-wide [`EventRelay`] converts the application's
@@ -114,6 +126,8 @@ pub struct OperationsDispatcher {
     operations: Operations,
     relay: EventRelay,
     clock: Arc<dyn Clock>,
+    /// The service's stop token, when this dispatcher may stop the service.
+    stop: Option<CancellationToken>,
 }
 
 impl std::fmt::Debug for OperationsDispatcher {
@@ -131,7 +145,17 @@ impl OperationsDispatcher {
             operations,
             relay,
             clock,
+            stop: None,
         }
+    }
+
+    /// Let owner `Shutdown` requests stop the service by cancelling `stop` (the
+    /// token `Service::run` drains on). Without it, `Shutdown` is not supported
+    /// (`USAGE_ERROR`).
+    #[must_use]
+    pub fn with_service_control(mut self, stop: CancellationToken) -> Self {
+        self.stop = Some(stop);
+        self
     }
 
     /// Handle one request for an already-authenticated session.
@@ -141,11 +165,27 @@ impl OperationsDispatcher {
         request: Request,
     ) -> Envelope<serde_json::Value> {
         let caller = caller_for(session, self.clock.wall());
-        if request.requires_attended_session() && !session.attended {
+        self.handle_as(&caller, request).await
+    }
+
+    /// [`Self::handle`] for an explicit caller (the role-based refusals are
+    /// testable with a `LimitedConsumer` caller, which the control endpoint never
+    /// builds itself before G07).
+    #[doc(hidden)]
+    pub async fn handle_as(
+        &self,
+        caller: &Caller,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
+        let caller = caller.clone();
+        if request.requires_attended_session() && !caller.is_attended() {
             return error_value(OpError::new(
                 Code::InteractionRequired,
                 "this request requires an attended interactive session",
             ));
+        }
+        if let Request::Shutdown(_) = request {
+            return self.shutdown(&caller);
         }
         let ops = &self.operations;
         match request {
@@ -168,6 +208,32 @@ impl OperationsDispatcher {
                 "this request kind is not supported by this runtime",
             )),
         }
+    }
+
+    /// `Shutdown` (module docs): owner role only; the drain starts after the
+    /// answer is written ([`Dispatcher::replied`]).
+    fn shutdown(&self, caller: &Caller) -> Envelope<serde_json::Value> {
+        if !caller.context.is_owner() {
+            return error_value(OpError::new(
+                Code::CapabilityUnavailable,
+                "service control needs the owner principal on the control endpoint",
+            ));
+        }
+        let Some(stop) = &self.stop else {
+            return error_value(OpError::new(
+                Code::UsageError,
+                "this request kind is not supported by this runtime",
+            ));
+        };
+        // `already_stopping`: the drain had already started when this arrived.
+        let already = stop.is_cancelled();
+        if !already {
+            tracing::info!("stop requested by the owner over the control endpoint");
+        }
+        value_envelope(Envelope::ok(serde_json::json!({
+            "stopping": true,
+            "already_stopping": already,
+        })))
     }
 
     /// Start a subscription (ADR-0006 §8): relay receiver first, then the
@@ -246,6 +312,15 @@ impl Dispatcher for OperationsDispatcher {
         Self: 'async_trait,
     {
         Box::pin(self.start_subscription(session, filter, from))
+    }
+
+    fn replied(&self, _session: &SessionInfo, request_kind: &'static str, code: &Code) {
+        if request_kind == "shutdown"
+            && *code == Code::Ok
+            && let Some(stop) = &self.stop
+        {
+            stop.cancel();
+        }
     }
 }
 

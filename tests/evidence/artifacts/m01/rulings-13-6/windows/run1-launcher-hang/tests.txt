@@ -1,0 +1,183 @@
+### e2e_cli_m01
+
+running 12 tests
+test test_configuration_requires_an_explicit_home ... ok
+test human_output_goes_to_stdout_and_messages_to_stderr ... ok
+test service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent ... ok
+test decision_approve_without_a_terminal_or_non_interactive_sends_nothing_and_exits_3 ... ok
+test inspect_preview_and_require_capability_have_no_effect ... ok
+test operation_events_follow_resumes_from_cursor ... ok
+test a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once ... ok
+test a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays ... ok
+test a06_caller_killed_while_the_service_runs_then_the_retry_converges_on_one_effect ... ok
+test unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation ... ok
+test every_exit_class_0_to_7_is_observed_through_the_real_binary ... ok
+test eight_concurrent_clients_start_exactly_one_runtime has been running for over 60 seconds
+### e2e_cli_m01 exit=124
+### heimdall-unit
+
+running 16 tests
+test output::tests::every_known_code_maps_to_its_table_exit_class ... ok
+test output::tests::accepted_without_async_is_not_success ... ok
+test output::tests::a_wait_reports_the_awaited_operation ... ok
+test testcfg::tests::detection_sees_every_variable_and_nothing_else ... ok
+test testcfg::tests::a_build_without_the_configuration_refuses_a_request_for_it ... ok
+test cli::tests::interactive_needs_a_terminal_and_no_opt_out ... ok
+test output::tests::sanitizer_drops_escapes ... ok
+test cli::tests::pending_decision_needs_an_interaction_code_and_a_reference ... ok
+test prompt::tests::only_y_or_yes_confirms_and_the_default_is_no ... ok
+test output::tests::unknown_code_is_never_success_and_exits_one ... ok
+test cli::tests::not_confirmed_is_interaction_required_with_the_decision_ref ... ok
+test cli::tests::command_tree_is_consistent ... ok
+test cli::tests::non_interactive_or_non_tty_never_attends_or_prompts ... ok
+test cli::tests::interactive_ensure_attends_before_the_request_and_decides_only_on_yes ... ok
+test cli::tests::interactive_ensure_sends_nothing_more_unless_confirmed ... ok
+test cli::tests::owner_present_policy_and_decision_flows_attend_first ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+### heimdall-unit exit=0
+### heimdall_contract-unit
+
+running 21 tests
+test code::tests::success_codes_exit_zero_and_errors_do_not ... ok
+test canonical::tests::array_order_matters ... ok
+test code::tests::spec_codes_present ... ok
+test canonical::tests::context_separates_hashes ... ok
+test code::tests::unknown_codes_are_errors_with_exit_one ... ok
+test canonical::tests::key_order_does_not_matter ... ok
+test canonical::tests::hex_round_trip ... ok
+test code::tests::wire_spelling_matches_serde ... ok
+test ids::tests::serde_rejects_invalid ... ok
+test ids::tests::prefixed_ids_round_trip ... ok
+test envelope::tests::omitted_and_null_differ_for_next ... ok
+test ids::tests::tokens_are_bounded_and_sanitized ... ok
+test code::tests::outcome_unknown_is_never_retryable_or_not_applied ... ok
+test ipc::tests::hello_round_trips ... ok
+test state::tests::outcome_unknown_is_quiescent_but_not_settled ... ok
+test request::tests::shutdown_wire_form_and_predicates ... ok
+test envelope::tests::unknown_noncritical_fields_are_tolerated ... ok
+test schema::tests::code_table_lists_every_code ... ok
+test request::tests::shutdown_examples_round_trip ... ok
+test request::tests::request_schema_names_shutdown ... ok
+test schema::tests::schemas_generate_and_are_unique ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+### heimdall_contract-unit exit=0
+### heimdall_ipc-unit
+
+running 24 tests
+test endpoint::tests::only_same_user_passes ... ok
+test signing::tests::canned_frames_are_well_formed ... ok
+test frame::tests::oversize_is_rejected_before_allocation ... ok
+test windows::tests::sid_string_validation_rejects_aliases_and_injection ... ok
+test signing::tests::allow_list_is_exact ... ok
+test frame::tests::round_trip_and_partial ... ok
+test windows::tests::classify_path_namespace_rules ... ok
+test windows::tests::current_user_sid_is_a_literal_sid ... ok
+test endpoint::tests::windows_pipe_names_carry_only_the_token ... ok
+test session::tests::subscription_start_debug_omits_contents ... ok
+test windows::tests::bind_outside_runtime_errors_instead_of_panicking ... ok
+test frame::tests::decode_error_does_not_echo_peer_bytes ... ok
+test session::tests::rejects_wrong_major_and_missing_required_capability ... ok
+test session::tests::inconsistent_hello_requiring_an_unoffered_capability_is_rejected ... ok
+test windows::tests::bind_refuses_non_pipe_names_and_non_sid_owners ... ok
+test windows::tests::connect_with_owner_refuses_bad_input_before_any_open ... ok
+test windows::tests::missing_pipe_is_not_found ... ok
+test windows::tests::dacl_denies_unlisted_principal ... ok
+test windows::tests::existing_name_makes_bind_fail_first_instance ... ok
+test windows::tests::connect_with_owner_refuses_an_unexpected_owner ... ok
+test windows::tests::connect_with_owner_accepts_a_same_user_server ... ok
+test windows::tests::same_user_connect_reports_owner_sid_and_owner_only_dacl ... ok
+test windows::tests::non_pipe_endpoints_refused_before_any_open ... ok
+test windows::tests::sid_mismatch_is_disconnected_and_listener_keeps_waiting ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s
+
+### heimdall_ipc-unit exit=0
+### heimdall_runtime-unit
+
+running 6 tests
+test telemetry::tests::levels_parse ... ok
+test telemetry::tests::ids_and_words_survive ... ok
+test config::tests::unknown_sensitive_keys_rejected_by_serde ... ok
+test instance::tests::second_acquire_fails_while_first_is_held ... ok
+test config::tests::schema_generates ... ok
+test config::tests::defaults_validate ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### heimdall_runtime-unit exit=0
+### integration_runtime
+
+running 47 tests
+test jitter_props::random_jitter_is_in_range_and_varies ... ok
+test process_start_time_identifies_this_process ... ok
+test log_file_sink_needs_a_directory ... ok
+test paths_refuse_relative_or_empty_heimdall_home ... ok
+test redact_removes_home_paths ... ok
+test system_time_sync_is_unknown_in_m01 ... ok
+test system_clock_probes_on_this_host ... ok
+test system_clock_boot_id_is_stable_across_reads ... ok
+test redact_removes_private_key_blocks ... ok
+test redact_removes_canaries_wherever_they_appear ... ok
+test redact_keeps_ordinary_diagnostics ... ok
+test redact_removes_key_like_runs_without_prefix_lists ... ok
+test u8b::launcher_child_service ... ignored, child-process entry for the launcher test; runs only when re-executed by it
+test config_rejects_trusted_true ... ok
+test u8b::caller_is_built_from_the_session_only ... ok
+test redact_bounds_length ... ok
+test config_rejects_trusted_in_every_place ... ok
+test config_rejects_authority_widening_keys ... ok
+test config_unknown_ordinary_keys_rejected_outside_x_and_tolerated_inside ... ok
+test config_defaults_and_max_window ... ok
+test config_errors_never_echo_values ... ok
+test config_rejects_bad_versions_and_durations ... ok
+test paths_heimdall_home_layout_is_owner_only ... ok
+test log_file_sink_redacts_every_line ... ok
+test jitter_props::jittered_retry_delays_stay_within_the_bounded_backoff ... ok
+test instance_write_is_atomic_and_owner_only ... ok
+test system_clock_continuous_is_monotonic_and_tracks_elapsed_time ... ok
+test u8b::time_guard_refuses_a_rollback_and_ensure_is_time_uncertain ... ok
+test u8b::launcher_eight_concurrent_clients_start_exactly_one_child ... ok
+test redact_random_key_material_never_survives ... ok
+test u8b::dispatcher_rechecks_attendance_and_renders_application_results ... ok
+test u8b::environment_identity_is_created_once_and_never_changes ... ok
+test u8b::shutdown_refused_for_a_limited_consumer_and_idempotent_for_the_owner ... ok
+test u8b::service_ignores_and_replaces_a_stale_instance_json ... ok
+test u8b::service_second_start_is_already_running ... ok
+test u8b::supervisor_run_loop_expires_due_grants_on_its_own ... ok
+test u8b::restart_never_revives_a_paused_policy_or_changes_identity ... ok
+test u8b::cleanup_retries_use_bounded_backoff_with_injected_jitter ... ok
+test u8b::scheduler_expires_exactly_at_the_persisted_bound_across_a_same_boot_restart ... ok
+test u8b::time_guard_refuses_an_unsynchronized_reboot_and_ensure_is_time_uncertain ... ok
+test u8b::shutdown_from_the_owner_drains_and_removes_the_advertisement_and_endpoints ... ok
+test u8b::restart_recovery_reconciles_an_attempted_receipt_without_preparing_again ... ok
+test u8b::scheduler_expires_at_the_continuous_budget_end_with_the_wall_clock_lagging ... ok
+test u8b::scheduler_expires_at_the_same_bound_after_a_reboot_with_sync ... ok
+test u8b::unavailable_prepare_is_answered_once_and_never_retried_by_the_supervisor_or_a_restart ... ok
+test u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit ... FAILED
+test u8b::control_socket_round_trip_against_a_real_service ... ok
+
+failures:
+
+---- u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit stdout ----
+
+thread 'u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit' (46904) panicked at crates/runtime/../../tests/integration/runtime.rs:2902:9:
+assertion `left == right` failed
+  left: 2
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    u8b::shutdown_lets_an_in_flight_durable_step_complete_before_exit
+
+test result: FAILED. 45 passed; 1 failed; 1 ignored; 0 measured; 1 filtered out; finished in 1.68s
+
+### integration_runtime exit=101
+all-tests-exit=101
+leftover-test-processes=1
+test-pipes-after=2
+localappdata-heimdall-after=absent

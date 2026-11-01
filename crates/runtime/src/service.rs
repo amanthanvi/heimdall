@@ -120,6 +120,12 @@ pub struct ServiceOptions {
     pub signer: Arc<dyn Signer>,
     /// Bound on waiting for in-flight operations at shutdown.
     pub drain_timeout: Duration,
+    /// Windows only: a fixed prefix of the pipe instance token (tests and native
+    /// runs use `hmtest-` so their pipes are recognizable); empty in production,
+    /// where the token is purely random (no labels, g03 §3.1 N2). At most 24
+    /// characters of `[a-z0-9-]`; anything else fails the bind. Ignored on Unix.
+    #[doc(hidden)]
+    pub endpoint_prefix: String,
 }
 
 impl std::fmt::Debug for ServiceOptions {
@@ -157,6 +163,7 @@ impl ServiceOptions {
             supervisor: SupervisorConfig::default(),
             signer: Arc::new(NoIdentities),
             drain_timeout: Duration::from_secs(10),
+            endpoint_prefix: String::new(),
         }
     }
 }
@@ -341,7 +348,8 @@ impl Service {
         let relay = EventRelay::spawn(&operations, background.0.clone());
 
         // 6. Endpoints (distinct paths, owner-only).
-        let (endpoints, control, signing, owner) = bind_endpoints(&paths)?;
+        let (endpoints, control, signing, owner) =
+            bind_endpoints(&paths, &options.endpoint_prefix)?;
 
         // 7. Advertisement, written only after both endpoints are bound.
         let started_at = InstanceInfo::current_started_at().ok_or_else(|| {
@@ -410,7 +418,10 @@ impl Service {
             _lock,
         } = self;
 
-        let dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone());
+        // Owner `Shutdown` requests cancel the same token a signal does, so both
+        // take the graceful drain below (ADR-0006 §13.6 item 8).
+        let dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone())
+            .with_service_control(shutdown.clone());
         let environment = operations.environment().clone();
         let mut tasks = JoinSet::new();
         tasks.spawn(serve_control(
@@ -533,6 +544,7 @@ fn endpoint_string(path: &std::path::Path) -> Result<String, ServiceError> {
 #[cfg(unix)]
 fn bind_endpoints(
     paths: &Paths,
+    _prefix: &str,
 ) -> Result<
     (
         EndpointPaths,
@@ -554,6 +566,7 @@ fn bind_endpoints(
 #[cfg(windows)]
 fn bind_endpoints(
     paths: &Paths,
+    prefix: &str,
 ) -> Result<
     (
         EndpointPaths,
@@ -564,8 +577,20 @@ fn bind_endpoints(
     ServiceError,
 > {
     use std::fmt::Write as _;
-    // Unpredictable instance token: CSPRNG hex, no labels (g03 §3.1 N2).
-    let mut token = String::with_capacity(32);
+    if prefix.len() > 24
+        || !prefix
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return Err(ServiceError::Bind(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid endpoint prefix",
+        )));
+    }
+    // Unpredictable instance token: CSPRNG hex, no labels (g03 §3.1 N2); a test
+    // prefix only makes test pipes recognizable.
+    let mut token = String::with_capacity(32 + prefix.len());
+    token.push_str(prefix);
     for _ in 0..2 {
         let v = heimdall_app::ids::random_u64().map_err(heimdall_app::OpError::from)?;
         let _ = write!(token, "{v:016x}");

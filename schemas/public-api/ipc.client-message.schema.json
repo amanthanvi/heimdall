@@ -1096,6 +1096,20 @@
           "required": [
             "op"
           ]
+        },
+        {
+          "description": "Graceful runtime stop (owner principal, control endpoint, any session;\nneeds the negotiated `service-control/1` capability).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "shutdown"
+            }
+          },
+          "$ref": "#/$defs/ShutdownRequest",
+          "required": [
+            "op"
+          ]
         }
       ]
     },
@@ -1157,6 +1171,10 @@
     "SchemaVersion": {
       "description": "A `schema_version` value as received from a peer.",
       "type": "string"
+    },
+    "ShutdownRequest": {
+      "description": "Ask the runtime to stop (ADR-0006 §13.6 item 8; capability\n[`crate::ipc::capability::SERVICE_CONTROL_V1`]).\n\nAccepted only from the owner principal on the control endpoint (never from a\nlimited consumer), on any session (attended or not: stopping the service is an\navailability action, not a widening of authority; a same-user process could end\nthe process anyway). Idempotent: a repeated request while the runtime is\ndraining answers `OK` again. The runtime answers `OK {\"stopping\": true, ...}`\nfirst, then drains gracefully: it stops accepting, lets in-flight operations\nreach a durable stage (bounded; anything still running resumes through restart\nrecovery), persists, removes its advertisement and endpoints, and exits 0.\nNot an operation: no operation ID, no idempotency record.",
+      "type": "object"
     },
     "Verdict": {
       "description": "Verdict on a server-issued decision record (ADR-0006 §3.1).",
