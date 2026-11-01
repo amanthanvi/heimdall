@@ -13,7 +13,7 @@
 | M00-T05 G02 language/TUI + ADR | verified | ADR-0002 revision 3 (re-scored, reviewed twice) and its 2026-10-31 recorded decision: Rust + Ratatui (ADR-0004 §1) |
 | M00-T06 release contract etc. | implemented_unverified | Committed in 18bb8df |
 | M01-T01..T06 deterministic core | verified (M01 exit 2026-11-01, b89743ae) | `docs/architecture/m01-exit.md`; records A06, A07, A17-local and A19 are verified. A08 and A29-local are blocked only on M04 native sleep/logout/reboot and the second Windows account. 8 independent code-review rounds; the last one says ship |
-| M02-T00 design | in_progress | m02-plan.md and ADR-0007 rev 4 (99e6fc9f); 3 design reviews done, focused round 4 running |
+| M02-T00 design | verified (design gate closed 2026-11-01, 9c458501) | m02-plan.md and ADR-0007 rev 5; 4 independent design reviews, all findings ruled and applied |
 
 ## Owner decisions under delegation (2026-10-31)
 
@@ -414,3 +414,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - New: T01, T02, T04, T06 (major); T03, T05 (medium); and an interface reconciliation list against the M01 exit code.
   - Rulings in ADR-0007 §12.11. Once applied, wave 0 starts. The integrator verifies them against code first, and the wave-0 code review covers them; no further full design review.
   - Running: M02-T00-design-fix-4.
+- M02 design revision 5 is committed as 9c458501, and the design gate is closed.
+  - Separate Git lock holder K; materialize takes the full step; held fingerprints; RecoveryState; properties over concrete effects; adapter-call timeouts in U0b phase 2.
+  - ADR-0007 §12.13: QR16, QR17 and P12 accepted. QR17 carries an M03 retry requirement.
+- Running: workflow `wf_ce8d2e38-72a`, M02 wave 0. Stages, in order:
+  1. verification against the code;
+  2. W0-contract, W0-domain-store and W0-skeleton in parallel;
+  3. U0b phase 1;
+  4. the integrator, running check.sh twice.
+  - Then: an independent code review, and wave 1.
