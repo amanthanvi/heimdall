@@ -4,6 +4,7 @@ use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{DestinationId, GrantId};
 use serde::{Deserialize, Serialize};
 
+use crate::operation::AdapterIdentity;
 use crate::policy::AuthorityGeneration;
 
 /// A remote effect that is not yet acknowledged.
@@ -58,26 +59,91 @@ pub struct Tombstone {
 ///
 /// The record is the explicit evidence that keeps a `revoking` grant visibly
 /// pending. Repeated adapter `revoke()` rounds for it follow the supervisor's
-/// bounded, jittered backoff; `attempts` counts every round (the first local denial
-/// included) and survives a restart, so the cap is never reset by one. Once
-/// `stopped`, nothing calls the adapters for it again and nothing is reported again
-/// until an explicit `revoke` covering the root (which starts a fresh record) or a
-/// round that finds nothing pending (which clears it).
+/// bounded, jittered backoff; `attempts` counts every round that called an adapter
+/// (the first local denial included) and survives a restart, so the cap is never
+/// reset by one. Once `stopped`, nothing calls the adapters for it again and
+/// nothing is reported again until an explicit `revoke` covering the root (which
+/// re-arms the schedule) or a round that finds nothing pending (which clears it).
+///
+/// ⟨r2.9⟩ ADR-0006 §13.12:
+/// * **T01.** A round is *claimed* before any adapter is called, in its own
+///   committed transaction: `attempts` is incremented and `claimed_at` recorded.
+///   The completion clears `claimed_at`. A claimed round that never completed (a
+///   crash, a failed completion commit) still counts, so no sequence of failures
+///   yields more adapter calls than the cap.
+/// * **T02.** `obligations` holds every unresolved remote obligation per
+///   responsible adapter. A round asks only that adapter, and only its
+///   confirmation clears the obligation; `grants` is the set of grants that still
+///   have one. A record written before the field existed has `grants` alone and is
+///   read with each grant's responsible adapter from its recovery intent and
+///   receipts (`heimdall_store::Txn::grant_adapters`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingRemoteRevocation {
     /// The grant carrying the tombstone.
     pub root: GrantId,
-    /// The root and the descendants its tombstone covers whose remote effect an
-    /// adapter still reports pending (or failed to confirm).
+    /// The root and the descendants its tombstone covers whose remote effect is
+    /// still unresolved: exactly the grants named by `obligations` (when present).
     pub grants: Vec<GrantId>,
-    /// Adapter `revoke()` rounds made so far (each round asks every configured
-    /// adapter about every grant in `grants`).
+    /// Adapter `revoke()` rounds claimed so far (a round that called no adapter,
+    /// because no responsible adapter was configured, is not counted).
     pub attempts: u32,
-    /// When the last round ran.
+    /// When the last claimed round ran (or the record was created).
     pub last_attempt_at: Timestamp,
     /// The capped retries are exhausted: no further round until an explicit owner
     /// action or a new completion signal.
     pub stopped: bool,
+    /// ⟨r2.9⟩ The unresolved obligations, one per grant and responsible adapter
+    /// (ADR-0006 §13.12 item 2). Empty in a record written before §13.12 (read as
+    /// described above); omitted from the record when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub obligations: Vec<RemoteObligation>,
+    /// ⟨r2.9⟩ The instant of a claimed round whose completion has not been recorded
+    /// (ADR-0006 §13.12 item 1); `None` once it completed. Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed_at: Option<Timestamp>,
+}
+
+/// ⟨r2.9⟩ One unresolved remote obligation of a pending revocation (ADR-0006
+/// §13.12 item 2): the remote effect of `grant` that `adapter` must confirm.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteObligation {
+    /// The grant concerned.
+    pub grant: GrantId,
+    /// The responsible adapter, from the grant's recovery intent and stage receipts.
+    /// When those are gone (purged with their settled operation) it is the grant's
+    /// recorded origin mechanism with an empty `instance` (any configured instance
+    /// of that mechanism is responsible), and with no origin either both fields are
+    /// empty (every configured adapter is responsible). Never another mechanism.
+    pub adapter: AdapterIdentity,
+    /// Why it is still pending, when not simply unconfirmed. Omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<RemotePendingReason>,
+}
+
+/// ⟨r2.9⟩ Why a remote obligation is still pending (ADR-0006 §13.12 item 2). Wire
+/// form snake_case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RemotePendingReason {
+    /// The responsible adapter is not configured in this runtime: the last round
+    /// could not ask it (and consumed no attempt).
+    AdapterUnavailable,
+}
+
+impl RemoteObligation {
+    /// Whether a configured adapter with identity `configured` is responsible for
+    /// this obligation: the recorded identity exactly, or, for an obligation whose
+    /// instance (or whole identity) could not be recorded, any instance of its
+    /// mechanism (or any adapter).
+    #[must_use]
+    pub fn served_by(&self, configured: &AdapterIdentity) -> bool {
+        if self.adapter.instance.is_empty() {
+            self.adapter.mechanism.is_empty() || self.adapter.mechanism == configured.mechanism
+        } else {
+            &self.adapter == configured
+        }
+    }
 }
 
 /// Whether an action authorized at `authorized_generation` may still proceed
@@ -113,6 +179,71 @@ mod tests {
         let v = serde_json::to_value(&withdrawn).unwrap();
         assert_eq!(v["cause"], "authority_withdrawn");
         assert_eq!(serde_json::from_value::<Tombstone>(v).unwrap(), withdrawn);
+    }
+
+    /// ⟨r2.9⟩ ADR-0006 §13.12: a pending record written before obligations and
+    /// claims existed reads with neither; the new fields round-trip and are omitted
+    /// when empty; the reason's wire form is snake_case.
+    #[test]
+    fn a_pending_record_without_obligations_reads_unchanged() {
+        let g = GrantId::from_random_bytes([2; 16]);
+        let old = serde_json::json!({
+            "root": g,
+            "grants": [g],
+            "attempts": 3,
+            "last_attempt_at": "2026-10-02T09:00:00Z",
+            "stopped": false,
+        });
+        let r: PendingRemoteRevocation = serde_json::from_value(old.clone()).unwrap();
+        assert!(r.obligations.is_empty());
+        assert_eq!(r.claimed_at, None);
+        assert_eq!(r.attempts, 3);
+        assert_eq!(serde_json::to_value(&r).unwrap(), old, "omitted when empty");
+        let adapter = AdapterIdentity {
+            mechanism: "fake_agent".into(),
+            instance: "fixture-1".into(),
+        };
+        let with = PendingRemoteRevocation {
+            obligations: vec![RemoteObligation {
+                grant: g.clone(),
+                adapter: adapter.clone(),
+                reason: Some(RemotePendingReason::AdapterUnavailable),
+            }],
+            claimed_at: Some("2026-10-02T09:00:01Z".parse().unwrap()),
+            ..r
+        };
+        let v = serde_json::to_value(&with).unwrap();
+        assert_eq!(v["obligations"][0]["reason"], "adapter_unavailable");
+        assert_eq!(v["obligations"][0]["adapter"]["instance"], "fixture-1");
+        assert_eq!(v["claimed_at"], "2026-10-02T09:00:01Z");
+        assert_eq!(
+            serde_json::from_value::<PendingRemoteRevocation>(v).unwrap(),
+            with
+        );
+    }
+
+    /// ⟨r2.9⟩ Only the recorded adapter serves an obligation; an obligation recorded
+    /// by mechanism only is served by any instance of that mechanism, never by
+    /// another mechanism.
+    #[test]
+    fn only_the_responsible_adapter_serves_an_obligation() {
+        let id = |m: &str, i: &str| AdapterIdentity {
+            mechanism: m.into(),
+            instance: i.into(),
+        };
+        let o = |a: AdapterIdentity| RemoteObligation {
+            grant: GrantId::from_random_bytes([3; 16]),
+            adapter: a,
+            reason: None,
+        };
+        let exact = o(id("fake_agent", "fixture-1"));
+        assert!(exact.served_by(&id("fake_agent", "fixture-1")));
+        assert!(!exact.served_by(&id("fake_agent", "fixture-9")));
+        assert!(!exact.served_by(&id("fake_other", "fixture-1")));
+        let by_mechanism = o(id("fake_agent", ""));
+        assert!(by_mechanism.served_by(&id("fake_agent", "fixture-9")));
+        assert!(!by_mechanism.served_by(&id("fake_other", "fixture-1")));
+        assert!(o(id("", "")).served_by(&id("fake_other", "x")));
     }
 
     #[test]

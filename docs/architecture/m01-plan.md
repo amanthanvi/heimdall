@@ -365,6 +365,36 @@ integrator with an ADR-0006 revision.
     `r139_3_a_pending_remote_effect_*` now waits for the due round),
     `integration_store::{grant_degradation_*, remote_revocation_*}`,
     `heimdall_domain::grant::tests::*` (ADR-0006 §14.5 row).
+* **⟨r2.9⟩ ADR-0006 §13.12 items 1 and 2 (M01-review4-T01-T02; review round 4 T01,
+  T02).** **Additive** `domain::revocation::{RemoteObligation { grant, adapter:
+  AdapterIdentity, reason: Option<RemotePendingReason> }, RemotePendingReason {
+  AdapterUnavailable }` (`#[non_exhaustive]`, wire `"adapter_unavailable"`),
+  `RemoteObligation::served_by(&self, &AdapterIdentity) -> bool}` and fields
+  `PendingRemoteRevocation.{obligations: Vec<RemoteObligation>, claimed_at:
+  Option<Timestamp>}` (serde default, omitted when empty; struct literals need them;
+  meta row, no migration, `SCHEMA_VERSION` stays 4); store (U4b paths)
+  `Txn::grant_adapters(&GrantId) -> Result<Vec<AdapterIdentity>>` and
+  `set_remote_revocation` refusing obligations that do not name exactly `grants`.
+  `Operations::retry_remote_revocation` keeps its signature.
+  * Item 1: every adapter round of a pending remote revocation (an explicit revoke's
+    first local denial, in its tombstone transaction; a withdrawal's, in its own
+    claim transaction; every supervisor retry) is claimed in a committed
+    transaction before any call (`attempts + 1`, `claimed_at`); the completion only
+    clears confirmed obligations and the claim. A failed completion or a crash after
+    the call leaves the claimed attempt counted; a later drive of an explicit revoke
+    and the start-up sweep never call again for a root that has a record.
+  * Item 2: obligations are kept per grant and responsible adapter (recovery intents
+    and receipts; origin mechanism when those were purged); a round asks only that
+    adapter and only its confirmation clears the obligation; with it not configured
+    the obligation stays pending (`inspect grants` adds `remote_pending_reason:
+    "adapter_unavailable"`), no attempt is consumed and the supervisor backs off.
+  * Tests `model_operations::{r1312_1_*, r1312_2_*, r1312_props::*}` (the first half
+    of `r1310_2_a_degraded_grant_returns_only_when_revalidation_passes` now expects
+    `revoking` until the grant's own adapter confirms),
+    `integration_store::{remote_revocation_obligations_name_exactly_the_record_grants,
+    grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant}`,
+    `heimdall_domain::revocation::tests::{a_pending_record_without_obligations_reads_unchanged,
+    only_the_responsible_adapter_serves_an_obligation}` (ADR-0006 §14.5 row).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.
@@ -532,6 +562,13 @@ integrator with an ADR-0006 revision.
   `max_attempts` (durable count, so a restart never resets it), then `stopped`.
   `scheduler_pass` (signature unchanged) runs it after `tick` and its next wake
   covers the earliest scheduled round.
+* **⟨r2.9⟩ ADR-0006 §13.12, U8 side (M01-review4-T01-T02):** **additive** field
+  `RevocationReport.waiting: Vec<GrantId>` (roots whose due round found no
+  responsible adapter configured). Such a round consumes no attempt, and the next
+  one is scheduled `retry_delay(backoff, n + k, jitter)` later after `k` of them in a
+  row (nothing spins). A round whose completion failed is rescheduled; the next pass
+  sees the durable count its claim wrote, so a record at the cap is stopped without
+  another call.
 
 ### U9 — CLI client, test adapter wiring, schema export — **wave 2**
 

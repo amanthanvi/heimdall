@@ -36,6 +36,11 @@
 //!   its remote part visible, and nothing calls the adapters or reports again until
 //!   an explicit `revoke` (a fresh record) or a round that finds nothing pending.
 //!   A round emits no event except a grant's own `revoking → revoked` change.
+//!   ⟨r2.9⟩ ADR-0006 §13.12: the count is the number of rounds **claimed** (durably,
+//!   before any adapter call), so a round whose completion failed or was
+//!   interrupted still counts and the cap bounds the calls; a round that found no
+//!   responsible adapter configured calls nothing and consumes no attempt, and the
+//!   next one is backed off further (`RevocationReport::waiting`).
 //! * **Caller operations are not retried here.** An operation whose adapter
 //!   `prepare` reports `Unavailable` is answered once with
 //!   `SERVICE_UNAVAILABLE` (exit 5) by the operations path and is not retried by
@@ -210,7 +215,18 @@ pub struct Supervisor {
 /// continuous-clock instant (in memory; the attempt count itself is durable).
 struct RevocationRetries {
     backoff: Backoff,
-    due: HashMap<GrantId, (u32, Duration)>,
+    due: HashMap<GrantId, ScheduledRound>,
+}
+
+/// ⟨r2.9⟩ The next round of one root: the durable attempt count it was scheduled
+/// for, its continuous-clock instant, and how many rounds in a row found no
+/// responsible adapter configured (ADR-0006 §13.12 item 2: no attempt consumed,
+/// but each such round backs off further, so nothing spins).
+#[derive(Debug, Clone, Copy)]
+struct ScheduledRound {
+    attempts: u32,
+    at: Duration,
+    idle: u32,
 }
 
 /// ⟨r2.7⟩ What one revocation retry pass did (tests and telemetry; ADR-0006
@@ -228,6 +244,10 @@ pub struct RevocationReport {
     pub stopped: Vec<GrantId>,
     /// Continuous-clock delay until the earliest scheduled round, if any.
     pub next_due_in: Option<Duration>,
+    /// ⟨r2.9⟩ Roots whose due round in this pass called no adapter because no
+    /// adapter responsible for any obligation is configured (ADR-0006 §13.12 item
+    /// 2): no attempt consumed; the next round is backed off further.
+    pub waiting: Vec<GrantId>,
 }
 
 /// The single cleanup executor's port, hook, backoff and per-resource retry state.
@@ -485,12 +505,18 @@ impl Supervisor {
     /// docs). Without state (no clock) it does nothing.
     ///
     /// For each record that is not `stopped`: a record first seen at `n` attempts
-    /// (or seen again at another count, e.g. after an explicit revoke started
-    /// afresh) gets its next round scheduled `retry_delay(backoff, n, jitter)`
-    /// later and is not called in this pass; a due round calls
-    /// `Operations::retry_remote_revocation`, then the next one is scheduled from
-    /// the new count. A record at or past the cap is stopped without a call. A
-    /// round that fails is rescheduled at the same count (never a tight loop).
+    /// (or seen again at another count, e.g. after an explicit revoke re-armed it,
+    /// or after a round whose completion failed but whose claim counted) gets its
+    /// next round scheduled `retry_delay(backoff, n, jitter)` later and is not
+    /// called in this pass; a due round calls `Operations::retry_remote_revocation`,
+    /// then the next one is scheduled from the new count. A record at or past the
+    /// cap is stopped without a call. A round that fails is rescheduled at the
+    /// count it was scheduled for (never a tight loop); ⟨r2.9⟩ the round itself
+    /// was claimed durably before any adapter call (ADR-0006 §13.12 item 1), so the
+    /// next pass sees the higher count and the cap still bounds the calls. A due
+    /// round that found no responsible adapter configured (same count, not
+    /// stopped; §13.12 item 2) is listed in `waiting` and the next one is scheduled
+    /// `retry_delay(backoff, n + k, jitter)` later after `k` such rounds in a row.
     pub async fn revocation_pass(&self) -> Result<RevocationReport, heimdall_app::OpError> {
         let mut report = RevocationReport::default();
         let Some((_, clock)) = self.state.clone() else {
@@ -510,12 +536,13 @@ impl Supervisor {
             let scheduled = ex
                 .due
                 .get(&p.root)
-                .filter(|(attempts, _)| *attempts == p.attempts)
-                .map(|(_, due)| *due);
-            let Some(due) = scheduled else {
+                .filter(|s| s.attempts == p.attempts)
+                .copied();
+            let Some(slot) = scheduled else {
                 if p.attempts >= cap {
-                    // Capped already (by the first local denial, or a lower cap):
-                    // stop without another call.
+                    // Capped already (by the first local denial, a lower cap, or a
+                    // claimed round whose completion failed): stop without another
+                    // call.
                     if self
                         .operations
                         .retry_remote_revocation(&p.root, cap)
@@ -528,11 +555,18 @@ impl Supervisor {
                     continue;
                 }
                 let delay = retry_delay(&backoff, p.attempts, self.jitter.as_ref());
-                ex.due.insert(p.root.clone(), (p.attempts, now + delay));
+                ex.due.insert(
+                    p.root.clone(),
+                    ScheduledRound {
+                        attempts: p.attempts,
+                        at: now + delay,
+                        idle: 0,
+                    },
+                );
                 report.scheduled.push((p.root.clone(), p.attempts, delay));
                 continue;
             };
-            if due > now {
+            if slot.at > now {
                 continue;
             }
             match self.operations.retry_remote_revocation(&p.root, cap).await {
@@ -540,31 +574,62 @@ impl Supervisor {
                     ex.due.remove(&p.root);
                     report.completed.push(p.root.clone());
                 }
+                Ok(Some(next)) if next.stopped => {
+                    if next.attempts != p.attempts {
+                        report.retried.push((p.root.clone(), next.attempts));
+                    }
+                    ex.due.remove(&p.root);
+                    report.stopped.push(p.root.clone());
+                }
+                Ok(Some(next)) if next.attempts == p.attempts => {
+                    // ⟨r2.9⟩ No responsible adapter configured: no call, no
+                    // attempt consumed; back off further all the same.
+                    let idle = slot.idle.saturating_add(1);
+                    let delay = retry_delay(
+                        &backoff,
+                        p.attempts.saturating_add(idle),
+                        self.jitter.as_ref(),
+                    );
+                    ex.due.insert(
+                        p.root.clone(),
+                        ScheduledRound {
+                            attempts: p.attempts,
+                            at: now + delay,
+                            idle,
+                        },
+                    );
+                    report.waiting.push(p.root.clone());
+                    report.scheduled.push((p.root.clone(), p.attempts, delay));
+                }
                 Ok(Some(next)) => {
                     report.retried.push((p.root.clone(), next.attempts));
-                    if next.stopped {
-                        ex.due.remove(&p.root);
-                        report.stopped.push(p.root.clone());
-                    } else {
-                        let delay = retry_delay(&backoff, next.attempts, self.jitter.as_ref());
-                        ex.due.insert(p.root.clone(), (next.attempts, now + delay));
-                        report
-                            .scheduled
-                            .push((p.root.clone(), next.attempts, delay));
-                    }
+                    let delay = retry_delay(&backoff, next.attempts, self.jitter.as_ref());
+                    ex.due.insert(
+                        p.root.clone(),
+                        ScheduledRound {
+                            attempts: next.attempts,
+                            at: now + delay,
+                            idle: 0,
+                        },
+                    );
+                    report
+                        .scheduled
+                        .push((p.root.clone(), next.attempts, delay));
                 }
                 Err(e) => {
                     tracing::warn!(code = %e.code, "a pending remote revocation round failed");
                     let delay = retry_delay(&backoff, p.attempts, self.jitter.as_ref());
-                    ex.due.insert(p.root.clone(), (p.attempts, now + delay));
+                    ex.due.insert(
+                        p.root.clone(),
+                        ScheduledRound {
+                            at: now + delay,
+                            ..slot
+                        },
+                    );
                 }
             }
         }
-        report.next_due_in = ex
-            .due
-            .values()
-            .map(|(_, due)| due.saturating_sub(now))
-            .min();
+        report.next_due_in = ex.due.values().map(|s| s.at.saturating_sub(now)).min();
         Ok(report)
     }
 

@@ -3337,6 +3337,8 @@ fn remote_revocation_records_need_a_tombstone_and_round_trip() {
         attempts,
         last_attempt_at: plus(t0(), i64::from(attempts)),
         stopped,
+        obligations: Vec::new(),
+        claimed_at: None,
     };
     let untombstoned = s
         .transaction(|tx| tx.set_remote_revocation(&record(51, 1, false)))
@@ -3384,5 +3386,154 @@ fn remote_revocation_records_need_a_tombstone_and_round_trip() {
     assert_eq!(
         s.transaction(|tx| tx.remote_revocations()).unwrap().len(),
         1
+    );
+}
+
+/// ⟨r2.9⟩ ADR-0006 §13.12 item 2: a pending remote record carrying per-adapter
+/// obligations must name exactly their grants in `grants`; it round-trips with its
+/// obligations, their reasons and its claim; a record without obligations (the
+/// pre-§13.12 shape) is still accepted and reads back without them.
+#[test]
+fn remote_revocation_obligations_name_exactly_the_record_grants() {
+    use heimdall_domain::revocation::{
+        PendingRemoteRevocation, RemoteObligation, RemotePendingReason,
+    };
+    let s = mem();
+    let root = GrantId::from_random_bytes([61; 16]);
+    let child = GrantId::from_random_bytes([62; 16]);
+    let owe = |g: &GrantId, reason| RemoteObligation {
+        grant: g.clone(),
+        adapter: adapter(),
+        reason,
+    };
+    let record = PendingRemoteRevocation {
+        root: root.clone(),
+        grants: vec![root.clone(), child.clone()],
+        attempts: 2,
+        last_attempt_at: plus(t0(), 2),
+        stopped: false,
+        obligations: vec![
+            owe(&root, None),
+            owe(&child, Some(RemotePendingReason::AdapterUnavailable)),
+        ],
+        claimed_at: Some(plus(t0(), 2)),
+    };
+    s.transaction(|tx| {
+        tx.insert_tombstone(&tombstone(61))?;
+        tx.set_remote_revocation(&record)
+    })
+    .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.remote_revocation(&root)).unwrap(),
+        Some(record.clone())
+    );
+    for bad in [
+        PendingRemoteRevocation {
+            grants: vec![root.clone()],
+            ..record.clone()
+        },
+        PendingRemoteRevocation {
+            obligations: vec![owe(&root, None)],
+            ..record.clone()
+        },
+    ] {
+        let e = s
+            .transaction(|tx| tx.set_remote_revocation(&bad))
+            .unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)), "{e:?}");
+    }
+    let legacy = PendingRemoteRevocation {
+        obligations: Vec::new(),
+        claimed_at: None,
+        ..record.clone()
+    };
+    s.transaction(|tx| tx.set_remote_revocation(&legacy))
+        .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.remote_revocation(&root)).unwrap(),
+        Some(legacy)
+    );
+}
+
+/// ⟨r2.9⟩ ADR-0006 §13.12 item 2: `grant_adapters` reads the adapter identities
+/// recorded for a grant by the recovery intents that pin it and by those
+/// operations' stage receipts, each once; an intent pinning another grant, a
+/// `NotAttempted` receipt and a grant nothing pins contribute nothing.
+#[test]
+fn grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant() {
+    let s = mem();
+    let g = GrantId::from_random_bytes([71; 16]);
+    let other_grant = GrantId::from_random_bytes([72; 16]);
+    let second = AdapterIdentity {
+        mechanism: "fake".into(),
+        instance: "fake-2".into(),
+    };
+    let foreign = AdapterIdentity {
+        mechanism: "fake_other".into(),
+        instance: "x".into(),
+    };
+    let pinned = |grant: &GrantId, a: AdapterIdentity, n: u64| RecoveryIntent {
+        request: request_doc(n),
+        resolved: Some(ResolvedIntent {
+            grant: Some(grant.clone()),
+            adapter: Some(a),
+            ..resolved_intent()
+        }),
+    };
+    let (op1, i1) = simple_op(11);
+    let (op2, i2) = simple_op(12);
+    let (op3, i3) = simple_op(13);
+    s.transaction(|tx| {
+        tx.insert_operation(&op1, &i1)?;
+        tx.insert_operation(&op2, &i2)?;
+        tx.insert_operation(&op3, &i3)?;
+        tx.set_recovery_intent(&op1.id, &pinned(&g, adapter(), 11))?;
+        tx.append_stage_receipt(
+            &op1.id,
+            &StageReceipt {
+                stage: "prepare".into(),
+                recorded_at: plus(t0(), 1),
+                effect: EffectReceipt::NotAttempted,
+            },
+        )?;
+        tx.append_stage_receipt(
+            &op1.id,
+            &StageReceipt {
+                stage: "prepare".into(),
+                recorded_at: plus(t0(), 2),
+                effect: EffectReceipt::Confirmed {
+                    adapter: adapter(),
+                    credential_ref: "cred-ref-1".into(),
+                },
+            },
+        )?;
+        tx.set_recovery_intent(&op2.id, &pinned(&g, adapter(), 12))?;
+        tx.append_stage_receipt(
+            &op2.id,
+            &StageReceipt {
+                stage: "prepare".into(),
+                recorded_at: plus(t0(), 3),
+                effect: EffectReceipt::Uncertain {
+                    adapter: second.clone(),
+                    effect_token: "tok-2".into(),
+                },
+            },
+        )?;
+        tx.set_recovery_intent(&op3.id, &pinned(&other_grant, foreign.clone(), 13))?;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.grant_adapters(&g)).unwrap(),
+        vec![adapter(), second]
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.grant_adapters(&other_grant)).unwrap(),
+        vec![foreign]
+    );
+    assert!(
+        s.transaction(|tx| tx.grant_adapters(&GrantId::from_random_bytes([73; 16])))
+            .unwrap()
+            .is_empty()
     );
 }

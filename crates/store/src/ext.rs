@@ -32,7 +32,8 @@ use heimdall_domain::issuance::{
     CredentialInstance, CredentialState, IssuanceEntry, IssuanceRefusal, IssuanceState,
 };
 use heimdall_domain::operation::{
-    ApprovalBasis, CoveredBasis, OperationRecord, RecoveryIntent, StageReceipt,
+    AdapterIdentity, ApprovalBasis, CoveredBasis, EffectReceipt, OperationRecord, RecoveryIntent,
+    StageReceipt,
 };
 use heimdall_domain::policy::{AuthorityGeneration, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
@@ -1050,6 +1051,10 @@ impl Txn<'_> {
     /// must carry a tombstone (`Sqlite(QueryReturnedNoRows)` otherwise) and the
     /// record must name at least one grant (else [`StoreError::GenerationConflict`]:
     /// nothing pending is [`Txn::clear_remote_revocation`]).
+    ///
+    /// ⟨r2.9⟩ ADR-0006 §13.12 item 2: a record carrying `obligations` must name
+    /// exactly their grants in `grants` (else [`StoreError::GenerationConflict`]); a
+    /// record without obligations (the pre-§13.12 shape) is accepted as before.
     pub fn set_remote_revocation(&mut self, record: &PendingRemoteRevocation) -> Result<()> {
         if self.tombstone(&record.root)?.is_none() {
             return Err(missing());
@@ -1059,6 +1064,16 @@ impl Txn<'_> {
                 "a pending remote revocation for {} names no grant",
                 record.root
             )));
+        }
+        if !record.obligations.is_empty() {
+            let named: BTreeSet<&GrantId> = record.grants.iter().collect();
+            let owed: BTreeSet<&GrantId> = record.obligations.iter().map(|o| &o.grant).collect();
+            if named != owed {
+                return Err(conflict(format!(
+                    "the pending remote revocation for {} names other grants than its obligations",
+                    record.root
+                )));
+            }
         }
         self.set_meta(
             &format!("{META_REMOTE_REVOCATION_PREFIX}{}", record.root),
@@ -1085,6 +1100,47 @@ impl Txn<'_> {
             .iter()
             .map(|s| codec::parse_doc(s))
             .collect()
+    }
+
+    /// ⟨r2.9⟩ ADR-0006 §13.12 item 2: the adapter identities recorded for `grant`
+    /// by the recovery intents that pin it (`resolved.grant`, their
+    /// `resolved.adapter`) and by those operations' stage receipts (the adapter of
+    /// every `Attempted`, `Confirmed` or `Uncertain` effect), each once: the
+    /// intents' adapters first (operation order), then the receipts' (operation,
+    /// then receipt order). Empty when none is recorded (never prepared, or the
+    /// operations were purged with their settled records).
+    pub fn grant_adapters(&mut self, grant: &GrantId) -> Result<Vec<AdapterIdentity>> {
+        let intents: Vec<RecoveryIntent> = self.docs(
+            "SELECT record_json FROM recovery_intents
+             WHERE json_valid(record_json)
+               AND json_extract(record_json, '$.resolved.grant') = ?1
+             ORDER BY operation_id",
+            [grant.as_str()],
+        )?;
+        let receipts: Vec<StageReceipt> = self.docs(
+            "SELECT s.record_json FROM stage_receipts s
+             JOIN recovery_intents r ON r.operation_id = s.operation_id
+             WHERE json_valid(r.record_json)
+               AND json_extract(r.record_json, '$.resolved.grant') = ?1
+             ORDER BY s.operation_id, s.ordinal",
+            [grant.as_str()],
+        )?;
+        let mut out: Vec<AdapterIdentity> = Vec::new();
+        let recorded = intents
+            .into_iter()
+            .filter_map(|i| i.resolved.and_then(|r| r.adapter))
+            .chain(receipts.into_iter().filter_map(|r| match r.effect {
+                EffectReceipt::Attempted { adapter, .. }
+                | EffectReceipt::Confirmed { adapter, .. }
+                | EffectReceipt::Uncertain { adapter, .. } => Some(adapter),
+                EffectReceipt::NotAttempted => None,
+            }));
+        for a in recorded {
+            if !out.contains(&a) {
+                out.push(a);
+            }
+        }
+        Ok(out)
     }
 
     // --- R5: recovery intent and stage receipts ----------------------------------------
