@@ -239,6 +239,14 @@ generations, cutoffs and tombstones (spec §13.3). The issuer runs the protocol 
    or, over the paired channel, to a runner. If any fails, mark it `voided`, zeroize the
    certificate and release nothing. A deadline or cutoff that passes between reserve and publish
    advances no revision, so this re-check, not the generation check, is what catches it.
+
+   *Amendment, 2026-11-01 (ADR-0006 §13.6 item 11).* Sometimes publication fails only
+   because the global authority generation moved, while re-validation shows the grant and
+   its chain are still valid. Then the entry is voided as above, and a fresh reservation is
+   made with a new serial and entry ID, reserved under step 1's rules. That reservation is
+   returned to the issuer, which signs exactly the returned bounds and publishes again. At
+   most 3 attempts are made per call. The voided certificate was never released, so the
+   residual is unchanged.
 4. **Install** at the receiver. The receiving signer, local or on a runner, checks its own view of
    the grant before installing the certificate or admitting anything with it: generation,
    tombstones, and a safe deadline under §3.6 (on a runner, the deadline derived in §3.6 from the

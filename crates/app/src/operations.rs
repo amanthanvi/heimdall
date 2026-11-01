@@ -20,21 +20,33 @@
 //!   record a retry or restart calls `reconcile(token)` on the **recorded adapter
 //!   identity**, never `prepare`, until the adapter says `NotApplied`. A lost reply
 //!   moves the operation to `outcome_unknown` (quiescent, never settled, its key
-//!   never expires); reconciliation later settles it.
-//! * `TimeGate::check` runs before resolution, before `prepare`, at `Recheck`
-//!   (immediately before `Commit`) and in `tick`; `TimeGate::anchor_grant` anchors
-//!   the grant right before activation; the `Commit` transaction re-validates
-//!   tombstones, generation, pause/cutoff, policy revision, deadline and the
-//!   continuous admission of the persisted anchor before it writes the active
-//!   binding, so a revocation that commits first always wins.
+//!   never expires); reconciliation later settles it. A fresh attempt first waits
+//!   for an adapter slot, then one transaction validates current authority,
+//!   deadline, cutoff and continuous admission exactly as activation would before
+//!   writing the `Attempted` receipt; nothing is prepared after the bound, and
+//!   the adapter gets the grant narrowed to it (code review A03).
+//! * **Time is assessed inside the transaction that acts on it** (code review
+//!   A01, A02): resolution, the attempt, `Recheck`, `Commit`, `bind`, issuance
+//!   reserve and publish, decision records and their completion run the shared
+//!   gate (`TimeGate::in_txn`) on a fresh observation in their own transaction, so
+//!   no accepted time is carried across asynchronous work. `Commit` re-validates
+//!   tombstones, generation, pause/cutoff, policy revision, deadline, the
+//!   continuous admission of the persisted anchor and the caller's minimums
+//!   against the prepared facts (code review A04: actual offline coverage,
+//!   achieved enforcement; `CAPABILITY_UNAVAILABLE` otherwise) before it writes
+//!   the active binding, so a revocation that commits first always wins.
 //! * Added authority (`ApprovalRequired`) always creates a server-issued
 //!   [`DecisionRecord`] with the exact delta and an `awaiting_approval` grant
 //!   (ADR-0006 §3.1, ⟨r2.1⟩ N04): attended ⇒ `APPROVAL_REQUIRED`, unattended ⇒
 //!   `INTERACTION_REQUIRED`, both with `next.decision_ref`. Only `decide` on an
 //!   attended session completes it. An expired decision is `DECISION_STALE` and the
-//!   operation stays waiting; a same-key retry returns a fresh `decision_ref`; the
+//!   operation stays waiting; a same-key retry returns a fresh `decision_ref`
+//!   whose delta is recomputed against current policy (code review A06); the
 //!   grant reaching its deadline fails the waiting operation with
-//!   `CREDENTIAL_EXPIRED` (ADR-0006 §13.3).
+//!   `CREDENTIAL_EXPIRED` (ADR-0006 §13.3). Equivalent waiting requests share one
+//!   record and one grant, each keeping its own operation (code review A07). An
+//!   approval is recorded as the intent's `ApprovalBasis` and re-validated before
+//!   preparation and activation.
 //!
 //! # Readings chosen where the documents leave a gap (fail closed; escalated)
 //!
@@ -50,6 +62,17 @@
 //!   an owner denial fails it with `CAPABILITY_UNAVAILABLE`.
 //! * `awaiting_approval → failed` uses the lifecycle's only legal edge,
 //!   `DecisionDenied`, for deadline expiry and authority changes too.
+//! * A waiting added-authority grant whose request the standing policy now covers
+//!   entirely still needs the owner's decision: its replacement record carries the
+//!   recomputed, empty delta (nothing is approved automatically).
+//! * A request that joined another caller's decision fails with
+//!   `CREDENTIAL_EXPIRED` (`next: new_work`) when that request ends without
+//!   activating; cancelling a request that joined never touches the shared grant,
+//!   cancelling the one that created it ends the shared request for all.
+//! * Approval re-bases an added-authority intent on the generation and policy
+//!   revision of the decision record it approves (the record was recomputed against
+//!   them); preparation and activation refuse when what the grant needs is no
+//!   longer within the approved delta.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -91,7 +114,7 @@ use heimdall_domain::lifecycle::{
     GrantEvent, OperationEvent, grant_transition, operation_transition,
 };
 use heimdall_domain::operation::{
-    AdapterIdentity, CancellationRecord, EffectClass, EffectReceipt, OperationKind,
+    AdapterIdentity, ApprovalBasis, CancellationRecord, EffectClass, EffectReceipt, OperationKind,
     OperationRecord, RecoveryIntent, RecoveryMetadata, ResolvedIntent, StageReceipt,
 };
 use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
@@ -111,7 +134,7 @@ use crate::ports::{
     AdapterError, CredentialAdapter, PrepareOutcome, PrepareRequest, ReconcileOutcome,
 };
 use crate::singleflight::{Flight, SingleFlight, follow};
-use crate::timegate::{SafeNow, TimeGate};
+use crate::timegate::{SafeNow, TimeGate, TxnGate, uncertain};
 
 /// Bounds the application enforces regardless of caller (spec §11.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +182,13 @@ const MAX_DRIVE_STEPS: usize = 32;
 
 /// Longest ancestor chain walked for a delegated grant.
 const MAX_ANCESTRY: usize = 64;
+
+/// Publication attempts within one `publish_issuance` call when only an unrelated
+/// generation move voids the reservation (ADR-0006 §13.6 item 11).
+const PUBLISH_ATTEMPTS: usize = 3;
+
+/// Suggested retry delay when the generation kept moving during publication.
+const PUBLISH_RETRY_MS: u64 = 1_000;
 
 /// Construction parameters.
 pub struct OperationsConfig {
@@ -764,8 +794,10 @@ fn revalidate_one(
     })
 }
 
-/// The added authority an existing (waiting) grant still needs against current
-/// policy, for a fresh decision record when no earlier record is pending.
+/// The added authority an existing (waiting) grant needs against **current**
+/// policy at the current generation (code review A06: every replacement decision
+/// is recomputed, never carried across a generation change); empty when the
+/// standing policy now covers it all, `None` when its chain no longer validates.
 fn current_delta(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
@@ -787,8 +819,8 @@ fn current_delta(
             current,
             now,
         )? {
-            Ok(AuthorityDecision::ApprovalRequired { delta, .. }) => Some(delta),
-            _ => None,
+            Ok(d) => needed_delta(&d),
+            Err(_) => None,
         },
     )
 }
@@ -950,6 +982,128 @@ fn anchor_bound(
     })
 }
 
+/// The bound of `grant` inside `tx`: [`grant_bound`] over its ancestors and every
+/// applicable policy of `profile`, never later than a bound already persisted
+/// for the grant ([`anchor_bound`]).
+fn bound_of(
+    tx: &mut Txn<'_>,
+    env: &EnvironmentId,
+    grant: &GrantSnapshot,
+    profile: Option<&ProfileId>,
+) -> heimdall_store::Result<Timestamp> {
+    let ancestors = ancestry(tx, grant)?;
+    let policies = match profile {
+        Some(p) => tx.policies_for(p, env)?,
+        None => Vec::new(),
+    };
+    let bound = grant_bound(grant, &ancestors, merged_policy(&policies).as_ref());
+    anchor_bound(tx, &grant.id, bound)
+}
+
+/// First validation of a grant in this boot anchors it from `safe`; a later
+/// earlier bound shortens the anchor (ADR-0005 §3.6). Nothing once `bound` has
+/// passed (the checks that follow refuse).
+fn first_validation_anchor(
+    tx: &mut Txn<'_>,
+    gate: &TxnGate,
+    gid: &GrantId,
+    safe: &SafeNow,
+    bound: Timestamp,
+) -> heimdall_store::Result<()> {
+    if dtime::is_expired(safe.wall(), bound) {
+        return Ok(());
+    }
+    match tx.grant_anchor(gid)? {
+        Some(a) if a.anchor.boot_id == safe.anchor.boot_id => {
+            let shortened = dtime::shorten(&a, bound);
+            if shortened != a {
+                tx.set_grant_anchor(&shortened)?;
+            }
+        }
+        _ => {
+            gate.anchor_grant(tx, gid, safe, bound)?;
+        }
+    }
+    Ok(())
+}
+
+/// What a resolution over an existing grant still needs from an owner decision:
+/// the delta, empty when the standing policy covers everything, `None` when
+/// denied.
+fn needed_delta(decision: &AuthorityDecision) -> Option<AuthorityDelta> {
+    match decision {
+        AuthorityDecision::ApprovalRequired { delta, .. } => Some(delta.clone()),
+        AuthorityDecision::Allowed(_) => Some(AuthorityDelta {
+            added_scope: Scope::empty(),
+            extra_window: None,
+            environment_not_covered: false,
+        }),
+        AuthorityDecision::Denied(_) => None,
+    }
+}
+
+/// `needed ⊆ approved`, component-wise (code review A06): no pair, capability,
+/// window or uncovered environment beyond what the owner approved.
+fn delta_within(needed: &AuthorityDelta, approved: &AuthorityDelta) -> bool {
+    needed.added_scope.is_subset_of(&approved.added_scope)
+        && needed.extra_window.unwrap_or_default() <= approved.extra_window.unwrap_or_default()
+        && (!needed.environment_not_covered || approved.environment_not_covered)
+}
+
+/// The operation whose decision record a waiting grant answers to: the creator
+/// of an `OwnerDecision` grant (code review A07: equivalent requests join its
+/// decision), else `me`.
+fn decision_owner(grant: Option<&GrantSnapshot>, me: &OperationId) -> OperationId {
+    match grant.map(|g| &g.source) {
+        Some(AuthorizationSource::OwnerDecision { operation_id }) => operation_id.clone(),
+        _ => me.clone(),
+    }
+}
+
+/// Whether `op` may change `grant` on its own: false for a caller that joined
+/// another caller's equivalent decision (code review A07).
+fn owns_grant(grant: &GrantSnapshot, op: &OperationId) -> bool {
+    !matches!(&grant.source, AuthorizationSource::OwnerDecision { operation_id } if operation_id != op)
+}
+
+/// Code review A04: the prepared facts against every caller minimum before
+/// activation (spec §4.3, §6.5; ADR-0006 §5): the actual offline coverage
+/// `min(offline_until, deadline, bound)` reaches the requested `offline_until`;
+/// the achieved destination-scope enforcement is at least the requested minimum
+/// (`Unknown` never satisfies one); the grant carries every required capability.
+/// Never silently weaker access: `CAPABILITY_UNAVAILABLE` (exit 4).
+fn unmet_minimum(
+    required: &RequiredCapabilities,
+    facts: &Facts,
+    grant: &GrantSnapshot,
+    bound: Timestamp,
+) -> Option<OpError> {
+    let short = |msg: &str| {
+        OpError::new(Code::CapabilityUnavailable, msg.to_owned())
+            .with_resource("grant", Some(grant.id.to_string()))
+    };
+    let end = grant.deadline.effective.min(bound);
+    if let Some(minimum) = required.offline_until
+        && facts.offline_until.min(end) < minimum
+    {
+        return Some(short(
+            "the prepared credential's offline coverage is shorter than the requested minimum",
+        ));
+    }
+    if let Some(minimum) = required.destination_scope_at_least {
+        let achieved = facts.enforcement.destination_scope;
+        if achieved == DestinationScopeEnforcement::Unknown || achieved < minimum {
+            return Some(short(
+                "the prepared credential's destination-scope enforcement is below the requested minimum",
+            ));
+        }
+    }
+    if !required.capabilities.is_subset(&grant.scope.capabilities) {
+        return Some(short("the prepared credential lacks a required capability"));
+    }
+    None
+}
+
 /// A refused activation and the grant event it implies.
 struct Refusal {
     error: OpError,
@@ -986,9 +1140,11 @@ impl Activation {
 }
 
 /// Re-validate an activation inside the transaction that would write it
-/// (`Recheck` and `Commit`, and `bind`): grant state, tombstone on the grant or an
-/// ancestor, pause/cutoff for a new grant or binding, generation, ancestors,
-/// policy revision, deadline.
+/// (the attempt authorizing `prepare`, `Recheck` and `Commit`, and `bind`): grant
+/// state, tombstone on the grant or an ancestor, pause/cutoff for a new grant or
+/// binding, generation, ancestors, policy revision, deadline, and for approved
+/// added authority that the approval still covers what the grant needs (code
+/// review A03, A06).
 ///
 /// ⟨r2.3⟩ §13.6 item 1: a new grant or new binding is refused by an applicable
 /// pause (`POLICY_PAUSED`) or a cutoff at or before `now` (`POLICY_CUTOFF`)
@@ -1058,10 +1214,16 @@ fn activation_refusal(
             Some(GrantEvent::PreparationFailed),
         )));
     }
+    // An approved added-authority request rests on its approval's generation and
+    // policy revision (code review A06), else on its resolution's.
+    let (basis_generation, expected_revision) = match &intent.approval {
+        Some(a) => (a.generation, a.policy_revision),
+        None => (intent.generation, intent.policy_revision),
+    };
     // ADR-0006 §13.5 ruling 2: a generation that moved since the request was
     // resolved (or since the grant or an ancestor was last validated) triggers one
     // silent re-validation; only a change that touches this chain refuses.
-    let mut stale = current != intent.generation || validated_generation(tx, grant)? != current;
+    let mut stale = current != basis_generation || validated_generation(tx, grant)? != current;
     for a in &raw {
         stale = stale || validated_generation(tx, a)? != current;
     }
@@ -1095,7 +1257,7 @@ fn activation_refusal(
         }
     }
     let policy = merged.as_ref();
-    if let Some(expected) = intent.policy_revision {
+    if let Some(expected) = expected_revision {
         let applicable = policy.filter(|p| p.profile == intent.profile);
         if applicable.is_none_or(|p| p.revision != expected) {
             return Ok(Some(Refusal::new(
@@ -1111,6 +1273,32 @@ fn activation_refusal(
                 .with_resource("grant", Some(grant.id.to_string())),
             Some(GrantEvent::DeadlineReached),
         )));
+    }
+    // Code review A06: the approved record must still describe the authority the
+    // grant uses: what it needs beyond current policy now stays within the
+    // approved delta (an environment that lost automatic activation, for one,
+    // moves no generation).
+    if let Some(approval) = &intent.approval
+        && matches!(grant.source, AuthorizationSource::OwnerDecision { .. })
+    {
+        let needed = match resolve_existing(
+            tx,
+            environment,
+            adapters,
+            grant,
+            ancestors.first(),
+            current,
+            now,
+        )? {
+            Ok(d) => needed_delta(&d),
+            Err(_) => None,
+        };
+        if needed.is_none_or(|n| !delta_within(&n, &approval.delta)) {
+            return Ok(Some(Refusal::new(
+                authority_changed("the approved authority no longer covers the request"),
+                Some(GrantEvent::PreparationFailed),
+            )));
+        }
     }
     Ok(None)
 }
@@ -1449,6 +1637,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
             grant: None,
             binding: None,
             adapter: r.adapter.map(|a| a.identity),
+            approval: None,
         }))),
         AuthorityDecision::ApprovalRequired { delta, .. } => {
             // What approval would grant: exactly the requested scope (covered ∪
@@ -1489,6 +1678,7 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
                 grant: Some(inp.grant_id.clone()),
                 binding: None,
                 adapter: r.adapter.map(|a| a.identity),
+                approval: None,
             };
             Ok(Resolution::Approval(Box::new(Approval {
                 intent,
@@ -1497,6 +1687,85 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
             })))
         }
     }
+}
+
+/// Code review A07: the grant of an equivalent request already waiting for an
+/// owner decision, which a new request joins instead of creating another record
+/// (spec §5.5 "one coalesced approval request for one logical decision";
+/// R-UX-06). Equivalent means the same caller, operation kind, environment, work
+/// ID and parent binding; the same resolved profile revision, scope, mechanism,
+/// policy revision and effective deadline at the current authority generation; and
+/// a pending, unexpired record for exactly the same delta. A broader or longer
+/// request, other work or another caller never joins.
+fn equivalent_waiting(
+    tx: &mut Txn<'_>,
+    op: &OperationRecord,
+    spec: &WorkSpec,
+    resolved: &ResolvedIntent,
+    delta: &AuthorityDelta,
+    now: Timestamp,
+) -> heimdall_store::Result<Option<GrantId>> {
+    let current = tx.authority_generation()?;
+    if resolved.generation != current {
+        return Ok(None);
+    }
+    for d in tx.pending_decisions()? {
+        let DecisionKind::ApproveAuthority {
+            operation,
+            delta: recorded,
+        } = &d.kind
+        else {
+            continue;
+        };
+        if now >= d.expires_at || d.generation != current || recorded != delta {
+            continue;
+        }
+        let Some(other) = tx.operation(operation)? else {
+            continue;
+        };
+        if other.state != OperationState::AwaitingApproval
+            || other.kind != op.kind
+            || other.environment != op.environment
+            || other.key.caller != op.key.caller
+        {
+            continue;
+        }
+        let Some(intent) = tx.recovery_intent(operation)? else {
+            continue;
+        };
+        let same_work = serde_json::from_value::<Request>(intent.request)
+            .ok()
+            .and_then(|r| WorkSpec::from_request(&r, &op.environment))
+            .is_some_and(|w| {
+                w.work_id == spec.work_id
+                    && w.parent_binding == spec.parent_binding
+                    && w.environment == spec.environment
+            });
+        let Some(theirs) = intent.resolved else {
+            continue;
+        };
+        if !same_work
+            || theirs.profile != resolved.profile
+            || theirs.profile_revision != resolved.profile_revision
+            || theirs.scope != resolved.scope
+            || theirs.deadline.effective != resolved.deadline.effective
+            || theirs.adapter != resolved.adapter
+            || theirs.policy_revision != resolved.policy_revision
+            || theirs.generation != resolved.generation
+        {
+            continue;
+        }
+        let Some(gid) = theirs.grant else {
+            continue;
+        };
+        if tx
+            .grant(&gid)?
+            .is_some_and(|g| g.state == GrantState::AwaitingApproval)
+        {
+            return Ok(Some(gid));
+        }
+    }
+    Ok(None)
 }
 
 /// Durable state of one operation.
@@ -1522,12 +1791,52 @@ enum Flow {
     Stop,
 }
 
+/// The transaction authorizing an effect attempt (A03).
+enum Attempt {
+    /// Authorized: the `Attempted` receipt is durable; prepare this bounded grant.
+    Go(Box<GrantSnapshot>, Timestamp),
+    /// Time is uncertain: nothing recorded, the operation stays running.
+    Uncertain(dtime::TimeUncertainty),
+    /// The grant could not be anchored in this boot: nothing recorded.
+    Unanchored,
+    /// Refused (settled) or no longer running.
+    Stop,
+}
+
+/// Outcome of a `Recheck` or `Commit` transaction.
+enum Checked {
+    /// Passed (receipt written / activated).
+    Passed,
+    /// Time is uncertain: nothing written, the operation stays where it is.
+    Uncertain(dtime::TimeUncertainty),
+    /// The grant could not be anchored in this boot: nothing written.
+    Unanchored,
+    /// Refused and settled; the grant's prepared credential may need cleanup.
+    Refused(GrantId),
+    /// The operation is no longer in the expected state.
+    Stop,
+}
+
+/// `TIME_UNCERTAIN` for a grant with no usable anchor in this boot.
+fn unanchored() -> OpError {
+    OpError::new(
+        Code::TimeUncertain,
+        "time uncertain: the grant must be re-anchored before activation",
+    )
+    .with_resource("clock", None)
+}
+
+/// How a request that joined another caller's decision continues (A07).
+enum Joined {
+    Attached(Box<EnsureData>),
+    Pending,
+    Stop,
+}
+
 /// Drive-local facts; all of them are re-derived after a restart.
 #[derive(Default)]
 struct DriveLocal {
     prepared: Option<PrepareOutcome>,
-    safe: Option<SafeNow>,
-    bound: Option<Timestamp>,
     lead: Option<(EquivalenceKey, watch::Sender<Option<EnsureHandle>>)>,
     leader_data: Option<EnsureData>,
 }
@@ -1958,6 +2267,17 @@ impl Operations {
         Err(internal("operation driver did not settle"))
     }
 
+    /// [`Self::lead`] behind a type-erased future, for the one place a drive
+    /// follows another operation's drive (a request that joined another caller's
+    /// decision, A07): the erasure keeps the futures' types from recursing.
+    fn lead_boxed(
+        &self,
+        id: OperationId,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), OpError>> + Send>> {
+        let me = self.clone();
+        Box::pin(async move { me.lead(&id, false).await })
+    }
+
     /// Lead in a spawned task so a caller's timeout or disconnect never stops the
     /// work (spec §11.4: a caller timeout is not cancellation), and wait at most
     /// `wait` for it. `None` when the wait ended first.
@@ -2058,7 +2378,7 @@ impl Operations {
                     self.stage_reconcile(&st, &spec, interactive, local).await?
                 }
                 EnsureStage::Probe => self.stage_receipt(id, stage, expected).await?,
-                EnsureStage::Recheck => self.stage_recheck(&st, expected, local).await?,
+                EnsureStage::Recheck => self.stage_recheck(&st, expected).await?,
                 EnsureStage::Commit => self.stage_commit(&st, expected, local).await?,
             };
             if flow == Flow::Stop {
@@ -2168,14 +2488,13 @@ impl Operations {
     }
 
     async fn stage_resolve(&self, st: &WorkState, spec: &WorkSpec) -> Result<Flow, OpError> {
-        let safe = self.inner.timegate.check().await?;
-        let now = safe.wall();
-        let inp = ResolveInput {
+        let gate = self.inner.timegate.in_txn();
+        let mut inp = ResolveInput {
             spec: spec.clone(),
             caller: st.op.key.caller.clone(),
             operation: st.op.id.clone(),
             environment: self.inner.config.environment.clone(),
-            now,
+            now: self.inner.config.clock.wall(),
             default_window: self.inner.config.default_window,
             adapters: self.adapter_infos(),
             grant_id: crate::ids::new_grant_id()?,
@@ -2186,11 +2505,18 @@ impl Operations {
         let id = st.op.id.clone();
         self.write(move |tx, emit| {
             let Some(mut op) = tx.operation(&id)? else {
-                return Ok(Flow::Stop);
+                return Ok(Ok(Flow::Stop));
             };
             if op.state != OperationState::Queued {
-                return Ok(Flow::Stop);
+                return Ok(Ok(Flow::Stop));
             }
+            // Resolution and the decision record it may create use time assessed
+            // in this transaction (code review A02).
+            let now = match gate.check(tx)? {
+                Ok(s) => s.wall(),
+                Err(u) => return Ok(Err(uncertain(&u))),
+            };
+            inp.now = now;
             let Some(mut intent) = tx.recovery_intent(&id)? else {
                 return Err(conflict("operation has no recovery intent"));
             };
@@ -2209,7 +2535,7 @@ impl Operations {
                             EffectReceipt::NotAttempted,
                         ),
                     )?;
-                    Ok(Flow::Stop)
+                    Ok(Ok(Flow::Stop))
                 }
                 Ok(Resolution::Allowed(resolved)) => {
                     intent.resolved = Some(*resolved);
@@ -2225,7 +2551,7 @@ impl Operations {
                         ),
                     )?;
                     emit.op(tx, &op)?;
-                    Ok(Flow::Continue)
+                    Ok(Ok(Flow::Continue))
                 }
                 Ok(Resolution::Approval(approval)) => {
                     let Approval {
@@ -2233,23 +2559,38 @@ impl Operations {
                         mut grant,
                         delta,
                     } = *approval;
-                    grant_to(&mut grant, GrantEvent::ApprovalNeeded)?;
-                    tx.insert_grant(&grant)?;
-                    intent.resolved = Some(resolved.clone());
-                    tx.set_recovery_intent(&id, &intent)?;
-                    let decision = DecisionRecord {
-                        id: decision_id,
-                        kind: DecisionKind::ApproveAuthority {
-                            operation: id.clone(),
-                            delta,
+                    // Code review A07: one logical decision, one record (spec
+                    // §5.5): an equivalent request already waiting joins its
+                    // decision and its grant; this caller keeps its own operation.
+                    let joined = equivalent_waiting(tx, &op, &inp.spec, &resolved, &delta, now)?;
+                    let resolved = match joined {
+                        Some(gid) => ResolvedIntent {
+                            grant: Some(gid),
+                            ..resolved
                         },
-                        generation: resolved.generation,
-                        created_at: now,
-                        expires_at: plus(now, lifetime),
-                        state: DecisionState::Pending,
-                        decided_at: None,
+                        None => {
+                            grant_to(&mut grant, GrantEvent::ApprovalNeeded)?;
+                            tx.insert_grant(&grant)?;
+                            let decision = DecisionRecord {
+                                id: decision_id,
+                                kind: DecisionKind::ApproveAuthority {
+                                    operation: id.clone(),
+                                    delta,
+                                },
+                                generation: resolved.generation,
+                                created_at: now,
+                                expires_at: plus(now, lifetime),
+                                state: DecisionState::Pending,
+                                decided_at: None,
+                            };
+                            tx.insert_decision(&decision)?;
+                            emit.grant(tx, &grant, Some(&id))?;
+                            emit.decision(tx, &decision, Some(&id))?;
+                            resolved
+                        }
                     };
-                    tx.insert_decision(&decision)?;
+                    intent.resolved = Some(resolved);
+                    tx.set_recovery_intent(&id, &intent)?;
                     op_to(&mut op, OperationEvent::ApprovalNeeded, now)?;
                     tx.update_operation(&op)?;
                     tx.append_stage_receipt(
@@ -2260,14 +2601,12 @@ impl Operations {
                             EffectReceipt::NotAttempted,
                         ),
                     )?;
-                    emit.grant(tx, &grant, Some(&id))?;
-                    emit.decision(tx, &decision, Some(&id))?;
                     emit.op(tx, &op)?;
-                    Ok(Flow::Stop)
+                    Ok(Ok(Flow::Stop))
                 }
             }
         })
-        .await
+        .await?
     }
 
     async fn stage_coalesce(
@@ -2279,11 +2618,26 @@ impl Operations {
             return Err(internal("operation has no resolved intent"));
         };
         let id = st.op.id.clone();
-        if resolved.grant.is_some() {
-            // Approved added authority already has its own grant.
-            return self
-                .stage_receipt(&id, EnsureStage::Coalesce, OperationState::Running)
-                .await;
+        if let Some(gid) = resolved.grant.clone() {
+            // Approved added authority already has its own grant, unless this
+            // operation joined another caller's equivalent decision (code review
+            // A07): then it attaches to that operation's result.
+            let (id2, g2) = (id.clone(), gid.clone());
+            let owner = self
+                .write(move |tx, _| {
+                    Ok(tx
+                        .grant(&g2)?
+                        .filter(|g| !owns_grant(g, &id2))
+                        .map(|g| decision_owner(Some(&g), &id2)))
+                })
+                .await?;
+            return match owner {
+                Some(owner) => self.attach_to_owner(st, &owner, &gid, local).await,
+                None => {
+                    self.stage_receipt(&id, EnsureStage::Coalesce, OperationState::Running)
+                        .await
+                }
+            };
         }
         let key = EquivalenceKey {
             environment: st.op.environment.clone(),
@@ -2371,6 +2725,91 @@ impl Operations {
             .await?;
         local.leader_data = attached;
         Ok(Flow::Continue)
+    }
+
+    /// Code review A07: a request that joined another caller's equivalent decision
+    /// follows that operation (or drives it, after a restart), then attaches a
+    /// separate reference to its grant with that operation's prepared facts. It
+    /// never prepares; when that operation ended without activating, it fails
+    /// with `CREDENTIAL_EXPIRED` (`next: new_work`).
+    async fn attach_to_owner(
+        &self,
+        st: &WorkState,
+        owner: &OperationId,
+        gid: &GrantId,
+        local: &mut DriveLocal,
+    ) -> Result<Flow, OpError> {
+        let led = self.lead_boxed(owner.clone()).await;
+        let id = st.op.id.clone();
+        let owner2 = owner.clone();
+        let gid2 = gid.clone();
+        let clock = self.clock();
+        let retention = self.retention();
+        let outcome = self
+            .write(move |tx, emit| {
+                let Some(mut op) = tx.operation(&id)? else {
+                    return Ok(Joined::Stop);
+                };
+                if op.state != OperationState::Running {
+                    return Ok(Joined::Stop);
+                }
+                let now = clock.wall();
+                let owner_op = tx.operation(&owner2)?;
+                match owner_op.as_ref().map(|o| o.state) {
+                    Some(OperationState::Succeeded) => {
+                        let data = owner_op
+                            .and_then(|o| o.result)
+                            .and_then(|v| serde_json::from_value::<EnsureData>(v).ok())
+                            .filter(|d| d.grant_id == gid2);
+                        if let Some(data) = data
+                            && tx.grant(&gid2)?.is_some_and(|g| g.state.permits_use())
+                        {
+                            tx.append_stage_receipt(
+                                &id,
+                                &receipt(EnsureStage::Coalesce, now, EffectReceipt::NotAttempted),
+                            )?;
+                            tx.append_stage_receipt(
+                                &id,
+                                &receipt(EnsureStage::Reconcile, now, EffectReceipt::NotAttempted),
+                            )?;
+                            return Ok(Joined::Attached(Box::new(data)));
+                        }
+                    }
+                    Some(
+                        OperationState::Queued
+                        | OperationState::Running
+                        | OperationState::AwaitingApproval
+                        | OperationState::OutcomeUnknown,
+                    ) => return Ok(Joined::Pending),
+                    _ => {}
+                }
+                let err = authority_changed(
+                    "the equivalent request this one joined ended without activating",
+                );
+                settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                Ok(Joined::Stop)
+            })
+            .await?;
+        match outcome {
+            Joined::Attached(data) => {
+                local.leader_data = Some(*data);
+                Ok(Flow::Continue)
+            }
+            Joined::Stop => Ok(Flow::Stop),
+            Joined::Pending => Err(match led {
+                // The joined operation's own refusal (time, backpressure, ...),
+                // not attributed to it: this operation stays running.
+                Err(mut e) => {
+                    e.operation_id = None;
+                    e.next.operation_id = None;
+                    e
+                }
+                Ok(()) => OpError::new(
+                    Code::ServiceUnavailable,
+                    "the equivalent request this one joined is still in progress; retry with the same request ID",
+                ),
+            }),
+        }
     }
 
     /// Fail a running operation before any effect was attempted.
@@ -2654,76 +3093,127 @@ impl Operations {
                 )
                 .await;
         };
-        // 3. Fresh attempt: safe time, token, `Attempted` receipt, then prepare.
-        let safe = self.inner.timegate.check().await?;
+        // 3. Fresh attempt (code review A03). Wait for an adapter slot first, then
+        // authorize the attempt in one transaction: time assessed by the gate,
+        // current authority, deadline, cutoff and continuous admission validated
+        // exactly as activation would, and only then the `Attempted` receipt.
+        // Never prepare after the bound. (Earlier attempts were reconciled above,
+        // whatever the authority now says.)
+        let slot = self
+            .inner
+            .adapter_slots
+            .acquire()
+            .await
+            .map_err(|_| internal("adapter slots closed"))?;
         let token = crate::ids::new_effect_token()?;
+        let gate = self.inner.timegate.in_txn();
+        let env = self.inner.config.environment.clone();
+        let adapters = self.adapter_infos();
         let id2 = id.clone();
         let gid = grant_id.clone();
         let ident = identity.clone();
         let tok = token.clone();
         let retention = self.retention();
-        let now = safe.wall();
-        let grant = self
+        let attempt = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id2)? else {
-                    return Ok(None);
+                    return Ok(Attempt::Stop);
                 };
                 if op.state != OperationState::Running {
-                    return Ok(None);
+                    return Ok(Attempt::Stop);
                 }
-                let Some(g) = tx.grant(&gid)? else {
+                let safe = match gate.check(tx)? {
+                    Ok(s) => s,
+                    Err(u) => return Ok(Attempt::Uncertain(u)),
+                };
+                let now = safe.wall();
+                let Some(resolved) = tx.recovery_intent(&id2)?.and_then(|i| i.resolved) else {
+                    return Err(conflict("operation has no resolved intent"));
+                };
+                let Some(mut g) = tx.grant(&gid)? else {
                     return Err(conflict("grant missing"));
                 };
-                if g.state != GrantState::Preparing {
-                    // Revoked, expired or cancelled before any effect.
-                    let err = match g.state {
-                        GrantState::Revoked | GrantState::Revoking => {
-                            authority_changed("the grant was revoked")
+                let refusal = match activation_refusal(
+                    tx,
+                    &env,
+                    &adapters,
+                    &resolved,
+                    &g,
+                    now,
+                    Activation::NewGrant,
+                )? {
+                    Some(r) => r,
+                    None => {
+                        // First validation in this boot anchors the grant; the
+                        // continuous budget must still be open.
+                        let bound = bound_of(tx, &env, &g, Some(&resolved.profile))?;
+                        if gate.anchor_grant(tx, &gid, &safe, bound)?.is_none() {
+                            return Ok(Attempt::Unanchored);
                         }
-                        GrantState::Expired => {
-                            OpError::new(Code::CredentialExpired, "the grant reached its deadline")
+                        match gate.admission(tx, &gid, &safe)? {
+                            Admission::Open => {
+                                tx.append_stage_receipt(
+                                    &id2,
+                                    &receipt(
+                                        EnsureStage::Reconcile,
+                                        now,
+                                        EffectReceipt::Attempted {
+                                            adapter: ident,
+                                            effect_token: tok,
+                                        },
+                                    ),
+                                )?;
+                                // The adapter bounds what it creates by the
+                                // recorded bound (deadline, ancestors, cutoff).
+                                let mut bounded = g;
+                                bounded.deadline.effective = bounded.deadline.effective.min(bound);
+                                return Ok(Attempt::Go(Box::new(bounded), now));
+                            }
+                            Admission::NeedsAnchor => return Ok(Attempt::Unanchored),
+                            Admission::Expired => Refusal::new(
+                                OpError::new(
+                                    Code::CredentialExpired,
+                                    "the grant reached its deadline",
+                                )
+                                .with_resource("grant", Some(gid.to_string())),
+                                Some(GrantEvent::DeadlineReached),
+                            ),
                         }
-                        _ => authority_changed("the grant is no longer usable"),
-                    };
-                    settle_failed(tx, emit, &mut op, &err, now, retention)?;
-                    return Ok(None);
+                    }
+                };
+                if let Some(ev) = refusal.grant_event
+                    && grant_try(&mut g, ev)
+                {
+                    put_grant(tx, emit, &g, Some(&id2))?;
                 }
-                tx.append_stage_receipt(
-                    &id2,
-                    &receipt(
-                        EnsureStage::Reconcile,
-                        now,
-                        EffectReceipt::Attempted {
-                            adapter: ident,
-                            effect_token: tok,
-                        },
-                    ),
-                )?;
-                Ok(Some(g))
+                settle_failed(tx, emit, &mut op, &refusal.error, now, retention)?;
+                Ok(Attempt::Stop)
             })
             .await?;
-        let Some(grant) = grant else {
-            return Ok(Flow::Stop);
+        let (grant, now) = match attempt {
+            Attempt::Go(g, now) => (g, now),
+            Attempt::Stop => return Ok(Flow::Stop),
+            Attempt::Uncertain(u) => return Err(uncertain(&u)),
+            Attempt::Unanchored => {
+                return Err(OpError::new(
+                    Code::TimeUncertain,
+                    "time uncertain: the grant has no anchor in this boot",
+                )
+                .with_resource("clock", None));
+            }
         };
         let interactive = interactive && spec.interactive;
-        let result = {
-            let _slot = self
-                .inner
-                .adapter_slots
-                .acquire()
-                .await
-                .map_err(|_| internal("adapter slots closed"))?;
-            adapter
-                .prepare(PrepareRequest {
-                    grant: &grant,
-                    scope: &grant.scope,
-                    required: &spec.required,
-                    interactive,
-                    effect_token: &token,
-                    now: self.inner.config.clock.wall(),
-                })
-                .await
-        };
+        let result = adapter
+            .prepare(PrepareRequest {
+                grant: &grant,
+                scope: &grant.scope,
+                required: &spec.required,
+                interactive,
+                effect_token: &token,
+                now,
+            })
+            .await;
+        drop(slot);
         match result {
             Ok(o) => self.confirm(&id, identity, o, &grant_id, local).await,
             Err(AdapterError::OutcomeUnknown(_)) => self.mark_uncertain(&id, identity, token).await,
@@ -2787,9 +3277,8 @@ impl Operations {
         &self,
         st: &WorkState,
         expected: OperationState,
-        local: &mut DriveLocal,
     ) -> Result<Flow, OpError> {
-        let safe = self.inner.timegate.check().await?;
+        let gate = self.inner.timegate.in_txn();
         let id = st.op.id.clone();
         let env = self.inner.config.environment.clone();
         let attached = coalesced(&st.receipts);
@@ -2800,15 +3289,20 @@ impl Operations {
         };
         let retention = self.retention();
         let adapters = self.adapter_infos();
-        let now = safe.wall();
         let outcome = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id)? else {
-                    return Ok(None);
+                    return Ok(Checked::Stop);
                 };
                 if op.state != expected {
-                    return Ok(None);
+                    return Ok(Checked::Stop);
                 }
+                // Time is assessed by the gate in this transaction (A02).
+                let safe = match gate.check(tx)? {
+                    Ok(s) => s,
+                    Err(u) => return Ok(Checked::Uncertain(u)),
+                };
+                let now = safe.wall();
                 let Some(resolved) = tx.recovery_intent(&id)?.and_then(|i| i.resolved) else {
                     return Err(conflict("operation has no resolved intent"));
                 };
@@ -2834,33 +3328,30 @@ impl Operations {
                     }
                     let err = refusal.error.with_effect(effect);
                     settle_failed(tx, emit, &mut op, &err, now, retention)?;
-                    return Ok(Some(Err(gid)));
+                    return Ok(Checked::Refused(gid));
                 }
-                let ancestors = ancestry(tx, &g)?;
-                let policies = tx.policies_for(&resolved.profile, &env)?;
-                let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
-                let bound = anchor_bound(tx, &gid, bound)?;
+                // Activation anchor (ADR-0005 §3.6), cut by the accepted tolerance.
+                let bound = bound_of(tx, &env, &g, Some(&resolved.profile))?;
+                if gate.anchor_grant(tx, &gid, &safe, bound)?.is_none() {
+                    return Ok(Checked::Unanchored);
+                }
                 tx.append_stage_receipt(
                     &id,
                     &receipt(EnsureStage::Recheck, now, EffectReceipt::NotAttempted),
                 )?;
-                Ok(Some(Ok((gid, bound))))
+                Ok(Checked::Passed)
             })
             .await?;
         match outcome {
-            None => Ok(Flow::Stop),
-            Some(Err(gid)) => {
+            Checked::Passed => Ok(Flow::Continue),
+            Checked::Stop => Ok(Flow::Stop),
+            Checked::Uncertain(u) => Err(uncertain(&u).with_effect(effect)),
+            Checked::Unanchored => Err(unanchored().with_effect(effect)),
+            Checked::Refused(gid) => {
                 if !attached && effect != EffectStatus::None {
                     self.cleanup(&gid).await;
                 }
                 Ok(Flow::Stop)
-            }
-            Some(Ok((gid, bound))) => {
-                // Activation anchor (ADR-0005 §3.6), cut by the accepted tolerance.
-                self.inner.timegate.anchor_grant(&gid, &safe, bound).await?;
-                local.safe = Some(safe);
-                local.bound = Some(bound);
-                Ok(Flow::Continue)
             }
         }
     }
@@ -2880,29 +3371,10 @@ impl Operations {
             return Err(internal("operation has no grant"));
         };
         let env = self.inner.config.environment.clone();
-        // Safe time and the activation anchor from `Recheck`; re-derived after a
-        // restart between the two stages.
-        let (safe, bound) = match (local.safe.clone(), local.bound) {
-            (Some(s), Some(b)) => (s, b),
-            _ => {
-                let s = self.inner.timegate.check().await?;
-                let gid2 = gid.clone();
-                let env2 = env.clone();
-                let r2 = resolved.clone();
-                let b = self
-                    .write(move |tx, _| {
-                        let Some(g) = tx.grant(&gid2)? else {
-                            return Err(conflict("grant missing"));
-                        };
-                        let ancestors = ancestry(tx, &g)?;
-                        let policies = tx.policies_for(&r2.profile, &env2)?;
-                        let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
-                        anchor_bound(tx, &gid2, bound)
-                    })
-                    .await?;
-                self.inner.timegate.anchor_grant(&gid, &s, b).await?;
-                (s, b)
-            }
+        let effect = if attached {
+            EffectStatus::None
+        } else {
+            EffectStatus::Partial
         };
         // The prepared facts: this drive's outcome, the leader's for an attached
         // binding, or the recorded adapter's reconciliation after a restart.
@@ -2950,14 +3422,16 @@ impl Operations {
                 _ => None,
             }
         };
+        // The caller's minimums travel with the stored request, so they hold for
+        // a coalesced binding and after a restart alike (A04).
+        let required = st
+            .request()
+            .and_then(|r| WorkSpec::from_request(&r, &env))
+            .map(|s| s.required)
+            .unwrap_or_default();
         let binding_id = crate::ids::new_binding_id()?;
-        let clock = self.clock();
+        let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
-        let effect = if attached {
-            EffectStatus::None
-        } else {
-            EffectStatus::Partial
-        };
         let parent_binding = st
             .request()
             .and_then(|r| WorkSpec::from_request(&r, &env))
@@ -2971,11 +3445,17 @@ impl Operations {
         let outcome = self
             .write(move |tx, emit| {
                 let Some(mut op) = tx.operation(&id)? else {
-                    return Ok(None);
+                    return Ok(Checked::Stop);
                 };
                 if op.state != expected {
-                    return Ok(None);
+                    return Ok(Checked::Stop);
                 }
+                // A02: the commit re-assesses time with the gate, from a fresh
+                // observation in this transaction, not only the admission.
+                let safe = match gate.check(tx)? {
+                    Ok(s) => s,
+                    Err(u) => return Ok(Checked::Uncertain(u)),
+                };
                 let now = safe.wall();
                 let Some(mut g) = tx.grant(&gid)? else {
                     return Err(conflict("grant missing"));
@@ -2985,50 +3465,36 @@ impl Operations {
                 } else {
                     Activation::NewGrant
                 };
+                let bound = bound_of(tx, &env, &g, Some(&resolved.profile))?;
+                let facts = facts.unwrap_or_else(|| Facts::conservative(&g, now));
                 let refusal = match activation_refusal(
                     tx, &env, &adapters, &resolved, &g, now, activation,
                 )? {
                     Some(r) => Some(r),
                     None => {
-                        // Continuous admission of the persisted anchor at the
-                        // accepted observation and at a fresh reading (stricter).
-                        match tx.grant_anchor(&gid)? {
-                            None => Some(Refusal::new(
+                        // Continuous admission of the anchor (re-anchored from this
+                        // observation; never longer) at the accepted observation and
+                        // at a fresh reading (stricter).
+                        if gate.anchor_grant(tx, &gid, &safe, bound)?.is_none() {
+                            return Ok(Checked::Unanchored);
+                        }
+                        match gate.admission(tx, &gid, &safe)? {
+                            Admission::NeedsAnchor => return Ok(Checked::Unanchored),
+                            Admission::Expired => Some(Refusal::new(
                                 OpError::new(
-                                    Code::TimeUncertain,
-                                    "time uncertain: the grant has no anchor in this boot",
+                                    Code::CredentialExpired,
+                                    "the grant reached its deadline",
                                 )
-                                .with_resource("clock", None),
-                                None,
+                                .with_resource("grant", Some(gid.to_string())),
+                                Some(GrantEvent::DeadlineReached),
                             )),
-                            Some(anchor) => {
-                                let a1 = dtime::admission(&anchor, &safe.anchor);
-                                let a2 = dtime::admission(&anchor, &clock.observe());
-                                if a1 == Admission::Expired || a2 == Admission::Expired {
-                                    Some(Refusal::new(
-                                        OpError::new(
-                                            Code::CredentialExpired,
-                                            "the grant reached its deadline",
-                                        )
-                                        .with_resource("grant", Some(gid.to_string())),
-                                        Some(GrantEvent::DeadlineReached),
-                                    ))
-                                } else if a1 == Admission::NeedsAnchor
-                                    || a2 == Admission::NeedsAnchor
-                                {
-                                    // Another boot since the anchor: retry later.
-                                    return Ok(Some(Err(None)));
-                                } else {
-                                    None
-                                }
-                            }
+                            // A04: the prepared facts meet every caller minimum.
+                            Admission::Open => unmet_minimum(&required, &facts, &g, bound)
+                                .map(|e| Refusal::new(e, Some(GrantEvent::PreparationFailed))),
                         }
                     }
                 };
                 if let Some(refusal) = refusal {
-                    if refusal.error.code == Code::TimeUncertain {
-                        return Ok(Some(Err(None)));
-                    }
                     if !attached
                         && let Some(ev) = refusal.grant_event
                         && grant_try(&mut g, ev)
@@ -3037,9 +3503,8 @@ impl Operations {
                     }
                     let err = refusal.error.with_effect(effect);
                     settle_failed(tx, emit, &mut op, &err, now, retention)?;
-                    return Ok(Some(Err(Some(gid))));
+                    return Ok(Checked::Refused(gid));
                 }
-                let facts = facts.unwrap_or_else(|| Facts::conservative(&g, now));
                 if g.state == GrantState::Preparing {
                     grant_to(&mut g, GrantEvent::Prepared)?;
                     g.enforcement = EnforcementEvidence {
@@ -3097,18 +3562,15 @@ impl Operations {
                     &id,
                     &receipt(EnsureStage::Commit, now, EffectReceipt::NotAttempted),
                 )?;
-                Ok(Some(Ok(())))
+                Ok(Checked::Passed)
             })
             .await?;
         match outcome {
-            None => Ok(Flow::Stop),
-            Some(Ok(())) => Ok(Flow::Continue),
-            Some(Err(None)) => Err(OpError::new(
-                Code::TimeUncertain,
-                "time uncertain: the grant must be re-anchored before activation",
-            )
-            .with_resource("clock", None)),
-            Some(Err(Some(gid))) => {
+            Checked::Passed => Ok(Flow::Continue),
+            Checked::Stop => Ok(Flow::Stop),
+            Checked::Uncertain(u) => Err(uncertain(&u).with_effect(effect)),
+            Checked::Unanchored => Err(unanchored().with_effect(effect)),
+            Checked::Refused(gid) => {
                 if !attached {
                     self.cleanup(&gid).await;
                 }
@@ -3292,17 +3754,19 @@ impl Operations {
     }
 
     /// An operation waiting for an owner decision: the current `decision_ref`, a
-    /// fresh one when the pending record expired (ADR-0006 §13.3), or the failure
-    /// when the grant reached its deadline or the authority generation moved.
+    /// fresh one when the pending record expired or went stale (ADR-0006 §13.3,
+    /// §13.6 item 2), or the failure when the grant reached its deadline or its
+    /// chain no longer validates. A request that joined an equivalent request's
+    /// decision answers with that shared record (code review A07). A replacement
+    /// record's delta is recomputed against current policy, never copied from the
+    /// earlier record (code review A06), and time is assessed in the transaction
+    /// that issues it (A02).
     async fn awaiting_response(&self, id: &OperationId, caller: &Caller) -> OpError {
-        let now = match self.inner.timegate.check().await {
-            Ok(s) => s.wall(),
-            Err(e) => return e.with_operation(id.clone()),
-        };
         let decision_id = match crate::ids::new_decision_id() {
             Ok(d) => d,
             Err(e) => return OpError::from(e),
         };
+        let gate = self.inner.timegate.in_txn();
         let lifetime = self.inner.config.limits.decision_lifetime;
         let retention = self.retention();
         let id2 = id.clone();
@@ -3317,6 +3781,10 @@ impl Operations {
                 if op.state != OperationState::AwaitingApproval {
                     return Ok(Ok(None));
                 }
+                let now = match gate.check(tx)? {
+                    Ok(s) => s.wall(),
+                    Err(u) => return Ok(Err(uncertain(&u).with_operation(id2.clone()))),
+                };
                 let Some(resolved) = tx.recovery_intent(&id2)?.and_then(|i| i.resolved) else {
                     return Err(conflict("operation has no resolved intent"));
                 };
@@ -3374,44 +3842,32 @@ impl Operations {
                     .with_resource("policy", Some(p.id.to_string()))
                     .with_operation(id2.clone())));
                 }
-                let mine: Vec<DecisionRecord> = tx
-                    .pending_decisions()?
-                    .into_iter()
-                    .filter(|d| matches!(&d.kind, DecisionKind::ApproveAuthority { operation, .. } if operation == &id2))
-                    .collect();
-                // R7: compare expiry and generation ourselves.
-                if let Some(valid) = mine
-                    .iter()
-                    .rev()
-                    .find(|d| now < d.expires_at && d.generation == current)
-                {
+                let Some(g) = grant else {
+                    return Err(conflict("awaiting operation has no grant on record"));
+                };
+                // What the waiting grant needs now, against current policy.
+                let Some(needed) = current_delta(tx, &env, &adapters, &g, now)? else {
+                    return Err(conflict("awaiting operation has no decision on record"));
+                };
+                let owner = decision_owner(Some(&g), &id2);
+                // R7: compare expiry and generation ourselves; a pending record is
+                // reused only while it still covers what is needed.
+                if let Some(valid) = tx.pending_decisions()?.iter().rev().find(|d| {
+                    matches!(&d.kind, DecisionKind::ApproveAuthority { operation, delta }
+                        if operation == &owner && delta_within(&needed, delta))
+                        && now < d.expires_at
+                        && d.generation == current
+                }) {
                     return Ok(Ok(Some(valid.id.clone())));
                 }
-                // The earlier record expired or went stale (an unrelated
-                // authority change; ADR-0006 §13.5 ruling 2): issue a fresh one
-                // for the delta the waiting grant still needs.
-                let kind = match mine.last() {
-                    Some(previous) => previous.kind.clone(),
-                    None => match &grant {
-                        Some(g) => match current_delta(tx, &env, &adapters, g, now)? {
-                            Some(delta) => DecisionKind::ApproveAuthority {
-                                operation: id2.clone(),
-                                delta,
-                            },
-                            None => {
-                                return Err(conflict(
-                                    "awaiting operation has no decision on record",
-                                ));
-                            }
-                        },
-                        None => {
-                            return Err(conflict("awaiting operation has no decision on record"));
-                        }
-                    },
-                };
+                // A06: the replacement carries the delta recomputed against current
+                // policy at the current generation, never the earlier record's.
                 let fresh = DecisionRecord {
                     id: decision_id,
-                    kind,
+                    kind: DecisionKind::ApproveAuthority {
+                        operation: owner,
+                        delta: needed,
+                    },
                     generation: current,
                     created_at: now,
                     expires_at: plus(now, lifetime),
@@ -3804,49 +4260,40 @@ impl Operations {
         let Some(Request::Bind(req)) = st.request() else {
             return Err(internal("the stored request cannot be read"));
         };
-        let safe = self.inner.timegate.check().await?;
-        let now = safe.wall();
-        let bid = req.binding_id.clone();
-        let env = self.inner.config.environment.clone();
-        // First validation in this boot anchors the grant (ADR-0005 §3.6).
-        let pre = self
-            .write(move |tx, _| {
-                let Some(b) = tx.binding(&bid)? else {
-                    return Ok(None);
-                };
-                let Some(g) = tx.grant(&b.grant)? else {
-                    return Ok(None);
-                };
-                let ancestors = ancestry(tx, &g)?;
-                let policies = tx.policies_for(&b.profile, &env)?;
-                let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
-                let bound = anchor_bound(tx, &g.id, bound)?;
-                Ok(Some((g.id, bound, g.state.permits_use())))
-            })
-            .await?;
-        if let Some((gid, bound, true)) = &pre
-            && !dtime::is_expired(now, *bound)
-        {
-            self.inner.timegate.anchor_grant(gid, &safe, *bound).await?;
-        }
+        let gate = self.inner.timegate.in_txn();
         let id2 = id.clone();
         let env = self.inner.config.environment.clone();
         let retention = self.retention();
-        let clock = self.clock();
         let adapters = self.adapter_infos();
         self.write(move |tx, emit| {
             let Some(mut op) = tx.operation(&id2)? else {
-                return Ok(());
+                return Ok(Ok(()));
             };
             if op.state.is_quiescent() {
-                return Ok(());
+                return Ok(Ok(()));
+            }
+            // Time is assessed by the gate in the transaction that admits the
+            // binding (code review A02); uncertain time leaves the request queued.
+            let safe = match gate.check(tx)? {
+                Ok(s) => s,
+                Err(u) => return Ok(Err(uncertain(&u))),
+            };
+            let now = safe.wall();
+            // First validation in this boot anchors the grant (ADR-0005 §3.6).
+            if let Some(b) = tx.binding(&req.binding_id)?
+                && let Some(g) = tx.grant(&b.grant)?
+            {
+                let bound = bound_of(tx, &env, &g, Some(&b.profile))?;
+                if g.state.permits_use() && !dtime::is_expired(now, bound) {
+                    gate.anchor_grant(tx, &g.id, &safe, bound)?;
+                }
             }
             if op.state == OperationState::Queued {
                 op_to(&mut op, OperationEvent::Start, now)?;
                 tx.update_operation(&op)?;
             }
             let fail = |tx: &mut Txn<'_>, emit: &mut Emit, op: &mut OperationRecord, e: OpError| {
-                settle_failed(tx, emit, op, &e, now, retention)
+                settle_failed(tx, emit, op, &e, now, retention).map(Ok)
             };
             let Some(b) = tx
                 .binding(&req.binding_id)?
@@ -3886,6 +4333,7 @@ impl Operations {
                 grant: Some(g.id.clone()),
                 binding: Some(b.id.clone()),
                 adapter: None,
+                approval: None,
             };
             // An existing binding is not a new activation (ADR-0006 §13.6 item 1):
             // a pause does not stop it (nor its re-validation); revocation and
@@ -3901,25 +4349,13 @@ impl Operations {
             )?
             .map(|r| r.error);
             if refusal.is_none() {
-                let anchor = tx.grant_anchor(&g.id)?;
-                let adm = anchor.map(|a| {
-                    let x = dtime::admission(&a, &safe.anchor);
-                    let y = dtime::admission(&a, &clock.observe());
-                    if x == Admission::Expired || y == Admission::Expired {
-                        Admission::Expired
-                    } else if x == Admission::NeedsAnchor || y == Admission::NeedsAnchor {
-                        Admission::NeedsAnchor
-                    } else {
-                        Admission::Open
-                    }
-                });
-                refusal = match adm {
-                    Some(Admission::Open) => None,
-                    Some(Admission::Expired) => Some(
+                refusal = match gate.admission(tx, &g.id, &safe)? {
+                    Admission::Open => None,
+                    Admission::Expired => Some(
                         OpError::new(Code::CredentialExpired, "the grant reached its deadline")
                             .with_resource("grant", Some(g.id.to_string())),
                     ),
-                    _ => Some(
+                    Admission::NeedsAnchor => Some(
                         OpError::new(
                             Code::TimeUncertain,
                             "time uncertain: the grant has no anchor in this boot",
@@ -3931,14 +4367,12 @@ impl Operations {
             if let Some(e) = refusal {
                 return fail(tx, emit, &mut op, e);
             }
-            let ancestors = ancestry(tx, &g)?;
-            let policies = tx.policies_for(&b.profile, &env)?;
-            let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
+            let bound = bound_of(tx, &env, &g, Some(&b.profile))?;
             let data = ensure_data(&b, &g, &Facts::conservative(&g, now), bound);
             let value = serde_json::to_value(&data)?;
-            settle_succeeded(tx, emit, &mut op, Code::AccessReady, value, now, retention)
+            settle_succeeded(tx, emit, &mut op, Code::AccessReady, value, now, retention).map(Ok)
         })
-        .await
+        .await?
     }
 
     /// `delegate` (spec §6.7, §8.7). Authorized by parent-binding ownership.
@@ -4145,12 +4579,16 @@ impl Operations {
                 let receipts = tx.stage_receipts(&id)?;
                 let may_have = may_have_external_effect(&receipts);
                 let mut cleanup = None;
+                // A request attached to, or waiting on, another operation's grant
+                // (coalesced work, or a joined decision: code review A07) never
+                // cancels that grant.
                 if let Some(gid) = tx
                     .recovery_intent(&id)?
                     .and_then(|i| i.resolved)
                     .and_then(|r| r.grant)
                     && !coalesced(&receipts)
                     && let Some(mut g) = tx.grant(&gid)?
+                    && owns_grant(&g, &id)
                 {
                     if grant_try(&mut g, GrantEvent::Cancel) {
                         put_grant(tx, emit, &g, Some(&id))?;
@@ -4485,19 +4923,20 @@ impl Operations {
         }
         // Narrowing never waits for safe time; a widening decision record's
         // lifetime is measured on accepted time only (gap G10): under
-        // `TIME_UNCERTAIN` no widening record is created.
-        let gate = self.inner.timegate.check().await;
-        let now = match &gate {
-            Ok(s) => s.wall(),
-            Err(_) => self.inner.config.clock.wall(),
-        };
-        let unsafe_time = gate.err();
+        // `TIME_UNCERTAIN` no widening record is created. Time is assessed in the
+        // transaction that writes (code review A02).
+        let gate = self.inner.timegate.in_txn();
         let decision_id = crate::ids::new_decision_id()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
         let attended = caller.is_attended();
         let action = req.clone();
         let r = self
             .write(move |tx, emit| {
+                let assessed = gate.check(tx)?;
+                let now = match &assessed {
+                    Ok(s) => s.wall(),
+                    Err(_) => gate.clock().wall(),
+                };
                 let pid: PolicyId = match &action {
                     PolicyAction::Pause { policy_id }
                     | PolicyAction::Resume { policy_id }
@@ -4524,8 +4963,8 @@ impl Operations {
                     return Ok(Ok(PolicyOutcome::Applied(Box::new(p), false)));
                 }
                 if widening {
-                    if let Some(e) = unsafe_time {
-                        return Ok(Err(e));
+                    if let Err(u) = &assessed {
+                        return Ok(Err(uncertain(u)));
                     }
                     // One logical decision, one record (spec §5.5): reuse an
                     // unexpired pending record for the same verbatim action.
@@ -4579,7 +5018,14 @@ impl Operations {
 
     /// Complete a server-issued decision on an attended session (consume-once;
     /// stale generation ⇒ `DECISION_STALE`). Approval applies exactly the recorded
-    /// delta and resumes the waiting operation.
+    /// delta and resumes the waiting operation, and every request that joined the
+    /// same record (code review A07).
+    ///
+    /// An approval is assessed against time in its own transaction (A02) and is
+    /// refused (`DECISION_STALE`, nothing consumed) when the record no longer
+    /// covers what the waiting grant needs against current policy (A06); a same-key
+    /// retry then gets a recomputed record. The approval is recorded on each
+    /// waiting intent as its [`ApprovalBasis`], which activation re-validates.
     pub async fn decide(&self, caller: &Caller, req: DecideRequest) -> OpResult<serde_json::Value> {
         // The session layer refuses this before dispatch; the application is the
         // authority and checks again (R5).
@@ -4595,15 +5041,26 @@ impl Operations {
                 "owner decisions need the owner role",
             ));
         }
-        let now = match req.verdict {
-            Verdict::Approve => self.inner.timegate.check().await?.wall(),
-            Verdict::Deny => self.narrowing_now().await,
+        // A denial narrows and never waits for safe time.
+        let deny_now = match req.verdict {
+            Verdict::Approve => None,
+            Verdict::Deny => Some(self.narrowing_now().await),
         };
+        let gate = self.inner.timegate.in_txn();
+        let env = self.inner.config.environment.clone();
+        let adapters = self.adapter_infos();
         let retention = self.retention();
         let did = req.decision_id.clone();
         let verdict = req.verdict;
         let r = self
             .write(move |tx, emit| {
+                let now = match deny_now {
+                    Some(now) => now,
+                    None => match gate.check(tx)? {
+                        Ok(s) => s.wall(),
+                        Err(u) => return Ok(Err(uncertain(&u))),
+                    },
+                };
                 let Some(d) = tx.decision(&did)? else {
                     return Ok(Err(OpError::new(Code::NotFound, "unknown decision")
                         .with_resource("decision", None)));
@@ -4637,6 +5094,37 @@ impl Operations {
                         return Ok(Err(stale(&DecisionRefusal::NotPending(d.state))));
                     }
                 };
+                // The waiting grant (shared by every request that joined it).
+                let grant = match &waiting {
+                    Some(op) => tx
+                        .recovery_intent(&op.id)?
+                        .and_then(|i| i.resolved)
+                        .and_then(|r| r.grant)
+                        .map(|g| tx.grant(&g))
+                        .transpose()?
+                        .flatten(),
+                    None => None,
+                };
+                let current = tx.authority_generation()?;
+                // A06: an approval must still describe the authority the waiting
+                // grant needs now (checked at the record's own generation; a moved
+                // generation is the store's `Stale` refusal below).
+                if verdict == Verdict::Approve
+                    && d.generation == current
+                    && let DecisionKind::ApproveAuthority { delta, .. } = &d.kind
+                {
+                    let needed = match &grant {
+                        Some(g) => current_delta(tx, &env, &adapters, g, now)?,
+                        None => None,
+                    };
+                    if needed.is_none_or(|n| !delta_within(&n, delta)) {
+                        return Ok(Err(OpError::new(
+                            Code::DecisionStale,
+                            "the decision no longer describes the authority the request needs; retry the request for a fresh decision",
+                        )
+                        .with_resource("decision", Some(did.to_string()))));
+                    }
+                }
                 let record = match tx.complete_decision(&did, verdict, now)? {
                     DecisionCompletion::Completed(r) => r,
                     DecisionCompletion::Refused { record, .. } => {
@@ -4657,40 +5145,69 @@ impl Operations {
                 };
                 let op_id = waiting.as_ref().map(|o| o.id.clone());
                 emit.decision(tx, &record, op_id.as_ref())?;
-                let mut resume = None;
-                match (&record.kind, verdict, waiting) {
-                    (DecisionKind::ApproveAuthority { .. }, Verdict::Approve, Some(mut op)) => {
-                        if let Some(gid) = tx
-                            .recovery_intent(&op.id)?
-                            .and_then(|i| i.resolved)
-                            .and_then(|r| r.grant)
-                            && let Some(mut g) = tx.grant(&gid)?
+                // Every operation waiting on the record's grant: its creator first,
+                // then the requests that joined it (A07).
+                let mut waiters: Vec<OperationRecord> = waiting.into_iter().collect();
+                if let Some(g) = &grant {
+                    for o in tx.open_operations()? {
+                        if o.state == OperationState::AwaitingApproval
+                            && waiters.iter().all(|w| w.id != o.id)
+                            && tx
+                                .recovery_intent(&o.id)?
+                                .and_then(|i| i.resolved)
+                                .and_then(|r| r.grant)
+                                .as_ref()
+                                == Some(&g.id)
+                        {
+                            waiters.push(o);
+                        }
+                    }
+                }
+                let mut resume = Vec::new();
+                match (&record.kind, verdict) {
+                    (DecisionKind::ApproveAuthority { delta, .. }, Verdict::Approve) => {
+                        if let Some(mut g) = grant.clone()
                             && grant_try(&mut g, GrantEvent::Approved)
                         {
-                            put_grant(tx, emit, &g, Some(&op.id))?;
+                            put_grant(tx, emit, &g, op_id.as_ref())?;
                         }
-                        op_to(&mut op, OperationEvent::Approved, now)?;
-                        tx.update_operation(&op)?;
-                        emit.op(tx, &op)?;
-                        resume = Some(op.id.clone());
+                        for mut op in waiters {
+                            let mut intent = tx
+                                .recovery_intent(&op.id)?
+                                .ok_or_else(|| conflict("operation has no recovery intent"))?;
+                            if let Some(r) = intent.resolved.as_mut() {
+                                let revision = merged_policy(&tx.policies_for(&r.profile, &env)?)
+                                    .filter(|p| p.profile == r.profile)
+                                    .map(|p| p.revision);
+                                r.approval = Some(ApprovalBasis {
+                                    decision: record.id.clone(),
+                                    delta: delta.clone(),
+                                    generation: record.generation,
+                                    policy_revision: revision,
+                                });
+                            }
+                            tx.set_recovery_intent(&op.id, &intent)?;
+                            op_to(&mut op, OperationEvent::Approved, now)?;
+                            tx.update_operation(&op)?;
+                            emit.op(tx, &op)?;
+                            resume.push(op.id.clone());
+                        }
                     }
-                    (DecisionKind::ApproveAuthority { .. }, Verdict::Deny, Some(mut op)) => {
-                        if let Some(gid) = tx
-                            .recovery_intent(&op.id)?
-                            .and_then(|i| i.resolved)
-                            .and_then(|r| r.grant)
-                            && let Some(mut g) = tx.grant(&gid)?
+                    (DecisionKind::ApproveAuthority { .. }, Verdict::Deny) => {
+                        if let Some(mut g) = grant.clone()
                             && grant_try(&mut g, GrantEvent::DecisionDenied)
                         {
-                            put_grant(tx, emit, &g, Some(&op.id))?;
+                            put_grant(tx, emit, &g, op_id.as_ref())?;
                         }
                         let err = OpError::new(
                             Code::CapabilityUnavailable,
                             "the owner denied the requested additional authority",
                         );
-                        settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                        for mut op in waiters {
+                            settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                        }
                     }
-                    (DecisionKind::WidenPolicy { action }, Verdict::Approve, _) => {
+                    (DecisionKind::WidenPolicy { action }, Verdict::Approve) => {
                         if let Err(e) = apply_widening(tx, emit, action, now)? {
                             return Ok(Err(e));
                         }
@@ -4701,13 +5218,14 @@ impl Operations {
             })
             .await??;
         let (record, op_id, resume) = r;
-        let mut operation_state = None;
-        if let Some(id) = &resume {
-            // Resume the waiting operation (bounded wait; the work continues).
+        // Resume the waiting operations (bounded wait; the work continues), the
+        // record's own operation first.
+        for id in &resume {
             let _ = self
                 .lead_bounded(id, false, Some(self.inner.config.limits.max_wait))
                 .await;
         }
+        let mut operation_state = None;
         if let Some(id) = &op_id {
             operation_state = self.load_work(id).await.ok().map(|s| s.op.state);
         }
@@ -4916,25 +5434,33 @@ impl Operations {
     // -----------------------------------------------------------------------------
 
     /// Reserve a certificate (ADR-0005 §3.5 step 1): every predicate of
-    /// `issuance::check` against current store state and the time gate's
-    /// observation, then the `reserved` entry with complete bounds, in one
-    /// transaction. Nothing is signed before this commits.
+    /// `issuance::check` against current store state and time, then the
+    /// `reserved` entry with complete bounds, in one transaction. Nothing is signed
+    /// before this commits. Time evidence (the gate's verdict and the continuous
+    /// admission) comes from a fresh observation assessed **inside** that
+    /// transaction (code review A01; ADR-0006 §14.2).
     pub async fn reserve_issuance(&self, req: IssuanceRequest) -> Result<IssuanceEntry, OpError> {
-        let (safe, time) = self.issuance_time().await?;
-        if let Some(s) = &safe {
-            self.anchor_for_issuance(&req.grant, s).await?;
-        }
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let env = self.inner.config.environment.clone();
         let adapters = self.adapter_infos();
-        let raw_now = self.inner.config.clock.wall();
+        let gate = self.inner.timegate.in_txn();
         let r = self
             .write(move |tx, emit| {
-                let now = safe.as_ref().map_or(raw_now, SafeNow::wall);
+                let (safe, time, now) = issuance_time(&gate, tx)?;
                 let Some(grant) = tx.grant(&req.grant)? else {
-                    return Ok(Err(OpError::new(Code::NotFound, "unknown grant").with_resource("grant", None)));
+                    return Ok(Err(
+                        OpError::new(Code::NotFound, "unknown grant").with_resource("grant", None)
+                    ));
                 };
+                // First validation in this boot anchors; an earlier bound shortens.
+                if let Some(s) = &safe
+                    && grant.state.permits_issuance()
+                {
+                    let ctx = grant_context(tx, &grant)?;
+                    let bound = bound_of(tx, &env, &grant, ctx.profile.as_ref())?;
+                    first_validation_anchor(tx, &gate, &grant.id, s, bound)?;
+                }
                 let bounds = CertificateBounds {
                     serial,
                     key_id: req.key_id.clone(),
@@ -4944,29 +5470,23 @@ impl Operations {
                     extensions: req.extensions.clone(),
                     subject_fingerprint: req.subject_fingerprint.clone(),
                 };
-                if let Err(refusal) = run_issuance_check(tx, &env, &adapters, &grant, &req.pair, &bounds, &req.facts, time, safe.as_ref(), now)? {
+                if let Err(refusal) = run_issuance_check(
+                    tx,
+                    &env,
+                    &adapters,
+                    &grant,
+                    &req.pair,
+                    &bounds,
+                    &req.facts,
+                    time,
+                    safe.as_ref(),
+                    now,
+                )? {
                     return Ok(Err(OpError::from_issuance_refusal(&refusal)));
                 }
-                let entry = IssuanceEntry {
-                    id: id.clone(),
-                    grant: grant.id.clone(),
-                    generation: tx.authority_generation()?,
-                    pair: req.pair.clone(),
-                    bounds,
-                    state: IssuanceState::Reserved,
-                    reserved_at: now,
-                    settled_at: None,
-                    void_reason: None,
-                };
-                tx.reserve_issuance(&entry)?;
-                emit.event(
-                    tx,
-                    EventType::CredentialLifecycle,
-                    None,
-                    Some(resource("grant", &grant.id)),
-                    serde_json::json!({ "grant_id": grant.id, "issuance_id": entry.id, "event": "reserved" }),
-                )?;
-                Ok(Ok(entry))
+                Ok(Ok(reserve_entry(
+                    tx, emit, id, &grant.id, &req.pair, bounds, now,
+                )?))
             })
             .await??;
         self.inner
@@ -4978,9 +5498,20 @@ impl Operations {
     }
 
     /// Publish a reservation (ADR-0005 §3.5 step 3): re-run **every** predicate
-    /// with current state and time; on any refusal the entry is `voided` and
-    /// nothing is released. An entry reserved before this runtime instance started
-    /// is never published (it stays counted until its `valid_before`).
+    /// with current state and time, assessed inside the publishing transaction
+    /// (code review A01); on any refusal the entry is `voided` and nothing is
+    /// released. An entry reserved before this runtime instance started is never
+    /// published (it stays counted until its `valid_before`).
+    ///
+    /// ADR-0006 §13.6 item 11: a reservation voided **only** because the authority
+    /// generation moved (the grant and its chain re-validate at the current
+    /// generation and every predicate holds) is voided and re-reserved with the
+    /// same bounds and a fresh serial at the current generation, then published,
+    /// at most [`PUBLISH_ATTEMPTS`] attempts in this call. The returned entry may
+    /// therefore be a re-reservation (another ID and serial): the issuer signs
+    /// exactly the returned bounds. Still racing after that ⇒ `SERVICE_UNAVAILABLE`
+    /// (exit 5, retryable, `next: retry_after`), with nothing left reserved; a
+    /// failed re-validation answers that denial's own code.
     pub async fn publish_issuance(
         &self,
         id: &IssuanceId,
@@ -5000,118 +5531,188 @@ impl Operations {
             )
             .with_resource("grant", None));
         };
-        let (safe, time) = self.issuance_time().await?;
-        let env = self.inner.config.environment.clone();
-        let raw_now = self.inner.config.clock.wall();
-        let id2 = id.clone();
-        let facts = facts.clone();
-        let adapters = self.adapter_infos();
-        let r = self
-            .write(move |tx, emit| {
-                let now = safe.as_ref().map_or(raw_now, SafeNow::wall);
-                let Some(entry) = tx.issuance_entries(&grant)?.into_iter().find(|e| e.id == id2) else {
-                    return Ok(Err(OpError::new(Code::NotFound, "unknown issuance entry")));
-                };
-                if entry.state != IssuanceState::Reserved {
-                    return Ok(Err(OpError::new(Code::RequestConflict, "the issuance entry is already settled")));
-                }
-                // Reserve and publish observe the same generation (ADR-0006 §13.5
-                // ruling 2): any authority change in between voids the entry.
-                let check = match tx.grant(&grant)? {
-                    None => Err(IssuanceRefusal::GrantNotIssuable(GrantState::Revoked)),
-                    Some(g) => match run_issuance_check(tx, &env, &adapters, &g, &entry.pair, &entry.bounds, &facts, time, safe.as_ref(), now)? {
-                        Ok(()) if tx.authority_generation()? != entry.generation => {
-                            Err(IssuanceRefusal::StaleGeneration)
+        let mut current = id.clone();
+        for attempt in 1..=PUBLISH_ATTEMPTS {
+            let last = attempt == PUBLISH_ATTEMPTS;
+            let fresh_id = crate::ids::new_issuance_id()?;
+            let serial = crate::ids::random_u64()?;
+            let env = self.inner.config.environment.clone();
+            let gate = self.inner.timegate.in_txn();
+            let entry_id = current.clone();
+            let facts = facts.clone();
+            let adapters = self.adapter_infos();
+            let gid = grant.clone();
+            let outcome = self
+                .write(move |tx, emit| {
+                    let (safe, time, now) = issuance_time(&gate, tx)?;
+                    let Some(entry) = tx
+                        .issuance_entries(&gid)?
+                        .into_iter()
+                        .find(|e| e.id == entry_id)
+                    else {
+                        return Ok(Published::refused(OpError::new(
+                            Code::NotFound,
+                            "unknown issuance entry",
+                        )));
+                    };
+                    if entry.state != IssuanceState::Reserved {
+                        return Ok(Published::refused(OpError::new(
+                            Code::RequestConflict,
+                            "the issuance entry is already settled",
+                        )));
+                    }
+                    let check = match tx.grant(&gid)? {
+                        None => Err(IssuanceRefusal::GrantNotIssuable(GrantState::Revoked)),
+                        Some(g) => run_issuance_check(
+                            tx,
+                            &env,
+                            &adapters,
+                            &g,
+                            &entry.pair,
+                            &entry.bounds,
+                            &facts,
+                            time,
+                            safe.as_ref(),
+                            now,
+                        )?,
+                    };
+                    // Reserve and publish observe the same generation (ADR-0006
+                    // §13.5 ruling 2).
+                    let generation = tx.authority_generation()?;
+                    match check {
+                        Ok(()) if generation == entry.generation => {
+                            let published = tx.publish_issuance(&entry_id, now)?;
+                            issuance_event(tx, emit, &gid, &entry_id, "published")?;
+                            Ok(Published::Done(Box::new(published)))
                         }
-                        r => r,
-                    },
-                };
-                match check {
-                    Ok(()) => {
-                        let published = tx.publish_issuance(&id2, now)?;
-                        emit.event(tx, EventType::CredentialLifecycle, None, Some(resource("grant", &grant)),
-                            serde_json::json!({ "grant_id": grant, "issuance_id": id2, "event": "published" }))?;
-                        Ok(Ok(published))
+                        Ok(()) => {
+                            // §13.6 item 11: only the generation moved; the chain
+                            // re-validated and every predicate holds now.
+                            tx.void_issuance(&entry_id, &IssuanceRefusal::StaleGeneration, now)?;
+                            issuance_event(tx, emit, &gid, &entry_id, "voided")?;
+                            if last {
+                                return Ok(Published::Racing);
+                            }
+                            let bounds = CertificateBounds {
+                                serial,
+                                ..entry.bounds
+                            };
+                            let fresh =
+                                reserve_entry(tx, emit, fresh_id, &gid, &entry.pair, bounds, now)?;
+                            Ok(Published::Rereserved(fresh.id))
+                        }
+                        Err(refusal) => {
+                            tx.void_issuance(&entry_id, &refusal, now)?;
+                            issuance_event(tx, emit, &gid, &entry_id, "voided")?;
+                            Ok(Published::refused(OpError::from_issuance_refusal(&refusal)))
+                        }
                     }
-                    Err(refusal) => {
-                        tx.void_issuance(&id2, &refusal, now)?;
-                        emit.event(tx, EventType::CredentialLifecycle, None, Some(resource("grant", &grant)),
-                            serde_json::json!({ "grant_id": grant, "issuance_id": id2, "event": "voided" }))?;
-                        Ok(Err(OpError::from_issuance_refusal(&refusal)))
-                    }
+                })
+                .await?;
+            let mut here = self
+                .inner
+                .reserved_here
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            match outcome {
+                Published::Done(entry) => {
+                    here.remove(&current);
+                    return Ok(*entry);
                 }
-            })
-            .await?;
-        self.inner
-            .reserved_here
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(id);
-        r
-    }
-
-    /// Time evidence for an issuance step: the gate's verdict (`Uncertain` is a
-    /// refusal reason, not an error) and the accepted observation when `Safe`.
-    async fn issuance_time(&self) -> Result<(Option<SafeNow>, dtime::TimeStatus), OpError> {
-        match self.inner.timegate.check().await {
-            Ok(s) => Ok((Some(s), dtime::TimeStatus::Safe)),
-            Err(e) if e.code == Code::TimeUncertain => {
-                let status = match self.inner.timegate.peek().await {
-                    Ok(dtime::TimeStatus::Uncertain(u)) => dtime::TimeStatus::Uncertain(u),
-                    // Raced back to safe after the check: still use the refusal.
-                    _ => dtime::TimeStatus::Uncertain(dtime::TimeUncertainty::Unsynchronized {
-                        sync: dtime::SyncStatus::Unknown,
-                    }),
-                };
-                Ok((None, status))
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    /// First validation of a grant in this boot anchors it; a later earlier bound
-    /// shortens it.
-    async fn anchor_for_issuance(&self, gid: &GrantId, safe: &SafeNow) -> Result<(), OpError> {
-        let env = self.inner.config.environment.clone();
-        let gid2 = gid.clone();
-        let now = safe.wall();
-        let info = self
-            .write(move |tx, _| {
-                let Some(g) = tx.grant(&gid2)? else {
-                    return Ok(None);
-                };
-                let ancestors = ancestry(tx, &g)?;
-                let ctx = grant_context(tx, &g)?;
-                let policies = match &ctx.profile {
-                    Some(p) => tx.policies_for(p, &env)?,
-                    None => Vec::new(),
-                };
-                let bound = grant_bound(&g, &ancestors, merged_policy(&policies).as_ref());
-                let bound = anchor_bound(tx, &gid2, bound)?;
-                Ok(Some((
-                    g.state.permits_issuance(),
-                    bound,
-                    tx.grant_anchor(&gid2)?,
-                )))
-            })
-            .await?;
-        let Some((issuable, bound, anchor)) = info else {
-            return Ok(());
-        };
-        if !issuable || dtime::is_expired(now, bound) {
-            return Ok(());
-        }
-        match anchor {
-            Some(a) if a.anchor.boot_id == safe.anchor.boot_id => {
-                if a.bound > bound {
-                    self.inner.timegate.shorten_grant(gid, bound).await?;
+                Published::Refused(e) => {
+                    here.remove(&current);
+                    return Err(*e);
+                }
+                Published::Rereserved(next) => {
+                    here.remove(&current);
+                    here.insert(next.clone(), grant.clone());
+                    current = next;
+                }
+                Published::Racing => {
+                    here.remove(&current);
+                    break;
                 }
             }
-            _ => {
-                self.inner.timegate.anchor_grant(gid, safe, bound).await?;
-            }
         }
-        Ok(())
+        Err(OpError::new(
+            Code::ServiceUnavailable,
+            "the authority generation kept changing during publication; reserve again and retry",
+        )
+        .with_resource("grant", None)
+        .with_retry_after(PUBLISH_RETRY_MS))
+    }
+}
+
+/// Time evidence for an issuance step, assessed by the gate inside the step's own
+/// transaction (code review A01): the accepted observation when `Safe`, the
+/// verdict (`Uncertain` is a refusal reason, not an error), and `now` (the
+/// accepted wall time, else the raw wall clock, which can only refuse).
+fn issuance_time(
+    gate: &TxnGate,
+    tx: &mut Txn<'_>,
+) -> heimdall_store::Result<(Option<SafeNow>, dtime::TimeStatus, Timestamp)> {
+    Ok(match gate.check(tx)? {
+        Ok(s) => {
+            let now = s.wall();
+            (Some(s), dtime::TimeStatus::Safe, now)
+        }
+        Err(u) => (None, dtime::TimeStatus::Uncertain(u), gate.clock().wall()),
+    })
+}
+
+/// Insert a `reserved` entry at the current generation, with its event.
+fn reserve_entry(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    id: IssuanceId,
+    grant: &GrantId,
+    pair: &AccessPair,
+    bounds: CertificateBounds,
+    now: Timestamp,
+) -> heimdall_store::Result<IssuanceEntry> {
+    let entry = IssuanceEntry {
+        id,
+        grant: grant.clone(),
+        generation: tx.authority_generation()?,
+        pair: pair.clone(),
+        bounds,
+        state: IssuanceState::Reserved,
+        reserved_at: now,
+        settled_at: None,
+        void_reason: None,
+    };
+    tx.reserve_issuance(&entry)?;
+    issuance_event(tx, emit, grant, &entry.id, "reserved")?;
+    Ok(entry)
+}
+
+fn issuance_event(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    grant: &GrantId,
+    id: &IssuanceId,
+    event: &str,
+) -> heimdall_store::Result<()> {
+    emit.event(
+        tx,
+        EventType::CredentialLifecycle,
+        None,
+        Some(resource("grant", grant)),
+        serde_json::json!({ "grant_id": grant, "issuance_id": id, "event": event }),
+    )
+}
+
+/// One publication attempt (ADR-0006 §13.6 item 11).
+enum Published {
+    Done(Box<IssuanceEntry>),
+    Rereserved(IssuanceId),
+    Racing,
+    Refused(Box<OpError>),
+}
+
+impl Published {
+    fn refused(e: OpError) -> Self {
+        Self::Refused(Box::new(e))
     }
 }
 
@@ -5168,8 +5769,18 @@ fn run_issuance_check(
     };
     // On a failed re-validation the predicate still runs (so the refusal names
     // the substantive reason: tombstone, cutoff, ancestor state, ...); if it finds
-    // nothing, the stale generation itself refuses.
-    let (subject, chain, revalidation_failed) = if stale {
+    // nothing, the stale generation itself refuses. Re-validation measures the
+    // policy window from `now`, so it runs only on time the gate accepted: on
+    // uncertain time it is deferred (nothing recorded) and the predicate refuses
+    // on time (`TIME_UNCERTAIN`) unless a time-independent predicate refuses
+    // first, instead of a spurious authority refusal (code review A01).
+    let (subject, chain, revalidation_failed) = if stale && safe.is_none() {
+        (
+            at_current(grant.clone()),
+            raw.into_iter().map(at_current).collect(),
+            false,
+        )
+    } else if stale {
         match revalidate_chain(tx, env, adapters, grant, now)? {
             Ok(v) => (v.grant, v.ancestors, false),
             Err(_) => (

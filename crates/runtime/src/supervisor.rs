@@ -46,6 +46,17 @@
 //! guard returns to `Safe` or the continuous clock shows the machine slept. The
 //! scheduler is bookkeeping: admission is enforced at every use by the gate and
 //! `admission`, so a late wake never lets a grant be used past its bound.
+//!
+//! **Resume detection (review B04).** No platform resume notification is used:
+//! the loop's wait is bounded by [`SupervisorConfig::resume_check_interval`]
+//! (default 2 s, clamped to at most [`MAX_RESUME_CHECK_INTERVAL`] = 5 s and at
+//! least [`MIN_RESUME_CHECK_INTERVAL`]), so after a resume the next bounded wake
+//! (at most that much awake time later, even where the timer's monotonic clock
+//! excludes suspend) compares continuous-clock progress with monotonic progress
+//! and, on a sleep, runs the time guard and a scheduler pass at once. A bounded
+//! wake that finds no sleep and nothing due does only that comparison (one clock
+//! read, no store access), keeping idle cost negligible. Native suspend/resume
+//! evidence with production intervals is an M04 item.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -78,7 +89,20 @@ pub struct SupervisorConfig {
     /// Time policy in force (informational; the gate inside `Operations` holds the
     /// authoritative copy).
     pub time_policy: TimePolicy,
+    /// Longest the loop waits before re-checking whether the machine slept
+    /// (review B04): a resume is detected within this much awake time. Clamped
+    /// to `[MIN_RESUME_CHECK_INTERVAL, MAX_RESUME_CHECK_INTERVAL]` by
+    /// [`Self::resume_bound`]; default 2 s.
+    pub resume_check_interval: Duration,
 }
+
+/// Upper bound of [`SupervisorConfig::resume_check_interval`]: a resume is
+/// detected within at most 5 s of awake time.
+pub const MAX_RESUME_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Lower bound of [`SupervisorConfig::resume_check_interval`] (never a tight
+/// loop, spec §15.1).
+pub const MIN_RESUME_CHECK_INTERVAL: Duration = Duration::from_millis(10);
 
 impl Default for SupervisorConfig {
     fn default() -> Self {
@@ -86,7 +110,18 @@ impl Default for SupervisorConfig {
             anchor_interval: Duration::from_secs(60),
             max_idle_sleep: Duration::from_secs(300),
             time_policy: TimePolicy::default(),
+            resume_check_interval: Duration::from_secs(2),
         }
+    }
+}
+
+impl SupervisorConfig {
+    /// The effective resume-check interval: `resume_check_interval` clamped to
+    /// `[MIN_RESUME_CHECK_INTERVAL, MAX_RESUME_CHECK_INTERVAL]`.
+    #[must_use]
+    pub fn resume_bound(&self) -> Duration {
+        self.resume_check_interval
+            .clamp(MIN_RESUME_CHECK_INTERVAL, MAX_RESUME_CHECK_INTERVAL)
     }
 }
 
@@ -259,8 +294,14 @@ impl Supervisor {
         let mut last_safe: Option<bool> = None;
         let mut last_mono = start;
         let mut last_cont = self.state.as_ref().map(|(_, c)| c.continuous());
+        let resume_bound = self.config.resume_bound();
         loop {
-            let wake = next_guard.min(next_pass);
+            let mut wake = next_guard.min(next_pass);
+            if self.state.is_some() {
+                // Bounded wait: re-check for a system sleep at least this often
+                // (review B04); such a wake costs one clock read.
+                wake = wake.min(Instant::now() + resume_bound);
+            }
             let changed = tokio::select! {
                 biased;
                 () = shutdown.cancelled() => break,
@@ -272,6 +313,10 @@ impl Supervisor {
                 next_pass = next_pass.min(now + CHANGE_DEBOUNCE);
                 continue;
             }
+            // Events held back behind an unread gap (a failed catch-up read) are
+            // retried on every timed wake, so they do not wait for the next commit
+            // (review A05); a no-op when nothing is held back.
+            self.operations.events().retry_held();
             // A machine sleep shows as continuous progress the monotonic timer did
             // not see: run both passes now.
             if let (Some((_, clock)), Some(prev)) = (&self.state, last_cont) {
@@ -407,6 +452,21 @@ impl Supervisor {
         let mut ex = cleanup.lock().await;
         let pending = read_store(&store, |tx| tx.resources_needing_reconcile()).await?;
         let now = clock.continuous();
+        // Review B02: a retry belongs to one generation's cleanup candidacy. Drop
+        // every entry whose resource is no longer a cleanup candidate at that
+        // generation (reconciled, replaced by N+1, no longer planned for cleanup,
+        // or gone), so neither the next wake nor the map is driven by obsolete
+        // work. Entries for current candidates are kept (including stopped ones: a
+        // stopped generation is never retried again).
+        let candidates: HashMap<&ResourceId, ResourceGeneration> = pending
+            .iter()
+            .filter_map(|r| match plan(r) {
+                Action::Cleanup { generation } => Some((&r.id, generation)),
+                _ => None,
+            })
+            .collect();
+        ex.retries
+            .retain(|id, rt| candidates.get(id) == Some(&rt.generation));
         for r in pending {
             if let Some(rt) = ex.retries.get(&r.id).copied() {
                 if rt.generation != r.generation {

@@ -354,6 +354,7 @@ fn resolved_intent() -> ResolvedIntent {
         grant: None,
         binding: None,
         adapter: None,
+        approval: None,
     }
 }
 
@@ -1938,6 +1939,68 @@ fn denied_ancestor_walks_through_a_revoked_grandparent() {
 }
 
 // --- R5: recovery intent and stage receipts (review F05) -------------------------------------
+
+/// Code review A06: the approval basis an added-authority intent rests on is a
+/// fact the intent gains once; it is never replaced or cleared, and an intent
+/// stored before the field existed reads back without one.
+#[test]
+fn recovery_intent_approval_basis_is_add_only() {
+    use heimdall_domain::authority::AuthorityDelta;
+    use heimdall_domain::operation::ApprovalBasis;
+    let s = mem();
+    let (op, idem) = simple_op(3);
+    s.transaction(|tx| tx.insert_operation(&op, &idem)).unwrap();
+    let basis = |n: u8| ApprovalBasis {
+        decision: heimdall_contract::ids::DecisionId::from_random_bytes([n; 16]),
+        delta: AuthorityDelta {
+            added_scope: scope(&[("h3", "u1")], &[]),
+            extra_window: None,
+            environment_not_covered: false,
+        },
+        generation: AuthorityGeneration(2),
+        policy_revision: Some(PolicyRevision(3)),
+    };
+    let waiting = RecoveryIntent {
+        request: request_doc(3),
+        resolved: Some(ResolvedIntent {
+            grant: Some(GrantId::from_random_bytes([4; 16])),
+            ..resolved_intent()
+        }),
+    };
+    let mut approved = waiting.clone();
+    if let Some(r) = approved.resolved.as_mut() {
+        r.approval = Some(basis(1));
+    }
+    let mut replaced = waiting.clone();
+    if let Some(r) = replaced.resolved.as_mut() {
+        r.approval = Some(basis(2));
+    }
+    s.transaction(|tx| {
+        tx.set_recovery_intent(&op.id, &waiting)?;
+        tx.set_recovery_intent(&op.id, &approved)?;
+        tx.set_recovery_intent(&op.id, &approved) // repeat: no-op
+    })
+    .unwrap();
+    for bad in [&replaced, &waiting] {
+        let e = s
+            .transaction(|tx| tx.set_recovery_intent(&op.id, bad))
+            .unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)));
+    }
+    assert_eq!(
+        s.transaction(|tx| tx.recovery_intent(&op.id)).unwrap(),
+        Some(approved)
+    );
+    // An intent written before the field existed has no approval basis.
+    let mut old = serde_json::to_value(resolved_intent()).unwrap();
+    assert!(
+        old.get("approval").is_none(),
+        "absent, not null, when unset"
+    );
+    old.as_object_mut().unwrap().remove("approval");
+    let back: ResolvedIntent = serde_json::from_value(old).unwrap();
+    assert_eq!(back.approval, None);
+}
 
 #[test]
 fn recovery_intent_round_trips_and_only_gains_facts() {

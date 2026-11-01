@@ -150,6 +150,31 @@ pub struct ResolvedIntent {
     pub binding: Option<heimdall_contract::ids::BindingId>,
     /// Adapter selected.
     pub adapter: Option<AdapterIdentity>,
+    /// The owner approval this added-authority intent rests on, recorded once when
+    /// the owner approves (code review A06; ADR-0006 §3.1, §13.6 items 2 and 10).
+    /// Absent for authority the standing policy covers. Add-only: never replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<ApprovalBasis>,
+}
+
+/// What an attended approval of added authority established (code review A06).
+///
+/// A replacement decision is recomputed against the policy current at its own
+/// generation (ADR-0006 §13.6 item 2), so the approval rests on that generation and
+/// that applicable policy revision, not on the ones pinned at resolution. Before
+/// preparation and activation the application re-validates the grant and refuses
+/// when the authority it needs is no longer within `delta`, or the applicable
+/// policy moved past `policy_revision`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalBasis {
+    /// The approved decision record.
+    pub decision: heimdall_contract::ids::DecisionId,
+    /// Exactly the delta the owner approved.
+    pub delta: crate::authority::AuthorityDelta,
+    /// Authority generation the approval was made at (the record's generation).
+    pub generation: crate::policy::AuthorityGeneration,
+    /// Applicable standing-policy revision at that generation, if any.
+    pub policy_revision: Option<crate::policy::PolicyRevision>,
 }
 
 /// Durable, redacted recovery intent for an operation (review F05 fix).

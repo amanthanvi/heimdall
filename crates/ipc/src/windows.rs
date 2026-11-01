@@ -618,10 +618,13 @@ fn token_user_sid(token: &OwnedHandle) -> io::Result<String> {
 /// local). Any other failure is treated as "cannot tell" and refused.
 fn connection_is_remote(pipe: RawHandle) -> Result<bool, PeerRejected> {
     let mut name = [0u16; 256];
-    let bytes = u32::try_from(size_of_val(&name)).unwrap_or(0);
+    // The length argument counts UTF-16 characters, not bytes (review B05).
+    let capacity = utf16_capacity(&name).ok_or(PeerRejected::Unavailable)?;
     // SAFETY: `pipe` is a connected server handle owned by the caller for the call;
-    // `name` provides `bytes` bytes of writable storage.
-    let ok = unsafe { GetNamedPipeClientComputerNameW(pipe as HANDLE, name.as_mut_ptr(), bytes) };
+    // `name` provides writable storage for `capacity` UTF-16 units (`name.len()`,
+    // the unit the API's length parameter counts), which outlives the call.
+    let ok =
+        unsafe { GetNamedPipeClientComputerNameW(pipe as HANDLE, name.as_mut_ptr(), capacity) };
     if ok != 0 {
         return Ok(true);
     }
@@ -631,6 +634,12 @@ fn connection_is_remote(pipe: RawHandle) -> Result<bool, PeerRejected> {
     }
     tracing::debug!(os_error = error, "GetNamedPipeClientComputerNameW failed");
     Err(PeerRejected::Unavailable)
+}
+
+/// The capacity of a UTF-16 buffer in characters (`u16` units), as the `u32`
+/// length Win32 wide-string APIs take; `None` if it does not fit (fail closed).
+fn utf16_capacity(buffer: &[u16]) -> Option<u32> {
+    u32::try_from(buffer.len()).ok()
 }
 
 /// `ConvertSidToStringSidW`.
@@ -700,6 +709,21 @@ mod tests {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         format!(r"\\.\pipe\hm-M01-U6w-{}-{n}-{tag}", std::process::id())
+    }
+
+    /// Review B05: `GetNamedPipeClientComputerNameW` takes the buffer length in
+    /// UTF-16 characters; the capacity passed is the element count, never the
+    /// byte size (which would advertise twice the real storage).
+    #[test]
+    fn client_computer_name_capacity_counts_utf16_units() {
+        let name = [0u16; 256];
+        assert_eq!(utf16_capacity(&name), Some(256));
+        assert_ne!(
+            utf16_capacity(&name).map(|c| c as usize),
+            Some(size_of_val(&name)),
+            "a byte count is not a character count"
+        );
+        assert_eq!(utf16_capacity(&[]), Some(0));
     }
 
     /// Pipe DACL as SDDL, read from an open handle.

@@ -27,8 +27,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -40,25 +40,29 @@ use heimdall_app::ports::{
 };
 use heimdall_app::{Attendance, Caller, OpError, OpResult, Operations, OperationsConfig};
 use heimdall_contract::ids::{
-    AccountName, BindingId, DecisionId, DestinationId, DeviceId, EnvironmentId, GrantId, PolicyId,
-    ProfileId, RequestId, WorkId,
+    AccountName, BindingId, DecisionId, DestinationId, DeviceId, EnvironmentId, GrantId,
+    OperationId, PolicyId, ProfileId, RequestId, WorkId,
 };
 use heimdall_contract::request::{
-    BindForm, BindRequest, DeadlineIntent, DecideRequest, DelegateRequest, EnsureData,
-    EnsureRequest, InteractionMode, PolicyAction, RefreshDependency, ReleaseRequest,
-    RequiredCapabilities, RevokeRequest, Verdict, WaitMode,
+    BindForm, BindRequest, DeadlineIntent, DecideRequest, DelegateRequest,
+    DestinationScopeEnforcement, EnsureData, EnsureRequest, InteractionMode, PolicyAction,
+    RefreshDependency, ReleaseRequest, RequiredCapabilities, RevokeRequest, Verdict, WaitMode,
 };
 use heimdall_contract::{Code, GrantState, Timestamp};
+use heimdall_domain::authority::AuthorityDelta;
+use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
 use heimdall_domain::environment::{EnvironmentKind, EnvironmentPermissions, EnvironmentRecord};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::issuance::{IssuanceRefusal, IssuanceState};
-use heimdall_domain::operation::AdapterIdentity;
-use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
+use heimdall_domain::operation::{AdapterIdentity, EffectReceipt};
+use heimdall_domain::policy::{
+    AuthorityGeneration, PauseState, PolicyRevision, PolicySource, StandingPolicy,
+};
 use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
 use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::scope::{AccessPair, Capability, Scope};
 use heimdall_domain::time::{Clock, SyncStatus, TimePolicy};
-use heimdall_store::Store;
+use heimdall_store::{FaultAction, FaultHook, FaultPoint, Store, Txn};
 use heimdall_testkit::{
     CANARY_PREFIX, FakeCredentialAdapter, FakeStep, ScriptedTimeSync, VirtualClock,
     assert_no_canary,
@@ -271,7 +275,30 @@ struct World {
     fake: Arc<FakeCredentialAdapter>,
     gated: Arc<Gated>,
     hook: Arc<dyn StageHook>,
+    limits: Limits,
     ops: Operations,
+}
+
+/// Harness options (production hooks only: the pipeline `StageHook`, the store
+/// `FaultHook`, the limits, the fake adapter's declared enforcement and script).
+struct Opts {
+    hook: Arc<dyn StageHook>,
+    faults: Arc<dyn FaultHook>,
+    limits: Limits,
+    enforcement: EnforcementEvidence,
+    script: Vec<FakeStep>,
+}
+
+impl Default for Opts {
+    fn default() -> Self {
+        Self {
+            hook: Arc::new(NoStageHook),
+            faults: Arc::new(heimdall_store::NoFaults),
+            limits: Limits::default(),
+            enforcement: EnforcementEvidence::unknown(),
+            script: vec![FakeStep::Prepare(outcome())],
+        }
+    }
 }
 
 impl World {
@@ -280,7 +307,15 @@ impl World {
     }
 
     async fn with_hook(hook: Arc<dyn StageHook>) -> Self {
-        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        Self::with_opts(Opts {
+            hook,
+            ..Opts::default()
+        })
+        .await
+    }
+
+    async fn with_opts(o: Opts) -> Self {
+        let store = Arc::new(Store::open_in_memory(o.faults).unwrap());
         seed(&store);
         let clock = VirtualClock::at(t0());
         let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
@@ -292,12 +327,14 @@ impl World {
             capabilities: ssh(),
             external_side_effects: false,
             interaction: InteractionRequirement::None,
-            enforcement: EnforcementEvidence::unknown(),
+            enforcement: o.enforcement,
             lock_continuity: LockContinuity::Unknown,
         };
-        let fake = FakeCredentialAdapter::new(descriptor, [FakeStep::Prepare(outcome())]);
+        let fake = FakeCredentialAdapter::new(descriptor, o.script);
         let gated = Gated::new(fake.clone());
-        let ops = Operations::start(config(&store, &clock, &sync, &gated, &hook))
+        let hook = o.hook;
+        let limits = o.limits;
+        let ops = Operations::start(config(&store, &clock, &sync, &gated, &hook, limits))
             .await
             .unwrap();
         Self {
@@ -307,6 +344,7 @@ impl World {
             fake,
             gated,
             hook,
+            limits,
             ops,
         }
     }
@@ -319,6 +357,7 @@ impl World {
             &self.sync,
             &self.gated,
             &self.hook,
+            self.limits,
         ))
         .await
         .unwrap();
@@ -412,6 +451,7 @@ fn config(
     sync: &Arc<ScriptedTimeSync>,
     gated: &Arc<Gated>,
     hook: &Arc<dyn StageHook>,
+    limits: Limits,
 ) -> OperationsConfig {
     OperationsConfig {
         store: store.clone(),
@@ -421,7 +461,7 @@ fn config(
         environment: env_id(),
         adapters: vec![gated.clone() as Arc<dyn CredentialAdapter>],
         stage_hook: hook.clone(),
-        limits: Limits::default(),
+        limits,
         default_window: 12 * HOUR,
     }
 }
@@ -776,6 +816,31 @@ async fn a07_publish_rechecks_every_predicate_and_voids_after_each_change() {
     r.unwrap();
     assert_eq!(entry(&w, &g).state, IssuanceState::Published);
     assert_eq!(residual(&w, &g), Some(at(1800)));
+    // ADR-0006 §13.6 item 5: a revision of an applicable policy moves the
+    // generation too, so the reservation made before it is voided because reserve
+    // and publish saw different generations. The chain re-validates against the
+    // new revision, so since §13.6 item 11 the same call re-reserves and publishes.
+    let (w, g, r) = reserve_then(Between::PolicyRevision).await;
+    r.unwrap();
+    let entries = w.store.transaction(|tx| tx.issuance_entries(&g)).unwrap();
+    assert_eq!(entries.len(), 2);
+    let voided: Vec<_> = entries
+        .iter()
+        .filter(|e| e.state == IssuanceState::Voided)
+        .collect();
+    assert_eq!(voided.len(), 1);
+    assert_eq!(
+        voided[0].void_reason,
+        Some(IssuanceRefusal::StaleGeneration)
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|e| e.state == IssuanceState::Published)
+            .count(),
+        1
+    );
+    assert_eq!(residual(&w, &g), Some(at(1800)));
     for (between, expect) in [
         (
             Between::Revoke,
@@ -784,10 +849,6 @@ async fn a07_publish_rechecks_every_predicate_and_voids_after_each_change() {
         // A cutoff is a policy change: the first failing predicate is the moved
         // revision (the cutoff itself would refuse next).
         (Between::Cutoff, IssuanceRefusal::StalePolicyRevision),
-        // ADR-0006 §13.6 item 5: a revision of an applicable policy moves the
-        // generation too; the chain re-validates against the new revision, so the
-        // publish is voided because reserve and publish saw different generations.
-        (Between::PolicyRevision, IssuanceRefusal::StaleGeneration),
         (Between::BudgetExpiry, IssuanceRefusal::BudgetExpired),
         (Between::WallDeadline, IssuanceRefusal::BoundPassed),
         (Between::TimeUncertain, IssuanceRefusal::TimeUncertain),
@@ -1372,4 +1433,1565 @@ async fn a07_permitted_extensions_come_from_the_grant_snapshot_not_the_caller() 
             .into_iter()
             .collect::<BTreeSet<_>>()
     );
+}
+
+// =================================================================================
+// Code-review fixes (tests/evidence/artifacts/review-m01-code/area-a.md: A01–A04,
+// A06, A07; ADR-0006 §13.6 item 11). Every case below was first run against the
+// base commit and failed there (red); it passes with the fix. Faults are injected
+// only through production hooks: the store `FaultHook`, the pipeline `StageHook`,
+// the limits and the fake adapter's script and declared enforcement.
+// =================================================================================
+
+fn rq(rid: &str, work: &str, hosts: &[&str], until: Option<&str>) -> EnsureRequest {
+    EnsureRequest {
+        profile: ProfileId::parse("dev").unwrap(),
+        profile_revision: None,
+        scope: hosts.iter().map(|h| pair(h, "deploy")).collect(),
+        environment: None,
+        work_id: WorkId::parse(work).unwrap(),
+        until: until.map(|u| DeadlineIntent::Duration(u.into())),
+        required_capabilities: RequiredCapabilities::default(),
+        request_id: RequestId::parse(rid).unwrap(),
+        interaction: InteractionMode::NonInteractive,
+        wait: WaitMode::default(),
+    }
+}
+
+async fn ensure_as(w: &World, caller: &Caller, r: EnsureRequest) -> OpResult<EnsureData> {
+    let out = w.ops.ensure(caller, r).await;
+    scan(&out);
+    out
+}
+
+async fn decide_as(w: &World, d: &DecisionId, verdict: Verdict) -> OpResult<serde_json::Value> {
+    let r = w
+        .ops
+        .decide(
+            &attended(501),
+            DecideRequest {
+                decision_id: d.clone(),
+                verdict,
+            },
+        )
+        .await;
+    scan(&r);
+    r
+}
+
+fn dec_of(e: &OpError) -> DecisionId {
+    DecisionId::parse(e.next.decision_ref.as_deref().expect("decision_ref")).unwrap()
+}
+
+fn op_of(w: &World, id: &OperationId) -> heimdall_domain::operation::OperationRecord {
+    w.store.transaction(|tx| tx.operation(id)).unwrap().unwrap()
+}
+
+fn grant_of_op(w: &World, id: &OperationId) -> GrantId {
+    w.store
+        .transaction(|tx| tx.recovery_intent(id))
+        .unwrap()
+        .unwrap()
+        .resolved
+        .unwrap()
+        .grant
+        .unwrap()
+}
+
+fn attempts_of(w: &World, id: &OperationId) -> usize {
+    w.store
+        .transaction(|tx| tx.stage_receipts(id))
+        .unwrap()
+        .iter()
+        .filter(|r| matches!(r.effect, EffectReceipt::Attempted { .. }))
+        .count()
+}
+
+fn generation(w: &World) -> AuthorityGeneration {
+    w.store.transaction(|tx| tx.authority_generation()).unwrap()
+}
+
+fn entries_of(w: &World, g: &GrantId) -> Vec<heimdall_domain::issuance::IssuanceEntry> {
+    w.store.transaction(|tx| tx.issuance_entries(g)).unwrap()
+}
+
+fn delta_of(w: &World, d: &DecisionId) -> AuthorityDelta {
+    match w
+        .store
+        .transaction(|tx| tx.decision(d))
+        .unwrap()
+        .unwrap()
+        .kind
+    {
+        DecisionKind::ApproveAuthority { delta, .. } => delta,
+        other => panic!("not an approval record: {other:?}"),
+    }
+}
+
+fn pending_approvals(w: &World) -> Vec<DecisionRecord> {
+    w.store
+        .transaction(|tx| tx.pending_decisions())
+        .unwrap()
+        .into_iter()
+        .filter(|d| matches!(d.kind, DecisionKind::ApproveAuthority { .. }))
+        .collect()
+}
+
+fn hosts(names: &[&str]) -> BTreeSet<AccessPair> {
+    names.iter().map(|h| pair(h, "deploy")).collect()
+}
+
+/// Replace the standing policy's pairs at its next revision (a setup-level
+/// write; it moves the authority generation, ADR-0006 §13.6 item 5).
+fn set_policy_hosts(store: &Store, names: &[&str]) {
+    store
+        .transaction(|tx| {
+            let mut p = tx.policy(&policy_id())?.expect("policy");
+            p.scope.pairs = hosts(names);
+            p.revision = PolicyRevision(p.revision.0 + 1);
+            tx.upsert_policy(&p, true).map(|_| ())
+        })
+        .unwrap();
+}
+
+/// Turn the environment's automatic activation on or off (no generation move).
+fn set_automatic_activation(store: &Store, on: bool) {
+    store
+        .transaction(|tx| {
+            let mut e = tx.environment(&env_id())?.expect("environment");
+            e.permissions.automatic_activation = on;
+            tx.upsert_environment(&e)
+        })
+        .unwrap();
+}
+
+/// A policy for another profile: writing it moves the global authority
+/// generation and touches nothing the grants of this suite rest on.
+fn bump_unrelated(store: &Store, revision: u64) {
+    store
+        .transaction(|tx| {
+            tx.upsert_policy(
+                &StandingPolicy {
+                    id: PolicyId::parse("pol-other").unwrap(),
+                    revision: PolicyRevision(revision),
+                    profile: ProfileId::parse("other").unwrap(),
+                    workspace: None,
+                    scope: Scope {
+                        pairs: hosts(&["h9"]),
+                        capabilities: ssh(),
+                    },
+                    environments: [env_id()].into_iter().collect(),
+                    max_window: HOUR,
+                    pause: PauseState::Active,
+                    cutoff_at: None,
+                    source: PolicySource::SetupDefault,
+                },
+                false,
+            )
+            .map(|_| ())
+        })
+        .unwrap();
+}
+
+type Probe = Box<dyn Fn(&mut Txn<'_>) -> heimdall_store::Result<bool> + Send + Sync>;
+type ClockAct = Box<dyn Fn(&VirtualClock) + Send + Sync>;
+
+/// Store fault hook (production `FaultHook`). Once armed, right before the k-th
+/// store transaction begins (`BeforeTransaction`, where the store lock is not
+/// held) it runs `probe` in a nested transaction ("had the operation under test
+/// already decided?") and then changes the clock. The expectation therefore
+/// depends only on whether the change landed before the decision, never on how
+/// many transactions an implementation runs.
+#[derive(Default)]
+struct ClockAt {
+    store: OnceLock<Weak<Store>>,
+    clock: OnceLock<Arc<VirtualClock>>,
+    plan: std::sync::Mutex<Option<(usize, ClockAct, Probe)>>,
+    seen: AtomicUsize,
+    nested: AtomicBool,
+    fired: std::sync::Mutex<Option<bool>>,
+}
+
+impl ClockAt {
+    fn bind(&self, w: &World) {
+        let _ = self.store.set(Arc::downgrade(&w.store));
+        let _ = self.clock.set(w.clock.clone());
+    }
+
+    fn arm(&self, k: usize, act: ClockAct, probe: Probe) {
+        self.seen.store(0, Ordering::SeqCst);
+        *self.fired.lock().unwrap() = None;
+        *self.plan.lock().unwrap() = Some((k, act, probe));
+    }
+
+    /// `None`: the call ran fewer than k transactions; `Some(decided_before)`.
+    fn fired(&self) -> Option<bool> {
+        *self.fired.lock().unwrap()
+    }
+}
+
+impl FaultHook for ClockAt {
+    fn at(&self, point: FaultPoint) -> FaultAction {
+        if point != FaultPoint::BeforeTransaction || self.nested.load(Ordering::SeqCst) {
+            return FaultAction::Continue;
+        }
+        let mut plan = self.plan.lock().unwrap();
+        let Some((k, _, _)) = plan.as_ref() else {
+            return FaultAction::Continue;
+        };
+        let n = self.seen.fetch_add(1, Ordering::SeqCst) + 1;
+        if n != *k {
+            return FaultAction::Continue;
+        }
+        let (_, act, probe) = plan.take().unwrap();
+        drop(plan);
+        self.nested.store(true, Ordering::SeqCst);
+        let decided = self
+            .store
+            .get()
+            .and_then(Weak::upgrade)
+            .map(|s| s.transaction(|tx| probe(tx)).unwrap())
+            .unwrap_or(false);
+        self.nested.store(false, Ordering::SeqCst);
+        act(self.clock.get().unwrap());
+        *self.fired.lock().unwrap() = Some(decided);
+        FaultAction::Continue
+    }
+}
+
+/// Store fault hook that moves the global authority generation (an unrelated
+/// policy write in a nested transaction) right before each of the next `n` store
+/// transactions.
+#[derive(Default)]
+struct Bumper {
+    store: OnceLock<Weak<Store>>,
+    remaining: std::sync::Mutex<usize>,
+    nested: AtomicBool,
+    revision: AtomicU64,
+}
+
+impl Bumper {
+    fn bind(&self, w: &World) {
+        let _ = self.store.set(Arc::downgrade(&w.store));
+    }
+
+    fn arm(&self, n: usize) {
+        *self.remaining.lock().unwrap() = n;
+    }
+}
+
+impl FaultHook for Bumper {
+    fn at(&self, point: FaultPoint) -> FaultAction {
+        if point != FaultPoint::BeforeTransaction || self.nested.load(Ordering::SeqCst) {
+            return FaultAction::Continue;
+        }
+        {
+            let mut left = self.remaining.lock().unwrap();
+            if *left == 0 {
+                return FaultAction::Continue;
+            }
+            *left -= 1;
+        }
+        self.nested.store(true, Ordering::SeqCst);
+        let revision = self.revision.fetch_add(1, Ordering::SeqCst) + 1_000_000;
+        if let Some(s) = self.store.get().and_then(Weak::upgrade) {
+            bump_unrelated(&s, revision);
+        }
+        self.nested.store(false, Ordering::SeqCst);
+        FaultAction::Continue
+    }
+}
+
+type StageAct = Box<dyn FnOnce() + Send>;
+
+/// Pipeline hook (production `StageHook`): runs one armed action before or after a
+/// stage, and counts `Reconcile` entries.
+#[derive(Default)]
+struct AtStage {
+    on: std::sync::Mutex<Option<(EnsureStage, bool, StageAct)>>,
+    reconcile_entries: AtomicUsize,
+    changed: Notify,
+}
+
+impl AtStage {
+    fn arm(&self, stage: EnsureStage, after: bool, act: StageAct) {
+        *self.on.lock().unwrap() = Some((stage, after, act));
+    }
+
+    fn fire(&self, stage: EnsureStage, after: bool) {
+        let mut on = self.on.lock().unwrap();
+        if matches!(on.as_ref(), Some((s, a, _)) if *s == stage && *a == after) {
+            let (_, _, act) = on.take().unwrap();
+            drop(on);
+            act();
+        }
+    }
+}
+
+impl StageHook for AtStage {
+    fn before(&self, stage: EnsureStage) -> Result<(), Code> {
+        if stage == EnsureStage::Reconcile {
+            self.reconcile_entries.fetch_add(1, Ordering::SeqCst);
+            self.changed.notify_one();
+        }
+        self.fire(stage, false);
+        Ok(())
+    }
+    fn after(&self, stage: EnsureStage) -> Result<(), Code> {
+        self.fire(stage, true);
+        Ok(())
+    }
+}
+
+/// A clock change at a transaction boundary.
+#[derive(Debug, Clone, Copy)]
+enum Shift {
+    /// Wall and continuous run 3 h on: safe time, past every grant here.
+    Expire,
+    /// The wall clock steps back 2 minutes, continuous unchanged: `TIME_UNCERTAIN`.
+    RollBack,
+}
+
+fn shift_act(s: Shift) -> ClockAct {
+    match s {
+        Shift::Expire => Box::new(|c: &VirtualClock| c.advance(3 * HOUR)),
+        Shift::RollBack => Box::new(|c: &VirtualClock| {
+            c.set_wall(
+                c.wall()
+                    .checked_sub(jiff::SignedDuration::from_mins(2))
+                    .unwrap(),
+            );
+        }),
+    }
+}
+
+/// A01: publication assesses the time gate and the continuous admission from a
+/// fresh observation **inside** the transaction that publishes. The clock changes
+/// right before the k-th store transaction of the publish call, for every k the
+/// call performs; whenever the change lands before the entry was settled, the
+/// entry is voided and nothing is released.
+#[tokio::test]
+async fn review_a01_publish_assesses_time_inside_its_own_transaction() {
+    let mut exercised = 0;
+    for shift in [Shift::Expire, Shift::RollBack] {
+        for k in 1..=12 {
+            let hook = Arc::new(ClockAt::default());
+            let w = World::with_opts(Opts {
+                faults: hook.clone(),
+                ..Opts::default()
+            })
+            .await;
+            hook.bind(&w);
+            let g = w
+                .ready(
+                    "req-a01",
+                    "work-a01",
+                    &["h1"],
+                    Some(DeadlineIntent::Duration("2h".into())),
+                )
+                .await;
+            let reserved = w
+                .ops
+                .reserve_issuance(issuance(&g.grant_id, at(1800)))
+                .await
+                .unwrap();
+            let (gid, rid) = (g.grant_id.clone(), reserved.id.clone());
+            hook.arm(
+                k,
+                shift_act(shift),
+                Box::new(move |tx| {
+                    Ok(tx
+                        .issuance_entries(&gid)?
+                        .iter()
+                        .any(|e| e.id == rid && e.state != IssuanceState::Reserved))
+                }),
+            );
+            let r = w.ops.publish_issuance(&reserved.id, &facts()).await;
+            let fired = hook.fired();
+            let settled = entries_of(&w, &g.grant_id)
+                .into_iter()
+                .find(|e| e.id == reserved.id)
+                .unwrap();
+            match fired {
+                None | Some(true) => {
+                    // No change before the publish decided: it publishes.
+                    r.unwrap_or_else(|e| panic!("{shift:?} k={k}: {} {}", e.code, e.message));
+                    assert_eq!(settled.state, IssuanceState::Published, "{shift:?} k={k}");
+                }
+                Some(false) => {
+                    exercised += 1;
+                    let e = r.expect_err(&format!(
+                        "{shift:?} before transaction {k} must void the publication"
+                    ));
+                    assert_no_canary(&e.message);
+                    assert_eq!(settled.state, IssuanceState::Voided, "{shift:?} k={k}");
+                    let (code, reasons): (Code, &[IssuanceRefusal]) = match shift {
+                        Shift::Expire => (
+                            Code::CredentialExpired,
+                            &[IssuanceRefusal::BoundPassed, IssuanceRefusal::BudgetExpired],
+                        ),
+                        Shift::RollBack => (Code::TimeUncertain, &[IssuanceRefusal::TimeUncertain]),
+                    };
+                    assert_eq!(e.code, code, "{shift:?} k={k}");
+                    assert!(
+                        reasons.contains(settled.void_reason.as_ref().unwrap()),
+                        "{shift:?} k={k}: {:?}",
+                        settled.void_reason
+                    );
+                    assert_eq!(residual(&w, &g.grant_id), None, "nothing released");
+                }
+            }
+            if fired.is_none() {
+                break;
+            }
+        }
+    }
+    assert!(
+        exercised > 0,
+        "the clock change landed before the decision at least once"
+    );
+}
+
+/// A01: reservation likewise assesses time inside the transaction that reserves.
+#[tokio::test]
+async fn review_a01_reserve_assesses_time_inside_its_own_transaction() {
+    let mut exercised = 0;
+    for shift in [Shift::Expire, Shift::RollBack] {
+        for k in 1..=12 {
+            let hook = Arc::new(ClockAt::default());
+            let w = World::with_opts(Opts {
+                faults: hook.clone(),
+                ..Opts::default()
+            })
+            .await;
+            hook.bind(&w);
+            let g = w
+                .ready(
+                    "req-a01r",
+                    "work-a01r",
+                    &["h1"],
+                    Some(DeadlineIntent::Duration("2h".into())),
+                )
+                .await;
+            let gid = g.grant_id.clone();
+            hook.arm(
+                k,
+                shift_act(shift),
+                Box::new(move |tx| Ok(!tx.issuance_entries(&gid)?.is_empty())),
+            );
+            let r = w
+                .ops
+                .reserve_issuance(issuance(&g.grant_id, at(1800)))
+                .await;
+            let fired = hook.fired();
+            match fired {
+                None | Some(true) => {
+                    let e =
+                        r.unwrap_or_else(|e| panic!("{shift:?} k={k}: {} {}", e.code, e.message));
+                    assert_eq!(e.state, IssuanceState::Reserved);
+                }
+                Some(false) => {
+                    exercised += 1;
+                    let e = r.expect_err(&format!(
+                        "{shift:?} before transaction {k} must refuse the reservation"
+                    ));
+                    let code = match shift {
+                        Shift::Expire => Code::CredentialExpired,
+                        Shift::RollBack => Code::TimeUncertain,
+                    };
+                    assert_eq!(e.code, code, "{shift:?} k={k}");
+                    assert!(entries_of(&w, &g.grant_id).is_empty(), "nothing reserved");
+                }
+            }
+            if fired.is_none() {
+                break;
+            }
+        }
+    }
+    assert!(
+        exercised > 0,
+        "the clock change landed before the decision at least once"
+    );
+}
+
+/// A02: `Commit` re-assesses time with the gate (not only the continuous
+/// admission): a wall clock stepped back between `Recheck` and `Commit` is
+/// `TIME_UNCERTAIN` and nothing activates; once time is safe again the same key
+/// resumes and activates.
+#[tokio::test]
+async fn review_a02_commit_reassesses_time_with_the_gate() {
+    let hook = Arc::new(AtStage::default());
+    let w = World::with_opts(Opts {
+        hook: hook.clone(),
+        ..Opts::default()
+    })
+    .await;
+    let clock = w.clock.clone();
+    hook.arm(
+        EnsureStage::Recheck,
+        true,
+        Box::new(move || clock.set_wall(at(-120))),
+    );
+    let r = ensure_as(
+        &w,
+        &owner(501),
+        rq("req-a02", "work-a02", &["h1"], Some("2h")),
+    )
+    .await;
+    let e = r.expect_err("a commit under TIME_UNCERTAIN must not activate");
+    assert_eq!(e.code, Code::TimeUncertain);
+    assert_eq!(
+        e.effect_status,
+        heimdall_contract::envelope::EffectStatus::Partial
+    );
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(
+        op_of(&w, &op).state,
+        heimdall_contract::OperationState::Running
+    );
+    assert_eq!(w.grant(&grant_of_op(&w, &op)).state, GrantState::Preparing);
+    assert!(
+        w.store
+            .transaction(|tx| tx.bindings_for_work(&env_id(), &WorkId::parse("work-a02").unwrap()))
+            .unwrap()
+            .is_empty()
+    );
+    // The wall clock is back on its prediction: the same key resumes and activates.
+    w.clock.set_wall(t0());
+    let ready = ensure_as(
+        &w,
+        &owner(501),
+        rq("req-a02", "work-a02", &["h1"], Some("2h")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(ready.code, Code::AccessReady);
+    assert_eq!(ready.operation_id, Some(op));
+    assert_eq!(w.fake.effect_count(), 1);
+}
+
+fn succeeded(tx: &mut Txn<'_>) -> heimdall_store::Result<u64> {
+    Ok(tx
+        .operation_counts()?
+        .into_iter()
+        .find(|(s, _)| *s == heimdall_contract::OperationState::Succeeded)
+        .map_or(0, |(_, n)| n))
+}
+
+/// A02 (binding): the transaction that admits a binding re-assesses time.
+#[tokio::test]
+async fn review_a02_bind_reassesses_time_in_the_admitting_transaction() {
+    let mut exercised = 0;
+    for k in 1..=16 {
+        let hook = Arc::new(ClockAt::default());
+        let w = World::with_opts(Opts {
+            faults: hook.clone(),
+            ..Opts::default()
+        })
+        .await;
+        hook.bind(&w);
+        let g = w
+            .ready(
+                "req-a02b",
+                "work-a02b",
+                &["h1"],
+                Some(DeadlineIntent::Duration("2h".into())),
+            )
+            .await;
+        let before = w.store.transaction(succeeded).unwrap();
+        hook.arm(
+            k,
+            shift_act(Shift::RollBack),
+            Box::new(move |tx| Ok(succeeded(tx)? > before)),
+        );
+        let r = w.bind(&g.binding_id, "req-a02b-bind").await;
+        let fired = hook.fired();
+        match fired {
+            None | Some(true) => assert_eq!(code_of(&r), Code::AccessReady, "k={k}"),
+            Some(false) => {
+                exercised += 1;
+                assert_eq!(
+                    code_of(&r),
+                    Code::TimeUncertain,
+                    "a rollback before transaction {k} must stop the binding"
+                );
+            }
+        }
+        if fired.is_none() {
+            break;
+        }
+    }
+    assert!(
+        exercised > 0,
+        "the clock change landed before the decision at least once"
+    );
+}
+
+/// A02 (decisions): approving re-assesses time in the deciding transaction.
+#[tokio::test]
+async fn review_a02_an_approval_reassesses_time_in_the_deciding_transaction() {
+    let mut exercised = 0;
+    for k in 1..=12 {
+        let hook = Arc::new(ClockAt::default());
+        let w = World::with_opts(Opts {
+            faults: hook.clone(),
+            ..Opts::default()
+        })
+        .await;
+        hook.bind(&w);
+        let pending = w
+            .ensure("req-a02d", "work-a02d", &["h1", "h3"], None)
+            .await
+            .unwrap_err();
+        let dec = dec_of(&pending);
+        let d2 = dec.clone();
+        hook.arm(
+            k,
+            shift_act(Shift::RollBack),
+            Box::new(move |tx| {
+                Ok(tx
+                    .decision(&d2)?
+                    .is_some_and(|d| d.state != DecisionState::Pending))
+            }),
+        );
+        let r = decide_as(&w, &dec, Verdict::Approve).await;
+        let fired = hook.fired();
+        match fired {
+            None | Some(true) => assert_eq!(code_of(&r), Code::Ok, "k={k}"),
+            Some(false) => {
+                exercised += 1;
+                assert_eq!(code_of(&r), Code::TimeUncertain, "k={k}");
+                let d = w
+                    .store
+                    .transaction(|tx| tx.decision(&dec))
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    d.state,
+                    DecisionState::Pending,
+                    "nothing consumed under uncertain time"
+                );
+                assert_eq!(w.fake.effect_count(), 0);
+            }
+        }
+        if fired.is_none() {
+            break;
+        }
+    }
+    assert!(
+        exercised > 0,
+        "the clock change landed before the decision at least once"
+    );
+}
+
+/// A02 (decisions): a widening decision record is created only on time assessed
+/// safe in its own transaction.
+#[tokio::test]
+async fn review_a02_a_widening_record_reassesses_time_in_its_transaction() {
+    let mut exercised = 0;
+    for k in 1..=12 {
+        let hook = Arc::new(ClockAt::default());
+        let w = World::with_opts(Opts {
+            faults: hook.clone(),
+            ..Opts::default()
+        })
+        .await;
+        hook.bind(&w);
+        w.ops
+            .policy(
+                &owner(501),
+                PolicyAction::Pause {
+                    policy_id: policy_id(),
+                },
+            )
+            .await
+            .unwrap();
+        let widening = |tx: &mut Txn<'_>| -> heimdall_store::Result<bool> {
+            Ok(tx
+                .pending_decisions()?
+                .iter()
+                .any(|d| matches!(d.kind, DecisionKind::WidenPolicy { .. })))
+        };
+        hook.arm(k, shift_act(Shift::RollBack), Box::new(widening));
+        let r = w
+            .ops
+            .policy(
+                &attended(501),
+                PolicyAction::Resume {
+                    policy_id: policy_id(),
+                },
+            )
+            .await;
+        scan(&r);
+        let fired = hook.fired();
+        match fired {
+            None | Some(true) => assert_eq!(code_of(&r), Code::ApprovalRequired, "k={k}"),
+            Some(false) => {
+                exercised += 1;
+                assert_eq!(code_of(&r), Code::TimeUncertain, "k={k}");
+                assert!(
+                    !w.store.transaction(|tx| widening(tx)).unwrap(),
+                    "no record"
+                );
+            }
+        }
+        if fired.is_none() {
+            break;
+        }
+    }
+    assert!(
+        exercised > 0,
+        "the clock change landed before the decision at least once"
+    );
+}
+
+/// A03: the transaction authorizing the `Attempted` receipt validates current
+/// authority, deadline and cutoff: no preparation once the grant's bound passed or
+/// a cutoff took effect, even though nothing (no `tick`) moved the grant.
+#[tokio::test]
+async fn review_a03_no_preparation_after_the_deadline_or_a_cutoff() {
+    // The deadline passes between resolution and `Reconcile`.
+    let hook = Arc::new(AtStage::default());
+    let w = World::with_opts(Opts {
+        hook: hook.clone(),
+        ..Opts::default()
+    })
+    .await;
+    let clock = w.clock.clone();
+    hook.arm(
+        EnsureStage::Reconcile,
+        false,
+        Box::new(move || clock.advance(3 * HOUR)),
+    );
+    let e = ensure_as(
+        &w,
+        &owner(501),
+        rq("req-a03", "work-a03", &["h1"], Some("2h")),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(e.code, Code::CredentialExpired);
+    assert_eq!(
+        w.fake.effect_count(),
+        0,
+        "no credential effect after the bound"
+    );
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(attempts_of(&w, &op), 0, "no attempt was authorized");
+    assert!(!w.grant(&grant_of_op(&w, &op)).state.permits_use());
+
+    // A cutoff takes effect between resolution and `Reconcile`.
+    let hook = Arc::new(AtStage::default());
+    let w = World::with_opts(Opts {
+        hook: hook.clone(),
+        ..Opts::default()
+    })
+    .await;
+    let store = w.store.clone();
+    let now = w.clock.wall();
+    hook.arm(
+        EnsureStage::Reconcile,
+        false,
+        Box::new(move || {
+            store
+                .transaction(|tx| {
+                    let mut p = tx.policy(&policy_id())?.unwrap();
+                    p.cutoff_at = Some(now);
+                    p.revision = PolicyRevision(p.revision.0 + 1);
+                    tx.upsert_policy(&p, true).map(|_| ())
+                })
+                .unwrap();
+        }),
+    );
+    let e = ensure_as(
+        &w,
+        &owner(501),
+        rq("req-a03c", "work-a03c", &["h1"], Some("2h")),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(e.code, Code::PolicyCutoff);
+    assert_eq!(
+        w.fake.effect_count(),
+        0,
+        "no credential effect after a cutoff"
+    );
+    assert_eq!(attempts_of(&w, e.operation_id.as_ref().unwrap()), 0);
+}
+
+/// A03: authority is validated again after waiting for an adapter slot. B waits
+/// for the only slot while A prepares; B's deadline passes meanwhile; B never
+/// prepares.
+#[tokio::test]
+async fn review_a03_authority_is_rechecked_after_waiting_for_an_adapter_slot() {
+    let hook = Arc::new(AtStage::default());
+    let w = World::with_opts(Opts {
+        hook: hook.clone(),
+        limits: Limits {
+            max_concurrent_adapter_calls: 1,
+            ..Limits::default()
+        },
+        ..Opts::default()
+    })
+    .await;
+    w.gated.hold_call.store(1, Ordering::SeqCst);
+    let spawn = |rid: &'static str, work: &'static str, host: &'static str, until: &'static str| {
+        let ops = w.ops.clone();
+        tokio::spawn(async move {
+            ops.ensure(&owner(501), rq(rid, work, &[host], Some(until)))
+                .await
+        })
+    };
+    let a = spawn("req-slot-a", "work-slot-a", "h1", "2h");
+    w.gated.entered.notified().await;
+    let b = spawn("req-slot-b", "work-slot-b", "h2", "10m");
+    while hook.reconcile_entries.load(Ordering::SeqCst) < 2 {
+        hook.changed.notified().await;
+    }
+    // Let B reach the adapter slot, then pass its deadline while it waits.
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    w.clock.advance(20 * MINUTE);
+    w.gated.release.add_permits(1);
+    let a = a.await.unwrap();
+    let b = b.await.unwrap();
+    scan(&a);
+    scan(&b);
+    assert_eq!(code_of(&a), Code::AccessReady);
+    let b = b.unwrap_err();
+    assert_eq!(b.code, Code::CredentialExpired);
+    assert_eq!(w.fake.effect_count(), 1, "only A prepared; B never did");
+    assert_eq!(attempts_of(&w, b.operation_id.as_ref().unwrap()), 0);
+}
+
+/// A03: an earlier attempt is still reconciled through its recorded adapter after
+/// authority ended (never re-prepared, never abandoned).
+#[tokio::test]
+async fn review_a03_earlier_attempts_are_reconciled_after_authority_ended() {
+    let w = World::with_opts(Opts {
+        script: vec![
+            FakeStep::ApplyButLoseReply(outcome()),
+            FakeStep::Prepare(outcome()),
+        ],
+        ..Opts::default()
+    })
+    .await;
+    let req = rq("req-a03r", "work-a03r", &["h1"], Some("2h"));
+    let e = ensure_as(&w, &owner(501), req.clone()).await.unwrap_err();
+    assert_eq!(e.code, Code::OutcomeUnknown);
+    let op = e.operation_id.clone().unwrap();
+    let gid = grant_of_op(&w, &op);
+    assert_eq!(w.fake.effect_count(), 1);
+    w.clock.advance(3 * HOUR);
+    let r = ensure_as(&w, &owner(501), req).await.unwrap_err();
+    assert_eq!(r.code, Code::CredentialExpired);
+    assert_eq!(w.fake.effect_count(), 1, "reconciled, never re-prepared");
+    let rec = op_of(&w, &op);
+    assert!(
+        rec.state.is_settled(),
+        "the earlier attempt was reconciled and settled"
+    );
+    assert!(
+        w.fake.revocations.lock().unwrap().contains(&gid),
+        "the reconciled credential was cleaned up"
+    );
+}
+
+fn with_minimums(mut r: EnsureRequest, required: RequiredCapabilities) -> EnsureRequest {
+    r.required_capabilities = required;
+    r
+}
+
+fn offline_until(t: Timestamp) -> RequiredCapabilities {
+    RequiredCapabilities {
+        offline_until: Some(t),
+        ..RequiredCapabilities::default()
+    }
+}
+
+/// A04: prepared facts are validated against the caller's minimums before
+/// activation. The adapter's actual offline coverage (10:00) falls short of the
+/// requested minimum (10:30): `CAPABILITY_UNAVAILABLE` (exit 4), nothing activates
+/// and the prepared credential is cleaned up. A met minimum activates.
+#[tokio::test]
+async fn review_a04_an_unmet_offline_minimum_is_capability_unavailable() {
+    let w = World::new().await;
+    let r = ensure_as(
+        &w,
+        &owner(501),
+        with_minimums(
+            rq("req-a04", "work-a04", &["h1"], Some("2h")),
+            offline_until(at(5400)),
+        ),
+    )
+    .await;
+    let e = r.expect_err("an unmet offline minimum is never ACCESS_READY");
+    assert_eq!(e.code, Code::CapabilityUnavailable);
+    assert_eq!(e.code.exit_code(), heimdall_contract::ExitCode::Denied);
+    let op = e.operation_id.clone().unwrap();
+    let gid = grant_of_op(&w, &op);
+    assert!(!w.grant(&gid).state.permits_use());
+    assert!(
+        w.store
+            .transaction(|tx| tx.bindings_for_work(&env_id(), &WorkId::parse("work-a04").unwrap()))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(w.fake.revocations.lock().unwrap().contains(&gid));
+    // Control: a minimum the prepared credential meets.
+    let ok = ensure_as(
+        &w,
+        &owner(501),
+        with_minimums(
+            rq("req-a04b", "work-a04b", &["h2"], Some("2h")),
+            offline_until(at(3000)),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(ok.code, Code::AccessReady);
+    assert!(ok.data.offline_until >= at(3000));
+}
+
+/// A04: the achieved destination-scope enforcement is checked, not only the
+/// adapter's advertised one.
+#[tokio::test]
+async fn review_a04_achieved_enforcement_below_the_minimum_is_capability_unavailable() {
+    let mut advertised = EnforcementEvidence::unknown();
+    advertised.report.destination_scope = DestinationScopeEnforcement::ClientRouting;
+    let mut achieved = outcome();
+    achieved.enforcement.report.destination_scope = DestinationScopeEnforcement::UnenforcedIntent;
+    let w = World::with_opts(Opts {
+        enforcement: advertised,
+        script: vec![FakeStep::Prepare(achieved)],
+        ..Opts::default()
+    })
+    .await;
+    let r = ensure_as(
+        &w,
+        &owner(501),
+        with_minimums(
+            rq("req-a04e", "work-a04e", &["h1"], Some("2h")),
+            RequiredCapabilities {
+                destination_scope_at_least: Some(DestinationScopeEnforcement::ClientRouting),
+                ..RequiredCapabilities::default()
+            },
+        ),
+    )
+    .await;
+    let e = r.expect_err("achieved enforcement below the minimum is never ACCESS_READY");
+    assert_eq!(e.code, Code::CapabilityUnavailable);
+    assert!(
+        !w.grant(&grant_of_op(&w, e.operation_id.as_ref().unwrap()))
+            .state
+            .permits_use()
+    );
+}
+
+/// A04: a caller's minimums survive coalescing: a follower that attaches to an
+/// equivalent leader's grant is checked against its own minimums.
+#[tokio::test]
+async fn review_a04_minimums_survive_coalescing() {
+    let hook = Arc::new(CountCoalesce::default());
+    let w = World::with_hook(hook.clone()).await;
+    w.gated.hold_call.store(1, Ordering::SeqCst);
+    let until = "2026-10-02T11:00:00Z";
+    let req = |rid: &str, work: &str, required: RequiredCapabilities| {
+        let mut r = rq(rid, work, &["h1"], None);
+        r.until = Some(DeadlineIntent::Absolute(until.into()));
+        r.required_capabilities = required;
+        r
+    };
+    let leader = {
+        let ops = w.ops.clone();
+        let r = req("req-a04l", "work-a04l", RequiredCapabilities::default());
+        tokio::spawn(async move { ops.ensure(&owner(501), r).await })
+    };
+    w.gated.entered.notified().await;
+    let follower = {
+        let ops = w.ops.clone();
+        let r = req("req-a04f", "work-a04f", offline_until(at(5400)));
+        tokio::spawn(async move { ops.ensure(&owner(501), r).await })
+    };
+    while hook.entries.load(Ordering::SeqCst) < 2 {
+        hook.changed.notified().await;
+    }
+    w.gated.release.add_permits(1);
+    let leader = leader.await.unwrap();
+    let follower = follower.await.unwrap();
+    scan(&leader);
+    scan(&follower);
+    assert_eq!(code_of(&leader), Code::AccessReady);
+    assert_eq!(
+        code_of(&follower),
+        Code::CapabilityUnavailable,
+        "the follower's own offline minimum is unmet by the shared credential"
+    );
+    assert_eq!(w.fake.effect_count(), 1);
+    let lg = leader.unwrap().data.grant_id;
+    assert_eq!(
+        w.grant(&lg).state,
+        GrantState::Active,
+        "the leader's grant is untouched"
+    );
+}
+
+/// A04: a caller's minimums survive recovery: after a restart between `Reconcile`
+/// and `Commit` the reconciled facts are checked against the stored minimums.
+#[tokio::test]
+async fn review_a04_minimums_survive_recovery() {
+    let mut w = World::with_opts(Opts {
+        hook: heimdall_testkit::ScriptedStageHook::new(
+            [(EnsureStage::Commit, Code::ServiceUnavailable)],
+            [],
+        ),
+        ..Opts::default()
+    })
+    .await;
+    let req = with_minimums(
+        rq("req-a04r", "work-a04r", &["h1"], Some("2h")),
+        offline_until(at(5400)),
+    );
+    let e = ensure_as(&w, &owner(501), req.clone()).await.unwrap_err();
+    assert_eq!(e.code, Code::ServiceUnavailable);
+    w.hook = Arc::new(NoStageHook);
+    w.restart().await;
+    let r = ensure_as(&w, &owner(501), req).await;
+    let e2 = r.expect_err("recovery never activates below the caller's minimums");
+    assert_eq!(e2.code, Code::CapabilityUnavailable);
+    assert_eq!(e2.operation_id, e.operation_id);
+    assert_eq!(w.fake.effect_count(), 1);
+}
+
+/// A06: a replacement decision's delta is recomputed against current policy, never
+/// carried across a generation change; approving it completes the request.
+#[tokio::test]
+async fn review_a06_a_fresh_decision_recomputes_the_delta_against_current_policy() {
+    let w = World::new().await;
+    let first = w
+        .ensure("req-a06", "work-a06", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let op = first.operation_id.clone().unwrap();
+    let d1 = dec_of(&first);
+    assert_eq!(delta_of(&w, &d1).added_scope.pairs, hosts(&["h3"]));
+    // The policy stops covering h1 (a new revision; the generation moves).
+    set_policy_hosts(&w.store, &["h2"]);
+    let retry = w
+        .ensure("req-a06", "work-a06", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(retry.code, Code::InteractionRequired);
+    assert_eq!(retry.operation_id, Some(op.clone()));
+    let d2 = dec_of(&retry);
+    assert_ne!(d2, d1, "a fresh record");
+    assert_eq!(
+        delta_of(&w, &d2).added_scope.pairs,
+        hosts(&["h1", "h3"]),
+        "the fresh delta is recomputed against the current policy"
+    );
+    let rec = w.store.transaction(|tx| tx.decision(&d2)).unwrap().unwrap();
+    assert_eq!(rec.generation, generation(&w));
+    // The stale record cannot be approved; the fresh one completes the request.
+    assert_eq!(
+        code_of(&decide_as(&w, &d1, Verdict::Approve).await),
+        Code::DecisionStale
+    );
+    let done = decide_as(&w, &d2, Verdict::Approve).await.unwrap();
+    assert_eq!(done.data["operation_state"], "succeeded");
+    let ready = w
+        .ensure("req-a06", "work-a06", &["h1", "h3"], None)
+        .await
+        .unwrap();
+    assert_eq!(ready.code, Code::AccessReady);
+    assert_eq!(
+        w.grant(&ready.data.grant_id).scope.pairs,
+        hosts(&["h1", "h3"])
+    );
+    assert_eq!(w.fake.effect_count(), 1);
+}
+
+/// A06 with ADR-0006 §13.6 item 10: after the pause is lifted, the same-key retry
+/// gets a fresh, recomputed decision, and approving it completes the request (the
+/// approval re-bases the request on the policy revision it was decided under).
+#[tokio::test]
+async fn review_a06_a_fresh_decision_after_a_lifted_pause_completes() {
+    let w = World::new().await;
+    let first = w
+        .ensure("req-a06p", "work-a06p", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let op = first.operation_id.clone().unwrap();
+    w.ops
+        .policy(
+            &owner(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await
+        .unwrap();
+    let paused = w
+        .ensure("req-a06p", "work-a06p", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(paused.code, Code::PolicyPaused);
+    let resume = w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Resume {
+                policy_id: policy_id(),
+            },
+        )
+        .await
+        .unwrap_err();
+    decide_as(&w, &dec_of(&resume), Verdict::Approve)
+        .await
+        .unwrap();
+    let retry = w
+        .ensure("req-a06p", "work-a06p", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(retry.code, Code::InteractionRequired);
+    assert_eq!(retry.operation_id, Some(op));
+    let fresh = dec_of(&retry);
+    assert_eq!(delta_of(&w, &fresh).added_scope.pairs, hosts(&["h3"]));
+    let done = decide_as(&w, &fresh, Verdict::Approve).await.unwrap();
+    assert_eq!(done.data["operation_state"], "succeeded");
+    let ready = w.ensure("req-a06p", "work-a06p", &["h1", "h3"], None).await;
+    assert_eq!(code_of(&ready), Code::AccessReady);
+    assert_eq!(w.fake.effect_count(), 1);
+}
+
+/// A06: before preparation the approved record is re-validated against the
+/// authority actually used. A policy narrowing, or the environment losing its
+/// automatic activation, after the approval refuses the preparation: nothing is
+/// prepared on an approval that no longer describes the authority.
+#[tokio::test]
+async fn review_a06_an_approval_is_revalidated_before_preparation() {
+    for change in ["policy", "environment"] {
+        let hook = Arc::new(AtStage::default());
+        let w = World::with_opts(Opts {
+            hook: hook.clone(),
+            ..Opts::default()
+        })
+        .await;
+        let pending = w
+            .ensure("req-a06v", "work-a06v", &["h1", "h3"], None)
+            .await
+            .unwrap_err();
+        let store = w.store.clone();
+        hook.arm(
+            EnsureStage::Coalesce,
+            false,
+            Box::new(move || match change {
+                "policy" => set_policy_hosts(&store, &["h2"]),
+                _ => set_automatic_activation(&store, false),
+            }),
+        );
+        decide_as(&w, &dec_of(&pending), Verdict::Approve)
+            .await
+            .unwrap();
+        let after = w.ensure("req-a06v", "work-a06v", &["h1", "h3"], None).await;
+        assert_eq!(code_of(&after), Code::CredentialExpired, "{change}");
+        assert_eq!(
+            w.fake.effect_count(),
+            0,
+            "{change}: nothing prepared on an approval that no longer covers the authority"
+        );
+    }
+}
+
+/// A07: equivalent pending added-authority requests (same caller, work, resolved
+/// authority, deadline and generation; different request IDs) share one decision
+/// record; each caller keeps its own operation; one approval completes both with
+/// one preparation and separate references.
+#[tokio::test]
+async fn review_a07_equivalent_added_authority_requests_share_one_decision() {
+    let w = World::new().await;
+    let a = w
+        .ensure("req-a07-1", "work-a07", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let b = w
+        .ensure("req-a07-2", "work-a07", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(a.code, Code::InteractionRequired);
+    assert_eq!(b.code, Code::InteractionRequired);
+    assert_ne!(
+        a.operation_id, b.operation_id,
+        "each caller keeps its own operation"
+    );
+    assert_eq!(dec_of(&a), dec_of(&b), "one logical decision, one record");
+    assert_eq!(pending_approvals(&w).len(), 1);
+    // A same-key retry of either returns the same record.
+    let again = w
+        .ensure("req-a07-2", "work-a07", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(dec_of(&again), dec_of(&a));
+    assert_eq!(again.operation_id, b.operation_id);
+    let done = decide_as(&w, &dec_of(&a), Verdict::Approve).await.unwrap();
+    assert_eq!(done.data["operation_state"], "succeeded");
+    let ra = w
+        .ensure("req-a07-1", "work-a07", &["h1", "h3"], None)
+        .await
+        .unwrap();
+    let rb = w
+        .ensure("req-a07-2", "work-a07", &["h1", "h3"], None)
+        .await
+        .unwrap();
+    assert_eq!(ra.code, Code::AccessReady);
+    assert_eq!(rb.code, Code::AccessReady);
+    assert_eq!(ra.operation_id, a.operation_id);
+    assert_eq!(rb.operation_id, b.operation_id);
+    assert_eq!(ra.data.grant_id, rb.data.grant_id, "one grant");
+    assert_ne!(
+        ra.data.binding_id, rb.data.binding_id,
+        "separate references"
+    );
+    assert_eq!(w.fake.effect_count(), 1, "one preparation");
+}
+
+/// A07: a broader request, another work ID or another caller never joins a
+/// narrower decision.
+#[tokio::test]
+async fn review_a07_a_broader_request_never_joins_a_narrower_decision() {
+    let w = World::new().await;
+    let narrow = w
+        .ensure("req-a07n", "work-a07n", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let broad = w
+        .ensure("req-a07w", "work-a07n", &["h1", "h2", "h3"], None)
+        .await
+        .unwrap_err();
+    let other_work = w
+        .ensure("req-a07o", "work-a07o", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let other_caller = ensure_as(
+        &w,
+        &owner(502),
+        rq("req-a07n", "work-a07n", &["h1", "h3"], None),
+    )
+    .await
+    .unwrap_err();
+    let d = dec_of(&narrow);
+    for (what, e) in [
+        ("broader", &broad),
+        ("other work", &other_work),
+        ("other caller", &other_caller),
+    ] {
+        assert_eq!(e.code, Code::InteractionRequired, "{what}");
+        assert_ne!(dec_of(e), d, "{what} never joins the narrower decision");
+    }
+    assert_eq!(pending_approvals(&w).len(), 4);
+    assert_eq!(
+        delta_of(&w, &dec_of(&broad)).added_scope.pairs,
+        hosts(&["h3"])
+    );
+}
+
+/// A07: a shared decision's denial fails every waiting caller; cancelling one
+/// caller's operation leaves the others waiting on the shared record.
+#[tokio::test]
+async fn review_a07_cancel_and_deny_of_a_shared_decision() {
+    let w = World::new().await;
+    let a = w
+        .ensure("req-a07c1", "work-a07c", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let b = w
+        .ensure("req-a07c2", "work-a07c", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let c = w
+        .ensure("req-a07c3", "work-a07c", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    let d = dec_of(&a);
+    assert_eq!(dec_of(&c), d);
+    // Cancelling a caller that joined leaves the shared grant and record alone.
+    let cancelled = w
+        .ops
+        .cancel(
+            &owner(501),
+            heimdall_contract::request::CancelRequest {
+                operation_id: c.operation_id.clone().unwrap(),
+            },
+        )
+        .await;
+    scan(&cancelled);
+    cancelled.unwrap();
+    let gid = grant_of_op(&w, a.operation_id.as_ref().unwrap());
+    assert_eq!(w.grant(&gid).state, GrantState::AwaitingApproval);
+    let still = w
+        .ensure("req-a07c2", "work-a07c", &["h1", "h3"], None)
+        .await
+        .unwrap_err();
+    assert_eq!(dec_of(&still), d);
+    // Denying the shared record fails every waiting caller.
+    decide_as(&w, &d, Verdict::Deny).await.unwrap();
+    for (rid, e) in [("req-a07c1", &a), ("req-a07c2", &b)] {
+        let r = w
+            .ensure(rid, "work-a07c", &["h1", "h3"], None)
+            .await
+            .unwrap_err();
+        assert_eq!(r.code, Code::CapabilityUnavailable, "{rid}");
+        assert_eq!(r.operation_id, e.operation_id);
+    }
+    assert_eq!(w.fake.effect_count(), 0);
+}
+
+/// ADR-0006 §13.6 item 11: a publish voided only by an unrelated generation move
+/// (the grant and its chain are still valid) re-validates and re-reserves within
+/// the same call, then publishes the fresh reservation.
+#[tokio::test]
+async fn review_13_6_11_an_unrelated_generation_move_rereserves_and_publishes() {
+    let w = World::new().await;
+    let g = w.ready("req-r11", "work-r11", &["h1"], None).await;
+    let reserved = w
+        .ops
+        .reserve_issuance(issuance(&g.grant_id, at(1800)))
+        .await
+        .unwrap();
+    bump_unrelated(&w.store, 1);
+    let published = w
+        .ops
+        .publish_issuance(&reserved.id, &facts())
+        .await
+        .unwrap_or_else(|e| panic!("healthy publish refused: {} {}", e.code, e.message));
+    assert_eq!(published.state, IssuanceState::Published);
+    assert_ne!(
+        published.id, reserved.id,
+        "a fresh reservation was published"
+    );
+    assert_eq!(published.generation, generation(&w));
+    assert_eq!(published.bounds.valid_before, reserved.bounds.valid_before);
+    assert_eq!(published.bounds.principal, reserved.bounds.principal);
+    assert_eq!(
+        published.bounds.subject_fingerprint,
+        reserved.bounds.subject_fingerprint
+    );
+    let original = entries_of(&w, &g.grant_id)
+        .into_iter()
+        .find(|e| e.id == reserved.id)
+        .unwrap();
+    assert_eq!(original.state, IssuanceState::Voided);
+    assert_eq!(original.void_reason, Some(IssuanceRefusal::StaleGeneration));
+    assert_eq!(residual(&w, &g.grant_id), Some(at(1800)));
+}
+
+/// ADR-0006 §13.6 item 11: still racing after 3 attempts within the same call ⇒
+/// `SERVICE_UNAVAILABLE` (exit 5, retryable) with a retry `next`; nothing left
+/// reserved or published.
+#[tokio::test]
+async fn review_13_6_11_a_generation_still_racing_after_three_attempts_is_service_unavailable() {
+    let bumper = Arc::new(Bumper::default());
+    let w = World::with_opts(Opts {
+        faults: bumper.clone(),
+        ..Opts::default()
+    })
+    .await;
+    bumper.bind(&w);
+    let g = w.ready("req-r11r", "work-r11r", &["h1"], None).await;
+    let reserved = w
+        .ops
+        .reserve_issuance(issuance(&g.grant_id, at(1800)))
+        .await
+        .unwrap();
+    bumper.arm(usize::MAX);
+    let e = w
+        .ops
+        .publish_issuance(&reserved.id, &facts())
+        .await
+        .unwrap_err();
+    bumper.arm(0);
+    assert_no_canary(&e.message);
+    assert_eq!(e.code, Code::ServiceUnavailable);
+    assert_eq!(e.code.exit_code(), heimdall_contract::ExitCode::Unavailable);
+    assert!(e.code.retryable());
+    assert_eq!(e.next.action, "retry_after");
+    let entries = entries_of(&w, &g.grant_id);
+    assert_eq!(
+        entries.len(),
+        3,
+        "three attempts: the original and two re-reservations"
+    );
+    for x in &entries {
+        assert_eq!(x.state, IssuanceState::Voided);
+        assert_eq!(x.void_reason, Some(IssuanceRefusal::StaleGeneration));
+    }
+    assert_eq!(residual(&w, &g.grant_id), None);
+}
+
+/// ADR-0006 §13.6 item 11: a failed re-validation answers that denial's own code.
+#[tokio::test]
+async fn review_13_6_11_a_failed_revalidation_answers_its_own_code() {
+    // A pause between reserve and publish of a new activation: POLICY_PAUSED.
+    let w = World::new().await;
+    let g = w.ready("req-r11p", "work-r11p", &["h1"], None).await;
+    let mut activation = issuance(&g.grant_id, at(1800));
+    activation.facts.new_activation = true;
+    let reserved = w.ops.reserve_issuance(activation.clone()).await.unwrap();
+    w.ops
+        .policy(
+            &owner(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await
+        .unwrap();
+    let e = w
+        .ops
+        .publish_issuance(&reserved.id, &activation.facts)
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::PolicyPaused);
+    assert_eq!(entries_of(&w, &g.grant_id).len(), 1, "no re-reservation");
+    // A revoke between reserve and publish: CREDENTIAL_EXPIRED.
+    let w = World::new().await;
+    let g = w.ready("req-r11v", "work-r11v", &["h1"], None).await;
+    let reserved = w
+        .ops
+        .reserve_issuance(issuance(&g.grant_id, at(1800)))
+        .await
+        .unwrap();
+    w.revoke(&g.grant_id, "req-r11-rv").await.unwrap();
+    let e = w
+        .ops
+        .publish_issuance(&reserved.id, &facts())
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::CredentialExpired);
+    assert_eq!(entries_of(&w, &g.grant_id).len(), 1, "no re-reservation");
+}
+
+/// Property steps between reserve and publish (A01, ADR-0006 §13.6 item 11).
+#[derive(Debug, Clone)]
+enum Interleave {
+    /// A policy write elsewhere: the generation moves, nothing here changes.
+    Unrelated,
+    /// The grant is revoked.
+    Revoke,
+    /// A pause (continuing issuance is not a new activation).
+    Pause,
+    /// A cutoff at the current time.
+    CutoffNow,
+    /// Safe time passes (wall and continuous), in minutes.
+    Advance(u8),
+    /// The wall clock steps back 2 minutes: time is uncertain from then on.
+    RollBack,
+}
+
+fn interleave() -> impl Strategy<Value = Interleave> {
+    prop_oneof![
+        3 => Just(Interleave::Unrelated),
+        1 => Just(Interleave::Revoke),
+        1 => Just(Interleave::Pause),
+        1 => Just(Interleave::CutoffNow),
+        2 => (1u8..=90).prop_map(Interleave::Advance),
+        1 => Just(Interleave::RollBack),
+    ]
+}
+
+proptest! {
+    #![proptest_config(prop_config(0x5235_3131_5055_4231))]
+
+    /// A01 with ADR-0006 §13.6 item 11: whatever happens between reserve and
+    /// publish, and however often the generation races during the publish call,
+    /// publication answers from the state and time of its own transaction:
+    /// published exactly when the grant is still issuable, safe time holds and its
+    /// bound has not passed and the generation settled within 3 attempts; refused
+    /// with the denial's own code otherwise; `SERVICE_UNAVAILABLE` (retryable)
+    /// only when only the generation kept racing. A published entry is the only
+    /// one counted; nothing is published twice.
+    #[test]
+    fn publication_answers_from_the_state_and_time_of_its_own_transaction(
+        steps in prop::collection::vec(interleave(), 0..6),
+        racing in 0usize..5,
+    ) {
+        block(async move {
+            let bumper = Arc::new(Bumper::default());
+            let w = World::with_opts(Opts { faults: bumper.clone(), ..Opts::default() }).await;
+            bumper.bind(&w);
+            let g = w.ready("req-p11", "work-p11", &["h1"], Some(DeadlineIntent::Duration("2h".into()))).await;
+            let reserved = w.ops.reserve_issuance(issuance(&g.grant_id, at(1800))).await.unwrap();
+            let (mut revoked, mut cut, mut uncertain, mut advanced) = (false, false, false, 0u32);
+            let mut n = 0;
+            for s in &steps {
+                n += 1;
+                match s {
+                    Interleave::Unrelated => bump_unrelated(&w.store, 1000 + n),
+                    Interleave::Revoke => {
+                        w.revoke(&g.grant_id, &format!("req-p11-rv-{n}")).await.unwrap();
+                        revoked = true;
+                    }
+                    Interleave::Pause => {
+                        w.ops.policy(&owner(501), PolicyAction::Pause { policy_id: policy_id() }).await.unwrap();
+                    }
+                    Interleave::CutoffNow => {
+                        let at = w.clock.wall();
+                        if w.ops.policy(&owner(501), PolicyAction::Cutoff { policy_id: policy_id(), at }).await.is_ok() {
+                            cut = true;
+                        }
+                    }
+                    Interleave::Advance(m) => {
+                        w.clock.advance(u32::from(*m) * MINUTE);
+                        advanced += u32::from(*m);
+                    }
+                    Interleave::RollBack => {
+                        w.clock.set_wall(w.clock.wall().checked_sub(jiff::SignedDuration::from_mins(2)).unwrap());
+                        uncertain = true;
+                    }
+                }
+            }
+            let expired = advanced >= 120;
+            bumper.arm(racing);
+            let r = w.ops.publish_issuance(&reserved.id, &facts()).await;
+            bumper.arm(0);
+            let entries = entries_of(&w, &g.grant_id);
+            let published: Vec<_> = entries.iter().filter(|e| e.state == IssuanceState::Published).collect();
+            let reserved_left = entries.iter().filter(|e| e.state == IssuanceState::Reserved).count();
+            prop_assert_eq!(reserved_left, 0, "a publish call never leaves a reservation behind");
+            prop_assert!(entries.len() <= 3, "at most 3 attempts in one call");
+            let refused = revoked || cut || uncertain || expired;
+            match r {
+                Ok(e) => {
+                    prop_assert!(!refused, "published although revoked={revoked} cut={cut} uncertain={uncertain} expired={expired}");
+                    prop_assert!(racing < 3, "published although the generation raced {racing} times");
+                    prop_assert_eq!(published.len(), 1);
+                    prop_assert_eq!(&published[0].id, &e.id);
+                    prop_assert_eq!(e.bounds.valid_before, at(1800));
+                    prop_assert_eq!(residual(&w, &g.grant_id), Some(at(1800)));
+                }
+                Err(e) => {
+                    assert_no_canary(&e.message);
+                    prop_assert!(published.is_empty());
+                    prop_assert_eq!(residual(&w, &g.grant_id), None, "nothing released");
+                    if refused {
+                        prop_assert!(
+                            matches!(e.code, Code::CredentialExpired | Code::TimeUncertain),
+                            "a refusal answers its own code: {}", e.code
+                        );
+                        if uncertain && !(revoked || cut || expired) {
+                            prop_assert_eq!(&e.code, &Code::TimeUncertain);
+                        }
+                    } else {
+                        prop_assert!(racing >= 3, "refused a healthy publish: {}", e.code);
+                        prop_assert_eq!(&e.code, &Code::ServiceUnavailable);
+                        prop_assert!(e.code.retryable());
+                        prop_assert_eq!(entries.len(), 3);
+                    }
+                }
+            }
+            Ok(())
+        })?;
+    }
 }

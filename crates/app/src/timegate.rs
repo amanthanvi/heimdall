@@ -42,6 +42,13 @@
 //! * [`TimeGate::admission`] also evaluates the persisted anchor at a fresh clock
 //!   reading and returns the more restrictive verdict, so a stale [`SafeNow`] can
 //!   never admit past the budget or the bound.
+//! * The same gate also runs **inside a caller's store transaction**
+//!   (`TimeGate::in_txn`, crate-private; code review A01/A02): the application's
+//!   transactions that reserve, publish, authorize an effect attempt, activate,
+//!   bind, or create or complete a decision record assess a fresh observation in
+//!   that very transaction instead of carrying a [`SafeNow`] across asynchronous
+//!   work. `check`, `peek`, `anchor_grant` and `admission` are thin wrappers over
+//!   it.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -107,12 +114,38 @@ struct Assessment {
 /// Owned handles moved onto the blocking pool.
 struct Parts {
     store: Arc<Store>,
+    gate: TxnGate,
+}
+
+/// The gate run **inside a caller's store transaction** (code review A01/A02):
+/// the transaction that reserves, publishes, authorizes an effect attempt,
+/// activates, binds or records a decision observes the clock and assesses it in
+/// that same transaction, so no accepted time is carried across asynchronous work
+/// into the transaction that acts on it. Same rules and persistence as
+/// [`TimeGate::check`]: on `Safe` the high-water mark and the runtime anchor are
+/// written in the caller's transaction (they commit or roll back with it); on
+/// `Uncertain` nothing is written. Cloneable so it moves into store closures.
+#[derive(Clone)]
+pub(crate) struct TxnGate {
     clock: Arc<dyn Clock>,
     sync: Arc<dyn TimeSync>,
     policy: TimePolicy,
 }
 
-impl Parts {
+impl std::fmt::Debug for TxnGate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TxnGate")
+            .field("policy", &self.policy)
+            .finish_non_exhaustive()
+    }
+}
+
+impl TxnGate {
+    /// The clock this gate observes.
+    pub(crate) fn clock(&self) -> &Arc<dyn Clock> {
+        &self.clock
+    }
+
     /// Observe and assess inside `txn` (reads only).
     fn assess(&self, txn: &mut Txn<'_>) -> heimdall_store::Result<Assessment> {
         let previous = txn.runtime_anchor()?;
@@ -142,6 +175,83 @@ impl Parts {
             tolerance,
         })
     }
+
+    /// [`TimeGate::check`] inside `txn`: a fresh observation, assessed; on `Safe`
+    /// the mark and the runtime anchor are persisted in `txn`.
+    pub(crate) fn check(
+        &self,
+        txn: &mut Txn<'_>,
+    ) -> heimdall_store::Result<Result<SafeNow, TimeUncertainty>> {
+        let a = self.assess(txn)?;
+        match a.status {
+            TimeStatus::Safe => {
+                // R2: the mark advances on every Safe pass; the anchor is re-based
+                // only as next_runtime_anchor says.
+                txn.raise_high_water_mark(a.now.wall)?;
+                let next = dtime::next_runtime_anchor(a.previous.as_ref(), &a.now, a.sync);
+                if a.previous.as_ref() != Some(&next) {
+                    txn.set_runtime_anchor(&next)?;
+                }
+                Ok(Ok(SafeNow {
+                    anchor: a.now,
+                    sync: a.sync,
+                    tolerance_used: a.tolerance,
+                }))
+            }
+            TimeStatus::Uncertain(u) => Ok(Err(u)),
+        }
+    }
+
+    /// [`TimeGate::anchor_grant`] inside `txn`. `None` when `now` belongs to
+    /// another boot (it cannot anchor a budget here).
+    pub(crate) fn anchor_grant(
+        &self,
+        txn: &mut Txn<'_>,
+        grant: &GrantId,
+        now: &SafeNow,
+        bound: Timestamp,
+    ) -> heimdall_store::Result<Option<GrantAnchor>> {
+        if self.clock.boot_id() != now.anchor.boot_id {
+            return Ok(None);
+        }
+        // R4: cut from the accepted observation minus the tolerance used.
+        let fresh = dtime::anchor_grant_with_tolerance(
+            grant.clone(),
+            now.anchor.clone(),
+            bound,
+            now.tolerance_used,
+        );
+        // Within the anchor's boot the result is the min() of both budgets and
+        // both bounds, so the store's never-lengthen check always accepts it;
+        // another boot's anchor is void and replaced.
+        let candidate = match txn.grant_anchor(grant)? {
+            Some(stored) if stored.anchor.boot_id == fresh.anchor.boot_id => {
+                let narrowed = dtime::shorten(&stored, bound);
+                GrantAnchor {
+                    budget_end: narrowed.budget_end.min(fresh.budget_end),
+                    ..narrowed
+                }
+            }
+            _ => fresh,
+        };
+        Ok(Some(txn.set_grant_anchor(&candidate)?))
+    }
+
+    /// [`TimeGate::admission`] inside `txn`: the persisted anchor at `now` and at a
+    /// fresh reading, the stricter verdict.
+    pub(crate) fn admission(
+        &self,
+        txn: &mut Txn<'_>,
+        grant: &GrantId,
+        now: &SafeNow,
+    ) -> heimdall_store::Result<Admission> {
+        let Some(anchor) = txn.grant_anchor(grant)? else {
+            return Ok(Admission::NeedsAnchor);
+        };
+        let at_safe = dtime::admission(&anchor, &now.anchor);
+        let at_fresh = dtime::admission(&anchor, &self.clock.observe());
+        Ok(stricter(at_safe, at_fresh))
+    }
 }
 
 fn signed(d: Duration) -> jiff::SignedDuration {
@@ -150,7 +260,7 @@ fn signed(d: Duration) -> jiff::SignedDuration {
 
 /// `TIME_UNCERTAIN` with the kind of uncertainty in the message. Only fixed text:
 /// no observed values, no caller input.
-fn uncertain(u: &TimeUncertainty) -> OpError {
+pub(crate) fn uncertain(u: &TimeUncertainty) -> OpError {
     let why = match u {
         TimeUncertainty::BelowHighWater { .. } => {
             "the wall clock is below the latest accepted time by more than the rollback tolerance"
@@ -209,6 +319,13 @@ impl TimeGate {
     fn parts(&self) -> Parts {
         Parts {
             store: Arc::clone(&self.store),
+            gate: self.in_txn(),
+        }
+    }
+
+    /// The same gate for use inside a caller's store transaction (A01/A02).
+    pub(crate) fn in_txn(&self) -> TxnGate {
+        TxnGate {
             clock: Arc::clone(&self.clock),
             sync: Arc::clone(&self.sync),
             policy: self.policy,
@@ -231,37 +348,15 @@ impl TimeGate {
     /// accepted observation or the `TIME_UNCERTAIN` error (with the uncertainty in
     /// the message, never in a secret-bearing field).
     pub async fn check(&self) -> Result<SafeNow, OpError> {
-        let a = self
-            .blocking(|p| {
-                Ok(p.store.transaction(|txn| {
-                    let a = p.assess(txn)?;
-                    if a.status == TimeStatus::Safe {
-                        // R2: the mark advances on every Safe pass; the anchor is
-                        // re-based only as next_runtime_anchor says. Both in this
-                        // transaction, so they commit together or not at all.
-                        txn.raise_high_water_mark(a.now.wall)?;
-                        let next = dtime::next_runtime_anchor(a.previous.as_ref(), &a.now, a.sync);
-                        if a.previous.as_ref() != Some(&next) {
-                            txn.set_runtime_anchor(&next)?;
-                        }
-                    }
-                    Ok(a)
-                })?)
-            })
-            .await?;
-        match a.status {
-            TimeStatus::Safe => Ok(SafeNow {
-                anchor: a.now,
-                sync: a.sync,
-                tolerance_used: a.tolerance,
-            }),
-            TimeStatus::Uncertain(u) => Err(uncertain(&u)),
-        }
+        // Mark and anchor persist in this transaction: together or not at all.
+        self.blocking(|p| Ok(p.store.transaction(|txn| p.gate.check(txn))?))
+            .await?
+            .map_err(|u| uncertain(&u))
     }
 
     /// Last assessment without persisting anything (for `inspect` and warnings).
     pub async fn peek(&self) -> Result<TimeStatus, OpError> {
-        self.blocking(|p| Ok(p.store.transaction(|txn| p.assess(txn))?.status))
+        self.blocking(|p| Ok(p.store.transaction(|txn| p.gate.assess(txn))?.status))
             .await
     }
 
@@ -277,14 +372,14 @@ impl TimeGate {
         self.blocking(move |p| {
             p.store.transaction(|txn| {
                 let mark = txn.high_water_mark()?;
-                let now = p.clock.observe();
+                let now = p.gate.clock.observe();
                 let disagreement = confirmed_wall.duration_since(now.wall).unsigned_abs();
-                if disagreement > p.policy.max_tolerated_skew {
+                if disagreement > p.gate.policy.max_tolerated_skew {
                     return Ok(Err(refused(
                         "the confirmed time disagrees with the system clock by more than the skew tolerance",
                     )));
                 }
-                if mark.is_some_and(|m| m.duration_since(now.wall) > signed(p.policy.max_tolerated_rollback)) {
+                if mark.is_some_and(|m| m.duration_since(now.wall) > signed(p.gate.policy.max_tolerated_rollback)) {
                     return Ok(Err(refused(
                         "the system clock is below the latest accepted time by more than the rollback tolerance",
                     )));
@@ -318,35 +413,16 @@ impl TimeGate {
         let now = now.clone();
         self.blocking(move |p| {
             p.store.transaction(|txn| {
-                if p.clock.boot_id() != now.anchor.boot_id {
-                    // An observation from another boot cannot anchor a budget here.
-                    return Ok(Err(OpError::new(
-                        Code::TimeUncertain,
-                        "time uncertain: the accepted observation belongs to another boot",
-                    )
-                    .with_resource("clock", None)));
-                }
-                // R4: cut from the accepted observation minus the tolerance used.
-                let fresh = dtime::anchor_grant_with_tolerance(
-                    grant.clone(),
-                    now.anchor.clone(),
-                    bound,
-                    now.tolerance_used,
-                );
-                // Within the anchor's boot the result is the min() of both budgets
-                // and both bounds, so the store's never-lengthen check always
-                // accepts it; another boot's anchor is void and replaced.
-                let candidate = match txn.grant_anchor(&grant)? {
-                    Some(stored) if stored.anchor.boot_id == fresh.anchor.boot_id => {
-                        let narrowed = dtime::shorten(&stored, bound);
-                        GrantAnchor {
-                            budget_end: narrowed.budget_end.min(fresh.budget_end),
-                            ..narrowed
-                        }
-                    }
-                    _ => fresh,
-                };
-                Ok(Ok(txn.set_grant_anchor(&candidate)?))
+                Ok(p.gate
+                    .anchor_grant(txn, &grant, &now, bound)?
+                    .ok_or_else(|| {
+                        // An observation from another boot cannot anchor a budget here.
+                        OpError::new(
+                            Code::TimeUncertain,
+                            "time uncertain: the accepted observation belongs to another boot",
+                        )
+                        .with_resource("clock", None)
+                    }))
             })?
         })
         .await
@@ -379,19 +455,12 @@ impl TimeGate {
     pub async fn admission(&self, grant: &GrantId, now: &SafeNow) -> Result<Admission, OpError> {
         let grant = grant.clone();
         let now = now.clone();
+        // No persisted anchor: nothing to admit against (fail closed). A fresh
+        // reading can only make the verdict stricter: the budget keeps running
+        // after `now` was accepted, and the wall branch only denies.
         self.blocking(move |p| {
-            Ok(p.store.transaction(|txn| {
-                // No persisted anchor: nothing to admit against (fail closed).
-                let Some(anchor) = txn.grant_anchor(&grant)? else {
-                    return Ok(Admission::NeedsAnchor);
-                };
-                let at_safe = dtime::admission(&anchor, &now.anchor);
-                // A fresh reading can only make the verdict stricter: the budget
-                // keeps running after `now` was accepted, and the wall branch only
-                // denies.
-                let at_fresh = dtime::admission(&anchor, &p.clock.observe());
-                Ok(stricter(at_safe, at_fresh))
-            })?)
+            Ok(p.store
+                .transaction(|txn| p.gate.admission(txn, &grant, &now))?)
         })
         .await
     }

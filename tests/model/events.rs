@@ -18,7 +18,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -144,16 +144,27 @@ fn seed(store: &Store) {
 
 /// Production `FaultHook` that, once armed, publishes one event at the next
 /// `BeforeTransaction` (before the store lock is taken), i.e. between a
-/// subscription creating its live receiver and reading its boundary.
+/// subscription creating its live receiver and reading its boundary. It also
+/// fails the next `fail_commits` transactions at `BeforeCommit` (transient store
+/// faults, e.g. during the publisher's catch-up read; review A05).
 #[derive(Default)]
 struct PublishDuringBoundary {
     armed: AtomicBool,
     publisher: OnceLock<EventPublisher>,
     injected: std::sync::Mutex<Option<SequencedEvent>>,
+    fail_commits: AtomicUsize,
 }
 
 impl FaultHook for PublishDuringBoundary {
     fn at(&self, point: FaultPoint) -> FaultAction {
+        if point == FaultPoint::BeforeCommit
+            && self
+                .fail_commits
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+        {
+            return FaultAction::Fail;
+        }
         if point == FaultPoint::BeforeTransaction
             && self.armed.swap(false, Ordering::SeqCst)
             && let Some(p) = self.publisher.get()
@@ -765,6 +776,336 @@ async fn live_events_are_delivered_in_sequence_order_when_announced_in_reverse()
         c.delivered[2].event_id.to_string(),
         third.event.event_id.to_string()
     );
+}
+
+/// Review A05 (ADR-0006 §8): commit `N` and `N + 1`, announce `N + 1` first while
+/// the publisher's catch-up read of `N` hits a one-shot store fault. The live
+/// stream must not advance past the gap: `N + 1` is held back (no cursor beyond
+/// `N - 1` is handed out), a resume from the last delivered cursor recovers both
+/// events, the later announcement of `N` delivers `N` then `N + 1` in order and
+/// exactly once, and a resume from the then-latest cursor has nothing pending.
+#[tokio::test]
+async fn failed_catch_up_read_never_advances_the_live_stream_past_a_gap() {
+    let w = World::new().await;
+    let start = w
+        .publisher()
+        .subscribe(&reader(501), EventFilter::default(), None, false)
+        .await
+        .unwrap();
+    let mut c = Consumer::new(start);
+    let p = w.publisher().clone();
+    let commit = |n: u32| {
+        w.store
+            .transaction(|tx| {
+                p.append_in(
+                    tx,
+                    EventType::ResourceChanged,
+                    None,
+                    None,
+                    serde_json::json!({ "writer": n }),
+                )
+            })
+            .unwrap()
+    };
+    let first = commit(1);
+    let second = commit(2);
+    assert!(first.seq < second.seq);
+    // One transient store fault, consumed by the catch-up read for `first`.
+    w.hook.fail_commits.store(1, Ordering::SeqCst);
+    w.publisher().announce(second.clone());
+    assert_eq!(
+        w.hook.fail_commits.load(Ordering::SeqCst),
+        0,
+        "the catch-up read hit the injected fault"
+    );
+    c.drain();
+    assert!(
+        c.delivered.is_empty(),
+        "nothing past the unread gap is delivered live: {:?}",
+        c.ids()
+    );
+    // The delivered cursor still precedes the gap, so a resume recovers both.
+    let recovering = w
+        .publisher()
+        .subscribe(
+            &reader(501),
+            EventFilter::default(),
+            Some(c.last_cursor.clone()),
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        recovering
+            .backlog
+            .iter()
+            .map(|e| e.event_id.to_string())
+            .collect::<Vec<_>>(),
+        vec![
+            first.event.event_id.to_string(),
+            second.event.event_id.to_string()
+        ]
+    );
+    // The missing event is announced later: both arrive, in order, once each.
+    w.publisher().announce(first.clone());
+    c.drain();
+    assert_eq!(
+        c.ids(),
+        vec![
+            first.event.event_id.to_string(),
+            second.event.event_id.to_string()
+        ],
+        "delivered in seq order, each exactly once"
+    );
+    assert_eq!(c.resyncs, 0);
+    scan(&c.delivered);
+    // Late duplicate announcements are dropped.
+    w.publisher().announce(second.clone());
+    w.publisher().announce(first.clone());
+    c.drain();
+    assert_eq!(c.delivered.len(), 2);
+    // Resume from the latest delivered cursor: nothing skipped, nothing pending.
+    let resumed = w
+        .publisher()
+        .subscribe(
+            &reader(501),
+            EventFilter::default(),
+            Some(c.last_cursor.clone()),
+            true,
+        )
+        .await
+        .unwrap();
+    assert!(resumed.backlog.is_empty());
+    assert_eq!(resumed.boundary_seq, second.seq);
+}
+
+/// Review A05, persistent fault: while catch-up reads keep failing, a contiguous
+/// announcement (`N` right after the last delivered sequence) is still delivered,
+/// a held-back later event is never delivered ahead of an unread one, and the
+/// first successful announcement afterwards delivers everything held back, in
+/// order.
+#[tokio::test]
+async fn held_back_events_are_delivered_in_order_once_the_store_is_readable() {
+    let w = World::new().await;
+    let start = w
+        .publisher()
+        .subscribe(&reader(501), EventFilter::default(), None, false)
+        .await
+        .unwrap();
+    let mut c = Consumer::new(start);
+    let p = w.publisher().clone();
+    let commit = |n: u32| {
+        w.store
+            .transaction(|tx| {
+                p.append_in(
+                    tx,
+                    EventType::ResourceChanged,
+                    None,
+                    None,
+                    serde_json::json!({ "writer": n }),
+                )
+            })
+            .unwrap()
+    };
+    let e1 = commit(1);
+    let e2 = commit(2);
+    let e3 = commit(3);
+    let e4 = commit(4);
+    // Every catch-up read fails while the fault lasts.
+    w.hook.fail_commits.store(usize::MAX, Ordering::SeqCst);
+    w.publisher().announce(e3.clone());
+    c.drain();
+    assert!(c.delivered.is_empty(), "e3 is held back behind e1 and e2");
+    // e1 is contiguous with the last delivered sequence: delivered without a read.
+    w.publisher().announce(e1.clone());
+    c.drain();
+    assert_eq!(c.ids(), vec![e1.event.event_id.to_string()]);
+    // e2 is contiguous too; e3 stays held back until it can be read in order.
+    w.publisher().announce(e2.clone());
+    c.drain();
+    assert_eq!(
+        c.ids(),
+        vec![e1.event.event_id.to_string(), e2.event.event_id.to_string()]
+    );
+    // An explicit retry while the store is still unreadable delivers nothing.
+    assert!(!w.publisher().retry_held(), "e3 is still held back");
+    c.drain();
+    assert_eq!(c.delivered.len(), 2);
+    // The store recovers; the next announcement (e4) catches up e3 first.
+    w.hook.fail_commits.store(0, Ordering::SeqCst);
+    w.publisher().announce(e4.clone());
+    c.drain();
+    assert_eq!(
+        c.ids(),
+        [&e1, &e2, &e3, &e4]
+            .iter()
+            .map(|e| e.event.event_id.to_string())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(c.resyncs, 0);
+    scan(&c.delivered);
+    assert!(w.publisher().retry_held(), "nothing is held back any more");
+}
+
+// =====================================================================================
+// Property (review A05): for any announcement order and any transient catch-up
+// read faults, the live stream is a gap-free, strictly increasing prefix of the
+// committed events; a resume from its latest cursor recovers exactly the rest;
+// and once the store is readable `retry_held` completes the stream.
+// =====================================================================================
+
+mod props_announce {
+    use super::*;
+    use proptest::prelude::*;
+    use proptest::test_runner::{FileFailurePersistence, RngSeed};
+
+    /// 256 cases, fixed seed unless `PROPTEST_RNG_SEED` is set (reproduces).
+    fn config() -> ProptestConfig {
+        let mut c = ProptestConfig {
+            cases: 256,
+            failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+                "proptest-regressions",
+            ))),
+            ..ProptestConfig::default()
+        };
+        if matches!(c.rng_seed, RngSeed::Random) {
+            c.rng_seed = RngSeed::Fixed(0x4130_3545_5645_4e54);
+        }
+        c
+    }
+
+    /// Fails the next `fail_commits` transactions at `BeforeCommit`.
+    #[derive(Default)]
+    struct Faults {
+        fail_commits: AtomicUsize,
+    }
+
+    impl FaultHook for Faults {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == FaultPoint::BeforeCommit
+                && self
+                    .fail_commits
+                    .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    .is_ok()
+            {
+                return FaultAction::Fail;
+            }
+            FaultAction::Continue
+        }
+    }
+
+    /// Announcement plan: indexes into the committed events (a shuffled order
+    /// with duplicates appended) and, per announcement, how many store reads
+    /// fail from then on (0 = readable).
+    fn plan() -> impl Strategy<Value = (usize, Vec<(usize, usize)>)> {
+        (1usize..=10).prop_flat_map(|n| {
+            let order = Just((0..n).collect::<Vec<_>>()).prop_shuffle();
+            let dups = prop::collection::vec(0..n, 0..4);
+            (order, dups).prop_flat_map(move |(order, dups)| {
+                let all: Vec<usize> = order.into_iter().chain(dups).collect();
+                let len = all.len();
+                (
+                    Just(n),
+                    prop::collection::vec(0usize..=2, len).prop_map(move |faults| {
+                        all.iter().copied().zip(faults).collect::<Vec<_>>()
+                    }),
+                )
+            })
+        })
+    }
+
+    async fn trace(n: usize, steps: Vec<(usize, usize)>) -> Result<(), TestCaseError> {
+        let faults = Arc::new(Faults::default());
+        let store = Arc::new(Store::open_in_memory(faults.clone()).unwrap());
+        seed(&store);
+        let publisher = EventPublisher::new(store.clone(), env_id());
+        let mut live = publisher.live_receiver();
+        let committed: Vec<SequencedEvent> = (0..n)
+            .map(|i| {
+                store
+                    .transaction(|tx| {
+                        publisher.append_in(
+                            tx,
+                            EventType::ResourceChanged,
+                            None,
+                            None,
+                            serde_json::json!({ "writer": i }),
+                        )
+                    })
+                    .unwrap()
+            })
+            .collect();
+        let mut delivered: Vec<SequencedEvent> = Vec::new();
+        let mut drain = |delivered: &mut Vec<SequencedEvent>| loop {
+            match live.try_recv() {
+                Ok(e) => delivered.push((*e).clone()),
+                Err(TryRecvError::Empty) => return,
+                Err(e) => panic!("unexpected receiver state: {e:?}"),
+            }
+        };
+        let mut max_announced = 0u64;
+        for (i, fail) in steps {
+            faults.fail_commits.store(fail, Ordering::SeqCst);
+            let event = committed[i].clone();
+            max_announced = max_announced.max(event.seq);
+            publisher.announce(event);
+            faults.fail_commits.store(0, Ordering::SeqCst);
+            drain(&mut delivered);
+            // A gap-free, strictly increasing prefix of the committed events,
+            // never beyond what was announced.
+            prop_assert!(delivered.len() <= committed.len());
+            prop_assert_eq!(&delivered[..], &committed[..delivered.len()]);
+            prop_assert!(delivered.last().is_none_or(|e| e.seq <= max_announced));
+            if fail == 0 {
+                // A readable store catches up through everything announced.
+                prop_assert_eq!(delivered.last().map(|e| e.seq), Some(max_announced));
+            }
+        }
+        // A resume from the latest delivered position recovers exactly the rest.
+        let me = reader(501);
+        let at = delivered
+            .last()
+            .map_or_else(|| committed[0].seq - 1, |e| e.seq);
+        let resumed = publisher
+            .subscribe(
+                &me,
+                EventFilter::default(),
+                Some(publisher.cursor_at(&me, at)),
+                true,
+            )
+            .await
+            .unwrap();
+        let rest: Vec<String> = committed[delivered.len()..]
+            .iter()
+            .map(|e| e.event.event_id.to_string())
+            .collect();
+        prop_assert_eq!(
+            resumed
+                .backlog
+                .iter()
+                .map(|e| e.event_id.to_string())
+                .collect::<Vec<_>>(),
+            rest
+        );
+        // The store is readable: an explicit retry completes the stream.
+        prop_assert!(publisher.retry_held());
+        drain(&mut delivered);
+        prop_assert_eq!(&delivered[..], &committed[..]);
+        Ok(())
+    }
+
+    proptest! {
+        #![proptest_config(config())]
+
+        #[test]
+        fn live_stream_never_passes_a_gap_under_catch_up_faults((n, steps) in plan()) {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(trace(n, steps))?;
+        }
+    }
 }
 
 /// Gap G18 (ADR-0006 §8 `Subscribed.cursor`, contract doc of

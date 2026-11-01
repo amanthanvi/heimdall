@@ -42,11 +42,21 @@ zig as the linker (two shims in a temporary directory: `zig cc -target
 x86_64-windows-gnu` with cargo-zigbuild-style argument filtering, and `zig dlltool`
 for the `raw-dylib` import libraries that `windows-sys` 0.61 uses), copies them to the
 owner's Windows PC over ssh, runs them as the non-elevated user through WSL interop
-from `%LOCALAPPDATA%\hm-m00\M01-U6w\` with `TEMP`/`TMP` pointed there (the lib's
+from `%LOCALAPPDATA%\hm-m00\<run>\` with `TEMP`/`TMP` pointed there (the lib's
 `windows::` tests first, then every binary in full, each exit code recorded), saves
 redacted output, scans it for `HEIMDALL_CANARY_`, and removes both scratch
 directories. `HM_BUILD_ONLY=1` stops after the cross-build and records the binaries'
 SHA-256 (no ssh); M01-U6b ran only that mode.
+
+Since review B01/B03 (M01-review-fix-R2): `<run>` is `<HM_TASK>-<random>`; both run
+directories (`~/hm-m00/<run>` in WSL and the Windows one) are created exclusively by
+one remote step (`scratch-lib.sh`: an existing directory is an error, a symlinked
+`hm-m00` root is refused, `HM_TASK` `.`/`..` are rejected), and only the exact
+directories that step created are removed. The harness exits nonzero when either the
+`windows::` run or the full run fails; `commands.txt` records both exits.
+`tools/validation/native-harness-selftest.sh` checks all of this locally with stub
+`ssh`/`scp`/`cargo` and stub test binaries, reaching no host (it is a `check.sh`
+step). Earlier evidence used the fixed directory `M01-U6w`.
 
 ## Not covered (blocked)
 

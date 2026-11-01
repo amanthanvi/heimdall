@@ -3492,8 +3492,10 @@ async fn r136_1_cutoff_bounds_existing_work_and_refuses_new_work_after_it() {
 }
 
 /// §13.6 item 5: with two applicable policies, a pause on the second between
-/// reserve and publish voids the publish (the generation moved) and blocks new
-/// activations; the continuing grant reserves and publishes afresh.
+/// reserve and publish voids the reservation (the generation moved) and blocks new
+/// activations; the continuing grant reserves and publishes afresh. Since §13.6
+/// item 11 the same publish call re-validates and re-reserves (the pause does not
+/// apply to continuing issuance) and publishes the fresh reservation.
 #[tokio::test]
 async fn r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_publish() {
     let w = World::new().await;
@@ -3511,19 +3513,28 @@ async fn r136_5_pause_on_a_second_policy_between_reserve_and_publish_voids_the_p
         gen_before,
         "a pause on an applicable policy moves the generation"
     );
-    let voided = w
+    let republished = w
         .ops
         .publish_issuance(&e1.id, &r136_issuance(&a.grant_id, t0(), false).facts)
         .await
-        .unwrap_err();
-    assert_no_canary(&voided.message);
+        .unwrap_or_else(|e| panic!("item 11 re-reservation refused: {} {}", e.code, e.message));
+    assert_ne!(republished.id, e1.id, "a fresh reservation was published");
+    assert_eq!(
+        republished.state,
+        heimdall_domain::issuance::IssuanceState::Published
+    );
     let entries = w
         .store
         .transaction(|tx| tx.issuance_entries(&a.grant_id))
         .unwrap();
+    let original = entries.iter().find(|e| e.id == e1.id).unwrap();
     assert_eq!(
-        entries.iter().find(|e| e.id == e1.id).unwrap().state,
+        original.state,
         heimdall_domain::issuance::IssuanceState::Voided
+    );
+    assert_eq!(
+        original.void_reason,
+        Some(heimdall_domain::issuance::IssuanceRefusal::StaleGeneration)
     );
     let blocked = err(w
         .ops
@@ -3581,11 +3592,25 @@ async fn r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publis
         },
     )
     .await);
-    let voided = w
+    // The cutoff voids the reservation; the reservation's bounds stay before the
+    // cutoff, so the same call re-reserves and publishes (§13.6 item 11).
+    let republished = w
         .ops
         .publish_issuance(&e1.id, &r136_issuance(&a.grant_id, t0(), false).facts)
-        .await;
-    assert!(voided.is_err(), "the cutoff voided the publish");
+        .await
+        .unwrap();
+    assert_ne!(republished.id, e1.id);
+    assert_eq!(
+        w.store
+            .transaction(|tx| tx.issuance_entries(&a.grant_id))
+            .unwrap()
+            .iter()
+            .find(|e| e.id == e1.id)
+            .unwrap()
+            .state,
+        heimdall_domain::issuance::IssuanceState::Voided,
+        "the cutoff voided the reservation made before it"
+    );
     // A widening revision (approved clear_cutoff) also moves the generation.
     let e2 = w
         .ops
@@ -3607,11 +3632,21 @@ async fn r136_5_cutoff_or_revision_on_a_second_policy_between_reserve_and_publis
         gen_before,
         "a widening revision of an applicable policy moves the generation"
     );
-    assert!(
-        w.ops
-            .publish_issuance(&e2.id, &r136_issuance(&a.grant_id, t0(), false).facts)
-            .await
-            .is_err(),
+    let again = w
+        .ops
+        .publish_issuance(&e2.id, &r136_issuance(&a.grant_id, t0(), false).facts)
+        .await
+        .unwrap();
+    assert_ne!(again.id, e2.id);
+    assert_eq!(
+        w.store
+            .transaction(|tx| tx.issuance_entries(&a.grant_id))
+            .unwrap()
+            .iter()
+            .find(|e| e.id == e2.id)
+            .unwrap()
+            .state,
+        heimdall_domain::issuance::IssuanceState::Voided,
         "a reservation made before the revision is voided"
     );
     // Set the cutoff again and pass it: new activations are refused.

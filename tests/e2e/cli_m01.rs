@@ -1449,3 +1449,119 @@ fn unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation(
     assert_eq!(fresh.code, 0, "{fresh:?}");
     svc.stop(&home);
 }
+
+// =================================================================================
+// Review C01: argument (clap) failures under --json (spec §11.2; ADR-0006 §6)
+// =================================================================================
+
+/// Exactly one stdout line, a `USAGE_ERROR` envelope (exit 2, effect `none`,
+/// `next.action` `fix_request`), with no terminal escapes.
+fn assert_one_usage_envelope(out: &Out) {
+    assert_eq!(out.code, 2, "{out:?}");
+    let lines: Vec<&str> = out.stdout.lines().collect();
+    assert_eq!(lines.len(), 1, "exactly one stdout line: {out:?}");
+    assert!(out.stdout.ends_with('\n'), "{out:?}");
+    assert!(!out.stdout.contains('\u{1b}'), "{out:?}");
+    let env: Value = serde_json::from_str(lines[0]).expect("the line is one JSON value");
+    // It is a contract envelope, not just JSON.
+    let typed: heimdall_contract::envelope::Envelope<Value> =
+        serde_json::from_str(lines[0]).expect("a contract envelope");
+    assert_eq!(typed.code, heimdall_contract::Code::UsageError);
+    assert_eq!(env["schema_version"], "1");
+    assert_eq!(env["state"], "failed");
+    assert_eq!(env["code"], "USAGE_ERROR");
+    assert_eq!(env["data"]["error"]["code"], "USAGE_ERROR");
+    assert_eq!(env["data"]["error"]["effect_status"], "none");
+    assert_eq!(env["data"]["error"]["retryable"], false);
+    assert_eq!(env["next"]["action"], "fix_request");
+    assert!(env["warnings"].is_array());
+    assert!(env.get("operation_id").is_none(), "nothing was submitted");
+}
+
+#[test]
+fn json_usage_failures_render_exactly_one_usage_error_envelope() {
+    let home = Home::new(&[]);
+    // Unknown flag, --json before and after the subcommand.
+    for args in [
+        vec!["--json", "access", "ensure", "--no-such-flag"],
+        vec!["access", "ensure", "--no-such-flag", "--json"],
+        vec!["access", "--json", "ensure", "--no-such-flag"],
+    ] {
+        let out = home.run(&args);
+        assert_one_usage_envelope(&out);
+        assert_eq!(
+            out.json()["data"]["error"]["message"],
+            "unknown argument",
+            "{args:?}"
+        );
+    }
+    // Missing required arguments / subcommand.
+    for (args, message) in [
+        (
+            vec!["--json", "operation", "show"],
+            "missing required argument",
+        ),
+        (
+            vec!["access", "ensure", "--profile", "dev", "--json"],
+            "missing required argument",
+        ),
+        (vec!["access", "--json"], "missing subcommand"),
+        (vec!["--json", "no-such-command"], "unknown command"),
+        (
+            vec![
+                "operation",
+                "wait",
+                "op_x",
+                "--timeout-ms",
+                "soon",
+                "--json",
+            ],
+            "invalid argument value",
+        ),
+    ] {
+        let out = home.run(&args);
+        assert_one_usage_envelope(&out);
+        assert_eq!(out.json()["data"]["error"]["message"], message, "{args:?}");
+    }
+    // The envelope never echoes the offending argument (a value may be a secret
+    // or carry terminal escapes); the human diagnostic stays on stderr.
+    let echoed = home.run(&["--json", "access", "ensure", "--odd-\u{1b}[31m-flag"]);
+    assert_one_usage_envelope(&echoed);
+    assert!(!echoed.stdout.contains("odd-"), "{echoed:?}");
+    assert!(!echoed.stderr.contains('\u{1b}'), "{echoed:?}");
+    assert!(!echoed.stderr.is_empty(), "{echoed:?}");
+    // Nothing started a runtime.
+    assert_eq!(home.instance_pid(), None);
+}
+
+#[test]
+fn usage_failures_keep_human_help_version_and_errors() {
+    let home = Home::new(&[]);
+    // Help and version stay human text on stdout with exit 0, --json or not.
+    for args in [
+        vec!["--help"],
+        vec!["--json", "--help"],
+        vec!["access", "ensure", "--help", "--json"],
+    ] {
+        let out = home.run(&args);
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(out.stdout.contains("Usage:"), "{out:?}");
+        assert!(last_json(&out.stdout).is_none(), "{out:?}");
+    }
+    for args in [vec!["--version"], vec!["--json", "--version"]] {
+        let out = home.run(&args);
+        assert_eq!(out.code, 0, "{out:?}");
+        assert!(out.stdout.starts_with("heimdall "), "{out:?}");
+        assert!(last_json(&out.stdout).is_none(), "{out:?}");
+    }
+    // Without --json a usage failure is clap's human text on stderr, exit 2.
+    let human = home.run(&["access", "ensure", "--no-such-flag"]);
+    assert_eq!(human.code, 2, "{human:?}");
+    assert!(human.stdout.is_empty(), "{human:?}");
+    assert!(human.stderr.contains("--no-such-flag"), "{human:?}");
+    // `--json` after `--` is part of the launched argv, not a Heimdall flag.
+    let argv = home.run(&["run", "--no-such-flag", "--", "tool", "--json"]);
+    assert_eq!(argv.code, 2, "{argv:?}");
+    assert!(argv.stdout.is_empty(), "{argv:?}");
+    assert!(!argv.stderr.is_empty(), "{argv:?}");
+}

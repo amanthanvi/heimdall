@@ -171,10 +171,22 @@ pub struct EventPublisher {
     environment: EnvironmentId,
     live: broadcast::Sender<Arc<SequencedEvent>>,
     clock: Option<Arc<dyn Clock>>,
-    /// Highest sequence fanned out so far (shared by clones). Live delivery is in
-    /// strictly increasing `seq` order (ADR-0006 §8; gap G06): see
-    /// [`Self::announce`].
-    announced: Arc<std::sync::Mutex<Option<u64>>>,
+    /// Live fan-out position (shared by clones). Live delivery is in strictly
+    /// increasing `seq` order with no gaps (ADR-0006 §8; gap G06; review A05):
+    /// see [`Self::announce`].
+    announced: Arc<std::sync::Mutex<Announced>>,
+}
+
+/// Live fan-out position of an [`EventPublisher`].
+#[derive(Debug, Default)]
+struct Announced {
+    /// Highest sequence fanned out so far; every committed event at or below it
+    /// was fanned out (or was history when the publisher started). `None` when
+    /// the head could not be read at start.
+    last: Option<u64>,
+    /// Highest announced sequence above `last` that is held back because the
+    /// events between `last` and it could not be read yet (review A05).
+    held: Option<u64>,
 }
 
 impl std::fmt::Debug for EventPublisher {
@@ -210,7 +222,10 @@ impl EventPublisher {
             environment,
             live,
             clock: None,
-            announced: Arc::new(std::sync::Mutex::new(head)),
+            announced: Arc::new(std::sync::Mutex::new(Announced {
+                last: head,
+                held: None,
+            })),
         }
     }
 
@@ -292,39 +307,105 @@ impl EventPublisher {
     }
 
     /// Fan out an event that was committed by the caller's transaction, in
-    /// strictly increasing `seq` order (ADR-0006 §8; gap G06).
+    /// strictly increasing `seq` order with no gaps (ADR-0006 §8; gap G06;
+    /// review A05).
     ///
     /// Commits are serialized by the store and announcements happen after commit
-    /// from different tasks, so they can arrive out of order. When `event.seq` is
-    /// above the last fanned-out sequence, every event committed in between is
-    /// read back from the store first and fanned out in order (an event with a
+    /// from different tasks, so they can arrive out of order. An event with a
     /// higher sequence is committed, so every lower one that exists is committed
-    /// too); an announcement at or below the last fanned-out sequence was already
-    /// delivered that way and is dropped. A subscriber therefore never receives
-    /// `N + 1` before `N`, and resuming from its latest cursor never skips `N`.
+    /// too: when `event.seq` (or an earlier held-back announcement) is beyond the
+    /// next position, every event committed in between is read back from the
+    /// store and fanned out in order. An announcement at or below the last
+    /// fanned-out sequence was already delivered that way and is dropped.
+    ///
+    /// When that catch-up read fails, the stream never advances past the gap:
+    /// events read before the failure are fanned out, `event` is fanned out only
+    /// if it is the very next position, and otherwise it is **held back** (not
+    /// sent, no cursor beyond the gap is handed out). The next announcement
+    /// retries the catch-up from the retained position through the highest
+    /// held-back sequence. Until then a subscriber's latest cursor still precedes
+    /// the gap, so resuming from it reads the held-back events from the store. A
+    /// subscriber therefore never receives `N + 1` before `N`, and never receives
+    /// `N + 1` at all while `N` is unread.
     pub fn announce(&self, event: SequencedEvent) {
-        let mut last = self
+        let mut st = self
             .announced
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(l) = *last {
-            if event.seq <= l {
-                return;
-            }
-            if event.seq > l + 1 {
-                for missed in self.committed_between(l, event.seq) {
-                    let seq = missed.seq;
-                    let _ = self.live.send(Arc::new(missed));
-                    *last = Some(seq);
-                }
-            }
-        }
-        *last = Some(event.seq);
-        let _ = self.live.send(Arc::new(event));
+        let Some(last) = st.last else {
+            // The head was unreadable at start: nothing to order against yet.
+            st.last = Some(event.seq);
+            let _ = self.live.send(Arc::new(event));
+            return;
+        };
+        let event = (event.seq > last).then_some(event);
+        self.advance(&mut st, last, event);
     }
 
-    /// Committed events with `after < seq < before`, in order (bounded pages).
-    fn committed_between(&self, after: u64, before: u64) -> Vec<SequencedEvent> {
+    /// Retry fanning out held-back events (see [`Self::announce`]) without a new
+    /// announcement; `true` when nothing remains held back. The runtime may call
+    /// this periodically so a held-back event is not left waiting for the next
+    /// commit.
+    pub fn retry_held(&self) -> bool {
+        let mut st = self
+            .announced
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(last) = st.last {
+            self.advance(&mut st, last, None);
+        }
+        st.held.is_none()
+    }
+
+    /// Fan out everything committed in `(last, target]`, where `target` is the
+    /// highest of `event` and the held-back sequence, without passing a gap.
+    fn advance(&self, st: &mut Announced, last: u64, mut event: Option<SequencedEvent>) {
+        let held = st.held.filter(|&h| h > last);
+        let Some(target) = event.as_ref().map(|e| e.seq).max(held) else {
+            st.held = None;
+            return;
+        };
+        let mut delivered = last;
+        let send = |e: SequencedEvent, delivered: &mut u64| {
+            if e.seq > *delivered {
+                *delivered = e.seq;
+                let _ = self.live.send(Arc::new(e));
+            }
+        };
+        let contiguous = held.is_none() && target == last + 1;
+        let (read, complete) = if contiguous {
+            // The next position: nothing can be missing, no read needed.
+            (Vec::new(), true)
+        } else {
+            self.committed_through(last, target)
+        };
+        for stored in read {
+            // The announced event itself is sent as announced, at its position.
+            if let Some(e) = event.take_if(|e| e.seq <= stored.seq) {
+                let same = e.seq == stored.seq;
+                send(e, &mut delivered);
+                if same {
+                    continue;
+                }
+            }
+            send(stored, &mut delivered);
+        }
+        if let Some(e) = event.take_if(|e| complete || e.seq == delivered + 1) {
+            // Read completely (everything below it was fanned out), or it is the
+            // very next position after the gap-free prefix that was read.
+            send(e, &mut delivered);
+        }
+        if complete {
+            delivered = delivered.max(target);
+        }
+        st.last = Some(delivered);
+        st.held = (target > delivered).then_some(target);
+    }
+
+    /// Committed events with `after < seq <= through`, in order (bounded pages),
+    /// and whether the read completed. On a store failure the events read so far
+    /// are returned (a gap-free prefix) with `false`.
+    fn committed_through(&self, after: u64, through: u64) -> (Vec<SequencedEvent>, bool) {
         const PAGE: u32 = 256;
         let mut out = Vec::new();
         let mut from = after;
@@ -333,14 +414,12 @@ impl EventPublisher {
                 tx.stored_events_after(&self.environment, from, &EventFilter::default(), PAGE)
             });
             let Ok(page) = page else {
-                // The store is unreadable: deliver what is known; a subscriber
-                // resuming from its cursor reads the rest from the store.
-                return out;
+                return (out, false);
             };
             let full = page.events.len() == PAGE as usize;
             for stored in page.events {
-                if stored.seq >= before {
-                    return out;
+                if stored.seq > through {
+                    return (out, true);
                 }
                 from = stored.seq;
                 out.push(SequencedEvent {
@@ -348,8 +427,8 @@ impl EventPublisher {
                     event: stored.event,
                 });
             }
-            if !full {
-                return out;
+            if !full || from >= through {
+                return (out, true);
             }
         }
     }

@@ -422,6 +422,60 @@ fn usage(message: &str) -> Envelope<serde_json::Value> {
     error_value(error(Code::UsageError, message))
 }
 
+/// Whether the raw argument list requests machine output: an exact `--json`
+/// token before the first bare `--` (after `--`, tokens are the launched argv
+/// of `heimdall run`, never Heimdall flags). Used only when clap could not parse
+/// the line, so that a usage failure still honours `--json` wherever the global
+/// flag was placed (review C01).
+pub fn json_requested<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    args.into_iter()
+        .skip(1)
+        .map(|a| a.as_ref().to_owned())
+        .take_while(|a| a != "--")
+        .any(|a| a == "--json" || a.to_str().is_some_and(|a| a.starts_with("--json=")))
+}
+
+/// A fixed, value-free message for a clap failure. The offending token is never
+/// echoed into the machine envelope: it may be a secret pasted in the wrong
+/// place or carry terminal escapes (spec §11.2, §14.3).
+fn usage_message(kind: clap::error::ErrorKind) -> &'static str {
+    use clap::error::ErrorKind as K;
+    match kind {
+        K::UnknownArgument => "unknown argument",
+        K::InvalidSubcommand => "unknown command",
+        K::MissingRequiredArgument => "missing required argument",
+        K::MissingSubcommand | K::DisplayHelpOnMissingArgumentOrSubcommand => "missing subcommand",
+        K::InvalidValue | K::ValueValidation | K::InvalidUtf8 | K::NoEquals => {
+            "invalid argument value"
+        }
+        K::ArgumentConflict => "conflicting arguments",
+        _ => "invalid arguments",
+    }
+}
+
+/// Render a command-line parse failure (spec §11.2, §11.6; ADR-0006 §6).
+///
+/// Help and version are successes: clap's human text on stdout, exit 0, also
+/// with `--json`. Every other failure is a usage error, exit 2: with `--json`
+/// exactly one `USAGE_ERROR` envelope (effect `none`, `next.action`
+/// `fix_request`) on stdout; in both modes clap's diagnostic goes to stderr,
+/// sanitized for the terminal.
+pub fn parse_failure(err: &clap::Error, json: bool) -> ExitCode {
+    if !err.use_stderr() {
+        let _ = err.print();
+        return ExitCode::Success;
+    }
+    output::diagnostic(err.render().to_string().trim_end());
+    if json {
+        output::emit(&usage(usage_message(err.kind())), true);
+    }
+    ExitCode::Usage
+}
+
 /// Dispatch a parsed command and return the process exit code.
 pub fn dispatch(cli: Cli) -> ExitCode {
     let ctx = Ctx {
@@ -1298,6 +1352,50 @@ mod tests {
     #[test]
     fn command_tree_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn json_is_requested_anywhere_before_the_argv_terminator() {
+        let req = |a: &[&str]| json_requested(std::iter::once("heimdall").chain(a.iter().copied()));
+        assert!(req(&["--json", "access", "ensure", "--bad"]));
+        assert!(req(&["access", "ensure", "--bad", "--json"]));
+        assert!(req(&["access", "--json", "ensure"]));
+        assert!(req(&["--json=yes", "status"]));
+        assert!(!req(&["access", "ensure", "--bad"]));
+        assert!(!req(&["run", "--bad", "--", "tool", "--json"]));
+        assert!(!req(&["--work-id=--json", "x"]), "a value is not the flag");
+        assert!(!req(&["--jsonl"]));
+        // The program name is never a flag.
+        assert!(!json_requested(["--json"]));
+    }
+
+    #[test]
+    fn usage_messages_never_echo_the_offending_token() {
+        for args in [
+            vec!["heimdall", "access", "ensure", "--secret-looking-token"],
+            vec!["heimdall", "secret-looking-token"],
+            vec![
+                "heimdall",
+                "operation",
+                "wait",
+                "x",
+                "--timeout-ms",
+                "secret-looking-token",
+            ],
+            vec!["heimdall", "operation", "show"],
+            vec!["heimdall", "access"],
+        ] {
+            let Err(e) = Cli::try_parse_from(&args) else {
+                panic!("{args:?} must not parse");
+            };
+            let message = usage_message(e.kind());
+            assert!(!message.contains("secret"), "{args:?}: {message}");
+            assert_ne!(message, "invalid arguments", "{args:?}: {:?}", e.kind());
+        }
+        let Err(help) = Cli::try_parse_from(["heimdall", "--json", "--help"]) else {
+            panic!("help is an Err from clap");
+        };
+        assert!(!help.use_stderr(), "help stays a success");
     }
 
     #[test]

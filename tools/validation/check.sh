@@ -126,5 +126,16 @@ schema_check() {
 }
 run_step schema  schema_check
 
+# Native-harness self-test (reviews B01, B03): the Windows harnesses' scratch
+# ownership and exit reporting, against stub ssh/scp/cargo and a fake host tree in
+# a mktemp directory. Reaches no host and builds nothing.
+run_step native-harness-selftest bash tools/validation/native-harness-selftest.sh
+
+# Evidence-generator self-test (reviews C02, C03): required tests come from the
+# committed inventory, nonzero required exits and incomplete logs never verify.
+# Writes nothing outside its own temp directories.
+run_step evidence-selftest env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I tests/native/m01/test_m01_evidence.py
+
 echo "== overall: exit ${status}"
 exit "${status}"

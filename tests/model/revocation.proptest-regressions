@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc fe3d23757ee7a0a53234abcfe611c158ebd895a6529004163abc0ffbdd15dbec # shrinks to steps = [Advance(15), Approve]
 cc 8c03643737f4bc639d2de757a0fa5b143f81cb711f31f0c222e8e6b9855b04dc # shrinks to steps = [Pause, BindBase]
+cc 99dab49b4a33bf18fbdbfe6a236af86238e1c112c526660d3819072b93ee4c06 # shrinks to steps = [Pause, RollBack], racing = 0

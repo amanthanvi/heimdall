@@ -98,7 +98,9 @@ pub enum AdapterError {
 /// Request to prepare credentials for a grant.
 #[derive(Debug, Clone)]
 pub struct PrepareRequest<'a> {
-    /// The grant.
+    /// The grant, with `deadline.effective` narrowed to the bound recorded when the
+    /// attempt was authorized: `min(deadline, every ancestor deadline, cutoff)`
+    /// (code review A03). Nothing the adapter creates may outlive it.
     pub grant: &'a GrantSnapshot,
     /// Scope to prepare (subset of the grant).
     pub scope: &'a Scope,
@@ -110,7 +112,8 @@ pub struct PrepareRequest<'a> {
     /// receipt. A repeated call with the same token must not produce a second
     /// effect.
     pub effect_token: &'a str,
-    /// Now (from the time gate).
+    /// Now: the wall time the gate accepted in the transaction that authorized
+    /// this attempt.
     pub now: Timestamp,
 }
 

@@ -126,6 +126,7 @@ fn intent_update_allowed(old: &RecoveryIntent, new: &RecoveryIntent) -> bool {
                 && kept(&a.grant, &b.grant)
                 && kept(&a.binding, &b.binding)
                 && kept(&a.adapter, &b.adapter)
+                && kept(&a.approval, &b.approval)
         }
     }
 }
@@ -750,7 +751,8 @@ impl Txn<'_> {
     /// The operation must exist (foreign key). An update may only add facts: the
     /// request is immutable; once `resolved` is set it cannot be cleared, its
     /// pinned profile revision, scope, deadline, policy revision and generation
-    /// never change, and an assigned grant, binding or adapter is never replaced.
+    /// never change, and an assigned grant, binding, adapter or approval basis is
+    /// never replaced.
     /// Anything else is a [`StoreError::GenerationConflict`]. Key armor is refused.
     pub fn set_recovery_intent(
         &mut self,

@@ -64,7 +64,7 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - The CLI sends Attend first.
     - New `Request::Shutdown` (`service-control/1`), with Windows runtime tests run natively.
 - Rulings committed as 93c60d3b.
-- Running:
+- Code reviews:
 - Codex code reviews of 93c60d3b are done (`tests/evidence/artifacts/review-m01-code/area-{a,b,c}.md`). All three say "fix first".
   - A: 7 majors and 1 minor, reproduced with probes.
     - A01: publish uses a stale time observation.
@@ -89,7 +89,8 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - C03 (minor): a nonzero exit does not block `verified`.
   - The reviewers confirmed sound: the idempotency, decision-completion, recovery, IPC permission, framing and exit-code paths.
   - Fixes for all of these start once the §13.6 workflow finishes, because they touch the same files.
-  - Workflow `wf_c0198760-330`: F1 (app-side §13.6 items 1, 2, 3, 5, 6) and F2 (contract/runtime/CLI/Windows items 4, 7, 8, including native Windows runs), then an integrator.
+- The §13.6 rulings are implemented (workflow `wf_c0198760-330`) and committed as 452fcbd4. My check.sh run: exit 0, 541 passed, 0 failed, 1 ignored. The native Windows run 2 exited 0 on an uncommitted tree; run 1 found that inherited stdio handles hung the detached runtime, and that is fixed. ADR-0006 §13.6 items 10–11 are recorded.
+- Running: workflow `wf_886acd0c-ce2`, the code-review fixes. Four fixers with disjoint paths: R1-operations (A01–A04, A06, A07, §13.6 item 11), R1-events (A05), R2-runtime-harness (B01–B05 plus the SIGTERM fallback test) and R3-cli-evidence (C01–C03). An integrator follows.
 - Next:
   - native reruns on Linux and Windows and regenerated records against a commit;
   - fixes for the review findings;

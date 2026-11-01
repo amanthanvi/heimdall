@@ -248,6 +248,18 @@ integrator with an ADR-0006 revision.
   `FakeCredentialAdapter` instance uses `FakeCredentialAdapter::with_ledger` over the
   same ledger file; any in-process reconstruction is labelled **in-process**, never
   process-crash evidence (that is U9/U10's).
+* **Review A05 (M01-review-fix-R1-events):** **additive**
+  `EventPublisher::retry_held() -> bool`; `announce` holds back an event behind an
+  unread gap after a failed catch-up read and retries from the retained position
+  (ADR-0006 §14.5).
+* **Review A01–A04, A06, A07, §13.6 item 11 (M01-review-fix-R1-operations):**
+  **additive** `domain::operation::{ResolvedIntent.approval, ApprovalBasis}` (store:
+  add-only). Time is assessed in the acting transaction (crate-private
+  `TimeGate::in_txn`); attempts are authorized after the adapter slot; `Commit`
+  checks caller minimums against the prepared facts; replacement decisions are
+  recomputed; equivalent added-authority requests share one decision; a publish
+  voided only by a generation move re-reserves (3 attempts, then
+  `SERVICE_UNAVAILABLE`). Tests `model_revocation::review_*` (ADR-0006 §14.5).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.
@@ -298,6 +310,14 @@ integrator with an ADR-0006 revision.
   always using the creating process's SID as owner) and `…/r6-owner-sddl-2` (exit 0:
   `windows::` 14/14, four binaries exit 0, canary scan 0). The cross-user refusal
   stays `blocked` on the disposable second Windows account (ADR-0004 §3).
+* **Review B01/B03/B05 (M01-review-fix-R2-runtime-harness):** no public signature
+  change. `GetNamedPipeClientComputerNameW` gets the UTF-16 capacity
+  (`utf16_capacity`, checked; Windows unit test
+  `windows::tests::client_computer_name_capacity_counts_utf16_units`). Both Windows
+  harnesses use `<HM_TASK>-<random>` run directories created exclusively on both
+  sides and remove only those (`tests/native/windows-ipc/scratch-lib.sh`); the
+  windows-ipc harness exits nonzero when either run fails. Self-test
+  `tools/validation/native-harness-selftest.sh` (stubs, no host; a `check.sh` step).
 
 ### U7 — Signing endpoint framer (wave 1)
 
@@ -369,6 +389,21 @@ integrator with an ADR-0006 revision.
     The launcher clears the inherit flag on the client's own stdio before the
     detached spawn (`runtime::platform::disinherit_standard_handles`): native run 1
     showed the runtime inheriting the client's stdio pipes otherwise.
+* **Review B02/B04 (M01-review-fix-R2-runtime-harness):** **additive**
+  `SupervisorConfig.resume_check_interval` (default 2 s),
+  `SupervisorConfig::resume_bound() -> Duration` (clamped to
+  `[MIN_RESUME_CHECK_INTERVAL, MAX_RESUME_CHECK_INTERVAL]` = [10 ms, 5 s]): `run`
+  bounds every wait by it, so a resume is detected by the continuous-vs-monotonic
+  comparison within at most 5 s of awake time (a bounded wake costs one clock read;
+  native suspend/resume evidence is M04). `cleanup_pass` prunes retries that no
+  longer match a current cleanup candidate's generation before computing
+  `next_due_in`. Tests: `u8b::{cleanup_retries_are_pruned_when_the_resource_is_replaced_or_reconciled,
+  supervisor_detects_a_sleep_across_a_deadline_within_the_resume_bound,
+  supervisor_resume_check_interval_is_bounded}`.
+* **Review integration (M01-review-fix-integrate):** no public signature change.
+  `Supervisor::run` calls `EventPublisher::retry_held()` on every timed wake, so an
+  event held back by a failed catch-up read (A05) is delivered without another
+  commit. Test `u8b::supervisor_delivers_held_back_events_without_a_new_commit`.
 
 ### U9 — CLI client, test adapter wiring, schema export — **wave 2**
 
@@ -424,6 +459,13 @@ integrator with an ADR-0006 revision.
     `heimdall.exe` (`HEIMDALL_E2E_BIN`); its pty cases are `cfg(unix)`. Tests:
     `service_stop_sends_shutdown_over_the_control_endpoint_and_is_idempotent`,
     `unavailable_prepare_exits_5_once_and_the_same_key_replays_the_same_operation`.
+* **Review C01 (M01-review-fix-R3-cli-evidence):** no public signature change. A clap
+  parse failure with `--json` anywhere before a bare `--` prints exactly one
+  `USAGE_ERROR` envelope (fixed value-free message, effect `none`, `fix_request`) on
+  stdout, exit 2; help/version stay human text, exit 0; the clap diagnostic goes to
+  stderr sanitized. Bin-internal `cli::{json_requested, parse_failure}`. Tests:
+  e2e `json_usage_failures_render_exactly_one_usage_error_envelope`,
+  `usage_failures_keep_human_help_version_and_errors`.
 
 ### U10 — Cross-crate model suite and evidence records (M01 exit)
 
@@ -442,6 +484,15 @@ integrator with an ADR-0006 revision.
   pending-approval deadline expiry and expired decision. Evidence records label each
   run **process-crash** or **in-process** truthfully; an in-process reconstruction
   never closes the process-crash claim.
+* **Review C02/C03 (M01-review-fix-R3-cli-evidence):** `tests/native/m01/m01-evidence.py`
+  takes required tests from the committed `tests/native/m01/required-inventory.json`
+  (`--generate-inventory`; regenerate at the evidence commit), never from run logs; a
+  wildcard listing zero tests, index drift or a missing inventory is an error; a
+  required target absent from a log is `missing_targets` (never verified). Runs.json
+  `exit_codes` are required commands (any nonzero ⇒ never verified,
+  `failed_commands`); intentionally failing probes go in `negative_probes`
+  `{name: {expected_exit, observed_exit}}`. Self-test
+  `tests/native/m01/test_m01_evidence.py`.
 
 ## 2. Order and parallelism
 

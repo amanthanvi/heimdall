@@ -1503,6 +1503,194 @@ mod u8b {
             .unwrap();
     }
 
+    /// Review B04: a system sleep across a deadline is detected by the running
+    /// loop within its resume-check bound, with production guard and idle
+    /// intervals (60 s / 300 s) and **no application event**. The sleep is
+    /// simulated with the virtual clock: wall and continuous time jump past the
+    /// grant's bound while the process's monotonic timer barely moves (as after a
+    /// resume on a platform whose timer excludes suspend). Without a bounded wait
+    /// the loop would sleep until its next 60 s guard pass. Native suspend/resume
+    /// evidence is an M04 item.
+    #[tokio::test]
+    async fn supervisor_detects_a_sleep_across_a_deadline_within_the_resume_bound() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let fake = rig.fake(vec![FakeStep::Prepare(outcome())]);
+        let mut options = rig.options(&fake);
+        options.supervisor = heimdall_runtime::supervisor::SupervisorConfig {
+            anchor_interval: Duration::from_secs(60),
+            max_idle_sleep: Duration::from_secs(300),
+            ..Default::default()
+        };
+        let shutdown = CancellationToken::new();
+        let svc = Service::start_with(rig.paths(), Config::default(), options, shutdown.clone())
+            .await
+            .unwrap();
+        let data = ensure(&svc, "req-sl", "work-sl", "1h").await;
+        let store = svc.store().clone();
+        let running = tokio::spawn(svc.run());
+        let state = |store: &Arc<Store>| {
+            store
+                .transaction(|tx| tx.grant(&data.grant_id))
+                .unwrap()
+                .unwrap()
+                .state
+        };
+        // The loop runs its start passes, then waits.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(state(&store), GrantState::Active);
+
+        // The machine "sleeps" for an hour and a second, then resumes.
+        rig.clock.advance(HOUR + Duration::from_secs(1));
+        let resumed = std::time::Instant::now();
+        // Bound: the resume-check interval (default 2 s, at most 5 s) plus
+        // scheduling slack.
+        let check = heimdall_runtime::supervisor::SupervisorConfig::default().resume_bound();
+        assert!(check <= heimdall_runtime::supervisor::MAX_RESUME_CHECK_INTERVAL);
+        let bound = check + Duration::from_secs(2);
+        while state(&store) != GrantState::Expired {
+            assert!(
+                resumed.elapsed() < bound,
+                "the sleep was not detected within {bound:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        shutdown.cancel();
+        tokio::time::timeout(Duration::from_secs(20), running)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let page = store
+            .transaction(|tx| {
+                tx.stored_events_after(
+                    &env_id(),
+                    0,
+                    &heimdall_contract::event::EventFilter::default(),
+                    10_000,
+                )
+            })
+            .unwrap();
+        for e in &page.events {
+            assert_no_canary(&serde_json::to_string(&e.event).unwrap());
+        }
+    }
+
+    /// The resume-check interval is configurable but clamped to at most 5 s and
+    /// at least 10 ms (never a tight loop); the default is 2 s.
+    #[test]
+    fn supervisor_resume_check_interval_is_bounded() {
+        use heimdall_runtime::supervisor::{
+            MAX_RESUME_CHECK_INTERVAL, MIN_RESUME_CHECK_INTERVAL, SupervisorConfig,
+        };
+        assert_eq!(MAX_RESUME_CHECK_INTERVAL, Duration::from_secs(5));
+        let with = |d: Duration| SupervisorConfig {
+            resume_check_interval: d,
+            ..SupervisorConfig::default()
+        };
+        assert_eq!(
+            SupervisorConfig::default().resume_bound(),
+            Duration::from_secs(2)
+        );
+        assert_eq!(with(HOUR).resume_bound(), MAX_RESUME_CHECK_INTERVAL);
+        assert_eq!(
+            with(Duration::ZERO).resume_bound(),
+            MIN_RESUME_CHECK_INTERVAL
+        );
+        assert_eq!(
+            with(Duration::from_millis(250)).resume_bound(),
+            Duration::from_millis(250)
+        );
+    }
+
+    /// Store fault hook that fails every `BeforeCommit` while armed.
+    struct FailWhileArmed(AtomicBool);
+
+    impl FaultHook for FailWhileArmed {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == FaultPoint::BeforeCommit && self.0.load(Ordering::SeqCst) {
+                FaultAction::Fail
+            } else {
+                FaultAction::Continue
+            }
+        }
+    }
+
+    /// Review A05 integration: an event held back behind an unread gap (its
+    /// catch-up read failed) reaches live subscribers once the store is readable
+    /// again, without waiting for another commit. The running supervisor retries
+    /// the held-back events on its bounded wake (`EventPublisher::retry_held`).
+    #[tokio::test]
+    async fn supervisor_delivers_held_back_events_without_a_new_commit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let fake = rig.fake(Vec::new());
+        let mut options = rig.options(&fake);
+        let faults = Arc::new(FailWhileArmed(AtomicBool::new(false)));
+        options.store_faults = faults.clone();
+        // No ordinary pass runs during the test window; only the bounded wake.
+        options.supervisor = heimdall_runtime::supervisor::SupervisorConfig {
+            anchor_interval: HOUR,
+            max_idle_sleep: HOUR,
+            resume_check_interval: Duration::from_millis(50),
+            ..Default::default()
+        };
+        let shutdown = CancellationToken::new();
+        let svc = Service::start_with(rig.paths(), Config::default(), options, shutdown.clone())
+            .await
+            .unwrap();
+        let store = svc.store().clone();
+        let publisher = svc.operations().events().clone();
+        let running = tokio::spawn(svc.run());
+        // The loop runs its start passes, then waits.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let mut live = publisher.live_receiver();
+        let commit = |n: u32| {
+            store
+                .transaction(|tx| {
+                    publisher.append_in(
+                        tx,
+                        heimdall_contract::event::EventType::ResourceChanged,
+                        None,
+                        None,
+                        serde_json::json!({ "writer": n }),
+                    )
+                })
+                .unwrap()
+        };
+        let e1 = commit(1);
+        let e2 = commit(2);
+        // e2 is announced first and its catch-up read (for e1) fails: held back.
+        faults.0.store(true, Ordering::SeqCst);
+        publisher.announce(e2.clone());
+        faults.0.store(false, Ordering::SeqCst);
+        assert!(
+            live.try_recv().is_err(),
+            "nothing is delivered past the unread gap"
+        );
+        // No further commit or announcement: the supervisor's retry delivers both.
+        let mut got = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while got.len() < 2 {
+            match tokio::time::timeout(Duration::from_millis(50), live.recv()).await {
+                Ok(Ok(e)) => got.push(e.seq),
+                Ok(Err(e)) => panic!("live stream closed or lagged: {e}"),
+                Err(_) => assert!(
+                    std::time::Instant::now() < deadline,
+                    "held-back events were not delivered without a new commit"
+                ),
+            }
+        }
+        assert_eq!(got, vec![e1.seq, e2.seq], "delivered once each, in order");
+        assert!(publisher.retry_held(), "nothing is held back any more");
+        shutdown.cancel();
+        tokio::time::timeout(Duration::from_secs(20), running)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+
     // -----------------------------------------------------------------------
     // Time guard
     // -----------------------------------------------------------------------
@@ -2379,6 +2567,97 @@ mod u8b {
         let after = sup.cleanup_pass().await.unwrap();
         assert!(after.retry_scheduled.is_empty() && after.failed.is_empty());
         assert_eq!(cleaner.calls.lock().unwrap().len(), 8);
+        scan_events(&svc);
+    }
+
+    /// Review B02: a retry recorded for generation N must not outlive N's cleanup
+    /// candidacy. Generation N fails transiently (retry scheduled); before the
+    /// retry is due the resource is replaced by an already-reconciled N+1 (not a
+    /// cleanup candidate). Once N's old due time has passed, a pass must report no
+    /// pending wake (a stale entry would report `Some(0)` forever: a zero-delay
+    /// polling loop) and must not call the cleaner. The same holds when N itself
+    /// becomes reconciled, and when the record disappears.
+    #[tokio::test]
+    async fn cleanup_retries_are_pruned_when_the_resource_is_replaced_or_reconciled() {
+        use heimdall_app::reconcile::{Backoff, NoCleanupHook};
+        use heimdall_domain::resource::{ResourceGeneration, ResourceState};
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let cleaner = Arc::new(UnavailableCleaner {
+            clock: rig.clock.clone(),
+            calls: std::sync::Mutex::new(Vec::new()),
+        });
+        let sup = svc
+            .supervisor()
+            .with_cleaner(cleaner.clone(), Arc::new(NoCleanupHook), Backoff::default())
+            .with_jitter(Arc::new(heimdall_runtime::supervisor::FixedJitter(1.0)));
+
+        // Three resources, one per way of leaving the candidate set.
+        let mk = |byte: u8| heimdall_domain::resource::ManagedResource {
+            id: heimdall_contract::ids::ResourceId::from_random_bytes([byte; 16]),
+            ..ending_resource()
+        };
+        let (replaced, reconciled, removed, repurposed) = (mk(21), mk(22), mk(23), mk(24));
+        for r in [&replaced, &reconciled, &removed, &repurposed] {
+            svc.store()
+                .transaction(|tx| tx.upsert_resource(r, None))
+                .unwrap();
+        }
+        let first = sup.cleanup_pass().await.unwrap();
+        assert_eq!(first.retry_scheduled.len(), 4, "{first:?}");
+        let due = first.next_due_in.expect("a retry is scheduled");
+        assert!(due > Duration::ZERO);
+        assert_eq!(cleaner.calls.lock().unwrap().len(), 4);
+
+        // Between attempts: N+1 replaces N, already reconciled (present/present);
+        // the second reaches its desired state; the third record is gone (the
+        // store has no delete, so it leaves the candidate set as reconciled too);
+        // the fourth stays out of sync at the same generation but is now wanted
+        // present (an `Ensure`, not a cleanup: no cleanup retry may survive).
+        let next_gen = heimdall_domain::resource::ManagedResource {
+            generation: ResourceGeneration(2),
+            desired: ResourceState::Present,
+            observed: ResourceState::Present,
+            ..replaced.clone()
+        };
+        let settled = heimdall_domain::resource::ManagedResource {
+            observed: ResourceState::Absent,
+            ..reconciled.clone()
+        };
+        let gone = heimdall_domain::resource::ManagedResource {
+            observed: ResourceState::Absent,
+            ..removed.clone()
+        };
+        let wanted = heimdall_domain::resource::ManagedResource {
+            desired: ResourceState::Present,
+            observed: ResourceState::Absent,
+            ..repurposed.clone()
+        };
+        svc.store()
+            .transaction(|tx| {
+                tx.upsert_resource(&next_gen, Some(ResourceGeneration(1)))?;
+                tx.upsert_resource(&settled, Some(ResourceGeneration(1)))?;
+                tx.upsert_resource(&gone, Some(ResourceGeneration(1)))?;
+                tx.upsert_resource(&wanted, Some(ResourceGeneration(1)))
+            })
+            .unwrap();
+
+        // Well past the old due time: nothing is pending, so no wake at all.
+        rig.clock.advance(due + HOUR);
+        for _ in 0..3 {
+            let report = sup.cleanup_pass().await.unwrap();
+            assert_eq!(
+                report.next_due_in, None,
+                "no stale zero-delay wake: {report:?}"
+            );
+            assert!(report.retry_scheduled.is_empty() && report.failed.is_empty());
+        }
+        assert_eq!(
+            cleaner.calls.lock().unwrap().len(),
+            4,
+            "no further delete for a generation that is no longer a candidate"
+        );
         scan_events(&svc);
     }
 

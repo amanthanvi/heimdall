@@ -796,6 +796,53 @@ escalations, workflow `wf_11ee3572-cd2` (summary in `progress.md`).
     the same call. If the generation is still racing after that, the answer is
     `SERVICE_UNAVAILABLE` (exit 5, retryable) with a retry `next`. If re-validation
     fails, the answer is that denial's own code. The code table is unchanged.
+    ADR-0005 §3.5 records the matching issuer ordering: the issuer signs exactly the
+    returned re-reservation, then publishes it.
+
+### 13.7 ⟨r2.4⟩ Rulings on the code-review fix escalations (orchestrator, 2026-11-01)
+
+Source: workflow `wf_886acd0c-ce2` (the fixes for review areas A, B and C).
+
+1. **Approval basis.** Accepted as implemented. Approval re-bases an added-authority
+   intent on the decision record's generation and applicable policy revision, through
+   the add-only `ResolvedIntent.approval` field. Before preparation and at every later
+   stage it requires needed delta ⊆ approved delta. The owner's decision is the
+   authority for that delta (spec §5.3).
+2. **Fully covered waiting request.** A waiting request whose recomputed delta is
+   **empty** is now fully covered by the owner's saved standing policy. It proceeds as
+   a standing-policy activation, through the normal resolution, time, pause and cutoff
+   checks, and gets no decision record (spec §5.5: no prompt for authority the owner
+   already saved). The empty-delta replacement record is withdrawn.
+3. **Continuing use of an owner-approved grant.**
+   * The approval basis is persisted **with the grant**: the approved delta, the
+     decision ID, its generation and the policy revision. Operation retention cannot
+     purge it.
+   * Re-validation of an owner-approved grant requires its scope ⊆ (current
+     applicable standing policy ∪ approved delta), together with every other
+     re-validation predicate.
+   * A narrowing that removes a part the approval did not cover ends the grant, with
+     the denial's code.
+   * The pause rule of §13.6 item 1 still applies: a pause does not end continuing
+     work.
+4. **Coalescing equivalent approvals (A07).**
+   * Exact deadline equality is accepted as the coalescing key.
+   * Cancelling the creating request must not fail the requests that joined it.
+     Ownership of the shared grant and decision moves to the oldest remaining
+     waiter, and the decision stays pending.
+   * The shared grant ends only when every waiter has cancelled. Then it is
+     cancelled and its decision withdrawn.
+   * A deny settles every waiter.
+5. **Environment changes move the generation.** `Txn::upsert_environment` advances the
+   authority generation on every accepted write, as policy writes do (§13.6 item 5).
+   A change in environment permissions therefore triggers re-validation.
+6. **Evidence row status.** A row for a platform that ran on the current build, where
+   an expected test did not run, is `in_progress` (an incomplete run). `blocked` is
+   only for a platform or capability that is missing, as AGENTS.md says.
+7. **The issuer ordering for item 11** is recorded in ADR-0005 §3.5.
+8. **Service-stop fallback.** A missing test that must be added: an e2e case makes the
+   control endpoint unusable while the advertisement stays valid. It then asserts that
+   `heimdall service stop --json` reports `data.via == "signal"`, exits 0, and removes
+   the advertisement.
 
 ## 14. ⟨rev2⟩ Change log and substrate added by revision 2
 
@@ -919,6 +966,11 @@ revision 2 adds `Denial::DeadlinePassed` for it, mapped to `CREDENTIAL_EXPIRED`
 | ⟨r2.3⟩ §13.6 item 7 (M01-rulings-13-6-F2) | No public signature change. CLI (`heimdall` bin): on an interactive TTY session `Attend` is sent **first** for `access ensure`, `access resume`, `access cutoff`, `decision approve|deny`, `time confirm` (never for `pause` or non-interactive/non-TTY invocations); the prompt shows the runtime's answer (`APPROVAL_REQUIRED`) and the exact recorded request; `Decide` only on `y`/`yes`. Crate-private test seam `cli::{Session, Prompter}`; unit tests `cli::tests::*attend*`, e2e pty cases (Unix) |
 | ⟨r2.3⟩ §13.6 item 8 (M01-rulings-13-6-F2) | **additive** `contract::ipc::capability::SERVICE_CONTROL_V1 = "service-control/1"` (§2.4 list gains it; text of §2.4 left to the integrator), `contract::request::{ShutdownRequest {}, Request::Shutdown(ShutdownRequest)}` (wire `{"op":"shutdown"}`), `Request::required_capability() -> Option<&'static str>`; `Request::is_effectful` is `false` for `Shutdown` (no operation, no idempotency record). `ipc::session::server_capabilities()` offers `service-control/1`; a request whose capability was not negotiated is answered `SCHEMA_UNSUPPORTED` and never dispatched; **additive** `ipc::session::Dispatcher::replied(&self, &SessionInfo, &'static str, &Code)` (default no-op), called after the response frame is written. `runtime::dispatch::OperationsDispatcher::{with_service_control(CancellationToken), handle_as(&Caller, Request)}`: owner role only (`CAPABILITY_UNAVAILABLE` otherwise), any session, answer `OK {"stopping": true, "already_stopping": bool}`, drain started from `replied` (same graceful drain as a signal); `#[doc(hidden)] ServiceOptions.endpoint_prefix` (Windows test pipe prefix `hmtest-`). CLI `service stop` sends `Shutdown` on every platform (`data.via = "control"`), Unix SIGTERM fallback (`"signal"`) only when the endpoint is unusable (Windows has no fallback: it waits for an already-stopping runtime, `"exited"`, or reports the endpoint error). No code-table change. Schemas re-exported (`request`, `ipc.client-message`); examples `schemas/examples/{request.shutdown,ipc.client-message.request-shutdown,ipc.server-message.response-shutdown}.json`. Windows: **additive** `runtime::platform::disinherit_standard_handles()` (one new `unsafe` call, `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)`, inside the existing `platform.rs` boundary; overview §9 inventory to be updated by the integrator), called by `launcher::spawn_detached` so the detached runtime never inherits the client's stdio pipes (native run 1 hung on exactly that). Runtime tests ported to Windows and run natively (`tests/evidence/artifacts/m01/rulings-13-6/windows/`) |
 | ⟨r2.3⟩ §13.6 items 4, 8 (M01-rulings-13-6-integrate) | No public signature change. `app::operations` `inspect capabilities` lists `service-control/1`, so discovery equals `ipc::session::server_capabilities()` (asserted by `integration_runtime::u8b::dispatcher_rechecks_attendance_and_renders_application_results`); example `schemas/examples/envelope.success.read.json` and `tests/contracts/limits.rs` gain the name. `tests/model/operations.rs` `supervisor_with` pins `FixedJitter(1.0)` so the g03/g04 cases assert the unjittered schedule. overview §9 `unsafe` inventory lists `SetHandleInformation` and the process-identity reads. §2.4 text not edited (outside the integrator's grant) |
+| review A05 (M01-review-fix-R1-events) | **additive** `app::events::EventPublisher::retry_held(&self) -> bool` (`true` when nothing is held back). Behaviour of `announce`: a failed catch-up read never advances the live stream past a gap; events read before the failure are fanned out, the announced event only if it is the next position, otherwise it is held back (no cursor beyond the gap) and retried from the retained position by the next `announce` or `retry_held`. Tests `model_events::{failed_catch_up_read_never_advances_the_live_stream_past_a_gap, held_back_events_are_delivered_in_order_once_the_store_is_readable}`, property `props_announce::live_stream_never_passes_a_gap_under_catch_up_faults` |
+| review C01–C03 (M01-review-fix-R3-cli-evidence) | No public signature change. CLI (`heimdall` bin): a command-line parse failure with `--json` anywhere before a bare `--` renders exactly one `USAGE_ERROR` envelope on stdout (fixed value-free message, effect `none`, `next.action` `fix_request`), exit 2; help and version stay human text, exit 0; clap's diagnostic goes to stderr, sanitized (bin-internal `cli::{json_requested, parse_failure}`). Evidence generator: required tests come from the committed `tests/native/m01/required-inventory.json`, not run logs; nonzero required `exit_codes` prevent `verified`; intentionally failing probes go under `negative_probes` |
+| review B02, B04, B05 (M01-review-fix-R2-runtime-harness) | **additive** in `runtime::supervisor`: field `SupervisorConfig.resume_check_interval: Duration` (default 2 s; exhaustive struct literals need it, none in the workspace), `SupervisorConfig::resume_bound(&self) -> Duration`, consts `MAX_RESUME_CHECK_INTERVAL` (5 s) and `MIN_RESUME_CHECK_INTERVAL` (10 ms): `Supervisor::run` bounds every wait by `resume_bound()` and then compares continuous with monotonic progress, so a resume is detected within at most 5 s of awake time (B04; native suspend/resume evidence is an M04 item). Behaviour: `Supervisor::cleanup_pass` drops retry entries that do not match a current cleanup candidate's generation before computing `next_due_in` (B02). `ipc::windows` (private) passes the UTF-16 capacity to `GetNamedPipeClientComputerNameW` (B05). Tests `integration_runtime::u8b::{cleanup_retries_are_pruned_when_the_resource_is_replaced_or_reconciled, supervisor_detects_a_sleep_across_a_deadline_within_the_resume_bound, supervisor_resume_check_interval_is_bounded}`, Windows unit test `heimdall_ipc::windows::tests::client_computer_name_capacity_counts_utf16_units`; harness self-test `tools/validation/native-harness-selftest.sh` (B01, B03) |
+| review A01–A04, A06, A07; §13.6 item 11 (M01-review-fix-R1-operations) | **additive** `domain::operation::ResolvedIntent.approval: Option<ApprovalBasis>` (serde default, omitted when absent; struct literals need it) and `domain::operation::ApprovalBasis { decision, delta, generation, policy_revision }`; `store::Txn::set_recovery_intent` accepts it add-only (never replaced or cleared). Behaviour: the time gate runs inside the transaction that reserves, publishes, authorizes an effect attempt, rechecks, commits, binds, resolves, or creates or completes a decision (crate-private `app::timegate::TxnGate`; A01, A02); a fresh attempt waits for an adapter slot, then validates authority, deadline, cutoff and continuous admission before the `Attempted` receipt, and `PrepareRequest.grant` carries the deadline narrowed to the recorded bound (doc only; A03); `Commit` refuses prepared facts below a caller minimum (actual offline coverage, achieved destination-scope enforcement, capabilities) with `CAPABILITY_UNAVAILABLE` (A04); replacement decisions carry the delta recomputed against current policy, approval records an `ApprovalBasis` that preparation and activation re-validate (A06); equivalent waiting added-authority requests (same caller, kind, environment, work, parent, resolved authority, deadline, policy revision, generation, delta) share one record and grant, each with its own operation (A07); `Operations::publish_issuance` voided only by a generation move re-reserves (same bounds, fresh serial and ID) and publishes within the call, at most 3 attempts, then `SERVICE_UNAVAILABLE` with `next.retry_after`; the returned entry may be the re-reservation (item 11); issuance re-validation is deferred on uncertain time, which answers `TIME_UNCERTAIN`. Tests `model_revocation::review_*`, property `publication_answers_from_the_state_and_time_of_its_own_transaction`, `integration_store::recovery_intent_approval_basis_is_add_only` |
+| review integration (M01-review-fix-integrate) | No public signature change. `runtime::supervisor::Supervisor::run` calls `EventPublisher::retry_held()` on every timed wake (bounded by `resume_bound()`), so an event held back behind a failed catch-up read reaches live subscribers without waiting for another commit (review A05 liveness). `tools/validation/check.sh` gains the `evidence-selftest` step (`tests/native/m01/test_m01_evidence.py`; reviews C02, C03). Test `integration_runtime::u8b::supervisor_delivers_held_back_events_without_a_new_commit` |
 
 ### 13.1 Orchestrator rulings (2026-10-31)
 

@@ -17,17 +17,14 @@ mod testcfg;
 use clap::Parser;
 
 fn main() -> std::process::ExitCode {
-    let args = match cli::Cli::try_parse() {
+    let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    let args = match cli::Cli::try_parse_from(&argv) {
         Ok(a) => a,
         Err(e) => {
             // Help and version are successes; every other parse failure is a
-            // usage error (exit 2, ADR-0006 §6). clap prints to the right stream.
-            let _ = e.print();
-            return if e.use_stderr() {
-                heimdall_contract::ExitCode::Usage.into()
-            } else {
-                heimdall_contract::ExitCode::Success.into()
-            };
+            // usage error (exit 2, ADR-0006 §6), one `USAGE_ERROR` envelope on
+            // stdout when `--json` was requested (spec §11.2; review C01).
+            return cli::parse_failure(&e, cli::json_requested(&argv)).into();
         }
     };
     let code = cli::dispatch(args);
