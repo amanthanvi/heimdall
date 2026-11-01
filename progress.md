@@ -436,3 +436,10 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
 - Running:
   - task M02-W0-code-review (Codex, worktree at d57bf7c4);
   - workflow `wf_71536525-4b6`, M02 wave 1: U1, U2, U7, U6 and U8 core in parallel, then an integrator.
+- M02 wave-0 code review (Codex, `tests/evidence/artifacts/review-m02-code/wave0.md`): fix first.
+  - Three frozen recovery interfaces disagreed with ADR-0007 §12.14:
+    - Z01: RestoreCtx::Done lacked its cause;
+    - Z02: the RecoveryState::build argument order was wrong;
+    - Z03: StepDecision was in localenv.
+  - Everything else was sound: the M01 preserve list, the fail-closed landing, migration 0005, the frozen data contracts, and the duplicate-skeleton tree.
+  - I fixed Z01–Z03 myself in bd4215e2, with regression tests. Wave-1 units do not own those files.

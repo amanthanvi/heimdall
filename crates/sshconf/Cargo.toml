@@ -14,3 +14,41 @@ workspace = true
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
 thiserror = { workspace = true }
+
+# Test-only (one table for every unit hosted here). proptest: the U1/U2 properties
+# (>= 256 cases, fixed seed, committed regressions). glob: U1's differential check of
+# the MemSource matcher against the crate localenv uses for real Include expansion.
+[dev-dependencies]
+proptest = { workspace = true }
+glob = { workspace = true }
+
+# Test targets hosted here (m02-plan §0 convention): real `[[test]]` targets whose
+# sources live under the repository `tests/` tree.
+
+# M02-U1: lexer goldens, directive table against S01, include semantics.
+[[test]]
+name = "model_sshconf_parse"
+path = "../../tests/model/sshconf_parse.rs"
+
+# M02-U1: hostile input (bounds, NUL, invalid UTF-8, FIFO include, glob explosion,
+# never-panic property over arbitrary bytes).
+[[test]]
+name = "adversarial_sshconf_hostile"
+path = "../../tests/adversarial/sshconf_hostile.rs"
+
+# M02-U2: static evaluation (F1-F10), identity selection, the soundness,
+# unaffected-name and managed-values properties, behaviour digests, rendering.
+[[test]]
+name = "model_sshconf_eval"
+path = "../../tests/model/sshconf_eval.rs"
+
+# M02-U2: the user-file and Git block editors (round-trip properties, refusals) and
+# the Git scanner.
+[[test]]
+name = "model_sshconf_edit"
+path = "../../tests/model/sshconf_edit.rs"
+
+# M02-U2: consent classification (M2-D04, M2-R03).
+[[test]]
+name = "model_sshconf_consent"
+path = "../../tests/model/sshconf_consent.rs"

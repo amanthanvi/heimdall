@@ -797,6 +797,16 @@ mod ledger_tests {
     }
 }
 
+// M02-U7 process fixtures (m02-plan §0, U7; ADR-0007 §9). Feature `fixtures`.
+#[cfg(feature = "fixtures")]
+pub mod agent;
+#[cfg(feature = "fixtures")]
+pub mod home;
+#[cfg(feature = "fixtures")]
+pub mod hook;
+#[cfg(feature = "fixtures")]
+pub mod sshd;
+
 /// Proptest strategies for domain values (plan §6.3). Seeds: tests set
 /// `ProptestConfig { cases, .. }` and commit `proptest-regressions/` files; the
 /// harness prints the seed on failure, which is reproducible with

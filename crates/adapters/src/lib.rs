@@ -18,11 +18,16 @@
 //! no 1Password path is hardcoded: detection uses `SSH_AUTH_SOCK` and `IdentityAgent`
 //! references in the configuration only.
 //!
-//! **Skeleton status (m02-plan U0, wave 0).** Types, descriptors and signatures are
-//! fixed by the integrator; U6 writes the bodies. Every adapter call answers
-//! `AdapterError::Unavailable("not available in this build")` and contacts nothing;
-//! passive detection reports `unknown`, which never satisfies a minimum. No runtime
-//! registers these adapters in this build (U5 wires them in wave 3).
+//! **Status (m02-plan U6, wave 1; implemented_unverified).** The bodies are U6's.
+//! `prepare` and `renew` materialize the integration passively, `reconcile` answers
+//! from what this instance returned (never `unknown`), `revoke` reports nothing remote,
+//! `detect` is passive, and `list_identities` is the bounded `agent` probe
+//! (`heimdall_ipc::agent_client`). No runtime registers these adapters until U5 wires
+//! them in wave 3, with an [`integration::IntegrationSources`] over the projection
+//! writer, the store and client discovery.
+//!
+//! Test targets hosted by this crate: `integration_adapters`
+//! (`tests/integration/adapters.rs`).
 
 pub mod detect;
 pub mod integration;
@@ -30,19 +35,10 @@ pub mod native_agent;
 pub mod onepassword;
 pub mod state;
 
-use heimdall_app::ports::AdapterError;
 use heimdall_contract::Timestamp;
 use heimdall_contract::provider::{
     EvidenceBasis, InteractionKind, ProbeLevel, ProviderAvailability, ProviderKind, ProviderStatus,
 };
-
-/// The message of every skeleton answer.
-pub const NOT_AVAILABLE: &str = "not available in this build";
-
-/// The skeleton answer of an adapter call.
-pub(crate) fn not_available() -> AdapterError {
-    AdapterError::Unavailable(NOT_AVAILABLE.to_owned())
-}
 
 /// A status that claims nothing: availability and interaction `unknown`, observed
 /// at the `static` level, basis `inferred`.
@@ -62,7 +58,7 @@ pub fn unknown_status(provider: ProviderKind, now: Timestamp) -> ProviderStatus 
 mod tests {
     use heimdall_app::ports::{
         AdapterError, CredentialAdapter, DetectContext, InteractionRequirement, LockContinuity,
-        ProbeBounds, ProviderProbe,
+        ProbeBounds, ProviderProbe, ReconcileOutcome,
     };
     use heimdall_contract::Timestamp;
     use heimdall_contract::ids::GrantId;
@@ -99,21 +95,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skeleton_calls_fail_closed_and_detection_claims_nothing() {
+    async fn without_an_endpoint_nothing_is_contacted_or_claimed() {
         let now = Timestamp::UNIX_EPOCH;
         let grant = GrantId::parse("grant_w0").unwrap_or_else(|e| panic!("grant id: {e}"));
         let native = NativeAgentAdapter::new("w0".into(), None);
         let op = OnePasswordAdapter::new("w0".into(), None);
         let adapters: [&dyn CredentialAdapter; 2] = [&native, &op];
         for a in adapters {
+            // Nothing was prepared under this token: a fresh prepare is safe.
             assert!(matches!(
                 a.reconcile(&grant, "tok").await,
-                Err(AdapterError::Unavailable(_))
+                Ok(ReconcileOutcome::NotApplied)
             ));
-            assert!(matches!(
-                a.revoke(&grant, now).await,
-                Err(AdapterError::Unavailable(_))
-            ));
+            let revoked = a
+                .revoke(&grant, now)
+                .await
+                .unwrap_or_else(|e| panic!("revoke: {e}"));
+            assert!(revoked.remote_pending.is_empty());
+            assert_eq!(revoked.latest_possible_credential_expiry, None);
         }
         let probes: [&dyn ProviderProbe; 2] = [&native, &op];
         let ctx = DetectContext {
@@ -122,9 +121,9 @@ mod tests {
         };
         for p in probes {
             let status = p.detect(&ctx);
-            assert_eq!(status.availability, ProviderAvailability::Unknown);
-            assert_eq!(status.interaction, InteractionKind::Unknown);
-            assert_eq!(status.basis, EvidenceBasis::Inferred);
+            assert_eq!(status.availability, ProviderAvailability::Unavailable);
+            assert_ne!(status.interaction, InteractionKind::None);
+            assert_eq!(status.basis, EvidenceBasis::Observed);
             assert_eq!(status.observed_at, now);
             assert!(matches!(
                 p.list_identities(&ProbeBounds::default()).await,

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e7f0f07648eb7f532aec448e9575ee9f0bee0471a78d9588be2b7936eceabaa5 # shrinks to user = Cfg { top: [], blocks: [(Match([(false, Exec)]), [ProxyJump])] }, part = Cfg { top: [], blocks: [] }, host = "box"

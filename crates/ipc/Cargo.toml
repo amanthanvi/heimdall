@@ -55,3 +55,9 @@ path = "../../tests/adversarial/ipc_frames.rs"
 [[test]]
 name = "adversarial_agent_frames"
 path = "../../tests/adversarial/agent_frames.rs"
+
+# M02-U6 bounded agent client (`agent_client`) under adversarial replies (all
+# platforms; the socket-level cases are Unix only).
+[[test]]
+name = "adversarial_agent_client_frames"
+path = "../../tests/adversarial/agent_client_frames.rs"

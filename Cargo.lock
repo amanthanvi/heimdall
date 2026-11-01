@@ -729,8 +729,10 @@ dependencies = [
 name = "heimdall-sshconf"
 version = "0.1.0-m01"
 dependencies = [
+ "glob",
  "heimdall-contract",
  "heimdall-domain",
+ "proptest",
  "thiserror",
 ]
 
@@ -755,14 +757,22 @@ name = "heimdall-testkit"
 version = "0.1.0-m01"
 dependencies = [
  "async-trait",
+ "getrandom 0.4.3",
+ "glob",
  "heimdall-app",
  "heimdall-contract",
  "heimdall-domain",
+ "heimdall-ipc",
+ "heimdall-sshconf",
  "heimdall-store",
  "jiff",
  "proptest",
+ "rustix",
  "serde_json",
+ "ssh-encoding",
+ "ssh-key",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

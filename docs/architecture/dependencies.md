@@ -62,9 +62,6 @@ edition 2024, resolver 3. Highest MSRV in the direct set is rusqlite's 1.89.
   * `rustix` dev-only features `pty`, `termios`, `process` for the pty tests of U8
     and U10 (same pinned 1.1.6; rejected: `portable-pty`, a second pty stack, and
     `nix`);
-  * the `ssh-key` 0.6.7 feature `ed25519` in `heimdall-testkit` for `FakeAgent`
-    signing (U7; rejected: shelling out to `ssh-keygen -Y sign` inside the fake,
-    which would make the fake depend on the client under test);
   * `ratatui` 0.30.2 and `crossterm` 0.29.0 (already pinned above) enter the lock
     when the TUI module (U10) consumes them.
 * Dev-only feature changes of the design-fix round: `heimdall-testkit` gained
@@ -73,6 +70,20 @@ edition 2024, resolver 3. Highest MSRV in the direct set is rusqlite's 1.89.
   `default-features = false` so the IPC test build and the Windows cross-check do
   not pull rusqlite (E2); `heimdall-ipc` dev-dependencies enable tokio `test-util`
   (paused virtual time for timeout tests). No new package entered the lock.
+* ⟨M02, wave 1⟩ Dependency-list changes, no new package and no version change
+  (`Cargo.lock` gains only edges between packages it already held):
+  * `heimdall-testkit` feature `fixtures` (default-on; U7's process fixtures)
+    enables, all optional and already pinned: `heimdall-sshconf` (the
+    default-identity guard's static evaluator), `tokio`, `ssh-key` 0.6.7 with feature
+    `ed25519` (`FakeAgent` signing; rejected: shelling out to `ssh-keygen -Y sign`
+    inside the fake, which would make the fake depend on the client under test;
+    `ed25519-dalek` was already in the lock), `ssh-encoding`, `glob`, `getrandom`
+    0.4.3, `rustix` (Unix; feature `process` for `setsid` and SIGTERM by exact PID)
+    and `heimdall-ipc` (Windows; the owner-only pipe listener). `heimdall-ipc`'s
+    dev-dependency keeps `default-features = false`, so its own test build leaves
+    `fixtures` off.
+  * `heimdall-sshconf` dev-dependencies `proptest` and `glob` (U1/U2 test targets;
+    `glob` is the differential oracle for the test-only in-memory matcher).
 * `zeroize` / `secrecy`: arrive with M03 key handling (already in the graph through
   ssh-key).
 * `anyhow`: never in libraries; the CLI maps every failure to a `Code`.

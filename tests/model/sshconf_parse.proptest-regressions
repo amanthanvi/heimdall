@@ -1,0 +1,14 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+#
+# M02-W1-U1: every seed below was found by a deliberate mutation check of the MemSource
+# matcher (a broken range, negation, leading-dot rule, `]` literal, `*` backtrack or
+# `?`), not by a defect in the shipped code. They replay those distinguishing cases.
+cc c1ef7f7fd27d25e65f94d2e7be3751bdcc11bef8d061ebc33601424ff4eb0ffc # shrinks to (pattern, name) = ("[a-c]", "b")
+cc e14b2e8cf78e246f5c109535b13b9caef704d4991fd1964207478e7c7e2412f6 # shrinks to (pattern, name) = ("[.]", ".")
+cc 30437d65ae943e9a9cd6678a6f1d3a4952ec1ddd6782dd21ca2ef8c498fcd941 # shrinks to (pattern, name) = ("*a", "aa")
+cc 4cdb7abda7a23a4da717aa1b2d4b67bf2019efa010975a0973abb08ce1cb6079 # shrinks to (pattern, name) = ("?", "!")

@@ -30,8 +30,9 @@ tracing = { workspace = true }
 # time sync and stage hook are referenced only from `src/testcfg.rs` under
 # `cfg(debug_assertions)` and only when a `HEIMDALL_TEST_*` variable is set. A
 # release build never references the crate (so nothing of it is linked) and
-# refuses the variables.
-heimdall-testkit = { workspace = true }
+# refuses the variables. Default features off (M02 wave-1 integrator finding B):
+# the U7 process fixtures (`fixtures`) stay out of the production build graph.
+heimdall-testkit = { workspace = true, default-features = false, features = ["app"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

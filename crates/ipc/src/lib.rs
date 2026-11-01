@@ -14,6 +14,9 @@
 //!   limit as control (ADR-0006 §2.1 rev2; the protocol arrives in M03). Never
 //!   exposed to bindings, containers or forwarded endpoints.
 //!
+//! ⟨M02⟩ [`agent_client`] is the client side of the explicit `agent` probe: one
+//! bounded `SSH_AGENTC_REQUEST_IDENTITIES` to an existing agent (m02-plan U6).
+//!
 //! Peer authentication is the OS principal: Unix `getpeereid`/`SO_PEERCRED`
 //! (through tokio's `UnixStream::peer_cred`), Windows client SID via
 //! impersonation at identification level ([`windows`]). PID, image path and
@@ -29,6 +32,7 @@
 //! `adversarial_ipc_frames`, `adversarial_agent_frames`. Items they need that are
 //! not part of the supported API are `#[doc(hidden)] pub`.
 
+pub mod agent_client;
 pub mod endpoint;
 pub mod frame;
 pub mod session;

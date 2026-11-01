@@ -1,6 +1,6 @@
 [package]
 name = "heimdall-testkit"
-description = "Heimdall test support: virtual clock, scripted time sync, scripted fault hooks, fake credential adapter, proptest strategies, canary assertions (plan §6.1–§6.4). Dev-dependency only."
+description = "Heimdall test support: virtual clock, scripted time sync, scripted fault hooks, fake credential adapter, proptest strategies, canary assertions (plan §6.1–§6.4), and the M02 process fixtures (fake and disposable agents, counting proxy, loopback sshd, scratch home, fixture hook; m02-plan U7). Dev-dependency only."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,11 +14,26 @@ workspace = true
 # `heimdall-ipc` (and the Windows cross-check) depend on this crate with
 # default-features = false so the store (rusqlite) and app graphs stay out of the
 # IPC test build (wave-1 E2). Everything time/canary/strategy-related is unconditional.
-default = ["store", "app"]
+default = ["store", "app", "fixtures"]
 # ScriptedFaults (needs heimdall-store's FaultHook).
 store = ["dep:heimdall-store"]
 # FakeCredentialAdapter (needs heimdall-app's ports; implies store).
 app = ["store", "dep:heimdall-app", "dep:async-trait"]
+# M02-U7 process fixtures (m02-plan §0, U7; ADR-0007 §9): `agent` (FakeAgent with
+# in-memory Ed25519 signing through the `ssh-key` feature `ed25519`, CountingProxy,
+# DisposableSshAgent), `sshd` (LoopbackSshd), `home` (ScratchHome, the decoy agent and
+# the default-identity guard, which needs the `heimdall-sshconf` static evaluator),
+# `hook` and the `hm-fixture-hook` program. Off in the IPC test build (wave-1 E2).
+fixtures = [
+    "dep:tokio",
+    "dep:ssh-key",
+    "dep:ssh-encoding",
+    "dep:heimdall-sshconf",
+    "dep:glob",
+    "dep:getrandom",
+    "dep:rustix",
+    "dep:heimdall-ipc",
+]
 
 [dependencies]
 heimdall-contract = { workspace = true }
@@ -30,6 +45,38 @@ jiff = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+# fixtures (U7): no new package enters the lock (dependencies.md §2, "Planned by the U0
+# dependency note"); each is already pinned in the workspace.
+heimdall-sshconf = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+ssh-key = { workspace = true, optional = true, features = ["ed25519"] }
+ssh-encoding = { workspace = true, optional = true }
+glob = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
+
+[target.'cfg(unix)'.dependencies]
+# fixtures (U7): `setsid` for the hook's `escape` mode and SIGTERM by exact PID for
+# the disposable ssh-agent and the loopback sshd (safe wrappers; no `unsafe` here).
+rustix = { workspace = true, optional = true, features = ["process"] }
+
+[target.'cfg(windows)'.dependencies]
+# fixtures (U7): the FakeAgent's and CountingProxy's owner-only named pipes reuse the
+# reviewed pipe listener (protected owner-only DACL, client SID check), so this crate
+# adds no `unsafe` module. `heimdall-ipc` dev-depends on this crate without
+# `fixtures`; with it (workspace feature unification) Cargo builds the ordinary
+# dev-dependency cycle.
+heimdall-ipc = { workspace = true, optional = true }
+
+# The fixture hook for `Match exec`, ProxyCommand and askpass fixtures (m02-plan U7
+# `hook::HookBinary`). Tests of this package get `CARGO_BIN_EXE_hm-fixture-hook`;
+# other packages locate it next to their test executable (`hook::HookBinary::locate`).
+[[bin]]
+name = "hm-fixture-hook"
+path = "src/bin/hm-fixture-hook.rs"
+required-features = ["fixtures"]
+# The program body is `hook::main_with_args` (tested in the library and through the
+# built binary by `integration_testkit_fixtures`); no empty unit-test harness here.
+test = false
 
 # Test targets hosted here (convention, m01-plan.md §0): real Cargo `[[test]]`
 # targets whose sources live under the repository `tests/` tree, hosted by the
@@ -54,3 +101,9 @@ path = "../../tests/model/time.rs"
 [[test]]
 name = "model_lifecycle"
 path = "../../tests/model/lifecycle.rs"
+
+# M02-U7 fixture tests (m02-plan U7 "Tests").
+[[test]]
+name = "integration_testkit_fixtures"
+path = "../../tests/integration/testkit_fixtures.rs"
+required-features = ["fixtures"]

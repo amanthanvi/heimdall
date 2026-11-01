@@ -10,12 +10,11 @@
 //! * U2 owns [`eval`], [`relevant`], [`render`], [`edit`], [`consent`] and
 //!   [`gitedit`].
 //!
-//! **Skeleton status (m02-plan U0, wave 0).** Every type and signature here is fixed by
-//! the integrator. A body that its unit has not written yet is
-//! `todo!("M02-Uxx …")`. None of them is reachable in this build: no request, CLI
-//! command, restart recovery or store method calls into this crate until U3, U4 and U5
-//! land (m02-plan "Skeleton rule"). Small mechanical bodies (the keyword spelling
-//! table, the limits) are complete.
+//! **Status (m02-plan wave 1).** Every type and signature here was fixed by the
+//! integrator in wave 0; U1 and U2 have written every body, so no `todo!()` remains.
+//! No request, CLI command, restart recovery or store method calls into this crate
+//! until U3, U4 and U5 land (m02-plan "Skeleton rule"); in this build only tests and
+//! the `heimdall-testkit` fixtures use it.
 
 pub mod consent;
 pub mod directive;

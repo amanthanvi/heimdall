@@ -7,11 +7,13 @@
 //! [`handoff`]. `argv` never crosses IPC and never appears in a record, error, event
 //! or log.
 //!
-//! **Skeleton status (m02-plan U0, wave 0).** Signatures are fixed; bodies are
-//! `todo!("M02-U8 …")`. None is reachable: `heimdall run` and `heimdall connect`
-//! answer "not available in this build" until U8 lands, and nothing else calls this
-//! crate. The refusal reasons and exit statuses ([`resolve::LaunchRefusal::reason`],
-//! [`resolve::LaunchRefusal::exit_code`]) and [`MAX_ARGV_BYTES`] are complete.
+//! **Status (m02-plan wave 1).** Signatures are fixed. U8 core has written
+//! [`resolve`], [`env`], [`meta`], `unix`, `windows` and [`handoff`];
+//! [`eligibility::check_noninteractive`] stays `todo!("M02-U8 …")` until wave 3, and
+//! [`meta::SideChannel::from_fd`] delegates to `heimdall_localenv::sys`'s
+//! `adopt_inherited_fd`, which is still `todo!()`. Neither is reachable: `heimdall run`
+//! and `heimdall connect` answer "not available in this build" until the wave-3
+//! wiring lands, and nothing else calls this crate.
 
 pub mod eligibility;
 pub mod env;

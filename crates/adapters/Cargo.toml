@@ -25,3 +25,12 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 heimdall-testkit = { workspace = true }
+
+# Test targets hosted here (convention, m01-plan.md §0; review F09): real Cargo
+# `[[test]]` targets whose sources live under the repository `tests/` tree.
+
+# M02-U6 existing-access adapters at fixture level (A11, A35; the FakeAgent and,
+# on Unix, the disposable ssh-agent from heimdall-testkit, U7).
+[[test]]
+name = "integration_adapters"
+path = "../../tests/integration/adapters.rs"
