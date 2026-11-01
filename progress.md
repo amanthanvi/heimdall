@@ -409,3 +409,8 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Total recovery function with hold outcome H; content-checked discard; Git lock claimed by a no-replace rename; honest config-command reporting; durable StepContent; atomic admission.
   - ADR-0007 §12.10: QR12–QR15 and P10–P11 accepted.
 - Running: M02-T00-design-review-round4. It is focused: S01–S05, totality, and U0b against the current M01 code.
+- M02 design review round 4 (`review-m02-design/round4.md`): proceed after fixes.
+  - S02, S04 and atomic admission resolved; S01, S03 and S05 partial.
+  - New: T01, T02, T04, T06 (major); T03, T05 (medium); and an interface reconciliation list against the M01 exit code.
+  - Rulings in ADR-0007 §12.11. Once applied, wave 0 starts. The integrator verifies them against code first, and the wave-0 code review covers them; no further full design review.
+  - Running: M02-T00-design-fix-4.

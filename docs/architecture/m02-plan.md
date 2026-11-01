@@ -1,4 +1,6 @@
-# M02 work breakdown (existing-access vertical slice): revision 4
+# M02 work breakdown (existing-access vertical slice): revision 5
+
+**Status:** proposed, revision 5.
 
 **Inputs:**
 
@@ -6,15 +8,19 @@
 * spec §5.2, §5.4, §7.2, §8.4, §10, §11.3, §11.6, §12, §13.5, §14.3, §17
   A01/A11/A21/A22/A27/A35, and the requirements those cases cite (R-UX-01, R-UX-04,
   R-CR-01, R-CR-08, R-SS-01–04, R-AP-06, R-RT-04, R-RT-05, R-SE-04, R-DI-06);
-* `docs/decisions/0007-existing-access-integration.md` revision 4 (this plan's design ADR);
+* `docs/decisions/0007-existing-access-integration.md` revision 5 (this plan's design ADR);
 * `tests/evidence/artifacts/review-m02-design/review.md` (the independent review) and the
   rulings on it in ADR-0007 §12.2;
 * ⟨r3⟩ `tests/evidence/artifacts/review-m02-design/round2.md` (the second review) and the
   rulings on it in ADR-0007 §12.5;
 * ⟨r4⟩ `tests/evidence/artifacts/review-m02-design/round3.md` (the third review) and the
   rulings on it in ADR-0007 §12.8;
+* ⟨r5⟩ `tests/evidence/artifacts/review-m02-design/round4.md` (the fourth review, with its
+  interface reconciliation against the M01 exit code) and the rulings on it in ADR-0007
+  §12.11;
 * ADR-0006 revision 2.15 (the G08 baseline, through §13.18), which this plan extends with
-  the revision-3 deltas in §5;
+  the revision-3 deltas in §5; ⟨r5⟩ U0b is reconciled with ADR-0006 through r2.17
+  (§13.19, §13.20) and with the M01 exit code;
 * ADR-0004 (E-3, E6, Q-B and the blocked inputs in §3), ADR-0002 §3.1, §5, §6;
 * `docs/research/g03-windows-wsl.md`;
 * `tests/fixtures/MANIFEST.md`;
@@ -48,7 +54,26 @@ maps each finding to its changes. The unit count stays at thirteen. The main cha
 * The `SetupIntent` carries every target's bytes (S05).
 * Setup admission is a single store method (§12.8 item 6).
 
-Revision 4 has not had an independent review.
+Revision 4 was reviewed independently (`round4.md`).
+
+**Revision 5 (task M02-T00-design-fix-4)** applies findings M2-T01–M2-T06 and the interface
+reconciliation list under ADR-0007 §12.11. Changed text is marked **⟨r5⟩**, and §9.3 maps
+each finding to its changes. The unit count stays at thirteen. The main changes:
+
+* Git's lock is held by a separate lock holder K, a `git_lock` step. B_git uses ordinary
+  names, and per-platform name-transition tables with crash vectors are added (T01).
+* `content::materialize` takes the whole `FileStep`, checks both digests, and treats an
+  absent base as an empty, insert-only input (T02).
+* Held-repair previews bind content fingerprints (T03).
+* `recovery::decide` takes a `RecoveryState` built from the receipt history; `held` is
+  not an input (T04).
+* The generated-test properties are stated over concrete effects, with normalized
+  observations and seeded-fault controls (T05).
+* U0b phase 2 gains row 24, bounded real-adapter calls (T06). U0b's "Today" column
+  matches the M01 exit code, and U0b's packet lists what it must preserve (item 7).
+
+Per ADR-0007 §12.11, the integrator verifies T01–T07 against the code as wave 0's first
+step. No further full design review precedes wave 0.
 
 **Status discipline (M01 rule E15 carried over):** every unit stays `implemented_unverified`
 until U11's evidence records exist, whatever its local tests say.
@@ -74,10 +99,10 @@ Code that its driver has not yet replaced **fails closed** instead:
 The wave-0 acceptance tests in U0b prove each of these.
 
 **Not decided by this plan:** the open questions in ADR-0007 §12.3 (QR1–QR6, since ruled),
-⟨r3⟩ §12.6 (QR7–QR11, since ruled), ⟨r4⟩ §12.9 (QR12–QR15, open) and the plan-level
-questions in §6. Where a unit depends on an answer, the unit says so. The
-recommended answer is the default it builds against, and the integrator flips the switch if
-the ruling differs.
+⟨r3⟩ §12.6 (QR7–QR11, since ruled), ⟨r4⟩ §12.9 (QR12–QR15, since ruled in §12.10), ⟨r5⟩
+§12.12 (QR16–QR17, open) and the plan-level questions in §6. Where a unit depends on an
+answer, the unit says so. The recommended answer is the default it builds against, and the
+integrator flips the switch if the ruling differs.
 
 ## 0. Ground rules for every unit
 
@@ -217,13 +242,24 @@ the ruling differs.
     * the bounds: 256 KiB for P, 16 KiB per key file, 4 KiB for P_git and for each block,
       256 key files, 1 MiB per intent;
     * the `Rendered` provenance type, the only way to build a `StepContent`;
+    * ⟨r5⟩ (M2-T01, M2-T02) `FileRole::GitLock` and `StepContent::LockHolder { bytes_b64 }`,
+      with the `git_lock` step's validation rule (ADR-0007 §5.7); and the materializer's
+      signature `content::materialize(&FileStep, base: Option<&[u8]>) -> Result<Materialized,
+      ContentError>`, its absent-base rule (an empty input that admits only an insert-only
+      splice) and the `ContentError` variants (U4);
   * ⟨r4⟩ **the writer keeps no state** (§5 item 15). `ProjectionWriter::apply` and
     `reconcile` read every byte from the intent. No implementation caches a preview or a
     `ProjectionSpec` between calls. The port also gains `observe_held`;
   * ⟨r4⟩ **the recovery function's domain and result** (M2-S01; ADR-0007 §5.7; U4):
     * `recovery::decide`, which is pure;
     * `StepShape`, `ItemState`, `StepObservation` with its symbol alphabet `EntryObs`,
-      `StepDecision`, and `HoldReason`.
+      `StepDecision`, and `HoldReason`;
+    * ⟨r5⟩ (M2-T04, M2-T05) `RecoveryState` and its builder, which replace revision 4's
+      `last: Option<&FilePhase>` input; `StepShape::GitLock`, which replaces `GitClaim`;
+      `HoldReason::ContradictoryReceipts`; and `StepObservation`'s normalizing
+      constructor, the only way to build one;
+    * ⟨r5⟩ (M2-T03) `EntryFingerprint` and `HeldStep.fingerprint`, which a held repair's
+      plan digest covers.
 
     U4's generated tests enumerate these types, so they are fixed before U4 starts;
   * ⟨r4⟩ `FileIdentity` with the optional Unix `birth` (ADR-0007 F25), and the revised
@@ -279,18 +315,41 @@ the ruling differs.
     A `SetupIntent` carrying a declaration approval, or the reverse, does not decode;
   * ⟨r4⟩ `setup_intent_content_wire_forms` (M2-S05):
     * one golden per `StepContent` variant, with a BOM and CRLF inside the bytes,
-      round-tripped exactly;
+      round-tripped exactly; ⟨r5⟩ `lock_holder` included;
     * `SetupIntent::validate` refuses `whole` bytes whose digest is not `target.sha256`,
       a splice whose `removed_sha256` does not match, and any bound exceeded;
+    * ⟨r5⟩ (M2-T01, M2-T02) it also refuses, for an absent base, any splice other than
+      insert-only (a non-zero `offset` or `remove_len`, a `removed_sha256`, an empty
+      insert); a `removed_sha256` present with `remove_len` 0 or missing with
+      `remove_len > 0`; a `LockHolder` that is not the exact one-line form, is over 128
+      bytes, or names another generation; a `git_lock` step that is not alone, not
+      directly before the `git_include` step, or has a base, a target or a displaced name;
     * a `StepContent` cannot be built outside `Rendered` (compile-fail doc test);
   * ⟨r4⟩ `file_identity_wire_forms_with_birth`. Unix with and without `birth`, and Windows.
     Equality compares `birth` when both sides have it. An identity with `birth` never
-    equals one with another `birth` and the same (dev, ino);
+    equals one with another `birth` and the same (dev, ino). ⟨r5⟩ (§12.11 item 7.) With the
+    same (dev, ino), `Some(birth)` never equals `None`, and `None` never equals
+    `Some(birth)`: both directions are asserted, through `==` and through every helper
+    that compares identities (`Expected` matching and the observation classifier). Optional
+    birth is never a wildcard;
   * ⟨r4⟩ `local_receipt_wire_forms` also covers `held`, `settling` with `expected_sha256`
     and `name`, and `settle_conflict{modified}`. A `restore_conflict` receipt fails to
     decode;
   * migration 0004→0005 on a populated database, ⟨r3⟩ with M01 `stage_receipts` and
-    `recovery_intents` rows decoding unchanged and re-encoding byte-identically;
+    `recovery_intents` rows decoding unchanged and re-encoding byte-identically. ⟨r5⟩ The
+    database also holds the M01 `meta` records (§12.11 item 7, the reconciliation list):
+    * pending remote revocation records in the current form, with `claim_seq` and
+      obligations with `effect_seq`, and one in the legacy form with `effect_round` and
+      no `claim_seq`;
+    * the store-wide claim counter (`META_REMOTE_CLAIM_SEQ`);
+    * cleanup intents, one with `in_flight`, and their version counter
+      (`META_CLEANUP_INTENT_VERSION`).
+
+    After the migration each decodes unchanged and re-encodes byte-identically. The legacy
+    record still migrates through `PendingRemoteRevocation::migrate_claim_seq` when loaded.
+    The next `next_remote_claim_seq` and `record_cleanup_intent` return values greater
+    than the stored counters, and `cleared_by_claim` gives the same answers before and
+    after;
   * a newer `user_version` is refused.
 
 ### U0b ⟨r2⟩: M01 integration (existing code that M02 must change)
@@ -310,7 +369,12 @@ the ruling differs.
       drivers, and the integrator integrates both as one change. It completes rows 1 and
       10, offers `setup/1` (row 19), and replaces the wave-0 acceptance tests that no
       longer hold. The dispatch-level refusal stays for a runtime without a
-      `ProjectionWriter`.
+      `ProjectionWriter`. ⟨r5⟩ It also carries row 24, the bound on every real adapter
+      call (M2-T06; ADR-0006 §13.20 item 3; ADR-0007 §12.11 item 6), because the real
+      adapters (U6) are wired in the same change set.
+  * ⟨r5⟩ **First step, per ADR-0007 §12.11:** before any change, the integrator checks the
+    "Today" column below and the preserve list against the code at the M01 exit build
+    (`c90d3235`), and records any difference in the task record.
 * **Owner paths:**
   * the items below in `crates/app/src/{operations,events,error}.rs` and
     `crates/domain/src/operation.rs`;
@@ -334,30 +398,57 @@ the ruling differs.
 
 | # | Function or type (M01) | Today | M02 change |
 |---|---|---|---|
-| 1 | `Operations::decide` (operations.rs): the `let waiting = match &d.kind` computation and the `match (&record.kind, verdict)` application | handles `ApproveAuthority`, `WidenPolicy`, `ConfirmTime` | adds `ApplyProjection { operation, .. }` and `DeclareInteraction { operation, .. }`. ⟨r3⟩ **Phase 1:** both are refused with `CAPABILITY_UNAVAILABLE` (reason `driver_unavailable`); the record stays pending and the operation is untouched. **Phase 2:** the waiting operation must be `AwaitingApproval` (else `DECISION_STALE`); no A06 delta check (they carry no `AuthorityDelta`); generation check unchanged. ⟨r3⟩ The approval written depends on the decision kind (§5 item 17): `ApplyProjection` needs `LocalIntent::Setup` with an equal `plan_digest` and sets `SetupIntent.approval = Some(ProjectionApproval { decision, plan_digest })`; `DeclareInteraction` needs `LocalIntent::Catalog` for a `DeclareInteraction` action on the same identity and sets `CatalogIntent.approval = Some(DeclarationApproval { … })`, copied from the record's fields. A kind/intent mismatch, or a differing digest or identity, is `DECISION_STALE` with nothing applied. Then `op_to(Approved)` and resume with `lead_all_bounded`. **Deny:** `settle_failed` with `CAPABILITY_UNAVAILABLE` ("the owner denied the projection change" / "the declaration"); no file is touched |
+| 1 | `Operations::decide` (operations.rs): the `let waiting = match &d.kind` computation and the `match (&record.kind, verdict)` application | ⟨r5⟩ `waiting`: `ApproveAuthority` requires its operation in `AwaitingApproval` (else `DECISION_STALE`); `WidenPolicy` has no waiting operation; `ConfirmTime` is refused as not pending (it is settled by `ConfirmTime` requests). The application arms are `(ApproveAuthority, Approve)`, `(ApproveAuthority, Deny)`, `(WidenPolicy, Approve)` and a `_ => {}` fallback | adds `ApplyProjection { operation, .. }` and `DeclareInteraction { operation, .. }`. ⟨r3⟩ **Phase 1:** both are refused with `CAPABILITY_UNAVAILABLE` (reason `driver_unavailable`); the record stays pending and the operation is untouched. **Phase 2:** the waiting operation must be `AwaitingApproval` (else `DECISION_STALE`); no A06 delta check (they carry no `AuthorityDelta`); generation check unchanged. ⟨r3⟩ The approval written depends on the decision kind (§5 item 17): `ApplyProjection` needs `LocalIntent::Setup` with an equal `plan_digest` and sets `SetupIntent.approval = Some(ProjectionApproval { decision, plan_digest })`; `DeclareInteraction` needs `LocalIntent::Catalog` for a `DeclareInteraction` action on the same identity and sets `CatalogIntent.approval = Some(DeclarationApproval { … })`, copied from the record's fields. A kind/intent mismatch, or a differing digest or identity, is `DECISION_STALE` with nothing applied. Then `op_to(Approved)` and resume with `lead_all_bounded`. **Deny:** `settle_failed` with `CAPABILITY_UNAVAILABLE` ("the owner denied the projection change" / "the declaration"); no file is touched. ⟨r5⟩ The new kinds get explicit arms in both matches: the `waiting` match has no wildcard, and the application's `_ => {}` fallback must not absorb them (the phase-1 `w0_decide_*` and phase-2 decision tests approve and deny each) |
 | 2 | `decision_view` (operations.rs) and `events::decision_kind_name` (events.rs) | three kinds | the two new kinds; the view shows `plan_digest`, the summary counts, `diff_text` and the restore column (bounded, ADR-0006 §3.1) |
 | 3 | `Operations::bind` | `if let BindForm::Launch { argv }` checks non-empty and `MAX_ARGV_BYTES`; hash extra `{ binding_id, form }` | validates `LaunchBinding`: `executable` absolute, 1–4096 bytes, no NUL; `holder.pid > 0`; `holder.started_at` 1–64 bytes `[A-Za-z0-9._:-]`. Hash extra `{ binding_id, form: "launch", executable }` or `{ binding_id, form: "materialize" }`; `holder` is excluded (delivery metadata). `MAX_ARGV_BYTES` leaves the contract and becomes a `heimdall-launch` constant |
-| 4 | `Operations::drive_bind` | `ensure_data(&b, &g, &Facts::conservative(&g, now), bound)` | `Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)`, ⟨r3⟩ followed by `Facts::with_eligibility(tx, now)` (row 5) in the same transaction; in the settling transaction, `tx.set_binding_holder(&b.id, &holder)` when a holder is given |
+| 4 | `Operations::drive_bind`, ⟨r5⟩ and `stage_commit` | `drive_bind`: `ensure_data(&b, &g, &Facts::conservative(&g, now), bound)`. ⟨r5⟩ `stage_commit`: `facts.unwrap_or_else(\|\| Facts::conservative(&g, now))` when no prepare outcome is held (an attached binding, or a restart after `reconcile` gave no facts) | at both call sites, `Facts::conservative(&g, tx.grant_prepared_facts(&g.id)?.as_ref(), now)`, ⟨r3⟩ followed by `Facts::with_eligibility(tx, now)` (row 5) in the same transaction; in the settling transaction, `tx.set_binding_holder(&b.id, &holder)` when a holder is given |
 | 5 | `struct Facts`, `Facts::from_outcome`, `Facts::from_data`, `Facts::conservative`, `fn ensure_data` | four fields; `ensure_data` builds `ConsumerIntegration { signing_endpoint: None, ssh_config_include: None, environment: Vec::new() }` | `Facts` gains `provider` and `integration`. `from_outcome` copies them from `PrepareOutcome`; `from_data` copies `EnsureData.{provider, consumer}`; `conservative` takes the stored `PreparedFacts` and, without them, reports an empty integration and no time claim beyond `now`. ⟨r3⟩ **History and eligibility are separate (M2-R04).** `PreparedFacts` has no interaction, availability or eligibility field. The new `Facts::with_eligibility(&mut Txn, now)` computes, for every pair, `interaction`, `interaction_basis`, `declared_at`, `declaration`, `noninteractive` and `eligibility_checked_at`, plus the envelope's `credential_availability`. It reads the catalog identity and its live declaration row in **the transaction that builds the result**, using `heimdall_domain::catalog::eligibility`. That function is pure, has a U0 signature and a phase-1 body, and lives in `domain` because `app` cannot depend on `heimdall-adapters`; U6's `state` module calls it too. The rule is ADR-0007 §7's table. It runs for every result: `ensure`, attached (coalesced) bindings, `bind`, restart-rebuilt results, and `inspect identities`. Idempotent replay returns the stored envelope verbatim; the CLI's pre-launch check (U8) covers it. So `ensure`, attach, `bind`, replay and restart report the same **history**, and each fresh result reports **current** eligibility |
-| 6 | the prepare stage that writes `EffectReceipt::Confirmed` after `CredentialAdapter::prepare`, and the `ReconcileOutcome::Applied` arm where the activation stage reconciles after a restart | the facts live only in `DriveLocal.prepared` | also `tx.set_grant_prepared_facts(&grant, &PreparedFacts::from(&outcome))`, in the same transaction as the receipt. ⟨r3⟩ `PreparedFacts::from` drops every interaction and eligibility field of the outcome. Facts are nonsecret, so storing them is allowed (spec §7.3) |
+| 6 | ⟨r5⟩ `Operations::confirm`, which writes `EffectReceipt::Confirmed` after `CredentialAdapter::prepare` (and after an `Applied` reconcile of an earlier attempt in `stage_reconcile`), and the other `ReconcileOutcome::Applied` arms (`reconcile_unresolved`, `stage_commit`, `continued_preparation`) | ⟨r5⟩ `confirm` appends `Confirmed` and, in the same transaction, when the operation has left `running` and no attached operation continues with its grant, calls `settle_effect_in`, whose cleanup intent it processes after the commit (`process_cleanup_intent`, origin). `reconcile_unresolved` appends `Confirmed` itself. The facts live only in `DriveLocal.prepared` | also `tx.set_grant_prepared_facts(&grant, &PreparedFacts::from(&outcome))`, in the same transaction as the `Confirmed` receipt. ⟨r5⟩ That transaction keeps its `settle_effect_in` call, its fail-closed handling (a store error fails the whole transaction, receipt, facts and cleanup decision alike) and the post-commit processing of the returned intent. Prepared facts never decide cleanup ownership. ⟨r3⟩ `PreparedFacts::from` drops every interaction and eligibility field of the outcome. Facts are nonsecret, so storing them is allowed (spec §7.3) |
 | 7 | `select_adapter`, `Operations::stage_resolve` | the first adapter meeting the minimums | when the catalog names identities for the scope's pairs, select the adapter whose mechanism they name (`IdentitySource` → mechanism). Pairs naming two mechanisms → `CAPABILITY_UNAVAILABLE`, reason `mixed_mechanisms` (P6). No catalog identity → the M01 behaviour. Recorded in `ResolvedIntent.adapter` as today. ⟨r3⟩ In wave 0 the catalog can only be filled through the store (tests), so requests always see the M01 behaviour |
 | 8 | the `PrepareRequest` construction in the prepare stage | grant, scope, required, interactive, token, now | adds `pairs: &[PreparePair]` from the catalog (destination, account, identity record, managed alias), empty for M01 adapters |
 | 9 | `WorkSpec::from_request` and the minimum check beside `select_adapter` | `capabilities`, `destination_scope_at_least`, `offline_until` | `unattended`: met only by an adapter whose `lock_continuity` is `Verified` and whose interaction is `None`; otherwise `CAPABILITY_UNAVAILABLE` (never in M02) |
 | 10 | `Operations::drive` | `Ensure | Delegate`, `Revoke`, `Bind`, then `_ => Ok(())` | **exhaustive**, with no wildcard, so a future kind fails to compile instead of being skipped at restart. `Cancel`, `Release`, `Policy` and `Probe` are listed explicitly (never journaled; `Probe` reserved, U0 test). ⟨r3⟩ **Phase 1:** `SetupApply | SetupRollback | SetupRepair | Catalog => self.local_driver_unavailable(id)`. This touches no file and settles nothing. The operation keeps its state and receipts, and the `runtime_lifecycle` event lists it as unresolved with reason `driver_unavailable`, so a build that has the driver can reconcile it later. **Phase 2:** `SetupApply | SetupRollback | SetupRepair => crate::setup::drive(self, id)`, `Catalog => crate::catalog::drive(self, id)` (bodies by U5) |
-| 11 | `Operations::recover_after_restart` | leads every open or unresolved operation | loop unchanged; a test asserts that every kind has a driver; the setup driver reconciles from receipts and never re-applies (ADR-0007 §5.7) |
+| 11 | `Operations::recover_after_restart` | ⟨r5⟩ in order: checks the recorded environment (`init_self_environment`), reads the open and unresolved operations and emits `runtime_lifecycle` `started`, in one transaction; records which pending remote revocations have a claimed, uncompleted round (`interrupted_rounds`, ADR-0006 §13.13 item 4); leads every open or unresolved operation of this environment (`lead`; a failure leaves it in place); completes interrupted withdrawals (`complete_interrupted_withdrawals`, §13.9 item 3); then processes every cleanup intent, whatever its operation's state (`process_cleanup_intents`, §13.19 item 2). Revision 4 described only the loop | the loop dispatches the new kinds through row 10. ⟨r5⟩ Every other step keeps its place and order: the environment check, the interrupted-round capture **before** any lead, and withdrawal completion and cleanup-intent processing **after** the loop, for every operation kind, setup included. A test asserts that every kind has a driver; the setup driver reconciles from receipts and never re-applies (ADR-0007 §5.7) |
 | 12 | `heimdall_domain::operation::RecoveryIntent` | `request`, `resolved` | adds `local: Option<LocalIntent>` (serde default, omitted when absent): `LocalIntent::{Setup(SetupIntent), Catalog(CatalogIntent)}`. ⟨r3⟩ `SetupIntent.approval: Option<ProjectionApproval>` and `CatalogIntent.approval: Option<DeclarationApproval>` (§5 item 17); revision 2's shared `LocalApproval` is withdrawn |
 | 13 | `heimdall_domain::operation::OperationKind` and `as_str` | 8 kinds | adds `SetupApply` (`"setup.apply"`), `SetupRollback`, `SetupRepair`, `Catalog`. Effect class `LocalResources` for setup, `Local` for catalog |
 | 14 | `crates/app/src/error.rs` | code mapping | `LAUNCH_FAILED`; `ErrorData.reason` passes through |
 | 15 | `FakeCredentialAdapter` (testkit) and the `testcfg` fake | five `PrepareOutcome` fields | defaults for the new fields; a configurable integration with two pairs for the tests below. ⟨r3⟩ `testcfg` also gains `HEIMDALL_TEST_CLOCK_OFFSET_S` (a file holding a signed offset, read by the CLI and by the runtime's wall clock; U8's expiry tests) |
-| 16 ⟨r3⟩ | `intent_update_allowed` (store/src/ext.rs) | `request` immutable; `resolved` add-only | `local` is add-only as well. `None → Some` is allowed. Once set, its variant and every field except `approval` never change, and `approval` goes `None → Some` once and is never replaced. A `local` and a `resolved` on the same intent are refused (`GenerationConflict`) |
-| 17 ⟨r3⟩ | `OperationsDispatcher::dispatch` (runtime/dispatch.rs), the exhaustive `match request` | 11 request arms | `Request::Setup(r) => render(ops.setup(&caller, r).await)` and `Request::Catalog(r) => render(ops.catalog(&caller, r).await)` |
+| 16 ⟨r3⟩ | `intent_update_allowed` (store/src/ext.rs) | `request` immutable. `resolved`: `None` may become anything, `Some` never becomes `None`, and between two `Some` values profile, profile revision, scope, deadline, policy revision and generation stay equal while `grant`, `binding`, `adapter`, `approval` and `covered` may only be added | `local` is add-only as well. `None → Some` is allowed. Once set, its variant and every field except `approval` never change, and `approval` goes `None → Some` once and is never replaced. A `local` and a `resolved` on the same intent are refused (`GenerationConflict`) |
+| 17 ⟨r3⟩ | `OperationsDispatcher::dispatch` (runtime/dispatch.rs), the `match request` | ⟨r5⟩ `Request::Shutdown` is handled before the match. The match has 11 arms and a wildcard `_` that answers `USAGE_ERROR` ("this request kind is not supported by this runtime"). Revision 4 called the match exhaustive | `Request::Setup(r) => render(ops.setup(&caller, r).await)` and `Request::Catalog(r) => render(ops.catalog(&caller, r).await)`, added before the wildcard, which stays. ⟨r5⟩ `w0_setup_and_catalog_at_dispatch_are_capability_unavailable` therefore also shows that neither request reaches the wildcard |
 | 18 ⟨r3⟩ | new `Operations::setup(&Caller, SetupRequest)` and `Operations::catalog(&Caller, CatalogRequest)` in `crates/app/src/{setup,catalog}.rs` | — | **Phase 1:** return `CAPABILITY_UNAVAILABLE`, reason `driver_unavailable`, effect `none`, **before** any admission: no idempotency record, operation row, decision, event or file access. U5 replaces the bodies in wave 3. After activation, `setup` keeps this refusal while `OperationsConfig.projection` is `None` |
 | 19 ⟨r3⟩ | `ipc::session::server_capabilities()`, `inspect capabilities` | five capabilities | **Phase 1:** unchanged; `setup/1` is not offered. **Phase 2:** both list `setup/1` |
 | 20 ⟨r3⟩ | `crates/store/src/ext_m02.rs` | — | every `Txn` method of §5 item 18 and `Store::open_read_only`, with their compare-and-swap rules: projection resources by generation and identity, declarations by revision, `commit_projection_item` as one transaction. Moved from U5, so that rows 4–7 and `inspect identities` call no `todo!()`. ⟨r4⟩ Includes `insert_setup_operation` (row 23) |
-| 23 ⟨r4⟩ | `Operations::admit` (operations.rs), the `write` closure that classifies idempotency and calls `insert_operation` and `set_recovery_intent` | one transaction: classify, backpressure check, insert the operation, idempotency record, recovery intent and `Authenticate` receipt | gains `exclusive: Option<SetupAdmission { environment, intent: LocalIntent, repair_target: Option<OperationId> }>`. When it is `Some`, after `classify` returned `New` and the backpressure check passed, **the same transaction** calls `tx.insert_setup_operation(&op, &idem, &RecoveryIntent { request, resolved: None, local: Some(intent) }, repair_target)` instead of `insert_operation` and `set_recovery_intent`. `SetupAdmitted::InProgress(blocking)` writes nothing and becomes `CONFIG_CONFLICT`, reason `setup_in_progress`, with the blocking operation IDs in the error's resource and `next.operation_id` (ADR-0007 §5.7 "Admission is atomic"). Replays and conflicts are classified first, so they never see the check. **Phase 1:** implemented, unreachable from requests (row 18 refuses first), and covered by the store tests below. **Phase 2:** U5's setup entry points pass `Some` for every effectful setup request |
-| 21 ⟨r3⟩ | `Operations::inspect`, the `match req.subject` | eight subjects | `InspectSubject::Identities` (catalog identities with fresh eligibility from row 5, and each live declaration's `DeclarationRef`) and `InspectSubject::Projections` (projection resources, read-only). Both are complete in phase 1 and return empty lists while the catalog is empty |
+| 23 ⟨r4⟩ | `Operations::admit` (operations.rs), the `write` closure that classifies idempotency and calls `insert_operation` and `set_recovery_intent` | ⟨r5⟩ `allow_new` is computed **before** the transaction, from the in-memory running counter against `limits.max_running_operations`. Inside one transaction: the idempotency record and the expired-key marker are read and `classify`d; any outcome but `New` returns at once; a `New` with `allow_new` false returns nothing, which becomes `BACKPRESSURE` with `retry_after` after the transaction; otherwise `insert_operation` (operation and idempotency record), `set_recovery_intent`, the `Authenticate` receipt **only when `pipeline` is true**, and the operation event. Revision 4 said the backpressure check ran inside the transaction | gains `exclusive: Option<SetupAdmission { environment, intent: LocalIntent, repair_target: Option<OperationId> }>`. ⟨r5⟩ The backpressure order is kept: `allow_new` is still captured before the transaction and tested inside it after `classify`, at the same place. When `exclusive` is `Some`, after `classify` returned `New` and that test passed, **the same transaction** calls `tx.insert_setup_operation(&op, &idem, &RecoveryIntent { request, resolved: None, local: Some(intent) }, repair_target)` instead of `insert_operation` and `set_recovery_intent`. `SetupAdmitted::InProgress(blocking)` writes nothing and becomes `CONFIG_CONFLICT`, reason `setup_in_progress`, with the blocking operation IDs in the error's resource and `next.operation_id` (ADR-0007 §5.7 "Admission is atomic"). Replays and conflicts are classified first, so they never see the check. ⟨r5⟩ The setup check and the insertion stay atomic, which is a separate requirement from backpressure. `pipeline` keeps its meaning; the setup and catalog entry points pass `false`, because their receipts are local ones (ADR-0007 §5.7). **Phase 1:** implemented, unreachable from requests (row 18 refuses first), and covered by the store tests below. **Phase 2:** U5's setup entry points pass `Some` for every effectful setup request |
+| 21 ⟨r3⟩ | `Operations::inspect`, the `match req.subject` | eight subjects. ⟨r5⟩ The `Grants`/`Bindings` arm lists ended grants that have a pending remote record or a cleanup intent, with `remote_pending`, `remote_pending_reasons`, `remote_retries` and `cleanup_pending: true` (ADR-0006 §13.15, §13.16, §13.20 item 1) | `InspectSubject::Identities` (catalog identities with fresh eligibility from row 5, and each live declaration's `DeclarationRef`) and `InspectSubject::Projections` (projection resources, read-only). Both are complete in phase 1 and return empty lists while the catalog is empty. ⟨r5⟩ The `Grants`/`Bindings` arm is not changed: `cleanup_pending` and the ended-grant listing stay as they are |
 | 22 ⟨r3⟩ | `heimdall_domain::catalog::{eligibility, fallback_clearance}` (new, pure) | — | ADR-0007 §7's eligibility table (M2-R04) and fallback clearance rule (M2-R05). One rule is used by the runtime (rows 5 and 21), the adapters (U6) and the CLI (U8) |
+| 24 ⟨r5⟩ **phase 2** | every `CredentialAdapter` call in `operations.rs`: `prepare` in `stage_reconcile`; `reconcile` in `stage_reconcile` (an earlier attempt), `reconcile_unresolved`, `stage_commit` and `continued_preparation`; `revoke` in `process_cleanup_intent` (both branches) and `run_round`. `Limits` | each call is awaited with no bound, under an `adapter_slots` permit where one is taken. `prepare` runs inside the `Preparing` guard, which is dropped only when `prepare` returns. A cleanup intent written while the attempt is in flight (`in_flight`) is skipped by `process_cleanup_intents` while `is_preparing` holds, and is left to the preparation's return path (`process_cleanup_intent_of`). The caller's wait (`lead_bounded`) ends the wait, never the preparation. M01's adapters are fakes, so ADR-0006 §13.20 item 3 accepted this for M01 only | (M2-T06; ADR-0006 §13.20 item 3; ADR-0007 §7, §12.11 item 6.) `Limits` gains `adapter_call_timeout: Duration` (default 30 s, at least 1 s; tests use less; P12). One helper, `bounded_adapter_call(limit, future)`, wraps **the adapter future alone**: after the slot is acquired, never around the slot wait or the caller's wait. When the bound elapses, the future is dropped and the call answers `AdapterError::OutcomeUnknown("adapter call timed out")`. Each call site then runs its existing arm for that answer, unchanged: **`prepare`** goes to `mark_uncertain`. That appends `Uncertain` and, when the operation has left `running`, calls `settle_effect_in` in the same transaction; otherwise the operation moves to `outcome_unknown`. `drop(preparing)` comes before `mark_uncertain`, as today, so the marker is released when the bound elapses. The returned intent is processed with origin set, and `process_cleanup_intent_of` still runs. **`reconcile`**: `stage_reconcile` marks the attempt uncertain, `reconcile_unresolved` stops with the operation unresolved, `stage_commit` returns `SERVICE_UNAVAILABLE` with effect `partial`, and `continued_preparation` yields no facts. **`revoke`**: in a round and in a bounded cleanup call, an unconfirmed answer, so the obligation stays and the claimed round counts; in the immediate best-effort call for an uncovered grant, a call made, as an error is today (QR17). Nothing new decides cleanup ownership: `settle_effect_in`, `own_applied_effect_in`, the intent's `version` check and `in_flight` keep their M01 meaning. Once the marker is released, an intent written with `in_flight: true` is no longer skipped (`is_preparing` is false), so the supervisor's next `revocation_pass` processes it in the same process, with no restart. `CredentialAdapter`'s documentation gains the drop contract (§5 item 15) |
 
+* ⟨r5⟩ **Preserve** (binding on U0b: ADR-0007 §12.11 item 7, from the round-4 interface
+  reconciliation; checked against the M01 exit code). No change in either phase may alter:
+  * **the `admit` order**: `allow_new` captured before the transaction, then `classify`,
+    then the backpressure test, then the insert; the `Authenticate` receipt only with
+    `pipeline` (row 23). The setup check and its insert are atomic in addition to this;
+  * **the recovery paths after the restart loop**: interrupted-round capture before any
+    lead, `complete_interrupted_withdrawals`, then `process_cleanup_intents` for every
+    intent whatever its operation's state (row 11);
+  * **claim and effect sequences**: `PendingRemoteRevocation.claim_seq`,
+    `RemoteObligation.effect_seq`, the legacy `effect_round` migration
+    (`migrate_claim_seq`), `RemoteObligation::cleared_by_claim`, and the store-wide
+    counter `Txn::next_remote_claim_seq`. New literals, fixtures and migration coverage use
+    these fields. Round-based clearance (`cleared_by_round`) is never restored;
+  * **the durable cleanup intent**: `CleanupIntent` with its fields, and its store
+    lifecycle `record_cleanup_intent` (fresh `version` from the store counter),
+    `cleanup_intent`, `clear_cleanup_intent` and `cleanup_intents`, with their meta keys
+    and the version counter. Wave-0 migration coverage includes them (U0);
+  * **`settle_effect_in`**: called in the transaction that settles an operation with an
+    effect, with its fail-closed behaviour (a store error fails that settlement), and
+    the post-commit processing of the intent it returns. Prepared facts (row 6) and the
+    adapter bound (row 24) add nothing to that decision;
+  * **`cleanup_pending`**: ended grants with a cleanup intent stay listed by `inspect
+    grants` with `cleanup_pending: true` (row 21; ADR-0006 §13.20 item 1).
+
+  The M01 model, integration and property suites that pin these behaviours run unchanged
+  as part of U0b's regression gate. The new tests below add the M02-specific checks.
 * **Tests, phase 1 (end-to-end through the real `Operations` and a real scratch `Store`):**
   * `u0b_bind_launch_validates_executable_and_excludes_holder_from_hash`: the same
     `request_id` with another holder replays; another executable is `REQUEST_CONFLICT`;
@@ -400,6 +491,27 @@ the ruling differs.
     store);
   * `u0b_unattended_minimum_unknown_is_capability_unavailable`;
   * ⟨r3⟩ `u0b_recovery_intent_local_is_add_only` (row 16);
+  * ⟨r5⟩ `u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery` (row 11, preserve
+    list). One store is seeded with an open setup operation, an interrupted withdrawal, a
+    pending remote record with a claimed but uncompleted round, and a cleanup intent
+    whose operation is settled. After a restart, the setup operation stays unresolved
+    with `driver_unavailable` (phase 1). The withdrawal completes, the interrupted round
+    is due at once, and the cleanup intent's call is made and the intent removed;
+  * ⟨r5⟩ `u0b_admit_keeps_backpressure_order` (row 23). With the running counter at its
+    limit, a replay of an admitted request ID returns its operation; a new request is
+    refused with `BACKPRESSURE`, not `setup_in_progress`, even when a setup blocker
+    exists; and no row is written. Below the limit, the blocker gives
+    `setup_in_progress`. An admission with `pipeline: false` writes no `Authenticate`
+    receipt;
+  * ⟨r5⟩ `u0b_confirm_with_prepared_facts_keeps_cleanup_ownership` (row 6). An operation
+    is cancelled while its preparation is in flight, and a late `Confirmed` follows. The
+    same transaction writes the receipt, the prepared facts and the cleanup decision (an
+    obligation or an intent). With the store `FaultHook` failing that transaction, none
+    of the three is written, and the in-flight intent is kept;
+  * ⟨r5⟩ `u0b_inspect_grants_keeps_cleanup_pending` (row 21): the M01 regression
+    `r1320_1_a_pending_cleanup_intent_is_visible_until_its_call_is_made` passes with the
+    two new subjects added, and `inspect identities` and `inspect projections` do not
+    list grants;
   * ⟨r3⟩ `integration_store_m02::*` (row 20). The cases cover:
     * the projection resource generation and identity CAS;
     * the declaration revision CAS and `end_interaction_declaration`;
@@ -471,8 +583,48 @@ the ruling differs.
     `insert_setup_operation` exactly once. Replaying an admitted request's ID calls it
     zero times and returns that same operation while it is still open, so the request is
     never refused because of itself. A refused request leaves no record, so its retry is
-    checked again.
-* **Depends on:** U0; the concurrent M01 commit. ⟨r3⟩ Phase 2 also depends on U4 and U5.
+    checked again;
+  * ⟨r5⟩ **bounded real-adapter calls** (row 24; M2-T06). The testkit fake gains the steps
+    `ApplyThenHang` (applies its effect, then never returns), `HangBeforeEffect`,
+    `HangReconcile` and `HangRevoke`, and a counter of work done after its future was
+    dropped. `adapter_call_timeout` is 200 ms:
+    * `u0b_prepare_timeout_after_effect_settles_uncertain_and_releases_marker`. The
+      operation is cancelled while `ApplyThenHang` runs, which writes a cleanup intent
+      with `in_flight`. A supervisor pass during the hang skips it, with no `revoke`.
+      After the bound, the operation's receipts end in `Uncertain`, `is_preparing` is
+      false, `settle_effect_in` has run in the receipt's transaction (an obligation or a
+      re-recorded intent), and the adapter slot is free;
+    * `u0b_timed_out_preparation_cleanup_processed_by_supervisor_without_restart`. In the
+      previous fixture the origin processing fails: the store `FaultHook` fails its
+      transaction. The next `revocation_pass` in the same process makes the `revoke`
+      call and removes the intent. The call follows the effect in the fake's ledger, and
+      no restart happens. A variant where `mark_uncertain`'s own transaction fails shows
+      the original `in_flight` intent processed by that pass, because the marker was
+      released;
+    * `u0b_prepare_timeout_while_running_is_outcome_unknown`. Without a cancellation, the
+      operation moves to `outcome_unknown` (`OUTCOME_UNKNOWN`, effect `unknown`), the
+      marker and the slot are released, and the operation stays unresolved until
+      `reconcile` settles it, as any `Uncertain` attempt does in M01;
+    * `u0b_reconcile_timeout_matches_each_call_sites_error_arm`. `HangReconcile` at each of
+      the four `reconcile` sites gives that site's existing `Err` result, and no slot or
+      marker is kept;
+    * `u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup`.
+      `HangRevoke` in `run_round` keeps the obligation, and the claimed round counts. In a
+      bounded cleanup call, the answer is tracked as an obligation. In an uncovered
+      grant's immediate call, the intent is removed (QR17). A supervisor pass is never
+      blocked beyond the bound per call;
+    * `u0b_adapter_bound_covers_only_the_adapter_call`. With every adapter slot held by
+      another caller, a preparation waiting for a slot past the bound is not timed out.
+      A caller whose `wait` ends first gets its bounded-wait answer while the preparation
+      continues to its own bound;
+    * `u0b_dropped_adapter_future_does_no_later_work`. After each timeout the fake's
+      after-drop counter stays 0: the effect applied before the hang is the only one, and
+      the cleanup call follows it;
+    * `u0b_every_adapter_call_is_bounded`: a source check over `crates/app/src/operations.rs`
+      (outside `#[cfg(test)]`). Every `.prepare(`, `.renew(`, `.reconcile(` and
+      `.revoke(` on a `CredentialAdapter` appears inside `bounded_adapter_call`.
+* **Depends on:** U0; the concurrent M01 commit. ⟨r3⟩ Phase 2 also depends on U4 and U5,
+  ⟨r5⟩ and on U6 for row 24's real adapters.
 
 ### U1: `heimdall-sshconf` lexer, parser, directive table, include loader (pure)
 
@@ -845,7 +997,8 @@ the ruling differs.
       not a mount point); `Quarantine::rmdir_if_empty(self)`;
     * `FileIdentity { Unix { dev, ino, ⟨r4⟩ birth: Option<i128 /* ns */> }, Windows {
       volume, file_id } }`. ⟨r4⟩ `birth` is filled from `statx` `STATX_BTIME` (Linux) or
-      `st_birthtimespec` (macOS) where the filesystem records one (ADR-0007 F25);
+      `st_birthtimespec` (macOS) where the filesystem records one (ADR-0007 F25). ⟨r5⟩
+      Equality follows §5 item 17: `birth` on one side only is unequal, never a wildcard;
     * ⟨r4⟩ `Expected { identity: FileIdentity, sha256: Sha256 }`: what a discard requires
       (M2-S02);
     * `validate(&DirHandle, name, &Base) -> Result<Validated { identity, sha256, ⟨r4⟩ bytes }, ReplaceRefusal>`
@@ -869,36 +1022,88 @@ the ruling differs.
       The caller writes `file.settled` between the two. ⟨r4⟩ `Modified` leaves the entry
       in the quarantine (`file.settle_conflict{modified}`);
     * ⟨r3⟩ `observe_step(&DirHandle, &FileStep, ⟨r4⟩ &StepRecord /* S, V, D and Q with
-      their digests, from the receipts */) -> StepObservation { path, aside, slot }`, used
-      only by `reconcile`. ⟨r4⟩ Each name is an `EntryObs`: `Absent`; `Recorded { which:
-      S|V|D|Q, content: Unchanged|Modified }`; `Foreign`; or `Unobservable`. This is the
-      ADR-0007 §5.7 alphabet: ∅, S/S′, V/V′, D, Q/Q′, X and ?. An entry is `Recorded` only
-      if it is a regular file owned by the user with link count 1. On Windows, both aside
-      names holding an entry is `Foreign`. At recovery, on a Unix filesystem without birth
-      time, every entry at the B_git lock name is `Foreign` (ADR-0007 §5.6, QR15);
-    * ⟨r4⟩ `recovery::decide(shape: StepShape { Replace, Create, GitClaim, Removal },
-      last: Option<&FilePhase>, item: ItemState { Open, Committed, RollingBack, Finished },
-      obs: &StepObservation) -> StepDecision { Forward(ForwardStep),
-      Restore(RestoreStep), Abort(AbortStep), Settle(SettleStep), Hold(HoldReason) }`
-      (M2-S01). It is **pure**: no I/O, no clock. It is ADR-0007 §5.7's rows, with a final
-      `_ => Hold(Unmatched)` in every block. `Settle` is the settlement part of a forward
+      their digests, from the receipts */, ⟨r5⟩ &RecoveryState) -> StepObservation { path,
+      aside, slot }`, used only by `reconcile`. ⟨r4⟩ Each name is an `EntryObs`: `Absent`;
+      `Recorded { which: S|V|D|Q, content: Unchanged|Modified }`; `Foreign`; or
+      `Unobservable`. This is the ADR-0007 §5.7 alphabet: ∅, S/S′, V/V′, D, Q/Q′, X and ?.
+      An entry is `Recorded` only if it is a regular file owned by the user with link
+      count 1. On Windows, both aside names holding an entry is `Foreign`. At recovery, on
+      a Unix filesystem without birth time, every entry at ⟨r5⟩ the `git_lock` step's path
+      (the lock name) is `Foreign` (ADR-0007 §5.6, QR15). ⟨r5⟩ (M2-T05.) A
+      `StepObservation` is built only by `StepObservation::normalize(path, aside, slot,
+      &RecoveryState, shape) -> Result<StepObservation, Impossible>`, which applies ADR-0007
+      §5.7 "Normalization": the shape rule, the role precedence (Q at the settlement's
+      source and slot, then S, then D only when distinct from S and V, then V only with a
+      present base), and the rejection of impossible combinations. `observe_step` and the
+      generated tests both call it;
+    * ⟨r5⟩ `observe_fingerprint(&DirHandle, &FileStep, &RecoveryState) -> StepFingerprint
+      { path, aside: Vec<EntryFingerprint> /* both names on Windows */, slot }` (M2-T03),
+      used only by `observe_held`. `EntryFingerprint` is `Absent`, `Unobservable`, or
+      `Present { identity, file_type, owned_by_user, link_count, len, changed_ns, content:
+      Sha256(hex) | Unreadable }`. `Unreadable` means the content could not be read within
+      1 MiB, or the read failed. It holds digests and metadata only, never bytes;
+    * ⟨r4⟩ `recovery::decide(shape: StepShape { Replace, Create, ⟨r5⟩ GitLock, Removal },
+      ⟨r5⟩ state: &RecoveryState, obs: &StepObservation) -> StepDecision {
+      Forward(ForwardStep), Restore(RestoreStep), Abort(AbortStep), Settle(SettleStep),
+      Hold(HoldReason) }` (M2-S01). It is **pure**: no I/O, no clock. It is ADR-0007 §5.7's
+      rows, with a final `_ => Hold(Unmatched)` in every block. ⟨r5⟩ (M2-T04.) Revision 4's
+      `last: Option<&FilePhase>` and `item: ItemState` parameters are replaced by
+      `RecoveryState { phase: Option<EffectivePhase>, restore: RestoreCtx { NotDue,
+      Due(cause), Started(cause), Done }, settlement: Option<SettleCtx { source,
+      create_restore: bool }>, item: ItemState { Open, Committed, RollingBack, Finished },
+      release_due: bool }`. `EffectivePhase` is `FilePhase` without `held`, so `held`
+      cannot be passed. `RecoveryState::build(step: u16, &[StageReceipt]) ->
+      Result<RecoveryState, Contradictory>` is pure too. It drops every `held` receipt,
+      checks the phase order of the step's shape and the item receipts, and derives the
+      restore and settlement context. `Contradictory` becomes
+      `Hold(ContradictoryReceipts)`. `release_due` is set only for a `GitLock` step, when
+      every other step of the Git item is final; before that, row K2 decides
+      `Forward(ForwardStep::KeepLock)`, which has no effect. `StepShape::GitClaim` is
+      withdrawn: B_git is `Replace` or `Create`. `Settle` is the settlement part of a forward
       or restore action (the ADR's settlement block). `reconcile` is `observe_step`, then `decide`,
       then the action, repeated until a step is final or held. The item rows (T0–TH) are
       `recovery::decide_item(&[StepState], &ItemReceipts) -> ItemDecision`, also pure;
-    * ⟨r4⟩ `content::{materialize(&StepContent, base: Option<&[u8]>) -> Result<Materialized
-      { bytes, sha256 }, ContentError>}` (M2-S05). It applies a `whole` or a `splice` and
-      checks the result against the step's target digest. A `splice` is checked against
-      the base digest and `removed_sha256`. It is the only source of bytes for `stage`;
-    * ⟨r4⟩ `git::claim_lock(&DirHandle, staged: &Staged, lock_name) -> Result<Claimed,
-      LockRefusal::Held>` (M2-S03): a no-replace rename of the receipted staged file onto
-      `<file>.lock`. It is called only after `file.staged` is durable.
+    * ⟨r4⟩ ⟨r5⟩ `content::materialize(step: &FileStep, base: Option<&[u8]>) ->
+      Result<Materialized { bytes, sha256 }, ContentError>` (M2-S05; ⟨r5⟩ M2-T02). It is
+      the only source of bytes for `stage`. Revision 4 took only `&StepContent`, which
+      carries neither expected digest. Now:
+      * **base:** `Base::Present { sha256 }` needs `Some(bytes)` with that SHA-256
+        (`BaseMismatch`, mapped to `CONFIG_CONFLICT` `user_config_changed` or
+        `managed_file_edited`; `BaseMissing` if `None`). `Base::Absent` needs `None`
+        (`BaseUnexpected`), and the splice input is then the empty slice;
+      * **splice:** `usize::try_from` on `offset` and `remove_len` (`RangeOverflow`);
+        `end = offset.checked_add(remove_len)` (`RangeOverflow`); `end <= input.len()`
+        (`RangeOutOfBounds`); `removed_sha256` present exactly when `remove_len > 0`
+        (`RemovedDigestMissing`, `RemovedDigestUnexpected`) and equal to the removed
+        range's digest (`RemovedDigestMismatch`). With an absent base only `offset == 0`,
+        `remove_len == 0` and a non-empty insert pass (`NotInsertOnly`, `EmptyInsert`).
+        The output length is a checked sum within the bounds (`TooLarge`);
+      * **whole:** the bytes as they are; the base is still checked when present;
+      * **lock holder:** only for the `git_lock` step, with an absent base and the exact
+        one-line form (`ShapeMismatch` otherwise);
+      * **target:** `Target::Present { sha256 }` must equal the output's SHA-256
+        (`TargetMismatch`); `Target::Absent` with any variant but `LockHolder` is
+        `ShapeMismatch`.
+
+      Every `ContentError` except `BaseMismatch` becomes `ReconcileError::IntentInvalid`
+      before any write;
+    * ⟨r4⟩ `git::claim_lock(&DirHandle, ⟨r5⟩ holder: &Staged /* K */, lock_name) ->
+      Result<Claimed, LockRefusal::Held>` (M2-S03): a no-replace rename of ⟨r5⟩ the
+      receipted lock holder K onto `<file>.lock`. It is called only after the `git_lock`
+      step's `file.staged` is durable. ⟨r5⟩ (M2-T01.) It never takes B_git's S.
+      `git::lock_holder(generation, nonce: [u8; 16]) -> Rendered` renders K's one line, and
+      admission fixes the nonce in the intent. K is released by `settle` from the lock
+      name, with `Expected { identity: K, sha256: holder digest }`, after B_git's last
+      settlement;
 
     A test-only `ReplaceHook` mirrors the M01 `CleanupHook`. ⟨r3⟩ Its points are
     `AfterStage`, `AfterValidate`, `BeforeExchange`, `AfterExchange`, `AfterPostValidate`,
     `BeforeCommit`, `BeforeRestoreExchange`, `AfterRestoreExchange`, `BeforeSettleMove`,
     `AfterSettleMove`, `BeforeQuarantineRemove` and `BeforeReceipt(kind)`. ⟨r4⟩ It adds
     `BeforeLockClaim`, `AfterLockClaim`, `BeforeRestoreCheck` and `AfterSettleCheck`.
-    `BeforeRestoreExchange` now fires after the pre-restore content check. Each point can
+    `BeforeRestoreExchange` now fires after the pre-restore content check. ⟨r5⟩ It adds
+    `BeforeLockRelease`, which fires before K's `file.settling`. The settlement points also
+    fire for K's release. Each point can
     run a closure (a racing writer) or abort the process (a crash). Exchange unsupported →
     `ReplaceRefusal::AtomicExchangeUnsupported`, which the plan turns into manual mode.
   * `projection::LocalProjection` implements the new port `app::ports::ProjectionWriter`
@@ -927,19 +1132,27 @@ the ruling differs.
       `ReconcileError::IntentInvalid` (content that fails its digest binding) leave the
       operation unresolved and write nothing;
     * ⟨r4⟩ `observe_held(&SetupIntent, &[StageReceipt]) -> Result<Vec<HeldStep { step,
-      role, path_display, reason, observed: StepObservation }>, ReconcileError>`. It is
-      passive and moves nothing. U5 builds the `RetryHeld`/`KeepHeld` preview from it, and
-      `setup status` lists it;
+      role, path_display, reason, observed: StepObservation, ⟨r5⟩ fingerprint:
+      StepFingerprint }>, ReconcileError>`. It is passive and moves nothing. U5 builds the
+      `RetryHeld`/`KeepHeld` preview from it, and `setup status` lists it. ⟨r5⟩ (M2-T03.)
+      The preview's plan digest covers the canonical `fingerprint` of every held step, so
+      it binds identity and content digest (or `Unreadable`, with length and change time).
+      `observed` stays the recovery classification;
     * ⟨r2⟩ `observe(&ProjectionRecord, &[AliasName]) -> Vec<AliasObservation>`: a passive
       static re-evaluation (behaviour digest, identity selection, block placement) used
       by doctor, the adapters and setup status.
   * ⟨r2⟩ `projection::git`: the B_git and P_git steps inside Git's lock protocol
     (ADR-0007 §5.6). ⟨r3⟩ B_git goes in the first-read global file chosen by
-    `localenv::git::observe_global`. The displaced file leaves the lock name only at
-    settlement, after the Git item's `item.committed`. ⟨r4⟩ B_git is staged under its
-    random staged name. After `file.staged` is durable, `claim_lock` renames it onto the
-    lock name with no-replace. An entry at the lock name counts as Heimdall's only by an
-    identity a receipt recorded before the entry could be there (rows G0–G3).
+    `localenv::git::observe_global`. ⟨r5⟩ (M2-T01.) The Git item's steps are P_git, the
+    `git_lock` step and B_git, in that order. K is created at its random staged name and
+    receipted, then `claim_lock` renames it onto the lock name with no-replace. B_git is
+    then an ordinary replace or create step under the lock: staged at its own random
+    name, exchanged with the ordinary names (Windows backup
+    `.<name>.hm-displaced-<generation>`), and settled after the Git item's
+    `item.committed`. K is released last. The lock is occupied by K from the claim until
+    that release, also for a create. An entry at the lock name counts as Heimdall's only by
+    K's identity, recorded before the claim (rows K0–K4). Revision 4 claimed with S and
+    used the lock name as B_git's displaced name (rows G0–G3, withdrawn).
   * `projection::cleaner::ProjectionCleaner` implements the M01 port `ResourceCleaner`. ⟨r2⟩
     It deletes only when the generation matches **and** the entry has the identity and digest
     in the `ProjectionLocator`; the deletion itself is identity-bound (ADR-0007 §5.8).
@@ -1014,7 +1227,8 @@ the ruling differs.
       step's displaced entry ever comes before its item's `item.committed`;
   * ⟨r3⟩ recovery state table and durable restore phases (M2-R02; ADR-0007 §5.7):
     * `recovery_table_rows_each_have_a_test_vector`: an in-process model test. For every
-      row ID of ADR-0007 §5.7 (⟨r4⟩ F0–F9d and H0, C1–C8, G0–G3, R1–R6, T0–TH), it builds
+      row ID of ADR-0007 §5.7 (⟨r4⟩ F0–F9d, C1–C8, R1–R6, T0–TH, ⟨r5⟩ and K0–K4; H0 and
+      G0–G3 are withdrawn), it builds
       the observed entries in a scratch directory together with the receipts, runs
       `reconcile`, and asserts the action, the receipts written and the outcome. A row
       without a vector fails the test. ⟨r4⟩ So does a vector whose `recovery::decide`
@@ -1046,22 +1260,39 @@ the ruling differs.
     * `recovery_decide_is_total_over_the_generated_domain`: a pure test that never reads
       the row list. Its generator builds the full product from the type definitions
       alone:
-      * `StepShape` × last receipt (`None` and every `FilePhase` variant, `held`
-        included) × `ItemState`;
+      * ⟨r5⟩ `StepShape` × every `RecoveryState` that `RecoveryState::build` returns for a
+        generated receipt history: every phase sequence of the shape up to its full
+        length, × every item receipt combination, with `held` receipts inserted at every
+        position. Revision 4 drew "last receipt, `held` included" directly (M2-T04);
       * × path × aside × slot, each drawn from `EntryObs` (`Absent`, `Recorded` for each
-        of S, V, D and Q with `Unchanged` and `Modified`, `Foreign`, `Unobservable`).
+        of S, V, D and Q with `Unchanged` and `Modified`, `Foreign`, `Unobservable`), ⟨r5⟩
+        passed through `StepObservation::normalize`. Rejected cells are counted by
+        reason and reported, never dropped silently.
 
       It also runs `decide_item` over every combination of step states and item
-      receipts. Over that whole domain it asserts:
+      receipts. ⟨r5⟩ Each decision is expanded to its concrete effects (ADR-0007 §5.7:
+      `receipt`, `forward_exchange`, `forward_create`, `restore_exchange`, `claim`,
+      `move_to_slot`, `remove_from_slot`, `put_back`, `keep_as_conflict`), and the
+      assertions read the effects, not the decision's name (M2-T05):
       * no panic, and exactly one decision;
-      * every `Unobservable` input yields `Hold`;
-      * a `Settle` that discards names only a `Recorded { content: Unchanged }` entry;
-      * no `Forward`, `Restore`, `Abort` or `Settle` decision moves a `Foreign` entry,
-        except a put-back to its source name or a no-replace move to a `*.hm-conflict-*`
-        name;
-      * a `Restore` is decided only when the path is `Recorded { which: S, content:
-        Unchanged }`;
-      * `Abort` is decided only when the commit step was never exchanged.
+      * every `Unobservable` input yields `Hold`, and `Hold` has no effect but a receipt;
+      * `remove_from_slot` only of `Recorded { which: Q, content: Unchanged }` with
+        `settled` in the state, or, for `Removal`, of the locator's entry unchanged (the
+        cleaner's ownership rule; no `file.settled` is required of it);
+      * a `Foreign` entry is the subject only of `put_back` or `keep_as_conflict`, and a
+        `Modified` entry never of `remove_from_slot`;
+      * `restore_exchange` only with the path `Recorded { S, Unchanged }`, the aside `D`
+        or `V` (either content), and `restore` due or started. With `restore` started, the
+        path `D` or `Foreign` and the aside `S`, the decision has no move: it recognizes
+        the completed restore;
+      * the path is moved only by `forward_exchange` or `forward_create` from a phase
+        before `exchanged`; by `restore_exchange`; by a create rollback (`move_to_slot` of
+        the path) only with the path `Recorded { S, Unchanged }` and the restore due or
+        started; by the cleaner's `move_to_slot` under its locator; or, for `GitLock`, by
+        `claim` from `staged` and by K's release with `release_due`;
+      * `Abort` is decided only when the commit step was never exchanged;
+      * ⟨r5⟩ the same `RecoveryState` with or without inserted `held` receipts gives the
+        same decision.
 
       A coverage report counts the cells that reach each decision kind. The test fails
       if any `HoldReason` variant is unreachable;
@@ -1077,12 +1308,44 @@ the ruling differs.
       Each cell gets its receipts, and `reconcile` runs. Then, for each write that
       `reconcile` made (a receipt, a rename, a removal), the cell is rebuilt, a process
       crash is injected after that write through `ReplaceHook::BeforeReceipt` and the
-      settlement hooks, and `reconcile` runs again. It checks the seven properties of
-      ADR-0007 §5.7: totality, no loss (an inventory of every identity and digest before
-      and after), foreign entries never deleted, the path changed only by the plan, H
-      inert, outcomes matching receipts, and idempotence. The full product runs on every
+      settlement hooks, and `reconcile` runs again. It checks ⟨r5⟩ the eight properties of
+      ADR-0007 §5.7, stated over concrete effects: totality; no loss (an inventory of every
+      identity and digest before and after, with removal only under a durable
+      `file.settled` or the cleaner's locator rule); foreign and modified content
+      preserved; a performed restore told apart from a recognized one; the path changed
+      only by the plan, including the content-checked create rollback through the
+      quarantine and K's claim and release; H inert; outcomes matching receipts; and
+      idempotence. ⟨r5⟩ The identity combinations that normalization rejects are built
+      where the filesystem allows (a hard link to S at the aside, for one), and the test
+      shows they are observed as `Foreign` at both names. The full product runs on every
       target filesystem. A cell that cannot be built on a platform is listed as
       `platform_only`, never skipped silently;
+    * ⟨r5⟩ `recovery_properties_catch_seeded_faults` (M2-T05, negative controls). The
+      property checker of the two tests above runs against deliberately wrong `decide`
+      variants, and each must fail at least one property: a restore exchange over `S′`; a
+      `remove_from_slot` of `V′` or `Q′`; the cleaner removing `L′`; a `Foreign` entry
+      moved anywhere but back; a forward exchange after `item.rolling_back`; a create
+      rollback of `S′`; a second restore exchange where F5b only recognizes one; and K
+      released while B_git is not final. A variant that passes every property fails the
+      test, so the properties stay at full strength;
+    * ⟨r5⟩ `recovery_state_ignores_held_and_keeps_restore_context` (M2-T04). For every
+      generated history, inserting `held` receipts anywhere gives an equal
+      `RecoveryState`. The review's case: two replace steps with the same observation and
+      the same `held` payload, one held after `validated` and one after `restore_started`,
+      build different states. Once the owner brings the files back to a recognizable
+      state (path V and aside S for the first; path S and aside D for the second), the
+      first resumes forward (F2a, T0) and the second restores (F5). The same pair through
+      `reconcile` in a scratch directory gives the same continuations;
+    * ⟨r5⟩ `recovery_state_refuses_contradictory_histories`: `exchanged` without
+      `validated`, `settled` without `settling`, a phase after `settle_conflict`, and both
+      `item.committed` and `item.rolling_back` each build to `Contradictory`. `reconcile`
+      holds the step with `contradictory_receipts`, moves nothing and writes one `held`
+      receipt;
+    * ⟨r5⟩ `observation_normalization_precedence_and_impossible_combinations` (M2-T05). A
+      Q equal to S at the settlement's source is `Q`; a mismatch identity equal to V is
+      `V′`; S's identity at two names, D without a mismatch, V with an absent base, a slot
+      entry with no settlement, and `release_due` on a non-`GitLock` shape are each
+      `Impossible`;
     * `a22_first_adoption_crash_after_create_exchanged_before_post_validation_reconciles`
       (rows C2, C6; create `file.exchanged`). There is no user file, and a process crash
       occurs at `BeforeReceipt(post_validated)` of the user-file create. In one variant
@@ -1111,7 +1374,8 @@ the ruling differs.
       replaces the created user file at `AfterPostValidate`, with B kept in the saved
       bytes. The operation is held: the editor's file stays active, P and the key files
       stay, and nothing reaches the cleaner;
-    * `held_step_moves_nothing_and_reobserves_at_restart` (H0). A held operation is
+    * `held_step_moves_nothing_and_reobserves_at_restart` (⟨r5⟩ formerly H0; now the
+      `RecoveryState` rule that `held` is never an effective phase). A held operation is
       restarted three times with nothing changed: no entry moves and no new `held`
       receipt is written. The owner then moves D back to its name, and the next restart
       continues by F4 and T1;
@@ -1160,6 +1424,32 @@ the ruling differs.
     * `splice_applies_only_to_validated_base`. A base whose bytes no longer hash to
       `base.sha256` gives `CONFIG_CONFLICT` (`user_config_changed`), and the splice is
       never applied to it;
+    * ⟨r5⟩ `materialize_checks_both_digests_from_the_step` (M2-T02). `materialize` gets
+      the `FileStep` and the validated bytes. Each mismatch is refused before `stage`: a
+      base whose digest differs from `base.sha256` (`BaseMismatch`); an output whose
+      digest differs from `target.sha256`, with a `whole` and with a `splice`
+      (`TargetMismatch`); bytes passed for an absent base, or none for a present one; a
+      `whole` with a present base still checks that base;
+    * ⟨r5⟩ `materialize_absent_base_is_insert_only`. With `Base::Absent`, `offset` 0,
+      `remove_len` 0, no `removed_sha256` and a non-empty insert give exactly the insert,
+      checked against the target digest. Each other shape fails: `offset` 1, `remove_len`
+      1, a `removed_sha256`, an empty insert;
+    * ⟨r5⟩ `materialize_range_arithmetic_is_checked`. A proptest (at least 256 cases)
+      compares `materialize` with a reference splice over random bases (empty included),
+      offsets, lengths and inserts, including `u64::MAX` offsets and lengths, an
+      `offset + remove_len` that overflows, an end past the input, and an `offset` past
+      the input with `remove_len` 0. Every out-of-range case returns its `ContentError`;
+      none panics or wraps. Each in-range case matches the reference byte for byte;
+    * ⟨r5⟩ `fresh_writer_creates_absent_ssh_config` and
+      `fresh_writer_creates_absent_global_git_config` (§12.11 item 2). The scratch home has
+      no user SSH config in the first, and neither `~/.gitconfig` nor the XDG file in the
+      second. The plan is computed by one `LocalProjection`, and the `SetupIntent` goes
+      through the store's JSON round trip. A second instance in a child process runs
+      `apply` with no preview. The created file equals the insert-only splice's target
+      byte for byte, with mode 0600 (Windows: owner-only DACL). For the Git file, the
+      lock is held by K from before the create until K's release, and no lock remains
+      afterwards. A crash variant at `BeforeReceipt(exchanged)` of the create recovers
+      through C2 in a third fresh process;
     * `intent_content_nonsecret_and_bounded`. `assert_no_canary` runs over every stored
       `SetupIntent`, with private-key canaries present in the scratch home. No
       `PRIVATE KEY` marker appears in it. A plan with 257 key files, or a P over 256 KiB,
@@ -1211,29 +1501,47 @@ the ruling differs.
   * `git_editor_write_after_final_check_is_restored`;
   * `git_crash_with_lock_holding_staged_or_displaced_reconciles`, ⟨r3⟩ with the lock
     name held until settlement, after the Git item's `item.committed`. ⟨r4⟩ It covers
-    process crashes at `BeforeLockClaim` (G1), `AfterLockClaim` (G2: Heimdall's own lock
-    is released by settling S) and after `file.validated` (the F rows with the lock as
-    the aside name);
+    process crashes at `BeforeLockClaim` (⟨r5⟩ K1), `AfterLockClaim` (⟨r5⟩ K2: Heimdall's own
+    lock is released by settling K) and after `file.validated` (⟨r5⟩ B_git's ordinary F
+    rows, with its own aside names);
+  * ⟨r5⟩ `git_name_transitions_crash_at_every_point_reconciles` (M2-T01; ADR-0007 §5.6
+    "Name transitions" and "Crash vectors"). For each transition of the replace, restore,
+    abort and create tables, a process crash before its receipt and one after it. After
+    restart the test checks the tables' expected names (path, N_s, N_d, lock, N_k), the
+    rows applied and the outcome. It runs on Unix in `check.sh` and on Windows natively,
+    with and without a birth time on Unix (a test-only identity source), and with
+    `ReplaceFileW` on Windows. No vector moves or removes an entry at the lock name that
+    is not a provable K;
+  * ⟨r5⟩ `git_lock_occupied_by_holder_until_settlement` (§12.11 item 1). At every
+    `ReplaceHook` point from `AfterLockClaim` to `BeforeLockRelease`, the hook checks that
+    the lock name holds K, by identity and holder digest, and that a concurrent `git config
+    --global` fails with Git's lock error. This holds for a replace on Unix (D at N_s)
+    and on Windows (D at `.<name>.hm-displaced-<generation>`, the backup name), for a
+    restore, and for a create after its commit point. Afterwards the global file holds
+    exactly the expected bytes, and no lock, N_s, N_d or K remains;
   * ⟨r4⟩ `git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed` (M2-S03;
     the review's test). Each variant uses a foreign lock whose bytes equal the planned
-    target exactly:
+    target exactly, ⟨r5⟩ and is repeated with a foreign lock whose bytes equal K's holder
+    line, because content never proves ownership:
     * the lock is present before the claim: `git_config_locked`, the global file is
-      untouched, S is settled from its staged name, and the lock's identity and bytes are
-      unchanged;
+      untouched, ⟨r5⟩ K is settled from its staged name (B_git is never staged), and the
+      lock's identity and bytes are unchanged;
     * a crash occurs at `BeforeLockClaim`, and the lock is created while the runtime is
-      down. Recovery applies G1: S is settled and the lock is left. The Git item is
-      `not_applied`, and doctor reports `git_config_lock_held` with "not Heimdall's";
+      down. Recovery applies ⟨r5⟩ K1: the claim fails, K is settled from its staged name,
+      and the lock is left. The Git item is `not_applied`, and doctor reports
+      `git_config_lock_held` with "not Heimdall's";
     * a crash occurs at `AfterLockClaim`. The test then removes Heimdall's lock, as Git's
       error message suggests, and creates a foreign lock with the same bytes. Recovery
-      applies G3: the lock is left, with its identity and bytes unchanged;
+      applies ⟨r5⟩ K4: the lock is left, with its identity and bytes unchanged;
     * the previous variant on a filesystem without birth time (a test-only identity
       source with `birth: None`). Even Heimdall's own lock is observed as foreign and
       left in place, and doctor reports it.
 
     No variant deletes or moves a lock that Heimdall's receipts do not name;
   * ⟨r4⟩ `git_lock_claimed_only_after_staged_receipt`. A property over random
-    `ReplaceHook` crash points: in every run, `file.staged` for B_git is durable before
-    the lock name exists. A hook at `AfterLockClaim` reads the receipt log to check
+    `ReplaceHook` crash points: in every run, `file.staged` for ⟨r5⟩ the `git_lock` step
+    (K) is durable before the lock name exists, and B_git's S never appears at the lock
+    name. A hook at `AfterLockClaim` reads the receipt log to check
     this. No run reaches the lock name except by `claim_lock`;
   * `git_rollback_after_user_added_value_keeps_user_value`;
   * `git_rollback_after_edit_inside_block_is_marker_edited`;
@@ -1302,10 +1610,14 @@ the ruling differs.
       unresolved setup operation;
     * `PreviewIntent::Repair { conflict: projection_held, resolution: retry_held |
       keep_held, operation }` builds its plan from `ProjectionWriter::observe_held`. The
-      plan digest covers the canonical observation;
+      plan digest covers the canonical observation ⟨r5⟩ and every held step's content
+      fingerprint (`HeldStep.fingerprint`: identity, type, owner, link count, length,
+      change time, and the SHA-256 or `unreadable`; M2-T03). No byte of an observed entry
+      enters the plan, the result or a receipt;
     * `retry_held` runs `reconcile` for the held operation O inside the repair
       operation's driver and settles the repair with O's resulting state;
-    * `keep_held` re-observes. If the observation still equals the plan's, it writes,
+    * `keep_held` re-observes. If the observation ⟨r5⟩ and every fingerprint still equal
+      the plan's, it writes,
       through the sink, `item.finished{applied}` for each open item that has
       `item.committed` and `item.finished{conflict_preserved}` for the others. It then
       settles O `failed` (`CONFIG_CONFLICT`, effect `partial`), with every entry it left
@@ -1397,6 +1709,23 @@ the ruling differs.
       S and the quarantine entries, and a new apply previews from the files as they are;
     * `keep` after the files changed since its preview: stale, nothing written;
     * neither creates a decision record;
+  * ⟨r5⟩ `held_repair_preview_binds_content_fingerprints` (M2-T03; §12.11 item 3), the two
+    controls. In each, the classification stays the same between preview and repair, so
+    revision 4 would have accepted the `keep`:
+    * **two successive in-place edits.** The operation is held with `active_entry_modified`
+      after an editor rewrote the active S in place to bytes A. `keep` is previewed. The
+      editor then rewrites the same inode to bytes B, which is still S′. `keep` is
+      refused as stale (`CONFIG_CONFLICT`, "preview is stale"), and nothing is written. A
+      new preview binds B, and its `keep` closes the operation;
+    * **two different foreign replacements.** The operation is held with
+      `active_entry_replaced` after a foreign file X1 replaced S. `keep` is previewed. X1
+      is then replaced by X2 in one variant (another identity, same bytes) and rewritten
+      in place in another (same identity, other bytes). Both are still X, and both make
+      `keep` stale;
+    * a variant with an entry over 1 MiB, fingerprinted `unreadable`, is rewritten with
+      the same length: its change time differs, and `keep` is stale;
+    * in every variant, `assert_no_canary` and a byte scan show that no content of the
+      observed entries appears in the plan, the result, the receipts or the logs;
   * ⟨r3⟩ `declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher`
     (M2-R04, with real catalog requests). Withdrawal, a `listing_missing` lapse and
     expiry each happen between `ensure` and `bind`, in-process and after a runtime
@@ -1439,6 +1768,11 @@ the ruling differs.
         eligibility for every result (U0b row 5).
     * `reconcile` observes the materialization.
     * `revoke` removes it. Its outcome is `remote_pending: []` with no expiry.
+    * ⟨r5⟩ **Drop contract** (M2-T06; §5 item 15). Each `prepare`, `reconcile` and
+      `revoke` future stops all its work when it is dropped. It spawns no detached task,
+      makes no blocking call outside the agent client's own bound, and kills any child it
+      started on drop. The runtime drops the future when `adapter_call_timeout` elapses
+      (U0b row 24), so nothing an adapter started can take effect after the timeout.
   * ⟨r2⟩ `state::{interaction_profile(&IdentityRecord, Option<&InteractionDeclaration>, &EndpointObservation,
     now) -> (InteractionKind, EvidenceBasis)}`: the ADR-0007 §7 table, including declaration
     lapse. ⟨r3⟩ It delegates to `heimdall_domain::catalog::eligibility` (U0b phase 1), so
@@ -1484,6 +1818,10 @@ the ruling differs.
   * `enforcement_report_is_exact_for_existing_access`: `client_routing` or
     `unenforced_intent`, `none`, `shared_os_user`, `unknown`.
   * `endpoint_absent_is_service_unavailable_resource_provider`.
+  * ⟨r5⟩ `adapters_stop_all_work_when_dropped` (M2-T06). Against a FakeAgent that stalls at
+    each protocol step in turn, each call of both adapters is dropped at that point. The
+    FakeAgent log shows no message after the drop, the connection is closed, and the
+    test runtime holds no task the adapter spawned.
   * Adversarial: truncated, oversized and slow-loris replies; 1025 identities; a reply of
     the wrong message type; a Unix peer with a different UID (blocked on a second account
     where none exists).
@@ -2034,8 +2372,11 @@ Serialize anything that touches authority semantics, a schema version or the sto
 migration through the integrator (plan §7.3). Revision 1 had the independent review its
 plan asked for (`review-m02-design/review.md`). Revision 2 applied it, and was re-reviewed
 (`review-m02-design/round2.md`). ⟨r3⟩ Revision 3 applied that review and was re-reviewed
-(`review-m02-design/round3.md`). ⟨r4⟩ Revision 4 applies the third review and has not
-itself been re-reviewed.
+(`review-m02-design/round3.md`). ⟨r4⟩ Revision 4 applied the third review and was
+re-reviewed (`review-m02-design/round4.md`). ⟨r5⟩ Revision 5 applies that review. Per
+ADR-0007 §12.11, the integrator verifies T01–T07 against the code as wave 0's first step,
+and the independent review of wave 0's code covers them; no further full design review
+precedes wave 0.
 
 ## 3. Milestone exit mapping (plan §5 M02 "Exit evidence")
 
@@ -2044,13 +2385,14 @@ itself been re-reviewed.
 | **A01**: no remote change, no key export, no mandatory prefix, unaffected aliases still work, personal profile without a repository | U2 unaffected-name and managed-values properties; U4 `a22_apply_then_rollback_*`, `private_key_files_never_opened`; U9 `a01_*` (5 tests, isolation arguments only, two agents); U5 `catalog_*`, `e2e_catalog_then_ensure_bind_*`; ⟨r3⟩ U2 `identity_selection_reports_fingerprint_and_backing` (private keys detected by stat, never opened) | macOS, Linux devbox, Windows 11 with scratch `-F`; WSL disposable distribution and Docker container with **ordinary ssh, no `-F`** |
 | **A11**: ordinary access first-class; non-interactive returns explicit interaction or capability state without a popup or unapproved fallback | U6 `a11_*` (7), `a35_identity_selected_by_public_key_with_identities_only`, ⟨r3⟩ `prepare_marks_uncleared_fallback_entries`, `prepared_facts_from_outcome_drop_interaction_fields`; U0b ⟨r3⟩ `domain_eligibility_rule_table`, `domain_fallback_clearance_rule_table`; U8 `a11_*` (⟨r3⟩ 14). These are `a11_noninteractive_run_refuses_interactive_identity_before_launch`; ⟨r2⟩ `a11_confirm_constrained_native_key_refused_before_agent_contact` (⟨r3⟩ with verified installation and the discriminating control); `a11_declared_none_*`, `a11_multi_pair_*`, `a11_interactive_connect_succeeds_after_provider_approval`; ⟨r3⟩ the five fresh-eligibility tests (M2-R04: withdrawal, re-declaration, expiry, listing lapse, replay, each also across a restart); and the four fallback-identity tests (M2-R05: confirm-constrained inherited key refused with controls, cleared alternative, file-backed never cleared, entry added after `ensure`). U7 ⟨r3⟩ `f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed` (settles F23). U0b ⟨r3⟩ `u0b_eligibility_is_recomputed_per_result_never_taken_from_prepared_facts`. U5 ⟨r3⟩ `declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher`. U9 `a11_noninteractive_errors_exit_codes`, ⟨r3⟩ `a11_cli_listing_lapse_recorded_only_when_runtime_running`, ⟨r2⟩ `a35_wrong_key_exclusive_selection_fails_without_fallback` (the "no unapproved fallback" evidence for exclusive selection). ⟨r3⟩ For non-exclusive selection the no-interaction path refuses uncleared alternatives (§12.5 item 5, qualifying QR4). U3 `a21_noninteractive_authentication_refused_*` (⟨r3⟩ with a fallback variant) | all three, fixture level; native ssh-agent lock and ⟨r2⟩ confirm-constrained key on macOS and Linux; 1Password, Windows system agent (incl. its confirm row) and hardware-key rows blocked (§7) |
 | **A21**: default doctor does no exec, provider contact, signing, network or mutation; explicit probes classified and bounded | U3 `a21_*` (⟨r3⟩ 16 tests, ⟨r4⟩ now 18), including ⟨r2⟩ the hook classification and authorization tests and ⟨r3⟩ `a21_inert_config_still_requires_allow_config_commands`, `a21_match_exec_inserted_after_static_pass_never_runs_unauthorized` and `a21_unreadable_include_declines_even_with_authorization` (M2-R06). ⟨r4⟩ The two M2-S04 controls are `a21_new_glob_member_after_static_pass_is_reported_and_never_listed` and `a21_change_then_revert_is_undetected_and_inventory_never_complete`, with U7's `revert` hook. U9 `a21_cli_*` (⟨r3⟩ 3, ⟨r4⟩ now 4, adding `a21_cli_inventory_wording_never_claims_completeness`); U10 `search_never_probes`, `config_commands_authorization_requires_typed_yes`. ⟨r4⟩ **Evidence wording:** `executed_config_commands` is "constructs found before execution" and is never claimed complete. `config_tree_changed` is reported as a comparison of two observed snapshots, which cannot see a change reverted before the second (ADR-0007 §6) | all three (Windows canary through `cmd.exe`, F13) |
-| **A22**: relevant behaviour correct; dynamic unknowns stay unknown; unrelated content and newer edits survive; generation deterministic | U1 corpus; U2 properties (soundness, round trip, determinism, ⟨r2⟩ consent, ⟨r3⟩ `consent_undetermined_current_or_after_always_needs_decision` and `consent_match_exec_command_changed_with_same_candidates_needs_decision`, M2-R03); U3 `corpus_*` against `ssh -G -F` per client, ⟨r2⟩ `corpus_identity_list_matches_ssh_g`, `bom_and_crlf_acceptance`, ⟨r3⟩ the five discriminating Git observation fixtures (M2-R08). U4 `a22_*` (⟨r3⟩ 42 tests, ⟨r4⟩ now 52). Besides race injection, commit points and identity-bound cleanup, these cover settlement after the update finishes (5, M2-R01), crashes before and after the restore exchange and before each settlement receipt, displaced-entry removal and replacement (5, M2-R02), and quarantine enforcement (3). ⟨r4⟩ They also cover the total recovery function (5, M2-S01): crashes after create `file.exchanged` and create `file.restore_started`, D missing at F2d/F3b, D missing or replaced after a valid post-validation, and a foreign active entry after a create. They cover content-checked discard (4, M2-S02), including the review's in-place edit after the forward exchange followed by rollback and restart, and recovery before a remaining file is staged (1, M2-S05). U4 also has ⟨r3⟩ `recovery_table_rows_each_have_a_test_vector` (every ADR-0007 §5.7 row, ⟨r4⟩ with the decided action checked), ⟨r4⟩ `recovery_decide_is_total_over_the_generated_domain` and `recovery_generated_observations_preserve_every_entry` (generated independently of the row list, with crash injection), `held_step_moves_nothing_and_reobserves_at_restart`, `fresh_writer_executes_intent_without_preview`, `intent_content_bound_to_digests_or_refused`, `splice_applies_only_to_validated_base`, `intent_content_nonsecret_and_bounded`, `file_identity_birth_recorded_on_target_fs`, `production_code_never_unlinks_outside_quarantine`, `exchange_supported_on_target_fs`, `windows_replace_*` (2; ⟨r3⟩ race-free case only) and the Git tests (⟨r3⟩ 12, ⟨r4⟩ now 14, adding `git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed` and `git_lock_claimed_only_after_staged_receipt`, M2-S03). U5 decision, consent and restart tests, ⟨r3⟩ `rollback_after_match_exec_command_edit_needs_decision` and `second_setup_while_one_is_open_is_setup_in_progress`. ⟨r4⟩ Also, for §12.8 item 6, `simultaneous_setup_admissions_admit_exactly_one`, `setup_in_progress_persists_across_restart` and `crash_during_setup_admission_leaves_no_blocker`. For held operations, `held_operation_blocks_setup_except_its_repair` and `held_repair_retry_continues_and_keep_closes_without_moving`. U0b ⟨r3⟩ `integration_store_m02::*` (⟨r4⟩ with the four `insert_setup_operation_*` cases) and ⟨r4⟩ `u0b_setup_admission_goes_through_insert_setup_operation`. U0 ⟨r4⟩ `setup_intent_content_wire_forms`, `file_identity_wire_forms_with_birth`. U9 `a22_cli_setup_conflict_then_repair`, ⟨r4⟩ `a22_cli_held_operation_status_retry_and_keep`. ⟨r2⟩ The ADR-0007 §5.9 cases are stated as unsupported and are not counted, ⟨r3⟩ including the Windows `ReplaceFileW` window (`[U]`) and writes into the quarantine (item 4), ⟨r4⟩ a write after settlement's final content check (item 1, narrowed) and identity reuse without a birth time (item 5) | all three clients (10.3p1, devbox client, in-box 9.5p2); Windows DACL and displaced-identity retention; exchange support ⟨r4⟩ and birth-time support per filesystem |
+| **A22**: relevant behaviour correct; dynamic unknowns stay unknown; unrelated content and newer edits survive; generation deterministic | U1 corpus; U2 properties (soundness, round trip, determinism, ⟨r2⟩ consent, ⟨r3⟩ `consent_undetermined_current_or_after_always_needs_decision` and `consent_match_exec_command_changed_with_same_candidates_needs_decision`, M2-R03); U3 `corpus_*` against `ssh -G -F` per client, ⟨r2⟩ `corpus_identity_list_matches_ssh_g`, `bom_and_crlf_acceptance`, ⟨r3⟩ the five discriminating Git observation fixtures (M2-R08). U4 `a22_*` (⟨r3⟩ 42 tests, ⟨r4⟩ now 52). Besides race injection, commit points and identity-bound cleanup, these cover settlement after the update finishes (5, M2-R01), crashes before and after the restore exchange and before each settlement receipt, displaced-entry removal and replacement (5, M2-R02), and quarantine enforcement (3). ⟨r4⟩ They also cover the total recovery function (5, M2-S01): crashes after create `file.exchanged` and create `file.restore_started`, D missing at F2d/F3b, D missing or replaced after a valid post-validation, and a foreign active entry after a create. They cover content-checked discard (4, M2-S02), including the review's in-place edit after the forward exchange followed by rollback and restart, and recovery before a remaining file is staged (1, M2-S05). U4 also has ⟨r3⟩ `recovery_table_rows_each_have_a_test_vector` (every ADR-0007 §5.7 row, ⟨r4⟩ with the decided action checked), ⟨r4⟩ `recovery_decide_is_total_over_the_generated_domain` and `recovery_generated_observations_preserve_every_entry` (generated independently of the row list, with crash injection), `held_step_moves_nothing_and_reobserves_at_restart`, `fresh_writer_executes_intent_without_preview`, `intent_content_bound_to_digests_or_refused`, `splice_applies_only_to_validated_base`, `intent_content_nonsecret_and_bounded`, `file_identity_birth_recorded_on_target_fs`, `production_code_never_unlinks_outside_quarantine`, `exchange_supported_on_target_fs`, `windows_replace_*` (2; ⟨r3⟩ race-free case only) and the Git tests (⟨r3⟩ 12, ⟨r4⟩ now 14, adding `git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed` and `git_lock_claimed_only_after_staged_receipt`, M2-S03; ⟨r5⟩ now 16, below). U5 decision, consent and restart tests, ⟨r3⟩ `rollback_after_match_exec_command_edit_needs_decision` and `second_setup_while_one_is_open_is_setup_in_progress`. ⟨r4⟩ Also, for §12.8 item 6, `simultaneous_setup_admissions_admit_exactly_one`, `setup_in_progress_persists_across_restart` and `crash_during_setup_admission_leaves_no_blocker`. For held operations, `held_operation_blocks_setup_except_its_repair` and `held_repair_retry_continues_and_keep_closes_without_moving`. U0b ⟨r3⟩ `integration_store_m02::*` (⟨r4⟩ with the four `insert_setup_operation_*` cases) and ⟨r4⟩ `u0b_setup_admission_goes_through_insert_setup_operation`. U0 ⟨r4⟩ `setup_intent_content_wire_forms`, `file_identity_wire_forms_with_birth`. U9 `a22_cli_setup_conflict_then_repair`, ⟨r4⟩ `a22_cli_held_operation_status_retry_and_keep`. ⟨r2⟩ The ADR-0007 §5.9 cases are stated as unsupported and are not counted, ⟨r3⟩ including the Windows `ReplaceFileW` window (`[U]`) and writes into the quarantine (item 4), ⟨r4⟩ a write after settlement's final content check (item 1, narrowed) and identity reuse without a birth time (item 5). ⟨r5⟩ Revision 5 adds, in U4: `git_name_transitions_crash_at_every_point_reconciles` and `git_lock_occupied_by_holder_until_settlement` (M2-T01); `materialize_checks_both_digests_from_the_step`, `materialize_absent_base_is_insert_only`, `materialize_range_arithmetic_is_checked`, `fresh_writer_creates_absent_ssh_config` and `fresh_writer_creates_absent_global_git_config` (M2-T02); `recovery_state_ignores_held_and_keeps_restore_context` and `recovery_state_refuses_contradictory_histories` (M2-T04); `recovery_properties_catch_seeded_faults` and `observation_normalization_precedence_and_impossible_combinations` (M2-T05). In U5 it adds `held_repair_preview_binds_content_fingerprints` (M2-T03), and in U0 the `Some`≠`None` identity assertions | all three clients (10.3p1, devbox client, in-box 9.5p2); Windows DACL and displaced-identity retention; exchange support ⟨r4⟩ and birth-time support per filesystem; ⟨r5⟩ the Git name transitions natively on Windows (`ReplaceFileW` with the `.hm-displaced` backup, the lock held by K) |
 | **A27**: no stdout contamination or shell injection; child streams and status preserved; setup failure distinguishable | U8 `a27_*` (⟨r2⟩ 24 tests; setup failure is distinguishable by `prelaunch_failed`, and an undetectable pre-exec stop is classified `indeterminate`, never "launched"); the SIGPIPE test records a limitation, not fidelity. ⟨r3⟩ A pre-launch eligibility refusal (M2-R04/R05) is also a `prelaunch_failed` record with exit 3, asserted in the U8 `a11_*` fresh-eligibility and fallback tests. U0b ⟨r3⟩ `w0_m02_cli_commands_report_not_available_and_never_panic` covers wave 0 | all three; Windows Ctrl-C and resize through pseudoconsoles (interactive console row blocked, §7) |
 | **A35**: verified executable and identity used; exact limitations; existing-auth not second-class | U6 `a35_identity_selected_by_public_key_with_identities_only`, `adapters_never_send_*`; U7 `ManyKeys`, ⟨r2⟩ `client_command_never_adds_selection_options`; U8 `a27_git_*`, `a27_scp_*`, ⟨r2⟩ Git run tests; U9 `a35_*` (⟨r2⟩ 7 tests: two counting agents, inherited fallback agent- and file-backed, mutation check; ⟨r3⟩ both inherited-fallback tests also show the interactive login succeeding while non-interactive `run` is refused before agent contact), `a01_*`; ⟨r3⟩ U3 and U4 Git fixtures for both global files, includes and conditional includes, and multiplicity (M2-R08); matrix rows (⟨r3⟩ including `git_user_value_shadowed` and the fallback refusal) | macOS and Linux: real disposable `ssh-agent` × {ssh, git, scp, sftp} × {ordinary alias, run-bound} × {wrong key, inherited fallback (agent, file), too many keys, IdentityAgent overriding SSH_AUTH_SOCK}; Windows: fixture pipe agent (selection) × the same; Windows system agent, 1Password live and Linux arm64 blocked (§7) |
 | "A participant can connect without a mandatory work wrapper" | U9 `a01_cli_adopt_*` and the T06 scripted transcript | WSL disposable distribution (ordinary ssh); the human participant walkthrough is an owner input (§7 B7) |
 | "No remote authentication change, key export, or provider-policy bypass was needed" | `a01_no_remote_change`, `a01_no_key_export`, `adapters_never_send_*`, the identity selection tests (IdentityAgent is the provider's own endpoint; nothing relays) | all three |
 | "Does not claim managed unattended access until M03" | U6 `a11_unattended_minimum_is_capability_unavailable_*`; U0b `u0b_unattended_minimum_*`; matrix labels | all three |
 | R-RT-05 (no blind replay) | U8 `run_retry_with_same_request_id_never_relaunches_automatically`; U5 `restart_reconciles_attempted_apply_never_reapplies`; U0b `u0b_restart_dispatches_every_operation_kind`; ⟨r3⟩ U0 `journaled_operation_kinds_match_their_request_kind`; U0b `w0_open_setup_and_catalog_operations_stay_unresolved_at_restart`; U4 `a22_update_crash_*` and `recovery_table_rows_each_have_a_test_vector`; ⟨r4⟩ U4 `held_step_moves_nothing_and_reobserves_at_restart` and `recovery_generated_observations_preserve_every_entry` (property 7, idempotence) | all three |
+| ⟨r5⟩ ADR-0006 §13.20 item 3 (bounded real-adapter calls; a hung preparation's cleanup runs without a restart, R-RT-04) | U0b phase 2: `u0b_prepare_timeout_after_effect_settles_uncertain_and_releases_marker`, `u0b_timed_out_preparation_cleanup_processed_by_supervisor_without_restart`, `u0b_prepare_timeout_while_running_is_outcome_unknown`, `u0b_reconcile_timeout_matches_each_call_sites_error_arm`, `u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup`, `u0b_adapter_bound_covers_only_the_adapter_call`, `u0b_dropped_adapter_future_does_no_later_work`, `u0b_every_adapter_call_is_bounded`; U6 `adapters_stop_all_work_when_dropped`. U0b phase 1's preserve-list tests (`u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery`, `u0b_confirm_with_prepared_facts_keeps_cleanup_ownership`, `u0b_inspect_grants_keeps_cleanup_pending`, `u0b_admit_keeps_backpressure_order`) and the M01 suites they extend | all three (fixture adapters; the real adapters' drop test against the FakeAgent) |
 | R-SE-04 (host trust never weakened) | U2 render refuses host-verification directives; U9 `host_key_substitution_fails_closed_and_nothing_written_to_known_hosts` (MANIFEST row 5 pattern on `LoopbackSshd`); U3 `known_host_mismatch` finding | all three |
 | T06 clean local uninstall | U9 `uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items`, ⟨r2⟩ `uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses` | all three; the WSL distribution with a real home |
 
@@ -2083,7 +2425,7 @@ as such.
 | A01 | ✔ scratch `-F` | ✔ scratch `-F` | ✔ scratch `-F`, fixture pipe agent | ✔ ordinary ssh, no `-F` | macOS and Windows ordinary-ssh-without-`-F` (B2, B3); Linux arm64 native (B9) |
 | A11 | ✔ fixture + disposable ssh-agent lock + ⟨r2⟩ confirm-constrained key (⟨r3⟩ F23 signing control, inherited confirm-constrained fallback, fresh-eligibility cases) | ✔ same | ✔ fixture pipe states, ⟨r3⟩ fresh-eligibility and fallback-clearance cases with the fixture pipe agent | — | 1Password live (B1); Windows system agent, incl. its confirm-constrained row (B4); hardware touch (B6) |
 | A21 | ✔ | ✔ | ✔ | — | — |
-| A22 | ✔ client 10.3p1; ⟨r2⟩ APFS exchange; ⟨r3⟩ quarantine and crash-injection rows | ✔ devbox client; ext4 exchange; ⟨r3⟩ same | ✔ in-box 9.5p2, DACL and displaced-identity retention (⟨r3⟩ race-free only; the internal `ReplaceFileW` window stays `[U]`), ⟨r2⟩ junction reparse row; ⟨r3⟩ quarantine via `MoveFileExW` and handle deletion; symlink cases `platform_only` Unix | ✔ ext4 exchange | ⟨r2⟩ Windows file-symlink reparse row (B10) |
+| A22 | ✔ client 10.3p1; ⟨r2⟩ APFS exchange; ⟨r3⟩ quarantine and crash-injection rows | ✔ devbox client; ext4 exchange; ⟨r3⟩ same | ✔ in-box 9.5p2, DACL and displaced-identity retention (⟨r3⟩ race-free only; the internal `ReplaceFileW` window stays `[U]`), ⟨r2⟩ junction reparse row; ⟨r3⟩ quarantine via `MoveFileExW` and handle deletion; symlink cases `platform_only` Unix; ⟨r5⟩ the Git name transitions (`ReplaceFileW` backup `.hm-displaced`, the lock held by K) | ✔ ext4 exchange | ⟨r2⟩ Windows file-symlink reparse row (B10) |
 | A27 | ✔ pty | ✔ pty | ✔ pseudoconsole, batch rules, ⟨r2⟩ `spawned` record, launcher-kill holder row | — | interactive console Ctrl-C/resize observation (B5, P-W07) |
 | A35 | ✔ real disposable ssh-agent × 4 clients × 2 paths × 5 fixtures | ✔ same | ✔ fixture pipe agent × in-box ssh, Git (System32 via the Q7 include and via run-time injection, and bundled MSYS as a recorded limitation), scp, sftp | ✔ ordinary path | 1Password all platforms (B1); Windows system agent (B4); Linux arm64 (B9) |
 
@@ -2110,7 +2452,8 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
      * `Repair { conflict: ConflictKind, resolution: RepairResolution, ⟨r4⟩ operation:
        Option<OperationId> }`. ⟨r4⟩ `operation` is required for `retry_held` and
        `keep_held` and refused otherwise. Their plan's digest covers the held operation's
-       canonical observation (ADR-0007 §5.7).
+       canonical observation (ADR-0007 §5.7), ⟨r5⟩ including each held step's content
+       fingerprint (`HeldStep.fingerprint`, M2-T03).
    * `Apply { plan_digest: PlanDigest, request_id }`.
    * `Rollback { plan_digest, request_id }`.
    * `Repair { plan_digest, request_id }`.
@@ -2376,7 +2719,11 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
         operation unresolved. ⟨r4⟩ (M2-S05, M2-S01; frozen.) The port gains
         `observe_held(&SetupIntent, &[StageReceipt]) -> Result<Vec<HeldStep>,
         ReconcileError>`, which is passive. `ItemOutcome` gains `Held { steps:
-        Vec<HeldStep> }`, and `ReconcileError` gains `IntentInvalid`. **Contract:** an
+        Vec<HeldStep> }`, and `ReconcileError` gains `IntentInvalid`. ⟨r5⟩ (M2-T03; frozen.)
+        `HeldStep` gains `fingerprint: StepFingerprint { path, aside: Vec<EntryFingerprint>,
+        slot }`, where `EntryFingerprint` is `absent`, `unobservable`, or `present {
+        identity, file_type, owned_by_user, link_count, len, changed_ns, content: sha256 |
+        unreadable }`. It holds no bytes. **Contract:** an
         implementation keeps no state between calls. `apply` and `reconcile` take every
         byte they write from `SetupIntent.files[].content` (item 17), and the base bytes
         they validate in the same call. They never use a preview, a `ProjectionSpec` or a
@@ -2397,6 +2744,11 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
       IdentityRecord, alias: Option<AliasName> }]`.
     * `PrepareOutcome` gains `availability: CredentialAvailability`, `provider:
       Option<ProviderStatus>` and `integration: ConsumerIntegration`.
+    * ⟨r5⟩ `CredentialAdapter`'s documentation gains the **drop contract** (M2-T06): a
+      dropped `prepare`, `renew`, `reconcile` or `revoke` future does no further work and
+      leaves nothing running that could apply an effect later. The runtime bounds every
+      call (`Limits.adapter_call_timeout`, U0b row 24) and answers a timeout with
+      `AdapterError::OutcomeUnknown`. No signature changes.
 16. **Hash inputs.** These extend ADR-0006 §7.2:
     * `setup.apply`, `setup.rollback`, `setup.repair`: environment + `plan_digest` (the plan
       fixes the intent, its options and the files);
@@ -2433,7 +2785,8 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
     * ⟨r2⟩ `domain::projection::{ProjectionSpec, ManagedAliasSpec, ProjectionRecord,
       ProjectionPlan, SetupIntent { plan_digest, intent, generation, ⟨r3⟩ approval:
       Option<ProjectionApproval>, consent: ConsentRecord, files: Vec<FileStep> }, FileStep {
-      role, path, base: Base { absent | present { sha256 } }, target, ⟨r4⟩ content:
+      role ⟨r5⟩ (`user_ssh | managed_ssh | key | git_include | git_managed | git_lock`), path,
+      base: Base { absent | present { sha256 } }, target, ⟨r4⟩ content:
       StepContent, commit: bool, staged_name, displaced_name }, FileIdentity, ProjectionLocator { role, path, identity,
       sha256 }, ConsentRecord { items: BTreeMap<ItemId, ConsentedStates { managed:
       ⟨r3⟩ BehaviorState, restore: BehaviorState, decision: DecisionId }> }, ⟨r3⟩
@@ -2442,21 +2795,34 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
       `{"platform":"windows","volume":<u64>,"file_id":"<32 lowercase hex>"}`. ⟨r4⟩ The
       Unix form gains `"birth":"<integer ns since the epoch, as a decimal string>"`, omitted
       when the filesystem records none (ADR-0007 F25). Two identities are equal when
-      every field present on both is equal and `birth` is present on both or on neither;
+      every field present on both is equal and `birth` is present on both or on neither.
+      ⟨r5⟩ So `Some(birth)` ≠ `None` in both directions, with the same (dev, ino); U0's
+      `file_identity_wire_forms_with_birth` asserts both;
     * ⟨r4⟩ **`StepContent`** (frozen; M2-S05; ADR-0007 §5.7), tagged `kind`:
       * `whole { bytes_b64 }` for P, P_git and key files;
       * `splice { offset: u64, remove_len: u64, removed_sha256: Option<String>, insert_b64 }`
         for the user file and the global Git file. `insert_b64` holds B or B_git, or is
         empty. `removed_sha256` is present when `remove_len > 0`;
-      * `absent` for a target-absent step.
+      * `absent` for a target-absent step;
+      * ⟨r5⟩ `lock_holder { bytes_b64 }` for the `git_lock` step only (M2-T01): one line,
+        `heimdall setup lock, generation <N>, <32 lowercase hex>`, at most 128 bytes, its
+        hex fixed at admission and not part of `plan_digest`. The step has an absent
+        base and target, no displaced name, and `commit: false`. There is at most one,
+        directly before the `git_include` step.
 
       Base64 is RFC 4648 §4, padded. **Binding:** a `whole` decodes to bytes whose
       SHA-256 is `target.sha256`. A `splice` applies only to base bytes whose SHA-256 is
       `base.sha256`, its removed range hashes to `removed_sha256`, and its result hashes
       to `target.sha256`. `SetupIntent::validate` checks every rule it can without the
-      base, and `content::materialize` checks the rest before any write. **Bounds:** P
-      ≤ 256 KiB, a key file ≤ 16 KiB, P_git ≤ 4 KiB, each insert ≤ 4 KiB, ≤ 256 key
-      files, ≤ 1 MiB of decoded content per intent. **Provenance:** `StepContent` is
+      base, and `content::materialize` checks the rest before any write. ⟨r5⟩ (M2-T02.)
+      `materialize` takes the whole `FileStep` and the validated bytes, so both digests are
+      checked where the bytes are made. An **absent base is an empty splice input**: only
+      `offset` 0, `remove_len` 0, no `removed_sha256` and a non-empty insert are valid
+      there, and `validate` already refuses anything else. All range arithmetic is checked
+      (`try_from`, `checked_add`, bounds), and `removed_sha256` is present exactly when
+      `remove_len > 0`. **Bounds:** P ≤ 256 KiB, a key file ≤ 16 KiB, P_git ≤ 4 KiB, each
+      insert ≤ 4 KiB, ⟨r5⟩ a lock holder ≤ 128 bytes, ≤ 256 key files, ≤ 1 MiB of decoded
+      content per intent. **Provenance:** `StepContent` is
       built only from `Rendered`, a type that only `sshconf::render::*` and
       `materialize::public_key_bytes` produce. The intent is nonsecret, and the canary
       scan covers it;
@@ -2509,12 +2875,15 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
           entry: absent|recorded { which: s|v|d|q, content: unchanged|modified } |
           foreign { identity: Option<FileIdentity> } | unobservable }> }`. `HoldReason` =
           `active_entry_replaced | active_entry_modified | displaced_missing |
-          displaced_replaced | third_writer | ambiguous_exchange | unobservable | unmatched`.
+          displaced_replaced | third_writer | ambiguous_exchange | unobservable | unmatched
+          | ⟨r5⟩ contradictory_receipts`.
           Identities only, never content. It replaces revision 3's `restore_conflict`,
           which is withdrawn;
         * `settling { source: displaced|staged|path, ⟨r4⟩ name: String, expected: FileIdentity,
-          ⟨r4⟩ expected_sha256: String, slot: String }`. ⟨r4⟩ `name` is needed because the
-          B_git S can be at its staged name or at the lock name;
+          ⟨r4⟩ expected_sha256: String, slot: String }`. ⟨r4⟩ ⟨r5⟩ `name` makes the receipt
+          self-describing: the lock holder K is settled from its staged name before a
+          claim, and from the lock name (source `path`) after one. Revision 4 justified
+          `name` by B_git's S, which is now never at the lock name;
         * `settled { disposition: quarantined|nothing_displaced }`;
         * `settle_conflict { found: missing|foreign|⟨r4⟩ modified, kept: Vec<PreservedEntry
           { name: String, identity: Option<FileIdentity> }> }`;
@@ -2541,7 +2910,11 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
       requires an ADR-0007 revision with a migration note. ⟨r4⟩ **Migration note for
       revision 4:** `held` is added, `restore_conflict` is withdrawn, and `settling` and
       `settle_conflict` gain fields. This happens before wave 0 freezes the payload. No
-      stored row uses these phases yet, so nothing is migrated.
+      stored row uses these phases yet, so nothing is migrated. ⟨r5⟩ **Migration note for
+      revision 5:** `HoldReason` gains `contradictory_receipts`. `FileStep.role` gains
+      `git_lock`, and `StepContent` gains `lock_holder`. `held` stays a stored phase but is
+      never a recovery input (`RecoveryState`, U4). All of this happens before wave 0
+      freezes the payload, and no stored row uses it, so nothing is migrated.
 18. **Store.** ⟨r3⟩ The bodies are U0b phase 1's (row 20).
     * Migration `0005_existing_access`, `SCHEMA_VERSION` 5:
       * tables `destinations` (alias unique) and `identities` (fingerprint unique);
@@ -2588,7 +2961,8 @@ is not frozen, §1). Every new enum is `#[non_exhaustive]` and `snake_case` on t
 
 The authority-semantics questions are in ADR-0007: Q1–Q8 with their rulings (§12.1, §12.2),
 ⟨r2⟩ QR1–QR6 raised by revision 2 (§12.3, ruled in §12.4), ⟨r3⟩ QR7–QR11 raised by
-revision 3 (§12.6, ruled in §12.7), and ⟨r4⟩ QR12–QR15 raised by revision 4 (§12.9, open). Units build against the recommended answers. P1 and P2 were
+revision 3 (§12.6, ruled in §12.7), ⟨r4⟩ QR12–QR15 raised by revision 4 (§12.9, ruled in
+§12.10), and ⟨r5⟩ QR16–QR17 raised by revision 5 (§12.12, open). Units build against the recommended answers. P1 and P2 were
 ruled in ADR-0007 §12.1, and P3–P6 in §12.4 (P5 as there qualified). ⟨r2⟩ The plan-level
 questions of revision 2, none of them authority semantics:
 
@@ -2645,6 +3019,17 @@ ADR-0007 §12.9, QR12–QR15:
   personal catalog (a managed section is about 300 bytes) and well below the 1 MiB read
   bound that every file step already has.
 
+⟨r5⟩ Plan-level question raised by revision 5. It is not authority semantics; those are
+ADR-0007 §12.12, QR16–QR17:
+
+* ⟨r5⟩ **P12. The adapter-call bound** (U0b row 24; ADR-0007 §7). *Recommended:*
+  `Limits.adapter_call_timeout` defaults to 30 s, must be at least 1 s, and is not a user
+  configuration key in M02 (an application limit, like `max_wait`). Tests set it lower.
+  *Why:* M02's `prepare` does passive local checks and agent listings, each bounded at
+  2 s (U6), so 30 s exceeds any honest call by a wide margin, while a hung call ends well
+  inside the 300 s maximum caller wait. M08's tuning work may expose it, as ADR-0006
+  §13.18 item 5 plans for the revocation cap.
+
 ## 7. Items blocked on owner-only inputs
 
 Each item names the exact input. The work that does not need it proceeds, and rows that do
@@ -2677,6 +3062,7 @@ stay `blocked` (AGENTS.md).
 | Fuzzing of `sshconf::parse_file`, `sshconf::gitedit` and `ipc::agent_client`; support bundles | M08 |
 | ⟨r3⟩ Snapshot evaluation: probes against a validated immutable copy of the configuration tree, needing proven path equivalence (ADR-0007 §6, §12.5 item 6) | when proposed with that proof; not in M02 |
 | ⟨r3⟩ A native test that injects a replacement inside `ReplaceFileW` (ADR-0007 §5.9 item 2) | when an independently justified harness exists; the claim stays `[U]` until then |
+| ⟨r5⟩ An adapter whose effect can land after its call was dropped at the timeout, and a timed-out immediate cleanup call kept and retried instead of counted as made (ADR-0007 §14, QR17 alternative) | M03, with managed credentials, the first adapters with a remote effect |
 
 ## 9. ⟨r2⟩ Change log (revision 2, task M02-T00-design-fix)
 
@@ -2723,3 +3109,17 @@ Source: `tests/evidence/artifacts/review-m02-design/round3.md`, rulings ADR-0007
 | M2-S04 | U3 `probe::snapshot::{take, compare}`, `config_tree_differences`, the list described as found before execution. U3 tests: `a21_new_glob_member_after_static_pass_is_reported_and_never_listed` (with the revision-3-method control), `a21_change_then_revert_is_undetected_and_inventory_never_complete`, revised `a21_match_exec_inserted_after_static_pass_never_runs_unauthorized`. U7 hook `revert`. U9 rendering and `a21_cli_inventory_wording_never_claims_completeness`. U10 label. U11 evidence wording. §3 A21 row. §5 item 11 |
 | M2-S05 | U0 frozen list (`StepContent`, binding, bounds, `Rendered`, stateless writer) and `setup_intent_content_wire_forms`. U4 `content::materialize`, `validate` returning the base bytes, `stage` taking `Materialized`, stateless `LocalProjection`, `ProjectionPlan::intent()`, `ReconcileError::IntentInvalid`. U4 tests: `fresh_writer_executes_intent_without_preview`, `a22_recovery_before_remaining_file_staged_uses_intent_bytes`, `intent_content_bound_to_digests_or_refused`, `splice_applies_only_to_validated_base`, `intent_content_nonsecret_and_bounded`. §5 items 2 (`projection_too_large`), 15 (writer contract), 17 (`FileStep.content`, `StepContent`). P11 |
 | `setup_in_progress` (§12.8 item 6) | U0 frozen list (`Txn::insert_setup_operation`). U0b row 20 and the new row 23 (`admit` with `SetupAdmission`). U0b tests: the four `integration_store_m02::insert_setup_operation_*` cases (two connections racing, every blocking state, the exact repair exception, restart and crash), `u0b_setup_admission_goes_through_insert_setup_operation`. U5 admission through `admit`, plus tests `simultaneous_setup_admissions_admit_exactly_one`, `setup_in_progress_persists_across_restart`, `crash_during_setup_admission_leaves_no_blocker`, `held_operation_blocks_setup_except_its_repair`. §3 A22 row. §5 item 18 |
+
+## 9.3 ⟨r5⟩ Change log (revision 5, task M02-T00-design-fix-4)
+
+Source: `tests/evidence/artifacts/review-m02-design/round4.md`, rulings ADR-0007 §12.11.
+
+| Finding | What changed in this file |
+|---|---|
+| M2-T01 | U0 frozen list (`FileRole::GitLock`, `StepContent::LockHolder`, `StepShape::GitLock`) and `setup_intent_content_wire_forms`. U4 `projection::git` (Git item steps P_git, `git_lock`, B_git; K claims and holds the lock; B_git uses ordinary names), `git::{claim_lock, lock_holder}`, `ReplaceHook::BeforeLockRelease`, `observe_step` at the lock name. U4 tests: `git_name_transitions_crash_at_every_point_reconciles`, `git_lock_occupied_by_holder_until_settlement`, revised `git_crash_with_lock_holding_staged_or_displaced_reconciles`, `git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed` (K rows, holder-bytes variant) and `git_lock_claimed_only_after_staged_receipt`; row IDs K0–K4. §3 A22 row and Windows platform row. §5 items 17 (`role`, `lock_holder`) and 17a (`settling.name`, migration note) |
+| M2-T02 | U0 frozen list (the `materialize` signature, absent-base rule, `ContentError`) and validation cases. U4 `content::materialize(&FileStep, Option<&[u8]>)` with base, splice, whole, lock-holder and target rules and checked arithmetic. U4 tests: `materialize_checks_both_digests_from_the_step`, `materialize_absent_base_is_insert_only`, `materialize_range_arithmetic_is_checked`, `fresh_writer_creates_absent_ssh_config`, `fresh_writer_creates_absent_global_git_config`. §5 item 17 |
+| M2-T03 | U0 frozen list (`EntryFingerprint`, `HeldStep.fingerprint`). U4 `observe_fingerprint`, `observe_held` with fingerprints. U5 held-repair plan digest and `keep_held` comparison; test `held_repair_preview_binds_content_fingerprints` (two successive in-place edits, two different foreign replacements, an unreadable entry, no bytes anywhere). §5 items 2 and 15 |
+| M2-T04 | U0 frozen list (`RecoveryState`, its builder). U4 `recovery::decide(shape, &RecoveryState, &StepObservation)`, `RecoveryState::build`, `HoldReason::ContradictoryReceipts`; generated domain built from receipt histories with `held` inserted; tests `recovery_state_ignores_held_and_keeps_restore_context` (the review's case) and `recovery_state_refuses_contradictory_histories`; `held_step_moves_nothing_and_reobserves_at_restart` re-based. §5 item 17a (`HoldReason`, migration note) |
+| M2-T05 | U0 frozen list (the normalizing constructor). U4 `StepObservation::normalize`; generated assertions over concrete effects (restore exchange vs recognition, the cleaner's locator rule, the content-checked create rollback, K's claim and release); normalization of impossible combinations in both generated tests; `recovery_properties_catch_seeded_faults`; `observation_normalization_precedence_and_impossible_combinations` |
+| M2-T06 | U0b timing (phase 2 carries row 24), new row 24 (bounded adapter calls through `bounded_adapter_call`, per-site timeout handling, marker release, supervisor processing without restart) and eight phase-2 tests; U0b depends on U6. U6 drop contract and `adapters_stop_all_work_when_dropped`. §3 new row for ADR-0006 §13.20 item 3. §5 item 15 (drop contract). §6 P12. §8 row |
+| Interface reconciliation (§12.11 item 7) | U0b first step (verify against `c90d3235`). "Today" corrected: rows 1 (the `waiting` and application arms, with explicit arms for the new kinds), 4 (`stage_commit` too), 6 (`confirm` and `settle_effect_in`), 11 (the full recovery sequence), 16 (`resolved` rule), 17 (`Shutdown` first, the wildcard), 21 (`cleanup_pending`), 23 (`allow_new` before the transaction, `Authenticate` only with `pipeline`). The **preserve** list. Phase-1 tests `u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery`, `u0b_admit_keeps_backpressure_order`, `u0b_confirm_with_prepared_facts_keeps_cleanup_ownership`, `u0b_inspect_grants_keeps_cleanup_pending`. U0 migration test over the M01 `meta` records and counters, and the `FileIdentity` `Some`≠`None` assertions in both directions. §5 item 17 (`FileIdentity` equality) |

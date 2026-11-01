@@ -1,8 +1,9 @@
 # ADR-0007 — Existing-access integration (M02): managed OpenSSH projection, nonexecuting discovery, existing-access adapters, and the process contract
 
-**Status:** proposed, revision 4 · **Date:** 2026-11-01 ·
+**Status:** proposed, revision 5 · **Date:** 2026-11-01 ·
 **Tasks:** M02-T00-design (revision 1), M02-T00-design-fix (revision 2),
-M02-T00-design-fix-2 (revision 3), M02-T00-design-fix-3 (revision 4)
+M02-T00-design-fix-2 (revision 3), M02-T00-design-fix-3 (revision 4),
+M02-T00-design-fix-4 (revision 5)
 **Gates:** the existing-access portions of G03 and G08 (plan §5 M02).
 **Affects:** R-UX-01, R-UX-04, R-CR-01, R-CR-08, R-SS-01, R-SS-02, R-SS-03, R-SS-04,
 R-AP-06, R-RT-04, R-RT-05, R-SE-04, R-DI-04, R-DI-06. Exit cases A01, A11, A21, A22, A27
@@ -22,7 +23,13 @@ finding to the sections that changed. Questions revision 3 could not settle are 
 (`tests/evidence/artifacts/review-m02-design/round3.md`, findings M2-S01–M2-S05) under the
 orchestrator's rulings in §12.8. Text changed by it is marked **⟨r4⟩**. §15.2 maps each
 finding to the sections that changed. Questions revision 4 could not settle are in §12.9.
-**Not decided here:** anything §12.3, §12.6 or ⟨r4⟩ §12.9 lists as an open question.
+**Revision 5:** applies the fourth independent review
+(`tests/evidence/artifacts/review-m02-design/round4.md`, findings M2-T01–M2-T06 and its
+interface reconciliation list) under the orchestrator's rulings in §12.11. Text changed by
+it is marked **⟨r5⟩**. §15.3 maps each finding to the sections that changed. Questions
+revision 5 could not settle are in §12.12.
+**Not decided here:** anything §12.3, §12.6, ⟨r4⟩ §12.9 or ⟨r5⟩ §12.12 lists as an open
+question.
 Authority semantics fixed by the spec, ADR-0004, ADR-0005 or ADR-0006 are not changed.
 
 **Evidence labels.** `[S01]`…`[S34]` are spec §19 sources, read from the pinned snapshots
@@ -77,7 +84,7 @@ OpenSSH and platform facts this design depends on:
 | F19 | OpenSSH resolves `~` and the user configuration from the account's home directory, not `$HOME` | [I]; settled by test `integration_doctor::home_resolution_matches_ssh_g` (m02-plan U3) |
 | F20 | ⟨r2⟩ The IdentityFile default is "~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ecdsa_sk, ~/.ssh/id_ed25519, ~/.ssh/id_ed25519_sk and ~/.ssh/id_mldsa44_ed25519" [S01]. That the defaults are **not** added once any IdentityFile is configured is `[I]` | settled by `integration_sshconf_vs_ssh_g::corpus_identity_list_matches_ssh_g` (`ssh -G` prints the identity list) |
 | F21 | ⟨r2⟩ ssh-agent's default socket is created "in the $HOME/.ssh/agent directory", and by default it cleans up stale sockets there ("-U Instructs ssh-agent not to clean up stale agent sockets under $HOME/.ssh/agent/") | [S30] |
-| F22 | ⟨r2⟩ Git: the precedence of F16; `GIT_SSH_COMMAND` and `core.sshCommand` run through the shell [G03-S13, G03 Q13]. Beyond that, Git's documentation is not pinned, so the following are `[I]`: the scope order (system < global < local < worktree < command) with the last value winning for a single-valued key; `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` entries being command scope that `git -c` overrides; `[include] path`; the `<file>.lock` write protocol; which file `--global` writes; `git config --show-scope` output. ⟨r3⟩ Also `[I]`: a query scoped to one file (`--system`, `--global`) follows `include.path` only with `--includes`; `--global` reads both `$XDG_CONFIG_HOME/git/config` and `~/.gitconfig`, the XDG file first; a query run outside any repository does not follow an `includeIf` whose condition needs one (`gitdir:`, `onbranch:`). ⟨r4⟩ Also `[I]`: a `<file>.lock` that appears through a no-replace rename keeps Git writers out exactly as one Git created with an exclusive open (§5.6) | each is settled by the Git test named where §5.6 or §8 relies on it; ⟨r3⟩ the three added facts by `git_queries_use_includes_flag_and_expand_includes`, `git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win` and `git_value_through_conditional_include_is_counted_conditional`; ⟨r4⟩ the lock fact by `git_writer_during_heimdall_lock_fails_cleanly_nothing_lost`, which now claims the lock by rename |
+| F22 | ⟨r2⟩ Git: the precedence of F16; `GIT_SSH_COMMAND` and `core.sshCommand` run through the shell [G03-S13, G03 Q13]. Beyond that, Git's documentation is not pinned, so the following are `[I]`: the scope order (system < global < local < worktree < command) with the last value winning for a single-valued key; `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` entries being command scope that `git -c` overrides; `[include] path`; the `<file>.lock` write protocol; which file `--global` writes; `git config --show-scope` output. ⟨r3⟩ Also `[I]`: a query scoped to one file (`--system`, `--global`) follows `include.path` only with `--includes`; `--global` reads both `$XDG_CONFIG_HOME/git/config` and `~/.gitconfig`, the XDG file first; a query run outside any repository does not follow an `includeIf` whose condition needs one (`gitdir:`, `onbranch:`). ⟨r4⟩ Also `[I]`: a `<file>.lock` that appears through a no-replace rename keeps Git writers out exactly as one Git created with an exclusive open (§5.6). ⟨r5⟩ Also `[I]`: Git never reads, and never renames, a lock it did not create, so a lock whose content is not configuration (Heimdall's lock holder K, §5.6) keeps writers out in the same way | each is settled by the Git test named where §5.6 or §8 relies on it; ⟨r3⟩ the three added facts by `git_queries_use_includes_flag_and_expand_includes`, `git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win` and `git_value_through_conditional_include_is_counted_conditional`; ⟨r4⟩ the lock fact by `git_writer_during_heimdall_lock_fails_cleanly_nothing_lost`, which now claims the lock by rename ⟨r5⟩ with the lock holder K |
 | F23 | ⟨r2⟩ An agent key can carry a confirmation constraint (`ssh-add -c`; the agent asks through ssh-askpass before each use). ssh-add(1) is not pinned, so this is `[I]`. The constraint is not visible in an identity listing, so it cannot be detected passively | ⟨r3⟩ settled by `f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed`, an authorized disposable signing control: the constrained key prompts once per signature, the same key added without `-c` prompts zero times, and the two listings are equal. The refusal test `run_m02::a11_confirm_constrained_native_key_refused_before_agent_contact` runs on that verified installation (§12.5 item 8) |
 | F24 | ⟨r2⟩ Atomic exchange of two directory entries: Linux `renameat2(RENAME_EXCHANGE)`, macOS `renameatx_np(RENAME_SWAP)`. Windows has no exchange; `ReplaceFileW` with a backup name keeps the displaced file there. None of these is pinned. Support per filesystem, and what `ReplaceFileW` captures as the backup under a concurrent replacement, are `[I]`/`[U]` | `integration_projection::exchange_supported_on_target_fs`, ⟨r3⟩ `windows_replace_retains_displaced_identity_without_race` (the race-free case only). What `ReplaceFileW` captures under a replacement **inside** the call stays `[U]` in M02 (§5.9 item 2) |
 | F25 | ⟨r4⟩ A Unix (device, inode) pair can be reused once the file's last link is gone. A birth time (Linux `statx` `STATX_BTIME`, macOS `st_birthtimespec`) distinguishes a reused inode where the filesystem records one. Whether each target filesystem records it (APFS, ext4, the container overlay) is `[I]`/`[U]`. Windows' 128-bit file ID is taken as not reused while the volume is mounted (`[I]`) | `integration_projection::file_identity_birth_recorded_on_target_fs`; the Windows claim is not tested in M02 (§5.9 item 5) |
@@ -357,10 +364,18 @@ primitive writes comes from the `SetupIntent` (§5.7), never from a preview held
    hex. ⟨r4⟩ The new bytes come from the step's `content` in the `SetupIntent` (§5.7): the
    whole target for a Heimdall-owned file, or the recorded splice applied to the bytes just
    validated in step 2 for the user file and the global Git file. Their SHA-256 must equal
-   the step's target digest, or nothing is written. For B_git the staged name is random
-   too. Git's lock name is taken afterwards by a no-replace rename of the receipted staged
-   file (§5.6). Revision 3 staged B_git directly at the lock name, which left a crash window
-   with no receipt naming the entry (M2-S03).
+   the step's target digest, or nothing is written. ⟨r5⟩ (M2-T02.) The materializer takes
+   the whole `FileStep`, so it checks the validated bytes against the step's base digest
+   and its output against the step's target digest itself. When the base is absent (a
+   first adoption with no user file, or no global Git file), the splice is applied to an
+   empty input, which admits only an insert at offset 0 that removes nothing (§5.7
+   "Bound to the digests"). ⟨r5⟩ (M2-T01.) B_git is staged like any other step, under
+   its own random staged name, and its exchange uses the normal names of step 5. Git's
+   lock is held by a separate Heimdall entry, the lock holder K, never by S or D (§5.6).
+   Revision 4 claimed the lock with S itself, so the exchange then had no staged name to
+   use, and on Windows the lock name would have been both the replacement and the backup.
+   Revision 3 staged B_git directly at the lock name, which left a crash window with no
+   receipt naming the entry (M2-S03).
 4. **Recheck at the boundary.** `fstat` the validated descriptor again, `lstat` the path,
    and re-read the bytes. The entry must still be V, with the same type, owner, link
    count, mode and digest. This narrows the race window; it does not close it. ⟨r3⟩ Then
@@ -377,6 +392,9 @@ primitive writes comes from the `SetupIntent` (§5.7), never from a preview held
      backup name (`[I]`, settled by ⟨r3⟩ `windows_replace_retains_displaced_identity_without_race`
      for the race-free case; §5.9 item 2). A file
      the plan expects absent is moved with `MoveFileExW` without `REPLACE_EXISTING`.
+   * ⟨r5⟩ The B_git step uses these same names: its staged name, and on Windows its own
+     displaced name. Git's lock name is never an argument of the exchange; K occupies it
+     throughout (§5.6 "Name transitions").
 6. **Post-validate.** D must be a regular file with identity V and the base digest, and the
    path must be S. ⟨r3⟩ The verdict is recorded (`file.post_validated`). On a mismatch it
    also records the identity actually found at the displaced name, because a restore must
@@ -409,7 +427,8 @@ primitive writes comes from the `SetupIntent` (§5.7), never from a preview held
      state the item is in, so the owner decides instead (§5.7 "Outcome H").
 8. **Settle** ⟨r3⟩ (called only by the transaction). The entry left aside is removed
    through the quarantine: D after a committed forward step, S after a restore, or an
-   unexchanged S.
+   unexchanged S. ⟨r5⟩ The Git lock holder K is settled the same way, from the lock name,
+   after every other entry of the Git item (§5.6).
    1. Write `file.settling` with the source name, the expected identity, ⟨r4⟩ the expected
       digest (the target digest for S, the base digest for D) and a fresh quarantine name
       (128 random bits).
@@ -731,37 +750,59 @@ blocks the item.
 Git's lock protocol (F22 `[I]`). ⟨r4⟩ (M2-S03; §12.8 item 3.) The lock name `<global
 file>.lock` is deterministic, so any Git writer can create it. Its content therefore proves
 nothing: a lock holding exactly the bytes Heimdall planned can still be another writer's.
-Heimdall takes the lock only through an entry that a receipt already names:
+Heimdall takes the lock only through an entry that a receipt already names.
 
-1. ⟨r4⟩ **Stage under a random name, then claim.** Heimdall stages the new bytes at the
-   step's random staged name (§5.3 step 3) and writes `file.staged` with S's identity.
+⟨r5⟩ (M2-T01; §12.11 item 1.) That entry is the **lock holder K**: a small Heimdall file
+whose only job is to occupy the lock name. It is a step of its own in the intent (role
+`git_lock`, §5.7), separate from B_git's S and D. Revision 4 claimed the lock with S itself.
+The exchange then had no staged name to take S from, and on Windows `ReplaceFileW` would
+have had to use the lock name as both its replacement and its backup (M2-T01).
+
+1. ⟨r5⟩ **Stage K, then claim.** Heimdall creates K at the lock step's random staged name
+   (128 bits, fixed in the intent) with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode 0600 (Windows:
+   an owner-only DACL). It writes the holder bytes from the intent, fsyncs, and writes
+   `file.staged` with K's identity. The holder bytes are one line, `heimdall setup lock,
+   generation <N>, <32 hex>`, whose hex part is 128 random bits fixed at admission.
    **That receipt is the ownership record.** It is durable before the lock name exists,
-   and its token is S's file identity, which no content can imitate (F25: device, inode
+   and its token is K's file identity, which no content can imitate (F25: device, inode
    and birth time on Unix, the 128-bit file ID on Windows). Heimdall then claims the lock
-   by renaming the staged file onto `<global file>.lock` with no-replace (Linux
-   `RENAME_NOREPLACE`, macOS `RENAME_EXCL`, Windows `MoveFileExW` without
-   `MOVEFILE_REPLACE_EXISTING`). The lock name appears atomically, and only if it was
-   absent, which is what Git's exclusive create guarantees (F22 `[I]`). `EEXIST` gives
-   `CONFIG_CONFLICT` with reason `git_config_locked`. Nothing is written to the global
-   file, and S is settled from its staged name. Revision 3 created the lock name directly
-   with exclusive create. A crash before `file.staged` then left an entry at the lock name
-   that no receipt named, and recovery row F0x could delete another writer's lock after
-   checking only its content (M2-S03).
-2. Under the lock it revalidates the global file against the plan's base.
-3. It checks that the new bytes parse: `git config --file <lock name> --no-includes --list`
-   (a local query).
-4. It exchanges. The displaced file now sits at the lock name, which keeps Git writers out
-   until post-validation ⟨r3⟩ and settlement finish.
+   by renaming K onto `<global file>.lock` with no-replace (Linux `RENAME_NOREPLACE`,
+   macOS `RENAME_EXCL`, Windows `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`). The
+   lock name appears atomically, and only if it was absent, which is what Git's exclusive
+   create guarantees (F22 `[I]`). `EEXIST` gives `CONFIG_CONFLICT` with reason
+   `git_config_locked`. Nothing is written to the global file, and K is settled from its
+   staged name.
+   * K's random line is **not** a proof of ownership (§11): ownership is K's identity.
+     The line only gives every discard of K (§5.3 step 8) an expected digest that no Git
+     writer's lock has, so a discard can never remove another writer's lock, even where
+     identities have no birth time. Git never reads or renames a lock it did not create,
+     so K's content never becomes Git configuration (F22 `[I]`).
+   * Revision 3 created the lock name directly with exclusive create. A crash before
+     `file.staged` then left an entry at the lock name that no receipt named, and
+     recovery row F0x could delete another writer's lock after checking only its content
+     (M2-S03).
+2. Under the lock, B_git is staged at its own random staged name (§5.3 step 3,
+   `file.staged` with S). The global file is revalidated against the plan's base (§5.3
+   steps 2 and 4, `file.validated`), or found absent.
+3. It checks that the new bytes parse: `git config --file <B_git's staged name>
+   --no-includes --list` (a local query). ⟨r5⟩ Revision 4 ran this on the lock name, which
+   then held S.
+4. It exchanges with the ordinary names of §5.3 step 5. On Unix the exchange swaps B_git's
+   staged name and the path, so D lands at the staged name. On Windows it is
+   `ReplaceFileW(path, staged name, backup = .<name>.hm-displaced-<generation>)`. When the
+   global file is absent it is a no-replace rename of the staged name onto the path. ⟨r5⟩
+   **K stays at the lock name throughout**, which keeps Git writers out until settlement
+   ends.
 5. ⟨r3⟩ The Git item's transaction check follows: P_git still has its staged identity and
    target digest. Then comes `item.committed` for the item. Only after that does
-   settlement (§5.3 step 8) move the displaced file from the lock name into the
-   quarantine, which also releases Git's lock (M2-R01).
+   settlement (§5.3 step 8) move D into the quarantine (M2-R01). ⟨r5⟩ Then K is settled
+   from the lock name into the quarantine, which releases Git's lock. A restore and an
+   abort end the same way: S is settled first, then K. K is always the Git item's last
+   settled entry, and `item.finished` follows it.
 
-⟨r4⟩ **Who owns the lock name.** An entry at the lock name is Heimdall's only when its
-identity is one a receipt recorded **before** that entry could be at the lock name:
-
-* S, recorded by `file.staged` before the claim;
-* D, recorded as V by `file.validated` before the exchange put it there.
+⟨r4⟩ **Who owns the lock name.** ⟨r5⟩ An entry at the lock name is Heimdall's only when it
+has K's identity, which the lock step's `file.staged` recorded **before** K could be at the
+lock name. B_git's S and D are never at the lock name. Revision 4 also counted S and D there.
 
 Anything else is foreign, whatever its content, and is never moved or removed. That includes
 an entry with equal bytes and another identity, and any entry when no receipt for the step
@@ -769,12 +810,96 @@ exists. **At recovery**, on a Unix filesystem that records no birth time (F25), 
 inode) pair at the lock name does not prove ownership. While Heimdall was down, the user may
 have removed its lock (Git's error message suggests it), and Git may have created a new one
 on the freed inode. There recovery observes every entry at the lock name as X (QR15). Within
-one run this does not arise: the live path holds the lock from claim to settlement, and the
-lock's identity is checked at each step. Heimdall never deletes a lock. Releasing it means
-moving Heimdall's own entry into the quarantine (§5.3 step 8).
+one run this does not arise: the live path holds the lock from claim to release, and K's
+identity ⟨r5⟩ and holder digest are checked at each step. Heimdall never deletes a lock.
+Releasing it means moving K into the quarantine (§5.3 step 8).
 
 During that interval, Git commands that write configuration fail with Git's own lock error,
 and nothing is lost. Editors that ignore the lock are covered by §5.3 step 7 and §5.9.
+
+⟨r5⟩ **Name transitions** (M2-T01; §12.11 item 1). The tables state which name holds which
+entry after each transition. N_s is B_git's random staged name, and N_d its Windows displaced
+name `.<name>.hm-displaced-<generation>`. N_k is K's random staged name, and "lock" is
+`<global file>.lock`. On Unix, D lands at N_s, which is therefore also B_git's displaced name
+(§5.7). ∅ is no entry, and V the validated global file. Where Unix and Windows differ, a
+cell reads "Unix / Windows", and "—" marks a name that platform does not use. Each receipt
+is written after its transition and before the next one.
+
+*Replace* (the global file exists):
+
+| # | Transition | Receipt | path | N_s | N_d (Windows) | lock | N_k |
+|---|---|---|---|---|---|---|---|
+| 0 | start | — | V | ∅ | ∅ | ∅ | ∅ |
+| 1 | create K at N_k, write the holder bytes, fsync | K: `file.staged{K}` | V | ∅ | ∅ | ∅ | K |
+| 2 | claim: no-replace rename N_k → lock | — | V | ∅ | ∅ | K | ∅ |
+| 3 | stage S at N_s | B_git: `file.staged{S}` | V | S | ∅ | K | ∅ |
+| 4 | revalidate and recheck the global file; parse-check N_s | B_git: `file.validated{V}` | V | S | ∅ | K | ∅ |
+| 5U | Unix: exchange N_s ↔ path | B_git: `file.exchanged` | S | D | — | K | ∅ |
+| 5W | Windows: `ReplaceFileW(path, N_s, backup = N_d)` | B_git: `file.exchanged` | S | ∅ | D | K | ∅ |
+| 6 | post-validate | B_git: `file.post_validated` | S | D / ∅ | — / D | K | ∅ |
+| 7 | the Git item's check passes | `item.committed` | S | D / ∅ | — / D | K | ∅ |
+| 8 | settle D (Unix from N_s, Windows from N_d) | B_git: `file.settling`, `file.settled` | S | ∅ | ∅ | K | ∅ |
+| 9 | release: settle K from the lock | K: `file.settling{source: path}`, `file.settled` | S | ∅ | ∅ | ∅ | ∅ |
+| 10 | — | `item.finished{applied}` | S | ∅ | ∅ | ∅ | ∅ |
+
+*Restore* (after 6 on a mismatch, or after `item.rolling_back`):
+
+| # | Transition | Receipt | path | N_s | N_d (Windows) | lock |
+|---|---|---|---|---|---|---|
+| R1 | check that the path is S with the target digest (§5.3 step 7) | B_git: `file.restore_started` | S | D / ∅ | — / D | K |
+| R2U | Unix: exchange N_s ↔ path | B_git: `file.restored` | D | S | — | K |
+| R2W | Windows: `ReplaceFileW(path, N_d, backup = N_s)` | B_git: `file.restored` | D | S | ∅ | K |
+| R3 | settle S from N_s | B_git: `file.settling`, `file.settled` | D | ∅ | ∅ | K |
+| R4 | release K | K: `file.settling{source: path}`, `file.settled` | D | ∅ | ∅ | ∅ |
+| R5 | — | `item.finished{restored}` | D | ∅ | ∅ | ∅ |
+
+*Abort* (before 5): S is settled from N_s if it was staged. K is then settled from the lock,
+or from N_k if it was never claimed. `item.finished{not_applied}` follows.
+
+*Create* (no global file exists; the same on Unix and Windows):
+
+| # | Transition | Receipt | path | N_s | lock | N_k |
+|---|---|---|---|---|---|---|
+| 1–3 | as for a replace | as for a replace | ∅ | S | K | ∅ |
+| 4 | check that the path is absent; parse-check N_s | B_git: `file.validated{absent}` | ∅ | S | K | ∅ |
+| 5 | no-replace rename N_s → path (Linux `RENAME_NOREPLACE`, macOS `RENAME_EXCL`, Windows `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`) | B_git: `file.exchanged` | S | ∅ | K | ∅ |
+| 6–7 | post-validate; the check passes | `file.post_validated`, `item.committed` | S | ∅ | K | ∅ |
+| 8 | nothing is displaced | B_git: `file.settled{nothing_displaced}` | S | ∅ | K | ∅ |
+| 9–10 | release K; finish | K: `file.settling`, `file.settled`; `item.finished{applied}` | S | ∅ | ∅ | ∅ |
+
+A create's restore settles the path's S, which must have the target digest, into the
+quarantine (`file.restore_started`, `file.settling{source: path}`, `file.settled`,
+`file.restored`), and then releases K. **The lock stays occupied after a create's commit
+point**, because S leaves N_s, never the lock name. Revision 4 would have released Git's
+lock at the create itself.
+
+Since K is the only Heimdall entry ever at the lock name, the B_git step recovers by the
+ordinary replace and create rows of §5.7, with its ordinary aside names. Only the lock
+step has rows of its own (K0–K4, §5.7).
+
+**Crash vectors.** Each transition above gets two process crashes, one before its receipt
+and one after it. Each runs on Unix and on Windows, for a replace and for a create
+(m02-plan U4 `git_name_transitions_crash_at_every_point_reconciles`). Each vector states
+the rows that apply and the outcome:
+
+| Crash | Rows | Outcome after restart |
+|---|---|---|
+| after 1, before or after `file.staged{K}` | K0x, then K1 | T0 resumes and claims → `applied`. With a lock created by another writer while Heimdall was down, the claim gets `EEXIST`: abort, `git_config_locked`, K settled from N_k, the other lock untouched |
+| after 2, before 3 | K2 | T0 resumes → `applied` |
+| after 3 or 4 | B_git F0x/F1/F2a or C1; K2 | T0 resumes (the path is revalidated) → `applied` |
+| after 5, before `file.exchanged` | B_git F2b or C2; K2 | the exchange is recognized; continue → `applied` |
+| after 6 | B_git F4 or C5; T1 | the check is re-run: `applied`, or a restore → `restored` |
+| after 7 | T2; F4d or C5b; K2 | D settled, K released → `applied` |
+| inside 8 or 9 | the settlement rows F8–F9d, on B_git or on the lock step | settlement completes; K released → `applied` |
+| after R1, or after R2 before `file.restored` | F5 or C7; F5b | restore done or recognized → `restored` |
+| inside R3 or R4 | the settlement rows | completes → `restored` |
+
+Each vector also runs on Unix **without a birth time** (a test-only identity source). After
+any crash from 2 on, K at the lock is observed as X (K4). It is never moved or removed, and
+doctor reports `git_config_lock_held` for the owner. The B_git step finishes what its own
+rows allow. Before 5 the item aborts (`not_applied`), because T0 resumes only under a lock
+it can prove is Heimdall's. From 5 on it ends `applied` or `restored` as above, with the
+lock step ending `settle_conflict{foreign}` and the lock left in place.
 
 **Effective selection.** The plan carries `effective_before` and `effective_after`
 (`GitSshSelection`, §10), computed from the system and global scopes. A repository's own
@@ -785,13 +910,15 @@ value, or an environment override, still wins at run time (§8).
 * P_git and B_git are file steps of the same `SetupIntent` (§5.7), placed after the SSH
   commit point, with resources `ConfigProjection` in the roles `git_managed` and
   `git_include`.
-* **Crash with the lock name occupied.** ⟨r3⟩ Recovery follows the §5.7 table. ⟨r4⟩ The
-  B_git step has a random staged name and uses the lock name as its displaced name. Before
-  `file.validated`, rows G1–G4 decide from where S is found. From `file.validated` on, the
-  F rows apply, with the lock name as the aside name. An entry at the lock name that the
-  ownership rule above does not make Heimdall's is never moved or removed, whatever its
-  content. The Git item is then `not_applied` with `git_config_locked`, or held, as the
-  rows say.
+* ⟨r5⟩ The lock holder K is a third file step of the Git item, role `git_lock`, placed
+  before B_git (§5.7). It has no resource and never outlives the operation.
+* **Crash with the lock name occupied.** ⟨r3⟩ Recovery follows the §5.7 table. ⟨r5⟩ B_git
+  recovers by the ordinary replace or create rows, with its own staged name and, on
+  Windows, its own displaced name. The lock step recovers by rows K0–K4. An entry at the
+  lock name that the ownership rule above does not make Heimdall's is never moved or
+  removed, whatever its content. The Git item is then `not_applied` with
+  `git_config_locked`, or ends as its B_git rows say, or is held. Revision 4 used the lock
+  name as B_git's displaced name (rows G0–G3, withdrawn).
 
   Doctor reports `git_config_lock_held`, with the path, for as long as that state lasts.
   ⟨r4⟩ The finding also says whether a receipt makes the lock Heimdall's. When none does,
@@ -799,9 +926,10 @@ value, or an environment override, still wins at run time (§8).
   does that itself.
 
 **Rollback** removes B_git under the lock, only when its bytes equal the recorded block (else
-`marker_edited`), and then P_git through the cleaner. A value the user added later survives
-byte-for-byte. Because that value already wins, removing B_git then changes no effective
-selection, and §5.2 needs no decision.
+`marker_edited`), and then P_git through the cleaner. ⟨r5⟩ It holds the lock through K and
+follows the replace transitions above, with a splice that removes B_git. A value the user
+added later survives byte-for-byte. Because that value already wins, removing B_git then
+changes no effective selection, and §5.2 needs no decision.
 
 **Partial application.** The SSH and Git items have separate commit points. If the Git item
 fails after the SSH item committed, SSH stays applied and the result is `partial` with the
@@ -822,7 +950,8 @@ SetupIntent {
   files: Vec<FileStep>,
 }
 FileStep {
-  role: user_ssh | managed_ssh | key(fp) | git_include | git_managed,
+  role: user_ssh | managed_ssh | key(fp) | git_include | git_managed
+        | git_lock,                                                  ⟨r5⟩
   path,
   base: Absent | Present { sha256 },
   target: Absent | Present { sha256 },
@@ -836,14 +965,26 @@ StepContent =                                                        ⟨r4⟩
   | Splice { offset, remove_len,      // the user file, the global Git file:
              removed_sha256, insert } //   B or B_git inserted, or removed
   | Absent                            // target absent: the cleaner removes it
+  | LockHolder { bytes }              // ⟨r5⟩ K, the git_lock step (§5.6)
 ```
 
 ⟨r3⟩ `approval` is the projection-specific approval, distinct from the declaration
 approval (§10; §12.5 item 7). The staged and displaced names are fixed in the intent
 before anything is written. On Unix the displaced name is the staged name, because the
-exchange leaves D there. On Windows it is `.<name>.hm-displaced-<generation>`. ⟨r4⟩ For
-B_git the staged name is random and the displaced name is the lock name on both
-platforms (§5.6).
+exchange leaves D there. On Windows it is `.<name>.hm-displaced-<generation>`. ⟨r5⟩ This
+holds for B_git too (M2-T01): its staged name is random, and its displaced name is
+whichever of these its platform uses. Revision 4 made the lock name B_git's displaced
+name, which on Windows was also where S had been claimed.
+
+⟨r5⟩ **The `git_lock` step** (§5.6). Its path is `<global file>.lock`, its base and target
+are `Absent`, `commit` is false, and its `content` is `LockHolder`. Its staged name is
+random, and it has no displaced name. Its holder bytes, like the staged names, are fixed at
+admission and are not part of `plan_digest`. `SetupIntent::validate` accepts a
+`LockHolder` only in this exact form: one line, `heimdall setup lock, generation <N>,
+<32 lowercase hex>`, with N the intent's generation. It allows exactly one `git_lock`
+step, only when the plan has a `git_include` step, and only directly before it. The step
+is in no resource and no `ProjectionSummary.files`. The preview names the lock it will
+hold.
 
 ⟨r4⟩ **Target content is durable** (M2-S05; §12.8 item 5). The intent carries every byte
 the writer will write. `ProjectionWriter::apply` and `reconcile` read the bytes from the
@@ -869,9 +1010,33 @@ or a public key.
   result hashes to `target.sha256`. Anything else is refused before the first write, and
   the operation is left unresolved (`ReconcileError::IntentInvalid`). Because
   `plan_digest` binds every target digest, an approval also covers the bytes.
+* ⟨r5⟩ **The materializer checks both digests itself** (M2-T02; §12.11 item 2). It takes
+  the whole `FileStep`, not only its content, together with the bytes §5.3 step 2
+  validated, or none when the base is absent:
+  1. **Base.** A `Present` base needs bytes whose SHA-256 is `base.sha256`; otherwise the
+     result is `CONFIG_CONFLICT` (`user_config_changed` or `managed_file_edited`), as in
+     §5.3 step 2. An `Absent` base needs no bytes, and bytes given for it are refused.
+  2. **An absent base is an empty splice input.** A splice over an absent base is applied
+     to the empty byte string. Only an insert-only range is valid there: `offset` 0,
+     `remove_len` 0, no `removed_sha256`, and a non-empty `insert`. This is the first
+     adoption with no user SSH configuration, and B_git in a new global Git file.
+  3. **Checked range arithmetic.** `offset` and `remove_len` are converted from `u64`
+     with checked conversions. `offset + remove_len` is a checked addition, and the
+     result must not exceed the input's length. `removed_sha256` is present exactly when
+     `remove_len > 0` and must equal the removed range's SHA-256. The output length is
+     computed with checked arithmetic and must stay within the bounds below. Any failure
+     is `IntentInvalid`, and nothing is written.
+  4. **Target.** The output's SHA-256 must equal `target.sha256`. A step whose target is
+     `Absent` has nothing to materialize; the cleaner removes it (§5.8). The `git_lock`
+     step's `LockHolder` is the exception: its bytes are written as they are, after the
+     format check above.
+
+  `SetupIntent::validate` runs every check that needs no base bytes when the intent is
+  built and again when it is read: the variant matches the role, and an absent base
+  carries only an insert-only splice.
 * **Bounded.** A whole target is at most 256 KiB (P), 16 KiB (a key file) or 4 KiB
-  (P_git). A splice inserts at most 4 KiB. One intent holds at most 256 key files and
-  1 MiB of content in total. A plan beyond any bound is refused at preview with
+  (P_git). A splice inserts at most 4 KiB. ⟨r5⟩ A lock holder is at most 128 bytes. One
+  intent holds at most 256 key files and 1 MiB of content in total. A plan beyond any bound is refused at preview with
   `CAPABILITY_UNAVAILABLE`, reason `projection_too_large`, and nothing is admitted.
 * **Encoding.** Bytes are base64 (RFC 4648 §4, padded) on the wire, so a BOM and CRLF
   line endings survive exactly.
@@ -882,14 +1047,14 @@ transaction before the next step begins:
 
 | Receipt | Written | Records |
 |---|---|---|
-| `file.staged` | after S was created and fsync'd; ⟨r4⟩ for B_git, before the lock name is claimed, which makes it the lock's ownership record (§5.6) | S's identity |
+| `file.staged` | after S was created and fsync'd; ⟨r5⟩ for the `git_lock` step, after K was created and fsync'd and before the lock name is claimed, which makes it the lock's ownership record (§5.6) | S's identity (K's for the `git_lock` step) |
 | `file.validated` | after the boundary recheck, **before** the exchange | V, or `absent` |
 | `file.exchanged` | after the exchange, or the no-replace create, returned | — |
 | `file.post_validated` | after post-validation | `valid`; or `mismatch` with the identity observed at the displaced name |
 | `file.restore_started` | before a restore exchange, ⟨r4⟩ after the check that the path still holds S with the target digest | cause: `file_mismatch` or `transaction_check` |
 | `file.restored` | after the restore exchange, both identities verified; ⟨r4⟩ for a create, after the path entry's settlement | — |
-| ⟨r4⟩ `file.held` | when the step reaches outcome H; again only when a later observation differs, and at most 16 times per step | the reason, and what each observed name held (∅, S, S′, V, V′, D, X or ?), by identity, never content. Replaces revision 3's `file.restore_conflict` |
-| `file.settling` | before the move into the quarantine | source (`displaced`, `staged` or `path`) ⟨r4⟩ and its name, expected identity, ⟨r4⟩ expected digest, quarantine name |
+| ⟨r4⟩ `file.held` | when the step reaches outcome H; again only when a later observation differs, and at most 16 times per step | the reason, and what each observed name held (∅, S, S′, V, V′, D, X or ?), by identity, never content. Replaces revision 3's `file.restore_conflict`. ⟨r5⟩ A record for the owner and for the repair preview only: recovery never reads it as a phase (`RecoveryState`, below) |
+| `file.settling` | before the move into the quarantine | source (`displaced`, `staged` or `path`) ⟨r4⟩ and its name, expected identity, ⟨r4⟩ expected digest, quarantine name. ⟨r5⟩ K's release has source `path`, the lock name |
 | `file.settled` | after the moved entry's identity ⟨r4⟩ and digest were verified, before its removal | `quarantined` or `nothing_displaced` |
 | `file.settle_conflict` | when the source was missing or foreign, ⟨r4⟩ or the moved entry's content had changed | what was found (`missing`, `foreign` or ⟨r4⟩ `modified`) and where it was kept |
 | `item.committed` | in **one** store transaction with the item's `ConfigProjection` resources at N+1, the projection record and the consented states | item, generation |
@@ -903,20 +1068,53 @@ therefore count a written file as a possible effect (`may_have_external_effect`)
 setup driver reads only `local`.
 
 **Recovery is a total function** ⟨r3⟩ (M2-R02; §12.5 item 2) ⟨r4⟩ (M2-S01; §12.8 item 1).
-`reconcile(intent, receipts)` evaluates, for each file step,
-`decide(shape, last receipt, item state, observation) -> action` over its whole domain:
+`reconcile(intent, receipts)` evaluates, for each file step, ⟨r5⟩
+`decide(shape, recovery state, observation) -> action` over its whole domain:
 
-* the step's **shape**: replace (base present, target present), create (base absent), the
-  B_git claim (before `file.validated`), or removal (target absent; the cleaner's);
-* its **last durable receipt**, or none;
-* its **item state**: open, `item.committed`, `item.rolling_back` or `item.finished`;
+* the step's **shape**: replace (base present, target present), create (base absent),
+  ⟨r5⟩ the Git lock holder (the `git_lock` step, §5.6), or removal (target absent; the
+  cleaner's). Revision 4's "B_git claim" shape is withdrawn: B_git is a replace or a
+  create;
+* ⟨r5⟩ its **recovery state** (`RecoveryState`, below), built from the receipt history.
+  Revision 4 passed the last durable receipt, which after a `held` receipt no longer
+  showed the phase the step was in (M2-T04);
 * the **observation**, by identity ⟨r4⟩ and content, of three entries:
   * the *path*;
   * the *aside* name, which holds the step's other entry. Before the exchange and after
     a restore this is the staged name; after the exchange it is the displaced name. On
     Unix the two names are the same. On Windows recovery looks at both names, and both
-    holding an entry is observed as X;
+    holding an entry is observed as X. ⟨r5⟩ For the `git_lock` step, the path is the lock
+    name and the aside is K's staged name;
   * the quarantine *slot* named by `file.settling`.
+
+⟨r5⟩ **The recovery state** (M2-T04; §12.11 item 4). `RecoveryState::build(step, receipts)`
+is pure. It reads the step's own receipts and its item's receipts and returns:
+
+* `phase`: the step's **effective phase**. That is its last receipt once every
+  `file.held` receipt has been removed, or `none`. **`held` is never an effective phase**,
+  so a held step is decided exactly as it would have been before it was held;
+* `restore`: `not_due`; `due(cause)`, after `post_validated{mismatch}` (cause
+  `file_mismatch`) or after `post_validated{valid}` with `item.rolling_back` (cause
+  `transaction_check`); `started(cause)`, after `file.restore_started`; or `done`, after
+  `file.restored`;
+* `settlement`: for an open `file.settling`, its source (`displaced`, `staged` or `path`),
+  and whether it is part of a create's restore, after which `file.restored` follows;
+* `item`: the item state, open, `item.committed`, `item.rolling_back` or `item.finished`;
+* for the `git_lock` step only, `release_due`: whether every other step of the Git item is
+  final, meaning its rows have nothing left to do. That is `settled`, `settle_conflict`, a
+  create's `restored`, handed to the cleaner, or never staged in an aborted item. K is
+  released only then. Until then K2 decides `Forward(KeepLock)`, which has no effect.
+
+The builder checks the history against the step's phase order (staged → validated →
+exchanged → post_validated → restore_started → restored, and settling → settled or
+settle_conflict; a create's restore runs its settlement before `restored`; a
+`settle_conflict` may also follow a phase directly when nothing is left to settle, as in
+rows F4e, F6a, K3 and K4). A history
+that breaks the order is refused: an `exchanged` without `validated`, a `settled` without
+`settling`, a phase after a final one, or both `item.committed` and `item.rolling_back`. The
+step is then H with reason `contradictory_receipts`, and nothing is inferred. Revision 4's
+row H0, "decide from the receipt before `held`", is withdrawn: the builder does that for
+every step. The rows below name the effective phase in their "Phase" column.
 
 S, V and D are the recorded identities. ⟨r4⟩ Each observed name gets exactly one symbol:
 
@@ -930,6 +1128,38 @@ S, V and D are the recorded identities. ⟨r4⟩ Each observed name gets exactly
 | Q, Q′ | in the slot: the identity `file.settling` recorded with, or without, its expected digest |
 | X | anything else: another identity, a link count above 1, another owner, or not a regular file |
 | ? | the observation failed: permission, I/O, or a directory or quarantine that no longer validates (§5.3 step 1) |
+
+⟨r5⟩ For the `git_lock` step, S and S′ are K and K′: K's identity with, or without, the
+holder digest. At recovery on a Unix filesystem without birth time, the lock name is X
+whatever it holds (§5.6, QR15).
+
+⟨r5⟩ **Normalization** (M2-T05; §12.11 item 5). The symbols classify one observation; they
+are not independent identities. `StepObservation` is therefore built only by one
+normalizing constructor, which `observe_step` calls and the generated tests call too:
+
+1. **Not Heimdall's shape.** An entry that is not a regular file, is owned by another
+   user, or has a link count above 1 is X, whatever its identity.
+2. **Role precedence.** Otherwise its identity is compared with the recorded identities in
+   this order, and the first match names it:
+   * Q, but only at the open settlement's source name and at its slot;
+   * S;
+   * D, only after `post_validated{mismatch}`, and only when that identity is neither S
+     nor V. A mismatch that recorded V's own identity is observed as V′ or V;
+   * V, only for a step whose base was present.
+
+   The content part (S or S′, and so on) compares against that identity's expected digest:
+   the target for S, the base for V, the recorded digest for Q. D has no content part.
+3. **Impossible combinations are rejected** before enumeration and by the constructor:
+   * one recorded identity at two names. A file with link count 1 has one name, and with
+     a higher link count it is X at both;
+   * Q at a name other than the settlement's source or slot;
+   * D without a recorded mismatch, and V for a step whose base was absent;
+   * an entry in a slot when no `file.settling` names one;
+   * a `git_lock`-only state (`release_due`) on another shape.
+
+   The generated tests count the rejected cells, and the filesystem-backed test builds
+   each rejected identity combination it can (a hard link, for example) to show that the
+   observation normalizes it as stated.
 
 ⟨r4⟩ `decide` has four kinds of action:
 
@@ -957,9 +1187,9 @@ continues through the same `decide`.
   * code `OUTCOME_UNKNOWN`, reason `projection_held`, effect `unknown`;
   * next action `reconcile`, naming the operation;
   * item outcome `held`.
-* **Every restart re-observes** the step from the receipt before `held`. If a row now
-  gives a forward, restore or abort action, recovery continues with it. Otherwise
-  nothing changes.
+* **Every restart re-observes** the step from its ⟨r5⟩ `RecoveryState`, which ignores
+  `held` receipts. If a row now gives a forward, restore or abort action, recovery
+  continues with it. Otherwise nothing changes.
 * **Serialization still holds.** While the operation is held, no other setup request is
   admitted, not even uninstall. Its own repair is the only exception ("One setup operation
   at a time", below).
@@ -972,7 +1202,9 @@ continues through the same `decide`.
   * `ambiguous_exchange`: the receipts and the entries cannot show whether the exchange
     happened;
   * `unobservable`;
-  * `unmatched`: no row lists the combination.
+  * `unmatched`: no row lists the combination;
+  * ⟨r5⟩ `contradictory_receipts`: the history breaks the phase order (above), or the
+    item's receipts contradict each other (row TH).
 
 **Repair path for a held operation** ⟨r4⟩. `setup status` and the doctor finding
 `projection_held` list each held step:
@@ -980,6 +1212,23 @@ continues through the same `decide`.
 * its role and path, and the reason;
 * what each observed name holds: Heimdall's S, D or V, or a foreign entry, and whether the
   content matches.
+
+⟨r5⟩ **Held previews carry content fingerprints** (M2-T03; §12.11 item 3). Recovery's
+classification (S or S′, X) cannot show *which* content an entry holds. So the preview
+of a repair binds, besides it, a **fingerprint** of every observed name:
+
+* `absent`; `unobservable`; or `present` with the entry's identity, file type, owner (the
+  user or not), link count, length, change time (Unix `st_ctime` in nanoseconds; Windows
+  `ChangeTime`), and either the SHA-256 of its content or the marker `unreadable` when the
+  content cannot be read within 1 MiB or the read fails;
+* on Windows both aside names, and the slot when one is named.
+
+The repair's `plan_digest` covers the canonical fingerprints of every held step. Two
+successive in-place edits of S therefore give two digests; two different foreign
+replacements give two identities or two digests; and an oversized entry changes its length
+or change time when it is rewritten. Fingerprints hold digests and metadata only. Bytes
+are never written to a receipt, a plan, a result or a log. Recovery itself still decides
+from the classification alone, and `file.held` keeps its identity-only payload.
 
 The finding names the two resolutions:
 
@@ -999,18 +1248,20 @@ The finding names the two resolutions:
   * the projection record keeps its last committed generation, so the next preview starts
     from the files as they are.
 
-Both resolutions are previewed, and their plan digest binds the observed entries, so a
-change between preview and repair makes the repair stale. `keep` changes no file, and
+Both resolutions are previewed, and their plan digest binds the observed entries ⟨r5⟩ by
+their fingerprints, so a change between preview and repair makes the repair stale, even
+one that leaves the classification unchanged. `keep` changes no file, and
 `retry` adds nothing the held operation was not approved for. Neither needs a new decision
 under §5.2 (QR12).
 
-*Replace step* (base present, target present). Within each receipt's block the rows are
-tried in order. A `*` matches any symbol except `?`.
+*Replace step* (base present, target present). Within each phase's block the rows are
+tried in order. A `*` matches any symbol except `?`. ⟨r5⟩ "Phase" is the effective phase of
+`RecoveryState`, never `held`.
 
-| Row | Last receipt (item state) | Path | Aside | Action |
+| Row | Phase (item state) | Path | Aside | Action |
 |---|---|---|---|---|
 | F0 | none | * | ∅ | Not staged. T0 |
-| F0x | none | * | a regular file owned by the user, link count 1 | A crash between the exclusive create and `file.staged`. ⟨r4⟩ The evidence is the name, which is 128 random bits fixed in the intent, not the content. Write `file.staged` with its identity, then F1. Settlement checks the content, so a partly written file is kept and reported (§5.3 step 8.4). **Never used for the Git lock name** (G0) |
+| F0x | none | * | a regular file owned by the user, link count 1 | A crash between the exclusive create and `file.staged`. ⟨r4⟩ The evidence is the name, which is 128 random bits fixed in the intent, not the content. Write `file.staged` with its identity, then F1. Settlement checks the content, so a partly written file is kept and reported (§5.3 step 8.4). **Never used for the Git lock name** (⟨r5⟩ K0x applies it to K's random staged name only) |
 | F0z ⟨r4⟩ | none | * | X | A foreign entry at Heimdall's staged name: left in place and reported (`conflict_artifact_present`). Abort |
 | F1 | `staged` | * | S, S′ | Not exchanged, because `file.validated` precedes every exchange. T0: resume continues with this S if it is unchanged (S); abort settles it |
 | F1a | `staged` | * | ∅, X | S vanished, or something replaced it at its name. Abort, `concurrent_writer`, effect `none`. An X is left in place and reported |
@@ -1034,7 +1285,7 @@ tried in order. A `*` matches any symbol except `?`.
 | F4b | `post_validated{valid}` (open) | any other | | ⟨r4⟩ **H** (`active_entry_replaced`). Revision 3 preserved the entries and settled the item |
 | F4d | `post_validated{valid}` (`item.committed`) | * | V, V′ | Settle V. The content check keeps a V′ (§5.3 step 8.4). A path other than S is a later user edit; it is reported |
 | F4e ⟨r4⟩ | `post_validated{valid}` (`item.committed`) | * | ∅, X | Nothing of Heimdall's is left to settle. Write `file.settle_conflict{missing}` or `{foreign}`; an X is left in place. The outcome stands (`applied`, finding `displaced_missing` or `conflict_artifact_present`) |
-| F5 | restore due ⟨r4⟩: `restore_started`, `post_validated{mismatch}`, or `post_validated{valid}` with `item.rolling_back` | S | D | Write `file.restore_started`, unless it is the last receipt. Do the restore exchange, verify both identities, and write `file.restored` |
+| F5 | restore due ⟨r4⟩: `restore_started`, `post_validated{mismatch}`, or `post_validated{valid}` with `item.rolling_back` | S | D | Write `file.restore_started`, unless it is ⟨r5⟩ already the effective phase. Do the restore exchange, verify both identities, and write `file.restored` |
 | F5a ⟨r4⟩ | restore due | S′ | D | The active file was edited after the exchange: **H** (`active_entry_modified`; QR13). Nothing is restored over the edit |
 | F5b | `restore_started` | D | S, S′ | Restore exchange done, receipt lost: write `file.restored`. **An interrupted restore is recognized as such and never read as "not exchanged"**, because `file.validated` is on record |
 | F5c ⟨r4⟩ | `restore_started` | X | S, S′ | The restore exchange is done (S is aside), and then the path was replaced. Write `file.restored` and report `concurrent_writer`. The X stays active |
@@ -1048,7 +1299,7 @@ recorded.
 *Settlement*, for every shape. The source is the name `file.settling` recorded. ⟨r4⟩ Every
 combination of source {Q, Q′, ∅, X} and slot {∅, Q, Q′, X} has a row:
 
-| Row | Last receipt | Source | Slot | Action |
+| Row | Phase | Source | Slot | Action |
 |---|---|---|---|---|
 | F8d | `settling` | * | X | A foreign entry was moved in. Move it back with no-replace, or keep it as `<name>.hm-conflict-<gen>`. `file.settle_conflict{foreign}`; nothing deleted |
 | F8b | `settling` | * | Q | Moved, receipt lost: write `file.settled`, then remove, re-checking first |
@@ -1061,15 +1312,15 @@ combination of source {Q, Q′, ∅, X} and slot {∅, Q, Q′, X} has a row:
 | F9b | `settled` | * | ∅ | Done. Removal happens only after `file.settled`, so the absence matches a receipt |
 | F9c | `settled` | * | X | Keep it. Reported (`conflict_artifact_present`) |
 | F9d ⟨r4⟩ | `settle_conflict` | * | * | Final for the step. Nothing further is moved |
-| H0 ⟨r4⟩ | `held` | * | * | Re-observe, and decide from the receipt before `held` |
 
 For a create restore (`file.settling{source: path}`), the block's end is followed by
-`file.restored`.
+`file.restored`. ⟨r5⟩ Revision 4's row H0 (`held`: decide from the receipt before it) is
+withdrawn, because `held` is never an effective phase (`RecoveryState`).
 
 *Create step* (base absent). Nothing is displaced, so the aside name is the staged name.
 Rows F0–F1a and the settlement block apply unchanged, and:
 
-| Row | Last receipt (item state) | Path | Aside | Action |
+| Row | Phase (item state) | Path | Aside | Action |
 |---|---|---|---|---|
 | C1 | `validated{absent}` | ∅ | S, S′ | Not created. T0: resume continues with S if it is unchanged; abort settles it |
 | C2 | `validated{absent}` | S, S′ | ∅ | Created, receipt lost. Write `file.exchanged`, then C6 |
@@ -1082,24 +1333,30 @@ Rows F0–F1a and the settlement block apply unchanged, and:
 | C5 | `post_validated{valid}` (open) | S, S′ | * | The item decides (T1): commit, then write `file.settled{nothing_displaced}`; or restore (C7) |
 | C5a ⟨r4⟩ | `post_validated{valid}` (open) | any other | | **H** (`active_entry_replaced`), as C6a |
 | C5b | `post_validated{valid}` (`item.committed`) | * | * | Nothing is displaced: write `file.settled{nothing_displaced}`. A path other than S is a later user edit; it is reported |
-| C7 ⟨r4⟩ | restore due: `restore_started`, or `post_validated{valid}` with `item.rolling_back` | S | * | Write `file.restore_started`, unless it is the last receipt. Settle the path entry through the quarantine (`file.settling{source: path}`, then the settlement block, then `file.restored`) |
+| C7 ⟨r4⟩ | restore due: `restore_started`, or `post_validated{valid}` with `item.rolling_back` | S | * | Write `file.restore_started`, unless it is ⟨r5⟩ already the effective phase. Settle the path entry through the quarantine (`file.settling{source: path}`, then the settlement block, then `file.restored`) |
 | C7a ⟨r4⟩ | restore due | S′ | * | The created file was edited after the create. Removing it would hide the edit: **H** (`active_entry_modified`; QR13) |
 | C7b ⟨r4⟩ | restore due | any other | | **H** (`active_entry_replaced`) |
 | C8 ⟨r4⟩ | `restored` | * | * | Done. The path's later state is only reported |
 
-*The B_git claim* ⟨r4⟩ (§5.6), before `file.validated`. These rows replace F0–F1a for the
-B_git step. "The lock" is `<global file>.lock`; S is the identity `file.staged` recorded:
+*The Git lock holder* ⟨r5⟩ (the `git_lock` step, §5.6; M2-T01). These rows replace revision
+4's G0–G3 and are the only rows that look at the lock name. "Lock" is `<global
+file>.lock`, the step's path; "staged" is K's random staged name, its aside. K is the
+identity the step's `file.staged` recorded. "Provable" means: on Windows always, and on
+Unix only when K's identity has a birth time (F25, QR15); otherwise K at the lock is X.
 
-| Row | Last receipt | Observed | Action |
-|---|---|---|---|
-| G0 | none | an entry at the lock name | No receipt names it, so it is foreign: never moved, whatever its content; reported `git_config_locked`. F0, F0x or F0z apply to the staged name |
-| G1 | `staged` | S or S′ at the staged name | Not claimed. T0: resume claims the lock with this S if it is unchanged; abort settles S from the staged name. An entry at the lock name is foreign: left in place, reported |
-| G2 | `staged` | S or S′ at the lock name, and on Unix S's identity has a birth time (F25) | Claimed but not validated. T0: resume continues under the lock with this S if it is unchanged; abort settles S from the lock name, which releases Heimdall's own lock |
-| G3 | `staged` | S at neither name, or at the lock name without a birth time | Abort, with `git_config_locked` or `concurrent_writer`. Every entry at either name is left in place and reported |
+| Row | Phase | Staged | Lock | Action |
+|---|---|---|---|---|
+| K0 | none | ∅ | * | Not staged. T0 resume stages K and claims; abort has nothing to settle. An entry at the lock is foreign: never moved, reported `git_config_locked` |
+| K0x | none | a regular file owned by the user, link count 1 | * | A crash between K's exclusive create and `file.staged`. The evidence is the random name, as for F0x. Write `file.staged` with its identity, then K1. Never applied to the lock name |
+| K0z | none | X | * | A foreign entry at Heimdall's staged name: left in place and reported. Abort |
+| K1 | `staged` | K, K′ | * | Not claimed. Release not due: T0 resume claims with K if it is unchanged (K′ cannot be continued: abort). A foreign entry at the lock makes the claim fail with `EEXIST`: abort, `git_config_locked`, the entry untouched. Release due: settle K from the staged name |
+| K2 | `staged` | ∅, X | K, K′ (provable) | Claimed. Release not due: nothing moves; the lock stays held while the B_git step proceeds by its rows. Release due: settle K from the lock, which releases it. A K′ stays in the quarantine as a conflict artifact (§5.3 step 8.4). An X at the staged name is left in place and reported |
+| K3 | `staged` | ∅, X | ∅ | K is gone. Write `file.settle_conflict{missing}`. If the Git item's commit step was never exchanged, abort (`concurrent_writer`). Otherwise the B_git step continues by its rows without the lock: restores and settlements check identity and content and need no lock, and T0 never resumes |
+| K4 | `staged` | ∅, X | X (including K that is not provable) | The lock is not provably Heimdall's: never moved or removed. Write `file.settle_conflict{foreign}` naming it, and report `git_config_lock_held`. If the commit step was never exchanged, abort; otherwise as K3 |
 
-From `file.validated` on, the B_git step uses the replace rows, with the lock name as its
-aside name. On a Unix filesystem without birth time, recovery observes the lock name as X,
-so those rows abort (F1a, F2k) or hold (§5.6).
+Once K's `file.settling` is written, the settlement rows (F8–F9d) apply to it, with the
+lock name, or the staged name before a claim, as the source. The Git item's B_git step
+always uses the ordinary replace or create rows (§5.6 "Name transitions").
 
 *Removal* (target absent), performed by the cleaner (§5.8). The cleaner writes no stage
 receipts. Its slot name is derived from the locator, so a retry finds what an earlier
@@ -1122,13 +1379,13 @@ and `?` is R6:
 
 | Row | State | Recovery action |
 |---|---|---|
-| T0 | The commit step was never exchanged (its row says so) | Nothing of the item is active. Resume forward under the same plan, ⟨r4⟩ with the bytes from the intent, only when every precondition still holds (§5.4 step 3). ⟨r4⟩ Resuming continues each step from its current phase. A step with no receipt is staged. A step at `staged` or `validated` keeps its S, which must still be unchanged: its path is revalidated (§5.3 step 2), and it continues at step 4. An S that is modified or gone cannot be continued, so the item aborts. A staged name is therefore never reused, and no entry appears at it without a receipt naming it. Otherwise abort: settle the staged files, hand the inactive files to the cleaner, and write `item.finished{not_applied}`. The result is `CONFIG_CONFLICT` with effect `none` |
+| T0 | The commit step was never exchanged (its row says so) | Nothing of the item is active. Resume forward under the same plan, ⟨r4⟩ with the bytes from the intent, only when every precondition still holds (§5.4 step 3). ⟨r4⟩ Resuming continues each step from its current phase. A step with no receipt is staged. A step at `staged` or `validated` keeps its S, which must still be unchanged: its path is revalidated (§5.3 step 2), and it continues at step 4. An S that is modified or gone cannot be continued, so the item aborts. A staged name is therefore never reused, and no entry appears at it without a receipt naming it. ⟨r5⟩ For the Git item, T0 resumes only under a lock Heimdall can prove it holds: the `git_lock` step is at K1, and its claim succeeds, or at K2. At K3 or K4 the item aborts. Otherwise abort: settle the staged files, hand the inactive files to the cleaner, and write `item.finished{not_applied}`. The result is `CONFIG_CONFLICT` with effect `none` |
 | T1 | The commit step is at `post_validated{valid}`, with no `item.committed` and no `item.rolling_back`, ⟨r4⟩ and every exchanged step of the item observes path S or S′ and, for a replace step, aside V | The crash fell between post-validation and the outcome record (M2-R01). **Re-run the item's transaction check now** (§5.4). If it passes, write `item.committed`, then settle. If it fails, write `item.rolling_back` and restore (F5, C7). ⟨r4⟩ The restore proceeds only where F5 or C7 allows it; otherwise the step is H. Revision 3 called the restore "always possible", which a vanished D refutes (M2-S01) |
 | T1h ⟨r4⟩ | As T1, but an exchanged step observes anything else | **H**. The transaction check is not run |
-| T2 | `item.committed` | Finish forward: the item's remaining steps, then every settlement (F4d, F4e, C5b). Never restore. Write `item.finished{applied}` |
-| T3 | `item.rolling_back`, ⟨r4⟩ or the commit step's file-level restore (`restore_started{file_mismatch}`) | Finish the restore of every exchanged step (F5–F6, C7), settle S, hand the inactive files to the cleaner, and write `item.finished{restored}`. ⟨r4⟩ A step that reaches H holds the item. Revision 3's `item.finished{conflict_preserved}` here is withdrawn |
+| T2 | `item.committed` | Finish forward: the item's remaining steps, then every settlement (F4d, F4e, C5b), ⟨r5⟩ then, for the Git item, the release of K (K2), last. Never restore. Write `item.finished{applied}` |
+| T3 | `item.rolling_back`, ⟨r4⟩ or the commit step's file-level restore (`restore_started{file_mismatch}`) | Finish the restore of every exchanged step (F5–F6, C7), settle S, ⟨r5⟩ release K for the Git item, hand the inactive files to the cleaner, and write `item.finished{restored}`. ⟨r4⟩ A step that reaches H holds the item. Revision 3's `item.finished{conflict_preserved}` here is withdrawn |
 | T4 | `item.finished` for every item | Settle the operation with the recorded outcomes |
-| TH ⟨r4⟩ | A step of the item is at H, or the item's receipts contradict each other (for example both `item.committed` and `item.rolling_back`) | **H** for the item, and so for the operation |
+| TH ⟨r4⟩ | A step of the item is at H, or the item's receipts contradict each other (for example both `item.committed` and `item.rolling_back`) | **H** for the item, and so for the operation. ⟨r5⟩ Contradicting receipts give the reason `contradictory_receipts` |
 
 Wherever an entry is not provably Heimdall's, the conflict outcome preserves it. A missing
 or foreign entry ends in a preserved state and is reported, never deleted, and
@@ -1146,33 +1403,90 @@ is a pure function. `recovery_decide_is_total_over_the_generated_domain` enumera
 whole domain from the symbol alphabet and the receipt and item-state enums, never from
 the rows:
 
-* every shape, every last receipt (none and `held` included) and every item state;
+* ⟨r5⟩ every shape and every `RecoveryState` that `RecoveryState::build` returns for a
+  generated receipt history. The histories are every phase sequence of each shape up to
+  its full length, with every item receipt combination, and with `held` receipts inserted
+  at every position. Revision 4 enumerated "every last receipt, `held` included", which
+  made `held` an input (M2-T04). The inserted `held` receipts must leave the built state
+  unchanged, and a contradictory history must build to `contradictory_receipts`;
 * observations that no row names, and ones that need a hard link, a non-regular file or an
-  unreadable directory to construct.
+  unreadable directory to construct, ⟨r5⟩ all through the normalizing constructor. The
+  impossible combinations it rejects are counted, never silently dropped.
 
 A filesystem-backed run, `recovery_generated_observations_preserve_every_entry`, builds
 each generated combination in a scratch directory and runs `reconcile`. It then repeats
 the run with a crash injected after each write that `reconcile` makes. Both tests check
-only properties that every correct table has:
+only properties that every correct table has.
+
+⟨r5⟩ **The properties are stated over concrete effects** (M2-T05; §12.11 item 5). Every
+action is a sequence of these effects, and the tests read the sequence, not the action's
+name:
+
+* `receipt(phase)`, which writes a receipt and moves nothing;
+* `forward_exchange(path, aside)` and `forward_create(aside → path)`, the commit-point moves
+  of §5.3 step 5;
+* `restore_exchange(path, aside)` (§5.3 step 7);
+* `claim(staged → lock)`, K's no-replace rename (§5.6);
+* `move_to_slot(name → slot)`, a no-replace rename into the quarantine;
+* `remove_from_slot(slot)`, the only removal;
+* `put_back(slot → name)` and `keep_as_conflict(name → *.hm-conflict-*)`, both no-replace.
+
+The properties:
 
 1. **Totality:** exactly one action, and no panic or error other than H.
-2. **No loss:** every entry present before is present after, with its identity and bytes,
-   at a name the result reports. The only exception is a Heimdall entry whose bytes match
-   its expected digest and whose removal follows a durable `file.settled`: S, or D after
-   `item.committed`.
-3. **Foreign entries are never deleted.** They move only back to the name they came from,
-   or to a `*.hm-conflict-*` name, both with no-replace.
-4. **The path changes only through the plan:** a forward exchange or create under T0 or
-   T1, or a restore exchange between S and D.
-5. **H moves and deletes nothing**, and leaves the operation `outcome_unknown`.
-6. **Outcomes match receipts:** `applied` only with `item.committed`; `restored` only
+2. **No loss.** Every entry present before is present after, with its identity and bytes,
+   at a name the result reports. The only exception is an entry removed by
+   `remove_from_slot`, and only under one of two ownership rules:
+   * **a setup step:** a durable `file.settled` for that slot precedes the removal, and
+     at removal the entry has the identity and digest of that step's `file.settling`;
+   * **the cleaner** (removal shape, rows R1 and R2): the entry has the identity and
+     digest of its `ProjectionLocator`, and the resource's generation is the one being
+     cleaned (§5.8). The cleaner writes no stage receipt; its locator is its durable
+     ownership record. Revision 4 required a `file.settled` here, which a correct cleaner
+     never writes.
+3. **Foreign and modified content is preserved.** An X moves only by `put_back` or
+   `keep_as_conflict`. An S′, V′, Q′, K′ or L′ is never the subject of `remove_from_slot`.
+   A `move_to_slot` of such an entry leaves it in the slot as a reported conflict
+   artifact.
+4. **Performing a restore differs from recognizing one.** A `restore_exchange` is decided
+   only when the restore is due or started, the path is S with the target digest, and the
+   aside is D (V, V′ or the recorded mismatch identity). When the restore exchange has
+   already happened (rows F5b and F5c: phase `restore_started`, the path D or X, the aside
+   S or S′), the action only writes `receipt(restored)` and moves nothing. Revision 4
+   allowed `Restore` only with S at the path, which the recognition rows break.
+5. **The path changes only through the plan**, by exactly one of:
+   * `forward_exchange` or `forward_create`, from a phase before `exchanged`, under T0 or
+     T1;
+   * `restore_exchange`, under property 4;
+   * a **create rollback**: `move_to_slot(path)` of a create step whose path is S with the
+     target digest, with the restore due or started (rows C7 and F8a). An S′ there is H
+     (C7a). Revision 4 omitted this case;
+   * the cleaner's `move_to_slot(path)` under its locator rule (row R1);
+   * `claim`, for the `git_lock` step, whose path is the lock name: only from K1, with the
+     lock name absent;
+   * K's release, `move_to_slot(lock)` of a provable K or K′, only from K2 with the release
+     due. A K′ stays in the slot (property 3).
+6. **H performs no effect** except a `file.held` receipt when the observation changed, and
+   it leaves the operation `outcome_unknown`.
+7. **Outcomes match receipts:** `applied` only with `item.committed`; `restored` only
    with `file.restored` for every exchanged step; `not_applied` only when the commit step
    was never exchanged.
-7. **Idempotence:** a second `reconcile` moves nothing more and writes nothing for an
+8. **Idempotence:** a second `reconcile` moves nothing more and writes nothing for an
    unchanged H.
 
+⟨r5⟩ **Negative controls.** The assertions are not weakened to fit the table. The generated
+domain includes, for every shape, cells with modified content (S′ at the path with a
+restore due, V′ or Q′ in a settlement, L′ for the cleaner) and with foreign entries at
+every name. Property 3 checks each of them. `recovery_properties_catch_seeded_faults`
+runs the property checker against deliberately wrong variants of `decide`, and each must
+fail at least one property: a restore over S′; a removal of a V′ or Q′; a removal by the
+cleaner of an L′; an X moved anywhere but back; a forward exchange after
+`item.rolling_back`; a create rollback of an S′; a second restore exchange where F5b
+recognizes one.
+
 m02-plan U4 test `recovery_table_rows_each_have_a_test_vector` keeps the other direction:
-every row above has a vector, ⟨r4⟩ and the vector's action is the row's.
+every row above has a vector, ⟨r4⟩ and the vector's action is the row's. ⟨r5⟩ The row IDs
+are F0–F9d, C1–C8, K0–K4, R1–R6 and T0–TH; G0–G3 and H0 are withdrawn.
 
 **One setup operation at a time** ⟨r3⟩. The table assumes that no other Heimdall
 operation writes these files concurrently. Setup operations of one environment are
@@ -1274,7 +1588,9 @@ status` help and in the compatibility matrix, and A22 evidence does not cover th
    * every discard also needs the expected digest, so a recycled identity is discarded
      only when its bytes are exactly Heimdall's expected bytes;
    * the Git lock is the one name other programs create. At recovery it is never treated
-     as Heimdall's without a birth time (§5.6).
+     as Heimdall's without a birth time (§5.6). ⟨r5⟩ Only K is ever there, and K's
+     expected digest covers a random line that no other writer's lock contains, so even
+     within one run no discard can remove another writer's lock.
 
    Windows file IDs are taken as not reused (`[I]`). M02 does not test that.
 
@@ -1439,6 +1755,27 @@ anything (R-CR-01).
   `latest_possible_credential_expiry` absent. The key stays usable outside Heimdall, and
   the `enforcement` fields already say so (spec §6.7, R-AU-08).
 * **`reconcile`** observes the local materialization, so there is no unknown outcome.
+* ⟨r5⟩ **Every call is bounded** (M2-T06; ADR-0006 §13.20 item 3; §12.11 item 6). These are
+  the first real adapters, so the runtime bounds every `prepare`, `reconcile` and `revoke`
+  call with `Limits.adapter_call_timeout`. The bound covers the adapter call itself, not
+  the wait for an adapter slot and not the caller's bounded wait. A call that times out
+  is answered `AdapterError::OutcomeUnknown`, and the M01 path for that answer runs:
+  * a `prepare` is recorded `Uncertain`, its preparing marker is released, and, when its
+    operation already left `running`, the same transaction decides cleanup ownership
+    through `settle_effect_in`;
+  * the supervisor's next pass processes the resulting cleanup intent in the same process,
+    with no restart;
+  * a timed-out `reconcile` is handled as its call site handles any `reconcile` error in
+    M01. Recovery of an unresolved operation leaves it unresolved, and the check of an
+    earlier attempt before a fresh one records it `Uncertain` (m02-plan U0b row 24);
+  * a timed-out `revoke` counts as an unconfirmed answer. A tracked obligation keeps it,
+    and the immediate best-effort call of an uncovered grant counts as made, as an error
+    does in M01.
+
+  The adapters' futures must stop all work when dropped, so that nothing they started can
+  apply an effect after the timeout. M02's adapters have no external effect, and their
+  agent listing is already bounded (2 s, m02-plan U6). The runtime part is m02-plan U0b
+  row 24.
 * ⟨r2⟩ **One mechanism per grant.** M01 records one adapter per grant
   (`ResolvedIntent.adapter`). An `ensure` whose pairs name identities of different
   mechanisms is refused with `CAPABILITY_UNAVAILABLE` and reason `mixed_mechanisms`; the
@@ -1888,7 +2225,11 @@ integrator. In summary:
     `config_tree_differences`, and the meaning of `config_tree_changed` and
     `executed_config_commands` is narrowed (§6). New finding code `projection_held`.
   * ⟨r4⟩ The port `ProjectionWriter` keeps no state between calls and gains
-    `observe_held` (m02-plan §5 item 15).
+    `observe_held` (m02-plan §5 item 15). ⟨r5⟩ Each `HeldStep` it returns carries the
+    content fingerprints of §5.7, which the repair's plan digest covers.
+  * ⟨r5⟩ The port `CredentialAdapter` gains a documented contract: a dropped call stops all
+    its work. The runtime bounds every adapter call (`Limits.adapter_call_timeout`, an
+    application limit, not a wire field; §7).
 * **Resource kinds:** `projection`, `identity`, `provider`, `executable`.
 * **Domain.**
   * `DecisionKind::ApplyProjection { operation, plan_digest, summary }`. ⟨r2⟩ It names the
@@ -1910,7 +2251,12 @@ integrator. In summary:
     `modified`.
   * ⟨r4⟩ **Durable target content:** `FileStep.content: StepContent` (`whole` | `splice` |
     `absent`), bound to the step's digests and size-bounded (§5.7). `FileIdentity` gains an
-    optional Unix `birth`.
+    optional Unix `birth`. ⟨r5⟩ `FileStep.role` gains `git_lock`, and `StepContent` gains
+    `lock_holder` (the Git lock holder K, §5.6). An absent base takes only an insert-only
+    splice. `FileIdentity` equality treats a `birth` present on one side only as unequal.
+  * ⟨r5⟩ **Recovery input:** `RecoveryState`, built from the receipt history, replaces the
+    last receipt as `decide`'s input. `held` is not an input phase, and `HoldReason` gains
+    `contradictory_receipts` (§5.7).
   * ⟨r4⟩ **Held operations:** `ConflictKind::projection_held`,
     `RepairResolution::{retry_held, keep_held}`, `PreviewIntent::Repair.operation`, item
     and file outcome `held` (§5.7).
@@ -1965,6 +2311,11 @@ revision rather than a major bump, and no external reader exists yet.
 | ⟨r4⟩ Rebuilding target bytes at apply or recovery from the `ProjectionSpec`, or from a preview held in memory | The catalog can change after the approval, and a cache does not survive a restart (M2-S05). The intent carries the bytes (§5.7) |
 | ⟨r4⟩ Storing the whole target user file or global Git file in the intent | Those files are the user's, not Heimdall's rendering. A splice of Heimdall's own block, applied to the validated base and checked against the target digest, suffices (§5.7) |
 | ⟨r4⟩ Checking for other setup operations in one transaction and admitting in another | Two admissions could both see the empty set (§12.8 item 6). The check and the insert are one store transaction (§5.7) |
+| ⟨r5⟩ Claiming Git's lock with B_git's own staged file S (revision 4) | The exchange then had no staged name to take S from. On Windows `ReplaceFileW` would have needed the lock name as both replacement and backup, or would have emptied the lock at the exchange. A create would have released the lock at its commit point (M2-T01). A separate holder K occupies the lock until settlement ends (§5.6) |
+| ⟨r5⟩ An empty lock holder | Within one run on a filesystem without birth time, a lock that the user removed and Git re-created on the same inode, still empty, would pass K's identity and digest checks and could be discarded. K's random line makes that impossible. It is not an ownership proof (§5.6) |
+| ⟨r5⟩ Deciding recovery from the last durable receipt (revision 4) | After a `held` receipt, the last receipt no longer shows the step's phase: a step held after `validated` and one held after `restore_started` looked the same (M2-T04). `RecoveryState` removes `held` receipts and carries the restore and settlement context (§5.7) |
+| ⟨r5⟩ Binding a held repair's preview to the recovery classification only | S′ and X do not say which content or which foreign entry is there. A second in-place edit, or a different foreign replacement, would leave the preview valid (M2-T03). The preview binds identity and content fingerprints (§5.7) |
+| ⟨r5⟩ Bounding only the caller's wait for a preparation | The preparation keeps running and keeps its preparing marker, so the supervisor never processes its cleanup intent before a restart (M2-T06). The bound applies to the adapter call (§7) |
 
 ## 12. Questions for the orchestrator (authority semantics; recommended answers)
 
@@ -2413,7 +2764,8 @@ fix word for word.
   *Alternative:* settle with `CONFIG_CONFLICT`, effect `partial`, and a `held` flag. Not
   recommended: a settled operation would release `setup_in_progress`, and the next setup
   would run on files the table could not classify.
-* **QR15. The Git lock's ownership token** (§5.6; rows G0–G3). The ruling asks for an
+* **QR15. The Git lock's ownership token** (§5.6; rows G0–G3, ⟨r5⟩ now K0–K4 with the
+  token on the lock holder K, QR16). The ruling asks for an
   ownership record written before the exclusive create, keyed by a token the lock's
   content cannot imitate. A file's identity is not known before the file exists.
   **Recommended:** stage under a random name, write `file.staged` with S's identity
@@ -2449,6 +2801,121 @@ fix word for word.
 * **Next step:** a focused check (design review round 4) covers M2-S01 to S05, the new
   interfaces, and U0b's descriptions of the current M01 code at ADR-0006 r2.17
   (§13.20). Wave 0 follows if it is clean.
+
+### 12.11 Rulings on design review round 4 (orchestrator, 2026-11-01)
+
+Source: `tests/evidence/artifacts/review-m02-design/round4.md` (verdict: proceed after
+fixes; M2-T01, T02, T04 and T06 major; T03 and T05 medium; plus an interface
+reconciliation list). Every fix is accepted:
+
+1. **T01: Git name transitions are specified per platform.** For each of claim, forward
+   replacement, restore and settlement, on Unix and on Windows, the design states which
+   name holds S and which holds D.
+   * On Windows a distinct displaced backup name is used. The lock name stays occupied
+     by Heimdall's claimed file until settlement.
+   * Crash vectors cover every transition, including the first creation of an absent
+     global Git file.
+2. **T02: materialization takes the full step.** `materialize` takes the `FileStep` (its
+   expected base and target states) and verifies both digests. An absent base is an
+   empty splice input that allows only an insert-only range. Range arithmetic is
+   checked.
+   * Tests: an absent SSH config and an absent global Git config, each with a fresh
+     writer.
+3. **T03: held previews carry content fingerprints.** A held preview binds the identity
+   and content digest of every observed entry, with an explicit `unreadable` marker for
+   content that cannot be read within bounds. Bytes are never written to receipts or
+   output.
+   * Controls: two successive in-place edits, and two different foreign replacements.
+4. **T04: recovery input is normalized.** `decide` takes a `RecoveryState` built from the
+   receipt history: the effective phase before any `held`, plus the restore and
+   settlement context. `held` is not an input phase.
+5. **T05: properties describe concrete effects.** Each generated-test property states the
+   effect it permits:
+   * performing a restore exchange is distinct from recognizing one already completed;
+   * the cleaner's removal is authorized by its locator, under its own durable ownership
+     rule;
+   * a create rollback goes through quarantine and is content-checked.
+
+   Observations are normalized: role precedence is defined, and impossible
+   identity/link-count combinations are rejected before enumeration. Negative controls
+   still prove that foreign or modified content is preserved.
+6. **T06: real adapter calls are bounded.** A new integrator-owned task, U0b phase 2,
+   carries ADR-0006 §13.20 item 3.
+   * Every real-adapter call (prepare, reconcile, revoke) gets a bounded timeout.
+   * A preparation that times out after its effect settles as `Uncertain` through
+     `settle_effect_in`, and its preparing marker is released.
+   * The supervisor then processes its cleanup intent without a restart.
+   * Tests cover each of these.
+7. **The interface reconciliation list is binding on U0b.** U0b must preserve:
+   * the `admit` backpressure order;
+   * the recovery paths that complete interrupted withdrawals and process cleanup
+     intents;
+   * `claim_seq`, `effect_seq` and `cleared_by_claim`;
+   * the `CleanupIntent` store lifecycle and counters;
+   * `settle_effect_in`;
+   * `cleanup_pending`.
+
+   The plan's descriptions are corrected to match. The `FileIdentity` birth rule gets
+   tests for `Some`≠`None` in both directions.
+
+Once these are applied, wave 0 starts. The integrator verifies T01–T07 against the code
+as its first step; a further full design review is not required. The independent review
+of wave 0's code covers them.
+
+### 12.12 ⟨r5⟩ Questions raised by revision 5 (recommended answers)
+
+Units build against the recommended answers; the integrator changes the affected unit if a
+ruling differs.
+
+* **QR16. Git's lock is held by a separate lock holder K** (§5.6; rows K0–K4). §12.11 item
+  1 requires the lock name to stay occupied by Heimdall's claimed file until settlement,
+  with a distinct Windows backup name. If S itself is claimed (revision 4), Windows'
+  `ReplaceFileW` moves S off the lock name at the exchange, and a create moves it off at
+  its commit point, so neither can keep the lock. **Recommended:** a separate `git_lock`
+  step whose file K is created under a random name, receipted (`file.staged`, the
+  ownership record of QR15), claimed by a no-replace rename, and released last, after
+  B_git's settlement. B_git becomes an ordinary replace or create step with ordinary
+  names. K's content is one line with 128 random bits fixed at admission. It is not an
+  ownership proof: ownership stays K's identity, under QR15's birth-time rule. It only
+  gives K's discard an expected digest that no Git lock has. *Why:* the lock is then held
+  from the claim to the end of settlement on both platforms and for a create. The lock
+  name is never an argument of an exchange, and only one small table looks at it.
+  *Alternatives:* claim with S on Unix and with a second file only on Windows, which
+  gives two protocols and still releases the lock at a Unix create's commit; or hold a
+  lock only during a replace, which leaves a create unprotected between its commit point
+  and `item.committed`.
+* **QR17. What a timed-out `revoke` counts as** (§7; m02-plan U0b row 24). ADR-0006
+  §13.20 item 3 bounds adapter calls but does not say how a timed-out `revoke` is
+  counted. **Recommended:** exactly as an adapter error in M01:
+  * in a revocation round and in a bounded cleanup call, it is an unconfirmed answer, so
+    the obligation stays and the round counts as attempted (§13.12 item 1);
+  * the immediate best-effort call for a grant that no record covers (§13.17 item 3)
+    counts as made, and its intent is removed.
+
+  *Why:* M01 already treats an error that way, and a timeout is an error whose answer
+  was lost. M02's adapters have no remote effect: their `revoke` removes a local
+  integration. *Alternative:* keep the intent after a timed-out immediate call and retry
+  it on every supervisor pass. That is safer for a remote effect, and it is a candidate
+  for M03, whose managed credentials have one. In M02 it would retry a local no-op
+  forever.
+
+### 12.13 Orchestrator rulings on §12.12 and m02-plan P12 (2026-11-01)
+
+* **QR16:** accepted. A separate lock holder K keeps Git's lock from the claim until K is
+  settled, which happens last. Ownership is decided by K's recorded identity and the
+  birth-time rule; K's content never counts as proof.
+* **QR17:** accepted for M02. A timed-out `revoke` counts as unconfirmed in rounds and in
+  bounded cleanup, so the obligation stays. A timed-out immediate best-effort call for an
+  uncovered grant counts as made. That is acceptable only because M02's existing-access
+  adapters create no remote credential effect.
+  * **Binding requirement for M03:** once a managed credential has a remote effect, a
+    timed-out immediate call keeps its cleanup intent and is retried with bounded,
+    jittered backoff (ADR-0006 §13.6 item 4). It never counts as made.
+* **P12:** accepted. `adapter_call_timeout` defaults to 30 s, with a minimum of 1 s. It
+  is internal and not a user configuration key in M02.
+* **Design gate closed.** The design reviews close with revision 5 (§12.11). Wave 0
+  (U0 + U0b phase 1) starts. Its first step verifies the reconciliation and T01–T07
+  against the code, and an independent review of wave 0's code follows.
 
 ## 13. Consequences
 
@@ -2491,7 +2958,9 @@ fix word for word.
   quarantine directories, the `git_user_value_shadowed` residual, the fallback-identity
   refusal, and the Windows `ReplaceFileW` window as `[U]`. ⟨r4⟩ It also records held
   operations and their repair, birth-time support per filesystem (F25), and the limit of
-  `config_tree_changed` (§6).
+  `config_tree_changed` (§6). ⟨r5⟩ It also records Git's lock holder K, and that a lock
+  left after a crash on a filesystem without birth time is the owner's to remove.
+* ⟨r5⟩ The runtime bounds every real adapter call (`Limits.adapter_call_timeout`, §7).
 
 ## 14. Reopen conditions
 
@@ -2500,7 +2969,8 @@ Reopen this ADR if any of the following happens:
 * a target client contradicts F1–F3, F20 or the include-state inference (corpus test);
 * Win32-OpenSSH refuses the rendered P or the `ReplaceFileW`-preserved file;
 * a supported user layout needs the include somewhere other than the top;
-* the owner rules differently on Q1–Q8, QR1–QR6 or ⟨r3⟩ QR7–QR11 ⟨r4⟩ or QR12–QR15;
+* the owner rules differently on Q1–Q8, QR1–QR6 or ⟨r3⟩ QR7–QR11 ⟨r4⟩ or QR12–QR15 ⟨r5⟩ or
+  QR16–QR17;
 * G05 changes how consumers bind (spec §10.3);
 * M03/M04 need P to carry CertificateFile, ProxyJump or Heimdall endpoints (that is a
   revision of §2's directive set);
@@ -2517,7 +2987,11 @@ Reopen this ADR if any of the following happens:
 * ⟨r4⟩ a target filesystem in the declared layout records no birth time, or reuses
   identities in a way that a birth time does not distinguish (F25);
 * ⟨r4⟩ the generated-observation test finds a combination that the table handles with a
-  forward, restore or abort action and that violates one of its properties (§5.7).
+  forward, restore or abort action and that violates one of its properties (§5.7);
+* ⟨r5⟩ a target Git reads, removes or renames a lock it did not create, so that K does
+  not keep its writers out (F22);
+* ⟨r5⟩ an adapter's effect can land after its call was dropped at the timeout (M03's
+  managed credentials), so that the bound of §7 no longer ends the effect.
 
 ## 15. ⟨r2⟩ Change log (revision 2, task M02-T00-design-fix)
 
@@ -2564,3 +3038,17 @@ Source: `tests/evidence/artifacts/review-m02-design/round3.md`, rulings §12.8.
 | M2-S04 `config_tree_changed` cannot establish completeness | item 4 | §6 "After the run" (snapshot comparison re-walking include expansion, `config_tree_differences`, list never complete) and `ProbeRecord` bullets; §10; §11 row | U3 probe interface and the new-glob-member and change-then-revert controls; U7 hook `revert`; U9 and U10 wording; §3 A21 row; §5 item 11 |
 | M2-S05 writer port has no source of target bytes | item 5 | §5.3 preamble and step 3; §5.4 step 2 (intent written at admission); §5.7 `FileStep.content`/`StepContent` (what is stored, digest binding, bounds, encoding); §10; §11 rows | U0 frozen list and wire tests; U4 `projection::content`, stateless `LocalProjection`, fresh-writer and recovery-before-staging tests; §5 items 15, 17 |
 | `setup_in_progress` admission | item 6 | §5.7 "Admission is atomic" (`Txn::insert_setup_operation`, order inside the transaction, the held-repair exception); §10; §11 row | U0b row 20 and the new row 23, store tests; U5 simultaneous-admission and restart tests; §5 item 18 |
+
+### 15.3 ⟨r5⟩ Change log (revision 5, task M02-T00-design-fix-4)
+
+Source: `tests/evidence/artifacts/review-m02-design/round4.md`, rulings §12.11.
+
+| Finding | Ruling (§12.11) | Sections changed here | m02-plan.md |
+|---|---|---|---|
+| M2-T01 claiming the Git lock breaks the replacement's names | item 1 | F22 (a lock whose content is not configuration); §5.3 steps 3 and 5 (B_git uses ordinary names); §5.6 lock protocol rewritten around the lock holder K, "Who owns the lock name", **name-transition tables** (replace, restore, abort, create; Unix and Windows) and **crash vectors**, receipts and recovery, rollback; §5.7 `git_lock` role, `LockHolder` content, names, `file.staged`/`file.settling` rows, rows **K0–K4** replacing G0–G3, T0/T2/T3; §5.9 item 5; §11 rows; §13; §14; QR16 | U0 frozen list and wire tests; U4 `git::{lock_holder, claim_lock}`, `ReplaceHook::BeforeLockRelease`, `git_name_transitions_crash_at_every_point_reconciles` and the revised Git tests; §5 items 17, 17a |
+| M2-T02 the materializer cannot check its digests; absent base undefined | item 2 | §5.3 step 3; §5.7 "Bound to the digests" (the whole step, absent base as an empty insert-only input, checked range arithmetic, `validate` checks), bounds | U4 `content::materialize(&FileStep, Option<&[u8]>)`, `ContentError`; tests `materialize_*` and the fresh-writer creates of an absent SSH config and an absent global Git file; U0 wire tests; §5 item 17 |
+| M2-T03 held previews do not bind content | item 3 | §5.7 "Repair path" (fingerprints with identity, digest or `unreadable`, length and change time; the plan digest binds them; no bytes anywhere) | U4 `observe_held` fingerprints; U5 `keep_held` staleness and the two controls; §5 items 2, 15 |
+| M2-T04 `decide` cannot recover from `held` | item 4 | §5.7 `RecoveryState` (effective phase, restore, settlement, item, `release_due`), its order check and `contradictory_receipts`, "Phase" columns, F5/C7 wording, H0 withdrawn, Outcome H restart, the generated domain | U0 frozen list; U4 `recovery::decide(shape, &RecoveryState, &StepObservation)`, `RecoveryState::build`, tests; §5 item 17a (`HoldReason`) |
+| M2-T05 the generated properties reject permitted behaviour | item 5 | §5.7 normalization (shape, role precedence, rejected impossible combinations); properties restated over concrete effects (restore exchange vs recognition, the cleaner's locator rule, the create rollback, K's claim and release); negative controls and seeded faults | U4 generated tests, `recovery_properties_catch_seeded_faults`, normalization tests |
+| M2-T06 no owner for ADR-0006 §13.20 item 3 | item 6 | §7 "Every call is bounded"; §10 ports; §11 row; §13; §14; QR17 | U0b row 24 (phase 2) and its tests; U6 drop contract and test; §5 item 15; §6 P12; §8 |
+| Interface reconciliation | item 7 | §10 `FileIdentity` equality | U0b "Today" descriptions corrected (rows 1, 4, 6, 11, 16, 17, 21 and 23), the **preserve** list, U0 migration test over the M01 meta records and counters, `FileIdentity` `Some`≠`None` tests |
