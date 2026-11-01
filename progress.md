@@ -50,10 +50,25 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - every ancestor must be issuable, and a delegated child holds an owned reference on its parent;
   - generation is compared with the last validated generation, with automatic re-validation;
   - extensions come from the resolved scope.
-- These are not committed yet. They will be committed with wave-2 stage A once its integrator is green, to avoid committing half-finished unit files.
-- Running:
-  - Workflow `wf_11ee3572-cd2` (M01 wave 2), in stages: U5t and U8a, then U5 (operations + events), then U8b, then U9, then U10. U10 includes the native Linux and Windows runs and the m01 evidence records. The workflow ends with a completeness critic, one gap-fix round and a final check.
-- Next: an independent code review of wave 2, then M01 exit, then M02.
+- Wave 2 (workflow `wf_11ee3572-cd2`, 12 agents, all completed) and the round-2 fixes are committed as ea074b8b (implemented_unverified).
+  - My own check.sh run: exit 0, 513 passed, 0 failed, 1 ignored (the launcher child entry). The 7 m01 records validate against the schema; all are `in_progress`.
+  - Native runs: Linux devbox ran all 21 test binaries, all passed, but on a build from before the gap fix. Windows ran on an earlier build. vps1-edge is blocked: Tailscale SSH policy refuses the configured user.
+  - The critic found G01–G18. The gap fix closed all but G09 (Windows service-level runs), G14 (records not tied to a commit) and G15 (attendance order).
+  - Rulings on the wave-2 escalations: ADR-0006 §13.6.
+    - A pause blocks only new activations and bindings (POLICY_PAUSED). This corrects a stricter reading.
+    - Pending decisions after an unrelated generation change: strict DECISION_STALE.
+    - The child's parent reference is also dropped at `revoking`.
+    - N06 can be proven in-process for M01, with jitter required.
+    - Policies are merged fail-closed.
+    - A later cutoff is widening.
+    - The CLI sends Attend first.
+    - New `Request::Shutdown` (`service-control/1`), with Windows runtime tests run natively.
+- Next:
+  - an independent Codex code review of wave 2, in 3 parallel areas;
+  - a fix round for the §13.6 rulings;
+  - native reruns on Linux and Windows and regenerated records against a commit;
+  - fixes for the review findings;
+  - then M01 exit, then M02.
 - Note for G06: Dependabot reports 4 rustls advisories (1 medium, 3 low) in the disposable X5 evidence lockfile `tests/evidence/artifacts/g02-r4/x5/rust-embed/Cargo.lock`. Production does not use it. An Iroh embedding in M06 must pin a patched rustls.
 - If interrupted: resume the workflow from its script in the session's workflows/scripts dir, using resumeFromRunId. Units write only their owner paths (docs/architecture/m01-plan.md).
 

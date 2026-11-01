@@ -682,11 +682,99 @@ orchestrator verified N01 and N05 against the code before ruling.
    denies. Reserve and publish must observe the same generation.
 
    An unrelated revoke therefore costs one re-validation and never fails healthy work.
-   A revoke, pause or cutoff that touches the chain fails it. Per-grant generations
-   are a possible later optimisation, with no change of semantics.
+   A revoke, or a cutoff that has passed, on the chain fails it. A pause on the chain
+   blocks only new activations and new work bindings (§13.6 item 1, amending the
+   earlier wording "a revoke, pause or cutoff"). Per-grant generations are a possible
+   later optimisation, with no change of semantics.
 3. **`permitted_extensions`.** The caller supplies it from the grant's resolved
    scope, its snapshot capabilities, and never from request fields. M03 replaces this
    source with the ADR-0005 §3.4 profile/route derivation.
+
+### 13.6 ⟨r2.3⟩ Rulings on the wave-2 escalations (orchestrator, 2026-11-01)
+
+Source: the wave-2 completeness critic (G01–G18) and gap-fix and integrator
+escalations, workflow `wf_11ee3572-cd2` (summary in `progress.md`).
+
+1. **Pause versus cutoff versus revoke for existing work** (corrects the gap-fix
+   reading of §13.5 ruling 2). Spec §5.6 says "Pausing a saved policy prevents future
+   automatic activations; it need not terminate existing work unless requested", and
+   ADR-0005 §3.5 and §6.1 say "a pause blocks new activations only".
+   * A pause refuses new grants and new work bindings under the paused policy with
+     `POLICY_PAUSED` (exit 4). This includes fresh request or work identifiers
+     (R-AU-02).
+   * Running grants and their existing bindings continue until their deadlines:
+     signing, and renewal or issuance within the existing grant (ADR-0005 §3.7).
+     They stop only if the owner revokes or stops them.
+   * A same-key replay of an existing binding returns its recorded result.
+   * Re-validation (§13.5 ruling 2) under a pause therefore passes for continuing
+     work. It never maps a pause to `CREDENTIAL_EXPIRED`.
+   * A cutoff bounds every applicable grant at `min(deadline, cutoff)` (N01 shorten).
+     Using an existing grant past that bound gives `CREDENTIAL_EXPIRED`. A new
+     activation or new binding at or after the cutoff gives `POLICY_CUTOFF`.
+   * A revoke on the chain denies, with the code-table mapping for revoked access.
+2. **Pending decisions after an unrelated generation change.** Strict, as
+   implemented. A decision issued under an older generation answers
+   `DECISION_STALE`, and the waiting operation stays `awaiting_approval` after
+   re-validation. A same-key retry returns a fresh `decision_ref` whose delta is
+   recomputed against current policy. The rewritten
+   `model_revocation::a07_a_pending_approval_cannot_complete_after_a_revoke` is
+   accepted. The UX cost is revisited with evidence in M07.
+3. **Child-owned parent reference** (amends §13.5 ruling 1). The reference is also
+   released when the child enters `revoking`, which can only lead to `revoked`, so a
+   dying child never keeps its parent alive.
+4. **N06 evidence scope for M01.**
+   * The supervisor's single cleanup executor is proven in-process with a fake
+     `ResourceCleaner`. That meets the M01 exit ("no external side effects needed to
+     verify core semantics", plan §5 M01). The real executor with a real adapter is
+     M02 exit evidence.
+   * A caller's operation whose `prepare` reports `Unavailable` is answered once
+     with `SERVICE_UNAVAILABLE` (exit 5) and is not retried automatically: the
+     caller retries with the same key.
+   * Supervisor-owned repair and cleanup retries are bounded and **jittered**. Spec
+     §13.5 says "bounded backoff and jitter". The jitter source is injectable and
+     deterministic in tests.
+5. **Several applicable policies.**
+   * The fail-closed merge stays: the earliest cutoff and any pause across all
+     policies that apply to the profile and environment. The store gets no
+     one-policy-per-pair constraint, because separate workspace policy records are
+     legitimate (spec §13.4).
+   * Any change to an applicable policy (pause, cutoff, narrowing, revision) moves
+     the authority generation, so re-validation runs.
+   * Test: a pause or cutoff on a second applicable policy between reserve and
+     publish voids the publish, and blocks new activations.
+6. **Cutoff direction and time.**
+   * Moving a cutoff **later**, or clearing it, is a widening action: decision
+     record, attended `Decide` (§3.1, N04). An equal or earlier cutoff is narrowing.
+     This amends the action list in §13.1 item 1.
+   * Widening actions are refused with `TIME_UNCERTAIN` while time is uncertain.
+   * Narrowing actions (pause, earlier cutoff, revoke, release) are never blocked by
+     time.
+7. **CLI attendance order (G15).** On an interactive TTY session about to run an
+   owner-present action:
+   * the CLI sends `Attend` **before** the request, so the server answers
+     `APPROVAL_REQUIRED` with `next.decision_ref`;
+   * the CLI then shows the exact recorded action or delta and asks for the typed
+     confirmation;
+   * on `y`/`yes` it sends `Decide`; on anything else it sends nothing more and
+     exits 3.
+
+   Attendance authorizes nothing by itself (N04). This matches m01-plan.md U9.
+8. **Service stop on every platform (G09).** Add the owner-channel request
+   `Request::Shutdown`, under the capability `service-control/1`:
+   * accepted only from the owner principal on the control endpoint, never from a
+     limited consumer, on any session;
+   * idempotent, with a graceful drain;
+   * `heimdall service stop` uses it on Unix and Windows; Unix signals remain the
+     fallback.
+   * Stopping the service is an availability action, not a widening of authority.
+     A same-user process could end the process anyway (disclosed with §3.1).
+   * The Windows variants of the runtime tests run natively on the Windows PC:
+     second start, stale `instance.json`, the launcher's single child, and a control
+     round trip over the named pipe.
+9. **Linux host vps1-edge.** Tailscale SSH policy on the owner's tailnet refuses the
+   configured user, so runs on that host are `blocked` on that owner setting. Changing
+   access to a live server is outside the delegation (ADR-0004 §5). The Linux x86-64
+   rows use the other host.
 
 ## 14. ⟨rev2⟩ Change log and substrate added by revision 2
 
