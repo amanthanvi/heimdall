@@ -1,7 +1,8 @@
 # ADR-0007 — Existing-access integration (M02): managed OpenSSH projection, nonexecuting discovery, existing-access adapters, and the process contract
 
-**Status:** proposed, revised after design review (§12.2) · **Date:** 2026-11-01 ·
-**Tasks:** M02-T00-design (revision 1), M02-T00-design-fix (revision 2)
+**Status:** proposed, revision 3 · **Date:** 2026-11-01 ·
+**Tasks:** M02-T00-design (revision 1), M02-T00-design-fix (revision 2),
+M02-T00-design-fix-2 (revision 3)
 **Gates:** the existing-access portions of G03 and G08 (plan §5 M02).
 **Affects:** R-UX-01, R-UX-04, R-CR-01, R-CR-08, R-SS-01, R-SS-02, R-SS-03, R-SS-04,
 R-AP-06, R-RT-04, R-RT-05, R-SE-04, R-DI-04, R-DI-06. Exit cases A01, A11, A21, A22, A27
@@ -13,7 +14,11 @@ summarized in §10. This ADR does not edit ADR-0006; the integrator applies the 
 (`tests/evidence/artifacts/review-m02-design/review.md`, findings M2-D01–M2-D10) under the
 orchestrator's rulings in §12.2. Text changed by it is marked **⟨r2⟩**. §15 maps each
 finding to the sections that changed. Questions revision 2 could not settle are in §12.3.
-**Not decided here:** anything §12.3 lists as a question. Authority semantics fixed by the
+**Revision 3:** applies the second independent review
+(`tests/evidence/artifacts/review-m02-design/round2.md`, findings M2-R01–M2-R08) under the
+orchestrator's rulings in §12.5. Text changed by it is marked **⟨r3⟩**. §15.1 maps each
+finding to the sections that changed. Questions revision 3 could not settle are in §12.6.
+**Not decided here:** anything §12.3 or §12.6 lists as an open question. Authority semantics fixed by the
 spec, ADR-0004, ADR-0005 or ADR-0006 are not changed.
 
 **Evidence labels.** `[S01]`…`[S34]` are spec §19 sources, read from the pinned snapshots
@@ -68,9 +73,9 @@ OpenSSH and platform facts this design depends on:
 | F19 | OpenSSH resolves `~` and the user configuration from the account's home directory, not `$HOME` | [I]; settled by test `integration_doctor::home_resolution_matches_ssh_g` (m02-plan U3) |
 | F20 | ⟨r2⟩ The IdentityFile default is "~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ecdsa_sk, ~/.ssh/id_ed25519, ~/.ssh/id_ed25519_sk and ~/.ssh/id_mldsa44_ed25519" [S01]. That the defaults are **not** added once any IdentityFile is configured is `[I]` | settled by `integration_sshconf_vs_ssh_g::corpus_identity_list_matches_ssh_g` (`ssh -G` prints the identity list) |
 | F21 | ⟨r2⟩ ssh-agent's default socket is created "in the $HOME/.ssh/agent directory", and by default it cleans up stale sockets there ("-U Instructs ssh-agent not to clean up stale agent sockets under $HOME/.ssh/agent/") | [S30] |
-| F22 | ⟨r2⟩ Git: the precedence of F16; `GIT_SSH_COMMAND` and `core.sshCommand` run through the shell [G03-S13, G03 Q13]. Beyond that, Git's documentation is not pinned, so the following are `[I]`: the scope order (system < global < local < worktree < command) with the last value winning for a single-valued key; `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` entries being command scope that `git -c` overrides; `[include] path`; the `<file>.lock` write protocol; which file `--global` writes; `git config --show-scope` output | each is settled by the Git test named where §5.6 or §8 relies on it |
-| F23 | ⟨r2⟩ An agent key can carry a confirmation constraint (`ssh-add -c`; the agent asks through ssh-askpass before each use). ssh-add(1) is not pinned, so this is `[I]`. The constraint is not visible in an identity listing, so it cannot be detected passively | settled by `run_m02::a11_confirm_constrained_native_key_refused_before_agent_contact` against a disposable `ssh-agent` |
-| F24 | ⟨r2⟩ Atomic exchange of two directory entries: Linux `renameat2(RENAME_EXCHANGE)`, macOS `renameatx_np(RENAME_SWAP)`. Windows has no exchange; `ReplaceFileW` with a backup name keeps the displaced file there. None of these is pinned. Support per filesystem, and what `ReplaceFileW` captures as the backup under a concurrent replacement, are `[I]`/`[U]` | `integration_projection::exchange_supported_on_target_fs`, `windows_replace_retains_displaced_identity` |
+| F22 | ⟨r2⟩ Git: the precedence of F16; `GIT_SSH_COMMAND` and `core.sshCommand` run through the shell [G03-S13, G03 Q13]. Beyond that, Git's documentation is not pinned, so the following are `[I]`: the scope order (system < global < local < worktree < command) with the last value winning for a single-valued key; `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_<n>`/`GIT_CONFIG_VALUE_<n>` entries being command scope that `git -c` overrides; `[include] path`; the `<file>.lock` write protocol; which file `--global` writes; `git config --show-scope` output. ⟨r3⟩ Also `[I]`: a query scoped to one file (`--system`, `--global`) follows `include.path` only with `--includes`; `--global` reads both `$XDG_CONFIG_HOME/git/config` and `~/.gitconfig`, the XDG file first; a query run outside any repository does not follow an `includeIf` whose condition needs one (`gitdir:`, `onbranch:`) | each is settled by the Git test named where §5.6 or §8 relies on it; ⟨r3⟩ the three added facts by `git_queries_use_includes_flag_and_expand_includes`, `git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win` and `git_value_through_conditional_include_is_counted_conditional` |
+| F23 | ⟨r2⟩ An agent key can carry a confirmation constraint (`ssh-add -c`; the agent asks through ssh-askpass before each use). ssh-add(1) is not pinned, so this is `[I]`. The constraint is not visible in an identity listing, so it cannot be detected passively | ⟨r3⟩ settled by `f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed`, an authorized disposable signing control: the constrained key prompts once per signature, the same key added without `-c` prompts zero times, and the two listings are equal. The refusal test `run_m02::a11_confirm_constrained_native_key_refused_before_agent_contact` runs on that verified installation (§12.5 item 8) |
+| F24 | ⟨r2⟩ Atomic exchange of two directory entries: Linux `renameat2(RENAME_EXCHANGE)`, macOS `renameatx_np(RENAME_SWAP)`. Windows has no exchange; `ReplaceFileW` with a backup name keeps the displaced file there. None of these is pinned. Support per filesystem, and what `ReplaceFileW` captures as the backup under a concurrent replacement, are `[I]`/`[U]` | `integration_projection::exchange_supported_on_target_fs`, ⟨r3⟩ `windows_replace_retains_displaced_identity_without_race` (the race-free case only). What `ReplaceFileW` captures under a replacement **inside** the call stays `[U]` in M02 (§5.9 item 2) |
 
 ## 2. D1 — One Heimdall-owned include file, referenced by one marked Include block
 
@@ -164,7 +169,12 @@ above it. Two reasons:
    narrow the user's entry with a negated pattern such as `Host * !<alias>`, or move it
    into the sections that need it) and in every readiness result
    (`ConsumerIntegration.pairs[].identity_selection`, §10). The revision-1 finding
-   `inherited_identities` is replaced by these.
+   `inherited_identities` is replaced by these. ⟨r3⟩ Each entry also records its
+   fingerprint when its `.pub` is readable, and its backing: `agent` (the private key
+   file is absent, so ssh uses the agent's key, F9), `file` (a private key file is
+   present) or `unknown`. Reporting is not enough on the no-interaction path: there a
+   `not_exclusive` or `undetermined` selection is refused unless every alternative entry
+   is cleared (§7, M2-R05).
 4. **Collisions are refused.** A managed alias must not equal a name that a *literal* user
    pattern matches. Such an apply is refused with `CONFIG_CONFLICT` and next action
    `review_config` (adopt the alias as observed, or rename it). A match by a user wildcard
@@ -238,7 +248,8 @@ in the runtime, which reads the files through `heimdall-localenv`, the same user
 
 ⟨r2⟩ Revision 1's `setup preview --evaluate` is **withdrawn** (M2-D06): preview never
 executes configuration. An authorized evaluation is the doctor `evaluate` level (§6). The
-preview names the undetermined aliases and the exact doctor command.
+preview names the undetermined aliases and the exact doctor command, ⟨r3⟩ which always
+includes `--allow-config-commands` (§6, M2-R06).
 
 ### 5.2 Consent: decisions by effect (Q1, as qualified by §12.2 item 4)
 
@@ -255,40 +266,62 @@ behaviour digests:
 A **behaviour digest** is SHA-256 over the canonical `RelevantBehavior` with each value's
 provenance reduced to its source role (`managed`, `user`, `system`, `default`), so line
 moves and comments do not change it. An undetermined directive enters with its candidate
-values and the kinds of their conditions.
+values and the kinds of their conditions. ⟨r3⟩ The digest does **not** bind a condition's
+contents: the command of a `Match exec`, the ranges of a `localnetwork`, the DNS answer a
+canonicalization would get. Equal digests therefore prove equal behaviour only for a
+**determined** state, one in which every directive of the item's `RelevantBehavior` is
+`Determined` or `Unset`. Any other state is **undetermined** (§6). Each recorded state
+carries this classification (`BehaviorState { digest, determined }`, §10).
 
-**A change needs no new decision when, for every affected item, *after* equals *current*,
-or one of its *consented* states.** Any other change creates an `ApplyProjection` decision
+**A change needs no new decision when, for every affected item, its *current* and *after*
+states are both determined, and *after* equals *current* or one of its *consented*
+states.** ⟨r3⟩ A consented state counts only if it was determined when it was recorded.
+An **affected item** is one whose rendered section, or Git selection, the plan changes;
+the plan does not affect any other item. Any other change creates an `ApplyProjection` decision
 (§10). It is completed only by an attended `Decide`. Unattended sessions get
 `INTERACTION_REQUIRED` with `decision_ref`; attended sessions get `APPROVAL_REQUIRED`
 (ADR-0006 §3.1). Consequences:
 
 * First adoption, and any new or changed managed alias, always need a decision.
-* A byte-identical re-render needs none.
-* A rollback, an alias removal, or a `Rerender` repair needs none while the configuration
-  yields exactly what the owner was shown: the restore state for a removal, the managed
-  state for a re-render.
+* A byte-identical re-render needs none, because it affects no item.
+* A rollback, an alias removal, or a `Rerender` repair needs none while every affected
+  item's states are determined and the configuration yields exactly what the owner was
+  shown: the restore state for a removal, the managed state for a re-render.
 * A rollback that would expose a HostName, agent, identity or proxy that the user's
-  configuration gained after that decision needs one. So does a removal whose *after*
-  state is undetermined and differs from the consented one.
+  configuration gained after that decision needs one.
+* ⟨r3⟩ **Any change for which an affected item's current or after state is undetermined
+  needs a new attended decision, whatever the digests say** (M2-R03; §12.5 item 3).
+  Example: the user changes the command of a `Match exec` that chooses between the same
+  candidate HostNames. The candidates and the condition kind are unchanged, so the digest
+  is unchanged. A later rollback still needs a decision. Prior consent covers determined
+  states only.
 
 The comparison is static and executes nothing. Its reasons are listed in the plan
-(`consent.reasons`). The decision summary shows the before, after and restore columns, so
-consent to an apply covers exactly that later rollback and nothing wider. (Question QR2,
-§12.3, asks the orchestrator to confirm this as the precise form of ruling 4.)
+(`consent.reasons`, ⟨r3⟩ including `undetermined_state`). The decision summary shows the
+before, after and restore columns, so consent to an apply covers exactly that later
+rollback and nothing wider. QR2 (§12.3) was accepted in §12.4. ⟨r3⟩ §12.5 item 3 limits
+it: the restore column serves as consent only for a determined restore state.
 
 ### 5.3 The file replacement primitive
 
 ⟨r2⟩ Every write of a file the projection owns or edits (P, the user file, key files, P_git,
 B_git's file) uses one primitive. It is designed so that **no file that Heimdall did not
 create, or did not validate as the plan's base, is ever deleted or overwritten
-unrecoverably** (M2-D03):
+unrecoverably** (M2-D03).
+
+⟨r3⟩ The primitive only exchanges, validates and, when told to, restores. **Settlement is
+a separate step that only the transaction calls** (step 8). Settlement means removing
+the displaced entry. The transaction calls it after every transaction-level check has
+passed and the outcome is durably recorded (§5.4; §12.5 item 1). Until then the displaced
+entry stays where the exchange left it, so a restore remains possible (M2-R01). From
+step 3 on, each step writes the durable receipt named in §5.7 before the next begins.
 
 1. **Validate the directory.** Open it with `O_DIRECTORY|O_NOFOLLOW` (Unix) or as a
    non-reparse handle (Windows). It must be owned by the current user and not writable by
    group or others (Unix), or carry no reparse point (Windows). Every later step is
-   relative to this handle (`openat`, `renameat`, `unlinkat`), so a substituted parent path
-   is not followed.
+   relative to this handle (`openat`, `renameat`), so a substituted parent path
+   is not followed. ⟨r3⟩ The directory's quarantine (below) is opened, or created when a
+   removal first needs it, relative to the same handle.
 2. **Validate the file**, when the plan expects it to exist. Unix: open it
    `O_RDONLY|O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC` relative to the directory and `fstat` it. It
    must be a regular file owned by the effective UID, with a link count of 1 and no group
@@ -303,11 +336,15 @@ unrecoverably** (M2-D03):
 3. **Stage.** Create `.<name>.hm-<generation>-<random>` in the same directory with
    `O_CREAT|O_EXCL|O_NOFOLLOW` and the original's permission bits (new files 0600, or an
    owner-only DACL), write the new bytes, and fsync. Record the staged identity **S** in a
-   stage receipt before step 5.
+   stage receipt (`file.staged`) before step 4. ⟨r3⟩ The staged name is fixed in the
+   `SetupIntent` before anything is written (§5.7). Its `<random>` part is 128 bits, as
+   hex. For B_git, the staged name is Git's lock name instead (§5.6).
 4. **Recheck at the boundary.** `fstat` the validated descriptor again, `lstat` the path,
    and re-read the bytes. The entry must still be V, with the same type, owner, link
-   count, mode and digest. This narrows the race window; it does not close it.
-5. **Exchange: the commit point for this file.**
+   count, mode and digest. This narrows the race window; it does not close it. ⟨r3⟩ Then
+   write `file.validated` (V, or `absent`). Because this receipt is durable before every
+   exchange, a step without it was never exchanged.
+5. **Exchange: the commit point for this file.** ⟨r3⟩ Afterwards write `file.exchanged`.
    * Unix: atomically exchange the staged name and the path (F24). Afterwards the path is S,
      and the staged name holds **D**, whatever was at the path at that instant. A file the
      plan expects absent is renamed with no-replace (Linux `RENAME_NOREPLACE`, macOS
@@ -315,31 +352,90 @@ unrecoverably** (M2-D03):
    * Windows: `ReplaceFileW(path, staged, backup = .<name>.hm-displaced-<generation>,
      REPLACEFILE_WRITE_THROUGH)`. It keeps the replaced file's DACL and attributes (`[I]`,
      settled by `windows_replace_preserves_dacl`) and leaves the displaced file D at the
-     backup name (`[I]`, settled by `windows_replace_retains_displaced_identity`). A file
+     backup name (`[I]`, settled by ⟨r3⟩ `windows_replace_retains_displaced_identity_without_race`
+     for the race-free case; §5.9 item 2). A file
      the plan expects absent is moved with `MoveFileExW` without `REPLACE_EXISTING`.
 6. **Post-validate.** D must be a regular file with identity V and the base digest, and the
-   path must be S.
-7. **Settle.**
-   * **Valid:** D's name is removed. Unix removes it with `unlinkat` after checking that the
-     entry is still V. Windows deletes it through a handle whose file ID was checked
-     (`FileDispositionInfoEx`). Receipt `Settled(applied)`.
+   path must be S. ⟨r3⟩ The verdict is recorded (`file.post_validated`). On a mismatch it
+   also records the identity actually found at the displaced name, because a restore must
+   put exactly that entry back.
+   * ⟨r3⟩ **Valid:** the primitive returns. **D stays at the displaced name; nothing is
+     settled.** The transaction decides whether to commit (then settle D) or to restore.
    * **D is not V, or its digest is not the base.** Another writer replaced or rewrote the
-     file between steps 4 and 5. **Restore** by exchanging again (Unix), or with
-     `ReplaceFileW(path, D's name, backup = S's name)` (Windows), so that D is back at the
-     path. Then verify that what was displaced is S (ours) and delete it. Result
+     file between steps 4 and 5. A file-level restore (step 7) follows at once. Result
      `CONFIG_CONFLICT` with reason `concurrent_writer`; the other writer's content is the
      active file; no behaviour change for this file.
+7. **Restore** ⟨r3⟩ (file-level after a mismatch, or transaction-level when §5.4 decides to
+   restore). Write `file.restore_started` with its cause (`file_mismatch` or
+   `transaction_check`). Then exchange again (Unix), or call
+   `ReplaceFileW(path, displaced name, backup = staged name)` (Windows), so that D is back
+   at the path and S is aside. Verify both identities and write `file.restored`. A step
+   whose base was absent (a create) is restored by settling its path entry, expected S,
+   into the quarantine (step 8).
    * **The restore finds something that is neither D nor S** (a third writer). Nothing
      further is moved or deleted. The entry not at the path is renamed with no-replace to
-     `<name>.hm-conflict-<generation>` and kept. Result `CONFIG_CONFLICT`
-     (`concurrent_writer`), effect `partial`, with both paths reported.
-8. **Manual mode instead of automatic.** Heimdall prints the exact block and changes
+     `<name>.hm-conflict-<generation>` and kept (`file.restore_conflict`). Result
+     `CONFIG_CONFLICT` (`concurrent_writer`), effect `partial`, with both paths reported.
+8. **Settle** ⟨r3⟩ (called only by the transaction). The entry left aside is removed
+   through the quarantine: D after a committed forward step, S after a restore, or an
+   unexchanged S.
+   1. Write `file.settling` with the source name, the expected identity and a fresh
+      quarantine name (128 random bits).
+   2. Move the source into the quarantine under that name with a no-replace rename
+      (Linux `RENAME_NOREPLACE`, macOS `RENAME_EXCL`, Windows `MoveFileExW` without
+      `MOVEFILE_REPLACE_EXISTING`).
+   3. Check the moved entry's identity. If it is the expected one, write `file.settled`,
+      then remove it inside the quarantine. Unix uses `unlinkat` relative to the quarantine
+      handle, right after re-checking the identity. Windows uses a handle opened with
+      `FILE_FLAG_OPEN_REPARSE_POINT` whose file ID was checked (`FileDispositionInfoEx`).
+   4. If it is not, a foreign entry took the source name after step 1. It is moved back
+      with no-replace, or kept as `<name>.hm-conflict-<generation>` if the name is occupied
+      again (`file.settle_conflict`). Nothing foreign is ever deleted.
+9. **Manual mode instead of automatic.** Heimdall prints the exact block and changes
    nothing when the file or its directory fails a step-1 or step-2 check
    (`unmanageable_file`: a symlink, a reparse point such as a junction, OneDrive placeholder
    or file symlink, a hard link count above 1, not a regular file, a foreign owner, not
-   writable), when the filesystem has no atomic exchange (`atomic_exchange_unsupported`;
+   writable, ⟨r3⟩ or a quarantine that cannot be created or validated), when the
+   filesystem has no atomic exchange (`atomic_exchange_unsupported`;
    Unix `EINVAL`/`ENOTSUP`/`ENOSYS` from the exchange), or when the encoding is unsupported
    (§4). Doctor afterwards verifies that the block is present and placed correctly.
+
+**The quarantine and the directory-concurrency assumption** ⟨r3⟩ (M2-R02; §12.5 item 2).
+Unix cannot unlink by identity: `unlinkat` removes whatever entry has the name when it
+runs. Removing a name in the user's directories therefore depends on one assumption: no
+other process renames an entry onto that name between Heimdall's identity check and the
+unlink. Here "the user's directories" are `~/.ssh`, `<config_dir>` and its `keys/`, and the
+directory of the Git global file. Editors and tools legitimately rename into these
+directories at any time, so **the assumption cannot be enforced there. Heimdall never
+removes a name in them.** Every removal first moves the entry into the quarantine of its
+own directory, which keeps the rename on one filesystem. That covers a displaced D, a
+restored-away S, an unexchanged staged S, and every cleanup (§5.8). The ruling's second
+option is taken: the unlink is avoided where the assumption cannot be enforced.
+
+* **The quarantine** is `<dir>/.hm-quarantine`. Heimdall creates it with `mkdirat`, mode
+  0700 (Windows: an owner-only DACL), lazily on first need. It removes the directory with
+  `rmdir` once empty, which cannot remove anything else: `rmdir` fails on a directory that
+  has entries. It holds only entries Heimdall moved there.
+* **The assumption, stated for the quarantine only:** no process other than Heimdall
+  creates, renames or replaces entries inside a quarantine directory.
+* **Enforcement:**
+  * Heimdall opens the quarantine with `O_DIRECTORY|O_NOFOLLOW` relative to the validated
+    parent handle (Windows: no reparse point). On every use it must be owned by the
+    current user, have mode exactly 0700 (an owner-only DACL), and not be a mount point.
+    Anything else is manual mode.
+  * Entries are created only by no-replace renames, under 128-bit random names or, for
+    the cleaner, a name derived from the locator (§5.8).
+  * The identity is re-checked immediately before each removal. Removals inside the
+    quarantine happen only for an identity recorded in a `file.settling` receipt or a
+    cleanup locator.
+
+  To break the assumption, a process must deliberately write into Heimdall's private
+  directory under a name it cannot predict. Such a process can already rewrite the user's
+  files directly, and the threat model makes no claim of hostile same-user isolation
+  (spec §2.2 P03, §14.1). This residual is §5.9 item 4.
+* **Windows** already deletes through a checked handle, which is bound to the file's
+  identity by construction. It uses the quarantine anyway, so that both platforms share
+  one recovery table (§5.7).
 
 There is deliberately no link-then-rename fallback. A rename-replace by another writer
 between the link and the rename would lose that writer's file (§11).
@@ -353,18 +449,30 @@ between the link and the rename would lose that writer's file (§11).
    `CONFIG_CONFLICT` ("preview is stale") and write nothing. The approved decision is
    consumed; the owner previews again.
 2. **Persist the `SetupIntent`** (§5.7), mint the effect token, and write the `Attempted`
-   receipt.
+   receipt. ⟨r3⟩ A setup request while another setup operation of the environment is open
+   or unresolved is refused before this step (`CONFIG_CONFLICT`, reason
+   `setup_in_progress`, §5.7).
 3. ⟨r2⟩ **Revalidate every precondition of every file in the plan** (§5.3 step 2) before the
    first commit point: the user file, P, every key file, and the Git files when the Git
    item is in the plan. Any failure: nothing is written.
-4. Execute the file steps in plan order. Two shapes (§12.2 item 2):
+4. Execute the file steps in plan order. Two shapes (§12.2 item 2). ⟨r3⟩ In both, the
+   commit step's displaced entry is kept until the item's **transaction check** has passed
+   and `item.committed` is durable. That record is written in one store transaction with
+   the item's resources at N+1, the projection record and the consented states. Only then
+   is anything settled (§5.3 step 8; M2-R01, §12.5 item 1).
 
    **First adoption** (no B in the user file):
    * *Inactive steps:* the key files, then P. Nothing references them yet: P becomes
      effective only through an Include (F3), so ordinary SSH behaviour is unchanged.
-   * *Commit point:* the user-file exchange that inserts B. Immediately before it, the
-     user file is revalidated, and so is P (it must still be S_P, the file this operation
-     staged).
+   * *Commit point:* the user-file exchange that inserts B (a no-replace create when the
+     user file is absent). Immediately before it, the user file is revalidated, and so is
+     P (it must still be S_P, the file this operation staged).
+   * ⟨r3⟩ *Transaction check, after the commit step's post-validation:* P is still S_P with
+     the target digest, and every key file still has its staged identity. If this passes,
+     write `item.committed`, then settle the displaced user file. If it fails, write
+     `item.rolling_back`, restore the user file (§5.3 step 7; the displaced file is still
+     there), settle the staged one, and hand P and the key files to the cleaner. The
+     result is `CONFIG_CONFLICT` (`managed_file_edited`) with effect `none`.
    * *Partial effect:*
      * A failure before the commit point leaves only inactive files. The result is the
        error (usually `CONFIG_CONFLICT`) with effect `none` for behaviour, and P and the
@@ -379,17 +487,30 @@ between the link and the rename would lose that writer's file (§11).
    * *Inactive steps:* new key files.
    * *Commit point:* P's exchange. Immediately before it, the user file is revalidated (base
      digest, B intact and first) together with P (identity and digest of generation N).
-   * *After the commit point*, the user file is checked again. If it changed during the
-     step, the approved behaviour may not hold. P is then restored to generation N by
-     exchanging back (§5.3 step 7 applied to P), and the result is `CONFIG_CONFLICT`
-     (`user_config_changed`) with effect `none`. If P cannot be restored because P itself
-     was replaced concurrently, the result is effect `partial` and names the generation
-     that is active.
-   * Key files that P no longer references are removed by cleanup after the receipt.
+   * ⟨r3⟩ *Transaction check, after P's exchange and post-validation.* Old P (D) is still
+     at the displaced name. The check re-reads the user file: identity, base digest, B
+     intact and first.
+     * **Pass:** write `item.committed` (resources at N+1, projection record, consented
+       states, one store transaction). Only then is old P settled.
+     * **Fail:** the user file changed during the step, so the approved behaviour may not
+       hold. Write `item.rolling_back`. P is restored to generation N by the restore
+       exchange (§5.3 step 7); this works because old P was not settled. Then settle the
+       staged new P. The result is `CONFIG_CONFLICT` (`user_config_changed`) with effect
+       `none`.
+     * If the restore meets a third writer (P itself was replaced concurrently), the
+       result is effect `partial` and names the generation that is active (§5.7 row F5c).
+     * A crash between post-validation and `item.committed` is row T1 of §5.7. The check
+       runs again at recovery and its result decides. A crash after `item.committed` only
+       finishes forward (row T2).
+     * An edit of the user file **after** `item.committed` is a later user edit, not part
+       of this operation. Old P is settled, and doctor reports the edit.
+   * Key files that P no longer references are removed by cleanup after `item.finished`.
 
-   **Git item** (when in the plan): its own steps follow the SSH commit point (§5.6).
-5. Record `ConfigProjection` resources at generation N+1 (role, path, identity, digest),
-   record the consented states (§5.2), write the `Confirmed` receipt, and settle.
+   **Git item** (when in the plan): its own steps follow the SSH commit point (§5.6), with
+   its own transaction check (P_git still S) and its own `item.committed`.
+5. ⟨r3⟩ For each item, settle every displaced entry after its `item.committed`, then
+   write `item.finished` with the item's outcome. The operation settles once every item is
+   finished.
 
 The result is `SetupResult { generation, items: [{ item: ssh|git, outcome: applied |
 not_applied | restored | conflict_preserved, files }] }`. The envelope's effect is:
@@ -403,7 +524,8 @@ otherwise it reports the applied or partial effect, never "no change" (§12.2 it
 
 **Cancellation** is honoured only before the first commit point. After it, the driver
 finishes or restores. `CancellationRecord.may_have_external_effect` is `true` once any file
-was written.
+was written. ⟨r3⟩ A cancelled operation settles its staged files through the quarantine
+and hands its inactive files to the cleaner (`item.finished{not_applied}`).
 
 ### 5.5 Rollback, repair, removal and uninstall
 
@@ -437,7 +559,9 @@ from M03 any remote enrollment (spec §7.7, R-DI-04). The state store is kept by
 * If any rollback is incomplete (a conflict, a block still present in manual mode, or a
   preserved `*.hm-conflict-*` file), uninstall reports `CONFIG_CONFLICT` with effect
   `partial`. It keeps the state store, the recovery records, the backups and every
-  conflict file, and lists them.
+  conflict file, and lists them. ⟨r3⟩ The same holds for a quarantine directory that
+  still has entries (only foreign entries are ever left there, §5.3). Empty quarantine
+  directories are removed with `rmdir`.
 * `--purge-state` refuses (`CONFIG_CONFLICT`, exit 6) while any projection resource is not
   confirmed absent. It never reports an unresolved cleanup as success.
 
@@ -456,30 +580,64 @@ otherwise use its bundled MSYS client, which cannot reach a named-pipe agent (F1
 **Observation at preview** uses local queries (Q4): bounded at 2 s, with no shell, stdin
 null, the Git executable from the client inventory, and the user's environment.
 
-* `git config --system --show-origin --get-all core.sshCommand` and the same with
-  `--global`. These are exactly the Q4 local queries plus `--show-origin`. They depend on
+* `git config --system --includes --show-origin --get-all core.sshCommand` and the same
+  with `--global`. These are exactly the Q4 local queries plus `--show-origin` and ⟨r3⟩
+  `--includes`. The flag is explicit because a query scoped to one file does not follow
+  `include.path` by default. The control in `git_queries_use_includes_flag_and_expand_includes`
+  runs the same fixture without the flag and must miss the value. `--global` reads both
+  global files when both exist (F22 `[I]`). The queries depend on
   no working directory, so no repository's local scope can leak in. The output format is
   `[I]`, settled by `git_config_query_output_parsed`. Values are held in memory only, to
   classify them and to build the preview diff text. The plan stores, per entry: scope,
-  origin display path, the SHA-256 of the value, and a count per scope.
+  origin display path, the SHA-256 of the value, a count per scope, and ⟨r3⟩ whether the
+  entry was reached through a conditional include.
+* ⟨r3⟩ **Static scan of the include graph** (M2-R08; §12.5 item 8). A conditional include
+  (`[includeIf "<condition>"] path = …`) whose condition needs a repository is not followed
+  by a query run outside one, yet it applies in every repository its condition matches.
+  Heimdall therefore also reads the system file, both global files, and every file they
+  include, conditionally or not, with the pure Git-text scanner `sshconf::gitedit::scan`.
+  The reads are bounded: 1 MiB per file, 64 files, include depth 10, regular files only,
+  opened non-blocking. The scanner counts every `core.sshCommand` key it finds and marks
+  one reached through an `includeIf` as `conditional`. It never evaluates a condition and
+  never runs Git for it. Relative include paths resolve against the including file's
+  directory, and `~/` against Git's home. An include it cannot read or resolve (a
+  permission error, a bound exceeded, a path it cannot expand) makes the item
+  `not_applicable` with reason `git_config_unreadable`.
 * Environment overrides (`GIT_SSH_COMMAND`, `GIT_SSH`, `GIT_CONFIG_*`) are per-process
   and per-shell, so setup does not judge them. The run-time resolution of §8 handles them,
   and doctor reports, by name only, any that are set in its own environment.
 * **The global file.**
   * `GIT_CONFIG_GLOBAL` set: the item is not offered (manual, reason
     `git_global_redirected`).
-  * Otherwise: `~/.gitconfig` if it exists; else `$XDG_CONFIG_HOME/git/config` (default
-    `~/.config/git/config`) if it exists; else `~/.gitconfig`, to be created.
+  * ⟨r3⟩ Otherwise B_git goes at the top of the **first global file Git reads, among
+    those that exist**: `$XDG_CONFIG_HOME/git/config` (default `~/.config/git/config`)
+    when it exists, else `~/.gitconfig`. When neither exists, `~/.gitconfig` is created.
+    Revision 2 chose the file `git config --global` writes. With both files present that
+    is `~/.gitconfig`, which Git reads after the XDG file, so a value the user later put
+    in the XDG file would have lost to Heimdall's include. Placing B_git first in read
+    order means a later user value in either file wins.
   * `~` is Git's home (`$HOME`, else `%USERPROFILE%` on Windows).
-  * This rule is `[I]`, settled by `git_global_file_resolution_matches_git` in a scratch
-    home.
+  * This rule is `[I]`, settled in a scratch home by `git_global_file_resolution_follows_read_order`
+    and by `git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win`.
+    If a target Git reads the two files in the other order, the rule follows the
+    observed order.
+  * ⟨r3⟩ **Residual, disclosed.** Suppose B_git is in `~/.gitconfig` because no XDG file
+    existed, and the user later creates the XDG file with a `core.sshCommand`. Git reads
+    that value first, so Heimdall's include wins over it. Doctor reports
+    `git_user_value_shadowed` with both origins and the remedy: move the value to
+    `~/.gitconfig`, or roll back the Git item. The matrix lists the case.
 * **Git's default SSH.** It is the bundled MSYS client when the Git installation contains
   its own `ssh.exe` and no override applies. This is observed passively, as G03 P-W04 did.
 
 **Applicability: absent versus multiple values.** The item is applicable only when **the
-system and global scopes have zero `core.sshCommand` values** and Git's default is the
-bundled MSYS client. One or more values in either scope make the item `not_applicable`,
-with reason `git_ssh_command_present` and the observed entries (scope, origin, count). Heimdall never replaces, reorders or removes a user value. So the
+system and global scopes have zero `core.sshCommand` values** ⟨r3⟩ counting every file
+they include, conditionally or not. The include graph must also have been read in full,
+and Git's default must be the bundled MSYS client. One or more values in either scope,
+including one reached only through an include, make the item `not_applicable`,
+with reason `git_ssh_command_present` and the observed entries (scope, origin, count,
+`conditional`). ⟨r3⟩ Repository-local, worktree and command scopes are not part of
+applicability (QR3 wording corrected, §12.5 item 9). Values there win at run time anyway
+(§8). Heimdall never replaces, reorders or removes a user value. So the
 **previous values of an applied change are always the empty list**; multiplicity only ever
 blocks the item.
 
@@ -512,7 +670,11 @@ Git's lock protocol (F22 `[I]`):
 3. It checks that the new bytes parse: `git config --file <staged> --no-includes --list`
    (a local query).
 4. It exchanges. The displaced file now sits at the lock name, which keeps Git writers out
-   until post-validation finishes. Then the lock name is removed.
+   until post-validation ⟨r3⟩ and settlement finish.
+5. ⟨r3⟩ The Git item's transaction check follows: P_git still has its staged identity and
+   target digest. Then comes `item.committed` for the item. Only after that does
+   settlement (§5.3 step 8) move the displaced file from the lock name into the
+   quarantine, which also releases Git's lock (M2-R01).
 
 During that interval, Git commands that write configuration fail with Git's own lock error,
 and nothing is lost. Editors that ignore the lock are covered by §5.3 step 7 and §5.9.
@@ -526,10 +688,11 @@ value, or an environment override, still wins at run time (§8).
 * P_git and B_git are file steps of the same `SetupIntent` (§5.7), placed after the SSH
   commit point, with resources `ConfigProjection` in the roles `git_managed` and
   `git_include`.
-* **Crash with the lock name occupied.** Recovery examines the lock name by identity:
-  * our staged S (not yet exchanged) is removed, and the step did not apply;
-  * the displaced D (exchanged but not yet validated) is post-validated or restored as in
-    §5.3 step 7.
+* **Crash with the lock name occupied.** ⟨r3⟩ Recovery follows the §5.7 table, with the
+  lock name as both the staged and the displaced name. Our unexchanged S is settled
+  through the quarantine (rows F1/F2a). A displaced D is post-validated, restored,
+  committed or settled according to its last receipt (rows F2b–F9). A lock Heimdall did
+  not create is never moved or removed.
 
   Doctor reports `git_config_lock_held`, with the path, for as long as that state lasts.
 
@@ -552,7 +715,7 @@ SetupIntent {
   plan_digest,
   intent: apply | rollback | repair(kind),
   generation: N+1,
-  approval,
+  approval: Option<ProjectionApproval { decision, plan_digest }>,   ⟨r3⟩
   consent: ConsentRecord,
   files: Vec<FileStep>,
 }
@@ -567,34 +730,131 @@ FileStep {
 }
 ```
 
-Stage receipts are written per file step, as `EffectReceipt::Attempted` and `Confirmed`
-with adapter identity `config_projection/<environment>` (ADR-0006 §14.1). In order:
+⟨r3⟩ `approval` is the projection-specific approval, distinct from the declaration
+approval (§10; §12.5 item 7). The staged and displaced names are fixed in the intent
+before anything is written. On Unix the displaced name is the staged name, because the
+exchange leaves D there. On Windows it is `.<name>.hm-displaced-<generation>`; for B_git
+both are the lock name.
 
-1. `staged(role, S)`;
-2. `validated(role, V)`, just before the exchange;
-3. `exchanged(role)`;
-4. `settled(role, outcome)`.
+**Receipts** ⟨r3⟩ (§12.5 items 2 and 7). Each receipt is an M01 `StageReceipt` that
+carries the typed payload `local` (m02-plan §5 item 17a). It is appended in its own store
+transaction before the next step begins:
 
-These record, for an already-active P, which generation is active and which file holds the
-displaced bytes (§12.2 item 2).
+| Receipt | Written | Records |
+|---|---|---|
+| `file.staged` | after S was created and fsync'd | S's identity |
+| `file.validated` | after the boundary recheck, **before** the exchange | V, or `absent` |
+| `file.exchanged` | after the exchange, or the no-replace create, returned | — |
+| `file.post_validated` | after post-validation | `valid`; or `mismatch` with the identity observed at the displaced name |
+| `file.restore_started` | before a restore exchange | cause: `file_mismatch` or `transaction_check` |
+| `file.restored` | after the restore exchange, both identities verified | — |
+| `file.restore_conflict` | when a third writer was found | each preserved entry and its identity |
+| `file.settling` | before the move into the quarantine | source (`displaced`, `staged` or `path`), expected identity, quarantine name |
+| `file.settled` | after the moved entry's identity was verified, before its removal | `quarantined` or `nothing_displaced` |
+| `file.settle_conflict` | when the source was missing or foreign | what was found (`missing` or `foreign`) and where it was kept |
+| `item.committed` | in **one** store transaction with the item's `ConfigProjection` resources at N+1, the projection record and the consented states | item, generation |
+| `item.rolling_back` | before a transaction-level restore | item, reason (a `ConflictKind`) |
+| `item.finished` | after the item's last settlement | `applied`, `not_applied`, `restored` or `conflict_preserved` |
 
-`reconcile(intent, receipts)` re-observes each step **by identity, never by content alone**:
+Each receipt's M01 `effect` field is fixed by its phase. `item.committed` and
+`item.finished{applied}` carry `Confirmed` with adapter `config_projection/<environment>`.
+Every other phase carries `Attempted` with the operation's effect token. M01 readers
+therefore count a written file as a possible effect (`may_have_external_effect`). The
+setup driver reads only `local`.
 
-* The path holds S: the step was exchanged. If the displaced name still holds D,
-  post-validate or restore it (§5.3 steps 6–7); if it is gone, validation had finished.
-* The path holds V, or the base content with no `staged` receipt: the step was not
-  exchanged. A staged S that is present is removed, since it is ours. Then:
-  * if no commit point has been passed, the driver resumes forward under the same plan
-    only when every precondition still holds; otherwise it settles `failed` with
-    `CONFIG_CONFLICT` and effect `none`;
-  * if a commit point has been passed, it finishes forward or restores that file.
-* The path holds neither: another writer was there. Preserve every entry, settle `failed`
-  with `CONFIG_CONFLICT` and effect `partial`, and report.
+**Recovery by state table** ⟨r3⟩ (M2-R02; §12.5 item 2). `reconcile(intent, receipts)`
+acts on each file step's last durable receipt. It re-observes, **by identity and never by
+content alone**, three entries:
 
-Every file state is therefore observed locally, and a local projection never stays in
+* the *path*;
+* the *aside* name: the name holding the step's other entry. Before the exchange and after
+  a restore this is the staged name. After the exchange it is the displaced name. On Unix
+  the two names are the same. On Windows recovery looks at both names and takes whichever
+  holds an entry; both holding one falls under row F2f;
+* the quarantine *slot* named by `file.settling`.
+
+S, V and D are the recorded identities. D is V for a forward step; after a mismatch it is
+the identity that `file.post_validated` recorded. X is any other identity, and ∅ means
+absent.
+
+*Replace step* (base present, target present):
+
+| Row | Last receipt | Observed | Recovery action | Conflict outcome |
+|---|---|---|---|---|
+| F0 | none | aside ∅ | Not staged, not exchanged. Go to T0 | — |
+| F0x | none | aside holds an entry | Crash between the exclusive create and `file.staged`. Move the entry into the quarantine. Delete it there only if it is a regular file owned by the user, with link count 1 and the step's target digest (the name is 128-bit random and was created exclusively). Go to T0 | Anything else stays in the quarantine and is reported (`conflict_artifact_present`) |
+| F1 | `staged` | path any, aside S | Not exchanged, because `file.validated` precedes every exchange. Settle S. Go to T0 | Aside holds X: left, reported. Aside ∅: S vanished, `concurrent_writer`. Effect `none` in both |
+| F2a | `validated` | path V, aside S | Not exchanged. Settle S. Go to T0 | — |
+| F2b | `validated` | path S, aside V | Exchanged, receipt lost. Write `file.exchanged`, then post-validate (base digest): continue at F4, or at F5 on a mismatch | — |
+| F2c | `validated` | path S, aside X | Exchanged, and D is foreign. Write `file.exchanged` and `file.post_validated{mismatch, X}`. File-level restore (F5) | — |
+| F2d | `validated` | path S, aside ∅ | Exchanged, and D has vanished. It can be neither validated nor restored, and nothing is inferred | `conflict_preserved`, finding `displaced_missing`, effect `partial`; S stays active and the result names the active generation |
+| F2e | `validated` | path X, aside S | Not exchanged; another writer changed the path. Settle S | `CONFIG_CONFLICT` (`user_config_changed` or `managed_file_edited`), effect `none` |
+| F2g | `validated` | path V, aside ∅ | Not exchanged, and S vanished. Nothing of Heimdall's is active or displaced. Go to T0 | `CONFIG_CONFLICT` (`concurrent_writer`), effect `none` |
+| F2f | `validated` | any other combination | Preserve every entry; move nothing | `conflict_preserved`, effect `partial` |
+| F3 | `exchanged` | path S, aside D | Post-validate now: F4 if valid, F5 if not | Path ≠ S: as F2d–F2f |
+| F4 | `post_validated{valid}` | path S, aside V | The item decides (T1–T3): after `item.committed`, settle V; on `item.rolling_back`, restore (F5) | Path ≠ S before `item.committed`: no commit; preserve (`conflict_preserved`, `partial`). Path ≠ S after it: a later user edit; settle V and report |
+| F5 | `restore_started` | path S, aside D | Restore exchange not done: do it, verify, write `file.restored` | — |
+| F5b | `restore_started` | path D, aside S | Restore exchange done, receipt lost: write `file.restored`. **An interrupted restore is recognized as such and never read as "not exchanged"**, because `file.validated` is on record | — |
+| F5c | `restore_started` | any other combination | Third writer. Rename the entry not at the path, with no-replace, to `<name>.hm-conflict-<gen>`; write `file.restore_conflict` | `conflict_preserved`, effect `partial` |
+| F6 | `restored` | path D, aside S | Settle S | Aside not S: left, reported |
+| F7 | `restore_conflict` | — | Nothing is moved | `conflict_preserved`, effect `partial` |
+| F8a | `settling` | source = expected, slot ∅ | Move not done: move, verify, write `file.settled`, remove | — |
+| F8b | `settling` | source ∅, slot = expected | Moved, receipt lost: verify, write `file.settled`, remove | — |
+| F8c | `settling` | source ∅, slot ∅ | **Never inferred as settled.** The entry vanished without a Heimdall receipt | `file.settle_conflict{missing}`; the item's outcome stands; finding `displaced_missing` |
+| F8d | `settling` | slot X | A foreign entry was moved in. Move it back with no-replace, or keep it as `<name>.hm-conflict-<gen>` | `file.settle_conflict{foreign}`; nothing deleted |
+| F8e | `settling` | source X, slot ∅ | A foreign entry is at the source. It is not moved | `file.settle_conflict{foreign}`; nothing deleted |
+| F9 | `settled` | slot = expected | Remove it, re-checking the identity first | — |
+| F9b | `settled` | slot ∅ | Done. Removal happens only after `file.settled`, so the absence matches a receipt | — |
+| F9c | `settled` | slot X | Keep it | Reported (`conflict_artifact_present`) |
+
+*Create step* (base absent): rows F0–F1 and F8–F9 apply unchanged, and:
+
+| Row | Last receipt | Observed | Recovery action | Conflict outcome |
+|---|---|---|---|---|
+| C1 | `validated{absent}` | path ∅, aside S | Not created. Settle S. Go to T0 | — |
+| C2 | `validated{absent}` | path S, aside ∅ | Created, receipt lost. Write `file.exchanged` and `file.post_validated{valid}` | — |
+| C3 | `validated{absent}` | path X, aside S | Another writer created the file first. Settle S | `CONFIG_CONFLICT` (`concurrent_writer`), effect `none` |
+| C4 | `validated{absent}` | path ∅, aside ∅ | S vanished before the create. Not created; nothing is inferred | `CONFIG_CONFLICT` (`concurrent_writer`), effect `none` |
+| C5 | `post_validated{valid}` | path S | The item decides. On `item.committed`, write `file.settled{nothing_displaced}`. On `item.rolling_back`, settle the path entry (expected S) through the quarantine | Path ≠ S: as F4 |
+
+*Removal* (target absent), performed by the cleaner (§5.8). The cleaner writes no stage
+receipts. Its slot name is derived from the locator, so a retry finds what an earlier
+attempt moved:
+
+| Row | Observed | Recovery action | Conflict outcome |
+|---|---|---|---|
+| R1 | path = the locator's identity | Move to the slot, verify, remove | — |
+| R2 | path ∅ or X, slot = the locator's identity | Crash after the move: verify, remove | — |
+| R3 | path ∅, slot ∅ | The resource is absent. The cleaner reports it absent and claims nothing about who removed it | — |
+| R4 | path X (same bytes or not) | Left alone | M01 `Ok` with nothing removed; finding `projection_edited` or `conflict_artifact_present` |
+| R5 | slot X | Moved back with no-replace, or kept as `*.hm-conflict-<gen>` | Reported |
+
+*Item level* (each of `ssh` and `git`):
+
+| Row | State | Recovery action |
+|---|---|---|
+| T0 | The commit step has no receipt past `validated` (it was never exchanged) | Nothing of the item is active. Resume forward under the same plan only when every precondition still holds (§5.4 step 3). Otherwise settle the staged files, hand the inactive files to the cleaner, and write `item.finished{not_applied}`; the result is `CONFIG_CONFLICT` with effect `none` |
+| T1 | The commit step is at `post_validated{valid}`, with no `item.committed` and no `item.rolling_back` | The crash fell between post-validation and the outcome record (M2-R01). **Re-run the item's transaction check now** (§5.4). If it passes, write `item.committed`, then settle. If it fails, write `item.rolling_back` and restore the commit step (F5). This is always possible, because nothing was settled |
+| T2 | `item.committed` | Finish forward: the item's remaining steps, then every settlement. Never restore. Write `item.finished{applied}` |
+| T3 | `item.rolling_back` | Finish the restore (F5–F7), settle S, hand the inactive files to the cleaner. Write `item.finished{restored}` or `item.finished{conflict_preserved}` |
+| T4 | `item.finished` for every item | Settle the operation with the recorded outcomes |
+
+Wherever an entry is not provably Heimdall's, the conflict outcome preserves it. A missing
+or foreign entry ends in a preserved conflict state and is reported, never deleted, and
+settlement is never inferred from an absence that no receipt accounts for (§12.5 item 2).
+Every file state is observed locally, so a local projection never stays in
 `outcome_unknown`. The outcome is applied, not applied, restored, or a reported conflict
 with preserved files. On restart the operation is driven from its kind (m02-plan U0b); the
-driver calls `reconcile`, never a second `apply`.
+driver calls `reconcile`, never a second `apply`. A receipt this build cannot decode, such
+as an unknown phase, leaves the operation unresolved and reported; nothing is inferred
+from it. m02-plan U4 test `recovery_table_rows_each_have_a_test_vector` checks that every
+row above has a vector.
+
+**One setup operation at a time** ⟨r3⟩. The table assumes that no other Heimdall
+operation writes these files concurrently. Setup operations of one environment are
+therefore serialized. A setup request while another setup operation is open or
+unresolved is refused with `CONFIG_CONFLICT`, reason `setup_in_progress`. It is
+retryable once the other operation settles.
 
 ### 5.8 Cleanup ownership
 
@@ -609,14 +869,22 @@ nonsecret. The same bytes in a new identity, such as a newer generation or the u
 are left alone and reported `Ok` with nothing of that generation removed (the M01
 `ResourceCleaner` contract).
 
-Deletion itself is bound to identity:
+Deletion itself is bound to identity ⟨r3⟩ through the quarantine (§5.3):
 
-* Windows deletes through a handle opened with `FILE_FLAG_OPEN_REPARSE_POINT` whose file ID
-  was checked.
-* Unix renames the entry with no-replace to a unique name in the same directory, checks the
-  moved entry's identity, and then unlinks it. It moves the entry back (no-replace) if it
-  was not ours, or keeps it as `*.hm-conflict-<generation>` when the original name is
-  occupied again.
+* The cleaner moves the entry, with no-replace, into the quarantine of its own directory.
+  The slot name is derived from the locator: `<role>-<generation>-<first 16 hex of the
+  SHA-256 of the canonical locator>`.
+* It checks the moved entry's identity and removes it there: Unix with `unlinkat` after a
+  re-check, Windows through a handle opened with `FILE_FLAG_OPEN_REPARSE_POINT` whose file
+  ID was checked.
+* A foreign entry is moved back with no-replace, or kept as `*.hm-conflict-<generation>`
+  when the original name is occupied again.
+* Because the slot name is deterministic, a retry after a crash finds the moved entry
+  (§5.7 rows R1–R5).
+* The cleaner claims that the resource is absent, never that it removed it.
+
+Revision 2 renamed the entry to a unique name in the same directory and unlinked it
+there. That still unlinked a name in a directory other writers use (M2-R02).
 
 A cleanup for generation N therefore never deletes the content of generation N+1, whatever
 the bytes.
@@ -628,17 +896,24 @@ status` help and in the compatibility matrix, and A22 evidence does not cover th
 (§12.2 item 3):
 
 1. **A writer that opened the file before the commit point and writes through that
-   descriptor after post-validation.** Its bytes land in the displaced file, which is then
-   removed, or in an already unlinked inode. Heimdall cannot detect this. Editors that
+   descriptor after post-validation.** Its bytes land in the displaced file, which is
+   ⟨r3⟩ later moved into the quarantine and removed, or in an already unlinked inode.
+   Heimdall cannot detect this. Editors that
    reopen by path when saving are not affected: their save replaces or rewrites the active
    file, and doctor then reports the missing or edited block.
 2. **On Windows, a replacement between `ReplaceFileW`'s own open and its internal rename.**
-   What is captured as the backup in that window is `[U]`, settled by
-   `windows_replace_retains_displaced_identity`.
+   What is captured as the backup in that window is `[U]`. ⟨r3⟩ It stays `[U]` in M02
+   (§12.5 item 8). `windows_replace_retains_displaced_identity_without_race` shows only
+   the race-free case, in which the backup's file ID equals V. No M02 test injects a
+   replacement inside `ReplaceFileW`, so no evidence claims this window.
 3. **Filesystems without atomic exchange.** Heimdall does not attempt automatic mode there:
-   it uses manual mode (§5.3 step 8), which is supported behaviour, not a gap. Whether each
+   it uses manual mode (§5.3 step 9), which is supported behaviour, not a gap. Whether each
    target filesystem supports exchange (APFS, ext4 on the devbox and in WSL, the container
    overlay filesystem) is `[I]`/`[U]`, settled by `exchange_supported_on_target_fs`.
+4. ⟨r3⟩ **A same-user process that writes into a Heimdall quarantine directory**
+   between Heimdall's identity check and its removal of an entry there (§5.3). It would
+   have to target Heimdall's private, mode-0700 directory under an unpredictable name.
+   The threat model makes no claim of hostile same-user isolation (spec §2.2 P03, §14.1).
 
 ## 6. D5 — Nonexecuting discovery and the probe ladder
 
@@ -686,25 +961,46 @@ when it runs (M2-D06). The report names every level performed and every level de
 with the reason. Explicit levels need `--active-probe <level>[,…]` (or the TUI
 equivalent).
 
-**`--allow-config-commands`.** A level that would run configuration commands also needs
-`--allow-config-commands` whenever the static pass finds an executing construct reachable
-for the alias (Match exec, ProxyCommand, KnownHostsCommand, LocalCommand with
-PermitLocalCommand; F4).
+**`--allow-config-commands`.** ⟨r3⟩ (M2-R06; §12.5 item 6.) Some levels run ssh against
+the user's real, mutable configuration tree: `evaluate`, `host_verification` and
+`authentication`. Each of them needs `--allow-config-commands`, **whether or not the static
+pass found an executing construct**. The static pass runs before ssh opens the files, and
+the files can change in between: an editor, a sync tool or a hook can insert a
+`Match exec` after the pass. Revision 2 gated only on what the static pass found, which
+is withdrawn. The static pass now only informs: it lists the executing constructs it
+found for the alias (Match exec, ProxyCommand, KnownHostsCommand, LocalCommand with
+PermitLocalCommand; F4). The list may be empty.
 
 * The flag's help text is the sentence **"runs your configuration's commands with whatever
-  effects they have"**, followed by the file:line list.
+  effects they have"**, followed by the file:line list ⟨r3⟩ as the static pass found it,
+  or "none found now; the configuration can change before ssh reads it".
 * The TUI shows the same text and requires a typed `yes`.
 * Without the flag the level is declined with reason `config_commands_not_authorized`, and
   nothing runs.
+* ⟨r3⟩ **Fail closed on a tree Heimdall cannot fully read.** The level is declined with
+  reason `config_not_fully_readable`, **even with the flag**, when the static pass for the
+  alias meets any of these: an unreadable include, a bound exceeded, or an Include path it
+  cannot expand (`IncludeUnreadable`, `BoundExceeded`, or `TokenUnavailable` in an
+  Include). The authorization would not name what runs (QR11 asks the orchestrator to
+  confirm this reading).
+* ⟨r3⟩ **After the run**, Heimdall re-reads the digests of the files the static pass read.
+  `ProbeRecord.config_tree_changed` reports whether the configuration changed while the
+  level ran. The `executed_config_commands` list holds the constructs found before the
+  run; it is complete only when `config_tree_changed` is `false`. `effects_excluded`
+  excludes nothing configuration commands could do, as before.
+* ⟨r3⟩ A **snapshot mode** is deferred. It would run ssh against a validated, immutable
+  copy of the tree, but it needs proven path equivalence first: relative includes, `~`,
+  tokens such as `%d`, and `Match final` would all have to resolve as in the real tree.
+  It is not in M02 (§11; m02-plan §8).
 
 | Level | Heimdall does | Heimdall itself never | What configuration commands can add | Default |
 |---|---|---|---|---|
 | `static` | parse and evaluate the configuration; stat agent sockets; list `\\.\pipe\` names without opening any; read `known_hosts` and `.pub` files; read the Heimdall store **read-only**; with **Q4**, local queries that read no SSH configuration (`<client> -V`, `ssh-keygen -F <host> -f <file>`, the `git config` queries of §5.6) | execute configuration, contact an agent or provider, use the network, sign, mutate anything | nothing: no configuration command runs | yes |
-| `evaluate` | `ssh -G <alias>` with the user's real configuration (F5) | contact an agent, use the network, sign | **anything**: network, agent contact and signing, file changes, long-lived processes (Match exec) | no |
+| `evaluate` | `ssh -G <alias>` with the user's real configuration (F5); ⟨r3⟩ always needs `--allow-config-commands` | contact an agent, use the network, sign | **anything**: network, agent contact and signing, file changes, long-lived processes (Match exec) | no |
 | `agent` | connect to a named agent endpoint and send `SSH_AGENTC_REQUEST_IDENTITIES` only; bounded (256 KiB reply, 1024 identities, 2 s) | sign, add, remove, lock, extensions | — (no configuration runs) | no |
 | `network` | TCP connect to HostName:Port and read the SSH identification line (RFC 4253 §4.2); 5 s | key exchange; aliases routed through ProxyJump or ProxyCommand are reported undetermined, not probed | — | no |
-| `host_verification` | `ssh -o BatchMode=yes -o PreferredAuthentications=none -o IdentityAgent=none -o IdentityFile=none -o ControlMaster=no -o ControlPath=none <alias>`, classified from the exit code (F11) and bounded stderr markers | ask ssh to sign: with no agent, no identity file and no authentication method, ssh has nothing to sign with | anything, through Match exec, ProxyCommand and KnownHostsCommand | no |
-| `authentication` | `ssh -T -o BatchMode=yes -o ControlMaster=no -o ControlPath=none <alias> exit 0` | under `--non-interactive`, run for an identity whose interaction is not `none` (Q2, §7) | anything, as above; plus provider prompts in interactive mode | no |
+| `host_verification` | `ssh -o BatchMode=yes -o PreferredAuthentications=none -o IdentityAgent=none -o IdentityFile=none -o ControlMaster=no -o ControlPath=none <alias>`, classified from the exit code (F11) and bounded stderr markers; ⟨r3⟩ always needs `--allow-config-commands` | ask ssh to sign: with no agent, no identity file and no authentication method, ssh has nothing to sign with | anything, through Match exec, ProxyCommand and KnownHostsCommand | no |
+| `authentication` | `ssh -T -o BatchMode=yes -o ControlMaster=no -o ControlPath=none <alias> exit 0`; ⟨r3⟩ always needs `--allow-config-commands` | under `--non-interactive`, run for an identity whose interaction is not `none`, ⟨r3⟩ or for a pair with an uncleared fallback identity (Q2, §7) | anything, as above; plus provider prompts in interactive mode | no |
 
 ⟨r2⟩ **Signature counts.** The authentication level offers the identities the configuration
 selects. How many signatures it causes depends on the identity list (§3 item 3), the server
@@ -724,7 +1020,10 @@ Tests assert a count only for fixtures that fix it
 Each `ProbeRecord` states what applied (§10):
 
 * `containment`: `process_group` or `job_object`;
-* `executed_config_commands`: the file:line of each construct that ran;
+* `executed_config_commands`: the file:line of each construct ⟨r3⟩ the static pass found
+  before the run (complete only when `config_tree_changed` is `false`);
+* ⟨r3⟩ `config_tree_changed`: whether the files the static pass read changed during the
+  level (absent for levels that run no configuration);
 * `effects_excluded`: only the effects Heimdall enforced did not happen. Whenever
   configuration commands ran, it excludes nothing they could do.
 
@@ -755,7 +1054,9 @@ anything (R-CR-01).
   * ⟨r2⟩ `integration.pairs`: one entry per destination/account pair of the grant, with
     identity, endpoint, managed alias, interaction profile and the static
     `identity_selection` (§3 item 3), computed at prepare time by a passive evaluation of
-    the user's current configuration.
+    the user's current configuration. ⟨r3⟩ The runtime stores only the historical part
+    of this (`PreparedFacts`, below). It recomputes the interaction and eligibility part
+    in every result.
 * **`revoke`** removes the binding's integration and reports `remote_pending` empty and
   `latest_possible_credential_expiry` absent. The key stays usable outside Heimdall, and
   the `enforcement` fields already say so (spec §6.7, R-AU-08).
@@ -784,7 +1085,7 @@ re-derived when the identity's public key or endpoint changes, and drives every 
 | 1Password | `provider_approval`, plus `provider_unlock` while locked | `documented` (F17) |
 | native agent, key type not FIDO | **`unknown`** | `inferred`: a confirmation constraint cannot be observed passively (F23) |
 | any key whose public key is a FIDO type (`sk-*`) | `hardware_presence` | `documented` (key types [S01]) |
-| native agent after an owner declaration | `none` | `declared`, with `declared_at`, the fingerprint and the endpoint it covers |
+| native agent after an owner declaration | `none` | `declared`, with `declared_at`, the fingerprint and the endpoint it covers; ⟨r3⟩ only while the declaration is live, at the same endpoint and unexpired, checked fresh for every result and before every non-interactive launch (below) |
 
 **Declaring "no interaction"** (QR1, §12.3). `heimdall identity declare-interaction <id>
 none` sends `CatalogRequest::DeclareInteraction`.
@@ -794,14 +1095,92 @@ none` sends `CatalogRequest::DeclareInteraction`.
   `yes` (ADR-0006 §3.1). The decision text is: "Heimdall will treat this key as needing no
   confirmation and will launch non-interactive work with it. If the key in fact asks for
   confirmation, the agent's dialog can still appear."
-* Approval records `InteractionDeclaration { interaction: none, fingerprint, endpoint,
-  declared_at, expires_at, decision }`.
+* Approval records `InteractionDeclaration { ⟨r3⟩ revision, state: live, interaction: none,
+  fingerprint, endpoint, declared_at, expires_at, decision }`.
+  * ⟨r3⟩ The store keeps one row per identity. Its `revision` grows with every
+    declaration, withdrawal and recorded lapse, each a compare-and-swap on the expected
+    revision. The row is never deleted, so a revision is never reused.
+  * ⟨r3⟩ **Declaration-specific approval** (§10; §12.5 item 7). `Decide approve` copies the
+    decision record's fields into `DeclarationApproval { decision, identity, fingerprint,
+    endpoint, interaction, valid_until }` in the waiting catalog intent. The catalog
+    driver builds the declaration from that approval alone, never from request content.
+    If the identity's fingerprint or endpoint changed after the decision was created, it
+    writes nothing and answers `DECISION_STALE`. `ApplyProjection`'s plan digest plays no
+    part in this.
 * The declaration **lapses**, and the identity is `unknown` again, when:
   * the identity's endpoint locator differs from the recorded one;
-  * an explicit `agent` probe does not list the fingerprint at that endpoint;
-  * it reaches `expires_at` (default 30 days; QR1);
+  * an explicit `agent` probe does not list the fingerprint at that endpoint. ⟨r3⟩ The CLI
+    that ran the listing (`doctor --active-probe agent`, `identity adopt --from-agent`)
+    records the lapse with `WithdrawDeclaration { revision, reason: listing_missing }`
+    when the runtime is running. Doctor never starts the runtime: otherwise it reports
+    `interaction_declaration_lapsed` with `recorded: false` and the exact command
+    (QR9);
+  * it reaches `expires_at` (default 30 days; QR1). ⟨r3⟩ Expiry is evaluated at every
+    read, so nothing has to be written for it to take effect;
   * the owner withdraws it (`WithdrawDeclaration`, narrowing, no decision).
 * Every result shows `basis: declared` and `declared_at`, never `observed`.
+
+**Launch eligibility is checked fresh** ⟨r3⟩ (M2-R04; §12.5 item 4).
+
+* **Prepared facts are history.** What `prepare` observed is stored per grant as
+  `PreparedFacts`: endpoint, alias, identity selection and provider status, each with its
+  time. Attached bindings, `bind`, replay and restart reuse these. They hold **no
+  interaction, availability or eligibility field** (m02-plan §5 item 17), so a stored
+  fact can never re-establish `interaction: none`.
+* **Eligibility is computed in the transaction that builds each result.** This covers
+  every `ensure` result (attached and coalesced included), every `bind` result, and
+  `inspect identities`. Each pair's `interaction`, `interaction_basis`, `declaration`,
+  `noninteractive` and `credential_availability` are derived from the identity's live
+  declaration row. A declaration counts only if:
+  * it exists in state `live`;
+  * its endpoint equals the identity's current endpoint;
+  * its `expires_at` is later than the runtime's current time (ADR-0006 time rules).
+
+  The result names the declaration it relied on (`DeclarationRef { revision, endpoint,
+  expires_at }`) and when it checked (`eligibility_checked_at`).
+* **Before any non-interactive launch**, the CLI reads `inspect identities` again,
+  immediately before exec or spawn. This covers `run`, `connect`, and the
+  `authentication` probe under `--non-interactive`. Doctor never starts the runtime: it
+  reads the store read-only and applies the same pure rule,
+  `heimdall_domain::catalog::eligibility`. The CLI launches only if every
+  declaration the bind (or connect) result relied on is still live with the **same
+  revision and endpoint**, and its `expires_at` is still later than now.
+  * A withdrawal, a lapse, a re-declaration (new revision) or an expiry after `bind`
+    refuses the launch: `INTERACTION_REQUIRED`, reason `interaction_unknown`, and a
+    `prelaunch_failed` record.
+  * A replayed `bind` result goes through the same check, so idempotent replay never
+    skips it.
+
+**Fallback identities on the no-interaction path** ⟨r3⟩ (M2-R05; §12.5 item 5, which
+qualifies QR4). Reporting `not_exclusive` does not prevent a dialog: ssh tries an
+inherited key after the adopted key is rejected, and the agent may then prompt for it.
+The **no-interaction path** is non-interactive `ensure` readiness, `run`, `connect` and
+the `authentication` probe, without `--allow-provider-interaction`. On it, a pair whose
+selection is `not_exclusive` or `undetermined` is refused unless **every reachable
+alternative identity is cleared** (QR8 asks for this criterion to be confirmed):
+
+* An alternative is **cleared** only when all of these hold:
+  * it is agent-backed: an IdentityFile or CertificateFile entry whose private key file is
+    absent (F9), used through the alias's effective IdentityAgent;
+  * its fingerprint, read from the `.pub`, is a catalog identity at that same endpoint;
+  * that identity's fresh eligibility is `interaction: none`.
+* These are never cleared:
+  * an entry whose private key file is present, since ssh may ask for a passphrase and
+    Heimdall never opens private keys to find out;
+  * a FIDO `sk-` entry;
+  * an `undetermined` entry;
+  * an entry whose `.pub` is missing;
+  * every alternative of an alias that has no determined `IdentitiesOnly yes`, because the
+    agent may then offer keys that cannot be listed passively.
+* The refusal is `INTERACTION_REQUIRED` (exit 3) with reason `fallback_identity_interaction`.
+  It names each uncleared entry's file:line, and its next action is `interact` with
+  `provider_interaction`, never a `decision_ref`. The remedies are:
+  * narrow the user's entry (`Host * !<alias>`);
+  * adopt and declare the alternative;
+  * pass `--allow-provider-interaction`.
+* The CLI's pre-launch check re-evaluates the selection statically, so a `Host *`
+  IdentityFile added after `ensure` is seen. The check is passive and executes nothing.
+* `exclusive` pairs and interactive use are unchanged.
 
 **Provider states** (`ProviderStatus`, §10) carry:
 
@@ -824,7 +1203,7 @@ its live test is blocked (m02-plan §7).
 | endpoint absent | `SERVICE_UNAVAILABLE`, `resource.kind = "provider"` | |
 | caller minimum `unattended` (§10) not met: 1Password stops on lock (F17); native agent lock continuity is `unknown`, and unknown never satisfies a minimum (ADR-0006 §14.4 (d)) | `CAPABILITY_UNAVAILABLE` (exit 4) | |
 | a probe observed `locked` | `PROVIDER_LOCKED` (exit 3) | `interact` with `provider_interaction` |
-| a human step the provider owns may be needed under `--non-interactive`: ⟨r2⟩ any pair's interaction is not `none`, including `unknown` and a lapsed declaration (Q2 as qualified) | `INTERACTION_REQUIRED` (exit 3), reason `provider_interaction` or `interaction_unknown` | `interact` with `provider_interaction`, never a `decision_ref` (spec §5.5) |
+| a human step the provider owns may be needed under `--non-interactive`: ⟨r2⟩ any pair's interaction is not `none`, including `unknown` and a lapsed declaration (Q2 as qualified); ⟨r3⟩ judged on fresh eligibility, so a withdrawn, lapsed, expired or re-declared declaration also counts; or any pair has an uncleared fallback identity (§7, M2-R05) | `INTERACTION_REQUIRED` (exit 3), reason `provider_interaction`, `interaction_unknown` or ⟨r3⟩ `fallback_identity_interaction` | `interact` with `provider_interaction`, never a `decision_ref` (spec §5.5) |
 | none of the above | `ACCESS_READY`, with `credential_availability` = `interaction_required` (1Password, or an `unknown` native key) or `current_only` (a native key declared `none`), and no claim of unattended use | |
 
 Provider dialogs are reported as the provider's, not as Heimdall prompts: `decision_ref`
@@ -842,8 +1221,11 @@ non-interactive refusal applies when **any** pair needs or may need interaction,
   the alias (F2, F9). Those aliases are `not_exclusive` (§3 item 3), and Heimdall never
   says that only the adopted key is used for them.
 * Revision 1's "there is no fallback to other agent keys" is withdrawn. It holds only for
-  `exclusive` aliases, and only for the configuration (§12.2 item 1). Whether a
-  non-interactive request should refuse a `not_exclusive` alias is QR4.
+  `exclusive` aliases, and only for the configuration (§12.2 item 1). ⟨r3⟩ QR4 answered
+  "report only" (§12.4). §12.5 item 5 qualifies that answer: on the no-interaction path
+  a `not_exclusive` or `undetermined` selection is refused unless every alternative is
+  cleared ("Fallback identities on the no-interaction path", above). Elsewhere it is
+  reported, as before.
 
 ## 8. D7 — Process contract: `run`, `connect`, TUI handoff
 
@@ -851,8 +1233,12 @@ non-interactive refusal applies when **any** pair needs or may need interaction,
 
 1. `ensure` and `bind`;
 2. resolve the program;
-3. write the side-channel record `launching` (an attempt);
-4. `execve` through `std::os::unix::process::CommandExt::exec`.
+3. ⟨r3⟩ under `--non-interactive`, the pre-launch eligibility check (§7): a fresh
+   `inspect identities` that must show the same declaration revisions, endpoints and an
+   unexpired `expires_at`, plus a fresh static selection whose fallback identities are
+   all cleared. A failure writes `prelaunch_failed` and exits 3;
+4. write the side-channel record `launching` (an attempt);
+5. `execve` through `std::os::unix::process::CommandExt::exec`.
 
 The Heimdall process becomes the child, so these are exactly the platform's: exit status
 and death by signal, job control (stop and continue by the shell), terminal ownership,
@@ -1077,26 +1463,49 @@ integrator. In summary:
     effectful action carries `plan_digest`. ⟨r2⟩ Preview takes an intent (apply, rollback or
     repair) and has no `evaluate` flag.
   * `Request::Catalog(CatalogRequest { … })`. ⟨r2⟩ It gains `DeclareInteraction` and
-    `WithdrawDeclaration`.
+    `WithdrawDeclaration`. ⟨r3⟩ `WithdrawDeclaration` also carries an optional expected
+    `revision` and a `reason` (`owner` or `listing_missing`).
   * Both are gated by capability `setup/1`.
+  * ⟨r3⟩ **Fail-closed landing** (§12.5 item 7). Until the real drivers land in the
+    activation change set (m02-plan §2, wave 3), the new requests are refused at every
+    layer:
+    * `setup/1` is not offered, so a session cannot negotiate it;
+    * a Setup or Catalog request on a session is answered `SCHEMA_UNSUPPORTED` by the
+      existing session gate (ADR-0006 §2.4, unchanged) and never dispatched;
+    * a request that reaches dispatch by any other path gets `CAPABILITY_UNAVAILABLE`
+      with reason `driver_unavailable`, and leaves no operation, idempotency record,
+      decision or event;
+    * an open setup or catalog operation found at restart stays unresolved and untouched;
+    * a decision of the new kinds is refused, not consumed.
+
+    Wave-0 acceptance tests cover each layer (m02-plan U0b). QR7 asks the orchestrator to
+    confirm the session-layer code.
 * **Bind change:** `BindForm::Launch(LaunchBinding { executable, holder })` replaces
   `argv` (Q8); `holder` is excluded from the request hash.
 * **Ensure and capabilities.**
   * `RequiredCapabilities.unattended`;
   * `EnsureData.{credential_availability, provider}`;
   * `ConsumerIntegration.{executables, overrides, pairs}` ⟨r2⟩, where `pairs` carries
-    per-pair identity, endpoint, alias, interaction and `identity_selection`.
+    per-pair identity, endpoint, alias, interaction and `identity_selection`. ⟨r3⟩ Pairs
+    gain `declaration` (`DeclarationRef { revision, endpoint, expires_at }`),
+    `noninteractive` and `eligibility_checked_at`, all computed fresh per result (§7).
+    Identity entries gain `fingerprint`, `backing` and `cleared`.
 * **Next actions:** `NextAction.provider_interaction`.
 * **Codes:** `LAUNCH_FAILED`. ⟨r2⟩ New `ErrorData.reason` values include
   `concurrent_writer`, `git_config_locked`, `mixed_mechanisms`, `meta_unavailable`,
-  `interaction_unknown` and `config_commands_not_authorized`.
+  `interaction_unknown` and `config_commands_not_authorized`. ⟨r3⟩ Also
+  `driver_unavailable`, `fallback_identity_interaction`, `config_not_fully_readable`,
+  `git_config_unreadable` and `setup_in_progress`.
 * **Inspection:** the `InspectSubject` variants `identities` and `projections`.
 * **Other types.**
   * `ids::IdentityId` (`idn`);
   * `contract::{doctor, provider, run_record}`. ⟨r2⟩ `ProbeRecord` gains `authorization`,
     `executed_config_commands`, `effects_excluded` and `containment`. `RunRecord` gains
     `spawned` and the reader classification `classify`. New types `GitConfigChange`,
-    `GitSshSelection` and `IdentitySelection`.
+    `GitSshSelection` and `IdentitySelection`. ⟨r3⟩ `ProbeRecord` also gains
+    `config_tree_changed`. `GitValueObservation` gains `conditional`. New finding codes:
+    `git_config_unreadable`, `git_user_value_shadowed` and `displaced_missing`.
+    `RemainingArtifact.kind` gains `quarantine`.
 * **Resource kinds:** `projection`, `identity`, `provider`, `executable`.
 * **Domain.**
   * `DecisionKind::ApplyProjection { operation, plan_digest, summary }`. ⟨r2⟩ It names the
@@ -1104,10 +1513,24 @@ integrator. In summary:
   * ⟨r2⟩ `DecisionKind::DeclareInteraction` (QR1).
   * ⟨r2⟩ `OperationKind::{SetupApply, SetupRollback, SetupRepair, Catalog}`;
     `RecoveryIntent.local`; `OwnerRef::Projection`.
+  * ⟨r3⟩ **Approvals, one per decision kind** (§12.5 item 7):
+    * `ProjectionApproval { decision, plan_digest }` lives only in `SetupIntent`;
+    * `DeclarationApproval { decision, identity, fingerprint, endpoint, interaction,
+      valid_until }` lives only in `CatalogIntent`.
+
+    Revision 2's shared `LocalApproval { decision, plan_digest }` is withdrawn, because
+    `DeclareInteraction` has no plan digest.
+  * ⟨r3⟩ **Typed local receipt payload:** `StageReceipt.local: Option<LocalReceipt>`
+    (`file { step, phase }` | `item { item, phase }`, §5.7). Old rows read with `None`;
+    nothing is migrated.
+  * ⟨r3⟩ `BehaviorState { digest, determined }` in the consent record (§5.2).
+  * ⟨r3⟩ `InteractionDeclaration` gains `revision`, `state`, `ended_at` and `end_reason`.
+    `PreparedFacts` holds history only (§7).
 
 Nothing removes or re-types an existing field except `BindForm::Launch` and the
 `OperationKind` and `DecisionKind` additions, which are exhaustively matched in M01 code
-and change with it (m02-plan U0b). The contract is not frozen (ADR-0006 §1), so these are a
+and change with it (m02-plan U0b). ⟨r3⟩ `StageReceipt.local` and `RecoveryIntent.local`
+are additive: serde default, omitted when absent. The contract is not frozen (ADR-0006 §1), so these are a
 revision rather than a major bump, and no external reader exists yet.
 
 ## 11. Rejected alternatives
@@ -1125,16 +1548,27 @@ revision rather than a major bump, and no external reader exists yet.
 | Heimdall relaying the agent for existing access in M02 | Adds a same-user filter with no real scope (E-3, F12); M03/M04 bring Heimdall endpoints where they enforce something |
 | ⟨r2⟩ Stripping or rewriting the user's IdentityFile entries to make selection exclusive | Edits unrelated user configuration (spec §5.2; §12.2 item 1) |
 | ⟨r2⟩ A digest check followed by plain `rename` | Not a compare-and-swap. A write between the check and the rename is silently lost (M2-D03) |
-| ⟨r2⟩ Link-then-rename where atomic exchange is missing | A rename-replace by another writer between the link and the rename loses that writer's file. Manual mode is used instead (§5.3 step 8) |
+| ⟨r2⟩ Link-then-rename where atomic exchange is missing | A rename-replace by another writer between the link and the rename loses that writer's file. Manual mode is used instead (§5.3 step 9) |
 | ⟨r2⟩ A forked observer process to prove a successful Unix exec | Adds a process outside the exec model (job control, signals, exit status) for a fact that a caller rarely needs. `indeterminate` is reported instead (§8) |
 | ⟨r2⟩ Writing `core.sshCommand` with `git config --global` (revision 1 Q7 text) | A set replaces an existing single value. Between Heimdall's check and the write, a value the user added would be lost, and the CLI cannot compare against the preview (M2-D10). The include block under Git's own lock (§5.6) compares and preserves |
 | ⟨r2⟩ Run-time Git injection through `GIT_SSH_COMMAND` (revision 1) | It overrides a per-command `git -c core.sshCommand` that Heimdall cannot see without parsing the child's arguments. `GIT_CONFIG_COUNT` yields to it (§8). It remains the fallback if the F22 test refutes that |
 | ⟨r2⟩ Keeping `setup preview --evaluate` | It executed configuration inside a nominally read-only preview; the doctor `evaluate` level with `--allow-config-commands` covers authorized evaluation (§6) |
+| ⟨r3⟩ Settling the displaced file inside the primitive (revision 2) | An update could then find, after a concurrent edit of the user file, that the old P it must restore was already deleted (M2-R01). Settlement now follows `item.committed` (§5.3 step 8, §5.4) |
+| ⟨r3⟩ Unlinking a checked name in the user's directories | Unix has no unlink by identity, so a rename onto the name between the check and `unlinkat` would be deleted. Same-user editors rename into those directories, so the directory-concurrency assumption cannot be enforced there (M2-R02). Removal goes through the quarantine (§5.3) |
+| ⟨r3⟩ Inferring "validation finished" or "settled" from an absent displaced file | Another writer could have removed it. Only a matching receipt (`file.settled`) or a cleanup goal state accounts for an absence (§5.7 rows F2d, F8c, R3) |
+| ⟨r3⟩ Reusing prior consent for an undetermined state with an equal digest | The digest does not bind condition contents (M2-R03). Binding consent to the exact `Match exec` text was also rejected: it would present consent as authorizing a dynamic program. Undetermined states always need a new decision (§5.2) |
+| ⟨r3⟩ Reusing stored prepared facts for interaction or eligibility | A withdrawn, lapsed or expired declaration would be resurrected at bind or restart (M2-R04). Eligibility is recomputed per result and re-checked before launch (§7) |
+| ⟨r3⟩ Refusing only the adopted key's interaction on the no-interaction path | An inherited fallback identity can still raise the agent's dialog (M2-R05). Uncleared alternatives are refused (§7) |
+| ⟨r3⟩ `--allow-config-commands` only when the static pass finds an executing construct (revision 2) | The tree can change between the static pass and ssh opening it (M2-R06). The authorization is required for every level that runs the real tree (§6) |
+| ⟨r3⟩ Snapshot evaluation (ssh against a validated copy of the tree), now | **Deferred, not rejected.** It needs proven path equivalence for relative includes, `~`, tokens and `Match final`, and M02 has no such proof (§12.5 item 6) |
+| ⟨r3⟩ Minimal local drivers in wave 0 | The ruling took the fail-closed option (§12.5 item 7): the new requests are refused until their real drivers land, so no partial driver is ever reachable |
+| ⟨r3⟩ Placing B_git in the file `git config --global` writes when both global files exist (revision 2) | Git reads the XDG file first, so a later user value there would lose to Heimdall's include (F22 `[I]`). B_git goes in the first-read file (§5.6) |
 
 ## 12. Questions for the orchestrator (authority semantics; recommended answers)
 
 These are kept as asked in revision 1. §12.1 and §12.2 hold the rulings; §12.3 holds the
-questions that revision 2 raises.
+questions that revision 2 raises. ⟨r3⟩ §12.4 and §12.5 hold the later rulings; §12.6 holds
+the questions that revision 3 raises.
 
 1. **Q1. Projection apply as an owner decision.** Does applying a projection change need a
    server-issued decision record, completed only by an attended `Decide`, as widening
@@ -1321,7 +1755,8 @@ ruling differs.
 * **QR3. The Git mechanism** (§5.6). Q7 was ruled with "writes it with `git config
   --global`". Revision 2 instead writes a marked include block under Git's own lock
   protocol, plus a Heimdall-owned file, and applies only when no `core.sshCommand` exists
-  in any scope. Is this accepted under the Q7 ruling? **Recommended: yes.** The authority
+  ⟨r3⟩ in the system or global scope, counting the files they include (wording corrected
+  by §12.5 item 9; revision 2 said "in any scope"). Is this accepted under the Q7 ruling? **Recommended: yes.** The authority
   the owner grants is unchanged: a separately itemized, default-off entry of the same
   decision, for the same setting. It closes the lost-update race that M2-D10 found, and it
   never overwrites or restores a user value.
@@ -1330,7 +1765,8 @@ ruling differs.
   `not_exclusive` or `undetermined`? **Recommended: no, report only, in M02.** The extra
   identities are the owner's own configuration and apply to ordinary ssh anyway. The
   readiness result and doctor state it, Heimdall claims nothing stronger, and A11's "no
-  unapproved fallback" evidence is the `exclusive` fixture. A
+  unapproved fallback" evidence is the `exclusive` fixture. ⟨r3⟩ (Qualified by §12.5
+  item 5: on the no-interaction path, refuse unless every alternative is cleared, §7.) A
   `RequiredCapabilities.exclusive_identity` minimum can be added later if a caller needs
   it.
 * **QR5. Multi-pair non-interactive launch** (§7). Should non-interactive `run` refuse when
@@ -1358,6 +1794,140 @@ ruling differs.
 * **Next step:** this revision gets a second independent design review before wave 0
   (U0 + U0b).
 
+### 12.5 Rulings on design review round 2 (orchestrator, 2026-11-01)
+
+Source: `tests/evidence/artifacts/review-m02-design/round2.md` (verdict: proceed after
+fixes; M2-R01–R07 major, R08 medium). Every fix is accepted. Where a finding offered a
+choice, the fail-closed option is taken:
+
+1. **R01: settlement waits for the update to finish.** Exchange and post-validation are
+   separated from final settlement. The displaced P is kept until every update-level
+   check passes and the outcome is durably recorded.
+2. **R02: recovery follows a state table.** The table covers forward exchange, restore
+   exchange, deletion, creation when the base is absent, and removal when the target is
+   absent, with durable restore phases. Settlement is never inferred from absence
+   without matching receipts. A missing or foreign entry produces a preserved conflict
+   state.
+   * The directory-concurrency assumption for the final unlink is written down and
+     enforced.
+   * If it cannot be enforced, the unlink is avoided: the displaced file is renamed
+     into a Heimdall-owned quarantine directory instead.
+3. **R03: dynamic states need a new decision.** A behaviour-changing restore whose
+   before or after state is **undetermined** always needs a new attended decision.
+   Prior consent covers only determined states.
+4. **R04: launch eligibility is checked fresh.** Historical prepared facts are separate
+   from current eligibility to launch. Before any non-interactive launch, at bind and at
+   readiness, the declaration is revalidated: it must exist, and its revision, endpoint
+   and expiry must still match.
+5. **R05: fallback identities on the no-interaction path.** On the no-interaction path,
+   a `not_exclusive` or `undetermined` selection is refused unless every reachable
+   alternative identity has sufficient interaction information. Otherwise the caller
+   must pass `--allow-provider-interaction`. This qualifies QR4.
+6. **R06: running against the real tree always needs authorization.**
+   `--allow-config-commands` is required whenever an evaluation or probe runs against
+   the mutable real configuration tree. A snapshot mode may be added later, but only
+   with proven path equivalence. Unreadable or unresolved includes fail closed.
+7. **R07: how wave 0 lands.**
+   * New requests fail closed until their real drivers land. `setup/1` is not offered,
+     and a direct request gets `CAPABILITY_UNAVAILABLE`. Wave 0 includes acceptance
+     tests for this.
+   * U0 freezes a typed local receipt payload, with serialization, defaults for old
+     rows and migration behaviour.
+   * U0 also freezes a declaration-specific approval representation, separate from
+     `ApplyProjection`'s plan digest.
+   * The kind-mapping test covers journaled kinds only, and documents how `Probe` maps.
+8. **R08: tests must discriminate.**
+   * For F23, verify that the constrained key was installed, and add an authorized
+     disposable signing control.
+   * Keep the Windows claim about the internal `ReplaceFileW` window marked `[U]`.
+   * The Git fixtures cover both global files present, ordinary and conditional
+     includes, multiplicity through includes, and include expansion.
+9. **QR3 wording:** applicability is system and global only. The "any scope" wording is
+   corrected.
+
+### 12.6 ⟨r3⟩ Questions raised by revision 3 (recommended answers)
+
+Units build against the recommended answers; the integrator changes the affected unit if a
+ruling differs. Each question concerns authority or contract semantics that §12.5 does not
+fix word for word.
+
+* **QR7. Which code a session sees in wave 0** (§10, §12.5 item 7). The ruling says that
+  `setup/1` is not offered and that "a direct request gets `CAPABILITY_UNAVAILABLE`".
+  ADR-0006 §2.4 already fixes `SCHEMA_UNSUPPORTED` for a request whose capability the
+  session did not negotiate. The M01 session gate answers it before dispatch, and a
+  capability the server does not offer can never be negotiated. **Recommended:** leave
+  ADR-0006 §2.4 unchanged:
+  * a session sees `SCHEMA_UNSUPPORTED` (and a hello that *requires* `setup/1` is
+    rejected with it);
+  * `CAPABILITY_UNAVAILABLE` with reason `driver_unavailable` is the answer on every path
+    that reaches dispatch (`OperationsDispatcher::handle_as`, the `Operations` entry
+    points), and later for a runtime configured without a `ProjectionWriter`;
+  * M02 CLI commands that have not landed keep M01's "not available in this build"
+    envelope.
+
+  *Why:* each layer keeps the code the contract already defines for it, and every layer
+  fails closed. *Alternative:* to make sessions see `CAPABILITY_UNAVAILABLE`, `Request::
+  required_capability()` would return nothing for the new requests until activation.
+  That changes the gate's meaning between waves, so it is not recommended.
+* **QR8. When a fallback identity is "cleared"** (§7; §12.5 item 5). The ruling requires
+  "sufficient interaction information" for every reachable alternative. **Recommended:**
+  an alternative is cleared only when it is agent-backed (its private key file is absent),
+  its fingerprint is a catalog identity at the alias's effective IdentityAgent endpoint,
+  and that identity's fresh eligibility is `interaction: none`, that is, a live owner
+  declaration. File-backed, FIDO, undetermined and `.pub`-less entries are never cleared,
+  and neither is any alternative of an alias without a determined `IdentitiesOnly yes`.
+  *Why:* only a declaration is an owner statement about interaction (QR1). Anything else
+  would widen what non-interactive work may launch without a decision record (ADR-0006
+  §3.1, A29).
+* **QR9. Recording a lapse after a failed listing** (§7). May any same-user control
+  session send `WithdrawDeclaration { revision, reason: listing_missing }` with no
+  decision? And when the runtime is not running, may doctor leave the lapse unrecorded
+  and only report it? **Recommended: yes to both.** Withdrawal narrows, and narrowing is
+  allowed on any same-user control connection (§12.1 Q1 note; ADR-0006 §13.1 item 1). The
+  `revision` makes it a compare-and-swap, so a stale listing cannot withdraw a newer
+  declaration. Doctor never starts the runtime (§6; spec §10.2), and the pre-launch check
+  still applies to every launch.
+* **QR10. Quarantine directories in the user's directories** (§5.3). Creating
+  `.hm-quarantine` inside `~/.ssh`, `<config_dir>`, `<config_dir>/keys` and the directory
+  of the Git global file (`~/.hm-quarantine` for `~/.gitconfig`) adds Heimdall-owned
+  directories where the user keeps configuration. Is this within the adoption authority?
+  **Recommended: yes.** They are not configuration: OpenSSH and Git never read them.
+  They are created lazily, mode 0700, and hold only entries Heimdall displaced. They are
+  removed when empty, and `setup status` and uninstall list any that are not (spec §5.2
+  "permission to adopt is not permission to rewrite unrelated configuration" is not
+  engaged). *Alternative:* one quarantine under `<state_dir>`. Rejected: a rename across
+  filesystems fails or copies, and a copy is not identity-preserving.
+* **QR11. "Unreadable or unresolved includes fail closed"** (§6; §12.5 item 6).
+  **Recommended reading:** a level that runs the real tree is declined with
+  `config_not_fully_readable` *even with* `--allow-config-commands` when the static pass
+  for the alias could not read or resolve an include. *Why:* the authorization text
+  lists what the configuration runs; if part of the tree is unreadable, the owner would
+  authorize something nobody could show them. *Alternative:* treat the flag as covering
+  unreadable parts too, and say so in the prompt.
+
+### 12.7 Orchestrator rulings on §12.6 and m02-plan P7–P9 (2026-11-01)
+
+The recommended answer to each question is accepted, as follows:
+
+* **QR7: two stages, two codes.** A session that did not negotiate `setup/1` gets
+  `SCHEMA_UNSUPPORTED`, as ADR-0006 §2.4 specifies. Every path that reaches dispatch gets
+  `CAPABILITY_UNAVAILABLE` with reason `driver_unavailable`. This refines §12.5 item 7.
+* **QR8: which fallback identity is cleared.** Only an agent-backed catalog identity at
+  the same endpoint, holding a live `none` declaration. File-backed, FIDO and
+  undetermined entries, and aliases without `IdentitiesOnly yes`, are never cleared.
+* **QR9: recording a lapse.** `WithdrawDeclaration { reason: listing_missing }` is a
+  narrowing action, allowed from any same-user session. Doctor reports `recorded: false`
+  when the runtime is not running.
+* **QR10: quarantine directories.** Accepted inside `~/.ssh`, `~` and the config
+  directory. They hold no configuration, have mode 0700, and are removed when empty.
+* **QR11: unreadable includes.** An unreadable include declines the level, even with
+  `--allow-config-commands`. Nobody can authorize what nobody could show them.
+* **P7, P8, P9:** accepted.
+  * **P7:** U0b lands in two phases, with the store bodies.
+  * **P8:** setup operations are serialized.
+  * **P9:** the Git include block goes in the first-read global file.
+* **Next step:** revision 3 gets a third independent design review before wave 0.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
@@ -1370,18 +1940,31 @@ ruling differs.
     (recorded in `dependencies.md`);
   * on Windows: `ReplaceFileW` with a backup name, handle-based identity checks and
     deletion (`GetFileInformationByHandleEx`, `SetFileInformationByHandle` with
-    `FileDispositionInfoEx`), the profile directory, and the probe job objects.
+    `FileDispositionInfoEx`), the profile directory, and the probe job objects;
+  * ⟨r3⟩ the quarantine: `mkdirat` with mode 0700 and `unlinkat` relative to a validated
+    quarantine handle (Unix). On Windows: `MoveFileExW` without replace into the
+    quarantine, and owner-only DACL creation. The safe wrapper exposes removal **only** as
+    a method on a validated quarantine handle, so production code cannot unlink a name in
+    any other directory.
 
   The integrator updates overview §9.
 * The store moves to migration `0005_existing_access` (`SCHEMA_VERSION` 5) and gains
   `Store::open_read_only` for doctor. ⟨r2⟩ It gains tables for interaction declarations,
-  per-grant prepared facts and projection consent.
+  per-grant prepared facts and projection consent. ⟨r3⟩ The declarations table keeps one
+  row per identity with a monotonic revision. The migration adds tables only:
+  `stage_receipts` and `recovery_intents` are not rewritten, and their new `local` fields
+  default to absent.
 * ⟨r2⟩ Existing M01 code changes in the places m02-plan U0b lists. The integrator applies
   them after the concurrent M01 work on `operations.rs` and `revocation.rs` has landed.
+  ⟨r3⟩ U0b lands in two phases (m02-plan §2):
+  * wave 0: every change, fail closed for the new requests, plus the store bodies;
+  * wave 3: the activation change set, landed with U5's drivers.
 * `docs/compatibility/matrix.md` gains rows for native agent and 1Password × {ssh, Git,
   SCP, SFTP} × {macOS, Linux, Windows}, with exact labels; M02 claims nothing unattended.
   ⟨r2⟩ It also records identity selection exclusivity as a per-configuration fact, the
-  §5.9 unsupported cases, and the Git run-time limits of §8.
+  §5.9 unsupported cases, and the Git run-time limits of §8. ⟨r3⟩ It also records the
+  quarantine directories, the `git_user_value_shadowed` residual, the fallback-identity
+  refusal, and the Windows `ReplaceFileW` window as `[U]`.
 
 ## 14. Reopen conditions
 
@@ -1390,14 +1973,19 @@ Reopen this ADR if any of the following happens:
 * a target client contradicts F1–F3, F20 or the include-state inference (corpus test);
 * Win32-OpenSSH refuses the rendered P or the `ReplaceFileW`-preserved file;
 * a supported user layout needs the include somewhere other than the top;
-* the owner rules differently on Q1–Q8 or QR1–QR6;
+* the owner rules differently on Q1–Q8, QR1–QR6 or ⟨r3⟩ QR7–QR11;
 * G05 changes how consumers bind (spec §10.3);
 * M03/M04 need P to carry CertificateFile, ProxyJump or Heimdall endpoints (that is a
   revision of §2's directive set);
 * ⟨r2⟩ a target filesystem in the declared layout lacks atomic exchange, or
   `ReplaceFileW` is shown not to retain the displaced file;
 * ⟨r2⟩ a target Git contradicts F22 (lock protocol, include precedence, `GIT_CONFIG_COUNT`
-  yielding to `-c`, or the global-file rule).
+  yielding to `-c`, or the global-file rule), ⟨r3⟩ or the `--includes`, global read order
+  or conditional-include facts;
+* ⟨r3⟩ a target filesystem refuses a no-replace rename into the quarantine directory, or
+  a supported platform cannot validate the quarantine's owner and mode;
+* ⟨r3⟩ a native test shows what `ReplaceFileW` captures under a replacement inside the
+  call (§5.9 item 2).
 
 ## 15. ⟨r2⟩ Change log (revision 2, task M02-T00-design-fix)
 
@@ -1415,3 +2003,19 @@ Reopen this ADR if any of the following happens:
 | M2-D10 Git projection lacks a contract | item 10 | F16, F22; §4 Git rendering rows; §5.6 (GitConfigChange: observation, applicability, include under Git's lock, receipts, recovery, rollback, partial application); §8 "Git under run" (resolution in the child's directory, `GIT_CONFIG_COUNT` injection, privacy, disclosures); §11 rows; QR3, QR6 | U3 `git.rs`; U4 Git steps and tests; U8 Git run tests; §5 items 2, 8, 12 |
 | Q5, Q6, Q8 qualifications | item 11 | §8 holder (Unknown never exits; Windows launcher holder); §5.5 uninstall and purge; §8 argument privacy | U8, U9 tests |
 | Review A22/A27 notes (encodings, SIGPIPE) | — | §4 encodings paragraph; §8 SIGPIPE residual reworded | U4, U8 tests |
+
+### 15.1 ⟨r3⟩ Change log (revision 3, task M02-T00-design-fix-2)
+
+Source: `tests/evidence/artifacts/review-m02-design/round2.md`, rulings §12.5.
+
+| Finding | Ruling (§12.5) | Sections changed here | m02-plan.md |
+|---|---|---|---|
+| M2-R01 settlement deletes the P an update must restore | item 1 | §5.3 preamble and steps 6–8 (the primitive no longer settles; settlement is a separate transaction step); §5.4 (transaction check after post-validation, `item.committed` before any settlement, crash and late-edit cases); §5.6 lock step 5; §11 row | U4 `replace` interface, `ReplaceHook` points, tests `a22_update_user_edit_after_p_post_validation_*`, `a22_update_crash_between_post_validation_and_commit_*`, `a22_update_crash_after_commit_before_settlement_*`; §5 items 15 (`StageSink::commit_item`), 17a, 18 (`commit_projection_item`) |
+| M2-R02 recovery misreads interrupted restores; unlink window | item 2 | §5.3 step 7 (durable restore phases), step 8 and "The quarantine and the directory-concurrency assumption" (**option chosen: quarantine; no unlink of a name in the user's directories; assumption stated and enforced for the quarantine only**); §5.7 receipt table and the **recovery state table** (rows F0–F9c, C1–C5, R1–R5, T0–T4), one setup operation at a time; §5.8 cleaner through the quarantine with a deterministic slot; §5.9 items 1 and 4; §11 rows; §13; QR10 | U4 crash-injection and table-vector tests, quarantine enforcement tests; U5 `setup_in_progress`; §5 items 2 (`quarantine` artifact), 14, 17a |
+| M2-R03 undetermined digests reuse consent | item 3 | §5.2 (determined vs undetermined states, `BehaviorState`, rule rewritten, QR2 limit); §10; §11 row | U2 `consent` interface and tests; U5 test; §5 items 2 (`undetermined_state`), 17 (`ConsentRecord`), 18 |
+| M2-R04 prepared facts outlive a declaration | item 4 | §7 declaration (revision, state, decision-only source), lapse recording, "Launch eligibility is checked fresh"; results table; §8 run step 3; §10; §11 row; QR9 | U0b rows 5–6, 22 (`domain::catalog::eligibility`) and tests; U5 tests; U6 delegation; U8 pre-launch check and tests; §5 items 3, 8, 17, 18 |
+| M2-R05 inherited fallback identities can prompt | item 5 | §3 item 3 (fingerprint, backing); §7 "Fallback identities on the no-interaction path", results table, identity selection paragraph; §6 authentication row; QR4 note; §11 row; QR8 | U2 report fields; U0b row 22 (`domain::catalog::fallback_clearance`); U6 delegation; U8 pre-launch check and `a11_inherited_confirm_constrained_fallback_*`; U9 A35 variant; §5 items 8, 9, 14 |
+| M2-R06 authorization after the static pass | item 6 | §6 `--allow-config-commands` (always for real-tree levels, fail closed on unreadable includes, `config_tree_changed`, snapshot deferred), ladder rows, `ProbeRecord`; §5.1; §11 rows; QR11 | U3 interface and tests; U9 rules; U10; §5 items 11, 14; §8 |
+| M2-R07 wave 0 not implementable | item 7 | §10 (fail-closed landing, approvals per decision kind, typed local receipt payload); §5.7 (`ProjectionApproval`, receipt payload); §7 (declaration-specific approval); §13 (U0b phases); §11 row; QR7 | U0 frozen interfaces and rescoped kind-mapping test; U0b phases, rows 1, 10, 12, 16–21 and wave-0 acceptance tests; §2 order; §5 items 4, 17, 17a, 18 |
+| M2-R08 non-discriminating tests | item 8 | F22 (three added `[I]` facts), F23 (signing control), F24; §5.6 (`--includes`, static include scan, conditional entries, unreadable includes, first-read global file and the `git_user_value_shadowed` residual); §5.9 item 2 (stays `[U]`) | U3 Git observation tests; U4 Git placement tests, Windows test renamed; U6/U8 F23 control; U7 askpass `approve`/`deny`; §3 rows |
+| QR3 wording | item 9 | §5.6 applicability; §12.3 QR3 text | §5 item 2 |
