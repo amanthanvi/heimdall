@@ -427,3 +427,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Told the instances apart: the instance that paused stays read-only; the active one finishes.
   - The wave-0 integrator reconciles anything left inconsistent.
   - Lesson: never SendMessage to a running workflow agent. If coordination is needed, let the integrator stage handle it.
+- **M02 wave 0** is committed as d57bf7c4: contract rev 3, frozen interfaces, migration 0005, skeleton crates, CLI tree, U0b phase 1 fail-closed landing.
+  - My clean-build check.sh: exit 0, 828 passed (735 M01 + 93 new), 0 failed, 2 ignored.
+  - ADR-0007 §12.14 records the rulings on E1–E16 and the integration escalations, including:
+    - RecoveryState::build gains a files argument;
+    - RestoreCtx::Done carries a cause;
+    - IdentitySelectionReport crosses the port in full.
+- Running:
+  - task M02-W0-code-review (Codex, worktree at d57bf7c4);
+  - workflow `wf_71536525-4b6`, M02 wave 1: U1, U2, U7, U6 and U8 core in parallel, then an integrator.
