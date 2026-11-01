@@ -1,0 +1,1321 @@
+//! M01-U9 end-to-end suite: the CLI through the **real binary**
+//! (`CARGO_BIN_EXE_heimdall`, or `HEIMDALL_E2E_BIN` for a copied binary) against a real runtime process in a temporary
+//! `HEIMDALL_HOME` (spec §17 A19/A06 CLI variants; m01-plan U9; ADR-0006 §3.1,
+//! §5, §6, §8, §13.4 N04/N06).
+//!
+//! The runtime is `heimdall service run` started by this test (foreground child,
+//! exact PID known) or on demand by the CLI's launcher. It runs with the debug
+//! build's env-gated test configuration (`HEIMDALL_TEST_*`, see
+//! `crates/heimdall/src/testcfg.rs`): the fake credential adapter (optionally
+//! with a durable effect ledger), a scripted time-sync report, a one-shot
+//! production stage hook, and the fixture profile `dev` / policy `pol` (h1, h2
+//! covered; h3 is added authority). The production system clock is used.
+//!
+//! **Process-crash label.** The two N06 cases kill the service process with
+//! SIGKILL through the exact `Child` handle this test spawned (its PID checked
+//! against `instance.json`), after the fake effect is durably in the ledger and
+//! before its receipt: that is process-crash evidence, not an in-process
+//! reconstruction.
+//!
+//! **Pseudo-terminal.** The owner-prompt cases run the binary under `script(1)`
+//! (BSD `script -q /dev/null …` on macOS, util-linux `script -qec … /dev/null`
+//! on Linux) so stdin is a terminal; input is written only after the prompt is
+//! shown and stdin is kept open until the child exits.
+//!
+//! **Canaries.** The fake adapter's credential reference carries a synthetic
+//! `HEIMDALL_CANARY_*` value built at runtime by the service. Every byte of
+//! stdout/stderr of every client, every service's stderr and the runtime log
+//! files are scanned with `heimdall_testkit::assert_no_canary`.
+//!
+//! Only processes this test started are stopped: by `heimdall service stop`
+//! (which signals the validated advertised PID of the runtime in this test's own
+//! temp home) or by the exact `Child` handle.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
+
+use std::collections::BTreeSet;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use heimdall_testkit::{FakeCredentialAdapter, assert_no_canary};
+use serde_json::Value;
+
+/// The binary under test: `HEIMDALL_E2E_BIN` when set (a native run on a host
+/// other than the build host copies the binary and points this at it; gap G09),
+/// else the build's `CARGO_BIN_EXE_heimdall`.
+fn bin() -> String {
+    std::env::var("HEIMDALL_E2E_BIN")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_heimdall").to_owned())
+}
+
+/// Every `HEIMDALL_TEST_*` variable (removed from inherited environments).
+const TEST_VARS: [&str; 6] = [
+    "HEIMDALL_TEST_ADAPTER",
+    "HEIMDALL_TEST_LEDGER",
+    "HEIMDALL_TEST_HANG_AFTER_EFFECT",
+    "HEIMDALL_TEST_SLOW_PREPARE_MS",
+    "HEIMDALL_TEST_TIME_SYNC",
+    "HEIMDALL_TEST_STAGE_FAIL",
+];
+
+const SYNCED: (&str, &str) = ("HEIMDALL_TEST_TIME_SYNC", "synchronized");
+
+// =================================================================================
+// Harness
+// =================================================================================
+
+/// One finished invocation.
+#[derive(Debug)]
+struct Out {
+    code: i32,
+    stdout: String,
+    stderr: String,
+}
+
+impl Out {
+    /// The last JSON object printed (the envelope).
+    fn json(&self) -> Value {
+        last_json(&self.stdout).unwrap_or_else(|| {
+            panic!(
+                "no JSON envelope (exit {}):\nstdout: {}\nstderr: {}",
+                self.code, self.stdout, self.stderr
+            )
+        })
+    }
+
+    fn code_str(&self) -> String {
+        self.json()["code"].as_str().unwrap_or_default().to_owned()
+    }
+}
+
+fn last_json(text: &str) -> Option<Value> {
+    text.lines()
+        .rev()
+        .map(|l| l.trim_matches(|c: char| c == '\r' || c.is_whitespace()))
+        .filter_map(|l| l.find('{').map(|i| &l[i..]))
+        .find_map(|l| serde_json::from_str::<Value>(l).ok())
+}
+
+fn scan(label: &str, text: &str) {
+    // `assert_no_canary` panics without the text (the text may hold the canary).
+    if text.contains(heimdall_testkit::CANARY_PREFIX) {
+        eprintln!("canary found in {label}");
+    }
+    assert_no_canary(text);
+}
+
+/// A temporary `HEIMDALL_HOME` with the variables every process of this test
+/// gets.
+struct Home {
+    dir: tempfile::TempDir,
+    env: Vec<(String, String)>,
+}
+
+impl Home {
+    fn new(env: &[(&str, &str)]) -> Self {
+        let dir = tempfile::Builder::new()
+            .prefix("hdm")
+            .tempdir()
+            .expect("temp home");
+        Self {
+            dir,
+            env: env
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+        }
+    }
+
+    fn path(&self) -> &Path {
+        self.dir.path()
+    }
+
+    fn file(&self, name: &str) -> PathBuf {
+        self.path().join(name)
+    }
+
+    fn command(&self, args: &[&str], extra: &[(&str, &str)]) -> Command {
+        let mut cmd = Command::new(bin());
+        cmd.args(args);
+        self.apply_env(&mut cmd, extra);
+        cmd
+    }
+
+    fn apply_env(&self, cmd: &mut Command, extra: &[(&str, &str)]) {
+        for v in TEST_VARS {
+            cmd.env_remove(v);
+        }
+        cmd.env_remove("HEIMDALL_LOG");
+        cmd.env("HEIMDALL_HOME", self.path());
+        for (k, v) in &self.env {
+            cmd.env(k, v);
+        }
+        for (k, v) in extra {
+            cmd.env(k, v);
+        }
+    }
+
+    /// Run with stdin closed (never a terminal), scanning both streams.
+    fn run(&self, args: &[&str]) -> Out {
+        let out = self
+            .command(args, &[])
+            .stdin(Stdio::null())
+            .output()
+            .expect("spawn heimdall");
+        let out = Out {
+            code: out.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        };
+        scan("stdout", &out.stdout);
+        scan("stderr", &out.stderr);
+        out
+    }
+
+    /// Run with stdin on a pseudo-terminal. `input` is written once the owner
+    /// prompt is visible; stdin stays open until the child exits.
+    fn run_pty(&self, args: &[&str], input: Option<&[u8]>) -> Out {
+        let mut cmd = pty_command(args);
+        self.apply_env(&mut cmd, &[]);
+        let mut child = cmd
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("blocked: script(1) is needed for the pseudo-terminal cases");
+        let collected = Arc::new(Mutex::new(Vec::new()));
+        let mut stdout = child.stdout.take().unwrap();
+        let sink = collected.clone();
+        let reader = std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = stdout.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                sink.lock().unwrap().extend_from_slice(&buf[..n]);
+            }
+        });
+        let mut stdin = child.stdin.take();
+        if let Some(bytes) = input {
+            let start = Instant::now();
+            loop {
+                let seen = String::from_utf8_lossy(&collected.lock().unwrap()).into_owned();
+                if seen.contains("[y/N]: ") {
+                    break;
+                }
+                if child.try_wait().unwrap().is_some() {
+                    panic!("exited before the prompt: {seen}");
+                }
+                assert!(
+                    start.elapsed() < Duration::from_secs(30),
+                    "no prompt: {seen}"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let s = stdin.as_mut().unwrap();
+            s.write_all(bytes).unwrap();
+            s.flush().unwrap();
+        }
+        let status = wait_timeout(&mut child, Duration::from_secs(60)).expect("pty child exits");
+        drop(stdin);
+        reader.join().unwrap();
+        let mut err = String::new();
+        if let Some(mut e) = child.stderr.take() {
+            let _ = e.read_to_string(&mut err);
+        }
+        let stdout = String::from_utf8_lossy(&collected.lock().unwrap()).into_owned();
+        scan("pty output", &stdout);
+        scan("pty stderr", &err);
+        Out {
+            code: status,
+            stdout,
+            stderr: err,
+        }
+    }
+
+    /// Start `service run` in the foreground as this test's child.
+    fn start_service(&self, extra: &[(&str, &str)]) -> Svc {
+        let n = std::fs::read_dir(self.path()).unwrap().count();
+        let err_path = self.file(&format!("svc-{n}.err"));
+        let out_path = self.file(&format!("svc-{n}.out"));
+        let mut cmd = self.command(&["service", "run"], extra);
+        cmd.env("HEIMDALL_LOG", "debug")
+            .stdin(Stdio::null())
+            .stdout(std::fs::File::create(&out_path).unwrap())
+            .stderr(std::fs::File::create(&err_path).unwrap());
+        let child = cmd.spawn().expect("spawn service");
+        let mut svc = Svc {
+            child: Some(child),
+            err_path,
+            out_path,
+        };
+        let start = Instant::now();
+        loop {
+            let st = self.run(&["service", "status", "--json"]);
+            if st.code == 0 {
+                break;
+            }
+            if let Some(c) = svc.child.as_mut().unwrap().try_wait().unwrap() {
+                svc.scan();
+                panic!(
+                    "service exited early ({c}): {}",
+                    std::fs::read_to_string(&svc.err_path).unwrap_or_default()
+                );
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(30),
+                "service did not start"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        // The advertised PID is exactly the child we started.
+        assert_eq!(self.instance_pid(), Some(svc.pid()));
+        svc
+    }
+
+    fn instance_pid(&self) -> Option<u32> {
+        let text = std::fs::read_to_string(self.path().join("run").join("instance.json")).ok()?;
+        let v: Value = serde_json::from_str(&text).ok()?;
+        v["pid"].as_u64().and_then(|p| u32::try_from(p).ok())
+    }
+
+    fn scan_logs(&self) {
+        let log_dir = self.path().join("log");
+        if let Ok(entries) = std::fs::read_dir(log_dir) {
+            for e in entries.flatten() {
+                if let Ok(bytes) = std::fs::read(e.path()) {
+                    scan("runtime log file", &String::from_utf8_lossy(&bytes));
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Home {
+    fn drop(&mut self) {
+        // Stops a runtime the launcher started in this home (validated pid of
+        // this home's own advertisement); a no-op when none runs.
+        let _ = self
+            .command(&["service", "stop", "--json"], &[])
+            .stdin(Stdio::null())
+            .output();
+        if !std::thread::panicking() {
+            self.scan_logs();
+        }
+    }
+}
+
+fn pty_command(args: &[&str]) -> Command {
+    if cfg!(target_os = "linux") {
+        let bin = bin();
+        let quoted: Vec<String> = std::iter::once(bin.as_str())
+            .chain(args.iter().copied())
+            .map(|a| format!("'{}'", a.replace('\'', r"'\''")))
+            .collect();
+        let mut c = Command::new("script");
+        c.args(["-q", "-e", "-c", &quoted.join(" "), "/dev/null"]);
+        c
+    } else {
+        let mut c = Command::new("script");
+        c.args(["-q", "/dev/null", &bin()]).args(args);
+        c
+    }
+}
+
+fn wait_timeout(child: &mut Child, limit: Duration) -> Option<i32> {
+    let start = Instant::now();
+    loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            return Some(s.code().unwrap_or(-1));
+        }
+        if start.elapsed() > limit {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A runtime process this test started.
+struct Svc {
+    child: Option<Child>,
+    err_path: PathBuf,
+    out_path: PathBuf,
+}
+
+impl Svc {
+    fn pid(&self) -> u32 {
+        self.child.as_ref().unwrap().id()
+    }
+
+    fn scan(&self) {
+        for p in [&self.err_path, &self.out_path] {
+            scan(
+                "service output",
+                &std::fs::read_to_string(p).unwrap_or_default(),
+            );
+        }
+    }
+
+    /// Graceful stop through `heimdall service stop`; the child must exit 0.
+    fn stop(mut self, home: &Home) {
+        let out = home.run(&["service", "stop", "--json"]);
+        assert_eq!(out.code, 0, "{out:?}");
+        assert_eq!(out.json()["data"]["stopped"], true);
+        let mut child = self.child.take().unwrap();
+        let code = wait_timeout(&mut child, Duration::from_secs(30));
+        if code.is_none() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        assert_eq!(code, Some(0), "service exit status after stop");
+        self.scan();
+        assert_eq!(home.instance_pid(), None, "advertisement removed");
+    }
+
+    /// SIGKILL through the exact child handle (process death, no shutdown).
+    fn kill(mut self, home: &Home) {
+        let mut child = self.child.take().unwrap();
+        assert_eq!(home.instance_pid(), Some(child.id()), "exact PID");
+        child.kill().unwrap();
+        let _ = child.wait();
+        self.scan();
+    }
+}
+
+impl Drop for Svc {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn ensure_args<'a>(request: &'a str, work: &'a str, pair: &'a str) -> Vec<&'a str> {
+    vec![
+        "access",
+        "ensure",
+        "--profile",
+        "dev",
+        "--work-id",
+        work,
+        "--request-id",
+        request,
+        "--pair",
+        pair,
+        "--json",
+    ]
+}
+
+fn with<'a>(mut base: Vec<&'a str>, more: &[&'a str]) -> Vec<&'a str> {
+    base.extend_from_slice(more);
+    base
+}
+
+fn decision_ref(out: &Out) -> String {
+    out.json()["next"]["decision_ref"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no decision_ref: {out:?}"))
+        .to_owned()
+}
+
+fn pending_decisions(home: &Home) -> Vec<Value> {
+    let out = home.run(&["decision", "list", "--json"]);
+    assert_eq!(out.code, 0, "{out:?}");
+    out.json()["data"]["decisions"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn is_pending(home: &Home, decision: &str) -> bool {
+    pending_decisions(home)
+        .iter()
+        .any(|d| d["decision_id"] == decision && d["state"] == "pending")
+}
+
+fn ledger_len(path: &Path) -> usize {
+    FakeCredentialAdapter::ledger_entries(path).unwrap().len()
+}
+
+fn wait_for_file(path: &Path, limit: Duration) {
+    let start = Instant::now();
+    while !path.exists() {
+        assert!(start.elapsed() < limit, "timed out waiting for a marker");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// A client process left running (it waits on the runtime).
+fn spawn_client(home: &Home, args: &[&str]) -> Child {
+    home.command(args, &[])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+fn finish_client(mut child: Child, limit: Duration) -> Out {
+    let code = wait_timeout(&mut child, limit);
+    if code.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("client did not finish");
+    }
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut stdout)
+        .unwrap();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut stderr)
+        .unwrap();
+    scan("client stdout", &stdout);
+    scan("client stderr", &stderr);
+    Out {
+        code: code.unwrap(),
+        stdout,
+        stderr,
+    }
+}
+
+// =================================================================================
+// A19: exit classes and the envelope
+// =================================================================================
+
+#[test]
+fn every_exit_class_0_to_7_is_observed_through_the_real_binary() {
+    let mut seen = BTreeSet::new();
+    let mut note = |out: &Out, expected: i32, code: &str| {
+        assert_eq!(out.code, expected, "{out:?}");
+        if !code.is_empty() {
+            assert_eq!(out.code_str(), code, "{out:?}");
+        }
+        seen.insert(out.code);
+    };
+
+    // --- 0, 2, 3, 4, 6 against a prepare-only runtime.
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    let ready = home.run(&ensure_args("req-1", "work-1", "h1:deploy"));
+    note(&ready, 0, "ACCESS_READY");
+    let env = ready.json();
+    assert_eq!(env["state"], "succeeded");
+    assert!(
+        env["data"]["binding_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("binding_")
+    );
+    assert_eq!(env["next"]["action"], "use_binding");
+    assert!(env["warnings"].is_array());
+    // Duplicate ensure with the same request ID: the same operation.
+    let again = home.run(&ensure_args("req-1", "work-1", "h1:deploy"));
+    note(&again, 0, "ACCESS_READY");
+    assert_eq!(again.json()["operation_id"], env["operation_id"]);
+    assert_eq!(
+        again.json()["data"]["binding_id"],
+        env["data"]["binding_id"]
+    );
+    // Same key, different parameters.
+    let conflict = home.run(&ensure_args("req-1", "work-other", "h1:deploy"));
+    note(&conflict, 6, "REQUEST_CONFLICT");
+    assert_eq!(conflict.json()["operation_id"], env["operation_id"]);
+    // Usage: unknown operation, malformed ID, unknown flag (clap).
+    let missing = home.run(&[
+        "operation",
+        "show",
+        "op_00000000000000000000000000000000",
+        "--json",
+    ]);
+    note(&missing, 2, "NOT_FOUND");
+    note(
+        &home.run(&["operation", "show", "not-an-id", "--json"]),
+        2,
+        "USAGE_ERROR",
+    );
+    note(&home.run(&["access", "ensure", "--no-such-flag"]), 2, "");
+    // Added authority, non-interactive: exit 3 with a decision reference.
+    let pending = home.run(&with(
+        ensure_args("req-h3", "work-h3", "h3:deploy"),
+        &["--non-interactive"],
+    ));
+    note(&pending, 3, "INTERACTION_REQUIRED");
+    assert!(decision_ref(&pending).starts_with("dec_"));
+    // Paused policy: exit 4.
+    note(&home.run(&["access", "pause", "pol", "--json"]), 0, "OK");
+    note(
+        &home.run(&ensure_args("req-p", "work-p", "h1:deploy")),
+        4,
+        "POLICY_PAUSED",
+    );
+    svc.stop(&home);
+
+    // --- 5 (ACCEPTED rule) and 0 (--async; operation wait) with a slow adapter.
+    let slow = Home::new(&[
+        SYNCED,
+        ("HEIMDALL_TEST_ADAPTER", "prepare"),
+        ("HEIMDALL_TEST_SLOW_PREPARE_MS", "3000"),
+    ]);
+    let svc = slow.start_service(&[]);
+    let accepted = slow.run(&with(
+        ensure_args("req-s", "work-s", "h1:deploy"),
+        &["--timeout-ms", "200"],
+    ));
+    note(&accepted, 5, "ACCEPTED");
+    let a = accepted.json();
+    assert_eq!(a["state"], "running");
+    assert_eq!(a["next"]["action"], "observe");
+    let op = a["operation_id"].as_str().unwrap().to_owned();
+    let waited = slow.run(&["operation", "wait", &op, "--timeout-ms", "20000", "--json"]);
+    note(&waited, 0, "OK");
+    assert_eq!(waited.json()["state"], "succeeded");
+    let async_ok = slow.run(&with(
+        ensure_args("req-s2", "work-s2", "h2:deploy"),
+        &["--async"],
+    ));
+    note(&async_ok, 0, "ACCEPTED");
+    let op2 = async_ok.json()["operation_id"].as_str().unwrap().to_owned();
+    let w2 = slow.run(&["operation", "wait", &op2, "--timeout-ms", "20000", "--json"]);
+    assert_eq!(w2.code, 0, "{w2:?}");
+    svc.stop(&slow);
+
+    // --- 7, then the same-key retry reconciles to success (one effect).
+    let lost = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "lose_reply,prepare")]);
+    let ledger = lost.file("effects.ledger");
+    let svc = lost.start_service(&[("HEIMDALL_TEST_LEDGER", ledger.to_str().unwrap())]);
+    let unknown = lost.run(&ensure_args("req-u", "work-u", "h1:deploy"));
+    note(&unknown, 7, "OUTCOME_UNKNOWN");
+    assert_eq!(unknown.json()["state"], "outcome_unknown");
+    assert_eq!(unknown.json()["data"]["error"]["effect_status"], "unknown");
+    assert_eq!(unknown.json()["data"]["error"]["retryable"], false);
+    let healed = lost.run(&ensure_args("req-u", "work-u", "h1:deploy"));
+    note(&healed, 0, "ACCESS_READY");
+    assert_eq!(
+        healed.json()["operation_id"],
+        unknown.json()["operation_id"]
+    );
+    assert_eq!(ledger_len(&ledger), 1);
+    svc.stop(&lost);
+
+    // --- 1 through a one-shot production stage hook.
+    let internal = Home::new(&[
+        SYNCED,
+        ("HEIMDALL_TEST_ADAPTER", "prepare"),
+        (
+            "HEIMDALL_TEST_STAGE_FAIL",
+            "before:authenticate:INTERNAL_ERROR",
+        ),
+    ]);
+    let svc = internal.start_service(&[]);
+    note(
+        &internal.run(&ensure_args("req-i", "work-i", "h1:deploy")),
+        1,
+        "INTERNAL_ERROR",
+    );
+    svc.stop(&internal);
+
+    // --- 5 for read-only commands without a runtime; they never start one.
+    let idle = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    for args in [
+        vec!["status", "--json"],
+        vec!["service", "status", "--json"],
+        vec!["decision", "list", "--json"],
+        vec!["inspect", "operations", "--json"],
+        vec!["operation", "events", "--json"],
+    ] {
+        note(&idle.run(&args), 5, "SERVICE_UNAVAILABLE");
+    }
+    assert!(
+        !idle.file("state/test-service-starts").exists(),
+        "nothing started"
+    );
+    assert_eq!(idle.instance_pid(), None);
+
+    assert_eq!(seen, (0..=7).collect::<BTreeSet<i32>>());
+}
+
+#[test]
+fn human_output_goes_to_stdout_and_messages_to_stderr() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    let mut args = ensure_args("req-h", "work-h", "h3:deploy");
+    args.retain(|a| *a != "--json");
+    args.push("--non-interactive");
+    let out = home.run(&args);
+    assert_eq!(out.code, 3);
+    assert!(
+        out.stdout
+            .starts_with("INTERACTION_REQUIRED (awaiting_approval)")
+    );
+    assert!(last_json(&out.stdout).is_none(), "no JSON without --json");
+    assert!(out.stderr.contains("error: "));
+    assert!(out.stderr.contains("decision_ref=dec_"));
+    // --json: exactly one envelope line on stdout, nothing else.
+    let json = home.run(&with(
+        ensure_args("req-h", "work-h", "h3:deploy"),
+        &["--non-interactive"],
+    ));
+    assert_eq!(json.stdout.lines().count(), 1);
+    assert!(!json.stdout.contains('\u{1b}'));
+    svc.stop(&home);
+}
+
+// =================================================================================
+// A19 / N04: decisions and the owner prompt
+// =================================================================================
+
+#[test]
+fn non_interactive_with_a_pending_decision_exits_3_with_decision_ref_and_no_prompt() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    // Even on a terminal, --non-interactive never prompts.
+    let out = home.run_pty(
+        &with(
+            ensure_args("req-n", "work-n", "h3:deploy"),
+            &["--non-interactive"],
+        ),
+        None,
+    );
+    assert_eq!(out.code, 3, "{out:?}");
+    assert!(!out.stdout.contains("[y/N]"), "no prompt: {out:?}");
+    let env = out.json();
+    assert_eq!(env["code"], "INTERACTION_REQUIRED");
+    assert_eq!(env["state"], "awaiting_approval");
+    let dec = env["next"]["decision_ref"].as_str().unwrap().to_owned();
+    assert!(is_pending(&home, &dec));
+    // Without a terminal, too.
+    let plain = home.run(&ensure_args("req-n", "work-n", "h3:deploy"));
+    assert_eq!(plain.code, 3);
+    assert_eq!(plain.json()["next"]["decision_ref"], dec.as_str());
+    assert!(!plain.stderr.contains("[y/N]"));
+    svc.stop(&home);
+}
+
+#[test]
+fn decision_approve_without_a_terminal_or_non_interactive_sends_nothing_and_exits_3() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    let pending = home.run(&ensure_args("req-d", "work-d", "h3:deploy"));
+    assert_eq!(pending.code, 3);
+    let dec = decision_ref(&pending);
+    let op = pending.json()["operation_id"].as_str().unwrap().to_owned();
+
+    for out in [
+        home.run(&["decision", "approve", &dec, "--json"]),
+        home.run(&["decision", "approve", &dec, "--non-interactive", "--json"]),
+        home.run(&["decision", "deny", &dec, "--json"]),
+        home.run_pty(
+            &["decision", "approve", &dec, "--non-interactive", "--json"],
+            None,
+        ),
+    ] {
+        assert_eq!(out.code, 3, "{out:?}");
+        assert!(!out.stdout.contains("[y/N]"), "no prompt: {out:?}");
+        let env = out.json();
+        assert_eq!(env["code"], "INTERACTION_REQUIRED");
+        assert_eq!(env["next"]["decision_ref"], dec.as_str());
+        assert!(
+            env["data"]["error"]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("not confirmed")
+        );
+    }
+    assert!(is_pending(&home, &dec), "the decision stays pending");
+    let show = home.run(&["operation", "show", &op, "--json"]);
+    assert_eq!(show.json()["state"], "awaiting_approval");
+    // time confirm likewise refuses without a terminal and sends nothing.
+    let t = home.run(&["time", "confirm", "--json"]);
+    assert_eq!(t.code, 3);
+    assert_eq!(t.code_str(), "INTERACTION_REQUIRED");
+    svc.stop(&home);
+}
+
+#[test]
+fn owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    let pending = home.run(&ensure_args("req-y", "work-y", "h3:deploy"));
+    assert_eq!(pending.code, 3);
+    let dec = decision_ref(&pending);
+    let op = pending.json()["operation_id"].as_str().unwrap().to_owned();
+    let approve = ["decision", "approve", dec.as_str(), "--json"];
+
+    // EOF (VEOF on the terminal) sends nothing.
+    let eof = home.run_pty(&approve, Some(b"\x04"));
+    assert_eq!(eof.code, 3, "{eof:?}");
+    // The prompt showed the exact recorded delta (h3) before anything was sent.
+    assert!(eof.stdout.contains("\"destination\": \"h3\""), "{eof:?}");
+    assert!(eof.stdout.contains("cannot verify"));
+    assert_eq!(eof.json()["code"], "INTERACTION_REQUIRED");
+    assert_eq!(eof.json()["next"]["decision_ref"], dec.as_str());
+    assert!(is_pending(&home, &dec));
+
+    // An explicit "n" sends nothing.
+    let no = home.run_pty(&approve, Some(b"n\n"));
+    assert_eq!(no.code, 3, "{no:?}");
+    assert_eq!(no.json()["code"], "INTERACTION_REQUIRED");
+    assert!(is_pending(&home, &dec));
+
+    // Any other answer sends nothing either.
+    let other = home.run_pty(&approve, Some(b"sure\n"));
+    assert_eq!(other.code, 3, "{other:?}");
+    assert!(is_pending(&home, &dec));
+    assert_eq!(
+        home.run(&["operation", "show", &op, "--json"]).json()["state"],
+        "awaiting_approval"
+    );
+
+    // "yes" completes it.
+    let yes = home.run_pty(&approve, Some(b"yes\n"));
+    assert_eq!(yes.code, 0, "{yes:?}");
+    let env = yes.json();
+    assert_eq!(env["code"], "OK");
+    assert_eq!(env["data"]["state"], "approved");
+    assert_eq!(env["data"]["operation_state"], "succeeded");
+    assert!(!is_pending(&home, &dec));
+    // The original request now replays the approved operation.
+    let ready = home.run(&ensure_args("req-y", "work-y", "h3:deploy"));
+    assert_eq!(ready.code, 0, "{ready:?}");
+    assert_eq!(ready.json()["operation_id"], op.as_str());
+
+    // A second "yes" is refused: consume-once.
+    let twice = home.run_pty(&approve, Some(b"YES\n"));
+    assert_eq!(twice.code, 6, "{twice:?}");
+    assert_eq!(twice.json()["code"], "DECISION_STALE");
+    svc.stop(&home);
+}
+
+#[test]
+fn interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    let out = home.run_pty(&ensure_args("req-i", "work-i", "h3:deploy"), Some(b"y\n"));
+    assert_eq!(out.code, 0, "{out:?}");
+    assert!(out.stdout.contains("\"destination\": \"h3\""));
+    let env = out.json();
+    assert_eq!(env["code"], "ACCESS_READY");
+    assert!(pending_decisions(&home).is_empty());
+    // Declining on a terminal leaves exit 3 with the reference.
+    let declined = home.run_pty(&ensure_args("req-i2", "work-i2", "h3:deploy"), Some(b"\n"));
+    assert_eq!(declined.code, 3, "{declined:?}");
+    let dec = declined.json()["next"]["decision_ref"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(is_pending(&home, &dec));
+    svc.stop(&home);
+}
+
+#[test]
+fn widening_resume_needs_an_owner_decision_completed_on_a_pty() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    assert_eq!(home.run(&["access", "pause", "pol", "--json"]).code, 0);
+    // Unattended resume: a decision record, nothing executed.
+    let r = home.run(&["access", "resume", "pol", "--json"]);
+    assert_eq!(r.code, 3, "{r:?}");
+    let dec = decision_ref(&r);
+    assert_eq!(
+        home.run(&ensure_args("req-r1", "work-r1", "h1:deploy"))
+            .code,
+        4,
+        "still paused"
+    );
+    // On a terminal: the exact action is shown; "yes" executes exactly it.
+    let ok = home.run_pty(&["access", "resume", "pol", "--json"], Some(b"yes\n"));
+    assert_eq!(ok.code, 0, "{ok:?}");
+    assert!(ok.stdout.contains("\"action\": \"resume\""), "{ok:?}");
+    assert_eq!(
+        ok.json()["data"]["decision_id"],
+        dec.as_str(),
+        "same record"
+    );
+    assert_eq!(
+        home.run(&ensure_args("req-r2", "work-r2", "h1:deploy"))
+            .code,
+        0
+    );
+    // cutoff --clear without a terminal: exit 3 with a reference.
+    let at = "2099-01-01T00:00:00Z";
+    assert_eq!(
+        home.run(&["access", "cutoff", "pol", "--at", at, "--json"])
+            .code,
+        0
+    );
+    let clear = home.run(&["access", "cutoff", "pol", "--clear", "--json"]);
+    assert_eq!(clear.code, 3, "{clear:?}");
+    assert!(decision_ref(&clear).starts_with("dec_"));
+    // A naive local time is refused at the input boundary.
+    let naive = home.run(&[
+        "access",
+        "cutoff",
+        "pol",
+        "--at",
+        "2099-01-01T00:00:00",
+        "--json",
+    ]);
+    assert_eq!(naive.code, 2);
+    svc.stop(&home);
+}
+
+#[test]
+fn time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines() {
+    // No scripted sync: the production stub's `unknown` at first start.
+    let home = Home::new(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    let uncertain = home.run(&ensure_args("req-t", "work-t", "h1:deploy"));
+    assert_eq!(uncertain.code, 5, "{uncertain:?}");
+    assert_eq!(uncertain.code_str(), "TIME_UNCERTAIN");
+    // Declined: nothing sent, still uncertain.
+    let no = home.run_pty(&["time", "confirm", "--json"], Some(b"no\n"));
+    assert_eq!(no.code, 3, "{no:?}");
+    assert_eq!(
+        home.run(&ensure_args("req-t", "work-t", "h1:deploy")).code,
+        5
+    );
+    let yes = home.run_pty(&["time", "confirm", "--json"], Some(b"yes\n"));
+    assert_eq!(yes.code, 0, "{yes:?}");
+    assert!(yes.stdout.contains("never moves a deadline"));
+    assert_eq!(yes.json()["data"]["deadlines_moved"], false);
+    let ready = home.run(&ensure_args("req-t", "work-t", "h1:deploy"));
+    assert_eq!(ready.code, 0, "{ready:?}");
+    svc.stop(&home);
+}
+
+// =================================================================================
+// A19: events and cursors
+// =================================================================================
+
+struct Follower {
+    child: Child,
+    lines: mpsc::Receiver<String>,
+}
+
+impl Follower {
+    fn start(home: &Home, cursor: &str) -> Self {
+        let mut child = home
+            .command(
+                &[
+                    "operation",
+                    "events",
+                    "--follow",
+                    "--cursor",
+                    cursor,
+                    "--json",
+                ],
+                &[],
+            )
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (tx, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        Self { child, lines }
+    }
+
+    fn next(&self) -> Value {
+        let line = self
+            .lines
+            .recv_timeout(Duration::from_secs(20))
+            .expect("an NDJSON line");
+        scan("follow output", &line);
+        serde_json::from_str(&line).expect("each line is one JSON value")
+    }
+
+    /// Read events until `op` reports `succeeded`; returns every event read.
+    fn until_succeeded(&self, op: &str) -> Vec<Value> {
+        let mut events = Vec::new();
+        loop {
+            let e = self.next();
+            let done = e["operation_id"] == op
+                && e["type"] == "operation_state_changed"
+                && e["payload"]["state"] == "succeeded";
+            events.push(e);
+            if done {
+                return events;
+            }
+        }
+    }
+
+    fn stop(mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn ids(events: &[Value]) -> BTreeSet<String> {
+    events
+        .iter()
+        .map(|e| e["event_id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn operation_events_follow_resumes_from_cursor() {
+    let home = Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let svc = home.start_service(&[]);
+    assert_eq!(
+        home.run(&ensure_args("req-e1", "work-e1", "h1:deploy"))
+            .code,
+        0
+    );
+
+    // Snapshot without a cursor.
+    let snap = home.run(&["operation", "events", "--json"]);
+    assert_eq!(snap.code, 0);
+    let c0 = snap.json()["data"]["snapshot"]["cursor"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    // A page after the snapshot cursor holds exactly the later work.
+    let e2 = home.run(&ensure_args("req-e2", "work-e2", "h2:deploy"));
+    let op2 = e2.json()["operation_id"].as_str().unwrap().to_owned();
+    let page = home.run(&["operation", "events", "--cursor", &c0, "--json"]);
+    assert_eq!(page.code, 0, "{page:?}");
+    let page_events = page.json()["data"]["events"].as_array().cloned().unwrap();
+    assert!(
+        page_events
+            .iter()
+            .any(|e| e["operation_id"] == op2.as_str())
+    );
+    let before = ids(&page_events);
+    let c1 = page.json()["data"]["cursor"].as_str().unwrap().to_owned();
+
+    // Follow from C1: the subscription line, then only events after C1.
+    let f = Follower::start(&home, &c1);
+    let head = f.next();
+    assert_eq!(head["code"], "OK");
+    assert_eq!(head["state"], "running");
+    assert_eq!(head["data"]["cursor"], c1.as_str());
+    assert!(head["data"]["snapshot"].is_null());
+    let e3 = home.run(&ensure_args("req-e3", "work-e3", "h1:deploy"));
+    let op3 = e3.json()["operation_id"].as_str().unwrap().to_owned();
+    let live = f.until_succeeded(&op3);
+    assert!(ids(&live).is_disjoint(&before), "nothing at or before C1");
+    let last_cursor = live.last().unwrap()["cursor"].as_str().unwrap().to_owned();
+    f.stop();
+
+    // Work happens while nobody follows; resuming from the last cursor delivers
+    // it from the backlog, and nothing from at or before C1.
+    let e4 = home.run(&ensure_args("req-e4", "work-e4", "h2:deploy"));
+    let op4 = e4.json()["operation_id"].as_str().unwrap().to_owned();
+    let f2 = Follower::start(&home, &last_cursor);
+    // Resumed, not resnapshotted: no snapshot, the backlog after the cursor
+    // follows. (The subscription line's cursor is the server's head boundary,
+    // after the backlog, not the client's cursor.)
+    let head2 = f2.next();
+    assert_eq!(head2["code"], "OK");
+    assert!(head2["data"]["snapshot"].is_null());
+    let resumed = f2.until_succeeded(&op4);
+    assert!(ids(&resumed).is_disjoint(&before));
+    let page4 = home.run(&["operation", "events", "--cursor", &last_cursor, "--json"]);
+    let want: BTreeSet<String> = page4.json()["data"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["operation_id"] == op4.as_str())
+        .map(|e| e["event_id"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(!want.is_empty());
+    // Delivered at least once (the op4 backlog may continue after `succeeded`).
+    let mut all = resumed;
+    while !want.is_subset(&ids(&all)) {
+        all.push(f2.next());
+    }
+    f2.stop();
+
+    // A foreign or malformed cursor is a resync instruction, never silence.
+    let bad = home.run(&["operation", "events", "--cursor", "AAAA", "--json"]);
+    assert_eq!(bad.code, 6, "{bad:?}");
+    assert_eq!(bad.code_str(), "RESYNC_REQUIRED");
+    assert!(bad.json()["next"]["cursor"].is_string());
+    svc.stop(&home);
+}
+
+// =================================================================================
+// Launcher: on-demand start with the real binary
+// =================================================================================
+
+#[test]
+fn eight_concurrent_clients_start_exactly_one_runtime() {
+    let home = Arc::new(Home::new(&[SYNCED, ("HEIMDALL_TEST_ADAPTER", "prepare")]));
+    let barrier = Arc::new(std::sync::Barrier::new(8));
+    let handles: Vec<_> = (0..8)
+        .map(|i| {
+            let home = home.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                let req = format!("req-l{i}");
+                let work = format!("work-l{i}");
+                barrier.wait();
+                home.run(&ensure_args(&req, &work, "h1:deploy"))
+            })
+        })
+        .collect();
+    for h in handles {
+        let out = h.join().unwrap();
+        assert_eq!(out.code, 0, "{out:?}");
+        assert_eq!(out.code_str(), "ACCESS_READY");
+    }
+    let starts = std::fs::read_to_string(home.file("state/test-service-starts")).unwrap();
+    assert_eq!(starts.lines().count(), 1, "exactly one runtime process ran");
+    let pid: u32 = starts.trim().parse().unwrap();
+    assert_eq!(home.instance_pid(), Some(pid));
+    let stop = home.run(&["service", "stop", "--json"]);
+    assert_eq!(stop.code, 0, "{stop:?}");
+    assert_eq!(stop.json()["data"]["pid"], pid);
+    assert_eq!(home.run(&["service", "status", "--json"]).code, 5);
+    home.scan_logs();
+}
+
+// =================================================================================
+// N06: service death (process-crash evidence)
+// =================================================================================
+
+fn crash_home() -> (Home, PathBuf, PathBuf) {
+    let mut home = Home::new(&[SYNCED]);
+    let ledger = home.file("effects.ledger");
+    let marker = home.file("effect.marker");
+    home.env.push((
+        "HEIMDALL_TEST_LEDGER".into(),
+        ledger.to_str().unwrap().into(),
+    ));
+    (home, ledger, marker)
+}
+
+#[test]
+fn a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once() {
+    let (home, ledger, marker) = crash_home();
+    let first = home.start_service(&[
+        ("HEIMDALL_TEST_ADAPTER", "lose_reply"),
+        ("HEIMDALL_TEST_HANG_AFTER_EFFECT", marker.to_str().unwrap()),
+    ]);
+    let args = ensure_args("req-k", "work-k", "h1:deploy");
+    let waiting = spawn_client(&home, &args);
+    wait_for_file(&marker, Duration::from_secs(30));
+    assert_eq!(ledger_len(&ledger), 1, "the effect is durably applied");
+    std::thread::sleep(Duration::from_millis(300));
+    // Process death by exact PID, before the effect's receipt is written.
+    first.kill(&home);
+
+    let lost = finish_client(waiting, Duration::from_secs(30));
+    assert_eq!(lost.code, 5, "{lost:?}");
+    let env = lost.json();
+    assert_eq!(env["code"], "SERVICE_UNAVAILABLE");
+    assert_eq!(env["data"]["error"]["effect_status"], "unknown");
+
+    // A new service replaces the socket; restart recovery reconciles through the
+    // recorded adapter identity; the client's retry replays.
+    let second = home.start_service(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let retry = home.run(&args);
+    assert_eq!(retry.code, 0, "{retry:?}");
+    assert_eq!(retry.code_str(), "ACCESS_READY");
+    let op = retry.json()["operation_id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        home.run(&["operation", "show", &op, "--json"]).json()["state"],
+        "succeeded"
+    );
+    assert_eq!(
+        ledger_len(&ledger),
+        1,
+        "exactly one effect after the restart"
+    );
+    second.stop(&home);
+}
+
+#[test]
+fn a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays() {
+    let (home, ledger, marker) = crash_home();
+    let first = home.start_service(&[
+        ("HEIMDALL_TEST_ADAPTER", "lose_reply"),
+        ("HEIMDALL_TEST_HANG_AFTER_EFFECT", marker.to_str().unwrap()),
+    ]);
+    let args = ensure_args("req-w", "work-w", "h2:deploy");
+    let accepted = home.run(&with(args.clone(), &["--async"]));
+    assert_eq!(accepted.code, 0, "{accepted:?}");
+    assert_eq!(accepted.code_str(), "ACCEPTED");
+    let op = accepted.json()["operation_id"].as_str().unwrap().to_owned();
+    let waiting = spawn_client(
+        &home,
+        &["operation", "wait", &op, "--timeout-ms", "120000", "--json"],
+    );
+    wait_for_file(&marker, Duration::from_secs(30));
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(ledger_len(&ledger), 1);
+    first.kill(&home);
+
+    let lost = finish_client(waiting, Duration::from_secs(30));
+    assert_eq!(lost.code, 5, "{lost:?}");
+    assert_eq!(lost.code_str(), "SERVICE_UNAVAILABLE");
+
+    let second = home.start_service(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let waited = home.run(&["operation", "wait", &op, "--timeout-ms", "20000", "--json"]);
+    assert_eq!(waited.code, 0, "{waited:?}");
+    assert_eq!(waited.json()["state"], "succeeded");
+    let replay = home.run(&args);
+    assert_eq!(replay.code, 0, "{replay:?}");
+    assert_eq!(replay.json()["operation_id"], op.as_str());
+    assert_eq!(ledger_len(&ledger), 1, "never a second effect");
+    second.stop(&home);
+}
+
+// =================================================================================
+// Test configuration guard
+// =================================================================================
+
+#[test]
+fn test_configuration_requires_an_explicit_home() {
+    // No HEIMDALL_HOME: refused before anything is created.
+    let out = Command::new(bin())
+        .args(["service", "run", "--json"])
+        .env_remove("HEIMDALL_HOME")
+        .env("HEIMDALL_TEST_ADAPTER", "prepare")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    scan("stdout", &stdout);
+    assert_eq!(out.status.code(), Some(2), "{stdout}");
+    assert_eq!(last_json(&stdout).unwrap()["code"], "USAGE_ERROR");
+}
+
+// =================================================================================
+// Gap G13: a caller killed while the service runs (plan §6.4)
+// =================================================================================
+
+/// Plan §6.4 "kill a caller while the service runs": `access ensure` is killed
+/// (SIGKILL through this test's exact `Child` handle) while its operation is in a
+/// slow `prepare`; the service keeps the work going (a caller's death is not a
+/// cancellation); a retry with the same request ID returns the same operation,
+/// `ACCESS_READY`, with exactly one effect in the durable ledger.
+#[test]
+fn a06_caller_killed_while_the_service_runs_then_the_retry_converges_on_one_effect() {
+    let (home, ledger, _marker) = crash_home();
+    let svc = home.start_service(&[
+        ("HEIMDALL_TEST_ADAPTER", "prepare"),
+        ("HEIMDALL_TEST_SLOW_PREPARE_MS", "1500"),
+    ]);
+    let args = ensure_args("req-kc", "work-kc", "h1:deploy");
+    let mut caller = spawn_client(&home, &args);
+    // Wait until the runtime holds the caller's operation, then kill the caller.
+    let start = Instant::now();
+    let op = loop {
+        let listed = home.run(&["inspect", "operations", "--json"]);
+        if let Some(id) = listed.json()["data"]["operations"]
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|o| o["operation_id"].as_str())
+        {
+            break id.to_owned();
+        }
+        assert!(
+            caller.try_wait().unwrap().is_none(),
+            "the caller finished before it could be killed"
+        );
+        assert!(start.elapsed() < Duration::from_secs(30), "no operation");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    caller.kill().unwrap();
+    let status = caller.wait().unwrap();
+    assert!(!status.success(), "killed caller: {status:?}");
+    let mut partial = String::new();
+    if let Some(mut out) = caller.stdout.take() {
+        let _ = out.read_to_string(&mut partial);
+    }
+    scan("killed caller stdout", &partial);
+    // Same request ID: the same operation, one effect.
+    let retry = home.run(&args);
+    assert_eq!(retry.code, 0, "{retry:?}");
+    assert_eq!(retry.code_str(), "ACCESS_READY");
+    assert_eq!(retry.json()["operation_id"], op.as_str(), "same operation");
+    assert_eq!(ledger_len(&ledger), 1, "exactly one effect");
+    let shown = home.run(&["operation", "show", &op, "--json"]);
+    assert_eq!(shown.json()["state"], "succeeded");
+    svc.stop(&home);
+}
+
+// =================================================================================
+// Gap G17: --require-capability and inspect --preview through the CLI
+// =================================================================================
+
+/// `inspect --preview` reports `allowed`, `approval_required` (with the exact
+/// delta) and `denied` without any effect, operation or decision record; and
+/// `access ensure --require-capability` with an unmet minimum is
+/// `CAPABILITY_UNAVAILABLE` (exit 4) with no effect.
+#[test]
+fn inspect_preview_and_require_capability_have_no_effect() {
+    let (home, ledger, _marker) = crash_home();
+    let svc = home.start_service(&[("HEIMDALL_TEST_ADAPTER", "prepare")]);
+    let preview = |args: &[&str]| {
+        let mut all = vec!["inspect", "capabilities", "--json"];
+        all.extend_from_slice(args);
+        let out = home.run(&all);
+        assert_eq!(out.code, 0, "{out:?}");
+        out.json()["data"]["preview"].clone()
+    };
+    let allowed = preview(&["--preview", "ops", "--for", "1h"]);
+    assert_eq!(allowed["outcome"], "allowed", "{allowed}");
+    let approval = preview(&["--preview", "dev"]);
+    assert_eq!(approval["outcome"], "approval_required", "{approval}");
+    let added = approval["delta"]["added_scope"]["pairs"].to_string();
+    assert!(added.contains("h3"), "exact delta names h3: {approval}");
+    assert!(
+        !added.contains("h1"),
+        "covered pairs are not in the delta: {approval}"
+    );
+    let denied = preview(&["--preview", "ops", "--require-capability", "git-signing"]);
+    assert_eq!(denied["outcome"], "denied", "{denied}");
+    assert_eq!(denied["code"], "CAPABILITY_UNAVAILABLE", "{denied}");
+    // Minimums without a preview are a usage error.
+    let bad = home.run(&[
+        "inspect",
+        "capabilities",
+        "--require-capability",
+        "git-signing",
+        "--json",
+    ]);
+    assert_eq!(bad.code, 2, "{bad:?}");
+    // ensure with an unmet minimum: exit 4, nothing prepared.
+    let unmet = home.run(&with(
+        ensure_args("req-rc", "work-rc", "h1:deploy"),
+        &["--require-capability", "git-signing"],
+    ));
+    assert_eq!(unmet.code, 4, "{unmet:?}");
+    assert_eq!(unmet.code_str(), "CAPABILITY_UNAVAILABLE");
+    // ensure with a met minimum succeeds.
+    let met = home.run(&with(
+        ensure_args("req-rm", "work-rm", "h1:deploy"),
+        &["--require-capability", "ssh-authentication"],
+    ));
+    assert_eq!(met.code, 0, "{met:?}");
+    assert_eq!(ledger_len(&ledger), 1, "only the met request prepared");
+    // The previews created no decision record.
+    assert!(pending_decisions(&home).is_empty());
+    svc.stop(&home);
+}

@@ -27,3 +27,15 @@ base64ct = { workspace = true }
 [dev-dependencies]
 heimdall-testkit = { workspace = true }
 proptest = { workspace = true }
+
+# M01-U5 suites that carry proptest properties (plan §6.3 #3-#5, #7, #8). Hosted
+# here, not in heimdall-runtime, because this crate already has the proptest and
+# testkit (app feature) edges (m01-plan §0 convention); heimdall-runtime has no
+# proptest dev-dependency and adding one would change Cargo.lock (escalated).
+[[test]]
+name = "model_idempotency"
+path = "../../tests/model/idempotency.rs"
+
+[[test]]
+name = "model_revocation"
+path = "../../tests/model/revocation.rs"

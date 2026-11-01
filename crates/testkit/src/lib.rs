@@ -171,6 +171,8 @@ pub use faults::ScriptedFaults;
 #[cfg(feature = "app")]
 mod fake_adapter {
     use std::collections::{BTreeMap, VecDeque};
+    use std::io::{BufRead, Write};
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
@@ -197,13 +199,84 @@ mod fake_adapter {
     /// Fake credential adapter with a response script and side-effect counters
     /// (plan §6.4 "add a canary side effect and count actual remote changes").
     /// Effects are keyed by `effect_token`: a repeated token never counts twice.
+    ///
+    /// **Durable effect ledger** (ADR-0006 §13.4 N06). [`Self::new`] keeps effects
+    /// in memory only, so a new instance knows nothing of an earlier one's effects:
+    /// that models an in-process reconstruction at best. [`Self::with_ledger`]
+    /// stands in for the external system: every applied effect is appended (and
+    /// `fsync`ed) to a disposable file **before** `prepare` returns, keyed by
+    /// `effect_token`, and every `prepare`/`reconcile`/`effect_count` re-reads the
+    /// file. The ledger survives the death of the process that wrote it, so a new
+    /// adapter instance in a restarted service reports `reconcile → Applied` for an
+    /// effect recorded before the crash. One writer at a time is assumed; on read
+    /// the first record of a token wins. Use only a file inside a test's own temp
+    /// directory.
     pub struct FakeCredentialAdapter {
         descriptor: AdapterDescriptor,
         script: Mutex<VecDeque<FakeStep>>,
-        /// Effects actually applied, by token (counts "remote changes").
+        /// Effects actually applied, by token (counts "remote changes"). With a
+        /// ledger, a cache of the ledger refreshed on every adapter call.
         pub effects: Mutex<BTreeMap<String, PrepareOutcome>>,
         /// Revocations applied.
         pub revocations: Mutex<Vec<GrantId>>,
+        ledger: Option<PathBuf>,
+    }
+
+    /// One ledger line: the effect token and the outcome the effect produced.
+    fn ledger_line(token: &str, out: &PrepareOutcome) -> String {
+        let mut line = serde_json::json!({
+            "effect_token": token,
+            "usable_until": out.usable_until,
+            "offline_until": out.offline_until,
+            "refresh_dependency": out.refresh_dependency,
+            "enforcement": out.enforcement,
+            "credential_ref": out.credential_ref,
+        })
+        .to_string();
+        line.push('\n');
+        line
+    }
+
+    fn bad(e: serde_json::Error) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+    }
+
+    fn parse_line(line: &str) -> std::io::Result<(String, PrepareOutcome)> {
+        let v: serde_json::Value = serde_json::from_str(line).map_err(bad)?;
+        let get = |k: &str| v[k].clone();
+        Ok((
+            serde_json::from_value(get("effect_token")).map_err(bad)?,
+            PrepareOutcome {
+                usable_until: serde_json::from_value(get("usable_until")).map_err(bad)?,
+                offline_until: serde_json::from_value(get("offline_until")).map_err(bad)?,
+                refresh_dependency: serde_json::from_value(get("refresh_dependency"))
+                    .map_err(bad)?,
+                enforcement: serde_json::from_value(get("enforcement")).map_err(bad)?,
+                credential_ref: serde_json::from_value(get("credential_ref")).map_err(bad)?,
+            },
+        ))
+    }
+
+    /// Every complete record in a ledger file, in append order (duplicates kept,
+    /// so a double application is visible). A torn final line without its newline
+    /// (a writer killed mid-append) is not a record.
+    fn read_ledger(path: &Path) -> std::io::Result<Vec<(String, PrepareOutcome)>> {
+        let file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        let mut reader = std::io::BufReader::new(file);
+        let mut out = Vec::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if reader.read_line(&mut line)? == 0 || !line.ends_with('\n') {
+                break;
+            }
+            out.push(parse_line(line.trim_end())?);
+        }
+        Ok(out)
     }
 
     impl std::fmt::Debug for FakeCredentialAdapter {
@@ -227,13 +300,93 @@ mod fake_adapter {
                 script: Mutex::new(script.into_iter().collect()),
                 effects: Mutex::new(BTreeMap::new()),
                 revocations: Mutex::new(Vec::new()),
+                ledger: None,
             })
         }
 
-        /// Number of distinct effects applied.
+        /// New fake whose effects are recorded in the durable, append-only ledger
+        /// at `path` (created if missing) and read back from it, so effects survive
+        /// the death of the process (ADR-0006 §13.4 N06). Several instances, in one
+        /// process or across a kill and restart, over the same `path` see the same
+        /// effects. Errors only when the file cannot be created or holds a malformed
+        /// record.
+        pub fn with_ledger(
+            descriptor: AdapterDescriptor,
+            script: impl IntoIterator<Item = FakeStep>,
+            path: impl Into<PathBuf>,
+        ) -> std::io::Result<Arc<Self>> {
+            let path = path.into();
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)?;
+            let adapter = Self {
+                descriptor,
+                script: Mutex::new(script.into_iter().collect()),
+                effects: Mutex::new(BTreeMap::new()),
+                revocations: Mutex::new(Vec::new()),
+                ledger: Some(path),
+            };
+            adapter.refresh()?;
+            Ok(Arc::new(adapter))
+        }
+
+        /// The effect tokens recorded in the ledger at `path`, in append order,
+        /// duplicates kept (`len() == 1` is "exactly one effect"). For process-crash
+        /// tests that count effects after the service was killed and restarted.
+        pub fn ledger_entries(path: impl AsRef<Path>) -> std::io::Result<Vec<String>> {
+            Ok(read_ledger(path.as_ref())?
+                .into_iter()
+                .map(|(token, _)| token)
+                .collect())
+        }
+
+        /// Number of distinct effects applied (re-read from the ledger when there
+        /// is one).
         #[must_use]
         pub fn effect_count(&self) -> usize {
+            self.refresh().expect("ledger readable");
             self.effects.lock().unwrap().len()
+        }
+
+        /// Reload the cache from the ledger (no-op without one). First record wins.
+        fn refresh(&self) -> std::io::Result<()> {
+            let Some(path) = &self.ledger else {
+                return Ok(());
+            };
+            let records = read_ledger(path)?;
+            let mut effects = self.effects.lock().unwrap();
+            for (token, out) in records {
+                effects.entry(token).or_insert(out);
+            }
+            Ok(())
+        }
+
+        /// Record an applied effect: durably in the ledger first (when there is
+        /// one), then in memory.
+        fn record(&self, token: &str, out: &PrepareOutcome) -> Result<(), AdapterError> {
+            if let Some(path) = &self.ledger {
+                let io = |e: std::io::Error| {
+                    AdapterError::Unavailable(format!("fake ledger: {}", e.kind()))
+                };
+                let mut file = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(path)
+                    .map_err(io)?;
+                file.write_all(ledger_line(token, out).as_bytes())
+                    .map_err(io)?;
+                file.sync_data().map_err(io)?;
+            }
+            self.effects
+                .lock()
+                .unwrap()
+                .insert(token.to_owned(), out.clone());
+            Ok(())
+        }
+
+        fn refreshed(&self) -> Result<(), AdapterError> {
+            self.refresh()
+                .map_err(|e| AdapterError::Unavailable(format!("fake ledger: {}", e.kind())))
         }
 
         fn next_step(&self) -> FakeStep {
@@ -257,22 +410,17 @@ mod fake_adapter {
         }
 
         async fn prepare(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
+            self.refreshed()?;
             if let Some(done) = self.effects.lock().unwrap().get(req.effect_token) {
                 return Ok(done.clone());
             }
             match self.next_step() {
                 FakeStep::Prepare(out) => {
-                    self.effects
-                        .lock()
-                        .unwrap()
-                        .insert(req.effect_token.to_owned(), out.clone());
+                    self.record(req.effect_token, &out)?;
                     Ok(out)
                 }
                 FakeStep::ApplyButLoseReply(out) => {
-                    self.effects
-                        .lock()
-                        .unwrap()
-                        .insert(req.effect_token.to_owned(), out);
+                    self.record(req.effect_token, &out)?;
                     Err(AdapterError::OutcomeUnknown("reply lost".into()))
                 }
                 FakeStep::Fail(e) => Err(e),
@@ -288,6 +436,7 @@ mod fake_adapter {
             _grant: &GrantId,
             effect_token: &str,
         ) -> Result<ReconcileOutcome, AdapterError> {
+            self.refreshed()?;
             Ok(match self.effects.lock().unwrap().get(effect_token) {
                 Some(out) => ReconcileOutcome::Applied(out.clone()),
                 None => ReconcileOutcome::NotApplied,
@@ -352,6 +501,280 @@ mod fake_adapter {
 
 #[cfg(feature = "app")]
 pub use fake_adapter::{FakeCredentialAdapter, FakeStep, ScriptedStageHook};
+
+/// N06 (ADR-0006 §13.4): the durable effect ledger. The in-process cases build a
+/// second adapter instance in the same process (labelled **in-process**); the
+/// child-process case kills a real process after the effect (process death).
+#[cfg(all(test, feature = "app"))]
+mod ledger_tests {
+    use std::collections::BTreeSet;
+    use std::future::Future;
+    use std::path::Path;
+    use std::task::{Context, Poll, Waker};
+
+    use heimdall_app::ports::{
+        AdapterDescriptor, AdapterError, CredentialAdapter, InteractionRequirement, LockContinuity,
+        PrepareOutcome, PrepareRequest, ReconcileOutcome,
+    };
+    use heimdall_contract::ids::{EnvironmentId, GrantId};
+    use heimdall_contract::request::{DeadlineIntent, RefreshDependency, RequiredCapabilities};
+    use heimdall_contract::{GrantState, Timestamp};
+    use heimdall_domain::evidence::EnforcementEvidence;
+    use heimdall_domain::grant::{AuthorizationSource, GrantSnapshot};
+    use heimdall_domain::operation::AdapterIdentity;
+    use heimdall_domain::policy::{AuthorityGeneration, PolicyRevision};
+    use heimdall_domain::scope::Scope;
+    use heimdall_domain::time::Deadline;
+
+    use super::{FakeCredentialAdapter, FakeStep, assert_no_canary};
+
+    /// The fake's futures never pend; poll once with a no-op waker.
+    fn ready<F: Future>(f: F) -> F::Output {
+        let mut f = std::pin::pin!(f);
+        match f.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(v) => v,
+            Poll::Pending => panic!("fake adapter future pended"),
+        }
+    }
+
+    fn t0() -> Timestamp {
+        "2026-10-02T09:00:00Z".parse().unwrap()
+    }
+
+    fn descriptor() -> AdapterDescriptor {
+        AdapterDescriptor {
+            identity: AdapterIdentity {
+                mechanism: "fake".into(),
+                instance: "ledger".into(),
+            },
+            capabilities: BTreeSet::new(),
+            external_side_effects: true,
+            interaction: InteractionRequirement::None,
+            enforcement: EnforcementEvidence::unknown(),
+            lock_continuity: LockContinuity::Unknown,
+        }
+    }
+
+    fn outcome() -> PrepareOutcome {
+        PrepareOutcome {
+            usable_until: t0(),
+            offline_until: t0(),
+            refresh_dependency: RefreshDependency::None,
+            enforcement: EnforcementEvidence::unknown(),
+            credential_ref: "cred-ref-1".into(),
+        }
+    }
+
+    fn grant() -> GrantSnapshot {
+        GrantSnapshot {
+            id: GrantId::from_random_bytes([1; 16]),
+            environment: EnvironmentId::from_random_bytes([2; 16]),
+            scope: Scope::empty(),
+            starts_at: t0(),
+            deadline: Deadline {
+                intent: DeadlineIntent::Duration("PT1H".into()),
+                resolved_at: t0(),
+                effective: t0(),
+            },
+            parent: None,
+            source: AuthorizationSource::StandingPolicy {
+                revision: PolicyRevision(1),
+            },
+            generation: AuthorityGeneration(1),
+            state: GrantState::Preparing,
+            enforcement: EnforcementEvidence::unknown(),
+        }
+    }
+
+    fn prepare(
+        a: &FakeCredentialAdapter,
+        g: &GrantSnapshot,
+        token: &str,
+    ) -> Result<PrepareOutcome, AdapterError> {
+        let required = RequiredCapabilities::default();
+        ready(a.prepare(PrepareRequest {
+            grant: g,
+            scope: &g.scope,
+            required: &required,
+            interactive: false,
+            effect_token: token,
+            now: t0(),
+        }))
+    }
+
+    #[test]
+    fn in_process_new_instance_over_the_same_ledger_reconciles_applied() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("effects.ledger");
+        let g = grant();
+        {
+            let a = FakeCredentialAdapter::with_ledger(
+                descriptor(),
+                [FakeStep::ApplyButLoseReply(outcome())],
+                &path,
+            )
+            .unwrap();
+            assert!(matches!(
+                prepare(&a, &g, "eff_1"),
+                Err(AdapterError::OutcomeUnknown(_))
+            ));
+            assert_eq!(a.effect_count(), 1);
+        } // instance dropped (in-process reconstruction, not a process crash)
+        let b = FakeCredentialAdapter::with_ledger(descriptor(), [], &path).unwrap();
+        assert_eq!(
+            ready(b.reconcile(&g.id, "eff_1")).unwrap(),
+            ReconcileOutcome::Applied(outcome())
+        );
+        assert_eq!(
+            ready(b.reconcile(&g.id, "eff_other")).unwrap(),
+            ReconcileOutcome::NotApplied
+        );
+        // A retried prepare with the same token returns the recorded effect and
+        // applies nothing new (the empty script would fail if consulted).
+        assert_eq!(prepare(&b, &g, "eff_1").unwrap(), outcome());
+        assert_eq!(b.effect_count(), 1);
+        assert_eq!(
+            FakeCredentialAdapter::ledger_entries(&path).unwrap(),
+            ["eff_1"]
+        );
+        // Contrast: a memory-only fake knows nothing of it.
+        let fresh = FakeCredentialAdapter::new(descriptor(), []);
+        assert_eq!(
+            ready(fresh.reconcile(&g.id, "eff_1")).unwrap(),
+            ReconcileOutcome::NotApplied
+        );
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert_no_canary(&raw);
+    }
+
+    #[test]
+    fn two_live_instances_share_effects_through_the_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("effects.ledger");
+        let g = grant();
+        let a =
+            FakeCredentialAdapter::with_ledger(descriptor(), [FakeStep::Prepare(outcome())], &path)
+                .unwrap();
+        let b =
+            FakeCredentialAdapter::with_ledger(descriptor(), [FakeStep::Prepare(outcome())], &path)
+                .unwrap();
+        prepare(&a, &g, "eff_1").unwrap();
+        // `b` was built before the effect; it sees it on its next call.
+        assert_eq!(prepare(&b, &g, "eff_1").unwrap(), outcome());
+        prepare(&b, &g, "eff_2").unwrap();
+        assert_eq!(a.effect_count(), 2);
+        assert_eq!(
+            FakeCredentialAdapter::ledger_entries(&path).unwrap(),
+            ["eff_1", "eff_2"]
+        );
+    }
+
+    #[test]
+    fn torn_final_record_is_not_an_effect_and_malformed_records_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("effects.ledger");
+        let g = grant();
+        let a =
+            FakeCredentialAdapter::with_ledger(descriptor(), [FakeStep::Prepare(outcome())], &path)
+                .unwrap();
+        prepare(&a, &g, "eff_1").unwrap();
+        // A writer killed mid-append leaves a line without its newline.
+        let mut raw = std::fs::read_to_string(&path).unwrap();
+        raw.push_str("{\"effect_token\":\"eff_2\",\"usab");
+        std::fs::write(&path, &raw).unwrap();
+        assert_eq!(
+            FakeCredentialAdapter::ledger_entries(&path).unwrap(),
+            ["eff_1"]
+        );
+        // A complete but malformed record is an error, never silently skipped.
+        let bad = dir.path().join("bad.ledger");
+        std::fs::write(&bad, "not json\n").unwrap();
+        assert!(FakeCredentialAdapter::with_ledger(descriptor(), [], &bad).is_err());
+        assert!(FakeCredentialAdapter::ledger_entries(&bad).is_err());
+        // Missing file: no entries.
+        assert!(
+            FakeCredentialAdapter::ledger_entries(dir.path().join("none"))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    const CHILD_ENV: &str = "HEIMDALL_TESTKIT_LEDGER_CHILD";
+
+    /// Child half of the process-death test: when `CHILD_ENV` names a ledger, apply
+    /// one effect (reply lost), then wait to be killed (bounded: it exits by itself
+    /// after 60 s). Without the variable (a normal test run) it does nothing.
+    #[test]
+    fn ledger_child_process_helper() {
+        let Some(path) = std::env::var_os(CHILD_ENV) else {
+            return;
+        };
+        let a = FakeCredentialAdapter::with_ledger(
+            descriptor(),
+            [FakeStep::ApplyButLoseReply(outcome())],
+            Path::new(&path),
+        )
+        .unwrap();
+        let _ = prepare(&a, &grant(), "eff_crash");
+        std::thread::sleep(std::time::Duration::from_secs(60));
+        std::process::exit(3);
+    }
+
+    /// Process death (not in-process): a child process applies the effect and is
+    /// killed (through its own `Child` handle, so exactly that process) before any
+    /// receipt; a new adapter instance in this process, over the same ledger,
+    /// reconciles `Applied`, and a retry adds no second effect.
+    #[test]
+    fn effect_survives_the_death_of_the_process_that_applied_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("effects.ledger");
+        let exe = std::env::current_exe().unwrap();
+        let mut child = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "ledger_tests::ledger_child_process_helper",
+                "--test-threads=1",
+            ])
+            .env(CHILD_ENV, &path)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while FakeCredentialAdapter::ledger_entries(&path)
+            .unwrap()
+            .is_empty()
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child never applied the effect"
+            );
+            assert!(child.try_wait().unwrap().is_none(), "child ended early");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        child.kill().unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(!out.status.success(), "the child must have been killed");
+        assert_no_canary(&String::from_utf8_lossy(&out.stdout));
+        assert_no_canary(&String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            FakeCredentialAdapter::ledger_entries(&path).unwrap(),
+            ["eff_crash"]
+        );
+        let g = grant();
+        let b = FakeCredentialAdapter::with_ledger(descriptor(), [], &path).unwrap();
+        assert_eq!(
+            ready(b.reconcile(&g.id, "eff_crash")).unwrap(),
+            ReconcileOutcome::Applied(outcome())
+        );
+        assert_eq!(prepare(&b, &g, "eff_crash").unwrap(), outcome());
+        assert_eq!(
+            FakeCredentialAdapter::ledger_entries(&path).unwrap(),
+            ["eff_crash"],
+            "exactly one effect"
+        );
+    }
+}
 
 /// Proptest strategies for domain values (plan §6.3). Seeds: tests set
 /// `ProptestConfig { cases, .. }` and commit `proptest-regressions/` files; the

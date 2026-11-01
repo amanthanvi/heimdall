@@ -1,7 +1,9 @@
 //! Runtime ID generation from the OS CSPRNG (spec §4.2: durable IDs never derive
 //! from routes, names, or time).
 
-use heimdall_contract::ids::{BindingId, EventId, GrantId, OperationId, ResourceId};
+use heimdall_contract::ids::{
+    BindingId, DecisionId, EventId, GrantId, IssuanceId, OperationId, ResourceId,
+};
 
 /// Failure to obtain randomness; the runtime refuses to proceed rather than fall
 /// back to a weaker source.
@@ -40,6 +42,39 @@ pub fn new_event_id() -> Result<EventId, RandomnessUnavailable> {
     Ok(EventId::from_random_bytes(random_bytes()?))
 }
 
+/// New decision record ID (`dec_…`, the nonsecret `next.decision_ref`).
+pub fn new_decision_id() -> Result<DecisionId, RandomnessUnavailable> {
+    Ok(DecisionId::from_random_bytes(random_bytes()?))
+}
+
+/// New issuance-log entry ID.
+pub fn new_issuance_id() -> Result<IssuanceId, RandomnessUnavailable> {
+    Ok(IssuanceId::from_random_bytes(random_bytes()?))
+}
+
+/// New effect token (`eff_<32 hex>`): minted by the application and recorded in an
+/// `Attempted` receipt **before** the adapter is called (ADR-0006 §14.1). Opaque
+/// and nonsecret; it identifies one effect attempt, never authorizes anything.
+pub fn new_effect_token() -> Result<String, RandomnessUnavailable> {
+    use std::fmt::Write as _;
+    let bytes = random_bytes()?;
+    let mut s = String::with_capacity(4 + 32);
+    s.push_str("eff_");
+    for b in bytes {
+        let _ = write!(s, "{b:02x}");
+    }
+    Ok(s)
+}
+
+/// A random 64-bit value (certificate serials, ADR-0005 §3.5 "draw the random
+/// serial").
+pub fn random_u64() -> Result<u64, RandomnessUnavailable> {
+    let bytes = random_bytes()?;
+    let mut out = [0u8; 8];
+    out.copy_from_slice(&bytes[..8]);
+    Ok(u64::from_le_bytes(out))
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -50,5 +85,11 @@ mod tests {
         let a = new_operation_id().unwrap();
         let b = new_operation_id().unwrap();
         assert_ne!(a, b);
+        let t1 = new_effect_token().unwrap();
+        let t2 = new_effect_token().unwrap();
+        assert_ne!(t1, t2);
+        assert!(t1.starts_with("eff_") && t1.len() == 36);
+        assert!(new_decision_id().unwrap().as_str().starts_with("dec_"));
+        assert!(new_issuance_id().unwrap().as_str().starts_with("iss_"));
     }
 }

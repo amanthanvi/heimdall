@@ -585,10 +585,13 @@ impl Request {
     }
 
     /// Whether the request is a widening policy action (`resume`, `clear_cutoff`).
-    /// These **are** dispatched on an unattended session: the application creates a
-    /// `WidenPolicy` decision record and returns `INTERACTION_REQUIRED` with
-    /// `next.decision_ref`, which an attended `decide` later completes; on an
-    /// attended session the action executes directly (ADR-0006 §3.1, R5).
+    /// These **are** dispatched on any session, and the application always creates a
+    /// `WidenPolicy` decision record and never executes on dispatch: it returns
+    /// `APPROVAL_REQUIRED` on an attended session and `INTERACTION_REQUIRED` on an
+    /// unattended one, both with `next.decision_ref`, which only an attended
+    /// `decide` completes (ADR-0006 §3.1; R5 as superseded by ⟨r2.1⟩ N04). The
+    /// application also treats a `cutoff` later than the current one as widening;
+    /// this predicate looks only at the request, not at the stored cutoff.
     #[must_use]
     pub fn is_widening_policy_action(&self) -> bool {
         matches!(

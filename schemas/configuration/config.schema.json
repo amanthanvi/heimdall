@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "description": "Top-level configuration.",
+  "type": "object",
+  "properties": {
+    "retention": {
+      "description": "Retention.",
+      "$ref": "#/$defs/RetentionConfig",
+      "default": {
+        "events": "7d",
+        "operations": "7d"
+      }
+    },
+    "schema_version": {
+      "description": "Schema version.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "session": {
+      "description": "Session defaults.",
+      "$ref": "#/$defs/SessionConfig",
+      "default": {
+        "lock_behavior": "continue",
+        "max_window": "12h",
+        "strict_disconnect": false
+      }
+    },
+    "x": {
+      "description": "Free-form, non-security metadata tolerated for forward compatibility\n(a TOML table, held as a generic JSON map so the schema can describe it).",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version"
+  ],
+  "$defs": {
+    "LockBehavior": {
+      "description": "Lock behaviour preference (spec §6.4 \"Users can choose lock-revokes\").",
+      "oneOf": [
+        {
+          "description": "Approved work continues through desktop/vault lock until its deadline.",
+          "type": "string",
+          "const": "continue"
+        },
+        {
+          "description": "Lock revokes active managed grants.",
+          "type": "string",
+          "const": "revoke"
+        }
+      ]
+    },
+    "RetentionConfig": {
+      "description": "Retention (spec §13.6 draft defaults).",
+      "type": "object",
+      "properties": {
+        "events": {
+          "description": "Event log (`7d`).",
+          "type": "string"
+        },
+        "operations": {
+          "description": "Operation history and idempotency records (`7d`).",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "operations",
+        "events"
+      ]
+    },
+    "SessionConfig": {
+      "description": "Session defaults (spec P04).",
+      "type": "object",
+      "properties": {
+        "lock_behavior": {
+          "description": "Lock behaviour.",
+          "$ref": "#/$defs/LockBehavior",
+          "default": "continue"
+        },
+        "max_window": {
+          "description": "Maximum window for new trusted work, as a duration string (`12h`).",
+          "type": "string"
+        },
+        "strict_disconnect": {
+          "description": "Strict disconnect at expiry (spec §6.6).",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "max_window"
+      ]
+    }
+  }
+}

@@ -14,8 +14,10 @@
 //! formats (contract/ipc), terminal rendering.
 
 pub mod config;
+pub mod dispatch;
 pub mod instance;
 pub mod launcher;
+pub mod paths;
 pub mod platform;
 pub mod service;
 pub mod supervisor;

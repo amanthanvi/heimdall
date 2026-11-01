@@ -58,9 +58,9 @@ M02 adapters are both known callers; no plugin framework exists.
 | `heimdall-contract` | Wire contract: `Envelope<T>`, `Code` table with exit/retry/effect/next, `ExitCode`, `OperationState`/`GrantState`, typed IDs, `Event`/`Cursor`/`Snapshot`, six-primitive request/response types, IPC message set + hard limits, canonical JSON + `RequestHash`, JSON Schema generator | Semantics (transitions, authority, hashing *inputs*), I/O | serde, serde_json, schemars, jiff, sha2 | `code::Code`, `exit::ExitCode`, `envelope::*`, `state::*`, `ids::*`, `event::*`, `request::*`, `ipc::*`, `canonical::{canonical_json, request_hash}`, `schema::{public_schemas, code_table}`, `version::*` |
 | `heimdall-domain` | Pure functions and data: `Scope` algebra, `StandingPolicy` (pause/cutoff, revision, `AuthorityGeneration`), `ProfileSnapshot`, `EnvironmentRecord`, `resolve_authority` (+`Denial::DeadlinePassed`), `GrantSnapshot`, `BindingRecord`/`may_act_on`, `OperationRecord` + `RecoveryIntent`/`StageReceipt`/`EffectReceipt`, `grant_transition`/`operation_transition`, time (`Clock`/`BootId`/`TimeSync`/`TimeAnchor`/`gate`/`GrantAnchor`/`admission`), `IdempotencyKey`/`compute_hash`/`classify` + `ExpiredKeyMarker`, `DecisionRecord`/`complete`, issuance records + `check`/`residual`, `EnforcementEvidence`, `ManagedResource`/`may_cleanup`, `Tombstone`/`generation_still_valid` | Provider SDK calls, UI, hidden I/O, retry loops, platform clock syscalls (plan §4.1) | contract, jiff, serde | module per concept; every function `pub` and pure |
 | `heimdall-store` | SQLite state (`Store`, `Txn`), versioned migrations with backup (0001 init, 0002 design-fix tables), WAL + `synchronous=FULL`, fault points (`FaultHook`, `FaultPoint`), neutral per-environment event sequences, retention purge that leaves expired-key markers and never touches tombstones, policies, decisions, issuance entries, grant anchors or unresolved operations | Secrets in plaintext (references only, spec §13.3), authorization, wire rendering, reader-scoped cursors | domain, contract, rusqlite | `Store::{open, open_in_memory, transaction, schema_version}`, `Txn` repository methods in `lib.rs` (wave 1) and `ext.rs` (bindings, profiles/snapshots, environments, policies_for, tombstone/denied_ancestor, decisions, time anchors/high-water/confirmation, idempotency settlement/markers, recovery intent/receipts, issuance reserve/publish/void/residual, unresolved_operations, stored_events_after/snapshot_boundary), `migrations::{MIGRATIONS, SCHEMA_VERSION, apply}` |
-| `heimdall-app` | `Operations` (inspect/ensure/bind/delegate/observe/cancel/release/revoke/policy/tick + `attend`/`decide`/`confirm_time`) over `context::Caller { context, attendance, interaction }`, `OperationsConfig { store, clock, time_sync, time_policy, environment, adapters, stage_hook, limits, default_window }`, `TimeGate` (the one shared gate; `SafeNow`), `ensure::EnsureStage` pipeline + `StageHook` (injected in production), `SingleFlight`, `reconcile::{plan, Backoff, should_retry, guard_cleanup}`, `EventPublisher` + `SubscriptionStart`/`SequencedEvent` + reader-scoped cursors built at delivery, `OpError`/`Completed` → envelope, `ports::CredentialAdapter` (prepare/renew/**reconcile**/revoke with `effect_token`), `ids` (CSPRNG) | Shell-string construction, per-frontend retry loops, SQL, framing, rendering, owner decisions as a port (they are store records) | domain, contract, store, tokio (sync/time), async-trait, getrandom, base64ct | as listed; everything returns `OpResult<T>` |
+| `heimdall-app` | `Operations` (inspect/ensure/bind/delegate/observe/cancel/release/revoke/policy/tick + `attend`/`decide`/`confirm_time`) over `context::Caller { context, attendance, interaction }`, `OperationsConfig { store, clock, time_sync, time_policy, environment, adapters, stage_hook, limits, default_window }`, `TimeGate` (the one shared gate; `SafeNow`), `ensure::EnsureStage` pipeline + `StageHook` (injected in production), `SingleFlight`, `reconcile::{plan, Backoff, should_retry, guard_cleanup}`, `EventPublisher` + `SubscriptionStart`/`SequencedEvent` + reader-scoped cursors built at delivery, `OpError`/`Completed` → envelope, `ports::CredentialAdapter` (prepare/renew/**reconcile**/revoke with `effect_token`), `ports::ResourceCleaner` (generation-bound delete, called only by the supervisor's cleanup executor), `reconcile::CleanupHook`, `ids` (CSPRNG) | Shell-string construction, per-frontend retry loops, SQL, framing, rendering, owner decisions as a port (they are store records) | domain, contract, store, tokio (sync/time), async-trait, getrandom, base64ct | as listed; everything returns `OpResult<T>` |
 | `heimdall-ipc` | Control endpoint transport (Unix socket dir + `peer_cred`; Windows named pipe + DACL + client SID), length-prefixed JSON framing, hello negotiation, per-connection limits, `Dispatcher` trait, `ControlClient`, bounded SSH-agent framer for the signing endpoint with an exact allow-list and `Signer` trait | Authorization, operation logic, storage | contract, tokio (net/io), tokio-util codec, ssh-agent-lib (proto only), windows-sys (Windows) | `endpoint::*`, `frame::*`, `session::{negotiate, ControlConnection, ControlClient, Dispatcher}`, `signing::{classify, serve, Signer}`, `unix::*`/`windows::*` |
-| `heimdall-runtime` | `Config`/`Paths` (TOML + schema), `InstanceLock` (`File::try_lock`), `InstanceInfo`, `Service::{start, run}`, `Supervisor` (resource owners, deadline scheduler, time guard), `launcher::ensure_running` (on-demand start), `telemetry::{init, redact}` | Authority semantics, operation logic, wire formats, rendering | app, ipc, store, domain, contract, tokio, toml, schemars, etcetera, tracing | as listed |
+| `heimdall-runtime` | `Config`/`Paths` (TOML + schema), `InstanceLock` (`File::try_lock`), `InstanceInfo`, `Service::{start, run}`, `Supervisor` (resource owners incl. the single cleanup executor with bounded retries, deadline scheduler, time guard), `launcher::ensure_running` (on-demand start), `telemetry::{init, redact}` | Authority semantics, operation logic, wire formats, rendering | app, ipc, store, domain, contract, tokio, toml, schemars, etcetera, tracing | as listed |
 | `heimdall` (bin) | clap command tree (spec §11.1), envelope rendering and exit mapping (`output`), `service run` entry, `tui` entry (M02-T05), `schema export|show` (implemented) | Any authorization or lifecycle implementation (plan §4.1 "Interfaces") | runtime, app, ipc, contract, clap | `heimdall` executable |
 | `heimdall-testkit` (dev) | `VirtualClock`, `ScriptedFaults`, `FakeCredentialAdapter` with side-effect counters, proptest strategies, `assert_no_canary` | Shipping in a binary (dev-dependency only) | app, store, domain, contract, proptest | as listed |
 
@@ -130,7 +130,7 @@ overflow behaviour:
 | Signing connections per endpoint | `ipc::MAX_SIGNING_CONNECTIONS` = 64 | close without reading |
 | In-flight requests per connection | `MAX_INFLIGHT_REQUESTS_PER_CONNECTION` = 16 | `Response(BACKPRESSURE)` for the excess request |
 | Subscriptions per connection | `MAX_SUBSCRIPTIONS_PER_CONNECTION` = 4 | `Response(BACKPRESSURE)` |
-| Live events per subscriber | `EVENT_BUFFER_PER_SUBSCRIPTION` = 256 (`broadcast` capacity) | `Lagged` → one `ResyncRequired` event, backlog dropped, consumer snapshots |
+| Live events per subscriber | `EVENT_BUFFER_PER_SUBSCRIPTION` = 256 (`broadcast` capacity) | `Lagged` → one `ResyncRequired` event, backlog dropped, consumer snapshots; an event over the frame limit → `ResyncRequired` at the last delivered cursor and the subscription ends (ADR-0006 §8 ⟨r2.1⟩ N03) |
 | Running operations | `app::Limits::max_running_operations` = 32 | `BACKPRESSURE` with `retry_after_ms` |
 | Concurrent adapter calls | `Limits::max_concurrent_adapter_calls` = 4 (semaphore) | queued inside the operation, bounded by the operation's wait |
 | Single-flight keys | `SingleFlight::with_bound(256)` | `BACKPRESSURE` |
@@ -158,19 +158,21 @@ overflow behaviour:
   continuous + (bound − wall) }`. `admission(grant_anchor, now)` is `Expired` once
   the wall clock reaches the bound **or** the continuous budget runs out, and
   `NeedsAnchor` (fail closed, not an expiry) when the anchor belongs to another
-  boot. Budgets only shorten (`shorten`); they are never rebuilt from the wall clock;
-  a same-boot process restart resumes from the persisted anchor.
+  boot. Budgets only shorten (`shorten` reduces the existing budget by the bound
+  reduction, keeping any tolerance deduction; ADR-0006 §13.4 N01); they are never
+  rebuilt from the wall clock; a same-boot process restart resumes from the
+  persisted anchor.
 * **One shared gate.** `app::TimeGate::check` (over `domain::time::gate`) runs before
   every admission, signature and issuance, in `Operations`, the signer (M03) and the
   issuer (M03) alike; there is no supervisor-private flag. It returns `Safe` and
   persists the new runtime anchor and **high-water mark** (latest accepted wall
   time, never lowered), or `Uncertain` → `TIME_UNCERTAIN` and persists nothing, when:
-  the wall clock is below the high-water mark by more than `max_tolerated_rollback`
-  (5 s); within a boot it disagrees with the continuous-clock prediction from the
+  within a boot the wall clock is below the high-water mark by more than
+  `max_tolerated_rollback` (5 s); within a boot it disagrees with the continuous-clock prediction from the
   last accepted anchor by more than `max_tolerated_skew` (60 s) **in either
   direction** (frozen wall, step back, implausible forward jump) or the continuous
   clock went backwards; after a reboot or at first start it is not both at/above the
-  mark **and** reported synchronized, unless an attended owner confirmation covers
+  mark (no rollback tolerance; ADR-0006 §13.4 N05) **and** reported synchronized, unless an attended owner confirmation covers
   this boot (`Operations::confirm_time`, attended sessions only; it never moves a
   deadline or budget). Passive reads continue with a warning while uncertain; the
   wall-bound expiry still applies (it can only deny). Tolerances are M01 defaults;
@@ -215,8 +217,10 @@ failure to `INTERNAL_ERROR`; adapter errors map by variant (`ProviderLocked` →
 
 Design-fix additions: `Denial::DeadlinePassed` → `CREDENTIAL_EXPIRED`; a decision
 that is consumed, expired or issued under an older generation → `DECISION_STALE`
-(exit 6); an owner-present action on an unattended session → `INTERACTION_REQUIRED`
-with `next.decision_ref`; a code unknown to the reader → `Code::Unknown(String)`,
+(exit 6); a widening action or added authority always creates a decision record:
+on an unattended session → `INTERACTION_REQUIRED` with `next.decision_ref`, on an
+attended one → `APPROVAL_REQUIRED` with `next.decision_ref`, completed only by an
+explicitly confirmed `Decide` (ADR-0006 §3.1 ⟨r2.1⟩ N04); a code unknown to the reader → `Code::Unknown(String)`,
 never success, exit 1, effect `unknown` (ADR-0006 §9). `Code` is `Clone`, not
 `Copy`, because of the reader fallback.
 

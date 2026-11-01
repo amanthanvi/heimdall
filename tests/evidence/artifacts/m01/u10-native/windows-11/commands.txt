@@ -1,0 +1,4 @@
+exit 0: cargo test --target x86_64-pc-windows-gnu --workspace --no-run --locked (zig linker/CC shims)
+exit 0: scp 21 test binaries to WSL scratch
+exit 0: remote: every test binary as the non-elevated user (overall exit = last failing binary's exit, 0 if all passed)
+exit 0: canary-prefix scan over saved output (count = 0)

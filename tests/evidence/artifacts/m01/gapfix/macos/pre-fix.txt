@@ -1,0 +1,30 @@
+M01-wave2-gapfix: failures observed on macOS arm64 before each fix (real runs on the
+shared working tree; each fix was then reverted back in place, or the run is the
+baseline before the change). Exit codes are cargo's.
+
+G01/G02 baseline (before any change; tests then #[ignore]d):
+  cargo test -p heimdall-runtime --test model_operations -- --ignored u10_a07   -> exit 101
+  u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends ... FAILED
+    assertion `left == right` failed: a live child keeps its parent active (left: Released, right: Active)
+  u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does ... FAILED
+    healthy child issuance refused: CREDENTIAL_EXPIRED the grant's authority is no longer current (revoked, ended or changed)
+  test result: FAILED. 0 passed; 2 failed
+
+G06 (EventPublisher::announce reverted to a plain broadcast send):
+  cargo test -p heimdall-runtime --test model_events live_events_are   -> exit 101
+  live_events_are_delivered_in_sequence_order_when_announced_in_reverse ... FAILED
+    assertion `left == right` failed: delivered in seq order, each exactly once
+    (left: [second, first], right: [first, second])
+
+G08 and G10 (merged_policy reverted to choose_policy; the TIME_UNCERTAIN refusal for
+widening decisions removed):
+  cargo test -p heimdall-runtime --test model_operations g   -> exit 101
+  g10_widening_under_uncertain_time_creates_no_decision ... FAILED
+  g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant ... FAILED
+
+G16 (Windows-target clippy before the cfg(unix) fix was complete):
+  bash tools/validation/clippy-windows.sh   -> non-zero
+  error: unused import: `std::time::Duration` --> crates/heimdall/src/service_cmd.rs:18:5
+  error: could not compile `heimdall` (bin "heimdall") due to 1 previous error
+
+After every fix: bash tools/validation/check.sh -> exit 0 (check.txt in this directory).

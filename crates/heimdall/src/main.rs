@@ -8,12 +8,28 @@
 //! over the authenticated control endpoint otherwise.
 
 mod cli;
+mod client;
 mod output;
+mod prompt;
+mod service_cmd;
+mod testcfg;
 
 use clap::Parser;
 
 fn main() -> std::process::ExitCode {
-    let args = cli::Cli::parse();
+    let args = match cli::Cli::try_parse() {
+        Ok(a) => a,
+        Err(e) => {
+            // Help and version are successes; every other parse failure is a
+            // usage error (exit 2, ADR-0006 §6). clap prints to the right stream.
+            let _ = e.print();
+            return if e.use_stderr() {
+                heimdall_contract::ExitCode::Usage.into()
+            } else {
+                heimdall_contract::ExitCode::Success.into()
+            };
+        }
+    };
     let code = cli::dispatch(args);
     code.into()
 }

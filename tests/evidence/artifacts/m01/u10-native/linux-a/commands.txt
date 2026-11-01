@@ -1,0 +1,6 @@
+exit 0: ssh <linuxhost> uname -m
+exit 0: cargo test --target x86_64-unknown-linux-gnu --workspace --no-run --locked (zig cc linker/CC shims)
+exit 0: ssh <linuxhost> mkdir scratch ~/hm-m01-u10-<random>
+exit 0: scp 21 test binaries to the scratch dir
+exit 0: remote: every test binary under nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)
+exit 0: canary-prefix scan over saved output (count = 0)

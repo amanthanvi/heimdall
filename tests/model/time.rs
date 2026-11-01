@@ -26,7 +26,11 @@
 //!   fail closed) until `reanchor()` re-creates it from a `Safe` observation via
 //!   [`anchor_grant`] with the **same persisted bound**. In the boot it was created
 //!   in, a grant anchor is never rebuilt (ADR-0005 §3.6 "never rebuilds a budget
-//!   from the current wall clock").
+//!   from the current wall clock");
+//! * `cutoff(at)` is a later-set earlier bound (policy cutoff): the persisted bound
+//!   becomes `min(deadline, cutoff)` and the grant budget is cut by [`shorten`],
+//!   which reduces the **existing** budget by the bound reduction (ADR-0006 §13.4
+//!   N01), so a tolerance deduction made at re-anchoring is kept.
 //!
 //! The property test seeds a fixed RNG (override with `PROPTEST_RNG_SEED=<u64>`)
 //! and persists failures next to this file under `proptest-regressions/`.
@@ -52,7 +56,7 @@ use heimdall_domain::time::{
     Admission, AttendedTimeConfirmation, Clock, Deadline, GateInput, GrantAnchor, SyncStatus,
     TimeAnchor, TimePolicy, TimeStatus, TimeSync, TimeUncertainty, accepted_tolerance, admission,
     anchor_grant, anchor_grant_with_tolerance, gate, is_expired, next_high_water,
-    next_runtime_anchor, resolve_deadline,
+    next_runtime_anchor, resolve_deadline, shorten,
 };
 use heimdall_testkit::{ScriptedTimeSync, VirtualClock, assert_no_canary};
 
@@ -86,6 +90,8 @@ struct Model {
     high_water: Option<Timestamp>,
     grant_anchor: GrantAnchor,
     confirmation: Option<AttendedTimeConfirmation>,
+    /// Policy cutoff set after activation, if any (N01).
+    cutoff: Option<Timestamp>,
     state: GrantState,
     // --- process memory (not persisted) ---
     /// The last observation the gate accepted in this process (R2 keeps the
@@ -134,8 +140,24 @@ impl Model {
             deadline,
             grant_anchor,
             confirmation: None,
+            cutoff: None,
             state,
         }
+    }
+
+    /// The current absolute bound: `min(deadline, cutoff)`.
+    fn current_bound(&self) -> Timestamp {
+        self.cutoff
+            .map_or(self.deadline.effective, |c| c.min(self.deadline.effective))
+    }
+
+    /// The owner sets a cutoff at the absolute instant `at` (ADR-0005 §3.6 "an earlier
+    /// cutoff set later shortens it; nothing lengthens it"). A later cutoff than the
+    /// current bound changes nothing.
+    fn cutoff(&mut self, at: Timestamp) {
+        self.cutoff = Some(self.cutoff.map_or(at, |c| c.min(at)));
+        self.grant_anchor = shorten(&self.grant_anchor, self.current_bound());
+        assert_eq!(self.grant_anchor.bound, self.current_bound());
     }
 
     /// Time guard pass: the shared gate; on `Safe` persist the mark and the anchor
@@ -205,6 +227,7 @@ impl Model {
             "high_water": self.high_water,
             "grant_anchor": self.grant_anchor,
             "confirmation": self.confirmation,
+            "cutoff": self.cutoff,
             "state": self.state,
         })
         .to_string();
@@ -216,6 +239,7 @@ impl Model {
         self.high_water = serde_json::from_value(row("high_water")).unwrap();
         self.grant_anchor = serde_json::from_value(row("grant_anchor")).unwrap();
         self.confirmation = serde_json::from_value(row("confirmation")).unwrap();
+        self.cutoff = serde_json::from_value(row("cutoff")).unwrap();
         self.state = serde_json::from_value(row("state")).unwrap();
         // Process memory does not survive: the new process must pass the gate
         // before it may re-anchor anything.
@@ -253,8 +277,9 @@ impl Model {
             );
         }
         assert_eq!(
-            self.grant_anchor.bound, self.deadline.effective,
-            "the bound never moves"
+            self.grant_anchor.bound,
+            self.current_bound(),
+            "the bound never moves except by a cutoff"
         );
         true
     }
@@ -1082,10 +1107,14 @@ fn reanchor_accepted_within_tolerance_ends_early_never_late() {
     let mut m = Model::activate("PT1H");
     m.clock.advance(30 * MINUTE);
     assert!(m.admits());
-    // Reboot after some downtime; the clock comes back 4 s below the mark (within
-    // the 5 s rollback tolerance) and the platform reports synchronized time.
+    // Reboot after some downtime; the clock comes back 4 s below the mark and the
+    // platform reports synchronized time. N05: after a reboot nothing below the mark
+    // is accepted, so the owner confirms; within the confirmed boot the 5 s rollback
+    // tolerance applies and is deducted from the budget (R4).
     m.reboot(shift(shift(t0(), 30 * 60), -4));
     m.sync.set(SyncStatus::Synchronized);
+    assert!(!m.reanchor());
+    m.confirm_time();
     assert!(m.reanchor());
     // Budget: bound − (wall + 5 s tolerance) = 30 min − 1 s on the continuous clock.
     assert_eq!(m.grant_anchor.budget_end, Duration::from_secs(30 * 60 - 1));
@@ -1093,6 +1122,119 @@ fn reanchor_accepted_within_tolerance_ends_early_never_late() {
     assert!(m.admits());
     m.clock.advance(SECOND);
     assert!(!m.admits(), "ends at most the tolerance early, never late");
+}
+
+/// N05 (ADR-0006 §13.4): after a reboot the rollback tolerance does not apply. A
+/// synchronized wall 4 s below the high-water mark is `Uncertain` (it was accepted
+/// before round 2); an attended confirmation for this boot resolves it without
+/// moving the deadline or the bound.
+#[test]
+fn reboot_synchronized_slightly_below_mark_is_uncertain_until_confirmed() {
+    let mut m = Model::activate("PT1H");
+    m.clock.advance(30 * MINUTE);
+    assert!(m.admits());
+    let mark = m.high_water.unwrap();
+    let deadline = m.deadline.clone();
+    m.reboot(shift(mark, -4));
+    m.sync.set(SyncStatus::Synchronized);
+    assert_eq!(
+        m.guard(),
+        TimeStatus::Uncertain(TimeUncertainty::BelowHighWater {
+            mark,
+            observed: shift(mark, -4),
+        })
+    );
+    assert!(!m.reanchor());
+    assert!(!m.admits());
+    assert_eq!(m.admission_now(), Admission::NeedsAnchor);
+    m.confirm_time();
+    assert_eq!(m.guard(), TimeStatus::Safe);
+    assert!(m.reanchor());
+    assert!(m.admits());
+    assert_eq!(m.deadline, deadline);
+    assert_eq!(m.grant_anchor.bound, deadline.effective);
+    assert_eq!(m.high_water, Some(mark), "the mark never lowers");
+}
+
+/// N01 (ADR-0006 §13.4), the reviewer's counterexample: anchor at continuous 0 with
+/// a 60 s tolerance and bound 3600 s; the bound is cut to 3570 s; the wall clock
+/// lags the truth by 60 s throughout. Admission must close by continuous 3510 (the
+/// true new bound), not 3540.
+#[test]
+fn shorten_preserves_tolerance_margin_reviewer_counterexample() {
+    let clock = VirtualClock::at(t0());
+    let anchor = clock.observe();
+    let g = GrantId::from_random_bytes([7; 16]);
+    let tolerant =
+        anchor_grant_with_tolerance(g, anchor, shift(t0(), 3600), Duration::from_secs(60));
+    assert_eq!(tolerant.budget_end, Duration::from_secs(3540));
+    let narrowed = shorten(&tolerant, shift(t0(), 3570));
+    assert_eq!(narrowed.bound, shift(t0(), 3570));
+    assert_eq!(narrowed.budget_end, Duration::from_secs(3510));
+    // Truth = wall + 60 s. One second before the true new bound: open.
+    clock.advance(Duration::from_secs(3509));
+    assert_eq!(admission(&narrowed, &clock.observe()), Admission::Open);
+    // At the true new bound (wall still 60 s behind, so the wall branch is open):
+    // the continuous budget closes admission.
+    clock.advance(SECOND);
+    assert!(
+        clock.wall() < narrowed.bound,
+        "the wall branch alone would admit"
+    );
+    assert_eq!(admission(&narrowed, &clock.observe()), Admission::Expired);
+    // The pre-fix value would have admitted for 30 more seconds.
+    let pre_fix = anchor_grant(
+        narrowed.grant.clone(),
+        narrowed.anchor.clone(),
+        narrowed.bound,
+    )
+    .budget_end
+    .min(tolerant.budget_end);
+    assert_eq!(pre_fix, Duration::from_secs(3540));
+    assert!(narrowed.budget_end < pre_fix);
+}
+
+/// N01 through the runtime model: tolerance-aware re-anchoring after a confirmed
+/// reboot, then a cutoff, with the wall lagging the truth: admission stops by the
+/// true cutoff.
+#[test]
+fn cutoff_after_tolerant_reanchor_stops_admission_by_the_true_cutoff() {
+    let mut m = Model::activate("PT2H");
+    m.sync.set(SyncStatus::Unknown);
+    m.clock.advance(10 * MINUTE);
+    assert!(m.admits());
+    // Reboot; the wall comes back right; unsynchronized, so the owner confirms. The
+    // re-anchor deducts the skew tolerance (60 s).
+    let truth = shift(t0(), 15 * 60);
+    m.reboot(truth);
+    m.confirm_time();
+    assert!(m.reanchor());
+    // The wall freezes for 50 s, so it lags the truth by 50 s (within the skew
+    // tolerance, still at the mark).
+    m.clock.advance_continuous_only(50 * SECOND);
+    let mut real = 50 * SECOND;
+    assert_eq!(m.guard(), TimeStatus::Safe);
+    // Cutoff at the true instant truth + 30 min.
+    let cut = shift(truth, 30 * 60);
+    m.cutoff(cut);
+    // Advance until the truth passes the cutoff; never admitted at or after it.
+    let mut last_admitted = None;
+    while real < 31 * MINUTE {
+        if m.admits() {
+            last_admitted = Some(real);
+        }
+        m.clock.advance(SECOND * 10);
+        real += SECOND * 10;
+    }
+    let last = last_admitted.expect("admitted before the cutoff");
+    assert!(
+        last >= 20 * MINUTE,
+        "admission ran until close to the cutoff"
+    );
+    assert!(
+        last < 30 * MINUTE,
+        "admitted at {last:?}, at/after the true cutoff"
+    );
 }
 
 mod props_rev2 {
@@ -1118,6 +1260,9 @@ mod props_rev2 {
         /// skew tolerance away from the truth (the owner looks at a watch).
         Confirm,
         Reanchor,
+        /// The owner sets a cutoff this many seconds after the runtime's current
+        /// wall clock (an absolute instant; may lie in the past). N01.
+        Cutoff(i64),
     }
 
     fn step() -> impl Strategy<Value = Step> {
@@ -1130,6 +1275,7 @@ mod props_rev2 {
                 .prop_map(|(down, drift, sync)| Step::Reboot { down, drift, sync }),
             Just(Step::Confirm),
             Just(Step::Reanchor),
+            (-600i64..7200).prop_map(Step::Cutoff),
         ]
     }
 
@@ -1140,8 +1286,9 @@ mod props_rev2 {
             ..ProptestConfig::default()
         })]
 
-        /// No admission after the true bound, across sleep, jumps, restarts,
-        /// reboots (synchronized or not), attended confirmations and re-anchors.
+        /// No admission after the true (current) bound `min(deadline, cutoff)`,
+        /// across sleep, jumps, restarts, reboots (synchronized or not), attended
+        /// confirmations, tolerance-aware re-anchors and cutoffs (N01).
         #[test]
         fn no_admission_after_true_bound_with_reboot_and_confirmation(
             minutes in 1u64..=720,
@@ -1178,11 +1325,20 @@ mod props_rev2 {
                     Step::Reanchor => {
                         let _ = m.reanchor();
                     }
+                    Step::Cutoff(after) => {
+                        m.cutoff(shift(m.clock.wall(), after));
+                    }
                 }
                 let admitted = m.admits();
                 prop_assert!(
                     !(admitted && real >= granted),
                     "admitted after {real:?} of {granted:?}"
+                );
+                prop_assert!(
+                    !(admitted && truth(real) >= m.current_bound()),
+                    "admitted at {:?} at/after the current bound {:?}",
+                    truth(real),
+                    m.current_bound()
                 );
                 if !m.state.permits_use() {
                     prop_assert!(m.state.is_terminal());

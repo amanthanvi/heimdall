@@ -7,6 +7,9 @@ the reference callers (M01-T06 CLI, A19/A32 fixtures) pass (plan §3 G08, spec �
 review (`tests/evidence/artifacts/review-m01-design/review.md`, F01–F10) and the
 wave-1 escalations under the orchestrator's rulings. Every changed rule is marked
 **⟨rev2⟩**; §14 is the change log. Revision 1 text that is not marked is unchanged.
+**Revision 2.1 (2026-10-31, task M01-T00-review2-fix):** applies the round-2 design
+review (`tests/evidence/artifacts/review-m01-design/round2/review.md`, N01–N06) under
+the orchestrator's rulings (§13.4). Rules changed by it are marked **⟨r2.1⟩**.
 **Affects:** R-AP-01…R-AP-08, R-RT-03, R-RT-06, R-SE-05, R-SE-06, R-AU-06.
 **Executable form:** `crates/contract` (types, code table, limits, schemas),
 `crates/domain::lifecycle` (state machines), `crates/ipc` (transport); `schemas/
@@ -68,8 +71,10 @@ users). Administrators and SYSTEM are not defended against (spec §14.1).
 The runtime reports what it authenticated back to the client in `ServerHello.
 principal`. Owner-channel actions (approve, pause, cutoff, unenroll) are therefore
 available to any same-user caller; this is the disclosed non-guarantee decided for
-primitives-draft Q1 (ADR-0004 context; spec §14.2). **⟨rev2⟩** Widening actions
-additionally need an *attended* session (§3.1); that is a usability boundary against
+primitives-draft Q1 (ADR-0004 context; spec §14.2). **⟨rev2⟩ ⟨r2.1⟩** Widening actions
+additionally need a server-issued decision record completed by `Decide` on an
+*attended* session after an explicit, action-specific client confirmation (§3.1);
+attendance alone never executes them. That is a usability boundary against
 non-interactive agents, not a security boundary against same-user code.
 
 **⟨rev2⟩ Third endpoint: issuer** (ADR-0005 §3.1, §12; review F06). `EndpointKind::
@@ -135,10 +140,15 @@ predicates split the attended-only surface (**second round R5**):
 **before dispatch** on any session that is not attended, with
 `INTERACTION_REQUIRED` and no decision record; and
 `Request::is_widening_policy_action()` = `resume` and `clear_cutoff`, which **are**
-dispatched on an unattended session so the application can create a `WidenPolicy`
-decision record and answer `INTERACTION_REQUIRED` with `next.decision_ref` (§3.1;
-creating a pending record grants nothing, mirroring `APPROVAL_REQUIRED`). The
-application layer checks attendance again. Attendance is never a request field.
+dispatched on every session so the application can create a `WidenPolicy` decision
+record (§3.1; creating a pending record grants nothing, mirroring
+`APPROVAL_REQUIRED`). **⟨r2.1⟩ N04:** the application **always** creates the record,
+on attended sessions too, and never executes a widening action on dispatch: it
+answers `APPROVAL_REQUIRED` with `next.decision_ref` on an attended session and
+`INTERACTION_REQUIRED` with `next.decision_ref` on an unattended one. Execution
+happens only through `Decide approve` (§3.1). The application layer checks
+attendance again. Attendance is never a request field, and it is a property of the
+session, not a confirmation of any particular action.
 
 ### 2.4 Capability names
 
@@ -202,20 +212,34 @@ Added authority (spec §5.3), the widening policy actions `resume`/`clear_cutoff
   delta (`ApproveAuthority { operation, delta }`), the verbatim action
   (`WidenPolicy { action }`), or the observed time (`ConfirmTime { boot_id,
   observed_wall }`). `generation` is the authority generation at issuance.
-* The requesting result carries the nonsecret reference in `next.decision_ref`
-  (`APPROVAL_REQUIRED` for added authority; `INTERACTION_REQUIRED` for a widening
-  action on an unattended session). **Second round R5:** a widening action
-  (`resume`, `clear_cutoff`) reaching the application on an unattended session
-  creates the `WidenPolicy` record and returns `INTERACTION_REQUIRED` with its
-  `decision_ref`; on an attended session the application executes it directly
-  (the session is the confirmation). `decide` and `confirm_time` never reach the
-  application unattended (§2.3).
-* Completion is `Request::Decide { decision_id, verdict }`, accepted **only on an
-  attended session** (§2.3); otherwise `INTERACTION_REQUIRED`. It is consume-once
-  and generation-checked (`heimdall_domain::decision::complete`): a record that is
-  not `pending`, has expired (default lifetime 15 min), or was issued under an older
-  generation is refused with `DECISION_STALE`, even for `deny`. Approval applies
-  exactly the recorded delta and resumes the waiting operation; nothing wider.
+* **⟨r2.1⟩ N04: every** added-authority request, `resume` and `clear_cutoff`
+  creates a server-issued decision record carrying the exact delta or the verbatim
+  action, **whatever the session's attendance**. The requesting result carries the
+  nonsecret reference in `next.decision_ref`: `APPROVAL_REQUIRED` on an attended
+  session, `INTERACTION_REQUIRED` on an unattended one. Nothing is executed on
+  dispatch; the former "attended session executes directly / the session is the
+  confirmation" path (second round R5) is **withdrawn**. `decide` and
+  `confirm_time` never reach the application unattended (§2.3).
+* Completion is **only** `Request::Decide { decision_id, verdict }`, accepted **only
+  on an attended session** (§2.3); otherwise `INTERACTION_REQUIRED`. It is
+  consume-once and generation-checked (`heimdall_domain::decision::complete`): a
+  record that is not `pending`, has expired (default lifetime 15 min), or was issued
+  under an older generation is refused with `DECISION_STALE`, even for `deny`.
+  Approval applies exactly the recorded delta or action and resumes the waiting
+  operation; nothing wider.
+* **⟨r2.1⟩ Client confirmation contract (N04; binding on the CLI, M01-U9, and the
+  later TUI).** Before sending `Decide approve` or `ConfirmTime`, the client fetches
+  and displays the **exact** recorded action or delta (for `ConfirmTime`, the
+  runtime's observed time) and requires an affirmative typed confirmation: `y` or
+  `yes` (case-insensitive, surrounding whitespace ignored), **default No**. EOF,
+  Ctrl-C, a prompt timeout, a non-TTY stdin, `--non-interactive`, an explicit `n`,
+  or any other input sends **nothing**: the decision stays `pending` until it
+  expires, and the CLI exits 3 with code `INTERACTION_REQUIRED`, `next.decision_ref`
+  and a "not confirmed" message. `Attend` may be sent only for the session that
+  then shows this prompt. **Disclosure:** the server cannot verify that the client
+  prompted; a same-user program can send `Attend` and `Decide` itself (same-user
+  imitation, below). The prompt is the owner workflow the contract requires of
+  conforming clients, not a server-enforced boundary.
 * `Request::ConfirmTime { observed_wall }` creates and consumes a `ConfirmTime`
   decision in one step on an attended session; it accepts the runtime's own clock
   for this boot when the owner's value agrees within tolerance; it never moves a
@@ -407,7 +431,14 @@ classify(record, marker, hash, now)`).
   usable cursor, a snapshot consistent with that head (`Txn::snapshot_boundary`).
   `Subscribed { cursor, snapshot? }` is followed by the backlog events (already
   cursor-personalized), then live events strictly after the boundary (`seq >
-  boundary_seq`): overlap is deduplicated server-side, so a client may still
+  boundary_seq`). **⟨r2.2⟩** `Subscribed.cursor` is that **head boundary**: with a
+  snapshot, the snapshot's cursor; when resuming from a cursor, the position
+  **after** the backlog (never the client's own cursor), so a consumer resumes from
+  the cursor of the last event it processed until the backlog is consumed (gap
+  G18; contract doc of `ServerMessage::Subscribed`; model test
+  `subscribed_cursor_is_the_head_boundary_not_the_clients_cursor`). Live events
+  are fanned out in strictly increasing `seq` order (gap G06;
+  `EventPublisher::announce` fills any gap from the store): overlap is deduplicated server-side, so a client may still
   deduplicate by `event_id` but need not. Lag beyond the 256-event buffer emits one
   `ResyncRequired` carrying the **last delivered cursor** (second round R8) and
   drops the backlog (bounded memory, R-RT-06). The client API is
@@ -416,6 +447,19 @@ classify(record, marker, hash, now)`).
   returns up to `limit` (≤ `Limits::max_event_page` = 500) events after it.
 * Retention: `config.retention.events` (default 7 days) or a row cap; expiry of a
   cursor is a normal condition, not an error of the caller.
+* **⟨r2.1⟩ Oversized events (N03).** An event whose frame exceeds
+  `MAX_CONTROL_FRAME_BYTES` is never delivered. The session's internal
+  `send_event` reports `Delivered | Replaced`; on `Replaced`, in the backlog path
+  and in the live path alike, the subscription's position stays at the **last event
+  actually delivered**, the server sends one `ResyncRequired` event carrying that
+  cursor (payload `{"reason": "event_too_large", "subscription_ended": true}`), and
+  then **ends the subscription** (no further events for its handle; a later
+  `Unsubscribe` of it answers `NOT_FOUND`). The documented recovery is a **fresh
+  snapshot**: subscribe again **without** a cursor. Resubscribing *from* the
+  carried cursor replays the backlog after it, meets the same oversized event and
+  gets `ResyncRequired` again; the cursor is carried so the consumer knows exactly
+  what it last saw, not as a resume point past the gap. A lag resync (above) still
+  carries the last delivered cursor and keeps the subscription.
 
 ## 9. Schema versioning (spec §11.2, §13.3; plan §4.5)
 
@@ -462,18 +506,28 @@ ADR-0005 §3.6 revision 3 governs; this contract implements it in
 * **Per-grant anchors** `GrantAnchor { boot_id, continuous, wall, bound,
   budget_end }` are persisted at activation or first validation in a boot;
   `budget_end = continuous + (bound − wall)`; budgets only shorten (`shorten`);
-  they are never rebuilt from the wall clock. **Admission** fails once the wall
+  they are never rebuilt from the wall clock. **⟨r2.1⟩ N01:** `shorten(current,
+  new_bound)` reduces the **existing** budget by the bound reduction,
+  `budget_end = current.budget_end − (current.bound − new_bound)` (saturating at
+  zero, never longer than `current`); it never recomputes the budget from the raw
+  anchor, so a tolerance deduction made at anchoring (R4) is preserved. **Admission** fails once the wall
   clock reaches the bound **or** the continuous budget runs out; an anchor from
   another boot is `NeedsAnchor` (fail closed, not an expiry) until re-anchored from
   a `Safe` observation with the same persisted bound.
 * **The gate** (`gate(GateInput)`), consulted before every admission, signature and
-  issuance, returns `TIME_UNCERTAIN` when: the wall clock is below the persisted
+  issuance, returns `TIME_UNCERTAIN` when: **within a boot** (a same-boot runtime
+  anchor or attended confirmation exists) the wall clock is below the persisted
   **high-water mark** (latest accepted wall time, never lowered) by more than the
-  tolerance; within a boot, the wall clock disagrees with the continuous-clock
+  rollback tolerance; within a boot, the wall clock disagrees with the continuous-clock
   prediction from the last accepted anchor **in either direction** (an implausible
   forward jump included) or the continuous clock went backwards; after a reboot (or
   at first start) the wall clock is not **both** at/above the high-water mark and
   reported synchronized, unless an attended owner confirmation covers this boot.
+  **⟨r2.1⟩ N05:** the rollback tolerance applies **only within a boot**; after a
+  reboot or at first start any wall time below the mark is `TIME_UNCERTAIN`
+  (`BelowHighWater`) until an attended confirmation for this boot applies, and
+  `accepted_tolerance` therefore never contains a rollback share for an acceptance
+  without a same-boot reference.
   On `Safe` the gate persists the high-water mark (`max(mark, accepted wall)`) and
   the runtime anchor chosen by `next_runtime_anchor` (**second round R2**: within a
   boot the anchor is re-based only when the platform reports synchronized time, or
@@ -490,8 +544,8 @@ ADR-0005 §3.6 revision 3 governs; this contract implements it in
   §3.6). Confirmation never moves a deadline or rebuilds a budget.
 * **Tolerance-aware re-anchoring (second round R4).** When a grant is re-anchored
   from an observation accepted within a tolerance (`accepted_tolerance`: the
-  rollback tolerance when below the mark, plus the skew tolerance when accepted
-  through a same-boot prediction or confirmation), `budget_end = continuous +
+  rollback tolerance when below the mark within a boot, plus the skew tolerance when
+  accepted through a same-boot prediction or confirmation), `budget_end = continuous +
   (bound − (wall + tolerance))` (`anchor_grant_with_tolerance`): the grant may end
   up to the tolerance early, never late, and the result is `min()`'d with any
   existing same-boot budget.
@@ -557,7 +611,7 @@ ruled and specified in §3.1; (3) exit classes stay as tabled (no contrary rulin
 | R2 | Within a boot a `Safe` pass re-bases the runtime anchor only on synchronized time or an attended confirmation; the high-water mark still advances every `Safe` pass; long unsynchronized uptime may reach `TIME_UNCERTAIN` (fail closed), resolved by attended `ConfirmTime` | §10; `domain::time::next_runtime_anchor`; `app::TimeGate` docs; model test `frozen_wall_checked_every_thirty_seconds_becomes_uncertain` |
 | R3 | An accepted attended `ConfirmTime` installs a new runtime anchor for this boot; same-boot skew is cleared by confirmation; deadlines and budgets untouched | §10; `domain::time::gate` prediction reference (later of anchor and confirmation); model test `same_boot_skew_is_cleared_by_attended_confirmation_without_moving_anything` |
 | R4 | A re-anchor from an observation accepted within a tolerance cuts the budget by that tolerance (early, never late), `min()`'d with any same-boot budget | §10; `domain::time::{accepted_tolerance, anchor_grant_with_tolerance}`; `app::SafeNow.tolerance_used`; model test `reanchor_accepted_within_tolerance_ends_early_never_late` and property `no_admission_after_true_bound_with_reboot_and_confirmation` |
-| R5 | Split the attended predicate: `requires_attended_session` (decide, confirm_time; refused before dispatch, no record) vs `is_widening_policy_action` (resume, clear_cutoff; dispatched; app creates a `WidenPolicy` decision or executes on an attended session) | §2.3, §3.1; `contract::request`; `ipc::session` gate and tests; U5 note in `m01-plan.md` |
+| R5 | Split the attended predicate: `requires_attended_session` (decide, confirm_time; refused before dispatch, no record) vs `is_widening_policy_action` (resume, clear_cutoff; dispatched; app creates a `WidenPolicy` decision ~~or executes on an attended session~~). **⟨r2.1⟩ Superseded in part by N04 (§13.4):** the app always creates the record and never executes on dispatch; attended ⇒ `APPROVAL_REQUIRED`, unattended ⇒ `INTERACTION_REQUIRED` | §2.3, §3.1; `contract::request`; `ipc::session` gate and tests; U5 note in `m01-plan.md` |
 | R6 | Pipe SDDL carries an explicit owner `O:<current user SID>` so `ServerOwner::CurrentUser` holds for elevated runtimes; `ServerOwner::Sid` kept; re-run natively on the Windows PC; cross-user case stays `blocked`. **Observed natively:** the first rerun (`…/u6w-native/r6-owner-sddl`, exit 101) showed Windows refuses any owner the creating process does not hold (`ERROR_INVALID_OWNER` 1307), so the descriptor's owner is always the creating process's own SID and the DACL grantee is a separate argument (`owner_only_sddl(owner, grantee)`); the second rerun (`…/u6w-native/r6-owner-sddl-2`) passed: `windows::` 14/14, all four test binaries exit 0, canary scan 0, run exit 0 | §2.1; `ipc::windows::{owner_only_sddl, create_instance}`; `tests/evidence/artifacts/m01/u6w-native/r6-owner-sddl{,-2}/` |
 | R7 | Store semantic choices 1–8 accepted (NULL expiry for unsettled v1 keys; v1 time anchor dropped and its wall seeds the mark; first settlement wins; `NotOwner` checked first; snapshots immutable; recovery intent add-only; `Destroyed` terminal; FKs; `denied_ancestor` cycle ⇒ `Corrupt`); the application checks `marker_until`, `boot_id` and decision expiry itself | §14.3; U5 note in `m01-plan.md` |
 | R8 | `handle_owner_sid` added to the unsafe inventory; `decision` added to the `ResourceRef` kinds; `ResyncRequired` carrying the last delivered cursor accepted | `overview.md` §9; §3 `ResourceRef`; §8 |
@@ -581,9 +635,58 @@ ruled and specified in §3.1; (3) exit classes stay as tabled (no contrary rulin
    invisibly").
 4. **Skew share on synchronized acceptances (R4 follow-up):** kept as implemented. When
    the platform reports synchronization, the time is accepted without a skew deduction.
-   Unsynchronized acceptances and rollback acceptances deduct their tolerance. A
-   `Synchronized` report that turns out to be wrong is outside the ADR-0005 threat model
-   (truthful platform clock service).
+   Unsynchronized acceptances and rollback acceptances deduct their tolerance.
+   **⟨r2.1⟩ N05 (rewritten):** that a `Synchronized` report is truthful is an
+   **ASSUMPTION**, not a property of the threat model. It needs native evidence per
+   platform (M04, G09: which signal is trustworthy and how it fails), and ADR-0005's
+   reopen condition for a signal that reports synchronized while wrong under
+   accidental faults stands unchanged. Until that evidence exists, the M01 platform
+   stubs report `Unknown` and fail closed.
+
+### 13.4 ⟨r2.1⟩ Round-2 review rulings (orchestrator, under the owner's delegation; applied)
+
+Source: `tests/evidence/artifacts/review-m01-design/round2/review.md`. The
+orchestrator verified N01 and N05 against the code before ruling.
+
+| # | Ruling | Applied where |
+|---|---|---|
+| N01 | `shorten(current, new_bound)` reduces the existing budget by the bound reduction (`budget_end − (bound − new_bound)`, saturating, never longer); never recomputed from the raw anchor | §10; `domain::time::shorten`; model test `shorten_preserves_tolerance_margin_reviewer_counterexample` and the true-bound property (now with `Cutoff` steps) in `tests/model/time.rs` |
+| N02 | `issuance::check` enforces the whole ADR-0005 §3.5 refusal list plus the §3.6 deadline, at reserve **and** at publish: continuous admission (`IssuanceCheck.admission`; refusal `BudgetExpired`; `NeedsAnchor` ⇒ `TimeUncertain`); the exact principal `hm:<destination-id>:<account>` (`WrongPrincipal`; `issuance::principal_for`); extensions ⊆ the grant's permissions (`UnpermittedExtension`; `permit-X11-forwarding` never, `permit-agent-forwarding` only with the `agent-forwarding` capability); expected policy revision = current (`StalePolicyRevision`); recorded parent supplied and its chain complete (`AncestorMissing`); every ancestor issuable (`AncestorDenied`) and at the current generation (`StaleAncestor`); every earlier check | §14.2; `domain::issuance::{IssuanceCheck, IssuanceRefusal, check, principal_for}`; unit tests in `crates/domain/src/issuance.rs` (one refusal per predicate; reserve/publish interleavings through the production predicate); store-backed A07 interleavings remain U5's |
+| N03 | `send_event` returns `Delivered \| Replaced`; on `Replaced` (backlog and live) the cursor stays at the last delivered event, the server sends `ResyncRequired` carrying it and ends the subscription; recovery is a fresh snapshot (subscribe without a cursor) | §8; `ipc::session::{send_event, start_subscription}` and the live loop; tests `oversized_*` in `tests/integration/ipc_unix.rs` |
+| N04 | `resume`, `clear_cutoff` and added authority always create a server-issued decision record (attended ⇒ `APPROVAL_REQUIRED`, unattended ⇒ `INTERACTION_REQUIRED`, both with `next.decision_ref`); completion only by `Decide` on an attended session; the "session is the confirmation" path is withdrawn; client confirmation contract (typed `y`/`yes`, default No; EOF, Ctrl-C, timeout, non-TTY, `--non-interactive` or other input ⇒ nothing sent, exit 3 `INTERACTION_REQUIRED` "not confirmed"); the server cannot verify client prompting (disclosed) | §2.1, §2.3, §3.1; R5 row in §13.2 annotated; `ipc::session` docs and tests; `app::context` docs; `m01-plan.md` U5 and U9 |
+| N05 | After a reboot or at first start (no same-boot reference) `gate` is `Safe` only if wall ≥ mark **and** `Synchronized`, unless an attended confirmation for this boot applies; the rollback tolerance applies only within a boot; `accepted_tolerance` has no rollback share without a same-boot reference; truthful `Synchronized` is an ASSUMPTION needing native evidence (M04/G09) and ADR-0005's reopen condition stands | §10, §13.3 item 4; `domain::time::{gate, accepted_tolerance}`; model test `reboot_synchronized_slightly_below_mark_is_uncertain_until_confirmed` (replaces the 4 s-below acceptance) |
+| N06 | Exit evidence: U8 A17-local generation-N cleanup racing N+1 at the deletion boundary, and repeated unavailable-provider failures under one bounded supervisor; service-death A06 through a durable fake effect ledger (`FakeCredentialAdapter::with_ledger`), killing the service by exact PID and restarting it (U9/U10), with in-process reconstruction labelled as such; "kill the service while the caller waits; replace the socket" (U9/U10); U5 pending-approval deadline expiry (`CREDENTIAL_EXPIRED`) and expired decision (`DECISION_STALE`, operation stays `awaiting_approval`) | `m01-plan.md` U5, U8, U9, U10; `testkit::FakeCredentialAdapter::{with_ledger, ledger_entries}` and their unit tests |
+
+### 13.5 ⟨r2.2⟩ Rulings on the N02 implementation questions (orchestrator, 2026-10-31)
+
+1. **Ancestor states.** The fail-closed reading stands: every ancestor must be
+   issuable (`preparing`, `active` or `degraded`). A `released` or `expired` parent
+   ends issuance for its descendants. Delegated authority never outlives its parent's
+   live authority (spec §6.2 intersection).
+
+   Releasing a parent writes no tombstone and revokes nothing (§13.1 item 2), so a
+   child stopping silently would surprise the owner. To prevent that, `delegate` takes
+   an ownership-aware reference on the parent (spec §6.3 "reference counts are
+   ownership-aware"), owned by the child grant. The reference is released when the
+   child reaches a terminal state. Consumers releasing the parent therefore cannot
+   move it to `released` while a live child depends on it, and the parent's deadline
+   still bounds the child.
+2. **Generation checks along the chain.** The authority generation is one global
+   counter. The predicate therefore compares the generation at which each grant and
+   ancestor was **last validated** with the current one.
+
+   On a mismatch, the application re-validates automatically before reserving. It
+   re-runs authority resolution against the current policy, cutoffs and tombstones,
+   with unchanged scope and deadline, no widening and no prompt (spec §5.5 silent
+   repair within saved authority). It then records the new validated generation, or
+   denies. Reserve and publish must observe the same generation.
+
+   An unrelated revoke therefore costs one re-validation and never fails healthy work.
+   A revoke, pause or cutoff that touches the chain fails it. Per-grant generations
+   are a possible later optimisation, with no change of semantics.
+3. **`permitted_extensions`.** The caller supplies it from the grant's resolved
+   scope, its snapshot capabilities, and never from request fields. M03 replaces this
+   source with the ADR-0005 §3.4 profile/route derivation.
 
 ## 14. ⟨rev2⟩ Change log and substrate added by revision 2
 
@@ -613,6 +716,15 @@ id (cred_…), grant, key_handle_ref, certificates, state }`, the refusal list
 `IssuanceRefusal` and the predicate function `check(IssuanceCheck)` applied
 identically at reserve and at publish (with the then-current store and the time
 gate), and `residual(entries)` = latest `valid_before` over `reserved ∪ published`.
+**⟨r2.1⟩ N02:** the caller builds `IssuanceCheck` inside the reserve and again inside
+the publish transaction from current state: grant, recorded parent and the further
+ancestor chain (`parent`, `ancestors`), applicable policy and the
+`expected_policy_revision` pinned in the grant's `ResolvedIntent`, current
+generation, tombstone flag, `permitted_extensions` for the pair (ADR-0005 §3.4
+profile), and **time evidence**: the gate's `TimeStatus` plus
+`admission = time::admission(&grant_anchor, &observation)` from the **same**
+observation. `check` refuses with the first failing predicate; at publish a refusal
+means `void_issuance(reason)`, never publication.
 Transactional store methods: `reserve_issuance`, `publish_issuance` (CAS reserved →
 published), `void_issuance` (CAS reserved → voided), `issuance_entries`,
 `issuance_residual`, `insert/update/credential_instance`. Revocation, cutoff and
@@ -682,6 +794,17 @@ revision 2 adds `Denial::DeadlinePassed` for it, mapped to `CREDENTIAL_EXPIRED`
 | E13 | §2.1 Unix bind mechanics; `with_server_identity` kept |
 | E14 | §2.1 Windows server-owner check; native plan |
 | E15 | every unit stays `implemented_unverified` until U10's records exist |
+| ⟨r2.1⟩ N01 | §10; `domain::time::shorten` body (signature unchanged) |
+| ⟨r2.1⟩ N02 | §14.2; **additive** fields `IssuanceCheck::{admission, permitted_extensions, expected_policy_revision, ancestors}`; **additive** `IssuanceRefusal::{BudgetExpired, WrongPrincipal, UnpermittedExtension, StalePolicyRevision, AncestorMissing, AncestorDenied, StaleAncestor}`; new `issuance::principal_for(&AccessPair) -> String`. `CriticalOption` now means critical options only |
+| ⟨r2.1⟩ N03 | §8; `ipc::session` private `send_event -> Result<Delivery, FrameError>` (`Delivery::{Delivered, Replaced}`); `ResyncRequired` payload reason `event_too_large` + `subscription_ended: true` (payload only; no contract type change) |
+| ⟨r2.1⟩ N04 | §2.1, §2.3, §3.1; no signature change (behaviour of `Operations::policy`/`ensure` for U5; client contract for U9) |
+| ⟨r2.1⟩ N05 | §10, §13.3; `domain::time::{gate, accepted_tolerance}` bodies (signatures unchanged) |
+| ⟨r2.1⟩ N06 | `m01-plan.md`; **additive** `testkit::FakeCredentialAdapter::{with_ledger(descriptor, script, path) -> io::Result<Arc<Self>>, ledger_entries(path)}`; `new` unchanged |
+| ⟨r2.2⟩ §13.5 ruling 1 (gap G02) | `app::operations`: the delegate commit adds a reference on the parent keyed by the child's binding; `put_grant` drops it when the child reaches a terminal state and a parent left without references becomes `released` (no tombstone, no cascade) |
+| ⟨r2.2⟩ §13.5 ruling 2 (gap G01) | **additive** `store::Txn::{grant_validation, record_grant_validation}` (meta rows, no migration); `app::operations::revalidate_chain` re-runs `resolve_authority` with the grant's unchanged scope and deadline before activation, bind, the awaiting-approval checks, delegation from the parent and reserve; publish voids (`StaleGeneration`) when the generation moved since its reservation |
+| ⟨r2.2⟩ §13.5 ruling 3 (gap G07) | `IssuanceFacts.permitted_extensions` **removed** (app API, not a contract type); `app::operations::permitted_extensions(grant, pair)` derives them inside the reserve and publish transactions |
+| gap G03/G04 (N06) | **additive** `app::ports::ResourceCleaner`, `app::reconcile::{CleanupPoint, CleanupHook, NoCleanupHook}`, `runtime::supervisor::{Supervisor::{with_cleaner, cleanup_pass}, CleanupReport}` |
+| gap G06/G18 | §8 (live fan-out in `seq` order; `Subscribed.cursor` is the head boundary); `heimdall schema export --config-out` |
 
 ### 13.1 Orchestrator rulings (2026-10-31)
 

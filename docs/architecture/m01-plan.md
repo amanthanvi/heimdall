@@ -4,7 +4,9 @@
 A06/A07/A08/A19/A29 (model and local-runtime variants); `overview.md`; ADR-0006
 revision 2; ADR-0005 §3.5/§3.6; the design review
 (`tests/evidence/artifacts/review-m01-design/review.md`) and the orchestrator's
-rulings on it (ADR-0006 §14.5).
+rulings on it (ADR-0006 §14.5); **revision 2.1:** the round-2 review
+(`…/review-m01-design/round2/review.md`, N01–N06) and its rulings (ADR-0006 §13.4).
+Items added by it are marked **⟨r2.1⟩**.
 **Status discipline (wave-1 E15):** every unit is `implemented_unverified` until
 U10's evidence records exist, whatever its tests say locally. Wave 1 (U1, U2, U3,
 U4, U6, U6w, U7) is committed; this revision adapts it and defines wave 2.
@@ -85,6 +87,11 @@ integrator with an ADR-0006 revision.
   synchronized accepted with the persisted bound; attended confirmation resolves
   uncertainty without moving the deadline; the stopped-10:00/real-12:00/clock-10:01
   case refused; proptest over Pass/FrozenWall/WallJump/Restart/Reboot steps;
+  **⟨r2.1⟩** N01: `shorten` reduces the existing budget by the bound reduction
+  (reviewer counterexample: anchor 0, tolerance 60 s, bound 3600 → 3570, wall lagging
+  60 s ⇒ admission closed by continuous 3510) and the true-bound property includes
+  `Cutoff` steps; N05: a synchronized reboot 4 s below the mark is `Uncertain` and
+  resolvable by an attended confirmation;
   duration-intent retry hashes equal and keeps the original instant; errors never
   echo input. Lifecycle: `OutcomeUnknown` quiescent-not-settled, settled by
   reconciliation only.
@@ -127,14 +134,19 @@ integrator with an ADR-0006 revision.
   until `NotApplied`; `TimeGate::check` before `Recheck`/`Commit` and in `tick`;
   `TimeGate::anchor_grant` at activation; idempotency via `classify(record, marker,
   hash, now)` with `settle_idempotency` at settlement; decisions per ADR-0006 §3.1
-  (`APPROVAL_REQUIRED` + `decision_ref`; widening policy actions need attendance);
+  (`APPROVAL_REQUIRED` + `decision_ref`; widening policy actions always create a
+  decision record, **⟨r2.1⟩ N04**);
   release via `Txn::release_binding` (`AlreadyReleased` is success; `NotOwner` →
   `CAPABILITY_UNAVAILABLE`); revoke writes the tombstone before acknowledgment and
   reports the residual from `issuance_residual` ∪ adapter `RevokeOutcome`.
-* **Second-round notes for U5 (ADR-0006 §13.1):** (R5) `Request::
-  is_widening_policy_action()` requests arrive on unattended sessions: create a
-  `WidenPolicy` decision record and return `INTERACTION_REQUIRED` with
-  `next.decision_ref`; on an attended session execute directly; `decide`/
+* **Second-round notes for U5 (ADR-0006 §13.1):** (R5, **amended by ⟨r2.1⟩ N04**)
+  `Request::is_widening_policy_action()` requests (`resume`, `clear_cutoff`) and
+  every added-authority `ensure`/`delegate` **always** create a server-issued decision
+  record carrying the exact verbatim action or delta, **on attended sessions too**,
+  and are never executed on dispatch: answer `APPROVAL_REQUIRED` with
+  `next.decision_ref` on an attended session and `INTERACTION_REQUIRED` with
+  `next.decision_ref` on an unattended one. The only completion is `decide` on an
+  attended session (consume-once, generation-checked, expiry). `decide`/
   `confirm_time` never arrive unattended but check `Caller::is_attended()` again.
   (R7) the store methods `expired_key_marker`, `time_confirmation` and
   `pending_decisions` take no `now`/boot: the application must itself compare
@@ -143,6 +155,30 @@ integrator with an ADR-0006 revision.
   check` persists the anchor from `next_runtime_anchor`, not the raw observation.
   (R4) `TimeGate::anchor_grant` uses `anchor_grant_with_tolerance(…,
   SafeNow::tolerance_used)` and keeps the store's `min()` result.
+* **⟨r2.1⟩ Issuance predicate (N02).** Every reserve and every publish builds
+  `issuance::IssuanceCheck` from current state inside its transaction: grant, the
+  recorded parent (`parent`) and the chain above it (`ancestors`, grandparent first),
+  policy plus `expected_policy_revision` from the grant's `ResolvedIntent`, current
+  generation, tombstone (`denied_ancestor`), `permitted_extensions` for the pair, the
+  gate's `TimeStatus`, and `admission = time::admission(&grant_anchor, &observation)`
+  from the same observation. Publish on refusal ⇒ `void_issuance(reason)`.
+* **⟨r2.2⟩ Rulings on the fixer's questions (ADR-0006 §13.5).**
+  * Every ancestor must be issuable. A `delegate` therefore takes an ownership-aware
+    reference on the parent, owned by the child grant. That reference is released only
+    when the child reaches a terminal state, so consumers releasing the parent cannot
+    move it to `released` while a live child depends on it. Test: release every
+    consumer reference of a parent with an active child; the parent stays `active` and
+    the child still issues. Then end the child; the parent may now become `released`.
+  * The generation check compares the generation at which each grant and ancestor was
+    **last validated** with the current one. When it is stale, U5 re-validates
+    automatically, before reserving: it re-runs `resolve_authority` against current
+    policy, cutoffs and tombstones, with unchanged scope and deadline, no widening and
+    no prompt. U5 records the new validated generation, or denies. Reserve and publish
+    must observe the same generation. Test: an unrelated revoke elsewhere does not
+    fail a healthy grant's next issuance. A revoke of this grant's ancestor does.
+  * `permitted_extensions` comes from the grant's resolved scope (its snapshot
+    capabilities), never from request fields. The M03 ADR-0005 §3.4 profile/route
+    derivation replaces this source later.
 * **Property tests (plan §6.3 #3–#5, #7, #8):** retry convergence/conflict/expiry
   under random interleavings and purges; stale-generation callbacks refused; unrelated
   scopes never share a grant; a released reference never retains a grant past its
@@ -158,7 +194,10 @@ integrator with an ADR-0006 revision.
   generation check; reserve/publish/void interleavings with revoke, cutoff, deadline
   passage and time uncertainty at reserve, sign, publish and delivery; a `reserved`
   entry at crash stays counted and is never republished; `remote_pending` and
-  `latest_possible_credential_expiry` truthful); **A19** (success; pending approval
+  `latest_possible_credential_expiry` truthful; **⟨r2.1⟩** the production
+  `issuance::check` run at publish after a revoke, a cutoff, a policy-revision change,
+  a continuous-budget expiry, and `TIME_UNCERTAIN` each between reserve and publish
+  ⇒ voided, residual still counts nothing published); **A19** (success; pending approval
   with `decision_ref`; `decide` on an unattended session ⇒ `INTERACTION_REQUIRED`;
   stale decision ⇒ `DECISION_STALE`; timeout ≠ cancel; explicit cancel reports
   `may_have_external_effect`; `OutcomeUnknown` from a scripted adapter; duplicate
@@ -169,6 +208,17 @@ integrator with an ADR-0006 revision.
   binding ⇒ `NOT_FOUND`/`NotOwner`; request fields never widen the resolved scope;
   `agent_name`-style metadata ignored; a client-supplied "attended" value is not a
   thing: only `Attend` on an interactive session).
+* **⟨r2.1⟩ Added acceptance cases (N04, N06; ADR-0006 §13.3 item 3):**
+  `resume`/`clear_cutoff`/added authority on an **attended** session ⇒
+  `APPROVAL_REQUIRED` + `decision_ref`, nothing executed until `decide approve`
+  (unattended ⇒ `INTERACTION_REQUIRED` + `decision_ref`); a pending-approval operation
+  whose grant deadline passes ⇒ the grant `expired` and the operation `failed` with
+  `CREDENTIAL_EXPIRED` (nothing waits past its deadline); an expired decision ⇒
+  `DECISION_STALE` while the operation stays `awaiting_approval`, and a same-key retry
+  returns a fresh `decision_ref`. The lost-reply/restart A06 case with a **new**
+  `FakeCredentialAdapter` instance uses `FakeCredentialAdapter::with_ledger` over the
+  same ledger file; any in-process reconstruction is labelled **in-process**, never
+  process-crash evidence (that is U9/U10's).
 * **Fault points:** `ScriptedStageHook` before/after every `EnsureStage`; store
   `FaultAction::Fail` at `BeforeCommit` inside `Commit` ⇒ no active binding and no
   event; `AfterCommit` failure ⇒ retry replays.
@@ -200,7 +250,12 @@ integrator with an ADR-0006 revision.
 * **Tests:** wave-1 suite kept; inconsistent hello; attend on interactive vs
   non-interactive sessions; attended-only request refused pre-dispatch; publish
   during replay-to-live delivered once; two readers, two cursors; backlog-then-live
-  ordering; lag → resync.
+  ordering; lag → resync. **⟨r2.1⟩ N03:** oversized event in the backlog and in the
+  live path ⇒ `ResyncRequired` at the last delivered cursor, subscription ended,
+  further publication and lag not delivered on it, resubscribe-from-snapshot works,
+  resubscribe-from-cursor meets `ResyncRequired` again. N04: widening actions on an
+  attended session are dispatched (the session layer never executes; the fake
+  dispatcher models the decision flow).
 
 ### U6w — Windows named-pipe endpoint (wave 1; `connect_with_owner` added)
 
@@ -242,7 +297,16 @@ integrator with an ADR-0006 revision.
   guard refuses rollback and unsynchronized reboot, and `ensure` then returns
   `TIME_UNCERTAIN`; restart recovery (A17 local): an operation with an `Attempted`
   receipt is reconciled, not re-prepared; a paused policy stays paused; environment
-  ID unchanged; `redact` removes canary and key-like blocks; config rejects
+  ID unchanged; **⟨r2.1⟩ N06 A17-local:** (a) a generation-N cleanup racing its
+  replacement N+1 **at the actual deletion boundary** (a test hook between the
+  decision to delete and the delete; N+1 created there) ⇒ N+1 survives, N is gone;
+  (b) repeated `AdapterError::Unavailable` failures ⇒ retries owned by the **single**
+  supervisor (no duplicate retry loop per operation or per connection), bounded
+  backoff, attempts capped, then a stable failure code (**M01-wave2-gapfix:** implemented
+  as `Supervisor::cleanup_pass` over `app::ports::ResourceCleaner` with the
+  `app::reconcile::CleanupHook` deletion-boundary hook; tests `model_operations::g03_*`,
+  `g04_*`; a failed operation `prepare` is still reported once with a stable code and not
+  retried by the operations path); `redact` removes canary and key-like blocks; config rejects
   `trusted = true`; `platform::SystemClock` on this host: continuous time counts a
   short sleep-free interval monotonically and boot ID is stable across two reads
   (native sleep/reboot evidence is M04).
@@ -258,12 +322,34 @@ integrator with an ADR-0006 revision.
   stdin is a TTY and `--non-interactive` absent ⇒ hello `interactive` + `Attend`
   before an owner-present action; `--json` envelope on stdout only; exit mapping
   incl. the `ACCEPTED` rule and `Code::Unknown` ⇒ 1.
+* **⟨r2.1⟩ Confirmation contract (N04; ADR-0006 §3.1, binding).** Before sending
+  `Decide approve` or `ConfirmTime`, show the **exact** recorded action/delta (or the
+  runtime's observed time) and require a typed `y`/`yes` (case-insensitive), default
+  **No**. EOF, Ctrl-C, a timeout, a non-TTY stdin, `--non-interactive`, `n` or any
+  other input sends **nothing**; the decision stays pending until it expires; exit 3,
+  code `INTERACTION_REQUIRED`, `next.decision_ref`, message "not confirmed". `Attend`
+  is sent only on the session that shows this prompt. `access resume|cutoff --clear`
+  on a TTY therefore receives `APPROVAL_REQUIRED` + `decision_ref` and goes straight
+  into this prompt + `Decide`. Help text and docs disclose that the server cannot
+  verify that a client prompted (same-user imitation).
 * **Tests (A19/A06 CLI variants):** every exit class 0–7 observed through the real
   binary against a service in a temp `HEIMDALL_HOME` with the fake adapter (env-gated
   test configuration, never in release builds); `--non-interactive` with a pending
   decision exits 3 with `decision_ref` and no prompt; `decision approve` from a
   non-TTY/`--non-interactive` invocation exits 3; `operation events --follow`
-  resumes from `--cursor`; canary scan over all stdout/stderr.
+  resumes from `--cursor`; canary scan over all stdout/stderr. **⟨r2.1⟩ N04:** on a
+  pseudo-terminal, EOF, an explicit `n`, and (separately) non-TTY stdin each leave the
+  decision `pending` (checked through `decision list`) with exit 3
+  `INTERACTION_REQUIRED`; `yes` completes it exactly once (a second `yes` ⇒
+  `DECISION_STALE`). **⟨r2.1⟩ N06 service death:** (a) **A06 across process death**:
+  service with `FakeCredentialAdapter::with_ledger(<temp ledger>)` scripted
+  `ApplyButLoseReply`; kill the service process **by exact PID** (recorded from
+  `instance.json` and checked against the started child) after the effect is in the
+  ledger but before the receipt; restart service and client; retry the same request
+  ⇒ reconciled, **exactly one** ledger entry; (b) kill the service while a caller
+  waits on `operation wait`/`access ensure`, a new service replaces the socket ⇒ the
+  waiting client gets a stable code (`SERVICE_UNAVAILABLE`), the retry against the new
+  socket replays/reconciles, never a second effect.
 * **Depends on:** U5, U6b, U8.
 
 ### U10 — Cross-crate model suite and evidence records (M01 exit)
@@ -276,6 +362,13 @@ integrator with an ADR-0006 revision.
   ("revocation races fail closed; no external side effects needed; crash recovery
   cannot reset a deadline, revive a pause, or change environment identity"); only
   then may units move from `implemented_unverified` to `verified` (E15).
+* **⟨r2.1⟩ N06 exit cases U10 must hold before M01 exit:** U8's cleanup-vs-replacement
+  race at the deletion boundary and bounded single-supervisor retry; U9's
+  service-death A06 (exact-PID kill, durable ledger, exactly one effect after restart
+  of service and client) and kill-while-waiting/socket replacement; U5's
+  pending-approval deadline expiry and expired decision. Evidence records label each
+  run **process-crash** or **in-process** truthfully; an in-process reconstruction
+  never closes the process-crash claim.
 
 ## 2. Order and parallelism
 
@@ -302,7 +395,7 @@ U9 after U5, U6b, U8; U10 last. The integrator owns `Cargo.toml`, `Cargo.lock`,
 | A06/A07/A08/A19/A29 model and local-runtime variants pass | U5, U5t, U8, U9, U10 | A06, A07, A08, A19, A29 |
 | Revocation races fail closed | U5 (A07 incl. reserve/publish interleavings), U3b (generation property) | A07 |
 | No external side effects needed to verify core semantics | all (fake adapter only) | — |
-| Crash recovery cannot reset a deadline, revive a pause, or change environment identity | U4b (fault tests), U5 (receipts/reconcile), U8 (restart recovery) | A08, A17 (local) |
+| Crash recovery cannot reset a deadline, revive a pause, or change environment identity | U4b (fault tests), U5 (receipts/reconcile), U8 (restart recovery, ⟨r2.1⟩ cleanup race, bounded retry), U9/U10 (⟨r2.1⟩ service-death A06 by exact PID) | A06, A08, A17 (local) |
 | Time rule of ADR-0005 §3.6 holds under sleep, restart, reboot, rollback | U3b, U5t, U8 | A08 |
 | G08 contract baseline recorded (revision 2) | ADR-0006, U1b | A19 fixtures |
 | Model portions of G05/G09 | U2 (policy/cutoff), U3b (clocks), U5 (renewal never extends; issuance predicates) | A05 model, A08 |

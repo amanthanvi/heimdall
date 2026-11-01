@@ -1,0 +1,119 @@
+{
+  "case_id": "A29-local",
+  "status": "in_progress",
+  "requirement_ids": [
+    "R-RT-03"
+  ],
+  "build_commit": "f9ed3454 + uncommitted wave-2 and M01-wave2-gapfix changes (not reproducible from a commit; gap G14: rerun after the orchestrator commits)",
+  "artifact_digest": "sha256:1fdd362aeaea28bf68e3c57d89dbecb26d31908410522ebd0622f88a9e2b09dc (sha256 of tests/evidence/artifacts/m01/u10-native/digests.txt, which lists the sha256 of every artifact file; per-binary sha256 values are in each platform's build.txt); macOS gap-fix run: tests/evidence/artifacts/m01/gapfix/macos/check.txt sha256:6245c51e64cba75ff3ef6421b3c3bedf2da57ad1f9c0bc7fef9e385cfd05ebc2",
+  "environment": {
+    "macos": "macOS 27.0.1 arm64 (build host), rustc 1.99.1, aarch64-apple-darwin, tools/validation/check.sh",
+    "linux": "Linux 6.8.0 x86_64, Ubuntu glibc 2.39, 4 CPUs (owner host <linuxhost>, label linux-a), binaries x86_64-unknown-linux-gnu built with zig 0.17.0, run under nice -n 10 in a fresh ~/hm-m01-u10-<random> scratch dir (removed)",
+    "windows": "Windows 11 (ver 10.0.26300.9711) x86_64, non-elevated user (Medium Mandatory Level), binaries x86_64-pc-windows-gnu built with zig 0.17.0, run through WSL interop from %LOCALAPPDATA%\\hm-m00\\M01-U10 with TEMP/TMP inside it (removed); %LOCALAPPDATA%\\heimdall absent before and after",
+    "started_at_note": "macOS rows: check.sh of the gap-fix build started 2026-11-01T04:29:40Z. Linux and Windows rows are from the earlier U10 runs (2026-11-01, before the gap fixes) and predate this build."
+  },
+  "provider_versions": [],
+  "started_at": "2026-11-01T04:29:40Z",
+  "commands_or_harness": [
+    "macOS (gap-fix build): bash tools/validation/check.sh -> exit 0 (fmt 0, clippy 0, clippy-windows 0, test 0, test-discovery 0, schema 0); 513 passed, 0 failed, 1 ignored (the launcher child-process entry)",
+    "macOS (before the fixes): see tests/evidence/artifacts/m01/gapfix/macos/pre-fix.txt (each new case failing without its fix; exit 101)",
+    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/u10-native/linux-a <linuxhost> -> exit 0 (21 test binaries, every binary exit 0, canary scan 0)",
+    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/u10-native/linux-b <second linux host> -> exit 4 (ssh refused, exit 255; nothing built or copied)",
+    "Windows: HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m01/run-windows.sh tests/evidence/artifacts/m01/u10-native/windows-11 -> exit 0 (21 test binaries, every binary exit 0, canary scan 0)",
+    "python3 -I tests/native/m01/m01-evidence.py --config tests/native/m01/runs.json --write"
+  ],
+  "observed_result": {
+    "indexed_tests": 64,
+    "rows": [
+      {
+        "platform": "macos-arm64",
+        "status": "verified",
+        "passed": 59,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "check.sh": 0
+        },
+        "artifact_digest": "check.txt sha256:6245c51e64cba75ff3ef6421b3c3bedf2da57ad1f9c0bc7fef9e385cfd05ebc2",
+        "logs": [
+          "tests/evidence/artifacts/m01/gapfix/macos/check.txt"
+        ]
+      },
+      {
+        "platform": "linux-x86_64 (linux-a)",
+        "status": "in_progress",
+        "passed": 58,
+        "failed": [],
+        "ignored": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "run-linux.sh": 0,
+          "every test binary": 0
+        },
+        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/u10-native/linux-a/build.txt; tests.txt sha256:bcc3631d0dedb49e5e22c68f47c337567c04e9bb102f1c39c22b6ce5a025fe00",
+        "logs": [
+          "tests/evidence/artifacts/m01/u10-native/linux-a/tests.txt"
+        ],
+        "not_run_since_build": [
+          "e2e_cli_m01::test_configuration_requires_an_explicit_home"
+        ],
+        "predates_build": "This row predates the M01-wave2-gapfix build: the binaries ran before the G01-G18 fixes (the former gap cases were #[ignore]d there; the new cases did not exist). Re-run tests/native/m01/run-linux.sh against the integrated commit (gap G14). The runner now also runs e2e_cli_m01 against the copied CLI (HEIMDALL_E2E_BIN; gap G09)."
+      },
+      {
+        "platform": "windows-11-x86_64",
+        "status": "in_progress",
+        "passed": 50,
+        "failed": [],
+        "ignored": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "run-windows.sh": 0,
+          "every test binary": 0
+        },
+        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/u10-native/windows-11/build.txt; tests.txt sha256:6d6ae25e534aa804c7f3d84640bd0d91c0c7bdb7286d4ee68856bc67579473ab",
+        "logs": [
+          "tests/evidence/artifacts/m01/u10-native/windows-11/tests.txt"
+        ],
+        "not_run_since_build": [
+          "integration_runtime::instance_insecure_files_are_refused",
+          "integration_runtime::paths_tighten_existing_permissive_dirs_and_refuse_symlinks",
+          "e2e_cli_m01::test_configuration_requires_an_explicit_home"
+        ],
+        "predates_build": "This row predates the M01-wave2-gapfix build: the binaries ran before the G01-G18 fixes (the former gap cases were #[ignore]d there; the new cases did not exist). Re-run tests/native/m01/run-windows.sh against the integrated commit (gap G14). e2e_cli_m01, the cfg(unix) runtime cases and a Windows service stop remain harness/product gaps on Windows (G09), not a missing platform."
+      },
+      {
+        "platform": "Windows 11 with a second account",
+        "status": "blocked",
+        "blocked_on": "disposable second Windows account (ADR-0004 §3): cross-user named-pipe refusal and the server-owner check against another user's pipe"
+      }
+    ],
+    "summary": "Cross-owner request IDs are distinct keys; another principal's binding is NOT_FOUND/NotOwner; request fields never widen the resolved scope; metadata ignored; attendance only via Attend on an interactive session; config refuses trusted and authority keys at any depth without echo; bounded IPC and signing framers survive adversarial streams; forged peers and foreign/permissive sockets refused; Windows pipe owner/SID checks on the owner's Windows PC."
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m01/gapfix/macos/",
+    "tests/evidence/artifacts/m01/u10-native/macos/",
+    "tests/evidence/artifacts/m01/u10-native/linux-a/",
+    "tests/evidence/artifacts/m01/u10-native/linux-b/",
+    "tests/evidence/artifacts/m01/u10-native/windows-11/",
+    "tests/evidence/artifacts/m01/u10-native/digests.txt",
+    "tests/native/m01/run-linux.sh",
+    "tests/native/m01/run-windows.sh",
+    "tests/native/m01/m01-evidence.py",
+    "tests/native/m01/runs.json",
+    "tests/native/m01/case-index.json",
+    "tests/evidence/artifacts/m01/u10-native/case-summary.json"
+  ],
+  "limitations": [
+    "Cross-user Windows pipe refusal is blocked on the disposable second Windows account.",
+    "Malformed manifests and repository-instruction injection (A29 M05+ scope) are not M01 claims.",
+    "Status discipline (m01-plan E15): rows marked verified mean the indexed tests ran and passed on that platform in this run; there has been no independent review of the units (all stay implemented_unverified until review).",
+    "Linux and Windows binaries were cross-built on the macOS host with zig (glibc floor 2.31 / x86_64-windows-gnu) and executed natively on the hosts; proptest regression files (resolved at compile-time source paths) were not present on the remote hosts, so persisted regression seeds replayed only on macOS; default fixed seeds ran everywhere.",
+    "The second owner Linux host (labelled linux-b) refused ssh (tailnet policy denies the user; exit 255 before any build or copy), so Linux x86-64 evidence comes from one host (linux-a).",
+    "contracts (platform-neutral schema/golden-file checks) reads repository files at compile-time paths and ran on macOS only.",
+    "Every fake effect, clock and store in these tests is a disposable fixture (FakeCredentialAdapter, VirtualClock/ScriptedTimeSync, in-memory or temp-dir SQLite, owner-only sockets/pipes in temp dirs); no provider, network service or real key was used.",
+    "The macOS rows ran the gap-fix build; the Linux and Windows rows ran the earlier U10 build of the same uncommitted tree (marked predates_build, status in_progress). None of the three is tied to a commit (gap G14)."
+  ],
+  "blocked_on": "disposable second Windows account (ADR-0004 §3): cross-user named-pipe refusal and the server-owner check against another user's pipe"
+}

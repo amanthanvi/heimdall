@@ -1,0 +1,2 @@
+tailscale: tailnet policy does not permit you to SSH as user "<user>"
+Connection closed by <addr> port 22

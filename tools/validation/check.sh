@@ -88,21 +88,38 @@ test_discovery() {
 
 run_step fmt     cargo fmt --all --check
 run_step clippy  cargo clippy --workspace --all-targets --locked -- -D warnings
+# Windows-target clippy (gap G16): cfg(windows) paths must pass -D warnings too.
+# A missing prerequisite (exit 3) fails the step unless explicitly skipped.
+clippy_windows() {
+    bash tools/validation/clippy-windows.sh
+    local rc=$?
+    if [ "${rc}" -eq 3 ] && [ "${HEIMDALL_SKIP_WINDOWS_CLIPPY:-0}" = 1 ]; then
+        echo "clippy-windows: SKIPPED by HEIMDALL_SKIP_WINDOWS_CLIPPY=1 (prerequisite missing)"
+        return 0
+    fi
+    return "${rc}"
+}
+run_step clippy-windows clippy_windows
 run_step test    test_step
 run_step test-discovery test_discovery
 
 # Generated-schema consistency (plan section 7.4, M01-T06): the real binary exports the
-# public schemas twice; both runs must be byte-identical to each other and to the
-# checked-in schemas/public-api (a stale file, a missing file and an extra file all
-# fail). In-process equivalents live in tests/contracts/schema_export.rs.
+# public schemas and the configuration schema (gap G18) twice; both runs must be
+# byte-identical to each other and to the checked-in schemas/public-api and
+# schemas/configuration (a stale file, a missing file and an extra file all fail).
+# In-process equivalents live in tests/contracts/schema_export.rs and
+# integration_runtime::config_schema_export_matches_checked_in_file.
 schema_check() {
     local tmp1 tmp2 rc=0
     tmp1="$(mktemp -d)" && tmp2="$(mktemp -d)" || return 1
-    cargo run -q --locked -p heimdall -- schema export --out "${tmp1}" >/dev/null || rc=1
-    cargo run -q --locked -p heimdall -- schema export --out "${tmp2}" >/dev/null || rc=1
+    cargo run -q --locked -p heimdall -- schema export --out "${tmp1}/public-api" \
+        --config-out "${tmp1}/configuration" >/dev/null || rc=1
+    cargo run -q --locked -p heimdall -- schema export --out "${tmp2}/public-api" \
+        --config-out "${tmp2}/configuration" >/dev/null || rc=1
     if [ "${rc}" -eq 0 ]; then
         diff -r "${tmp1}" "${tmp2}" || rc=1
-        diff -r "${tmp1}" schemas/public-api || rc=1
+        diff -r "${tmp1}/public-api" schemas/public-api || rc=1
+        diff -r "${tmp1}/configuration" schemas/configuration || rc=1
     fi
     rm -rf "${tmp1}" "${tmp2}"
     return "${rc}"

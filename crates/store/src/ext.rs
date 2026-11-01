@@ -46,6 +46,8 @@ const META_HIGH_WATER: &str = "high_water_mark";
 /// Migration 0002 drops the v1 `time_anchor` row (no boot ID) instead of reusing it.
 const META_RUNTIME_ANCHOR: &str = "runtime_anchor";
 const META_TIME_CONFIRMATION: &str = "time_confirmation";
+/// Per-grant last re-validated generation: `grant_validation:<grant id>`.
+const META_GRANT_VALIDATION_PREFIX: &str = "grant_validation:";
 
 /// A persisted event with its neutral sequence number (review F08: the store keeps
 /// sequences; the application builds reader-scoped cursors at delivery).
@@ -698,6 +700,47 @@ impl Txn<'_> {
                 None => return Ok(None),
             }
         }
+    }
+
+    /// The authority generation at which `grant` was last re-validated
+    /// (ADR-0006 §13.5 ruling 2), if it ever was. The grant's own `generation`
+    /// (authorization) is immutable; this record only moves forward.
+    pub fn grant_validation(&mut self, grant: &GrantId) -> Result<Option<AuthorityGeneration>> {
+        match self.meta(&format!("{META_GRANT_VALIDATION_PREFIX}{grant}"))? {
+            None => Ok(None),
+            Some(s) => s
+                .parse()
+                .map(|g| Some(AuthorityGeneration(g)))
+                .map_err(|_| StoreError::Corrupt("grant validation is malformed".into())),
+        }
+    }
+
+    /// Record that `grant` was re-validated at `generation` (the current one, read
+    /// in this transaction). Never moves the record backwards; a generation above
+    /// the current one is refused as a [`StoreError::GenerationConflict`].
+    pub fn record_grant_validation(
+        &mut self,
+        grant: &GrantId,
+        generation: AuthorityGeneration,
+    ) -> Result<()> {
+        if generation > self.authority_generation()? {
+            return Err(conflict(format!(
+                "grant {grant} cannot be validated at a future generation"
+            )));
+        }
+        if self.grant(grant)?.is_none() {
+            return Err(missing());
+        }
+        if self
+            .grant_validation(grant)?
+            .is_some_and(|g| g >= generation)
+        {
+            return Ok(());
+        }
+        self.set_meta(
+            &format!("{META_GRANT_VALIDATION_PREFIX}{grant}"),
+            &generation.0.to_string(),
+        )
     }
 
     // --- R5: recovery intent and stage receipts ----------------------------------------

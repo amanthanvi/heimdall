@@ -185,8 +185,12 @@ pub enum ServerMessage {
         in_reply_to: u64,
         /// Subscription handle.
         subscription: u64,
-        /// Boundary the stream continues after. With `snapshot`, it is the
-        /// snapshot's consistent boundary; without, the client's cursor.
+        /// Head boundary read in the subscription transaction: live events follow
+        /// strictly after it. With `snapshot`, it is the snapshot's consistent
+        /// boundary; without, it is the boundary **after** the backlog that
+        /// follows (not the client's cursor), so a consumer resumes from the
+        /// cursor of the last event it processed, not from this value, until the
+        /// backlog has been consumed.
         cursor: Cursor,
         /// Present when the client sent no cursor, or sent an expired/foreign one
         /// and the server chose to resync it: a transactionally consistent view

@@ -1,0 +1,4 @@
+os=Linux 6.8.0-147-generic x86_64
+glibc=ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39
+nproc=4
+uname -m: x86_64

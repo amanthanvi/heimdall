@@ -1,0 +1,3 @@
+integrity=Medium Mandatory Level
+os=Microsoft Windows [Version 10.0.26300.9711]
+localappdata-heimdall-before=absent

@@ -26,3 +26,17 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+# M01-U9 test adapter wiring (m01-plan U9): the fake credential adapter, scripted
+# time sync and stage hook are referenced only from `src/testcfg.rs` under
+# `cfg(debug_assertions)` and only when a `HEIMDALL_TEST_*` variable is set. A
+# release build never references the crate (so nothing of it is linked) and
+# refuses the variables.
+heimdall-testkit = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# M01-U9 CLI end-to-end suite (A19/A06 CLI variants) through the real binary.
+[[test]]
+name = "e2e_cli_m01"
+path = "../../tests/e2e/cli_m01.rs"

@@ -1,0 +1,503 @@
+{
+  "description": "M01-U10 case index: each spec §17 case group (model and local-runtime variants) and each plan §5 / m01-plan §3 M01 exit claim mapped to concrete Cargo test targets and test names. check-case-index.py verifies every name against real run logs. kind: model | integration | e2e | process-crash | in-process | substrate | property. expect: ok (must have run and passed) or gap-ignored (exists, #[ignore]d because the product does not implement the ruling yet; must have run with --ignored and failed).",
+  "groups": {
+    "A06": {
+      "title": "Idempotency and interrupted requests (model and local-runtime variants)",
+      "requirement_ids": [
+        "R-AP-03",
+        "R-AP-04",
+        "R-RT-02"
+      ],
+      "tests": {
+        "model_operations": [
+          "a06_duplicate_concurrent_requests_make_one_operation_and_one_effect",
+          "a06_a_dropped_caller_and_a_retry_converge_on_one_result",
+          "a06_same_key_with_altered_parameters_conflicts",
+          "a06_purged_key_is_request_expired_inside_the_marker_window",
+          "a06_crash_before_the_effect_then_restart_completes_with_one_effect",
+          "a06_lost_reply_then_restart_reconciles_without_a_second_effect",
+          "a06_lost_reply_then_restart_with_a_new_adapter_over_the_same_ledger_settles_once",
+          "a06_crash_after_the_effect_before_its_receipt_reconciles_on_restart",
+          "a06_crash_after_the_receipt_completes_on_restart_with_one_effect",
+          "a06_restart_never_resets_a_resolved_deadline",
+          "fault_points_before_and_after_every_stage_recover_with_one_effect",
+          "fault_commit_failing_before_commit_leaves_no_binding_and_no_event",
+          "fault_commit_failing_after_commit_is_replayed_by_the_retry",
+          "u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity"
+        ],
+        "model_idempotency": [
+          "retries_converge_conflict_and_expire_under_interleavings_and_purges",
+          "caller_timeouts_never_cancel_and_uncertain_effects_are_never_reported_as_none"
+        ],
+        "model_time": [
+          "duration_retry_after_restart_hashes_equal_and_keeps_original_instant"
+        ],
+        "integration_store": [
+          "idempotency_replays_and_conflicts_through_txn",
+          "duplicate_idempotency_key_is_refused_by_the_store",
+          "settle_then_purge_leaves_a_marker_that_expires_reuse_until_marker_purge",
+          "pending_keys_never_expire_and_are_never_purged",
+          "recovery_intent_round_trips_and_only_gains_facts",
+          "stage_receipts_are_append_only_and_ordered",
+          "crash_at_each_transaction_point_reopens_with_exactly_the_committed_state"
+        ],
+        "integration_runtime": [
+          "u8b::restart_recovery_reconciles_an_attempted_receipt_without_preparing_again"
+        ],
+        "e2e_cli_m01": [
+          "a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once",
+          "a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays",
+          "eight_concurrent_clients_start_exactly_one_runtime",
+          "a06_caller_killed_while_the_service_runs_then_the_retry_converges_on_one_effect"
+        ]
+      },
+      "labels": {
+        "process-crash": [
+          "model_operations::u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity",
+          "integration_store::crash_at_each_transaction_point_reopens_with_exactly_the_committed_state",
+          "e2e_cli_m01::a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once",
+          "e2e_cli_m01::a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays",
+          "e2e_cli_m01::a06_caller_killed_while_the_service_runs_then_the_retry_converges_on_one_effect"
+        ],
+        "in-process": [
+          "model_operations::a06_crash_before_the_effect_then_restart_completes_with_one_effect",
+          "model_operations::a06_lost_reply_then_restart_reconciles_without_a_second_effect",
+          "model_operations::a06_lost_reply_then_restart_with_a_new_adapter_over_the_same_ledger_settles_once",
+          "model_operations::a06_crash_after_the_effect_before_its_receipt_reconciles_on_restart",
+          "model_operations::a06_crash_after_the_receipt_completes_on_restart_with_one_effect",
+          "model_operations::a06_restart_never_resets_a_resolved_deadline",
+          "integration_runtime::restart_recovery_reconciles_an_attempted_receipt_without_preparing_again"
+        ]
+      }
+    },
+    "A07": {
+      "title": "Revoke races and disconnected enforcement (model variant)",
+      "requirement_ids": [
+        "R-RT-02"
+      ],
+      "tests": {
+        "model_revocation": [
+          "a07_revoke_during_a_slow_prepare_denies_child_and_parent_and_ignores_the_late_prepared",
+          "a07_a_pending_approval_cannot_complete_after_a_revoke",
+          "a07_revoking_an_awaiting_grant_ends_its_operation_at_once",
+          "a07_publish_rechecks_every_predicate_and_voids_after_each_change",
+          "a07_reserve_refuses_on_the_same_predicates",
+          "a07_a_reservation_found_after_a_restart_stays_counted_and_is_never_published",
+          "a07_remote_pending_and_residual_are_reported_truthfully",
+          "equivalent_work_is_single_flight_with_separate_references",
+          "tombstones_and_cutoffs_are_never_defeated_by_stale_callbacks_or_new_ids",
+          "ended_grants_never_return_and_restart_never_resets_the_clock",
+          "sharing_never_merges_unrelated_scopes_or_outlives_the_deadline",
+          "a07_permitted_extensions_come_from_the_grant_snapshot_not_the_caller"
+        ],
+        "model_lifecycle": [
+          "props::stale_generations_fail_closed",
+          "props::grant_traces_never_reactivate",
+          "props::expired_and_revoked_are_absorbing",
+          "props::delegation_is_narrower",
+          "props::delegation_chains_stay_within_the_root",
+          "revoking_stays_pending_at_deadline_until_complete"
+        ],
+        "model_authority": [
+          "delegation_never_exceeds_or_outlives_parent",
+          "pause_and_cutoff_always_block",
+          "a05_fresh_work_after_cutoff_is_denied"
+        ],
+        "integration_store": [
+          "tombstones_bump_the_authority_generation_atomically",
+          "denied_ancestor_walks_through_a_revoked_grandparent",
+          "issuance_reserve_publish_void_cas_and_residual",
+          "issuance_residual_counts_reserved_and_published_only",
+          "decisions_complete_once_and_go_stale_when_the_generation_moves"
+        ],
+        "model_operations": [
+          "delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one",
+          "a19_decision_issued_under_an_older_generation_is_stale",
+          "u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does",
+          "u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends",
+          "g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant",
+          "g02_a_revoked_child_frees_its_parent_without_revoking_it"
+        ]
+      },
+      "not_modelled": [
+        "time uncertainty at delivery to the receiving signer (ADR-0005 §3.5 step 4): M03"
+      ]
+    },
+    "A08": {
+      "title": "Time and machine lifecycle (model and local-runtime variants)",
+      "requirement_ids": [
+        "R-AU-01",
+        "R-AU-06"
+      ],
+      "tests": {
+        "model_time": "*",
+        "model_timegate": "*",
+        "integration_store": [
+          "high_water_mark_never_lowers",
+          "high_water_mark_is_the_running_maximum",
+          "grant_anchor_cannot_lengthen_within_a_boot_but_is_replaced_in_a_new_boot",
+          "grant_anchor_budget_never_lengthens_within_a_boot",
+          "time_anchor_round_trips",
+          "time_confirmation_round_trips_and_is_replaced"
+        ],
+        "integration_runtime": [
+          "u8b::scheduler_expires_exactly_at_the_persisted_bound_across_a_same_boot_restart",
+          "u8b::scheduler_expires_at_the_continuous_budget_end_with_the_wall_clock_lagging",
+          "u8b::scheduler_expires_at_the_same_bound_after_a_reboot_with_sync",
+          "u8b::supervisor_run_loop_expires_due_grants_on_its_own",
+          "u8b::time_guard_refuses_a_rollback_and_ensure_is_time_uncertain",
+          "u8b::time_guard_refuses_an_unsynchronized_reboot_and_ensure_is_time_uncertain",
+          "system_clock_continuous_is_monotonic_and_tracks_elapsed_time",
+          "system_clock_boot_id_is_stable_across_reads",
+          "system_time_sync_is_unknown_in_m01"
+        ],
+        "model_operations": [
+          "a19_time_confirmation_needs_attendance_and_never_moves_a_deadline",
+          "a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning",
+          "tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound",
+          "a06_restart_never_resets_a_resolved_deadline"
+        ],
+        "e2e_cli_m01": [
+          "time_confirmation_on_a_pty_clears_time_uncertain_without_moving_deadlines"
+        ]
+      },
+      "not_modelled": [
+        "native OS sleep, logout and reboot with real clocks and boot IDs: M04"
+      ]
+    },
+    "A19": {
+      "title": "Structured operations and uncertainty (model and local-runtime variants)",
+      "requirement_ids": [
+        "R-AP-01",
+        "R-AP-02",
+        "R-AP-04"
+      ],
+      "tests": {
+        "model_operations": [
+          "a19_success_is_access_ready_with_binding_and_bounded_facts",
+          "a19_added_authority_unattended_is_interaction_required_with_a_decision_ref",
+          "a19_added_authority_attended_waits_for_decide_then_applies_exactly_the_delta",
+          "a19_denied_decision_fails_the_operation_and_its_grant",
+          "a19_decision_issued_under_an_older_generation_is_stale",
+          "a19_expired_decision_is_stale_operation_keeps_waiting_and_retry_gets_a_fresh_ref",
+          "a19_pending_approval_whose_grant_deadline_passes_fails_with_credential_expired",
+          "a19_caller_timeout_is_not_cancellation",
+          "a19_explicit_cancel_reports_possible_external_effect",
+          "a19_outcome_unknown_from_the_adapter_is_never_reported_as_no_effect",
+          "a19_widening_policy_actions_always_create_a_decision_record",
+          "a19_time_confirmation_needs_attendance_and_never_moves_a_deadline",
+          "a19_running_limit_gives_backpressure_and_persists_nothing",
+          "a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning",
+          "a19_inspect_reports_capabilities_decisions_and_previews_without_effects",
+          "bind_materializes_an_existing_binding_without_a_new_effect",
+          "release_is_idempotent_and_the_last_reference_releases_without_revoking",
+          "g10_widening_under_uncertain_time_creates_no_decision"
+        ],
+        "model_events": "*",
+        "model_idempotency": [
+          "caller_timeouts_never_cancel_and_uncertain_effects_are_never_reported_as_none",
+          "decisions_are_consumed_once_under_concurrent_decide"
+        ],
+        "model_lifecycle": [
+          "outcome_unknown_is_quiescent_not_settled_until_reconciled"
+        ],
+        "integration_ipc_unix": [
+          "seventeenth_inflight_request_gets_backpressure",
+          "fifth_subscription_gets_backpressure_and_events_flow",
+          "lagging_subscriber_gets_one_resync_and_the_backlog_is_dropped",
+          "publish_during_replay_to_live_is_delivered_exactly_once_in_order",
+          "no_cursor_starts_from_a_snapshot_at_the_boundary",
+          "two_readers_get_the_same_event_with_their_own_cursors",
+          "oversize_subscribed_frame_establishes_no_subscription",
+          "oversized_backlog_event_ends_the_subscription_at_the_last_delivered_cursor",
+          "oversized_live_event_ends_the_subscription_at_the_last_delivered_cursor",
+          "server_dropped_mid_response_surfaces_service_unavailable",
+          "shutdown_sends_goodbye_service_unavailable",
+          "interactive_session_is_attended_only_after_attend",
+          "non_interactive_session_can_never_be_attended"
+        ],
+        "integration_runtime": [
+          "u8b::dispatcher_rechecks_attendance_and_renders_application_results",
+          "u8b::control_socket_round_trip_against_a_real_service"
+        ],
+        "contracts": "*",
+        "e2e_cli_m01": [
+          "every_exit_class_0_to_7_is_observed_through_the_real_binary",
+          "human_output_goes_to_stdout_and_messages_to_stderr",
+          "non_interactive_with_a_pending_decision_exits_3_with_decision_ref_and_no_prompt",
+          "decision_approve_without_a_terminal_or_non_interactive_sends_nothing_and_exits_3",
+          "owner_prompt_on_a_pty_eof_and_no_keep_it_pending_yes_completes_exactly_once",
+          "interactive_ensure_on_a_pty_prompts_then_approves_and_replays_to_access_ready",
+          "widening_resume_needs_an_owner_decision_completed_on_a_pty",
+          "operation_events_follow_resumes_from_cursor",
+          "inspect_preview_and_require_capability_have_no_effect"
+        ]
+      }
+    },
+    "A29": {
+      "title": "Hostile input and authorization forgery (local variant)",
+      "requirement_ids": [
+        "R-RT-03"
+      ],
+      "tests": {
+        "model_operations": [
+          "a29_the_same_request_id_from_another_owner_is_a_distinct_key",
+          "a29_another_principals_binding_is_not_found_or_not_owner",
+          "a29_request_fields_never_widen_the_resolved_scope",
+          "a29_metadata_is_ignored_and_attendance_is_never_a_request_field",
+          "a29_only_an_interactive_session_may_attend"
+        ],
+        "model_authority": [
+          "limited_consumer_never_escalates",
+          "approval_delta_names_only_the_added_authority",
+          "effective_scope_within_every_bound"
+        ],
+        "integration_store": [
+          "cross_owner_request_id_is_a_distinct_key",
+          "references_are_ownership_aware",
+          "binding_release_is_idempotent_and_authorized_by_ownership",
+          "private_key_material_is_refused_and_never_reaches_the_file"
+        ],
+        "adversarial_ipc_frames": "*",
+        "adversarial_agent_frames": "*",
+        "integration_ipc_unix": [
+          "forged_peer_with_another_uid_is_rejected",
+          "same_user_peer_is_accepted_and_reported",
+          "hello_never_echoes_client_metadata",
+          "invalid_utf8_and_malformed_hello_are_rejected_without_echo",
+          "oversize_length_prefix_closes_before_allocation",
+          "oversize_frame_after_hello_closes_with_goodbye",
+          "foreign_owned_socket_is_never_probed_or_unlinked",
+          "bind_refuses_a_permissive_or_symlinked_directory",
+          "client_refuses_a_permissive_directory_or_socket",
+          "signing_endpoint_over_a_real_socket_is_distinct_and_peer_checked",
+          "schema_or_capability_mismatch_is_rejected_explicitly"
+        ],
+        "integration_runtime": [
+          "config_rejects_trusted_true",
+          "config_rejects_trusted_in_every_place",
+          "config_rejects_authority_widening_keys",
+          "config_errors_never_echo_values",
+          "u8b::caller_is_built_from_the_session_only",
+          "instance_insecure_files_are_refused",
+          "paths_tighten_existing_permissive_dirs_and_refuse_symlinks",
+          "redact_removes_canaries_wherever_they_appear",
+          "redact_removes_private_key_blocks"
+        ],
+        "heimdall_ipc-unit": [
+          "windows::tests::connect_with_owner_accepts_a_same_user_server",
+          "windows::tests::connect_with_owner_refuses_an_unexpected_owner",
+          "windows::tests::connect_with_owner_refuses_bad_input_before_any_open",
+          "windows::tests::sid_mismatch_is_disconnected_and_listener_keeps_waiting",
+          "windows::tests::dacl_denies_unlisted_principal"
+        ],
+        "e2e_cli_m01": [
+          "test_configuration_requires_an_explicit_home"
+        ]
+      },
+      "platform_only": {
+        "integration_ipc_unix": [
+          "macos",
+          "linux"
+        ],
+        "heimdall_ipc-unit::windows::": [
+          "windows"
+        ]
+      },
+      "not_modelled": [
+        "cross-user Windows pipe refusal with a real second account: blocked on the disposable second Windows account (ADR-0004 §3)"
+      ]
+    },
+    "A17-local": {
+      "title": "Crash and stale cleanup: local restart recovery (local-runtime variant)",
+      "requirement_ids": [
+        "R-RT-01",
+        "R-RT-02",
+        "R-RT-04"
+      ],
+      "tests": {
+        "integration_runtime": [
+          "u8b::service_second_start_is_already_running",
+          "u8b::service_ignores_and_replaces_a_stale_instance_json",
+          "instance_stale_records_are_ignored",
+          "u8b::environment_identity_is_created_once_and_never_changes",
+          "u8b::restart_recovery_reconciles_an_attempted_receipt_without_preparing_again",
+          "u8b::restart_never_revives_a_paused_policy_or_changes_identity",
+          "u8b::launcher_eight_concurrent_clients_start_exactly_one_child"
+        ],
+        "model_operations": [
+          "restart_never_changes_environment_identity_or_revives_a_pause",
+          "u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity",
+          "u10_a17_repeated_unavailable_errors_get_a_stable_code_and_no_retry_storm",
+          "u10_a17_cleanup_of_generation_n_never_deletes_its_replacement_n_plus_1",
+          "g03_cleanup_executor_deletes_generation_n_once",
+          "g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary",
+          "g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff"
+        ],
+        "model_revocation": [
+          "ended_grants_never_return_and_restart_never_resets_the_clock",
+          "a07_a_reservation_found_after_a_restart_stays_counted_and_is_never_published"
+        ],
+        "integration_store": [
+          "self_environment_is_recorded_once_and_survives_reopen",
+          "crash_at_each_transaction_point_reopens_with_exactly_the_committed_state",
+          "crash_at_each_migration_point_reopens_cleanly",
+          "resource_cas_never_lets_a_stale_writer_win",
+          "resource_cas_insert_update_and_reconcile_listing",
+          "garbage_header_is_corrupt_not_fresh",
+          "damaged_page_is_corrupt_not_fresh",
+          "truncated_file_is_corrupt_not_fresh",
+          "newer_schema_is_refused_and_untouched"
+        ],
+        "integration_ipc_unix": [
+          "dead_socket_of_ours_is_replaced",
+          "live_socket_is_not_replaced",
+          "dropping_a_listener_unlinks_only_its_own_socket"
+        ],
+        "e2e_cli_m01": [
+          "a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once",
+          "a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays",
+          "eight_concurrent_clients_start_exactly_one_runtime"
+        ]
+      },
+      "labels": {
+        "process-crash": [
+          "model_operations::u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity",
+          "integration_store::crash_at_each_transaction_point_reopens_with_exactly_the_committed_state",
+          "integration_store::crash_at_each_migration_point_reopens_cleanly",
+          "e2e_cli_m01::a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once",
+          "e2e_cli_m01::a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays"
+        ],
+        "substrate-only": [
+          "model_operations::u10_a17_cleanup_of_generation_n_never_deletes_its_replacement_n_plus_1"
+        ],
+        "in-process (production executor)": [
+          "model_operations::g03_cleanup_executor_deletes_generation_n_once",
+          "model_operations::g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary",
+          "model_operations::g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff"
+        ],
+        "other reading (operations path, not N06 b)": [
+          "model_operations::u10_a17_repeated_unavailable_errors_get_a_stable_code_and_no_retry_storm"
+        ]
+      },
+      "not_modelled": [
+        "N06(a)/(b) with a real ResourceCleaner: M01 configures none (M02 adapters add them); the production Supervisor executor, CleanupHook and generation CAS are exercised with a fake cleaner through the port (in-process)."
+      ]
+    }
+  },
+  "exit_claims": {
+    "A06/A07/A08/A19/A29 model and local-runtime variants pass": {
+      "groups": [
+        "A06",
+        "A07",
+        "A08",
+        "A19",
+        "A29"
+      ]
+    },
+    "Revocation races fail closed": {
+      "tests": {
+        "model_revocation": [
+          "a07_revoke_during_a_slow_prepare_denies_child_and_parent_and_ignores_the_late_prepared",
+          "a07_a_pending_approval_cannot_complete_after_a_revoke",
+          "a07_revoking_an_awaiting_grant_ends_its_operation_at_once",
+          "a07_publish_rechecks_every_predicate_and_voids_after_each_change",
+          "a07_reserve_refuses_on_the_same_predicates",
+          "a07_a_reservation_found_after_a_restart_stays_counted_and_is_never_published",
+          "tombstones_and_cutoffs_are_never_defeated_by_stale_callbacks_or_new_ids"
+        ],
+        "model_lifecycle": [
+          "props::stale_generations_fail_closed",
+          "props::grant_traces_never_reactivate"
+        ],
+        "integration_store": [
+          "decisions_complete_once_and_go_stale_when_the_generation_moves",
+          "issuance_reserve_publish_void_cas_and_residual"
+        ],
+        "model_operations": [
+          "u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does",
+          "u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends",
+          "g02_a_revoked_child_frees_its_parent_without_revoking_it"
+        ]
+      }
+    },
+    "No external side effects needed to verify core semantics": {
+      "tests": {
+        "model_operations": [
+          "a06_duplicate_concurrent_requests_make_one_operation_and_one_effect",
+          "a19_inspect_reports_capabilities_decisions_and_previews_without_effects"
+        ]
+      },
+      "note": "Every A06/A07/A08/A19/A29/A17-local test above uses testkit::FakeCredentialAdapter (in-memory or a disposable ledger file in a temp dir), VirtualClock/ScriptedTimeSync or the host clock, Store::open_in_memory or a temp-dir database, and owner-only Unix sockets / named pipes in temp dirs; no network, provider or remote host is contacted by any test (the remote hosts only executed the binaries)."
+    },
+    "Crash recovery cannot reset a deadline, revive a pause, or change environment identity": {
+      "tests": {
+        "model_operations": [
+          "u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity",
+          "restart_never_changes_environment_identity_or_revives_a_pause",
+          "a06_restart_never_resets_a_resolved_deadline",
+          "tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound",
+          "g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary",
+          "g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff"
+        ],
+        "integration_runtime": [
+          "u8b::restart_never_revives_a_paused_policy_or_changes_identity",
+          "u8b::environment_identity_is_created_once_and_never_changes",
+          "u8b::scheduler_expires_exactly_at_the_persisted_bound_across_a_same_boot_restart"
+        ],
+        "model_revocation": [
+          "ended_grants_never_return_and_restart_never_resets_the_clock"
+        ],
+        "model_timegate": [
+          "same_boot_restart_from_a_reopened_database_keeps_the_exact_budget",
+          "restart_with_stuck_wall_must_not_extend_the_budget"
+        ],
+        "integration_store": [
+          "crash_at_each_transaction_point_reopens_with_exactly_the_committed_state",
+          "self_environment_is_recorded_once_and_survives_reopen"
+        ],
+        "e2e_cli_m01": [
+          "a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once"
+        ]
+      }
+    },
+    "Time rule of ADR-0005 §3.6 holds under sleep, restart, reboot, rollback": {
+      "groups": [
+        "A08"
+      ]
+    },
+    "G08 contract baseline recorded (revision 2)": {
+      "tests": {
+        "contracts": "*"
+      }
+    },
+    "Model portions of G05/G09": {
+      "tests": {
+        "model_authority": "*",
+        "model_time": [
+          "props::no_admission_past_real_duration",
+          "cutoff_after_tolerant_reanchor_stops_admission_by_the_true_cutoff"
+        ],
+        "model_revocation": [
+          "ended_grants_never_return_and_restart_never_resets_the_clock",
+          "a07_publish_rechecks_every_predicate_and_voids_after_each_change"
+        ]
+      }
+    },
+    "N06 exit cases (m01-plan U10 r2.1)": {
+      "tests": {
+        "e2e_cli_m01": [
+          "a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once",
+          "a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays"
+        ],
+        "model_operations": [
+          "a19_pending_approval_whose_grant_deadline_passes_fails_with_credential_expired",
+          "a19_expired_decision_is_stale_operation_keeps_waiting_and_retry_gets_a_fresh_ref",
+          "g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary",
+          "g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff"
+        ]
+      },
+      "note": "N06 (a) and (b) run through the production Supervisor cleanup executor with a fake ResourceCleaner (in-process); the substrate-only case and the operations-path reading (no automatic retry of an operation) are indexed under A17-local only, not counted here."
+    }
+  }
+}

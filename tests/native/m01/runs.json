@@ -1,0 +1,208 @@
+{
+  "case_index": "tests/native/m01/case-index.json",
+  "summary_out": "tests/evidence/artifacts/m01/u10-native/case-summary.json",
+  "build_commit": "f9ed3454 + uncommitted wave-2 and M01-wave2-gapfix changes (not reproducible from a commit; gap G14: rerun after the orchestrator commits)",
+  "artifact_digest": "sha256:1fdd362aeaea28bf68e3c57d89dbecb26d31908410522ebd0622f88a9e2b09dc (sha256 of tests/evidence/artifacts/m01/u10-native/digests.txt, which lists the sha256 of every artifact file; per-binary sha256 values are in each platform's build.txt); macOS gap-fix run: tests/evidence/artifacts/m01/gapfix/macos/check.txt sha256:6245c51e64cba75ff3ef6421b3c3bedf2da57ad1f9c0bc7fef9e385cfd05ebc2",
+  "started_at": "2026-11-01T04:29:40Z",
+  "environment": {
+    "macos": "macOS 27.0.1 arm64 (build host), rustc 1.99.1, aarch64-apple-darwin, tools/validation/check.sh",
+    "linux": "Linux 6.8.0 x86_64, Ubuntu glibc 2.39, 4 CPUs (owner host <linuxhost>, label linux-a), binaries x86_64-unknown-linux-gnu built with zig 0.17.0, run under nice -n 10 in a fresh ~/hm-m01-u10-<random> scratch dir (removed)",
+    "windows": "Windows 11 (ver 10.0.26300.9711) x86_64, non-elevated user (Medium Mandatory Level), binaries x86_64-pc-windows-gnu built with zig 0.17.0, run through WSL interop from %LOCALAPPDATA%\\hm-m00\\M01-U10 with TEMP/TMP inside it (removed); %LOCALAPPDATA%\\heimdall absent before and after",
+    "started_at_note": "macOS rows: check.sh of the gap-fix build started 2026-11-01T04:29:40Z. Linux and Windows rows are from the earlier U10 runs (2026-11-01, before the gap fixes) and predate this build."
+  },
+  "commands": [
+    "macOS (gap-fix build): bash tools/validation/check.sh -> exit 0 (fmt 0, clippy 0, clippy-windows 0, test 0, test-discovery 0, schema 0); 513 passed, 0 failed, 1 ignored (the launcher child-process entry)",
+    "macOS (before the fixes): see tests/evidence/artifacts/m01/gapfix/macos/pre-fix.txt (each new case failing without its fix; exit 101)",
+    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/u10-native/linux-a <linuxhost> -> exit 0 (21 test binaries, every binary exit 0, canary scan 0)",
+    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/u10-native/linux-b <second linux host> -> exit 4 (ssh refused, exit 255; nothing built or copied)",
+    "Windows: HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m01/run-windows.sh tests/evidence/artifacts/m01/u10-native/windows-11 -> exit 0 (21 test binaries, every binary exit 0, canary scan 0)",
+    "python3 -I tests/native/m01/m01-evidence.py --config tests/native/m01/runs.json --write"
+  ],
+  "evidence_paths": [
+    "tests/evidence/artifacts/m01/gapfix/macos/",
+    "tests/evidence/artifacts/m01/u10-native/macos/",
+    "tests/evidence/artifacts/m01/u10-native/linux-a/",
+    "tests/evidence/artifacts/m01/u10-native/linux-b/",
+    "tests/evidence/artifacts/m01/u10-native/windows-11/",
+    "tests/evidence/artifacts/m01/u10-native/digests.txt",
+    "tests/native/m01/run-linux.sh",
+    "tests/native/m01/run-windows.sh",
+    "tests/native/m01/m01-evidence.py",
+    "tests/native/m01/runs.json"
+  ],
+  "common_limitations": [
+    "Status discipline (m01-plan E15): rows marked verified mean the indexed tests ran and passed on that platform in this run; there has been no independent review of the units (all stay implemented_unverified until review).",
+    "Linux and Windows binaries were cross-built on the macOS host with zig (glibc floor 2.31 / x86_64-windows-gnu) and executed natively on the hosts; proptest regression files (resolved at compile-time source paths) were not present on the remote hosts, so persisted regression seeds replayed only on macOS; default fixed seeds ran everywhere.",
+    "The second owner Linux host (labelled linux-b) refused ssh (tailnet policy denies the user; exit 255 before any build or copy), so Linux x86-64 evidence comes from one host (linux-a).",
+    "contracts (platform-neutral schema/golden-file checks) reads repository files at compile-time paths and ran on macOS only.",
+    "Every fake effect, clock and store in these tests is a disposable fixture (FakeCredentialAdapter, VirtualClock/ScriptedTimeSync, in-memory or temp-dir SQLite, owner-only sockets/pipes in temp dirs); no provider, network service or real key was used.",
+    "The macOS rows ran the gap-fix build; the Linux and Windows rows ran the earlier U10 build of the same uncommitted tree (marked predates_build, status in_progress). None of the three is tied to a commit (gap G14)."
+  ],
+  "platforms": {
+    "macos": {
+      "label": "macos-arm64",
+      "logs": [
+        "tests/evidence/artifacts/m01/gapfix/macos/check.txt"
+      ],
+      "exit_codes": {
+        "check.sh": 0
+      },
+      "artifact_digest": "check.txt sha256:6245c51e64cba75ff3ef6421b3c3bedf2da57ad1f9c0bc7fef9e385cfd05ebc2"
+    },
+    "linux": {
+      "label": "linux-x86_64 (linux-a)",
+      "logs": [
+        "tests/evidence/artifacts/m01/u10-native/linux-a/tests.txt"
+      ],
+      "exit_codes": {
+        "run-linux.sh": 0,
+        "every test binary": 0
+      },
+      "platform_neutral_not_run": [
+        "contracts"
+      ],
+      "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/u10-native/linux-a/build.txt; tests.txt sha256:bcc3631d0dedb49e5e22c68f47c337567c04e9bb102f1c39c22b6ce5a025fe00",
+      "predates_build": "This row predates the M01-wave2-gapfix build: the binaries ran before the G01-G18 fixes (the former gap cases were #[ignore]d there; the new cases did not exist). Re-run tests/native/m01/run-linux.sh against the integrated commit (gap G14). The runner now also runs e2e_cli_m01 against the copied CLI (HEIMDALL_E2E_BIN; gap G09)."
+    },
+    "windows": {
+      "label": "windows-11-x86_64",
+      "logs": [
+        "tests/evidence/artifacts/m01/u10-native/windows-11/tests.txt"
+      ],
+      "exit_codes": {
+        "run-windows.sh": 0,
+        "every test binary": 0
+      },
+      "platform_neutral_not_run": [
+        "contracts"
+      ],
+      "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/u10-native/windows-11/build.txt; tests.txt sha256:6d6ae25e534aa804c7f3d84640bd0d91c0c7bdb7286d4ee68856bc67579473ab",
+      "predates_build": "This row predates the M01-wave2-gapfix build: the binaries ran before the G01-G18 fixes (the former gap cases were #[ignore]d there; the new cases did not exist). Re-run tests/native/m01/run-windows.sh against the integrated commit (gap G14). e2e_cli_m01, the cfg(unix) runtime cases and a Windows service stop remain harness/product gaps on Windows (G09), not a missing platform."
+    }
+  },
+  "extra_rows": {
+    "A08": [
+      {
+        "platform": "native OS sleep, logout and reboot (macOS, Linux, Windows)",
+        "status": "blocked",
+        "blocked_on": "M04 native lifecycle evidence (real sleep, logout and reboot with the platform continuous clock and boot ID)"
+      }
+    ],
+    "A29": [
+      {
+        "platform": "Windows 11 with a second account",
+        "status": "blocked",
+        "blocked_on": "disposable second Windows account (ADR-0004 §3): cross-user named-pipe refusal and the server-owner check against another user's pipe"
+      }
+    ],
+    "A17-local": [
+      {
+        "platform": "windows-11-x86_64 (harness/product gap)",
+        "status": "in_progress",
+        "detail": "Gap G09: no native Windows test of the local runtime yet (e2e_cli_m01 needs script(1) and service stop; second-start AlreadyRunning, stale instance.json and launcher single child have cfg(unix) tests only), and service stop answers USAGE_ERROR on Windows (no exact-PID graceful stop or owner-channel shutdown in this build). The platform is available; this is not a platform block."
+      }
+    ]
+  },
+  "records": {
+    "A06": {
+      "case_id": "A06",
+      "path": "tests/evidence/m01-a06-idempotency.json",
+      "requirement_ids": [
+        "R-AP-03",
+        "R-AP-04",
+        "R-RT-02"
+      ],
+      "summary": "Duplicate concurrent requests coalesce to one operation and one fake effect; dropped caller and same-key retry converge; altered parameters conflict; purged keys are REQUEST_EXPIRED in the marker window; crashes before the effect, after the effect before the receipt, and after the receipt reconcile without a second effect, in-process (model_operations, new adapter over the same ledger) and process-crash (u10_process_crash_*: core in a child process killed by exact handle; e2e_cli_m01 service killed by exact PID on macOS); the resolved deadline never restarts.",
+      "limitations": [
+        "The CLI process-crash variants (e2e_cli_m01, including the caller-killed case of gap G13) ran on macOS only in this build; run-linux.sh now runs them on Linux against the copied CLI (HEIMDALL_E2E_BIN) and must be re-run against the integrated commit.",
+        "In-process restarts are labelled in-process in the case index and do not close the process-crash claim; the process-crash rows are u10_process_crash_* (macOS, Linux, Windows), integration_store crash child (all three) and e2e_cli_m01 (macOS)."
+      ]
+    },
+    "A07": {
+      "case_id": "A07",
+      "path": "tests/evidence/m01-a07-revocation.json",
+      "requirement_ids": [
+        "R-RT-02"
+      ],
+      "summary": "Revoke during a slow prepare denies child and parent and ignores the late Prepared; pending approvals cannot complete after a revoke; publish re-runs the production issuance::check and voids after revoke, cutoff, policy-revision change, budget expiry and TIME_UNCERTAIN; reserve refuses on the same predicates; a reservation found after restart stays counted and is never published; remote_pending and residual are truthful. Two ADR-0006 §13.5 rulings fail (gap cases). Gap fixes (M01-wave2-gapfix): an unrelated revoke re-validates healthy grants silently (ADR-0006 §13.5 ruling 2; the stale decision record is DECISION_STALE, the waiting operation stays waiting and gets a fresh decision_ref) while an ancestor revoke fails the chain; a delegated child holds a reference on its parent (ruling 1); permitted extensions come from the grant snapshot (ruling 3); every applicable policy's cutoff bounds the grant (G08); reserve/publish interleavings include wall-deadline passage and assert every void reason (G12).",
+      "limitations": [
+        "Time uncertainty at delivery to the receiving signer is M03 (not modelled).",
+        "R-AU-04/R-SE-07 (A07 managed issuance, M03) are not claimed.",
+        "Re-validation readings chosen fail closed and escalated (M01-wave2-gapfix): a pause or cutoff touching the chain fails it; StandingPolicy/Delegation grants need Allowed on re-resolution, OwnerDecision grants need only not-denied; publish voids (StaleGeneration) when the generation moved since its reservation even for an unrelated change."
+      ]
+    },
+    "A08": {
+      "case_id": "A08",
+      "path": "tests/evidence/m01-a08-time.json",
+      "requirement_ids": [
+        "R-AU-01",
+        "R-AU-06"
+      ],
+      "summary": "Time model and TimeGate over the store: sleep across expiry, wall running, backward/forward jumps, stuck wall across same-boot restart never extends the budget, reboot below the mark refused even synchronized, unsynchronized reboot refused, synchronized reboot keeps the persisted bound, attended confirmation resolves uncertainty without moving deadlines, N01 shorten counterexample, N05 reboot slightly below mark; runtime scheduler expires at the persisted bound and continuous budget end; time guard refuses rollback and unsynchronized reboot with TIME_UNCERTAIN; platform clock probes on each host.",
+      "limitations": [
+        "Native sleep/logout/reboot behaviour is M04 (blocked row).",
+        "SystemTimeSync reports Unknown on every platform in M01 (fail-closed default)."
+      ]
+    },
+    "A19": {
+      "case_id": "A19",
+      "path": "tests/evidence/m01-a19-operations.json",
+      "requirement_ids": [
+        "R-AP-01",
+        "R-AP-02",
+        "R-AP-04"
+      ],
+      "summary": "Success, pending approval with decision_ref (attended and unattended), unattended decide refused, stale and expired decisions, pending-approval deadline expiry, timeout is not cancel, explicit cancel reports possible effect, OutcomeUnknown never reported as no effect, event dedup, foreign/expired cursors resync with a usable snapshot cursor, mutation during snapshot and publish during replay-to-live delivered once, lag past 256 yields one ResyncRequired, backpressure; IPC session bounds; CLI exit classes 0-7 and owner prompt on a pseudo-terminal (macOS).",
+      "limitations": [
+        "The CLI variants (e2e_cli_m01, incl. inspect --preview and --require-capability, gap G17) ran on macOS only in this build; Linux is now wired in run-linux.sh (HEIMDALL_E2E_BIN) but not yet re-run; the Windows client path is not exercised (G09)."
+      ]
+    },
+    "A29": {
+      "case_id": "A29-local",
+      "path": "tests/evidence/m01-a29-local-hostile-input.json",
+      "requirement_ids": [
+        "R-RT-03"
+      ],
+      "summary": "Cross-owner request IDs are distinct keys; another principal's binding is NOT_FOUND/NotOwner; request fields never widen the resolved scope; metadata ignored; attendance only via Attend on an interactive session; config refuses trusted and authority keys at any depth without echo; bounded IPC and signing framers survive adversarial streams; forged peers and foreign/permissive sockets refused; Windows pipe owner/SID checks on the owner's Windows PC.",
+      "limitations": [
+        "Cross-user Windows pipe refusal is blocked on the disposable second Windows account.",
+        "Malformed manifests and repository-instruction injection (A29 M05+ scope) are not M01 claims."
+      ]
+    },
+    "A17-local": {
+      "case_id": "A17-local",
+      "path": "tests/evidence/m01-a17-local-restart-recovery.json",
+      "requirement_ids": [
+        "R-RT-01",
+        "R-RT-02",
+        "R-RT-04"
+      ],
+      "summary": "Single instance (second start AlreadyRunning, stale instance.json ignored, eight concurrent clients start one child), restart recovery reconciles Attempted receipts without preparing again, pause and environment identity survive in-process and process-crash restarts, store crash children at every transaction and migration point reopen to exactly the committed state, resource CAS never lets a stale writer win, repeated adapter unavailability gives one call per request and a stable code with no retry storm. N06 (a)/(b) now run through the production supervisor cleanup executor (Supervisor::cleanup_pass, ResourceCleaner port, CleanupHook at the deletion boundary): the replacement N+1 created between the decision and the delete survives and N is gone; Unavailable is retried only by that executor with Backoff spacing (0.5 s doubling), capped at 8 attempts, then SERVICE_UNAVAILABLE, with no operation, decision or prompt (in-process, fake cleaner).",
+      "limitations": [
+        "Helper-process crashes and duplicate observers (A17 M02+) are not M01 claims.",
+        "N06 executor cases are in-process with a fake ResourceCleaner (M01 ships no production cleaner; M02 adapters add them); a failed operation prepare is still reported once with a stable code and not retried automatically (u10_a17_repeated_unavailable_*: the operations path, a different reading, indexed but not counted toward N06).",
+        "Windows local-runtime variants and a Windows service stop are a harness/product gap (G09), recorded as an in_progress row, not as a platform block."
+      ]
+    },
+    "M01-exit": {
+      "case_id": "M01-exit",
+      "path": "tests/evidence/m01-exit-claims.json",
+      "requirement_ids": [
+        "R-AU-01",
+        "R-AU-06",
+        "R-AP-01",
+        "R-AP-02",
+        "R-AP-03",
+        "R-AP-04",
+        "R-RT-01",
+        "R-RT-02",
+        "R-RT-03",
+        "R-RT-04"
+      ],
+      "summary": "plan §5 M01 exit evidence and the m01-plan §3 table: per claim, the proving tests and per-platform rows. After the M01-wave2-gapfix changes every claim's indexed tests pass on macOS (check.sh exit 0); the ADR-0006 §13.5 ruling cases and the N06 executor cases are ordinary passing tests there. Linux and Windows rows predate the gap-fix build and are in_progress until re-run against the integrated commit (G14); native sleep/reboot (M04) and the second Windows account stay blocked.",
+      "limitations": [
+        "The exit claim 'model and local-runtime variants pass' inherits every group's open rows."
+      ]
+    }
+  }
+}

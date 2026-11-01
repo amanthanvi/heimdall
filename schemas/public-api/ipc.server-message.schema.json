@@ -61,7 +61,7 @@
       "type": "object",
       "properties": {
         "cursor": {
-          "description": "Boundary the stream continues after. With `snapshot`, it is the\nsnapshot's consistent boundary; without, the client's cursor.",
+          "description": "Head boundary read in the subscription transaction: live events follow\nstrictly after it. With `snapshot`, it is the snapshot's consistent\nboundary; without, it is the boundary **after** the backlog that\nfollows (not the client's cursor), so a consumer resumes from the\ncursor of the last event it processed, not from this value, until the\nbacklog has been consumed.",
           "$ref": "#/$defs/Cursor"
         },
         "in_reply_to": {

@@ -1,0 +1,2160 @@
+//! M01-U8a runtime foundations (m01-plan §1 U8): `Paths::discover`, `Config::{parse,
+//! max_window}` and the configuration schema, `InstanceInfo::{write, read_valid}`,
+//! `telemetry::{init, redact}`, and `platform::{SystemClock, SystemTimeSync}` on this
+//! host. Native sleep/reboot evidence is M04, not here.
+//!
+//! Hosted by `heimdall-runtime` as `[[test]] integration_runtime`. Every error
+//! message, log line and file this suite produces is checked with
+//! `heimdall_testkit::assert_no_canary`; canary values are built at run time.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use heimdall_domain::time::{Clock, SyncStatus, TimeSync};
+use heimdall_runtime::Paths;
+use heimdall_runtime::config::{Config, ConfigError, MAX_CONFIG_BYTES};
+use heimdall_runtime::instance::{INSTANCE_FILE, InstanceInfo};
+use heimdall_runtime::platform::{self, SystemClock, SystemTimeSync};
+use heimdall_runtime::telemetry::{self, MAX_REDACTED_LEN, redact, redact_with_home};
+use heimdall_testkit::{CANARY_PREFIX, assert_no_canary};
+
+// ---------------------------------------------------------------------------
+// Fixture helpers
+// ---------------------------------------------------------------------------
+
+/// Small deterministic generator for fixture bytes (no secrets: synthetic data
+/// seeded per call site; only its shape matters).
+struct Gen(u64);
+
+impl Gen {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn from(&mut self, alphabet: &[u8], len: usize) -> String {
+        (0..len)
+            .map(|_| {
+                let i = usize::try_from(self.next() % alphabet.len() as u64).unwrap();
+                char::from(alphabet[i])
+            })
+            .collect()
+    }
+}
+
+const B64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const B64URL: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const HEX: &[u8] = b"0123456789abcdef";
+
+/// A canary value built at run time, unique per call.
+fn canary(tag: &str) -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .subsec_nanos();
+    let mut g = Gen(u64::from(nanos) | 1);
+    format!("{CANARY_PREFIX}{tag}_{}", g.from(HEX, 24))
+}
+
+/// Armor header/footer assembled at run time so no key-looking literal is in the
+/// source.
+fn armor(kind: &str, begin: bool) -> String {
+    let edge = "-".repeat(5);
+    let word = if begin { "BEGIN" } else { "END" };
+    format!("{edge}{word} {kind} PRIVATE KEY{edge}")
+}
+
+fn private_key_block(seed: u64) -> String {
+    let mut g = Gen(seed);
+    let body: Vec<String> = (0..6).map(|_| g.from(B64, 70)).collect();
+    format!(
+        "{}\n{}\n{}",
+        armor("OPENSSH", true),
+        body.join("\n"),
+        armor("OPENSSH", false)
+    )
+}
+
+fn env_from(pairs: Vec<(&'static str, OsString)>) -> impl Fn(&str) -> Option<OsString> {
+    move |name| {
+        pairs
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.clone())
+    }
+}
+
+#[cfg(unix)]
+fn mode_of(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::symlink_metadata(path)
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o7777
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+fn parse_err(text: &str) -> ConfigError {
+    let err = Config::parse(text).expect_err("config must be refused");
+    assert_no_canary(&err.to_string());
+    assert_no_canary(&format!("{err:?}"));
+    err
+}
+
+#[test]
+fn config_rejects_trusted_true() {
+    let err = parse_err("schema_version = 1\ntrusted = true\n");
+    assert!(matches!(err, ConfigError::ForbiddenKey("trusted")), "{err}");
+}
+
+#[test]
+fn config_rejects_trusted_in_every_place() {
+    for text in [
+        "schema_version = 1\n[session]\ntrusted = true\n",
+        "schema_version = 1\n[x]\ntrusted = true\n",
+        "schema_version = 1\n[x.project]\nTRUSTED = true\n",
+        "schema_version = 1\n[x]\nlist = [{ trusted = true }]\n",
+        "trusted = true\nschema_version = 1\n",
+    ] {
+        let err = parse_err(text);
+        assert!(
+            matches!(err, ConfigError::ForbiddenKey("trusted")),
+            "{text:?} → {err}"
+        );
+    }
+}
+
+#[test]
+fn config_rejects_authority_widening_keys() {
+    for (key, expected) in [
+        ("private_key", "private_key"),
+        ("identity-file", "identity_file"),
+        ("socket_path", "socket_path"),
+        ("hook", "hook"),
+        ("policy_override", "policy_override"),
+        ("background_work", "background_work"),
+        ("auto_approve", "auto_approve"),
+        ("issuing_credential", "issuing_credential"),
+        ("enroll", "enroll"),
+    ] {
+        for text in [
+            format!("schema_version = 1\n{key} = \"x\"\n"),
+            format!("schema_version = 1\n[x.meta]\n{key} = \"x\"\n"),
+        ] {
+            let err = parse_err(&text);
+            match err {
+                ConfigError::ForbiddenKey(k) => assert_eq!(k, expected),
+                other => panic!("{key}: expected ForbiddenKey, got {other}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn config_unknown_ordinary_keys_rejected_outside_x_and_tolerated_inside() {
+    let err = parse_err("schema_version = 1\ncolour = \"blue\"\n");
+    let msg = err.to_string();
+    assert!(matches!(err, ConfigError::Parse(_)));
+    assert!(msg.contains("unknown key `colour`"), "{msg}");
+    assert!(msg.contains("line 2"), "{msg}");
+
+    let err = parse_err("schema_version = 1\n[session]\nmax_window = \"8h\"\nflavour = 1\n");
+    assert!(err.to_string().contains("unknown key `flavour`"), "{err}");
+
+    let c = Config::parse("schema_version = 1\n[x]\nnote = \"hello\"\n[x.editor]\nfold = true\n")
+        .unwrap();
+    let x = c.x.unwrap();
+    assert_eq!(x.get("note").unwrap(), "hello");
+}
+
+#[test]
+fn config_defaults_and_max_window() {
+    let c = Config::parse("schema_version = 1\n").unwrap();
+    assert_eq!(c, Config::default());
+    assert_eq!(c.max_window().unwrap(), Duration::from_secs(12 * 3600));
+
+    let c = Config::parse("schema_version = 1\n[session]\nmax_window = \"8h\"\nlock_behavior = \"revoke\"\nstrict_disconnect = true\n").unwrap();
+    assert_eq!(c.max_window().unwrap(), Duration::from_secs(8 * 3600));
+    assert_eq!(
+        c.session.lock_behavior,
+        heimdall_runtime::config::LockBehavior::Revoke
+    );
+    assert!(c.session.strict_disconnect);
+
+    let c = Config::parse("schema_version = 1\n[session]\nmax_window = \"PT1H30M\"\n").unwrap();
+    assert_eq!(c.max_window().unwrap(), Duration::from_secs(5400));
+
+    let c =
+        Config::parse("schema_version = 1\n[retention]\noperations = \"48h\"\nevents = \"2d\"\n")
+            .unwrap();
+    assert_eq!(
+        c.retention_operations().unwrap(),
+        Duration::from_secs(48 * 3600)
+    );
+    assert_eq!(
+        c.retention_events().unwrap(),
+        Duration::from_secs(2 * 86400)
+    );
+}
+
+#[test]
+fn config_rejects_bad_versions_and_durations() {
+    assert!(matches!(
+        parse_err("schema_version = 2\n"),
+        ConfigError::UnsupportedVersion(2)
+    ));
+    // A newer file reports its version even when it carries newer keys.
+    assert!(matches!(
+        parse_err("schema_version = 3\nnew_feature = true\n"),
+        ConfigError::UnsupportedVersion(3)
+    ));
+    assert!(matches!(parse_err(""), ConfigError::Parse(_)));
+    assert!(matches!(
+        parse_err("schema_version = \"1\"\n"),
+        ConfigError::Parse(_)
+    ));
+    assert!(matches!(
+        parse_err("schema_version = -1\n"),
+        ConfigError::UnsupportedVersion(_)
+    ));
+    for window in ["0s", "-1h", "banana", "1 fortnight", ""] {
+        let err = parse_err(&format!(
+            "schema_version = 1\n[session]\nmax_window = \"{window}\"\n"
+        ));
+        assert!(
+            matches!(
+                err,
+                ConfigError::Duration {
+                    field: "session.max_window",
+                    ..
+                }
+            ),
+            "{window:?} → {err}"
+        );
+    }
+    // Retention below the idempotency floor (24 h) is refused (ADR-0006 §7.4).
+    let err = parse_err("schema_version = 1\n[retention]\noperations = \"1h\"\nevents = \"7d\"\n");
+    assert!(matches!(
+        err,
+        ConfigError::Duration {
+            field: "retention.operations",
+            ..
+        }
+    ));
+    let err = parse_err("schema_version = 1\n[retention]\noperations = \"7d\"\nevents = \"0s\"\n");
+    assert!(matches!(
+        err,
+        ConfigError::Duration {
+            field: "retention.events",
+            ..
+        }
+    ));
+    // Oversized input is refused before parsing.
+    let big = format!("schema_version = 1\n# {}\n", "a".repeat(MAX_CONFIG_BYTES));
+    assert!(matches!(parse_err(&big), ConfigError::Parse(_)));
+}
+
+#[test]
+fn config_errors_never_echo_values() {
+    let c = canary("cfg");
+    for text in [
+        format!("schema_version = 1\n[session]\nmax_window = \"{c}\"\n"),
+        format!("schema_version = 1\n[session]\nlock_behavior = \"{c}\"\n"),
+        format!("schema_version = 1\n[session]\nstrict_disconnect = \"{c}\"\n"),
+        format!("schema_version = 1\nbroken = {c}\n"),
+        format!("schema_version = 1\n{c} = 1\n"),
+        format!("schema_version = 1\n[session]\n{c} = 1\n"),
+        format!("schema_version = 1\ntrusted = \"{c}\"\n"),
+        format!("schema_version = \"{c}\"\n"),
+        format!("schema_version = 1\n[retention]\noperations = \"{c}\"\nevents = \"7d\"\n"),
+    ] {
+        // parse_err runs assert_no_canary over Display and Debug.
+        let _ = parse_err(&text);
+    }
+}
+
+fn schema_file() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/configuration/config.schema.json")
+}
+
+/// The checked-in `schemas/configuration/config.schema.json` is exactly the
+/// generated schema (same rendering as `schemas/public-api/`). Regenerate with
+/// `HEIMDALL_BLESS_SCHEMAS=1 cargo test -p heimdall-runtime --test
+/// integration_runtime config_schema`.
+#[test]
+fn config_schema_export_matches_checked_in_file() {
+    let generated = Config::json_schema_text().unwrap();
+    assert_eq!(
+        generated,
+        Config::json_schema_text().unwrap(),
+        "deterministic"
+    );
+    let path = schema_file();
+    if std::env::var_os("HEIMDALL_BLESS_SCHEMAS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &generated).unwrap();
+    }
+    let on_disk = std::fs::read_to_string(&path).expect("schemas/configuration/config.schema.json");
+    assert_eq!(
+        on_disk, generated,
+        "config schema is stale; regenerate (see test docs)"
+    );
+
+    let v: serde_json::Value = serde_json::from_str(&generated).unwrap();
+    assert_eq!(v["additionalProperties"], serde_json::Value::Bool(false));
+    let props = v["properties"].as_object().unwrap();
+    assert!(props.contains_key("schema_version"));
+    assert!(!props.contains_key("trusted"));
+    assert!(
+        v["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r == "schema_version")
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Redaction and logging
+// ---------------------------------------------------------------------------
+
+#[test]
+fn redact_removes_canaries_wherever_they_appear() {
+    let c = canary("redact");
+    for text in [
+        c.clone(),
+        format!("token={c}"),
+        format!("{{\"secret\":\"{c}\"}}"),
+        format!("/tmp/x/{c}/file"),
+        format!("error: value '{c}' rejected"),
+        format!("a{c}b"),
+    ] {
+        let out = redact(&text);
+        assert_no_canary(&out);
+        assert!(out.contains("[REDACTED]"), "{text:?} → {out:?}");
+    }
+}
+
+#[test]
+fn redact_removes_private_key_blocks() {
+    let block = private_key_block(0x9e37_79b9_7f4a_7c15);
+    let text = format!("before\n{block}\nafter");
+    let out = redact_with_home(&text, None);
+    assert!(!out.contains("PRIVATE KEY"), "{out}");
+    assert!(out.starts_with("before\n"), "{out}");
+    assert!(out.ends_with("\nafter"), "{out}");
+    assert!(out.contains("[REDACTED KEY MATERIAL]"));
+    // Every body line is gone.
+    for line in block.lines().skip(1).take(6) {
+        assert!(!out.contains(line));
+    }
+
+    // Unterminated block: everything after BEGIN is removed.
+    let cut: String = block.lines().take(3).collect::<Vec<_>>().join("\n");
+    let out = redact_with_home(&format!("x {cut}"), None);
+    assert_eq!(out, "x [REDACTED KEY MATERIAL]");
+
+    // Two blocks and a non-OpenSSH kind.
+    let rsa = format!("{}\nAAAA\n{}", armor("RSA", true), armor("RSA", false));
+    let out = redact_with_home(&format!("{block} mid {rsa} end"), None);
+    assert_eq!(
+        out,
+        "[REDACTED KEY MATERIAL] mid [REDACTED KEY MATERIAL] end"
+    );
+
+    // PuTTY key file.
+    let out = redact_with_home(
+        "k: PuTTY-User-Key-File-3: ssh-ed25519\nPrivate-Lines: 1\nAAAA",
+        None,
+    );
+    assert_eq!(out, "k: [REDACTED KEY MATERIAL]");
+}
+
+#[test]
+fn redact_removes_key_like_runs_without_prefix_lists() {
+    let mut g = Gen(0x2545_f491_4f6c_dd1d);
+    let b64 = g.from(B64, 43);
+    let url = g.from(B64URL, 40);
+    let hex = g.from(HEX, 64);
+    let wrapped = format!("{}==", g.from(B64, 30));
+    for secret in [&b64, &url, &hex, &wrapped] {
+        let text = format!("got credential {secret} from agent");
+        let out = redact_with_home(&text, None);
+        assert_eq!(out, "got credential [REDACTED] from agent", "{secret}");
+    }
+    // Inside a path segment.
+    let out = redact_with_home(&format!("/var/tmp/{hex}/x"), None);
+    assert_eq!(out, "/var/tmp/[REDACTED]/x");
+}
+
+/// Deterministic randomized check (fixed seed, 2048 cases; the runtime crate has
+/// no proptest edge): random base64/base64url/hex key material of 24–96
+/// characters, in several embeddings, never leaves a 12-character piece behind.
+#[test]
+fn redact_random_key_material_never_survives() {
+    let mut g = Gen(0x5851_f42d_4c95_7f2d);
+    for case in 0..2048u64 {
+        let alphabet = match case % 3 {
+            0 => B64,
+            1 => B64URL,
+            _ => HEX,
+        };
+        let min = if alphabet == HEX { 32 } else { 24 };
+        let len = min + usize::try_from(g.next() % 73).unwrap();
+        let secret = g.from(alphabet, len);
+        for text in [
+            format!("value {secret} end"),
+            format!("/tmp/run/{secret}/file"),
+            format!("key={secret}"),
+            format!("\"{secret}\""),
+        ] {
+            let out = redact_with_home(&text, None);
+            let chars: Vec<char> = secret.chars().collect();
+            for w in chars.windows(12) {
+                let piece: String = w.iter().collect();
+                assert!(
+                    !out.contains(&piece),
+                    "case {case}: piece of {secret:?} survived in {out:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn redact_keeps_ordinary_diagnostics() {
+    let id = format!("op_{}", Gen(7).from(HEX, 32));
+    for text in [
+        format!("operation {id} failed: connection refused"),
+        "/usr/local/bin/heimdall service run --detach".to_owned(),
+        "heimdall_runtime::supervisor::scheduler_pass took 3ms".to_owned(),
+        "SCHEMA_UNSUPPORTED: protocol major 2 is newer than 1".to_owned(),
+        "2026-10-31T12:00:00Z grant expired at deadline".to_owned(),
+        "ssh-ed25519 key comment".to_owned(),
+    ] {
+        assert_eq!(redact_with_home(&text, None), text);
+    }
+}
+
+#[test]
+fn redact_removes_home_paths() {
+    let cases = [
+        ("/Users/example-user/projects/a.toml", "~/projects/a.toml"),
+        (
+            "open /home/example-user/.ssh/config failed",
+            "open ~/.ssh/config failed",
+        ),
+        (
+            r"C:\Users\example-user\AppData\Local\heimdall",
+            r"~\AppData\Local\heimdall",
+        ),
+        ("cwd=/root/work", "cwd=~/work"),
+        ("dir \"/home/example-user\" missing", "dir \"~\" missing"),
+        ("/var/home/example-user/x", "/var~/x"),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(redact_with_home(input, None), expected, "{input}");
+    }
+    // The real home directory, wherever it is, by exact match.
+    let out = redact_with_home("/opt/people/somebody/file", Some("/opt/people/somebody"));
+    assert_eq!(out, "~/file");
+    if let Ok(home) = etcetera::home_dir() {
+        let text = format!("{}/x", home.display());
+        assert_eq!(redact(&text), "~/x");
+    }
+}
+
+#[test]
+fn redact_bounds_length() {
+    let text = "word ".repeat(5000);
+    let out = redact(&text);
+    assert!(out.len() <= MAX_REDACTED_LEN, "{}", out.len());
+    assert!(out.ends_with("…[truncated]"));
+    let multibyte = "é".repeat(MAX_REDACTED_LEN);
+    let out = redact(&multibyte);
+    assert!(out.len() <= MAX_REDACTED_LEN);
+}
+
+/// The only test that installs the global subscriber (it is process-wide).
+#[test]
+fn log_file_sink_redacts_every_line() {
+    let dir = tempfile::tempdir().unwrap();
+    telemetry::init(telemetry::LogSink::File, Some(dir.path())).unwrap();
+    // Idempotent.
+    telemetry::init(telemetry::LogSink::File, Some(dir.path())).unwrap();
+    let c = canary("log");
+    let block = private_key_block(0x1234_5678_9abc_def1);
+    tracing::warn!(value = %c, "u8a-log-probe structured field");
+    tracing::warn!("u8a-log-probe message {c} and key {block}");
+    let path = dir.path().join(telemetry::LOG_FILE);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("u8a-log-probe structured field"), "{text}");
+    assert!(text.contains("u8a-log-probe message [REDACTED]"), "{text}");
+    assert!(!text.contains("PRIVATE KEY"), "{text}");
+    assert!(!text.contains('\u{1b}'), "no ANSI escapes");
+    assert_no_canary(&text);
+    #[cfg(unix)]
+    assert_eq!(mode_of(&path), 0o600);
+}
+
+#[test]
+fn log_file_sink_needs_a_directory() {
+    // Whatever the global state, a File sink without a directory never panics;
+    // before installation it is an error, after installation a no-op.
+    let r = telemetry::init(telemetry::LogSink::File, None);
+    if let Err(e) = r {
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Paths
+// ---------------------------------------------------------------------------
+
+#[test]
+fn paths_heimdall_home_layout_is_owner_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("hh");
+    let env = env_from(vec![("HEIMDALL_HOME", home.clone().into_os_string())]);
+    let p = Paths::discover_from(&env).unwrap();
+    assert_eq!(p, Paths::under(&home));
+    for dir in [&p.config_dir, &p.state_dir, &p.runtime_dir, &p.log_dir] {
+        assert!(dir.starts_with(&home));
+        assert!(std::fs::symlink_metadata(dir).unwrap().is_dir());
+        #[cfg(unix)]
+        assert_eq!(mode_of(dir), 0o700, "{}", dir.display());
+    }
+    // Idempotent.
+    assert_eq!(Paths::discover_from(&env).unwrap(), p);
+}
+
+#[test]
+fn paths_refuse_relative_or_empty_heimdall_home() {
+    for value in ["relative/dir", ""] {
+        let env = env_from(vec![("HEIMDALL_HOME", OsString::from(value))]);
+        let err = Paths::resolve(&env).expect_err("must refuse");
+        assert!(err.to_string().contains("HEIMDALL_HOME"), "{err}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn paths_tighten_existing_permissive_dirs_and_refuse_symlinks() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("hh");
+    let layout = Paths::under(&home);
+    std::fs::create_dir_all(&layout.state_dir).unwrap();
+    std::fs::set_permissions(&layout.state_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    layout.ensure().unwrap();
+    assert_eq!(mode_of(&layout.state_dir), 0o700);
+
+    // A symlink at a leaf is refused, and its target is left untouched.
+    let elsewhere = tmp.path().join("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::set_permissions(&elsewhere, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::remove_dir(&layout.log_dir).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &layout.log_dir).unwrap();
+    let err = layout
+        .ensure()
+        .expect_err("symlinked log dir must be refused");
+    assert!(
+        matches!(err, ConfigError::Io(ref e) if e.kind() == std::io::ErrorKind::PermissionDenied),
+        "{err}"
+    );
+    assert_eq!(mode_of(&elsewhere), 0o755);
+
+    // A regular file where a directory belongs is refused.
+    std::fs::remove_file(&layout.log_dir).unwrap();
+    std::fs::write(&layout.log_dir, b"").unwrap();
+    assert!(layout.ensure().is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn paths_platform_defaults_follow_xdg() {
+    let env = env_from(vec![
+        ("XDG_CONFIG_HOME", OsString::from("/xdg/config")),
+        ("XDG_STATE_HOME", OsString::from("/xdg/state")),
+        ("XDG_RUNTIME_DIR", OsString::from("/xdg/run")),
+    ]);
+    let p = Paths::resolve(&env).unwrap();
+    assert_eq!(p.config_dir, Path::new("/xdg/config/heimdall"));
+    assert_eq!(p.state_dir, Path::new("/xdg/state/heimdall"));
+    assert_eq!(p.runtime_dir, Path::new("/xdg/run/heimdall"));
+    assert_eq!(p.log_dir, Path::new("/xdg/state/heimdall/log"));
+
+    // Relative XDG values are ignored (XDG spec); no runtime dir → under state.
+    let env = env_from(vec![("XDG_CONFIG_HOME", OsString::from("rel/config"))]);
+    let p = Paths::resolve(&env).unwrap();
+    let home = etcetera::home_dir().unwrap();
+    assert_eq!(p.config_dir, home.join(".config").join("heimdall"));
+    assert_eq!(p.state_dir, home.join(".local/state/heimdall"));
+    assert_eq!(p.runtime_dir, home.join(".local/state/heimdall/run"));
+}
+
+// ---------------------------------------------------------------------------
+// Instance info
+// ---------------------------------------------------------------------------
+
+fn runtime_dir(tmp: &tempfile::TempDir) -> PathBuf {
+    let layout = Paths::under(&tmp.path().join("hh"));
+    layout.ensure().unwrap();
+    layout.runtime_dir
+}
+
+fn info_for(dir: &Path, pid: u32, started_at: String) -> InstanceInfo {
+    InstanceInfo {
+        pid,
+        started_at,
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        control_endpoint: dir.join("control.sock").display().to_string(),
+        signing_endpoint: dir.join("signing.sock").display().to_string(),
+    }
+}
+
+#[cfg(unix)]
+fn listen(
+    dir: &Path,
+) -> (
+    std::os::unix::net::UnixListener,
+    std::os::unix::net::UnixListener,
+) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let bind = |name: &str| {
+        let path = dir.join(name);
+        let l = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        l
+    };
+    (bind("control.sock"), bind("signing.sock"))
+}
+
+#[test]
+fn instance_write_is_atomic_and_owner_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = runtime_dir(&tmp);
+    let info = info_for(&dir, 4242, "1.000001".to_owned());
+    info.write(&dir).unwrap();
+    // Overwrite with a second record: the reader sees exactly the new one.
+    let second = InstanceInfo {
+        pid: 4343,
+        ..info.clone()
+    };
+    second.write(&dir).unwrap();
+    assert_eq!(InstanceInfo::read_file(&dir).unwrap(), Some(second));
+    let names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec![INSTANCE_FILE.to_owned()], "no temp files left");
+    #[cfg(unix)]
+    assert_eq!(mode_of(&dir.join(INSTANCE_FILE)), 0o600);
+    assert_no_canary(&std::fs::read_to_string(dir.join(INSTANCE_FILE)).unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn instance_valid_when_process_and_endpoints_are_live() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = runtime_dir(&tmp);
+    let (_c, _s) = listen(&dir);
+    let started = InstanceInfo::current_started_at().expect("start time on this host");
+    let info = info_for(&dir, std::process::id(), started);
+    info.write(&dir).unwrap();
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), Some(info));
+}
+
+#[cfg(unix)]
+#[test]
+fn instance_stale_records_are_ignored() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = runtime_dir(&tmp);
+    let me = std::process::id();
+    let started = InstanceInfo::current_started_at().unwrap();
+
+    // Absent.
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+
+    // Live endpoints, but a start time that does not match (PID reuse).
+    let (c, s) = listen(&dir);
+    info_for(&dir, me, "0.000000".to_owned())
+        .write(&dir)
+        .unwrap();
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+    info_for(&dir, me, String::new()).write(&dir).unwrap();
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+
+    // A process that has exited (started and reaped by this test).
+    let mut child = std::process::Command::new("/bin/sh")
+        .args(["-c", "exit 0"])
+        .spawn()
+        .unwrap();
+    let child_pid = child.id();
+    let child_start = platform::process_start_time(child_pid);
+    child.wait().unwrap();
+    assert_eq!(
+        platform::process_start_time(child_pid).filter(|s| Some(s) == child_start.as_ref()),
+        None
+    );
+    info_for(&dir, child_pid, child_start.unwrap_or_else(|| "1.0".into()))
+        .write(&dir)
+        .unwrap();
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+
+    // Endpoints advertised somewhere else than this runtime directory.
+    let mut elsewhere = info_for(&dir, me, started.clone());
+    elsewhere.control_endpoint = tmp.path().join("control.sock").display().to_string();
+    elsewhere.write(&dir).unwrap();
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+
+    // Valid now …
+    let live = info_for(&dir, me, started.clone());
+    live.write(&dir).unwrap();
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), Some(live.clone()));
+    // … stale once the listeners are gone (socket files remain, connect refused).
+    drop((c, s));
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+    assert!(
+        dir.join("control.sock").exists(),
+        "read_valid never deletes"
+    );
+
+    // Malformed and oversized files.
+    std::fs::write(dir.join(INSTANCE_FILE), b"{not json").unwrap();
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+    std::fs::write(dir.join(INSTANCE_FILE), vec![b' '; 70 * 1024]).unwrap();
+    assert_eq!(InstanceInfo::read_valid(&dir).unwrap(), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn instance_insecure_files_are_refused() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = runtime_dir(&tmp);
+    let info = info_for(&dir, std::process::id(), "x".to_owned());
+    info.write(&dir).unwrap();
+    let path = dir.join(INSTANCE_FILE);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+    let err = InstanceInfo::read_valid(&dir).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::PermissionDenied);
+    assert_no_canary(&err.to_string());
+
+    // A symlink in place of the file is never followed.
+    std::fs::remove_file(&path).unwrap();
+    let target = tmp.path().join("target.json");
+    std::fs::write(&target, serde_json::to_vec(&info).unwrap()).unwrap();
+    std::os::unix::fs::symlink(&target, &path).unwrap();
+    assert!(InstanceInfo::read_valid(&dir).is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Platform clock on this host (native sleep/reboot is M04)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn system_clock_probes_on_this_host() {
+    SystemClock::try_new().expect("continuous clock and boot ID available on this host");
+}
+
+#[test]
+fn system_clock_continuous_is_monotonic_and_tracks_elapsed_time() {
+    let clock = SystemClock::new();
+    let start = Instant::now();
+    let a = clock.continuous();
+    let mut prev = a;
+    // A sleep-free interval of about 100 ms, sampled densely.
+    while start.elapsed() < Duration::from_millis(100) {
+        let now = clock.continuous();
+        assert!(now >= prev, "continuous clock went backwards");
+        prev = now;
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let b = clock.continuous();
+    let elapsed = start.elapsed();
+    let advanced = b.checked_sub(a).expect("monotonic");
+    assert!(advanced >= Duration::from_millis(90), "{advanced:?}");
+    let diff = advanced.abs_diff(elapsed);
+    assert!(
+        diff < Duration::from_millis(50),
+        "continuous {advanced:?} vs elapsed {elapsed:?}"
+    );
+    // Boot-scoped and counting from boot: at least as large as this process's
+    // own runtime.
+    assert!(a > Duration::ZERO);
+}
+
+#[test]
+fn system_clock_boot_id_is_stable_across_reads() {
+    let first = platform::read_boot_id_uncached().expect("boot ID");
+    let second = platform::read_boot_id_uncached().expect("boot ID");
+    assert_eq!(first, second);
+    assert!(!first.is_empty());
+    let clock = SystemClock::new();
+    assert_eq!(clock.boot_id().0, first);
+    assert_eq!(clock.boot_id(), clock.boot_id());
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        assert_eq!(first.len(), 36, "UUID form");
+        assert!(first.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
+        assert!(!first.starts_with("unavailable:"));
+    }
+    let obs = clock.observe();
+    assert_eq!(obs.boot_id.0, first);
+    let wall_secs = obs.wall.as_second();
+    let sys = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert!(i64::try_from(sys).unwrap().abs_diff(wall_secs) <= 2);
+}
+
+#[test]
+fn process_start_time_identifies_this_process() {
+    let a = platform::process_start_time(std::process::id()).expect("own start time");
+    let b = platform::process_start_time(std::process::id()).unwrap();
+    assert_eq!(a, b);
+    assert_eq!(platform::process_start_time(0), None);
+    assert_eq!(platform::process_start_time(u32::MAX), None);
+}
+
+#[test]
+fn system_time_sync_is_unknown_in_m01() {
+    // Fail-closed default (ADR-0006 §10): no platform signal is trusted yet.
+    assert_eq!(SystemTimeSync.status(), SyncStatus::Unknown);
+}
+
+// ===========================================================================
+// M01-U8b: service start/run, supervisor (scheduler, time guard), launcher, and
+// the control-endpoint dispatcher over `Operations`.
+//
+// Restart label: every "restart" below is an **in-process** reconstruction (a
+// new `Service` over the same `HEIMDALL_HOME` layout, store file and fake-adapter
+// ledger file); it is not process-crash evidence (that is U9/U10's, ADR-0006
+// §13.4 N06). The launcher test starts a real child process (this test binary
+// re-executed as a service host), not the `heimdall` binary (U9's e2e suite).
+// ===========================================================================
+
+mod u8b {
+    use std::collections::BTreeSet;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    #[cfg(unix)]
+    use std::sync::Mutex;
+    #[cfg(unix)]
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
+    use heimdall_app::ports::{
+        AdapterDescriptor, CredentialAdapter, InteractionRequirement, LockContinuity,
+        PrepareOutcome,
+    };
+    use heimdall_app::{Caller, OpError, OpResult};
+    #[cfg(unix)]
+    use heimdall_contract::envelope::Envelope;
+    use heimdall_contract::ids::{
+        AccountName, DestinationId, DeviceId, EnvironmentId, PolicyId, ProfileId, RequestId, WorkId,
+    };
+    use heimdall_contract::ipc::PrincipalInfo;
+    use heimdall_contract::request::{
+        DeadlineIntent, DestinationScopeEnforcement, Enforcement, EnsureData, EnsureRequest,
+        ExistingConnectionsPolicy, InteractionMode, NewAuthenticationExpiry, PolicyAction,
+        RefreshDependency, RequiredCapabilities, RevocationStatus, WaitMode, WorkloadIsolation,
+    };
+    use heimdall_contract::{Code, GrantState, OperationState, Timestamp};
+    use heimdall_domain::environment::{
+        EnvironmentKind, EnvironmentPermissions, EnvironmentRecord,
+    };
+    use heimdall_domain::evidence::EnforcementEvidence;
+    use heimdall_domain::operation::{AdapterIdentity, EffectReceipt};
+    use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
+    use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+    use heimdall_domain::profile::ProfileDefinition;
+    use heimdall_domain::scope::{AccessPair, Capability, Scope};
+    use heimdall_domain::time::{SyncStatus, TimeStatus, TimeUncertainty};
+    use heimdall_ipc::session::SessionInfo;
+    use heimdall_runtime::Paths;
+    use heimdall_runtime::config::Config;
+    use heimdall_runtime::dispatch::caller_for;
+    use heimdall_runtime::instance::{INSTANCE_FILE, InstanceError, InstanceInfo};
+    #[cfg(unix)]
+    use heimdall_runtime::launcher::{LaunchError, LauncherConfig, Started, ensure_running_with};
+    use heimdall_runtime::service::{STATE_DB_FILE, Service, ServiceError, ServiceOptions};
+    use heimdall_store::{FaultAction, FaultHook, FaultPoint, NoFaults, Store};
+    use heimdall_testkit::{
+        CANARY_PREFIX, FakeCredentialAdapter, FakeStep, ScriptedTimeSync, VirtualClock,
+        assert_no_canary,
+    };
+    use tokio_util::sync::CancellationToken;
+
+    const MINUTE: Duration = Duration::from_secs(60);
+    const HOUR: Duration = Duration::from_secs(3600);
+
+    fn t0() -> Timestamp {
+        "2026-10-02T09:00:00Z".parse().unwrap()
+    }
+
+    fn at(secs: i64) -> Timestamp {
+        t0().checked_add(jiff::SignedDuration::from_secs(secs))
+            .unwrap()
+    }
+
+    fn env_id() -> EnvironmentId {
+        EnvironmentId::from_random_bytes([7; 16])
+    }
+
+    /// Synthetic canary built at run time: the fake adapter's opaque credential
+    /// reference. It must never reach an envelope, event or error.
+    fn canary() -> String {
+        format!("{CANARY_PREFIX}u8b_fixture")
+    }
+
+    fn pair(d: &str, a: &str) -> AccessPair {
+        AccessPair {
+            destination: DestinationId::parse(d).unwrap(),
+            account: AccountName::parse(a).unwrap(),
+        }
+    }
+
+    fn ssh_only() -> BTreeSet<Capability> {
+        [Capability::SshAuthentication].into_iter().collect()
+    }
+
+    fn enforcement() -> EnforcementEvidence {
+        EnforcementEvidence {
+            report: Enforcement {
+                destination_scope: DestinationScopeEnforcement::ClientRouting,
+                new_authentication_expiry: NewAuthenticationExpiry::SignerOnly,
+                workload_isolation: WorkloadIsolation::SharedOsUser,
+                existing_connections: ExistingConnectionsPolicy::GracefulDedicatedConnections,
+                revocation: RevocationStatus::LocalApplied,
+            },
+            evidence: Vec::new(),
+        }
+    }
+
+    fn outcome() -> PrepareOutcome {
+        PrepareOutcome {
+            usable_until: at(12 * 3600),
+            offline_until: at(3600),
+            refresh_dependency: RefreshDependency::None,
+            enforcement: enforcement(),
+            credential_ref: canary(),
+        }
+    }
+
+    fn descriptor() -> AdapterDescriptor {
+        AdapterDescriptor {
+            identity: AdapterIdentity {
+                mechanism: "fake_agent".into(),
+                instance: "fixture-1".into(),
+            },
+            capabilities: ssh_only(),
+            external_side_effects: false,
+            interaction: InteractionRequirement::None,
+            enforcement: enforcement(),
+            lock_continuity: LockContinuity::Unknown,
+        }
+    }
+
+    fn policy_id() -> PolicyId {
+        PolicyId::parse("pol").unwrap()
+    }
+
+    /// `HEIMDALL_HOME` layout inside the test's own temp dir.
+    fn home(tmp: &tempfile::TempDir) -> PathBuf {
+        tmp.path().join("hh")
+    }
+
+    /// Seed the store file a service will open: identity, environment record,
+    /// profile `dev` (h1, h2, h3) and policy `pol` (h1, h2; window 2 h).
+    fn seed(home: &Path) {
+        let paths = Paths::under(home);
+        paths.ensure().unwrap();
+        let store = Store::open(&paths.state_dir.join(STATE_DB_FILE), Arc::new(NoFaults)).unwrap();
+        store
+            .transaction(|tx| {
+                tx.init_self_environment(&env_id())?;
+                tx.upsert_environment(&EnvironmentRecord {
+                    id: env_id(),
+                    device: DeviceId::from_random_bytes([8; 16]),
+                    kind: EnvironmentKind::NativeSession,
+                    label: None,
+                    permissions: EnvironmentPermissions {
+                        automatic_activation: true,
+                        managed_signing: true,
+                        issuer_access: true,
+                    },
+                })?;
+                tx.upsert_profile(&ProfileDefinition {
+                    id: ProfileId::parse("dev").unwrap(),
+                    revision: 1,
+                    scope: Scope {
+                        pairs: [
+                            pair("h1", "deploy"),
+                            pair("h2", "deploy"),
+                            pair("h3", "deploy"),
+                        ]
+                        .into_iter()
+                        .collect(),
+                        capabilities: ssh_only(),
+                    },
+                    label: None,
+                })?;
+                tx.upsert_policy(
+                    &StandingPolicy {
+                        id: policy_id(),
+                        revision: PolicyRevision(1),
+                        profile: ProfileId::parse("dev").unwrap(),
+                        workspace: None,
+                        scope: Scope {
+                            pairs: [pair("h1", "deploy"), pair("h2", "deploy")]
+                                .into_iter()
+                                .collect(),
+                            capabilities: ssh_only(),
+                        },
+                        environments: [env_id()].into_iter().collect(),
+                        max_window: 2 * HOUR,
+                        pause: PauseState::Active,
+                        cutoff_at: None,
+                        source: PolicySource::SetupDefault,
+                    },
+                    false,
+                )?;
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    struct Rig {
+        home: PathBuf,
+        clock: Arc<VirtualClock>,
+        sync: Arc<ScriptedTimeSync>,
+        ledger: PathBuf,
+    }
+
+    impl Rig {
+        fn new(tmp: &tempfile::TempDir) -> Self {
+            let home = home(tmp);
+            seed(&home);
+            Self {
+                home,
+                clock: VirtualClock::at(t0()),
+                sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+                ledger: tmp.path().join("effects.ledger"),
+            }
+        }
+
+        fn paths(&self) -> Paths {
+            Paths::under(&self.home)
+        }
+
+        /// A fresh fake adapter instance over this rig's durable ledger.
+        fn fake(&self, script: Vec<FakeStep>) -> Arc<FakeCredentialAdapter> {
+            FakeCredentialAdapter::with_ledger(descriptor(), script, &self.ledger).unwrap()
+        }
+
+        fn options(&self, fake: &Arc<FakeCredentialAdapter>) -> ServiceOptions {
+            let mut o = ServiceOptions::with_clock(self.clock.clone(), self.sync.clone());
+            o.adapters = vec![fake.clone() as Arc<dyn CredentialAdapter>];
+            o
+        }
+
+        async fn start(&self, options: ServiceOptions) -> Result<Service, ServiceError> {
+            Service::start_with(
+                self.paths(),
+                Config::default(),
+                options,
+                CancellationToken::new(),
+            )
+            .await
+        }
+
+        async fn service(&self) -> Service {
+            let fake = self.fake(vec![FakeStep::Prepare(outcome())]);
+            self.start(self.options(&fake)).await.unwrap()
+        }
+
+        fn ledger_entries(&self) -> usize {
+            FakeCredentialAdapter::ledger_entries(&self.ledger)
+                .unwrap()
+                .len()
+        }
+    }
+
+    fn owner() -> Caller {
+        Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+        })
+    }
+
+    fn ensure_req(request_id: &str, work: &str, until: Option<&str>) -> EnsureRequest {
+        EnsureRequest {
+            profile: ProfileId::parse("dev").unwrap(),
+            profile_revision: None,
+            scope: [pair("h1", "deploy")].into_iter().collect(),
+            environment: None,
+            work_id: WorkId::parse(work).unwrap(),
+            until: until.map(|u| DeadlineIntent::Duration(u.to_owned())),
+            required_capabilities: RequiredCapabilities::default(),
+            request_id: RequestId::parse(request_id).unwrap(),
+            interaction: InteractionMode::NonInteractive,
+            wait: WaitMode::Sync { timeout_ms: 30_000 },
+        }
+    }
+
+    /// Render a result as its wire envelope, scanning it for canaries.
+    fn scanned<T: serde::Serialize + Clone>(r: &OpResult<T>) -> serde_json::Value {
+        let v = match r {
+            Ok(c) => serde_json::to_value(c.clone().into_envelope()).unwrap(),
+            Err(e) => serde_json::to_value(e.clone().into_envelope()).unwrap(),
+        };
+        assert_no_canary(&v.to_string());
+        v
+    }
+
+    fn ok<T: serde::Serialize + Clone>(r: OpResult<T>) -> T {
+        scanned(&r);
+        match r {
+            Ok(c) => c.data,
+            Err(e) => panic!("expected success, got {}: {}", e.code, e.message),
+        }
+    }
+
+    fn err<T: serde::Serialize + Clone>(r: OpResult<T>) -> OpError {
+        scanned(&r);
+        match r {
+            Ok(_) => panic!("expected an error"),
+            Err(e) => {
+                assert_no_canary(&e.message);
+                e
+            }
+        }
+    }
+
+    async fn ensure(svc: &Service, request_id: &str, work: &str, until: &str) -> EnsureData {
+        ok(svc
+            .operations()
+            .ensure(&owner(), ensure_req(request_id, work, Some(until)))
+            .await)
+    }
+
+    fn grant_state(svc: &Service, data: &EnsureData) -> GrantState {
+        svc.store()
+            .transaction(|tx| tx.grant(&data.grant_id))
+            .unwrap()
+            .unwrap()
+            .state
+    }
+
+    /// Every stored event, scanned for canaries.
+    fn scan_events(svc: &Service) {
+        let page = svc
+            .store()
+            .transaction(|tx| {
+                tx.stored_events_after(
+                    &env_id(),
+                    0,
+                    &heimdall_contract::event::EventFilter::default(),
+                    10_000,
+                )
+            })
+            .unwrap();
+        for e in &page.events {
+            assert_no_canary(&serde_json::to_string(&e.event).unwrap());
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Single instance and the advertisement
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn service_second_start_is_already_running() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let first = rig.service().await;
+        let advertised = InstanceInfo::read_file(&rig.paths().runtime_dir)
+            .unwrap()
+            .unwrap();
+        assert_eq!(&advertised, first.instance());
+        assert_eq!(advertised.pid, std::process::id());
+
+        let fake = rig.fake(vec![FakeStep::Prepare(outcome())]);
+        let second = rig.start(rig.options(&fake)).await;
+        assert!(
+            matches!(
+                second,
+                Err(ServiceError::Instance(InstanceError::AlreadyRunning))
+            ),
+            "second start must be refused"
+        );
+        // The refused start touched neither the advertisement nor the endpoints.
+        assert_eq!(
+            InstanceInfo::read_file(&rig.paths().runtime_dir).unwrap(),
+            Some(advertised)
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            InstanceInfo::read_valid(&rig.paths().runtime_dir)
+                .unwrap()
+                .as_ref(),
+            Some(first.instance())
+        );
+
+        // Dropping the first releases the lock and removes its advertisement and
+        // sockets; a new start then succeeds.
+        let endpoints = first.endpoints().clone();
+        drop(first);
+        assert!(!rig.paths().runtime_dir.join(INSTANCE_FILE).exists());
+        #[cfg(unix)]
+        assert!(!endpoints.control.exists() && !endpoints.signing.exists());
+        let _ = endpoints;
+        let third = rig.service().await;
+        assert_eq!(third.environment(), &env_id());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn service_ignores_and_replaces_a_stale_instance_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let run = rig.paths().runtime_dir;
+        // A crashed instance left a record whose start time does not match (PID
+        // reuse) and a dead socket at the control path.
+        let stale = InstanceInfo {
+            pid: std::process::id(),
+            started_at: "0.000000".to_owned(),
+            version: "0.0.0".to_owned(),
+            control_endpoint: run.join("control.sock").display().to_string(),
+            signing_endpoint: run.join("signing.sock").display().to_string(),
+        };
+        stale.write(&run).unwrap();
+        drop(std::os::unix::net::UnixListener::bind(run.join("control.sock")).unwrap());
+        assert!(run.join("control.sock").exists());
+        assert_eq!(InstanceInfo::read_valid(&run).unwrap(), None);
+
+        // A client that may not start anything sees "not running", not the record.
+        let spawned = AtomicUsize::new(0);
+        let spawn = || {
+            spawned.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        };
+        let r = ensure_running_with(&run, false, LauncherConfig::default(), &spawn).await;
+        assert!(matches!(r, Err(LaunchError::NotRunning)));
+        assert_eq!(spawned.load(Ordering::SeqCst), 0);
+
+        let svc = rig.service().await;
+        let now = InstanceInfo::read_valid(&run).unwrap().unwrap();
+        assert_eq!(&now, svc.instance());
+        assert_ne!(now.started_at, stale.started_at);
+        // Now the launcher finds it without spawning.
+        let r = ensure_running_with(&run, true, LauncherConfig::default(), &spawn).await;
+        assert!(matches!(r, Ok(Started::AlreadyRunning)));
+        assert_eq!(spawned.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn environment_identity_is_created_once_and_never_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Fresh home, no seeded identity: the first start creates one.
+        let paths = Paths::under(&home(&tmp));
+        let clock = VirtualClock::at(t0());
+        let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
+        let start = || {
+            Service::start_with(
+                paths.clone(),
+                Config::default(),
+                ServiceOptions::with_clock(clock.clone(), sync.clone()),
+                CancellationToken::new(),
+            )
+        };
+        let first = start().await.unwrap();
+        let id = first.environment().clone();
+        let recorded = first
+            .store()
+            .transaction(|tx| tx.self_environment())
+            .unwrap();
+        assert_eq!(recorded.as_ref(), Some(&id));
+        drop(first);
+        let second = start().await.unwrap();
+        assert_eq!(second.environment(), &id, "restart keeps the identity");
+    }
+
+    // -----------------------------------------------------------------------
+    // Deadline scheduler under the virtual clock
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn scheduler_expires_exactly_at_the_persisted_bound_across_a_same_boot_restart() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let data = ensure(&svc, "req-sb", "work-sb", "1h").await;
+        assert_eq!(data.expires_at, at(3600));
+        let next = svc.supervisor().scheduler_pass().await.unwrap();
+        assert_eq!(next, Some(at(3600)), "next wake is the persisted bound");
+
+        rig.clock.advance(20 * MINUTE);
+        assert_eq!(
+            svc.supervisor().scheduler_pass().await.unwrap(),
+            Some(at(3600))
+        );
+        // In-process same-boot restart: the persisted bound and anchor survive.
+        drop(svc);
+        let svc = rig.service().await;
+        rig.clock.advance(40 * MINUTE - Duration::from_secs(1));
+        assert_eq!(
+            svc.supervisor().scheduler_pass().await.unwrap(),
+            Some(at(3600))
+        );
+        assert_eq!(grant_state(&svc, &data), GrantState::Active);
+        rig.clock.advance(Duration::from_secs(1));
+        svc.supervisor().scheduler_pass().await.unwrap();
+        assert_eq!(grant_state(&svc, &data), GrantState::Expired);
+        // Nothing else is due.
+        assert_eq!(svc.supervisor().scheduler_pass().await.unwrap(), None);
+        scan_events(&svc);
+    }
+
+    #[tokio::test]
+    async fn scheduler_expires_at_the_continuous_budget_end_with_the_wall_clock_lagging() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let data = ensure(&svc, "req-cb", "work-cb", "1h").await;
+        // Awake until 30 s before the bound.
+        rig.clock.advance(HOUR - Duration::from_secs(30));
+        assert_eq!(
+            svc.supervisor().scheduler_pass().await.unwrap(),
+            Some(at(3600))
+        );
+        // The wall clock now stalls while continuous time runs (within the skew
+        // tolerance, so time stays safe): the budget, not the wall, ends the grant.
+        rig.clock.advance_continuous_only(Duration::from_secs(29));
+        let next = svc.supervisor().scheduler_pass().await.unwrap();
+        assert_eq!(
+            next,
+            Some(at(3600 - 29)),
+            "next wake is the wall instant at which the budget runs out"
+        );
+        assert_eq!(grant_state(&svc, &data), GrantState::Active);
+        // Same-boot restart in between: the budget resumes from the persisted
+        // anchor, never rebuilt from the (lagging) wall clock.
+        drop(svc);
+        let svc = rig.service().await;
+        rig.clock.advance_continuous_only(Duration::from_secs(1));
+        svc.supervisor().scheduler_pass().await.unwrap();
+        assert_eq!(
+            grant_state(&svc, &data),
+            GrantState::Expired,
+            "expired at the budget end although the wall clock reads 30 s before the bound"
+        );
+        assert!(svc.operations().timegate().check().await.unwrap().wall() < at(3600));
+        scan_events(&svc);
+    }
+
+    #[tokio::test]
+    async fn scheduler_expires_at_the_same_bound_after_a_reboot_with_sync() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let data = ensure(&svc, "req-rb", "work-rb", "1h").await;
+        rig.clock.advance(10 * MINUTE);
+        svc.supervisor().scheduler_pass().await.unwrap();
+        drop(svc);
+        // Reboot: new boot ID, continuous restarts at zero, wall above the mark and
+        // reported synchronized.
+        rig.clock.reboot(at(20 * 60));
+        let svc = rig.service().await;
+        let sup = svc.supervisor();
+        assert_eq!(sup.time_guard_pass().await.unwrap(), TimeStatus::Safe);
+        assert_eq!(
+            sup.scheduler_pass().await.unwrap(),
+            Some(at(3600)),
+            "re-anchored in the new boot with the same persisted bound"
+        );
+        rig.clock.advance(40 * MINUTE - Duration::from_secs(1));
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(grant_state(&svc, &data), GrantState::Active);
+        rig.clock.advance(Duration::from_secs(1));
+        sup.scheduler_pass().await.unwrap();
+        assert_eq!(grant_state(&svc, &data), GrantState::Expired);
+        scan_events(&svc);
+    }
+
+    #[tokio::test]
+    async fn supervisor_run_loop_expires_due_grants_on_its_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let fake = rig.fake(vec![FakeStep::Prepare(outcome())]);
+        let mut options = rig.options(&fake);
+        options.supervisor = heimdall_runtime::supervisor::SupervisorConfig {
+            anchor_interval: Duration::from_millis(20),
+            max_idle_sleep: Duration::from_millis(20),
+            ..Default::default()
+        };
+        let shutdown = CancellationToken::new();
+        let svc = Service::start_with(rig.paths(), Config::default(), options, shutdown.clone())
+            .await
+            .unwrap();
+        let data = ensure(&svc, "req-loop", "work-loop", "1h").await;
+        let store = svc.store().clone();
+        let running = tokio::spawn(svc.run());
+        let state = |store: &Arc<Store>| {
+            store
+                .transaction(|tx| tx.grant(&data.grant_id))
+                .unwrap()
+                .unwrap()
+                .state
+        };
+        // Not due yet: the loop keeps it active.
+        rig.clock.advance(HOUR - Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(state(&store), GrantState::Active);
+        rig.clock.advance(Duration::from_secs(1));
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while state(&store) != GrantState::Expired {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "loop never expired the grant"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        shutdown.cancel();
+        tokio::time::timeout(Duration::from_secs(20), running)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // Time guard
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn time_guard_refuses_a_rollback_and_ensure_is_time_uncertain() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let sup = svc.supervisor();
+        rig.clock.advance(MINUTE);
+        assert_eq!(sup.time_guard_pass().await.unwrap(), TimeStatus::Safe);
+        // Wall clock steps back 10 s (beyond the 5 s rollback tolerance).
+        rig.clock.set_wall(at(60 - 10));
+        let status = sup.time_guard_pass().await.unwrap();
+        assert!(
+            matches!(
+                status,
+                TimeStatus::Uncertain(TimeUncertainty::BelowHighWater { .. })
+            ),
+            "rollback refused: {status:?}"
+        );
+        let e = err(svc
+            .operations()
+            .ensure(&owner(), ensure_req("req-rl", "work-rl", Some("1h")))
+            .await);
+        assert_eq!(e.code, Code::TimeUncertain);
+        assert_eq!(rig.ledger_entries(), 0, "nothing prepared while uncertain");
+        scan_events(&svc);
+    }
+
+    #[tokio::test]
+    async fn time_guard_refuses_an_unsynchronized_reboot_and_ensure_is_time_uncertain() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        drop(rig.service().await);
+        rig.clock.reboot(at(3600));
+        rig.sync.set(SyncStatus::Unknown);
+        // Start-up is not refused (passive reads continue); activation is.
+        let svc = rig.service().await;
+        let sup = svc.supervisor();
+        let status = sup.time_guard_pass().await.unwrap();
+        assert!(
+            matches!(
+                status,
+                TimeStatus::Uncertain(TimeUncertainty::Unsynchronized { .. })
+            ),
+            "unsynchronized reboot refused: {status:?}"
+        );
+        let e = err(svc
+            .operations()
+            .ensure(&owner(), ensure_req("req-us", "work-us", Some("1h")))
+            .await);
+        assert_eq!(e.code, Code::TimeUncertain);
+        assert_eq!(rig.ledger_entries(), 0);
+        // Synchronization returns: the same gate admits again.
+        rig.sync.set(SyncStatus::Synchronized);
+        assert_eq!(sup.time_guard_pass().await.unwrap(), TimeStatus::Safe);
+        let ready = ensure(&svc, "req-us2", "work-us2", "1h").await;
+        assert_eq!(ready.expires_at, at(2 * 3600));
+        scan_events(&svc);
+    }
+
+    // -----------------------------------------------------------------------
+    // Restart recovery (A17 local, in-process)
+    // -----------------------------------------------------------------------
+
+    /// Store fault hook (production `FaultHook`): fails the first `BeforeCommit`
+    /// after the fake adapter applied an effect, so the `Confirmed` receipt never
+    /// becomes durable and the operation rests on its `Attempted` receipt.
+    struct FailCommitAfterEffect {
+        ledger: PathBuf,
+        armed: AtomicBool,
+    }
+
+    impl FaultHook for FailCommitAfterEffect {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == FaultPoint::BeforeCommit
+                && self.armed.load(Ordering::SeqCst)
+                && FakeCredentialAdapter::ledger_entries(&self.ledger)
+                    .map(|e| !e.is_empty())
+                    .unwrap_or(false)
+            {
+                self.armed.store(false, Ordering::SeqCst);
+                return FaultAction::Fail;
+            }
+            FaultAction::Continue
+        }
+    }
+
+    #[tokio::test]
+    async fn restart_recovery_reconciles_an_attempted_receipt_without_preparing_again() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let fake = rig.fake(vec![FakeStep::Prepare(outcome())]);
+        let mut options = rig.options(&fake);
+        options.store_faults = Arc::new(FailCommitAfterEffect {
+            ledger: rig.ledger.clone(),
+            armed: AtomicBool::new(true),
+        });
+        let svc = rig.start(options).await.unwrap();
+        let e = err(svc
+            .operations()
+            .ensure(&owner(), ensure_req("req-at", "work-at", Some("1h")))
+            .await);
+        assert_eq!(e.code, Code::StateUnavailable);
+        let op = e.operation_id.clone().unwrap();
+        assert_eq!(rig.ledger_entries(), 1, "the effect happened once");
+        let record = svc
+            .store()
+            .transaction(|tx| tx.operation(&op))
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.state, OperationState::Running);
+        let receipts = svc
+            .store()
+            .transaction(|tx| tx.stage_receipts(&op))
+            .unwrap();
+        assert!(matches!(
+            receipts.last().map(|r| &r.effect),
+            Some(EffectReceipt::Attempted { .. })
+        ));
+        let env_before = svc.environment().clone();
+        drop(svc);
+
+        // Restart with a new adapter instance over the same durable ledger whose
+        // script would fail any second `prepare`: recovery must reconcile instead.
+        let fresh = rig.fake(vec![FakeStep::Fail(
+            heimdall_app::ports::AdapterError::Unavailable("no second prepare".into()),
+        )]);
+        let svc = rig.start(rig.options(&fresh)).await.unwrap();
+        let record = svc
+            .store()
+            .transaction(|tx| tx.operation(&op))
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.state, OperationState::Succeeded);
+        assert_eq!(rig.ledger_entries(), 1, "reconciled, never re-prepared");
+        assert_eq!(svc.environment(), &env_before);
+        // The same-key retry replays the settled result.
+        let replay = ok(svc
+            .operations()
+            .ensure(&owner(), ensure_req("req-at", "work-at", Some("1h")))
+            .await);
+        assert_eq!(replay.environment_id, env_before);
+        assert_eq!(rig.ledger_entries(), 1);
+        scan_events(&svc);
+    }
+
+    #[tokio::test]
+    async fn restart_never_revives_a_paused_policy_or_changes_identity() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let paused = ok(svc
+            .operations()
+            .policy(
+                &owner(),
+                PolicyAction::Pause {
+                    policy_id: policy_id(),
+                },
+            )
+            .await);
+        assert_eq!(paused["paused"], true);
+        drop(svc);
+        let svc = rig.service().await;
+        assert_eq!(svc.environment(), &env_id());
+        let policy = svc
+            .store()
+            .transaction(|tx| tx.policy(&policy_id()))
+            .unwrap()
+            .unwrap();
+        assert_ne!(
+            policy.pause,
+            PauseState::Active,
+            "the pause survives restart"
+        );
+        let e = err(svc
+            .operations()
+            .ensure(&owner(), ensure_req("req-pp", "work-pp", Some("1h")))
+            .await);
+        assert_eq!(e.code, Code::PolicyPaused);
+        assert_eq!(rig.ledger_entries(), 0);
+        // Resuming is a widening action: a decision record, nothing executed.
+        let r = err(svc
+            .operations()
+            .policy(
+                &owner(),
+                PolicyAction::Resume {
+                    policy_id: policy_id(),
+                },
+            )
+            .await);
+        assert_eq!(r.code, Code::InteractionRequired);
+        assert!(r.next.decision_ref.is_some());
+        scan_events(&svc);
+    }
+
+    // -----------------------------------------------------------------------
+    // Dispatcher: caller construction
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn caller_is_built_from_the_session_only() {
+        let session = SessionInfo {
+            principal: PrincipalInfo::OsUserUnix { uid: 501 },
+            interaction: InteractionMode::Interactive,
+            attended: false,
+        };
+        let c = caller_for(&session, t0());
+        assert_eq!(c.context.principal, PrincipalRef::UnixUser { uid: 501 });
+        assert_eq!(c.context.role, ClientRole::Owner);
+        assert!(!c.is_attended());
+        assert!(c.may_attend());
+        let attended = SessionInfo {
+            attended: true,
+            ..session.clone()
+        };
+        assert!(caller_for(&attended, t0()).is_attended());
+        let windows = SessionInfo {
+            principal: PrincipalInfo::OsUserWindows {
+                sid: "S-1-5-21-1-2-3-1001".into(),
+            },
+            interaction: InteractionMode::NonInteractive,
+            attended: false,
+        };
+        let w = caller_for(&windows, t0());
+        assert_eq!(
+            w.context.principal,
+            PrincipalRef::WindowsUser {
+                sid: "S-1-5-21-1-2-3-1001".into()
+            }
+        );
+        assert!(!w.may_attend());
+    }
+
+    #[tokio::test]
+    async fn dispatcher_rechecks_attendance_and_renders_application_results() {
+        use heimdall_contract::request::{
+            ConfirmTimeRequest, DecideRequest, InspectRequest, InspectSubject, Request, Verdict,
+        };
+        use heimdall_runtime::dispatch::{EventRelay, OperationsDispatcher};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let svc = rig.service().await;
+        let stop = CancellationToken::new();
+        let relay = EventRelay::spawn(svc.operations(), stop.clone());
+        let d = OperationsDispatcher::new(svc.operations().clone(), relay, rig.clock.clone());
+        let unattended = SessionInfo {
+            principal: PrincipalInfo::OsUserUnix { uid: 501 },
+            interaction: InteractionMode::Interactive,
+            attended: false,
+        };
+        // Even if a session forwarded them, attended-only requests are refused here.
+        for request in [
+            Request::Decide(DecideRequest {
+                decision_id: heimdall_contract::ids::DecisionId::from_random_bytes([4; 16]),
+                verdict: Verdict::Approve,
+            }),
+            Request::ConfirmTime(ConfirmTimeRequest {
+                observed_wall: t0(),
+            }),
+        ] {
+            let env = d.handle(&unattended, request).await;
+            assert_no_canary(&serde_json::to_string(&env).unwrap());
+            assert_eq!(env.code, Code::InteractionRequired);
+            assert_eq!(env.data["error"]["code"], "INTERACTION_REQUIRED");
+        }
+        // Reads and effects render the application's envelope unchanged.
+        let caps = d
+            .handle(
+                &unattended,
+                Request::Inspect(InspectRequest {
+                    subject: InspectSubject::Capabilities,
+                    preview: None,
+                }),
+            )
+            .await;
+        assert_eq!(caps.code, Code::Ok);
+        assert!(caps.data["capabilities"].is_array());
+        let ready = d
+            .handle(
+                &unattended,
+                Request::Ensure(ensure_req("req-d", "work-d", Some("1h"))),
+            )
+            .await;
+        assert_no_canary(&serde_json::to_string(&ready).unwrap());
+        assert_eq!(ready.code, Code::AccessReady);
+        assert_eq!(ready.data["environment_id"], env_id().as_str());
+        // An attended session reaches the application, which answers on its own
+        // terms (an unknown decision is not found, never executed).
+        let attended = SessionInfo {
+            attended: true,
+            ..unattended.clone()
+        };
+        let unknown = d
+            .handle(
+                &attended,
+                Request::Decide(DecideRequest {
+                    decision_id: heimdall_contract::ids::DecisionId::from_random_bytes([4; 16]),
+                    verdict: Verdict::Approve,
+                }),
+            )
+            .await;
+        assert_ne!(unknown.code, Code::InteractionRequired);
+        assert_ne!(unknown.code, Code::Ok);
+        stop.cancel();
+    }
+
+    // -----------------------------------------------------------------------
+    // Full control-socket round trip against a real service
+    // -----------------------------------------------------------------------
+
+    #[cfg(unix)]
+    async fn client(
+        path: &Path,
+        mode: InteractionMode,
+    ) -> heimdall_ipc::session::ControlClient<tokio::net::UnixStream> {
+        let stream = heimdall_ipc::unix::connect(path).await.unwrap();
+        heimdall_ipc::session::ControlClient::handshake(
+            stream,
+            heimdall_contract::ipc::PeerInfo {
+                name: "u8b-test".into(),
+                version: "0".into(),
+            },
+            [heimdall_contract::ipc::capability::OPERATIONS_V1.to_owned()]
+                .into_iter()
+                .collect(),
+            mode,
+        )
+        .await
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn scan_envelope(env: &Envelope<serde_json::Value>) {
+        assert_no_canary(&serde_json::to_string(env).unwrap());
+    }
+
+    /// Events on any subscription of `c` until none arrives for 500 ms; each is
+    /// scanned for canaries and must carry a cursor.
+    #[cfg(unix)]
+    async fn drain_events(
+        c: &mut heimdall_ipc::session::ControlClient<tokio::net::UnixStream>,
+    ) -> Vec<heimdall_contract::event::Event> {
+        let mut seen = Vec::new();
+        while let Ok(next) = tokio::time::timeout(Duration::from_millis(500), c.next_event()).await
+        {
+            let (_, event) = next.unwrap();
+            assert_no_canary(&serde_json::to_string(&event).unwrap());
+            assert!(
+                !event.cursor.0.is_empty(),
+                "delivered events carry a cursor"
+            );
+            seen.push(event);
+        }
+        seen
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn control_socket_round_trip_against_a_real_service() {
+        use heimdall_contract::event::EventFilter;
+        use heimdall_contract::request::{DecideRequest, Request, Verdict};
+        use heimdall_ipc::session::SubscribeOutcome;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let rig = Rig::new(&tmp);
+        let fake = rig.fake(vec![FakeStep::Prepare(outcome())]);
+        let shutdown = CancellationToken::new();
+        let svc = Service::start_with(
+            rig.paths(),
+            Config::default(),
+            rig.options(&fake),
+            shutdown.clone(),
+        )
+        .await
+        .unwrap();
+        let control = svc.endpoints().control.clone();
+        let signing = svc.endpoints().signing.clone();
+        assert_ne!(control, signing);
+        let running = tokio::spawn(svc.run());
+
+        // Hello: the server reports this runtime's environment and our principal.
+        let mut c = client(&control, InteractionMode::NonInteractive).await;
+        assert_eq!(c.server().environment_id, env_id());
+        assert_eq!(
+            c.server().principal,
+            PrincipalInfo::OsUserUnix {
+                uid: heimdall_ipc::unix::current_uid()
+            }
+        );
+
+        // Subscribe without a cursor: a consistent snapshot and a boundary cursor.
+        let SubscribeOutcome::Subscribed {
+            subscription,
+            cursor: boundary,
+            snapshot,
+        } = c.subscribe(EventFilter::default(), None).await.unwrap()
+        else {
+            panic!("subscription refused");
+        };
+        assert!(snapshot.is_some());
+
+        // Ensure with the fake adapter.
+        let env = c
+            .request(Request::Ensure(ensure_req("req-rt", "work-rt", Some("1h"))))
+            .await
+            .unwrap();
+        scan_envelope(&env);
+        assert_eq!(env.code, Code::AccessReady);
+        assert_eq!(env.state, OperationState::Succeeded);
+        let op = env.operation_id.clone().unwrap();
+        let data: EnsureData = serde_json::from_value(env.data.clone()).unwrap();
+        assert_eq!(data.environment_id, env_id());
+        assert_eq!(rig.ledger_entries(), 1);
+
+        // Live events for that operation arrive on the subscription.
+        let live = drain_events(&mut c).await;
+        assert!(live.iter().any(|e| e.operation_id.as_ref() == Some(&op)));
+        assert!(live.iter().all(|e| e.environment_id == env_id()));
+        c.unsubscribe(subscription).await.unwrap();
+
+        // Resume from the earlier boundary: the backlog replays the same events
+        // (no snapshot), in order.
+        let SubscribeOutcome::Subscribed { snapshot, .. } = c
+            .subscribe(EventFilter::default(), Some(boundary))
+            .await
+            .unwrap()
+        else {
+            panic!("resubscription refused");
+        };
+        assert!(
+            snapshot.is_none(),
+            "a usable cursor resumes from the backlog"
+        );
+        let replayed = drain_events(&mut c).await;
+        // Same events in the same order: live delivery is in store `seq` order
+        // (gap G06; `EventPublisher::announce`), and so is the backlog. Each live
+        // event carries the cursor of its own position.
+        let ids = |v: &[heimdall_contract::event::Event]| {
+            v.iter()
+                .map(|e| (e.event_id.clone(), e.event_type, e.operation_id.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&replayed), ids(&live));
+        let live_seqs: Vec<u64> = live
+            .iter()
+            .map(|e| heimdall_app::events::cursor::decode(&e.cursor).unwrap().seq)
+            .collect();
+        assert!(
+            live_seqs.windows(2).all(|w| w[0] < w[1]),
+            "live delivery in store order: {live_seqs:?}"
+        );
+        let seqs: Vec<u64> = replayed
+            .iter()
+            .map(|e| heimdall_app::events::cursor::decode(&e.cursor).unwrap().seq)
+            .collect();
+        assert!(
+            seqs.windows(2).all(|w| w[0] < w[1]),
+            "backlog in store order"
+        );
+
+        // Attended-only requests are refused on an unattended session.
+        let refused = c
+            .request(Request::Decide(DecideRequest {
+                decision_id: heimdall_contract::ids::DecisionId::from_random_bytes([3; 16]),
+                verdict: Verdict::Approve,
+            }))
+            .await
+            .unwrap();
+        scan_envelope(&refused);
+        assert_eq!(refused.code, Code::InteractionRequired);
+        // A widening policy action is dispatched and answered with a decision
+        // record (unattended: INTERACTION_REQUIRED + decision_ref).
+        let pause = c
+            .request(Request::Policy(PolicyAction::Pause {
+                policy_id: policy_id(),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(pause.code, Code::Ok);
+        let resume = c
+            .request(Request::Policy(PolicyAction::Resume {
+                policy_id: policy_id(),
+            }))
+            .await
+            .unwrap();
+        scan_envelope(&resume);
+        assert_eq!(resume.code, Code::InteractionRequired);
+        let unattended_ref = resume.next.as_ref().and_then(|n| n.decision_ref.clone());
+        assert!(unattended_ref.is_some());
+
+        // Attended interactive session: still a decision record, never executed on
+        // dispatch (APPROVAL_REQUIRED + decision_ref).
+        let mut a = client(&control, InteractionMode::Interactive).await;
+        let attended = a.attend().await.unwrap();
+        assert_eq!(attended.code, Code::Ok);
+        let resume = a
+            .request(Request::Policy(PolicyAction::Resume {
+                policy_id: policy_id(),
+            }))
+            .await
+            .unwrap();
+        scan_envelope(&resume);
+        assert_eq!(resume.code, Code::ApprovalRequired);
+        assert!(
+            resume
+                .next
+                .as_ref()
+                .and_then(|n| n.decision_ref.clone())
+                .is_some()
+        );
+        let still = c
+            .request(Request::Ensure(ensure_req(
+                "req-rt2",
+                "work-rt2",
+                Some("1h"),
+            )))
+            .await
+            .unwrap();
+        scan_envelope(&still);
+        assert_eq!(
+            still.code,
+            Code::PolicyPaused,
+            "resume not executed on dispatch"
+        );
+
+        // Shutdown: sessions get Goodbye(SERVICE_UNAVAILABLE), the advertisement
+        // and the sockets disappear, and the lock is released.
+        shutdown.cancel();
+        let refusal = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match c.next_event().await {
+                    // Events still queued on the open subscription come first.
+                    Ok((_, event)) => assert_no_canary(&serde_json::to_string(&event).unwrap()),
+                    Err(e) => break e,
+                }
+            }
+        })
+        .await
+        .expect("goodbye within the timeout");
+        match heimdall_ipc::session::server_refusal(&refusal) {
+            Some(heimdall_ipc::session::ServerRefusal::Goodbye { code, .. }) => {
+                assert_eq!(*code, Code::ServiceUnavailable);
+            }
+            other => panic!("expected a goodbye, got {other:?}"),
+        }
+        tokio::time::timeout(Duration::from_secs(20), running)
+            .await
+            .expect("run returns after shutdown")
+            .unwrap()
+            .unwrap();
+        assert!(!rig.paths().runtime_dir.join(INSTANCE_FILE).exists());
+        assert!(!control.exists() && !signing.exists());
+        let again = rig.service().await;
+        assert_eq!(again.environment(), &env_id());
+    }
+
+    // -----------------------------------------------------------------------
+    // Launcher: concurrent clients start exactly one child
+    // -----------------------------------------------------------------------
+
+    /// Environment variable that turns [`launcher_child_service`] into a service
+    /// host for the given `HEIMDALL_HOME` layout.
+    const CHILD_ENV: &str = "HEIMDALL_U8B_CHILD_HOME";
+    #[cfg(unix)]
+    const CHILD_TEST: &str = "u8b::launcher_child_service";
+
+    /// Child-process entry, not a test of its own: re-executed by
+    /// `launcher_eight_concurrent_clients_start_exactly_one_child` with
+    /// `CHILD_ENV` set, it runs the production `Service::start` (system clock)
+    /// until a `stop` file appears in the home (or 60 s pass).
+    #[test]
+    #[ignore = "child-process entry for the launcher test; runs only when re-executed by it"]
+    fn launcher_child_service() {
+        let Some(home) = std::env::var_os(CHILD_ENV) else {
+            return;
+        };
+        let home = PathBuf::from(home);
+        let rt = Service::runtime().unwrap();
+        rt.block_on(async move {
+            let shutdown = CancellationToken::new();
+            let svc = Service::start(Paths::under(&home), Config::default(), shutdown.clone())
+                .await
+                .unwrap();
+            let stop = home.join("stop");
+            let token = shutdown.clone();
+            tokio::spawn(async move {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+                while !stop.exists() && tokio::time::Instant::now() < deadline {
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+                token.cancel();
+            });
+            svc.run().await.unwrap();
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn launcher_eight_concurrent_clients_start_exactly_one_child() {
+        use std::process::{Child, Command, Stdio};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let home = home(&tmp);
+        let paths = Paths::under(&home);
+        paths.ensure().unwrap();
+        let run_dir = paths.runtime_dir.clone();
+        let exe = std::env::current_exe().unwrap();
+        let children: Arc<Mutex<Vec<Child>>> = Arc::new(Mutex::new(Vec::new()));
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let config = LauncherConfig {
+            start_timeout: Duration::from_secs(60),
+            initial_poll: Duration::from_millis(10),
+        };
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let (children, spawns, barrier) =
+                    (children.clone(), spawns.clone(), barrier.clone());
+                let (exe, home, run_dir) = (exe.clone(), home.clone(), run_dir.clone());
+                std::thread::spawn(move || {
+                    let spawn = move || {
+                        spawns.fetch_add(1, Ordering::SeqCst);
+                        let child = Command::new(&exe)
+                            .args([CHILD_TEST, "--exact", "--ignored", "--test-threads=1"])
+                            .env(CHILD_ENV, &home)
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .spawn()?;
+                        children.lock().unwrap().push(child);
+                        Ok(())
+                    };
+                    barrier.wait();
+                    Service::runtime()
+                        .unwrap()
+                        .block_on(ensure_running_with(&run_dir, true, config, &spawn))
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        let stop_child = |children: &Arc<Mutex<Vec<Child>>>| {
+            std::fs::write(home.join("stop"), b"").unwrap();
+            let mut list = children.lock().unwrap();
+            let mut statuses = Vec::new();
+            for child in list.iter_mut() {
+                let deadline = std::time::Instant::now() + Duration::from_secs(30);
+                let status = loop {
+                    if let Some(s) = child.try_wait().unwrap() {
+                        break Some(s);
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        // Only the exact child this test started.
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break None;
+                    }
+                    std::thread::sleep(Duration::from_millis(25));
+                };
+                statuses.push(status);
+            }
+            statuses
+        };
+
+        let started = results
+            .iter()
+            .filter(|r| matches!(r, Ok(Started::StartedNow)))
+            .count();
+        let already = results
+            .iter()
+            .filter(|r| matches!(r, Ok(Started::AlreadyRunning)))
+            .count();
+        let spawned = spawns.load(Ordering::SeqCst);
+        let child_pid = children.lock().unwrap().first().map(Child::id);
+        let advertised = InstanceInfo::read_valid(&run_dir).unwrap();
+        // A ninth client afterwards finds the running instance without spawning.
+        let ninth = Service::runtime().unwrap().block_on(ensure_running_with(
+            &run_dir,
+            true,
+            config,
+            &|| -> std::io::Result<()> { panic!("must not spawn") },
+        ));
+        // The child serves the control endpoint.
+        let hello_env = Service::runtime().unwrap().block_on(async {
+            let c = client(
+                &run_dir.join("control.sock"),
+                InteractionMode::NonInteractive,
+            )
+            .await;
+            c.server().environment_id.clone()
+        });
+        let statuses = stop_child(&children);
+
+        assert_eq!(spawned, 1, "exactly one child spawned");
+        assert_eq!(started, 1, "{results:?}");
+        assert_eq!(already, 7, "{results:?}");
+        assert_eq!(advertised.as_ref().map(|i| i.pid), child_pid);
+        assert!(matches!(ninth, Ok(Started::AlreadyRunning)));
+        let recorded = Store::open(&paths.state_dir.join(STATE_DB_FILE), Arc::new(NoFaults))
+            .unwrap()
+            .transaction(|tx| tx.self_environment())
+            .unwrap();
+        assert_eq!(recorded, Some(hello_env));
+        assert_eq!(statuses.len(), 1);
+        assert!(
+            statuses[0].is_some_and(|s| s.success()),
+            "child exits cleanly on stop: {statuses:?}"
+        );
+        assert!(!run_dir.join(INSTANCE_FILE).exists());
+        assert!(!run_dir.join("control.sock").exists());
+    }
+}

@@ -22,7 +22,8 @@
 //!   bound or the continuous budget runs out; an anchor from another boot is void
 //!   (`NeedsAnchor`, fail closed) until a time assessed `Safe` re-anchors it.
 //! * One shared gate ([`gate`]) is consulted before admission, signing and issuance:
-//!   the wall clock must not be below the persisted high-water mark; within a boot
+//!   the wall clock must not be below the persisted high-water mark (within a boot by
+//!   more than the rollback tolerance; after a reboot not at all); within a boot
 //!   it must agree with the continuous clock's prediction in **either** direction
 //!   (an implausible forward jump is as uncertain as a step back); after a reboot
 //!   (or at first start) it is accepted only at or above the high-water mark **and**
@@ -358,18 +359,22 @@ pub struct GateInput<'a> {
 
 /// The shared time gate (ADR-0005 §3.6 "`TIME_UNCERTAIN` applies when"). Pure.
 ///
-/// 1. `now.wall` below `high_water` by more than `max_tolerated_rollback` ⇒
-///    `BelowHighWater`, whatever the boot.
-/// 2. `previous` in the same boot: the continuous clock must not have gone backwards
+/// 1. `now.wall` below `high_water` ⇒ `BelowHighWater`. **Within a boot** (a
+///    same-boot runtime anchor or attended confirmation exists) a deficit up to
+///    `max_tolerated_rollback` is tolerated; **after a reboot or at first start** (no
+///    same-boot reference) no deficit is tolerated: ADR-0005 §3.6 requires wall time
+///    at or above the mark there (ADR-0006 §13.4 N05).
+/// 2. A same-boot reference: the continuous clock must not have gone backwards
 ///    (`ContinuousWentBackwards`) and `now.wall` must lie within
 ///    `max_tolerated_skew` of `previous.wall + (now.continuous − previous.continuous)`
 ///    in either direction (`Skew`). Sleep passes because the continuous clock counts
 ///    it; a frozen wall clock, a step back and an implausible forward jump all fail.
 /// 3. No `previous` in this boot (reboot or first start): accepted only when
-///    `sync == Synchronized`, or an attended confirmation for this boot exists and
-///    `now` agrees with its prediction as in rule 2. Otherwise `Unsynchronized`.
-///    Rule 1 still applies, so a rolled-back clock after downtime is refused even if
-///    it is above the mark but unsynchronized, and refused by the mark when below.
+///    `sync == Synchronized` **and** `now.wall >= high_water` (rule 1). An attended
+///    confirmation for this boot is a same-boot reference (rule 2). Otherwise
+///    `Unsynchronized`. A rolled-back clock after downtime is therefore refused when
+///    above the mark but unsynchronized, and refused by the mark when below it,
+///    whatever the synchronization report.
 ///
 /// Boundaries are inclusive on the safe side: a difference equal to a tolerance is
 /// `Safe`, one nanosecond more is `Uncertain`.
@@ -377,16 +382,22 @@ pub struct GateInput<'a> {
 pub fn gate(input: &GateInput<'_>) -> TimeStatus {
     let now = input.now;
     let policy = input.policy;
+    let reference = prediction_reference(input);
     if let Some(mark) = input.high_water {
-        let behind = mark.duration_since(now.wall);
-        if behind > signed(policy.max_tolerated_rollback) {
+        // The rollback tolerance is a within-boot allowance only (N05).
+        let allowed = if reference.is_some() {
+            signed(policy.max_tolerated_rollback)
+        } else {
+            jiff::SignedDuration::ZERO
+        };
+        if mark.duration_since(now.wall) > allowed {
             return TimeStatus::Uncertain(TimeUncertainty::BelowHighWater {
                 mark,
                 observed: now.wall,
             });
         }
     }
-    if let Some(reference) = prediction_reference(input) {
+    if let Some(reference) = reference {
         return check_prediction(&reference, now, policy);
     }
     if input.sync == SyncStatus::Synchronized {
@@ -434,20 +445,24 @@ pub fn next_runtime_anchor(
 
 /// How far the accepted wall time may lag the truth, given the tolerances the gate
 /// used to accept it (design-fix second round R4): the rollback tolerance when the
-/// observation sits below the high-water mark, plus the skew tolerance when it was
-/// accepted through a same-boot prediction (runtime anchor or confirmation). Zero
-/// for an observation accepted at or above the mark on synchronized time with no
-/// same-boot reference. Only meaningful when [`gate`] returned `Safe`.
+/// observation sits below the high-water mark **within a boot** (after a reboot the
+/// gate accepts nothing below the mark, so there is no rollback share; N05), plus
+/// the skew tolerance when it was accepted through a same-boot prediction (runtime
+/// anchor or confirmation) on unsynchronized time. Zero for an observation accepted
+/// at or above the mark on synchronized time with no same-boot reference. Only
+/// meaningful when [`gate`] returned `Safe`.
 #[must_use]
 pub fn accepted_tolerance(input: &GateInput<'_>) -> Duration {
+    let same_boot = prediction_reference(input).is_some();
     let mut tolerance = Duration::ZERO;
-    if input.high_water.is_some_and(|mark| input.now.wall < mark) {
+    if same_boot && input.high_water.is_some_and(|mark| input.now.wall < mark) {
         tolerance = tolerance.saturating_add(input.policy.max_tolerated_rollback);
     }
     // A prediction-based acceptance (runtime anchor or confirmation) can hide up to
-    // the skew tolerance; synchronized time is trusted as-is, so the skew share
-    // applies only when the platform did not report synchronization.
-    if input.sync != SyncStatus::Synchronized && prediction_reference(input).is_some() {
+    // the skew tolerance; synchronized time is an ASSUMPTION needing native evidence
+    // (ADR-0006 §13.3 item 4), taken as-is, so the skew share applies only when the
+    // platform did not report synchronization.
+    if same_boot && input.sync != SyncStatus::Synchronized {
         tolerance = tolerance.saturating_add(input.policy.max_tolerated_skew);
     }
     tolerance
@@ -537,17 +552,30 @@ pub fn anchor_grant_with_tolerance(
     }
 }
 
-/// Apply a later-set earlier bound (cutoff, parent narrowing). The result never has
-/// a later bound or a longer budget than `current`; a later `new_bound` is ignored.
+/// Apply a later-set earlier bound (cutoff, parent narrowing; ADR-0005 §3.6 "an
+/// earlier cutoff set later shortens it").
+///
+/// The **existing** budget is reduced by the bound reduction:
+/// `budget_end = current.budget_end − (current.bound − new_bound)`, saturating at
+/// zero. It is never recomputed from the raw anchor, so a tolerance deduction made
+/// when the grant was anchored ([`anchor_grant_with_tolerance`]) is kept (ADR-0006
+/// §13.4 N01: recomputing lost that margin and admitted up to the tolerance past
+/// the new bound). The result never has a later bound or a longer budget than
+/// `current`; a later or equal `new_bound` returns `current` unchanged.
 #[must_use]
 pub fn shorten(current: &GrantAnchor, new_bound: Timestamp) -> GrantAnchor {
     if new_bound >= current.bound {
         return current.clone();
     }
-    let shortened = anchor_grant(current.grant.clone(), current.anchor.clone(), new_bound);
+    // `new_bound < current.bound`, so the reduction is positive; a reduction too
+    // large for `Duration` ends the budget (saturating, fail closed).
+    let reduction =
+        Duration::try_from(current.bound.duration_since(new_bound)).unwrap_or(Duration::MAX);
     GrantAnchor {
-        budget_end: shortened.budget_end.min(current.budget_end),
-        ..shortened
+        grant: current.grant.clone(),
+        anchor: current.anchor.clone(),
+        bound: new_bound,
+        budget_end: current.budget_end.saturating_sub(reduction),
     }
 }
 
@@ -1070,13 +1098,79 @@ mod tests_rev2 {
         };
         assert_eq!(gate(&input), TimeStatus::Safe);
         assert_eq!(accepted_tolerance(&input), Duration::ZERO);
-        // Accepted within the rollback tolerance below the mark: the tolerance counts.
+        // N05: after a reboot (no same-boot reference) 3 s below the mark is refused
+        // even when synchronized, and carries no rollback share.
         let below = at(2, 5, plus(t0(), 7197));
         let input = GateInput {
             now: &below,
             ..input
         };
+        assert!(matches!(
+            gate(&input),
+            TimeStatus::Uncertain(TimeUncertainty::BelowHighWater { .. })
+        ));
+        assert_eq!(accepted_tolerance(&input), Duration::ZERO);
+        // Within a boot (same-boot runtime anchor) the same deficit is tolerated and
+        // the rollback share counts.
+        let prev = at(2, 1, plus(t0(), 7193));
+        let input = GateInput {
+            previous: Some(&prev),
+            ..input
+        };
         assert_eq!(gate(&input), TimeStatus::Safe);
         assert_eq!(accepted_tolerance(&input), policy.max_tolerated_rollback);
+    }
+
+    /// N05: a synchronized reboot slightly below the mark is `Uncertain`; an attended
+    /// confirmation for this boot resolves it (rollback tolerance then applies within
+    /// the boot).
+    #[test]
+    fn reboot_below_mark_is_uncertain_until_confirmed() {
+        let policy = TimePolicy::default();
+        let prev = at(1, 100, t0());
+        let mark = plus(t0(), 7200);
+        let now = at(2, 10, plus(t0(), 7196));
+        let input = GateInput {
+            previous: Some(&prev),
+            high_water: Some(mark),
+            now: &now,
+            sync: SyncStatus::Synchronized,
+            confirmation: None,
+            policy: &policy,
+        };
+        assert!(matches!(
+            gate(&input),
+            TimeStatus::Uncertain(TimeUncertainty::BelowHighWater { .. })
+        ));
+        let conf = AttendedTimeConfirmation {
+            boot_id: boot(2),
+            continuous: Duration::from_secs(10),
+            wall: plus(t0(), 7196),
+            decision: DecisionId::from_random_bytes([5; 16]),
+        };
+        let input = GateInput {
+            confirmation: Some(&conf),
+            ..input
+        };
+        assert_eq!(gate(&input), TimeStatus::Safe);
+        assert_eq!(accepted_tolerance(&input), policy.max_tolerated_rollback);
+    }
+
+    /// N01 regression (reviewer's counterexample): a tolerance-adjusted budget keeps
+    /// its margin when shortened.
+    #[test]
+    fn shorten_keeps_the_tolerance_margin() {
+        let g = GrantId::from_random_bytes([6; 16]);
+        let anchor = at(1, 0, t0());
+        let ga = anchor_grant_with_tolerance(g, anchor, plus(t0(), 3600), Duration::from_secs(60));
+        assert_eq!(ga.budget_end, Duration::from_secs(3540));
+        let narrowed = shorten(&ga, plus(t0(), 3570));
+        assert_eq!(narrowed.bound, plus(t0(), 3570));
+        assert_eq!(narrowed.budget_end, Duration::from_secs(3510));
+        // Saturates at zero, never wraps.
+        let gone = shorten(&ga, plus(t0(), -100_000));
+        assert_eq!(gone.budget_end, Duration::ZERO);
+        // Later bound: unchanged.
+        assert_eq!(shorten(&ga, plus(t0(), 9999)), ga);
     }
 }

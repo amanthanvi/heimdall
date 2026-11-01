@@ -40,3 +40,25 @@ windows-sys = { workspace = true }
 [dev-dependencies]
 heimdall-testkit = { workspace = true }
 tempfile = { workspace = true }
+# Gap G11: the U5t time-gate sweep is a fixed-seed proptest with Cutoff steps.
+proptest = { workspace = true }
+
+# M01-U5t time gate wiring: A08 cases through TimeGate + store.
+[[test]]
+name = "model_timegate"
+path = "../../tests/model/timegate.rs"
+
+# M01-U8a runtime foundations: paths, config, instance info, redaction, platform clock.
+[[test]]
+name = "integration_runtime"
+path = "../../tests/integration/runtime.rs"
+
+# M01-U5 application operations: A06/A19/A29 model cases and pipeline fault points.
+[[test]]
+name = "model_operations"
+path = "../../tests/model/operations.rs"
+
+# M01-U5 events, cursors and subscriptions (A19 event cases).
+[[test]]
+name = "model_events"
+path = "../../tests/model/events.rs"

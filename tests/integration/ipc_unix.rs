@@ -31,7 +31,10 @@ use heimdall_contract::request::{
     CancelRequest, ConfirmTimeRequest, DecideRequest, InspectRequest, InspectSubject,
     InteractionMode, PolicyAction, Request, Verdict,
 };
-use heimdall_contract::{Code, EffectStatus, Envelope, ErrorData, PROTOCOL_VERSION, SchemaVersion};
+use heimdall_contract::{
+    Code, EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction, OperationState,
+    PROTOCOL_VERSION, SchemaVersion,
+};
 use heimdall_ipc::endpoint::{
     EndpointKind, EndpointPaths, ExpectedOwner, PeerIdentity, PeerRejected, verify_peer,
 };
@@ -91,6 +94,11 @@ fn cancel(n: u8) -> Request {
 /// and every dispatch with the session it saw, optionally holds each dispatch
 /// until the gate grants a permit, answers `inspect` with the journal, and serves
 /// subscriptions from a shared broadcast channel with cursors `c<seq>`.
+///
+/// Widening policy actions are answered the way the application must answer them
+/// (ADR-0006 §3.1, §13.4 N04): never executed, always a decision record —
+/// `APPROVAL_REQUIRED` on an attended session, `INTERACTION_REQUIRED` on an
+/// unattended one, both with `next.decision_ref`.
 #[derive(Clone)]
 struct TestDispatcher {
     journal: Arc<Mutex<Vec<String>>>,
@@ -136,6 +144,9 @@ impl Dispatcher for TestDispatcher {
         if let Some(g) = &self.gate {
             g.acquire().await.unwrap().forget();
         }
+        if request.is_widening_policy_action() {
+            return decision_required(session.attended);
+        }
         let journal = self.journal.lock().unwrap().clone();
         Envelope::ok(serde_json::json!({
             "kind": request.kind(),
@@ -161,6 +172,51 @@ impl Dispatcher for TestDispatcher {
             cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),
         })
     }
+}
+
+/// Fixture decision reference returned by the test dispatcher's decision flow.
+const FIXTURE_DECISION_REF: &str = "dec_fixture";
+
+/// The application's answer to a widening action (N04): a pending decision record,
+/// nothing executed.
+fn decision_required(attended: bool) -> Envelope<serde_json::Value> {
+    let code = if attended {
+        Code::ApprovalRequired
+    } else {
+        Code::InteractionRequired
+    };
+    let mut next = NextAction::for_code(code.clone());
+    next.decision_ref = Some(FIXTURE_DECISION_REF.into());
+    let mut env = Envelope::failed(
+        None,
+        ErrorDetail {
+            code,
+            effect_status: EffectStatus::None,
+            retryable: false,
+            resource: None,
+            next: next.clone(),
+            message: "an owner decision is required".into(),
+        },
+    );
+    env.state = OperationState::AwaitingApproval;
+    env.next = Some(next);
+    env.map(|d| serde_json::to_value(d).unwrap())
+}
+
+/// A widening action's answer: the given code, a decision reference, no effect.
+fn assert_decision_required(env: &Envelope<serde_json::Value>, code: Code) {
+    assert_eq!(env.code, code);
+    assert_eq!(env.state, OperationState::AwaitingApproval);
+    let detail: ErrorData = serde_json::from_value(env.data.clone()).unwrap();
+    assert_eq!(detail.error.effect_status, EffectStatus::None);
+    assert_eq!(
+        detail.error.next.decision_ref.as_deref(),
+        Some(FIXTURE_DECISION_REF)
+    );
+    assert_eq!(
+        env.next.as_ref().and_then(|n| n.decision_ref.as_deref()),
+        Some(FIXTURE_DECISION_REF)
+    );
 }
 
 /// A neutral event (cursor not yet personalized; the session sets it).
@@ -1495,13 +1551,15 @@ async fn non_interactive_session_can_never_be_attended() {
             .await
             .unwrap();
         assert_eq!(pause.code, Code::Ok, "narrowing actions need no attendance");
-        // Widening actions are dispatched even when unattended (R5): the application
-        // layer answers them with a `WidenPolicy` decision record, which this test
-        // dispatcher does not model; the session must not refuse them itself.
+        // Widening actions are dispatched even when unattended (R5): the session
+        // must not refuse them itself; the application answers with a
+        // `WidenPolicy` decision record and `INTERACTION_REQUIRED` (N04).
         let widening = policy(|policy_id| PolicyAction::Resume { policy_id });
         assert!(widening.is_widening_policy_action());
         assert!(!widening.requires_attended_session());
-        let _ = c.request(widening).await.unwrap();
+        let env = c.request(widening).await.unwrap();
+        assert_decision_required(&env, Code::InteractionRequired);
+        assert_interaction_required(&env);
         let seen = seen.lock().unwrap().clone();
         assert_eq!(seen.len(), 3, "inspect, pause and resume were dispatched");
         assert!(seen.iter().all(|(_, s)| !s.attended));
@@ -1543,14 +1601,19 @@ async fn interactive_session_is_attended_only_after_attend() {
         // Idempotent.
         assert_eq!(c.attend().await.unwrap().code, Code::Ok);
 
-        // Attended: decide and confirm_time pass the session gate, and the widening
-        // policy actions (dispatched either way, R5) now arrive on an attended
-        // session, where the application executes them directly.
-        let widening = [
+        // Attended: the widening policy actions (dispatched either way, R5) are
+        // still never executed on dispatch; the application answers each with a
+        // decision record and `APPROVAL_REQUIRED` (N04: attendance is not the
+        // confirmation). Only `decide` on this attended session completes it.
+        for req in [
             policy(|policy_id| PolicyAction::Resume { policy_id }),
             policy(|policy_id| PolicyAction::ClearCutoff { policy_id }),
-        ];
-        for req in attended_only_requests().into_iter().chain(widening) {
+        ] {
+            let env = c.request(req).await.unwrap();
+            assert_decision_required(&env, Code::ApprovalRequired);
+        }
+        // decide and confirm_time pass the session gate on the attended session.
+        for req in attended_only_requests() {
             let kind = req.kind();
             let env = c.request(req).await.unwrap();
             assert_eq!(env.code, Code::Ok, "{kind}");
@@ -1560,7 +1623,7 @@ async fn interactive_session_is_attended_only_after_attend() {
         let kinds: Vec<&str> = seen.iter().map(|(k, _)| *k).collect();
         assert_eq!(
             kinds,
-            ["inspect", "decide", "confirm_time", "policy", "policy"]
+            ["inspect", "policy", "policy", "decide", "confirm_time"]
         );
         assert!(!seen[0].1.attended);
         assert!(seen[1..].iter().all(|(_, s)| s.attended
@@ -1891,6 +1954,175 @@ async fn oversize_subscribed_frame_establishes_no_subscription() {
         assert_eq!(c.unsubscribe(1).await.unwrap().code, Code::NotFound);
         let env = c.request(inspect()).await.unwrap();
         assert_eq!(env.code, Code::Ok);
+        drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+// ---- oversized events (ADR-0006 §8, §13.4 N03) -----------------------------------
+
+/// An event whose frame exceeds the control limit.
+fn oversized_event(n: u64) -> LiveEvent {
+    let mut ev = live_event(n);
+    ev.event.payload = serde_json::json!({ "n": n, "pad": "x".repeat(MAX_CONTROL_FRAME_BYTES) });
+    ev
+}
+
+fn assert_oversized_resync(ev: &Event, last_delivered: &Cursor) {
+    assert_eq!(ev.event_type, EventType::ResyncRequired);
+    assert_eq!(
+        &ev.cursor, last_delivered,
+        "cursor must stay at the last delivered event"
+    );
+    assert_eq!(ev.payload["reason"], "event_too_large");
+    assert_eq!(ev.payload["subscription_ended"], true);
+    assert_eq!(ev.environment_id, env_id());
+}
+
+/// After the oversized event's subscription ended: further publication and a lag
+/// burst deliver nothing on it, its handle is gone, resubscribing *from* the
+/// carried cursor meets the same event again, and a fresh snapshot recovers.
+async fn after_oversized_resync(
+    c: &mut ControlClient<UnixStream>,
+    d: &LogDispatcher,
+    ended: u64,
+    carried: Cursor,
+    next_seq: u64,
+) {
+    // Further publication and a lag burst (> the 256-event buffer).
+    for n in next_seq..next_seq + 300 {
+        d.publish(live_event(n));
+    }
+    assert_eq!(
+        c.unsubscribe(ended).await.unwrap().code,
+        Code::NotFound,
+        "the subscription must have ended"
+    );
+    // Resubscribing from the carried cursor replays the backlog after it, meets the
+    // same oversized event and gets ResyncRequired again; nothing else.
+    let SubscribeOutcome::Subscribed {
+        subscription: again,
+        snapshot,
+        ..
+    } = c
+        .subscribe(EventFilter::default(), Some(carried.clone()))
+        .await
+        .unwrap()
+    else {
+        panic!("refused")
+    };
+    assert!(snapshot.is_none());
+    let (sub, ev) = c.next_event().await.unwrap();
+    assert_eq!(sub, again);
+    assert_oversized_resync(&ev, &carried);
+    assert_eq!(c.unsubscribe(again).await.unwrap().code, Code::NotFound);
+    // Documented recovery: a fresh snapshot (no cursor).
+    let SubscribeOutcome::Subscribed {
+        subscription: fresh,
+        cursor,
+        snapshot,
+    } = c.subscribe(EventFilter::default(), None).await.unwrap()
+    else {
+        panic!("refused")
+    };
+    let head = next_seq + 299;
+    assert_eq!(snapshot.expect("snapshot").data["through"], head);
+    assert_eq!(seq_of(&cursor), Some(head));
+    d.publish(live_event(head + 1));
+    // The next event on the wire is the fresh subscription's: nothing was sent for
+    // the ended ones in between.
+    let (sub, ev) = c.next_event().await.unwrap();
+    assert_eq!(sub, fresh);
+    assert_eq!(ev.payload["n"], head + 1);
+    assert_eq!(seq_of(&ev.cursor), Some(head + 1));
+}
+
+/// N03, backlog path: an oversized backlog event is replaced by `ResyncRequired`
+/// at the last delivered cursor, the rest of the backlog is not sent, and the
+/// subscription ends.
+#[tokio::test]
+async fn oversized_backlog_event_ends_the_subscription_at_the_last_delivered_cursor() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = LogDispatcher::new();
+    d.publish(live_event(1));
+    d.publish(live_event(2));
+    d.publish(oversized_event(3));
+    d.publish(live_event(4));
+    let server = serve_one(
+        &l,
+        d.clone(),
+        ConnectionLimits::default(),
+        CancellationToken::new(),
+    );
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        let SubscribeOutcome::Subscribed { subscription, .. } = c
+            .subscribe(EventFilter::default(), Some(Cursor("r-:1".into())))
+            .await
+            .unwrap()
+        else {
+            panic!("refused")
+        };
+        let (sub, two) = c.next_event().await.unwrap();
+        assert_eq!((sub, two.payload["n"].as_u64()), (subscription, Some(2)));
+        let (sub, resync) = c.next_event().await.unwrap();
+        assert_eq!(sub, subscription);
+        assert_oversized_resync(&resync, &two.cursor);
+        assert_no_canary(&serde_json::to_string(&resync).unwrap());
+        after_oversized_resync(&mut c, &d, subscription, two.cursor.clone(), 5).await;
+        drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+/// N03, live path: an oversized live event is replaced by `ResyncRequired` at the
+/// last delivered cursor (not the oversized event's), and the subscription ends.
+#[tokio::test]
+async fn oversized_live_event_ends_the_subscription_at_the_last_delivered_cursor() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = LogDispatcher::new();
+    d.publish(live_event(1));
+    let server = serve_one(
+        &l,
+        d.clone(),
+        ConnectionLimits::default(),
+        CancellationToken::new(),
+    );
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        let SubscribeOutcome::Subscribed { subscription, .. } =
+            c.subscribe(EventFilter::default(), None).await.unwrap()
+        else {
+            panic!("refused")
+        };
+        d.publish(live_event(2));
+        let (sub, two) = c.next_event().await.unwrap();
+        assert_eq!((sub, two.payload["n"].as_u64()), (subscription, Some(2)));
+        d.publish(oversized_event(3));
+        let (sub, resync) = c.next_event().await.unwrap();
+        assert_eq!(sub, subscription);
+        assert_oversized_resync(&resync, &two.cursor);
+        after_oversized_resync(&mut c, &d, subscription, two.cursor.clone(), 4).await;
         drop(c);
     };
     let (r, ()) = tokio::join!(server, client);

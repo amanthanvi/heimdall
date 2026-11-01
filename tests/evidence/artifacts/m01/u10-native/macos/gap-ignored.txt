@@ -1,0 +1,31 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running ../../tests/model/operations.rs (target/debug/deps/model_operations-35d71ad20e32a624)
+
+running 2 tests
+test u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends ... FAILED
+test u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does ... FAILED
+
+failures:
+
+---- u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends stdout ----
+
+thread 'u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends' (57040981) panicked at crates/runtime/../../tests/model/operations.rs:2107:5:
+assertion `left == right` failed: a live child keeps its parent active
+  left: Released
+ right: Active
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does stdout ----
+
+thread 'u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does' (57040982) panicked at crates/runtime/../../tests/model/operations.rs:2047:29:
+healthy child issuance refused: CREDENTIAL_EXPIRED the grant's authority is no longer current (revoked, ended or changed)
+
+
+failures:
+    u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends
+    u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p heimdall-runtime --test model_operations`
+gap-run exit 101

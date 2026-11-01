@@ -28,9 +28,15 @@
 //! declared `interactive` marks it attended and is answered `OK {"attended":
 //! true}`; on any other session it is answered `INTERACTION_REQUIRED` and changes
 //! nothing. A request for which `Request::requires_attended_session()` holds
-//! (decisions, time confirmation, `resume`, `clear_cutoff`) on an unattended
-//! session is answered `INTERACTION_REQUIRED` and never dispatched; the
-//! application layer checks again (defence in depth). Attendance is a session
+//! (`decide`, `confirm_time`) on an unattended session is answered
+//! `INTERACTION_REQUIRED` and never dispatched; the application layer checks again
+//! (defence in depth). Widening policy actions (`resume`, `clear_cutoff`) are
+//! dispatched on every session: the application always answers them with a
+//! server-issued decision record (`APPROVAL_REQUIRED` attended,
+//! `INTERACTION_REQUIRED` unattended, both with `next.decision_ref`) and never
+//! executes them on dispatch; only `Decide` on an attended session completes them
+//! (ADR-0006 §3.1, §13.4 N04). This module never executes anything; attendance is
+//! not a confirmation of any particular action. Attendance is a session
 //! property set by the runtime when it accepts `Attend`; it is never a request
 //! field, and every dispatch receives a snapshot of it taken when the request
 //! frame was read. **Disclosed limit:** a process running as the same OS user can
@@ -50,6 +56,14 @@
 //! buffer gets exactly one `ResyncRequired` event per lag episode; the backlog is
 //! dropped, never buffered without bound. The backlog itself is bounded by the
 //! dispatcher (store retention and paging), not by this module.
+//!
+//! **Oversized events** (ADR-0006 §8, §13.4 N03). An event whose frame exceeds the
+//! control frame limit is never delivered: `send_event` reports
+//! [`Delivery::Replaced`], the subscription's cursor stays at the last event
+//! actually delivered, one `ResyncRequired` event carrying that cursor (payload
+//! `reason: "event_too_large"`, `subscription_ended: true`) is sent, and the
+//! subscription **ends**. Recovery is a fresh snapshot (subscribe without a
+//! cursor); resubscribing from the carried cursor meets the same event again.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::future::Future;
@@ -401,6 +415,28 @@ fn session_event_id() -> EventId {
 /// A `ResyncRequired` event whose cursor is the last position the subscriber
 /// was delivered (before the gap): resuming from it never skips the gap.
 fn resync_event(environment: &EnvironmentId, cursor: &Cursor, dropped: u64) -> Event {
+    resync_event_with(
+        environment,
+        cursor,
+        serde_json::json!({ "reason": "subscriber_lagged", "dropped": dropped }),
+    )
+}
+
+/// The `ResyncRequired` event sent in place of an oversized event; the
+/// subscription ends after it (N03).
+fn oversized_resync_event(environment: &EnvironmentId, cursor: &Cursor) -> Event {
+    resync_event_with(
+        environment,
+        cursor,
+        serde_json::json!({ "reason": "event_too_large", "subscription_ended": true }),
+    )
+}
+
+fn resync_event_with(
+    environment: &EnvironmentId,
+    cursor: &Cursor,
+    payload: serde_json::Value,
+) -> Event {
     Event {
         schema_version: SchemaVersion::current(),
         event_id: session_event_id(),
@@ -410,7 +446,7 @@ fn resync_event(environment: &EnvironmentId, cursor: &Cursor, dropped: u64) -> E
         resource: None,
         timestamp: heimdall_contract::Timestamp::now(),
         cursor: cursor.clone(),
-        payload: serde_json::json!({ "reason": "subscriber_lagged", "dropped": dropped }),
+        payload,
     }
 }
 
@@ -485,6 +521,17 @@ struct SubState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Sent {
     AsBuilt,
+    Replaced,
+}
+
+/// Outcome of sending one event frame (ADR-0006 §8, §13.4 N03).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Delivery {
+    /// The event went out as built.
+    Delivered,
+    /// The event exceeded the frame limit and was replaced by a `ResyncRequired`
+    /// event at the last delivered cursor; the subscription must end and its
+    /// cursor must not advance.
     Replaced,
 }
 
@@ -698,10 +745,15 @@ where
                         Ok(live) => {
                             let mut event = live.event.clone();
                             event.cursor = (state.cursor_for)(live.seq);
-                            let before = std::mem::replace(&mut state.last_cursor, event.cursor.clone());
                             if filter_matches(&state.filter, &event) {
-                                Some((ServerMessage::Event { subscription: id, event }, before))
+                                // The cursor advances only once the frame is out.
+                                let before = state.last_cursor.clone();
+                                let advance_to = Some(event.cursor.clone());
+                                Some((ServerMessage::Event { subscription: id, event }, before, advance_to))
                             } else {
+                                // Passed by (filtered out): nothing to deliver, the
+                                // position moves past it.
+                                state.last_cursor = event.cursor;
                                 None
                             }
                         }
@@ -721,6 +773,7 @@ where
                                     event: resync_event(&environment, &state.last_cursor, dropped),
                                 },
                                 state.last_cursor.clone(),
+                                None,
                             ))
                         }
                         Err(broadcast::error::RecvError::Closed) => {
@@ -728,11 +781,25 @@ where
                             continue;
                         }
                     };
-                    sub_polls.push(next_from(id, rx, state.stop.clone()));
-                    if let Some((msg, before)) = msg
-                        && let Err(e) = send_event(&mut wire, msg, &environment, &before).await
-                    {
-                        break Err(e);
+                    let Some((msg, before, advance_to)) = msg else {
+                        sub_polls.push(next_from(id, rx, state.stop.clone()));
+                        continue;
+                    };
+                    match send_event(&mut wire, msg, &environment, &before).await {
+                        Ok(Delivery::Delivered) => {
+                            if let Some(cursor) = advance_to {
+                                state.last_cursor = cursor;
+                            }
+                            sub_polls.push(next_from(id, rx, state.stop.clone()));
+                        }
+                        Ok(Delivery::Replaced) => {
+                            // N03: the cursor stays at the last delivered event, the
+                            // resync went out, and the subscription ends.
+                            if let Some(state) = subs.remove(&id) {
+                                state.stop.cancel();
+                            }
+                        }
+                        Err(e) => break Err(e),
                     }
                 }
                 frame = wire.next() => {
@@ -849,7 +916,9 @@ where
 
 /// Reply `Subscribed`, then send the backlog, and hand back the state for live
 /// delivery. `Ok(None)` when the `Subscribed` frame itself was over the limit (it
-/// was replaced by an `INTERNAL_ERROR` response and no subscription exists).
+/// was replaced by an `INTERNAL_ERROR` response and no subscription exists), or
+/// when a backlog event was over the limit (it was replaced by `ResyncRequired` at
+/// the last delivered cursor and the subscription ended; N03).
 #[allow(clippy::too_many_arguments)]
 async fn start_subscription<S>(
     wire: &mut Wire<S>,
@@ -891,7 +960,12 @@ where
                 subscription: id,
                 event,
             };
-            send_event(wire, msg, environment, &last).await?;
+            if send_event(wire, msg, environment, &last).await? == Delivery::Replaced {
+                // N03: `last` stays at the last delivered event; the resync carried
+                // it; the subscription ends here (no live state is returned).
+                stop.cancel();
+                return Ok(None);
+            }
         }
         last = next;
     }
@@ -937,19 +1011,22 @@ where
     }
 }
 
-/// Send an event frame; one that exceeds the frame limit is replaced by a
-/// `ResyncRequired` event at `before` (the position delivered before it), so the
-/// consumer re-reads state from a snapshot and a resume never skips it.
+/// Send an event frame. One that exceeds the frame limit is never delivered: it is
+/// replaced by a `ResyncRequired` event at `before` (the last delivered position)
+/// and `Delivery::Replaced` is returned, so the caller keeps its cursor at
+/// `before` and ends the subscription (ADR-0006 §8, §13.4 N03). The consumer
+/// recovers from a fresh snapshot; a resume from `before` never skips the event.
 async fn send_event<S>(
     wire: &mut Wire<S>,
     msg: ServerMessage,
     environment: &EnvironmentId,
     before: &Cursor,
-) -> Result<(), FrameError>
+) -> Result<Delivery, FrameError>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     match write_frame(wire, &msg, MAX_CONTROL_FRAME_BYTES).await {
+        Ok(()) => Ok(Delivery::Delivered),
         Err(FrameError::TooLarge { .. }) => {
             let subscription = match &msg {
                 ServerMessage::Event { subscription, .. } => *subscription,
@@ -959,13 +1036,14 @@ where
                 wire,
                 &ServerMessage::Event {
                     subscription,
-                    event: resync_event(environment, before, 1),
+                    event: oversized_resync_event(environment, before),
                 },
                 MAX_CONTROL_FRAME_BYTES,
             )
             .await
+            .map(|()| Delivery::Replaced)
         }
-        other => other,
+        Err(e) => Err(e),
     }
 }
 

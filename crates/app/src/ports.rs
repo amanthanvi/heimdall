@@ -173,3 +173,26 @@ pub trait CredentialAdapter: Send + Sync {
     /// Apply local revocation for a grant; remote effects are reported, not assumed.
     async fn revoke(&self, grant: &GrantId, now: Timestamp) -> Result<RevokeOutcome, AdapterError>;
 }
+
+/// Removes runtime-owned resources (spec §13.5; R-RT-04; m01-plan U8 ⟨r2.1⟩ N06):
+/// endpoints, supervised processes, generated projections. Called **only** by the
+/// runtime's single supervisor-owned cleanup executor, which plans the cleanup
+/// (`reconcile::plan`), re-checks the generation (`reconcile::guard_cleanup`)
+/// right before the call, and owns every retry; an implementation never retries
+/// and never prompts.
+///
+/// `delete` is **generation-bound**: it removes the instance that
+/// `resource.locator` names at `resource.generation` and nothing else (a socket
+/// path is unlinked only if it is still that generation's inode, a process is
+/// stopped only by exact PID and start time). A replacement that already took the
+/// locator over is left untouched and reported as success (`Ok`, nothing of that
+/// generation remains). M01 has no production implementation (the M02 adapters
+/// add them); tests use a fake through this port.
+#[async_trait]
+pub trait ResourceCleaner: Send + Sync {
+    /// Remove the instance of `resource` at its generation. Idempotent.
+    async fn delete(
+        &self,
+        resource: &heimdall_domain::resource::ManagedResource,
+    ) -> Result<(), AdapterError>;
+}

@@ -1,0 +1,3143 @@
+//! M01-U5 model suite for the application operations (spec §17 A06, A19, A29
+//! local variants; plan §6.4 fault schedule; m01-plan U5).
+//!
+//! Everything runs in process over the production `heimdall_app::Operations`,
+//! `heimdall_store::Store::open_in_memory`, `testkit::VirtualClock`,
+//! `testkit::ScriptedTimeSync` and `testkit::FakeCredentialAdapter`. Faults are
+//! injected only through production hooks: the store `FaultHook`, the pipeline
+//! `StageHook` (`testkit::ScriptedStageHook` or a hook implementing the same
+//! trait) and the fake adapter's script.
+//!
+//! **Restart label.** Every "restart" here is an **in-process** reconstruction: a
+//! new `Operations::start` over the same store and the same fake adapter instance
+//! (its effect ledger lives in memory). It exercises the recovery code paths; it is
+//! not process-crash evidence (that is U9/U10's, ADR-0006 §13.4 N06).
+//!
+//! Canary rule: the fake adapter's credential reference and error texts carry a
+//! synthetic `HEIMDALL_CANARY_*` value built at runtime; every envelope, event and
+//! error message produced here is scanned with `assert_no_canary`.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Duration;
+
+use heimdall_app::ensure::{EnsureStage, NoStageHook, StageHook};
+use heimdall_app::error::Completed;
+use heimdall_app::operations::Limits;
+use heimdall_app::ports::{
+    AdapterDescriptor, CredentialAdapter, InteractionRequirement, LockContinuity, PrepareOutcome,
+};
+use heimdall_app::{Attendance, Caller, OpError, OpResult, Operations, OperationsConfig};
+use heimdall_contract::envelope::EffectStatus;
+use heimdall_contract::event::{EventFilter, EventType};
+use heimdall_contract::ids::{
+    AccountName, DecisionId, DestinationId, DeviceId, EnvironmentId, OperationId, PolicyId,
+    ProfileId, RequestId, WorkId,
+};
+use heimdall_contract::request::{
+    BindForm, BindRequest, CancelRequest, ConfirmTimeRequest, DeadlineIntent, DecideRequest,
+    DelegateRequest, DestinationScopeEnforcement, Enforcement, EnsureData, EnsureRequest,
+    ExistingConnectionsPolicy, InteractionMode, NewAuthenticationExpiry, ObserveRequest,
+    PolicyAction, RefreshDependency, ReleaseRequest, RequiredCapabilities, RevocationStatus,
+    RevokeRequest, Verdict, WaitMode, WorkloadIsolation,
+};
+use heimdall_contract::{Code, ExitCode, GrantState, OperationState, Timestamp};
+use heimdall_domain::environment::{EnvironmentKind, EnvironmentPermissions, EnvironmentRecord};
+use heimdall_domain::evidence::EnforcementEvidence;
+use heimdall_domain::operation::AdapterIdentity;
+use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
+use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+use heimdall_domain::profile::ProfileDefinition;
+use heimdall_domain::scope::{AccessPair, Capability, Scope};
+use heimdall_domain::time::{Clock, SyncStatus, TimePolicy};
+use heimdall_store::{FaultAction, FaultHook, FaultPoint, Store};
+use heimdall_testkit::{
+    CANARY_PREFIX, FakeCredentialAdapter, FakeStep, ScriptedStageHook, ScriptedTimeSync,
+    VirtualClock, assert_no_canary,
+};
+
+// =================================================================================
+// Harness
+// =================================================================================
+
+const MINUTE: Duration = Duration::from_secs(60);
+const HOUR: Duration = Duration::from_secs(3600);
+const DAY: Duration = Duration::from_secs(24 * 3600);
+
+fn t0() -> Timestamp {
+    "2026-10-02T09:00:00Z".parse().unwrap()
+}
+
+fn shift(t: Timestamp, secs: i64) -> Timestamp {
+    t.checked_add(jiff::SignedDuration::from_secs(secs))
+        .unwrap()
+}
+
+/// Synthetic canary built at runtime (never a literal in source).
+fn canary() -> String {
+    format!("{CANARY_PREFIX}u5_fixture")
+}
+
+fn env_id() -> EnvironmentId {
+    EnvironmentId::from_random_bytes([7; 16])
+}
+
+fn ctx(uid: u32, role: ClientRole) -> CallerContext {
+    CallerContext {
+        principal: PrincipalRef::UnixUser { uid },
+        role,
+    }
+}
+
+fn unattended(uid: u32) -> Caller {
+    Caller::unattended(ctx(uid, ClientRole::Owner))
+}
+
+fn attended(uid: u32) -> Caller {
+    Caller {
+        context: ctx(uid, ClientRole::Owner),
+        attendance: Attendance::Attended { since: t0() },
+        interaction: InteractionMode::Interactive,
+    }
+}
+
+fn limited(uid: u32) -> Caller {
+    Caller::unattended(ctx(uid, ClientRole::LimitedConsumer))
+}
+
+fn pair(d: &str, a: &str) -> AccessPair {
+    AccessPair {
+        destination: DestinationId::parse(d).unwrap(),
+        account: AccountName::parse(a).unwrap(),
+    }
+}
+
+/// Profile `dev`: h1, h2, h3. Policy `pol` covers h1 and h2 only (h3 is added
+/// authority), window 2 h.
+fn profile_pairs() -> BTreeSet<AccessPair> {
+    [
+        pair("h1", "deploy"),
+        pair("h2", "deploy"),
+        pair("h3", "deploy"),
+    ]
+    .into_iter()
+    .collect()
+}
+
+fn policy_pairs() -> BTreeSet<AccessPair> {
+    [pair("h1", "deploy"), pair("h2", "deploy")]
+        .into_iter()
+        .collect()
+}
+
+fn ssh_only() -> BTreeSet<Capability> {
+    [Capability::SshAuthentication].into_iter().collect()
+}
+
+fn outcome() -> PrepareOutcome {
+    PrepareOutcome {
+        usable_until: shift(t0(), 12 * 3600),
+        offline_until: shift(t0(), 3600),
+        refresh_dependency: RefreshDependency::None,
+        enforcement: enforcement(),
+        // The opaque reference carries a canary: it must never reach an envelope
+        // or an event.
+        credential_ref: canary(),
+    }
+}
+
+fn enforcement() -> EnforcementEvidence {
+    EnforcementEvidence {
+        report: Enforcement {
+            destination_scope: DestinationScopeEnforcement::ClientRouting,
+            new_authentication_expiry: NewAuthenticationExpiry::SignerOnly,
+            workload_isolation: WorkloadIsolation::SharedOsUser,
+            existing_connections: ExistingConnectionsPolicy::GracefulDedicatedConnections,
+            revocation: RevocationStatus::LocalApplied,
+        },
+        evidence: Vec::new(),
+    }
+}
+
+fn descriptor() -> AdapterDescriptor {
+    AdapterDescriptor {
+        identity: AdapterIdentity {
+            mechanism: "fake_agent".into(),
+            instance: "fixture-1".into(),
+        },
+        capabilities: ssh_only(),
+        external_side_effects: false,
+        interaction: InteractionRequirement::None,
+        enforcement: enforcement(),
+        lock_continuity: LockContinuity::Unknown,
+    }
+}
+
+fn policy_id() -> PolicyId {
+    PolicyId::parse("pol").unwrap()
+}
+
+fn seed(store: &Store) {
+    store
+        .transaction(|tx| {
+            tx.init_self_environment(&env_id())?;
+            tx.upsert_environment(&EnvironmentRecord {
+                id: env_id(),
+                device: DeviceId::from_random_bytes([8; 16]),
+                kind: EnvironmentKind::NativeSession,
+                label: None,
+                permissions: EnvironmentPermissions {
+                    automatic_activation: true,
+                    managed_signing: true,
+                    issuer_access: true,
+                },
+            })?;
+            tx.upsert_profile(&ProfileDefinition {
+                id: ProfileId::parse("dev").unwrap(),
+                revision: 1,
+                scope: Scope {
+                    pairs: profile_pairs(),
+                    capabilities: ssh_only(),
+                },
+                label: None,
+            })?;
+            tx.upsert_policy(
+                &StandingPolicy {
+                    id: policy_id(),
+                    revision: PolicyRevision(1),
+                    profile: ProfileId::parse("dev").unwrap(),
+                    workspace: None,
+                    scope: Scope {
+                        pairs: policy_pairs(),
+                        capabilities: ssh_only(),
+                    },
+                    environments: [env_id()].into_iter().collect(),
+                    max_window: 2 * HOUR,
+                    pause: PauseState::Active,
+                    cutoff_at: None,
+                    source: PolicySource::SetupDefault,
+                },
+                false,
+            )?;
+            Ok(())
+        })
+        .unwrap();
+}
+
+/// Store fault hook armed on demand (production `FaultHook`). While armed it
+/// fails the next `point` once, optionally only after the fake adapter applied an
+/// effect ("after the effect, before the receipt").
+struct Armed {
+    point: FaultPoint,
+    armed: AtomicBool,
+    after_effect_of: std::sync::Mutex<Option<Arc<FakeCredentialAdapter>>>,
+    fired: AtomicUsize,
+}
+
+impl Armed {
+    fn new(point: FaultPoint) -> Arc<Self> {
+        Arc::new(Self {
+            point,
+            armed: AtomicBool::new(false),
+            after_effect_of: std::sync::Mutex::new(None),
+            fired: AtomicUsize::new(0),
+        })
+    }
+    fn arm(&self) {
+        self.armed.store(true, Ordering::SeqCst);
+    }
+    fn arm_after_effect(&self, fake: Arc<FakeCredentialAdapter>) {
+        *self.after_effect_of.lock().unwrap() = Some(fake);
+        self.arm();
+    }
+}
+
+impl FaultHook for Armed {
+    fn at(&self, point: FaultPoint) -> FaultAction {
+        if point != self.point || !self.armed.load(Ordering::SeqCst) {
+            return FaultAction::Continue;
+        }
+        if let Some(fake) = self.after_effect_of.lock().unwrap().as_ref()
+            && fake.effect_count() == 0
+        {
+            return FaultAction::Continue;
+        }
+        self.armed.store(false, Ordering::SeqCst);
+        self.fired.fetch_add(1, Ordering::SeqCst);
+        FaultAction::Fail
+    }
+}
+
+/// Pipeline hook that arms a store fault when a stage starts (production
+/// `StageHook` trait).
+struct ArmAt {
+    stage: EnsureStage,
+    faults: Arc<Armed>,
+    used: AtomicBool,
+}
+
+impl ArmAt {
+    fn new(stage: EnsureStage, faults: Arc<Armed>) -> Arc<Self> {
+        Arc::new(Self {
+            stage,
+            faults,
+            used: AtomicBool::new(false),
+        })
+    }
+}
+
+impl StageHook for ArmAt {
+    fn before(&self, stage: EnsureStage) -> Result<(), Code> {
+        // Arms once: the retry runs the stage again without a fault.
+        if stage == self.stage && !self.used.swap(true, Ordering::SeqCst) {
+            self.faults.arm();
+        }
+        Ok(())
+    }
+    fn after(&self, _stage: EnsureStage) -> Result<(), Code> {
+        Ok(())
+    }
+}
+
+struct World {
+    store: Arc<Store>,
+    clock: Arc<VirtualClock>,
+    sync: Arc<ScriptedTimeSync>,
+    fake: Arc<FakeCredentialAdapter>,
+    hook: Arc<dyn StageHook>,
+    limits: Limits,
+    ops: Operations,
+}
+
+struct Setup {
+    script: Vec<FakeStep>,
+    hook: Arc<dyn StageHook>,
+    faults: Arc<dyn FaultHook>,
+    limits: Limits,
+    /// Durable effect ledger for the fake adapter (ADR-0006 §13.4 N06).
+    ledger: Option<std::path::PathBuf>,
+}
+
+impl Default for Setup {
+    fn default() -> Self {
+        Self {
+            script: vec![FakeStep::Prepare(outcome())],
+            hook: Arc::new(NoStageHook),
+            faults: Arc::new(heimdall_store::NoFaults),
+            limits: Limits::default(),
+            ledger: None,
+        }
+    }
+}
+
+impl World {
+    async fn new() -> Self {
+        Self::with(Setup::default()).await
+    }
+
+    async fn with(setup: Setup) -> Self {
+        let store = Arc::new(Store::open_in_memory(setup.faults).unwrap());
+        seed(&store);
+        let clock = VirtualClock::at(t0());
+        let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
+        let fake = match &setup.ledger {
+            Some(path) => {
+                FakeCredentialAdapter::with_ledger(descriptor(), setup.script, path).unwrap()
+            }
+            None => FakeCredentialAdapter::new(descriptor(), setup.script),
+        };
+        let config = config_of(&store, &clock, &sync, &fake, &setup.hook, setup.limits);
+        let ops = Operations::start(config).await.unwrap();
+        Self {
+            store,
+            clock,
+            sync,
+            fake,
+            hook: setup.hook,
+            limits: setup.limits,
+            ops,
+        }
+    }
+
+    fn config(&self) -> OperationsConfig {
+        config_of(
+            &self.store,
+            &self.clock,
+            &self.sync,
+            &self.fake,
+            &self.hook,
+            self.limits,
+        )
+    }
+
+    /// In-process restart: a new `Operations` over the same store and adapter.
+    async fn restart(&mut self) {
+        self.ops = Operations::start(self.config()).await.unwrap();
+    }
+
+    async fn restart_with_hook(&mut self, hook: Arc<dyn StageHook>) {
+        self.hook = hook;
+        self.restart().await;
+    }
+
+    fn effects(&self) -> usize {
+        self.fake.effect_count()
+    }
+
+    fn op(&self, id: &OperationId) -> heimdall_domain::operation::OperationRecord {
+        self.store
+            .transaction(|tx| tx.operation(id))
+            .unwrap()
+            .unwrap()
+    }
+
+    fn grant(&self, id: &heimdall_contract::ids::GrantId) -> heimdall_domain::grant::GrantSnapshot {
+        self.store.transaction(|tx| tx.grant(id)).unwrap().unwrap()
+    }
+
+    fn bindings_for(&self, work: &str) -> Vec<heimdall_domain::binding::BindingRecord> {
+        self.store
+            .transaction(|tx| tx.bindings_for_work(&env_id(), &WorkId::parse(work).unwrap()))
+            .unwrap()
+    }
+
+    /// Every stored event, scanned for canaries.
+    fn events(&self) -> Vec<heimdall_store::StoredEvent> {
+        let page = self
+            .store
+            .transaction(|tx| tx.stored_events_after(&env_id(), 0, &EventFilter::default(), 10_000))
+            .unwrap();
+        for e in &page.events {
+            assert_no_canary(&serde_json::to_string(&e.event).unwrap());
+        }
+        page.events
+    }
+}
+
+fn config_of(
+    store: &Arc<Store>,
+    clock: &Arc<VirtualClock>,
+    sync: &Arc<ScriptedTimeSync>,
+    fake: &Arc<FakeCredentialAdapter>,
+    hook: &Arc<dyn StageHook>,
+    limits: Limits,
+) -> OperationsConfig {
+    OperationsConfig {
+        store: store.clone(),
+        clock: clock.clone(),
+        time_sync: sync.clone(),
+        time_policy: TimePolicy::default(),
+        environment: env_id(),
+        adapters: vec![fake.clone() as Arc<dyn CredentialAdapter>],
+        stage_hook: hook.clone(),
+        limits,
+        default_window: 12 * HOUR,
+    }
+}
+
+fn ensure_req(request_id: &str, work: &str, pairs: &[(&str, &str)]) -> EnsureRequest {
+    EnsureRequest {
+        profile: ProfileId::parse("dev").unwrap(),
+        profile_revision: None,
+        scope: pairs.iter().map(|(d, a)| pair(d, a)).collect(),
+        environment: None,
+        work_id: WorkId::parse(work).unwrap(),
+        until: None,
+        required_capabilities: RequiredCapabilities::default(),
+        request_id: RequestId::parse(request_id).unwrap(),
+        interaction: InteractionMode::NonInteractive,
+        wait: WaitMode::Sync { timeout_ms: 30_000 },
+    }
+}
+
+/// Render a result as its envelope JSON, scanning it for canaries.
+fn rendered<T: serde::Serialize + Clone>(r: &OpResult<T>) -> serde_json::Value {
+    let v = match r {
+        Ok(c) => serde_json::to_value(c.clone_envelope()).unwrap(),
+        Err(e) => serde_json::to_value(e.clone().into_envelope()).unwrap(),
+    };
+    assert_no_canary(&v.to_string());
+    v
+}
+
+trait CloneEnvelope<T> {
+    fn clone_envelope(&self) -> heimdall_contract::Envelope<T>;
+}
+
+impl<T: Clone> CloneEnvelope<T> for Completed<T> {
+    fn clone_envelope(&self) -> heimdall_contract::Envelope<T> {
+        self.clone().into_envelope()
+    }
+}
+
+fn ok<T: serde::Serialize + Clone>(r: OpResult<T>) -> Completed<T> {
+    rendered(&r);
+    match r {
+        Ok(c) => c,
+        Err(e) => panic!("expected success, got {}: {}", e.code, e.message),
+    }
+}
+
+fn err<T: serde::Serialize + Clone + std::fmt::Debug>(r: OpResult<T>) -> OpError {
+    rendered(&r);
+    match r {
+        Ok(c) => panic!("expected an error, got {:?}", c.code),
+        Err(e) => {
+            assert_no_canary(&e.message);
+            e
+        }
+    }
+}
+
+fn decision_ref(e: &OpError) -> DecisionId {
+    DecisionId::parse(e.next.decision_ref.as_deref().expect("decision_ref")).unwrap()
+}
+
+// =================================================================================
+// A19 — success, approval, timeout, cancel, uncertainty
+// =================================================================================
+
+#[tokio::test]
+async fn a19_success_is_access_ready_with_binding_and_bounded_facts() {
+    let w = World::new().await;
+    let r = w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-1", "work-1", &[("h1", "deploy")]),
+        )
+        .await;
+    let env = rendered(&r);
+    let done = ok(r);
+    assert_eq!(done.code, Code::AccessReady);
+    assert_eq!(done.state, OperationState::Succeeded);
+    assert_eq!(env["next"]["action"], "use_binding");
+    let data: EnsureData = done.data;
+    assert_eq!(data.environment_id, env_id());
+    assert_eq!(data.profile_revision, 1);
+    assert_eq!(data.credential_mechanism, "fake_agent");
+    // Default deadline = the policy window (2 h), credentials never exceed it.
+    assert_eq!(data.expires_at, shift(t0(), 2 * 3600));
+    assert!(data.usable_until <= data.expires_at);
+    assert!(data.offline_until <= data.expires_at);
+    assert_eq!(w.effects(), 1);
+    let g = w.grant(&data.grant_id);
+    assert_eq!(g.state, GrantState::Active);
+    assert_eq!(w.bindings_for("work-1").len(), 1);
+    w.events();
+}
+
+fn approval_req(request_id: &str, work: &str) -> EnsureRequest {
+    // h3 is in the profile but not in the policy: added authority.
+    ensure_req(request_id, work, &[("h1", "deploy"), ("h3", "deploy")])
+}
+
+async fn decide(
+    w: &World,
+    caller: &Caller,
+    d: &DecisionId,
+    verdict: Verdict,
+) -> OpResult<serde_json::Value> {
+    w.ops
+        .decide(
+            caller,
+            DecideRequest {
+                decision_id: d.clone(),
+                verdict,
+            },
+        )
+        .await
+}
+
+async fn observe(
+    w: &World,
+    caller: &Caller,
+    id: &OperationId,
+    wait_ms: Option<u64>,
+) -> Completed<serde_json::Value> {
+    ok(w.ops
+        .observe(
+            caller,
+            ObserveRequest::Operation {
+                operation_id: id.clone(),
+                wait_ms,
+            },
+        )
+        .await)
+}
+
+#[tokio::test]
+async fn a19_added_authority_unattended_is_interaction_required_with_a_decision_ref() {
+    let w = World::new().await;
+    let r = w
+        .ops
+        .ensure(&unattended(501), approval_req("req-a", "work-a"))
+        .await;
+    let env = rendered(&r);
+    let e = err(r);
+    assert_eq!(e.code, Code::InteractionRequired);
+    assert_eq!(e.code.exit_code(), ExitCode::InteractionRequired);
+    assert_eq!(e.state(), OperationState::AwaitingApproval);
+    assert_eq!(env["state"], "awaiting_approval");
+    let dec = decision_ref(&e);
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.op(&op).state, OperationState::AwaitingApproval);
+    // Nothing executed on dispatch.
+    assert_eq!(w.effects(), 0);
+    // A duplicate retry coalesces onto the same decision (one logical decision).
+    let again = err(w
+        .ops
+        .ensure(&unattended(501), approval_req("req-a", "work-a"))
+        .await);
+    assert_eq!(decision_ref(&again), dec);
+    assert_eq!(again.operation_id, Some(op));
+}
+
+#[tokio::test]
+async fn a19_added_authority_attended_waits_for_decide_then_applies_exactly_the_delta() {
+    let w = World::new().await;
+    let e = err(w
+        .ops
+        .ensure(&attended(501), approval_req("req-b", "work-b"))
+        .await);
+    assert_eq!(e.code, Code::ApprovalRequired);
+    let dec = decision_ref(&e);
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(
+        w.effects(),
+        0,
+        "an attended session never executes on dispatch"
+    );
+    // `decide` from an unattended session is refused, with no record change.
+    let refused = err(decide(&w, &unattended(501), &dec, Verdict::Approve).await);
+    assert_eq!(refused.code, Code::InteractionRequired);
+    assert!(refused.next.decision_ref.is_none());
+    assert_eq!(w.op(&op).state, OperationState::AwaitingApproval);
+    // Attended approval resumes the waiting operation.
+    let done = ok(decide(&w, &attended(501), &dec, Verdict::Approve).await);
+    assert_eq!(done.data["state"], "approved");
+    assert_eq!(done.data["operation_state"], "succeeded");
+    assert_eq!(w.effects(), 1);
+    let ready = ok(w
+        .ops
+        .ensure(&attended(501), approval_req("req-b", "work-b"))
+        .await);
+    assert_eq!(ready.code, Code::AccessReady);
+    let g = w.grant(&ready.data.grant_id);
+    assert_eq!(
+        g.scope.pairs,
+        [pair("h1", "deploy"), pair("h3", "deploy")]
+            .into_iter()
+            .collect()
+    );
+    // Consume-once: a second verdict is stale.
+    let again = err(decide(&w, &attended(501), &dec, Verdict::Approve).await);
+    assert_eq!(again.code, Code::DecisionStale);
+    assert_eq!(again.code.exit_code(), ExitCode::Conflict);
+}
+
+#[tokio::test]
+async fn a19_denied_decision_fails_the_operation_and_its_grant() {
+    let w = World::new().await;
+    let e = err(w
+        .ops
+        .ensure(&attended(501), approval_req("req-c", "work-c"))
+        .await);
+    let dec = decision_ref(&e);
+    let op = e.operation_id.clone().unwrap();
+    ok(decide(&w, &attended(501), &dec, Verdict::Deny).await);
+    let rec = w.op(&op);
+    assert_eq!(rec.state, OperationState::Failed);
+    assert_eq!(rec.code, Some(Code::CapabilityUnavailable));
+    let replay = err(w
+        .ops
+        .ensure(&attended(501), approval_req("req-c", "work-c"))
+        .await);
+    assert_eq!(replay.code, Code::CapabilityUnavailable);
+    assert_eq!(w.effects(), 0);
+}
+
+#[tokio::test]
+async fn a19_decision_issued_under_an_older_generation_is_stale() {
+    let w = World::new().await;
+    let e = err(w
+        .ops
+        .ensure(&attended(501), approval_req("req-d", "work-d"))
+        .await);
+    let dec = decision_ref(&e);
+    // Pause narrows and bumps the authority generation.
+    ok(w.ops
+        .policy(
+            &attended(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    let stale = err(decide(&w, &attended(501), &dec, Verdict::Approve).await);
+    assert_eq!(stale.code, Code::DecisionStale);
+    // Even a denial of a stale record is refused (generation-checked).
+    let stale_deny = err(decide(&w, &attended(501), &dec, Verdict::Deny).await);
+    assert_eq!(stale_deny.code, Code::DecisionStale);
+    assert_eq!(w.effects(), 0);
+    // The waiting operation can never complete under the old generation.
+    let replay = err(w
+        .ops
+        .ensure(&attended(501), approval_req("req-d", "work-d"))
+        .await);
+    assert_eq!(replay.code, Code::CredentialExpired);
+}
+
+#[tokio::test]
+async fn a19_expired_decision_is_stale_operation_keeps_waiting_and_retry_gets_a_fresh_ref() {
+    let w = World::new().await;
+    let e = err(w
+        .ops
+        .ensure(&attended(501), approval_req("req-e", "work-e"))
+        .await);
+    let first = decision_ref(&e);
+    let op = e.operation_id.clone().unwrap();
+    w.clock.advance(16 * MINUTE);
+    let stale = err(decide(&w, &attended(501), &first, Verdict::Approve).await);
+    assert_eq!(stale.code, Code::DecisionStale);
+    // ADR-0006 §13.3: the expired decision does not fail the operation.
+    let seen = observe(&w, &attended(501), &op, None).await;
+    assert_eq!(seen.state, OperationState::AwaitingApproval);
+    let retry = err(w
+        .ops
+        .ensure(&attended(501), approval_req("req-e", "work-e"))
+        .await);
+    assert_eq!(retry.code, Code::ApprovalRequired);
+    let fresh = decision_ref(&retry);
+    assert_ne!(
+        fresh, first,
+        "a same-key retry returns a fresh decision_ref"
+    );
+    assert_eq!(retry.operation_id, Some(op.clone()));
+    let done = ok(decide(&w, &attended(501), &fresh, Verdict::Approve).await);
+    assert_eq!(done.data["operation_state"], "succeeded");
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn a19_pending_approval_whose_grant_deadline_passes_fails_with_credential_expired() {
+    let w = World::new().await;
+    let mut req = approval_req("req-f", "work-f");
+    req.until = Some(DeadlineIntent::Duration("10m".into()));
+    let e = err(w.ops.ensure(&attended(501), req.clone()).await);
+    let dec = decision_ref(&e);
+    let op = e.operation_id.clone().unwrap();
+    let resolved = w
+        .store
+        .transaction(|tx| tx.recovery_intent(&op))
+        .unwrap()
+        .unwrap()
+        .resolved
+        .unwrap();
+    let grant = resolved.grant.unwrap();
+    assert_eq!(w.grant(&grant).state, GrantState::AwaitingApproval);
+    // The decision (15 min) outlives the grant deadline (10 min): nothing waits
+    // past its deadline.
+    w.clock.advance(11 * MINUTE);
+    w.ops.tick().await.unwrap();
+    assert_eq!(w.grant(&grant).state, GrantState::Expired);
+    let rec = w.op(&op);
+    assert_eq!(rec.state, OperationState::Failed);
+    assert_eq!(rec.code, Some(Code::CredentialExpired));
+    let replay = err(w.ops.ensure(&attended(501), req).await);
+    assert_eq!(replay.code, Code::CredentialExpired);
+    let late = err(decide(&w, &attended(501), &dec, Verdict::Approve).await);
+    assert_eq!(late.code, Code::DecisionStale);
+    assert_eq!(w.effects(), 0);
+}
+
+#[tokio::test]
+async fn a19_caller_timeout_is_not_cancellation() {
+    let w = World::new().await;
+    let mut req = ensure_req("req-g", "work-g", &[("h1", "deploy")]);
+    req.wait = WaitMode::Sync { timeout_ms: 0 };
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::Accepted);
+    assert_eq!(e.next.action, "observe");
+    let op = e.operation_id.clone().unwrap();
+    // The work continues after the caller's wait ended.
+    let seen = observe(&w, &unattended(501), &op, Some(5_000)).await;
+    assert_eq!(seen.state, OperationState::Succeeded);
+    assert!(w.op(&op).cancellation.is_none());
+    let mut async_req = ensure_req("req-g2", "work-g2", &[("h1", "deploy")]);
+    async_req.wait = WaitMode::Async;
+    let accepted = err(w.ops.ensure(&unattended(501), async_req).await);
+    assert_eq!(accepted.code, Code::Accepted);
+    // A bounded observe of a waiting operation times out without changing it.
+    let pending = err(w
+        .ops
+        .ensure(&unattended(501), approval_req("req-g3", "work-g3"))
+        .await);
+    let pop = pending.operation_id.clone().unwrap();
+    let timed = observe(&w, &unattended(501), &pop, Some(20)).await;
+    assert_eq!(timed.state, OperationState::AwaitingApproval);
+    assert_eq!(w.op(&pop).state, OperationState::AwaitingApproval);
+    assert!(w.op(&pop).cancellation.is_none());
+}
+
+#[tokio::test]
+async fn a19_explicit_cancel_reports_possible_external_effect() {
+    // Interrupt after the effect was confirmed, before activation.
+    let hook = ScriptedStageHook::new([(EnsureStage::Probe, Code::ServiceUnavailable)], []);
+    let w = World::with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let req = ensure_req("req-h", "work-h", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::ServiceUnavailable);
+    assert_eq!(e.effect_status, EffectStatus::Partial);
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.op(&op).state, OperationState::Running);
+    let c = ok(w
+        .ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    assert_eq!(c.data["state"], "cancelled");
+    assert_eq!(c.data["may_have_external_effect"], true);
+    // The prepared credential is cleaned up locally.
+    assert_eq!(w.fake.revocations.lock().unwrap().len(), 1);
+    let replay = err(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(replay.code, Code::OperationCancelled);
+    assert_eq!(replay.effect_status, EffectStatus::Partial);
+    // Cancel is idempotent on a settled operation.
+    let again = ok(w
+        .ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    assert_eq!(again.data["state"], "cancelled");
+    // Cancelling before any effect reports none.
+    let pending = err(w
+        .ops
+        .ensure(&unattended(501), approval_req("req-h2", "work-h2"))
+        .await);
+    let none = ok(w
+        .ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: pending.operation_id.clone().unwrap(),
+            },
+        )
+        .await);
+    assert_eq!(none.data["may_have_external_effect"], false);
+}
+
+#[tokio::test]
+async fn a19_outcome_unknown_from_the_adapter_is_never_reported_as_no_effect() {
+    let w = World::with(Setup {
+        script: vec![
+            FakeStep::ApplyButLoseReply(outcome()),
+            FakeStep::Prepare(outcome()),
+        ],
+        ..Setup::default()
+    })
+    .await;
+    let req = ensure_req("req-i", "work-i", &[("h1", "deploy")]);
+    let r = w.ops.ensure(&unattended(501), req.clone()).await;
+    let env = rendered(&r);
+    let e = err(r);
+    assert_eq!(e.code, Code::OutcomeUnknown);
+    assert_eq!(e.code.exit_code(), ExitCode::OutcomeUnknown);
+    assert_eq!(e.effect_status, EffectStatus::Unknown);
+    assert!(!e.code.retryable());
+    assert_eq!(env["state"], "outcome_unknown");
+    assert_eq!(env["data"]["error"]["effect_status"], "unknown");
+    let op = e.operation_id.clone().unwrap();
+    let rec = w.op(&op);
+    assert_eq!(rec.state, OperationState::OutcomeUnknown);
+    assert_eq!(rec.effect_status, EffectStatus::Unknown);
+    // Cancel cannot turn an uncertain effect into "not applied".
+    let c = ok(w
+        .ops
+        .cancel(
+            &unattended(501),
+            CancelRequest {
+                operation_id: op.clone(),
+            },
+        )
+        .await);
+    assert_eq!(c.data["state"], "outcome_unknown");
+    assert_eq!(c.data["may_have_external_effect"], true);
+    // A same-key retry reconciles through the recorded adapter, never re-prepares.
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(ready.code, Code::AccessReady);
+    assert_eq!(ready.operation_id, Some(op));
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn a19_widening_policy_actions_always_create_a_decision_record() {
+    let w = World::new().await;
+    let paused = ok(w
+        .ops
+        .policy(
+            &unattended(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(paused.data["paused"], true);
+    let blocked = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-j", "work-j", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(blocked.code, Code::PolicyPaused);
+    assert_eq!(blocked.code.exit_code(), ExitCode::Denied);
+    // Unattended resume: INTERACTION_REQUIRED + decision_ref, nothing executed.
+    let u = err(w
+        .ops
+        .policy(
+            &unattended(501),
+            PolicyAction::Resume {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(u.code, Code::InteractionRequired);
+    let dec = decision_ref(&u);
+    // Attended resume: APPROVAL_REQUIRED + the same coalesced record; still paused.
+    let a = err(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Resume {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(a.code, Code::ApprovalRequired);
+    assert_eq!(decision_ref(&a), dec);
+    let still = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-j2", "work-j2", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(still.code, Code::PolicyPaused);
+    ok(decide(&w, &attended(501), &dec, Verdict::Approve).await);
+    let ready = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-j3", "work-j3", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(ready.code, Code::AccessReady);
+    // A cutoff narrows at once; clearing it is a decision.
+    let at = shift(t0(), 3600);
+    ok(w.ops
+        .policy(
+            &unattended(501),
+            PolicyAction::Cutoff {
+                policy_id: policy_id(),
+                at,
+            },
+        )
+        .await);
+    let clear = err(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::ClearCutoff {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(clear.code, Code::ApprovalRequired);
+    // Moving a cutoff later widens too.
+    let later = err(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Cutoff {
+                policy_id: policy_id(),
+                at: shift(t0(), 7200),
+            },
+        )
+        .await);
+    assert_eq!(later.code, Code::ApprovalRequired);
+    ok(decide(&w, &attended(501), &decision_ref(&clear), Verdict::Approve).await);
+    let p = w
+        .store
+        .transaction(|tx| tx.policy(&policy_id()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(p.cutoff_at, None);
+    // Only the owner role may act on the owner channel.
+    let lim = err(w
+        .ops
+        .policy(
+            &limited(502),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(lim.code, Code::CapabilityUnavailable);
+}
+
+#[tokio::test]
+async fn a19_time_confirmation_needs_attendance_and_never_moves_a_deadline() {
+    let w = World::new().await;
+    let ready = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-k", "work-k", &[("h1", "deploy")]),
+        )
+        .await);
+    let before = w.grant(&ready.data.grant_id).deadline;
+    let u = err(w
+        .ops
+        .confirm_time(
+            &unattended(501),
+            ConfirmTimeRequest {
+                observed_wall: w.clock.wall(),
+            },
+        )
+        .await);
+    assert_eq!(u.code, Code::InteractionRequired);
+    let far = err(w
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: shift(w.clock.wall(), 3600),
+            },
+        )
+        .await);
+    assert_eq!(far.code, Code::TimeUncertain);
+    let c = ok(w
+        .ops
+        .confirm_time(
+            &attended(501),
+            ConfirmTimeRequest {
+                observed_wall: w.clock.wall(),
+            },
+        )
+        .await);
+    assert_eq!(c.data["deadlines_moved"], false);
+    assert_eq!(w.grant(&ready.data.grant_id).deadline, before);
+}
+
+#[tokio::test]
+async fn a19_running_limit_gives_backpressure_and_persists_nothing() {
+    let w = World::with(Setup {
+        limits: Limits {
+            max_running_operations: 0,
+            ..Limits::default()
+        },
+        ..Setup::default()
+    })
+    .await;
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-l", "work-l", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(e.code, Code::Backpressure);
+    assert!(e.next.retry_after_ms.is_some());
+    let key = heimdall_domain::idempotency::IdempotencyKey {
+        caller: ctx(501, ClientRole::Owner),
+        kind: heimdall_domain::operation::OperationKind::Ensure,
+        request_id: RequestId::parse("req-l").unwrap(),
+    };
+    assert!(
+        w.store
+            .transaction(|tx| tx.idempotency_record(&key))
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn a19_uncertain_time_stops_activation_but_passive_reads_continue_with_a_warning() {
+    let w = World::new().await;
+    // Reboot with the wall clock behind the mark and no synchronization.
+    w.clock.reboot(shift(t0(), -600));
+    w.sync.set(SyncStatus::Unknown);
+    let e = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-m", "work-m", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(e.code, Code::TimeUncertain);
+    assert_eq!(w.effects(), 0);
+    let r = ok(w
+        .ops
+        .inspect(
+            &unattended(501),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Operations,
+                preview: None,
+            },
+        )
+        .await);
+    assert!(r.warnings.iter().any(|w| w.code == "TIME_UNCERTAIN"));
+}
+
+#[tokio::test]
+async fn a19_inspect_reports_capabilities_decisions_and_previews_without_effects() {
+    let w = World::new().await;
+    let caps = ok(w
+        .ops
+        .inspect(
+            &unattended(501),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Capabilities,
+                preview: Some(heimdall_contract::request::EnsurePreview {
+                    profile: ProfileId::parse("dev").unwrap(),
+                    environment: None,
+                    until: None,
+                    required_capabilities: RequiredCapabilities::default(),
+                }),
+            },
+        )
+        .await);
+    assert!(
+        caps.data["codes"]
+            .as_array()
+            .is_some_and(|c| c.len() == Code::all().len())
+    );
+    // The whole profile includes h3: the preview says approval, and nothing happened.
+    assert_eq!(caps.data["preview"]["outcome"], "approval_required");
+    assert_eq!(w.effects(), 0);
+    let e = err(w
+        .ops
+        .ensure(&unattended(501), approval_req("req-n", "work-n"))
+        .await);
+    let decisions = ok(w
+        .ops
+        .inspect(
+            &unattended(501),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Decisions,
+                preview: None,
+            },
+        )
+        .await);
+    let listed = decisions.data["decisions"].as_array().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        listed[0]["decision_id"],
+        e.next.decision_ref.clone().unwrap()
+    );
+    assert_eq!(listed[0]["expired"], false);
+}
+
+// =================================================================================
+// A06 — idempotency and interrupted requests
+// =================================================================================
+
+#[tokio::test]
+async fn a06_duplicate_concurrent_requests_make_one_operation_and_one_effect() {
+    let w = World::new().await;
+    let req = ensure_req("req-dup", "work-dup", &[("h1", "deploy")]);
+    let mut tasks = Vec::new();
+    for _ in 0..8 {
+        let ops = w.ops.clone();
+        let req = req.clone();
+        tasks.push(tokio::spawn(async move {
+            ops.ensure(&unattended(501), req).await
+        }));
+    }
+    let mut ops = BTreeSet::new();
+    let mut bindings = BTreeSet::new();
+    for t in tasks {
+        let done = ok(t.await.unwrap());
+        ops.insert(done.operation_id.unwrap());
+        bindings.insert(done.data.binding_id);
+    }
+    assert_eq!(ops.len(), 1);
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(w.effects(), 1);
+    assert_eq!(w.bindings_for("work-dup").len(), 1);
+}
+
+#[tokio::test]
+async fn a06_a_dropped_caller_and_a_retry_converge_on_one_result() {
+    let w = World::new().await;
+    let req = ensure_req("req-drop", "work-drop", &[("h1", "deploy")]);
+    // The caller goes away before any answer (its future is dropped).
+    let _ = tokio::time::timeout(Duration::ZERO, w.ops.ensure(&unattended(501), req.clone())).await;
+    let first = ok(w.ops.ensure(&unattended(501), req.clone()).await);
+    let second = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(first.operation_id, second.operation_id);
+    assert_eq!(first.data, second.data);
+    assert_eq!(w.effects(), 1);
+    assert_eq!(w.bindings_for("work-drop").len(), 1);
+}
+
+#[tokio::test]
+async fn a06_same_key_with_altered_parameters_conflicts() {
+    let w = World::new().await;
+    let done = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-c1", "work-c1", &[("h1", "deploy")]),
+        )
+        .await);
+    let mut altered = ensure_req("req-c1", "work-c1", &[("h1", "deploy")]);
+    altered.until = Some(DeadlineIntent::Duration("30m".into()));
+    let e = err(w.ops.ensure(&unattended(501), altered).await);
+    assert_eq!(e.code, Code::RequestConflict);
+    assert_eq!(e.code.exit_code(), ExitCode::Conflict);
+    assert_eq!(e.operation_id, done.operation_id);
+    // Delivery preferences are not part of the hash: a different wait replays.
+    let mut waited = ensure_req("req-c1", "work-c1", &[("h1", "deploy")]);
+    waited.wait = WaitMode::Sync { timeout_ms: 5 };
+    waited.interaction = InteractionMode::Interactive;
+    let replay = ok(w.ops.ensure(&unattended(501), waited).await);
+    assert_eq!(replay.operation_id, done.operation_id);
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn a06_purged_key_is_request_expired_inside_the_marker_window() {
+    let w = World::new().await;
+    let req = ensure_req("req-p", "work-p", &[("h1", "deploy")]);
+    let first = ok(w.ops.ensure(&unattended(501), req.clone()).await);
+    // Past retention (7 d after settlement): purge leaves a marker.
+    w.clock.advance(8 * DAY);
+    w.ops.tick().await.unwrap();
+    assert!(
+        w.store
+            .transaction(|tx| tx.operation(first.operation_id.as_ref().unwrap()))
+            .unwrap()
+            .is_none()
+    );
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::RequestExpired);
+    assert_eq!(e.code.exit_code(), ExitCode::Conflict);
+    // Beyond the marker window the key is no longer known: it is new work, which
+    // for the same work ID cannot reset the ended binding (spec §6.1).
+    w.clock.advance(31 * DAY);
+    w.ops.tick().await.unwrap();
+    let late = err(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(late.code, Code::CredentialExpired);
+    assert_ne!(late.operation_id, first.operation_id);
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn a06_crash_before_the_effect_then_restart_completes_with_one_effect() {
+    let hook = ScriptedStageHook::new([(EnsureStage::Reconcile, Code::ServiceUnavailable)], []);
+    let mut w = World::with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let req = ensure_req("req-cb", "work-cb", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::ServiceUnavailable);
+    assert_eq!(e.effect_status, EffectStatus::None);
+    assert_eq!(w.effects(), 0);
+    // In-process restart: recovery re-drives the operation from its receipts.
+    w.restart_with_hook(Arc::new(NoStageHook)).await;
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(ready.operation_id, Some(op));
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn a06_lost_reply_then_restart_reconciles_without_a_second_effect() {
+    let mut w = World::with(Setup {
+        script: vec![
+            FakeStep::ApplyButLoseReply(outcome()),
+            FakeStep::Prepare(outcome()),
+        ],
+        ..Setup::default()
+    })
+    .await;
+    let req = ensure_req("req-lr", "work-lr", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::OutcomeUnknown);
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.effects(), 1);
+    // In-process restart (same fake adapter instance and ledger): recovery asks
+    // the recorded adapter to reconcile the recorded effect token.
+    w.restart().await;
+    let rec = w.op(&op);
+    assert_eq!(rec.state, OperationState::Succeeded);
+    let receipts = w.store.transaction(|tx| tx.stage_receipts(&op)).unwrap();
+    assert!(receipts.iter().any(|r| matches!(
+        r.effect,
+        heimdall_domain::operation::EffectReceipt::Uncertain { .. }
+    )));
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(ready.operation_id, Some(op));
+    assert_eq!(
+        w.effects(),
+        1,
+        "reconciliation never performs a second effect"
+    );
+}
+
+#[tokio::test]
+async fn a06_lost_reply_then_restart_with_a_new_adapter_over_the_same_ledger_settles_once() {
+    // A **new** `FakeCredentialAdapter` instance after the restart sees the effect
+    // only through the durable ledger file (`with_ledger`). In-process
+    // reconstruction: process-crash evidence is U9/U10's.
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = dir.path().join("effects.ledger");
+    let mut w = World::with(Setup {
+        script: vec![FakeStep::ApplyButLoseReply(outcome())],
+        ledger: Some(ledger.clone()),
+        ..Setup::default()
+    })
+    .await;
+    let req = ensure_req("req-led", "work-led", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::OutcomeUnknown);
+    assert_eq!(
+        FakeCredentialAdapter::ledger_entries(&ledger)
+            .unwrap()
+            .len(),
+        1
+    );
+    // Replace the adapter instance (same identity, same ledger) and restart.
+    w.fake =
+        FakeCredentialAdapter::with_ledger(descriptor(), [FakeStep::Prepare(outcome())], &ledger)
+            .unwrap();
+    w.restart().await;
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(ready.operation_id, Some(op));
+    assert_eq!(
+        FakeCredentialAdapter::ledger_entries(&ledger)
+            .unwrap()
+            .len(),
+        1,
+        "exactly one ledger entry: reconciled, never re-prepared"
+    );
+}
+
+#[tokio::test]
+async fn a06_crash_after_the_effect_before_its_receipt_reconciles_on_restart() {
+    let faults = Armed::new(FaultPoint::BeforeCommit);
+    let mut w = World::with(Setup {
+        faults: faults.clone(),
+        ..Setup::default()
+    })
+    .await;
+    // Fail the first commit after the adapter applied its effect: the
+    // `Confirmed` receipt never becomes durable.
+    faults.arm_after_effect(w.fake.clone());
+    let req = ensure_req("req-ae", "work-ae", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::StateUnavailable);
+    assert_eq!(faults.fired.load(Ordering::SeqCst), 1);
+    assert_eq!(w.effects(), 1);
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.op(&op).state, OperationState::Running);
+    let receipts = w.store.transaction(|tx| tx.stage_receipts(&op)).unwrap();
+    assert!(matches!(
+        receipts.last().map(|r| &r.effect),
+        Some(heimdall_domain::operation::EffectReceipt::Attempted { .. })
+    ));
+    w.restart().await;
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(ready.operation_id, Some(op));
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn a06_crash_after_the_receipt_completes_on_restart_with_one_effect() {
+    let hook = ScriptedStageHook::new([], [(EnsureStage::Reconcile, Code::ServiceUnavailable)]);
+    let mut w = World::with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let req = ensure_req("req-ar", "work-ar", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.effect_status, EffectStatus::Partial);
+    w.restart_with_hook(Arc::new(NoStageHook)).await;
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(ready.operation_id, e.operation_id);
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn a06_restart_never_resets_a_resolved_deadline() {
+    let hook = ScriptedStageHook::new([(EnsureStage::Commit, Code::ServiceUnavailable)], []);
+    let mut w = World::with(Setup {
+        hook: hook.clone(),
+        ..Setup::default()
+    })
+    .await;
+    let mut req = ensure_req("req-dl", "work-dl", &[("h1", "deploy")]);
+    req.until = Some(DeadlineIntent::Duration("1h".into()));
+    err(w.ops.ensure(&unattended(501), req.clone()).await);
+    w.clock.advance(10 * MINUTE);
+    w.restart_with_hook(Arc::new(NoStageHook)).await;
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    // Resolved once at t0: a retry or restart never re-resolves "1h".
+    assert_eq!(ready.data.expires_at, shift(t0(), 3600));
+    assert_eq!(w.effects(), 1);
+}
+
+// =================================================================================
+// Fault points (plan §6.4): before/after every pipeline stage; commit faults
+// =================================================================================
+
+#[tokio::test]
+async fn fault_points_before_and_after_every_stage_recover_with_one_effect() {
+    for stage in EnsureStage::ALL {
+        for after in [false, true] {
+            let script = [(stage, Code::ServiceUnavailable)];
+            let hook = if after {
+                ScriptedStageHook::new([], script)
+            } else {
+                ScriptedStageHook::new(script, [])
+            };
+            let mut w = World::with(Setup {
+                hook: hook.clone(),
+                ..Setup::default()
+            })
+            .await;
+            let req = ensure_req("req-fp", "work-fp", &[("h1", "deploy")]);
+            let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+            assert_eq!(e.code, Code::ServiceUnavailable, "{stage:?} after={after}");
+            assert!(
+                hook.visited
+                    .lock()
+                    .unwrap()
+                    .contains(&(stage, if after { "after" } else { "before" })),
+                "{stage:?} after={after}"
+            );
+            // Half the cases resume through restart recovery, half through a
+            // same-key retry in the same process.
+            if after {
+                w.restart().await;
+            }
+            let ready = ok(w.ops.ensure(&unattended(501), req).await);
+            if let Some(op) = &e.operation_id {
+                assert_eq!(
+                    ready.operation_id.as_ref(),
+                    Some(op),
+                    "{stage:?} after={after}"
+                );
+            }
+            assert_eq!(w.effects(), 1, "{stage:?} after={after}");
+            assert_eq!(
+                w.bindings_for("work-fp").len(),
+                1,
+                "{stage:?} after={after}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn fault_commit_failing_before_commit_leaves_no_binding_and_no_event() {
+    let faults = Armed::new(FaultPoint::BeforeCommit);
+    let w = World::with(Setup {
+        faults: faults.clone(),
+        hook: ArmAt::new(EnsureStage::Commit, faults.clone()),
+        ..Setup::default()
+    })
+    .await;
+    let mut live = w.ops.events().live_receiver();
+    let req = ensure_req("req-bc", "work-bc", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::StateUnavailable);
+    assert_eq!(faults.fired.load(Ordering::SeqCst), 1);
+    let op = e.operation_id.clone().unwrap();
+    assert_eq!(w.op(&op).state, OperationState::Running);
+    assert!(w.bindings_for("work-bc").is_empty(), "no active binding");
+    let stored = w.events();
+    assert!(
+        !stored
+            .iter()
+            .any(|e| e.event.event_type == EventType::OperationStateChanged
+                && e.event.payload["state"] == "succeeded")
+    );
+    // Nothing about a success was announced live either.
+    while let Ok(ev) = live.try_recv() {
+        assert!(
+            !(ev.event.event_type == EventType::OperationStateChanged
+                && ev.event.payload["state"] == "succeeded")
+        );
+    }
+    // The retry completes it exactly once.
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(ready.operation_id, Some(op));
+    assert_eq!(w.bindings_for("work-bc").len(), 1);
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn fault_commit_failing_after_commit_is_replayed_by_the_retry() {
+    let faults = Armed::new(FaultPoint::AfterCommit);
+    let w = World::with(Setup {
+        faults: faults.clone(),
+        hook: ArmAt::new(EnsureStage::Commit, faults.clone()),
+        ..Setup::default()
+    })
+    .await;
+    let req = ensure_req("req-acf", "work-acf", &[("h1", "deploy")]);
+    let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+    assert_eq!(e.code, Code::StateUnavailable);
+    let op = e.operation_id.clone().unwrap();
+    // Durable despite the error the caller saw.
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+    assert_eq!(w.bindings_for("work-acf").len(), 1);
+    let ready = ok(w.ops.ensure(&unattended(501), req).await);
+    assert_eq!(ready.operation_id, Some(op));
+    assert_eq!(ready.data.binding_id, w.bindings_for("work-acf")[0].id);
+    assert_eq!(w.effects(), 1);
+}
+
+// =================================================================================
+// A29 local — hostile input and authorization forgery
+// =================================================================================
+
+#[tokio::test]
+async fn a29_the_same_request_id_from_another_owner_is_a_distinct_key() {
+    let w = World::new().await;
+    let a = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("shared", "work-501", &[("h1", "deploy")]),
+        )
+        .await);
+    // Different parameters, same request ID, different principal: no conflict.
+    let b = ok(w
+        .ops
+        .ensure(
+            &unattended(502),
+            ensure_req("shared", "work-502", &[("h2", "deploy")]),
+        )
+        .await);
+    assert_ne!(a.operation_id, b.operation_id);
+    assert_eq!(w.effects(), 2);
+}
+
+#[tokio::test]
+async fn a29_another_principals_binding_is_not_found_or_not_owner() {
+    let w = World::new().await;
+    let done = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-o", "work-o", &[("h1", "deploy")]),
+        )
+        .await);
+    let op = done.operation_id.clone().unwrap();
+    let foreign = limited(777);
+    let rel = err(w
+        .ops
+        .release(
+            &foreign,
+            ReleaseRequest {
+                binding_id: done.data.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(rel.code, Code::CapabilityUnavailable);
+    let bind = err(w
+        .ops
+        .bind(
+            &foreign,
+            BindRequest {
+                binding_id: done.data.binding_id.clone(),
+                form: BindForm::Materialize,
+                request_id: RequestId::parse("bind-x").unwrap(),
+            },
+        )
+        .await);
+    assert_eq!(bind.code, Code::NotFound);
+    let del = err(w
+        .ops
+        .delegate(
+            &foreign,
+            DelegateRequest {
+                parent_binding_id: done.data.binding_id.clone(),
+                scope: BTreeSet::new(),
+                until: None,
+                work_id: WorkId::parse("child").unwrap(),
+                request_id: RequestId::parse("del-x").unwrap(),
+                required_capabilities: RequiredCapabilities::default(),
+            },
+        )
+        .await);
+    assert_eq!(del.code, Code::NotFound);
+    let obs = err(w
+        .ops
+        .observe(
+            &foreign,
+            ObserveRequest::Operation {
+                operation_id: op.clone(),
+                wait_ms: None,
+            },
+        )
+        .await);
+    assert_eq!(obs.code, Code::NotFound);
+    let can = err(w
+        .ops
+        .cancel(&foreign, CancelRequest { operation_id: op })
+        .await);
+    assert_eq!(can.code, Code::NotFound);
+    let rev = err(w
+        .ops
+        .revoke(
+            &foreign,
+            RevokeRequest {
+                grant_id: done.data.grant_id.clone(),
+                request_id: RequestId::parse("rev-x").unwrap(),
+            },
+        )
+        .await);
+    assert_eq!(rev.code, Code::NotFound);
+    // The binding is untouched.
+    assert_eq!(
+        w.bindings_for("work-o")[0].state,
+        heimdall_domain::binding::BindingState::Active
+    );
+}
+
+#[tokio::test]
+async fn a29_request_fields_never_widen_the_resolved_scope() {
+    let w = World::new().await;
+    // A pair outside the profile.
+    let outside = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-w1", "work-w1", &[("evil", "root")]),
+        )
+        .await);
+    assert_eq!(outside.code, Code::UsageError);
+    // A capability the profile does not carry.
+    let mut caps = ensure_req("req-w2", "work-w2", &[("h1", "deploy")]);
+    caps.required_capabilities.capabilities = [Capability::AgentForwarding].into_iter().collect();
+    let refused = err(w.ops.ensure(&unattended(501), caps).await);
+    assert_eq!(refused.code, Code::CapabilityUnavailable);
+    // Another environment named in the request.
+    let mut other = ensure_req("req-w3", "work-w3", &[("h1", "deploy")]);
+    other.environment = Some(EnvironmentId::from_random_bytes([9; 16]));
+    assert_eq!(
+        err(w.ops.ensure(&unattended(501), other).await).code,
+        Code::NotFound
+    );
+    // A deadline request beyond the policy window is added authority, not a grant.
+    let mut long = ensure_req("req-w4", "work-w4", &[("h1", "deploy")]);
+    long.until = Some(DeadlineIntent::Duration("6h".into()));
+    assert_eq!(
+        err(w.ops.ensure(&unattended(501), long).await).code,
+        Code::InteractionRequired
+    );
+    // What is granted is within policy ∩ profile ∩ request.
+    let ok_req = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-w5", "work-w5", &[("h1", "deploy")]),
+        )
+        .await);
+    let g = w.grant(&ok_req.data.grant_id);
+    assert!(g.scope.pairs.is_subset(&policy_pairs()));
+    assert_eq!(g.scope.capabilities, ssh_only());
+    assert_eq!(w.effects(), 1);
+}
+
+#[tokio::test]
+async fn a29_metadata_is_ignored_and_attendance_is_never_a_request_field() {
+    let w = World::new().await;
+    let plain = ensure_req(
+        "req-meta",
+        "work-meta",
+        &[("h1", "deploy"), ("h3", "deploy")],
+    );
+    let mut doc = serde_json::to_value(&plain).unwrap();
+    // Forged metadata and a forged "attended"/"approved" flag in the body.
+    doc["agent_name"] = serde_json::json!("owner-approved-agent");
+    doc["attended"] = serde_json::json!(true);
+    doc["approved"] = serde_json::json!(true);
+    doc["decision"] = serde_json::json!({ "verdict": "approve" });
+    let forged: EnsureRequest = serde_json::from_value(doc).unwrap();
+    assert_eq!(forged, plain);
+    let first = err(w.ops.ensure(&unattended(501), forged).await);
+    assert_eq!(
+        first.code,
+        Code::InteractionRequired,
+        "request content never becomes consent"
+    );
+    let replay = err(w.ops.ensure(&unattended(501), plain).await);
+    assert_eq!(replay.operation_id, first.operation_id);
+    // A decide body with an "attended" field is still refused on an unattended
+    // session.
+    let decide_doc = serde_json::json!({
+        "decision_id": first.next.decision_ref.clone().unwrap(),
+        "verdict": "approve",
+        "attended": true,
+    });
+    let req: DecideRequest = serde_json::from_value(decide_doc).unwrap();
+    let refused = err(w.ops.decide(&unattended(501), req).await);
+    assert_eq!(refused.code, Code::InteractionRequired);
+    assert_eq!(w.effects(), 0);
+}
+
+#[tokio::test]
+async fn a29_only_an_interactive_session_may_attend() {
+    let w = World::new().await;
+    let e = w.ops.attend(&unattended(501)).await.unwrap_err();
+    assert_no_canary(&serde_json::to_string(&e.clone().into_envelope()).unwrap());
+    assert_eq!(e.code, Code::InteractionRequired);
+    let mut interactive = unattended(501);
+    interactive.interaction = InteractionMode::Interactive;
+    let a = w.ops.attend(&interactive).await.unwrap();
+    assert_eq!(a.code, Code::Ok);
+    assert!(matches!(a.data, Attendance::Attended { .. }));
+    // Attending says nothing about any action: the caller's own copy of the
+    // session is what the runtime marks; a decision still needs `decide`.
+    assert!(!unattended(501).is_attended());
+}
+
+// =================================================================================
+// Bind, release, delegate
+// =================================================================================
+
+#[tokio::test]
+async fn bind_materializes_an_existing_binding_without_a_new_effect() {
+    let w = World::new().await;
+    let done = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-bd", "work-bd", &[("h1", "deploy")]),
+        )
+        .await);
+    let req = BindRequest {
+        binding_id: done.data.binding_id.clone(),
+        form: BindForm::Materialize,
+        request_id: RequestId::parse("bind-1").unwrap(),
+    };
+    let b = ok(w.ops.bind(&unattended(501), req.clone()).await);
+    assert_eq!(b.code, Code::AccessReady);
+    assert_eq!(b.data.binding_id, done.data.binding_id);
+    assert_eq!(b.data.grant_id, done.data.grant_id);
+    assert!(b.data.usable_until <= b.data.expires_at);
+    let again = ok(w.ops.bind(&unattended(501), req).await);
+    assert_eq!(again.operation_id, b.operation_id);
+    assert_eq!(w.effects(), 1);
+    let launch = err(w
+        .ops
+        .bind(
+            &unattended(501),
+            BindRequest {
+                binding_id: done.data.binding_id.clone(),
+                form: BindForm::Launch { argv: Vec::new() },
+                request_id: RequestId::parse("bind-2").unwrap(),
+            },
+        )
+        .await);
+    assert_eq!(launch.code, Code::UsageError);
+}
+
+#[tokio::test]
+async fn release_is_idempotent_and_the_last_reference_releases_without_revoking() {
+    let w = World::new().await;
+    let done = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-rl", "work-rl", &[("h1", "deploy")]),
+        )
+        .await);
+    let first = ok(w
+        .ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: done.data.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(first.data["outcome"]["outcome"], "released");
+    assert_eq!(first.data["grant_state"], "released");
+    let second = ok(w
+        .ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: done.data.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(second.data["outcome"]["outcome"], "already_released");
+    // Release is never revoke: no tombstone, no adapter revocation.
+    let tomb = w
+        .store
+        .transaction(|tx| tx.tombstone(&done.data.grant_id))
+        .unwrap();
+    assert!(tomb.is_none());
+    assert!(w.fake.revocations.lock().unwrap().is_empty());
+    let unknown = err(w
+        .ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: heimdall_contract::ids::BindingId::from_random_bytes([3; 16]),
+            },
+        )
+        .await);
+    assert_eq!(unknown.code, Code::NotFound);
+}
+
+#[tokio::test]
+async fn delegate_creates_a_narrower_child_and_refuses_a_wider_or_longer_one() {
+    let w = World::new().await;
+    let parent = ok(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-par", "work-par", &[("h1", "deploy"), ("h2", "deploy")]),
+        )
+        .await);
+    let child = |scope: &[(&str, &str)], until: Option<&str>, rid: &str| DelegateRequest {
+        parent_binding_id: parent.data.binding_id.clone(),
+        scope: scope.iter().map(|(d, a)| pair(d, a)).collect(),
+        until: until.map(|u| DeadlineIntent::Duration(u.into())),
+        work_id: WorkId::parse(&format!("child-{rid}")).unwrap(),
+        request_id: RequestId::parse(rid).unwrap(),
+        required_capabilities: RequiredCapabilities::default(),
+    };
+    let c = ok(w
+        .ops
+        .delegate(
+            &unattended(501),
+            child(&[("h1", "deploy")], Some("30m"), "d1"),
+        )
+        .await);
+    let cg = w.grant(&c.data.grant_id);
+    assert_eq!(cg.parent, Some(parent.data.grant_id.clone()));
+    assert!(cg.deadline.effective <= w.grant(&parent.data.grant_id).deadline.effective);
+    let wider = err(w
+        .ops
+        .delegate(&unattended(501), child(&[("h3", "deploy")], None, "d2"))
+        .await);
+    assert_eq!(wider.code, Code::DelegationExceedsParent);
+    let longer = err(w
+        .ops
+        .delegate(
+            &unattended(501),
+            child(&[("h1", "deploy")], Some("3h"), "d3"),
+        )
+        .await);
+    assert_eq!(longer.code, Code::DelegationExceedsParent);
+    // Default deadline = the parent's.
+    let dflt = ok(w
+        .ops
+        .delegate(&unattended(501), child(&[("h2", "deploy")], None, "d4"))
+        .await);
+    assert_eq!(dflt.data.expires_at, parent.data.expires_at);
+    assert_eq!(w.effects(), 3);
+}
+
+// =================================================================================
+// Restart recovery invariants (R-RT-07): identity and pause survive a restart
+// =================================================================================
+
+#[tokio::test]
+async fn restart_never_changes_environment_identity_or_revives_a_pause() {
+    let mut w = World::new().await;
+    ok(w.ops
+        .policy(
+            &unattended(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    w.restart().await;
+    let blocked = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("req-rs", "work-rs", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(
+        blocked.code,
+        Code::PolicyPaused,
+        "a restart never revives a pause"
+    );
+    // A runtime started over this store with another environment ID is refused.
+    let mut other = w.config();
+    other.environment = EnvironmentId::from_random_bytes([9; 16]);
+    let refused = Operations::start(other).await.unwrap_err();
+    assert_eq!(refused.code, Code::StateUnavailable);
+    assert_eq!(
+        w.store.transaction(|tx| tx.self_environment()).unwrap(),
+        Some(env_id())
+    );
+}
+
+#[tokio::test]
+async fn tick_reanchors_after_a_synchronized_reboot_and_expires_at_the_persisted_bound() {
+    let mut w = World::new().await;
+    let mut req = ensure_req("req-rb", "work-rb", &[("h1", "deploy")]);
+    req.until = Some(DeadlineIntent::Duration("1h".into()));
+    let done = ok(w.ops.ensure(&unattended(501), req).await);
+    let before = w
+        .store
+        .transaction(|tx| tx.grant_anchor(&done.data.grant_id))
+        .unwrap()
+        .unwrap();
+    // Reboot 10 minutes later, synchronized, at or above the mark.
+    w.clock.reboot(shift(t0(), 600));
+    w.restart().await;
+    w.ops.tick().await.unwrap();
+    let after = w
+        .store
+        .transaction(|tx| tx.grant_anchor(&done.data.grant_id))
+        .unwrap()
+        .unwrap();
+    assert_ne!(after.anchor.boot_id, before.anchor.boot_id);
+    assert_eq!(
+        after.bound, before.bound,
+        "re-anchored with the persisted bound"
+    );
+    assert_eq!(w.grant(&done.data.grant_id).state, GrantState::Active);
+    // The re-anchored budget ends at the same instant; the grant expires there.
+    w.clock.advance(50 * MINUTE);
+    w.ops.tick().await.unwrap();
+    assert_eq!(w.grant(&done.data.grant_id).state, GrantState::Expired);
+    let bind = err(w
+        .ops
+        .bind(
+            &unattended(501),
+            BindRequest {
+                binding_id: done.data.binding_id.clone(),
+                form: BindForm::Materialize,
+                request_id: RequestId::parse("bind-rb").unwrap(),
+            },
+        )
+        .await);
+    assert_eq!(bind.code, Code::CredentialExpired);
+}
+
+// =================================================================================
+// M01-U10 glue: cases the m01-plan §3 exit mapping needs and no unit suite held
+// (ADR-0006 §13.5 ⟨r2.2⟩ rulings 1–2; A17-local N06; the process-crash variant of
+// "crash recovery cannot reset a deadline, revive a pause, or change environment
+// identity"). Same harness and production hooks as the U5 cases above.
+// =================================================================================
+
+fn u10_issuance(
+    grant: &heimdall_contract::ids::GrantId,
+    valid_before: Timestamp,
+) -> heimdall_app::operations::IssuanceRequest {
+    heimdall_app::operations::IssuanceRequest {
+        grant: grant.clone(),
+        pair: pair("h1", "deploy"),
+        principal: "hm:h1:deploy".into(),
+        key_id: "fixture-key".into(),
+        valid_after: t0(),
+        valid_before,
+        extensions: BTreeSet::new(),
+        subject_fingerprint: "fixture-fingerprint".into(),
+        facts: heimdall_app::operations::IssuanceFacts {
+            new_activation: false,
+            subject_registered: true,
+            critical_option: false,
+        },
+    }
+}
+
+fn u10_delegate(parent: &EnsureData, rid: &str, until: &str) -> DelegateRequest {
+    DelegateRequest {
+        parent_binding_id: parent.binding_id.clone(),
+        scope: [pair("h1", "deploy")].into_iter().collect(),
+        until: Some(DeadlineIntent::Duration(until.into())),
+        work_id: WorkId::parse(&format!("child-{rid}")).unwrap(),
+        request_id: RequestId::parse(rid).unwrap(),
+        required_capabilities: RequiredCapabilities::default(),
+    }
+}
+
+async fn u10_revoke(w: &World, grant: &heimdall_contract::ids::GrantId, rid: &str) {
+    let r = w
+        .ops
+        .revoke(
+            &unattended(501),
+            RevokeRequest {
+                grant_id: grant.clone(),
+                request_id: RequestId::parse(rid).unwrap(),
+            },
+        )
+        .await;
+    let done = ok(r);
+    assert!(done.data.local_applied, "the tombstone is applied locally");
+}
+
+/// ADR-0006 §13.5 ruling 2 (A07): the authority generation is global, so a
+/// revoke elsewhere moves it; the next issuance for a healthy chain re-validates
+/// silently and succeeds, while a revoke of this grant's ancestor fails it.
+#[tokio::test]
+async fn u10_a07_unrelated_revoke_never_fails_healthy_issuance_but_an_ancestor_revoke_does() {
+    let w = World::new().await;
+    let mut req = ensure_req("u10-p", "u10-parent", &[("h1", "deploy")]);
+    req.until = Some(DeadlineIntent::Duration("1h".into()));
+    let parent = ok(w.ops.ensure(&unattended(501), req).await).data;
+    let mut other = ensure_req("u10-o", "u10-other", &[("h2", "deploy")]);
+    other.until = Some(DeadlineIntent::Duration("1h".into()));
+    let unrelated = ok(w.ops.ensure(&unattended(501), other).await).data;
+    let child = ok(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&parent, "u10-c", "30m"))
+        .await)
+    .data;
+    assert_eq!(
+        w.grant(&child.grant_id).parent,
+        Some(parent.grant_id.clone())
+    );
+    let gen_before = w.store.transaction(|tx| tx.authority_generation()).unwrap();
+
+    // Unrelated revoke: the global generation moves, healthy work keeps issuing.
+    u10_revoke(&w, &unrelated.grant_id, "u10-rv-o").await;
+    let gen_after = w.store.transaction(|tx| tx.authority_generation()).unwrap();
+    assert_ne!(
+        gen_before, gen_after,
+        "the revoke moved the global generation"
+    );
+    let reserved = w
+        .ops
+        .reserve_issuance(u10_issuance(&child.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_or_else(|e| panic!("healthy child issuance refused: {} {}", e.code, e.message));
+    let published = w
+        .ops
+        .publish_issuance(&reserved.id, &u10_issuance(&child.grant_id, t0()).facts)
+        .await
+        .unwrap_or_else(|e| panic!("healthy child publish refused: {} {}", e.code, e.message));
+    assert_eq!(
+        published.state,
+        heimdall_domain::issuance::IssuanceState::Published
+    );
+    assert_eq!(w.grant(&child.grant_id).state, GrantState::Active);
+
+    // A revoke of the child's ancestor fails the next issuance at reserve.
+    u10_revoke(&w, &parent.grant_id, "u10-rv-p").await;
+    let refused = w
+        .ops
+        .reserve_issuance(u10_issuance(&child.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_err();
+    assert_no_canary(&refused.message);
+    assert!(
+        matches!(
+            refused.code,
+            Code::CredentialExpired | Code::NotFound | Code::CapabilityUnavailable
+        ),
+        "ancestor revoke refuses issuance, got {}",
+        refused.code
+    );
+    let ended = w.grant(&child.grant_id).state;
+    assert!(
+        !matches!(ended, GrantState::Active | GrantState::Degraded),
+        "the child of a revoked parent is never usable again: {ended:?}"
+    );
+    w.events();
+}
+
+/// ADR-0006 §13.5 ruling 1 (A07): `delegate` holds an ownership-aware reference
+/// on the parent owned by the child, so releasing every consumer reference of the
+/// parent leaves it `active` while the child lives; the child still issues. Once
+/// the child ends, the parent may become `released`.
+#[tokio::test]
+async fn u10_a07_releasing_a_parent_with_a_live_child_keeps_it_active_until_the_child_ends() {
+    let w = World::new().await;
+    let mut req = ensure_req("u10-rp", "u10-rparent", &[("h1", "deploy")]);
+    req.until = Some(DeadlineIntent::Duration("1h".into()));
+    let parent = ok(w.ops.ensure(&unattended(501), req).await).data;
+    let child = ok(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&parent, "u10-rc", "30m"))
+        .await)
+    .data;
+    ok(w.ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: parent.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(
+        w.grant(&parent.grant_id).state,
+        GrantState::Active,
+        "a live child keeps its parent active"
+    );
+    let reserved = w
+        .ops
+        .reserve_issuance(u10_issuance(&child.grant_id, shift(t0(), 600)))
+        .await
+        .unwrap_or_else(|e| panic!("child issuance refused: {} {}", e.code, e.message));
+    assert_eq!(
+        reserved.state,
+        heimdall_domain::issuance::IssuanceState::Reserved
+    );
+    // End the child: its reference on the parent goes with it.
+    ok(w.ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: child.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(w.grant(&child.grant_id).state, GrantState::Released);
+    assert_eq!(
+        w.grant(&parent.grant_id).state,
+        GrantState::Released,
+        "with the child ended and no consumer left, the parent is released"
+    );
+    w.events();
+}
+
+type U10Fut<'a, T> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<T, heimdall_app::ports::AdapterError>> + Send + 'a>,
+>;
+
+/// Wraps the fake through the production `CredentialAdapter` port: counts every
+/// `prepare`, and optionally never returns from the `hang_on`-th call (0-based)
+/// after the fake applied its effect, writing `marker` first (the process is
+/// killed there: after the effect, before its receipt). `heimdall-runtime` has
+/// no `async-trait` dependency, so the impl is the trait's expanded form.
+struct U10Adapter {
+    inner: Arc<FakeCredentialAdapter>,
+    prepares: AtomicUsize,
+    hang_on: Option<(usize, std::path::PathBuf)>,
+}
+
+impl U10Adapter {
+    fn new(inner: Arc<FakeCredentialAdapter>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            prepares: AtomicUsize::new(0),
+            hang_on: None,
+        })
+    }
+}
+
+impl CredentialAdapter for U10Adapter {
+    fn descriptor(&self) -> &AdapterDescriptor {
+        self.inner.descriptor()
+    }
+    fn prepare<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let n = self.prepares.fetch_add(1, Ordering::SeqCst);
+            let out = self.inner.prepare(req).await;
+            if let Some((at, marker)) = &self.hang_on
+                && *at == n
+            {
+                std::fs::write(marker, b"hung").unwrap();
+                std::future::pending::<()>().await;
+            }
+            out
+        })
+    }
+    fn renew<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.prepare(req)
+    }
+    fn reconcile<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        grant: &'life1 heimdall_contract::ids::GrantId,
+        effect_token: &'life2 str,
+    ) -> U10Fut<'async_trait, heimdall_app::ports::ReconcileOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.reconcile(grant, effect_token)
+    }
+    fn revoke<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        grant: &'life1 heimdall_contract::ids::GrantId,
+        now: Timestamp,
+    ) -> U10Fut<'async_trait, heimdall_app::ports::RevokeOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.inner.revoke(grant, now)
+    }
+}
+
+/// A17 local (N06 b, fail-closed reading): repeated `AdapterError::Unavailable`
+/// produces one adapter call per request, a stable `SERVICE_UNAVAILABLE` code,
+/// no decision records (no prompt storm) and no retry loop of its own: neither
+/// the operation, nor `tick` (the supervisor's scheduler pass), nor a restart
+/// prepares again for the failed request.
+#[tokio::test]
+async fn u10_a17_repeated_unavailable_errors_get_a_stable_code_and_no_retry_storm() {
+    let mut w = World::with(Setup {
+        script: vec![FakeStep::Fail(
+            heimdall_app::ports::AdapterError::Unavailable(format!("dependency {}", canary())),
+        )],
+        ..Setup::default()
+    })
+    .await;
+    let counting = U10Adapter::new(w.fake.clone());
+    let adapters = vec![counting.clone() as Arc<dyn CredentialAdapter>];
+    let config = |w: &World| OperationsConfig {
+        adapters: adapters.clone(),
+        ..w.config()
+    };
+    w.ops = Operations::start(config(&w)).await.unwrap();
+
+    let mut codes = Vec::new();
+    for i in 0..5 {
+        let req = ensure_req(&format!("u10-un-{i}"), "u10-unavail", &[("h1", "deploy")]);
+        let e = err(w.ops.ensure(&unattended(501), req).await);
+        assert_eq!(
+            counting.prepares.load(Ordering::SeqCst),
+            i + 1,
+            "exactly one adapter call per request, no hidden retry loop"
+        );
+        codes.push(e.code.clone());
+    }
+    assert!(
+        codes.iter().all(|c| *c == Code::ServiceUnavailable),
+        "stable failure code: {codes:?}"
+    );
+    // Same-key retry replays the settled failure without calling the adapter.
+    let replay = err(w
+        .ops
+        .ensure(
+            &unattended(501),
+            ensure_req("u10-un-0", "u10-unavail", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(replay.code, Code::ServiceUnavailable);
+    assert_eq!(counting.prepares.load(Ordering::SeqCst), 5);
+    // Scheduler passes and a restart never re-drive the failed requests.
+    for _ in 0..10 {
+        w.clock.advance(MINUTE);
+        w.ops.tick().await.unwrap();
+    }
+    w.ops = Operations::start(config(&w)).await.unwrap();
+    w.ops.tick().await.unwrap();
+    assert_eq!(
+        counting.prepares.load(Ordering::SeqCst),
+        5,
+        "no supervisor or restart retry storm"
+    );
+    assert_eq!(w.effects(), 0);
+    let decisions = w.store.transaction(|tx| tx.pending_decisions()).unwrap();
+    assert!(
+        decisions.is_empty(),
+        "an unavailable dependency never prompts"
+    );
+    assert!(w.bindings_for("u10-unavail").is_empty());
+    w.events();
+}
+
+/// A17 local (N06 a) at the substrate level: a cleanup planned for generation N
+/// (`reconcile::plan`) races its replacement N+1 created at the deletion boundary
+/// (between the decision and the delete). The delete is the generation-CAS write
+/// `Txn::upsert_resource(.., Some(N))`; it is refused and N+1 survives, and
+/// `reconcile::guard_cleanup` reports `Superseded`. M01 has no production
+/// executor that deletes resources (U8b escalation); this case exercises the
+/// production planner, guard and store CAS that such an executor must use.
+#[tokio::test]
+async fn u10_a17_cleanup_of_generation_n_never_deletes_its_replacement_n_plus_1() {
+    use heimdall_app::reconcile::{Action, guard_cleanup, plan};
+    use heimdall_domain::resource::{
+        CleanupDecision, ManagedResource, OwnerRef, ResourceGeneration, ResourceKind, ResourceState,
+    };
+    let w = World::new().await;
+    let id = heimdall_contract::ids::ResourceId::from_random_bytes([3; 16]);
+    let gen_n = ManagedResource {
+        id: id.clone(),
+        kind: ResourceKind::Endpoint,
+        owner: OwnerRef::Runtime,
+        generation: ResourceGeneration(1),
+        desired: ResourceState::Present,
+        observed: ResourceState::Present,
+        last_operation: None,
+        locator: "fixture-endpoint".into(),
+        updated_at: t0(),
+    };
+    w.store
+        .transaction(|tx| tx.upsert_resource(&gen_n, None))
+        .unwrap();
+    // Generation N's owner ends: desired becomes absent; the planner decides.
+    let mut ending = gen_n.clone();
+    ending.desired = ResourceState::Absent;
+    w.store
+        .transaction(|tx| tx.upsert_resource(&ending, Some(ResourceGeneration(1))))
+        .unwrap();
+    let planned = w
+        .store
+        .transaction(|tx| tx.resources_needing_reconcile())
+        .unwrap();
+    assert_eq!(planned.len(), 1);
+    let Action::Cleanup { generation } = plan(&planned[0]) else {
+        panic!("cleanup expected, got {:?}", plan(&planned[0]));
+    };
+    assert_eq!(generation, ResourceGeneration(1));
+    // Deletion boundary: the replacement N+1 is created now.
+    let replacement = ManagedResource {
+        generation: ResourceGeneration(2),
+        desired: ResourceState::Present,
+        observed: ResourceState::Present,
+        locator: "fixture-endpoint-2".into(),
+        updated_at: shift(t0(), 1),
+        ..gen_n.clone()
+    };
+    w.store
+        .transaction(|tx| tx.upsert_resource(&replacement, Some(ResourceGeneration(1))))
+        .unwrap();
+    // The delayed delete of N, bound to its generation, is refused.
+    let deleted = ManagedResource {
+        observed: ResourceState::Absent,
+        updated_at: shift(t0(), 2),
+        ..ending.clone()
+    };
+    let refused = w
+        .store
+        .transaction(|tx| tx.upsert_resource(&deleted, Some(generation)));
+    assert!(
+        matches!(
+            refused,
+            Err(heimdall_store::StoreError::GenerationConflict(_))
+        ),
+        "stale cleanup refused: {refused:?}"
+    );
+    let current = w.store.transaction(|tx| tx.resource(&id)).unwrap().unwrap();
+    assert_eq!(current, replacement, "N+1 survives untouched");
+    assert_eq!(
+        guard_cleanup(generation, &current),
+        CleanupDecision::Superseded
+    );
+    assert_eq!(plan(&current), Action::None);
+}
+
+// ---------------------------------------------------------------------------------
+// Process-crash variant (core in a child process, killed by exact handle)
+// ---------------------------------------------------------------------------------
+
+const U10_CRASH_DIR: &str = "HEIMDALL_U10_CRASH_DIR";
+
+fn u10_crash_config(
+    store: &Arc<Store>,
+    clock: &Arc<VirtualClock>,
+    sync: &Arc<ScriptedTimeSync>,
+    adapter: Arc<dyn CredentialAdapter>,
+) -> OperationsConfig {
+    OperationsConfig {
+        store: store.clone(),
+        clock: clock.clone(),
+        time_sync: sync.clone(),
+        time_policy: TimePolicy::default(),
+        environment: env_id(),
+        adapters: vec![adapter],
+        stage_hook: Arc::new(NoStageHook),
+        limits: Limits::default(),
+        default_window: 12 * HOUR,
+    }
+}
+
+/// Child entry for the process-crash case: does nothing unless the parent set
+/// `HEIMDALL_U10_CRASH_DIR`. In the child: an on-disk store, the fake adapter
+/// over a durable ledger, ensure A to completion (1 h), ensure B left hanging
+/// after its effect, then the policy paused; the parent kills the process.
+#[tokio::test]
+async fn u10_crash_child_entry() {
+    let Some(dir) = std::env::var_os(U10_CRASH_DIR).map(std::path::PathBuf::from) else {
+        return;
+    };
+    let store =
+        Arc::new(Store::open(&dir.join("state.db"), Arc::new(heimdall_store::NoFaults)).unwrap());
+    seed(&store);
+    let clock = VirtualClock::at(t0());
+    let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
+    let fake = FakeCredentialAdapter::with_ledger(
+        descriptor(),
+        vec![FakeStep::Prepare(outcome())],
+        dir.join("ledger"),
+    )
+    .unwrap();
+    let adapter = Arc::new(U10Adapter {
+        inner: fake,
+        prepares: AtomicUsize::new(0),
+        hang_on: Some((1, dir.join("hung"))),
+    });
+    let ops = Operations::start(u10_crash_config(&store, &clock, &sync, adapter))
+        .await
+        .unwrap();
+    let mut a = ensure_req("u10-crash-a", "u10-crash-a", &[("h1", "deploy")]);
+    a.until = Some(DeadlineIntent::Duration("1h".into()));
+    let done = ok(ops.ensure(&unattended(501), a).await);
+    std::fs::write(dir.join("a.json"), serde_json::to_vec(&done.data).unwrap()).unwrap();
+    let ops = Arc::new(ops);
+    let b_ops = ops.clone();
+    tokio::spawn(async move {
+        let mut b = ensure_req("u10-crash-b", "u10-crash-b", &[("h2", "deploy")]);
+        b.until = Some(DeadlineIntent::Duration("1h".into()));
+        let _ = b_ops.ensure(&unattended(501), b).await;
+    });
+    while !dir.join("hung").exists() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    ok(ops
+        .policy(
+            &unattended(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    std::fs::write(dir.join("paused"), b"paused").unwrap();
+    std::future::pending::<()>().await;
+}
+
+fn u10_wait_for(path: &std::path::Path, child: &mut std::process::Child) {
+    let start = std::time::Instant::now();
+    while !path.exists() {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("crash child exited early: {status}");
+        }
+        if start.elapsed() > Duration::from_secs(60) {
+            // Only the exact child this test spawned.
+            child.kill().ok();
+            child.wait().ok();
+            panic!("crash child did not reach {}", path.display());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// **Process-crash** (plan §5 M01 exit; m01-plan §3; spec A06/A17 local): the
+/// operations core runs in a child process over an on-disk store and a durable
+/// fake ledger; the child is killed (SIGKILL / TerminateProcess through the exact
+/// `Child` handle) after ensure A settled, after ensure B's effect but before its
+/// receipt, and after a pause committed. A new process reopens the store: the
+/// environment identity, A's deadline and anchor bound are unchanged, the pause is
+/// still in force (B's activation is never completed after it and B's effect is
+/// never applied twice), and A expires at its original instant.
+#[tokio::test]
+async fn u10_process_crash_never_resets_a_deadline_revives_a_pause_or_changes_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "u10_crash_child_entry",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(U10_CRASH_DIR, dir.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    u10_wait_for(&dir.path().join("paused"), &mut child);
+    let ledger = dir.path().join("ledger");
+    assert_eq!(
+        FakeCredentialAdapter::ledger_entries(&ledger)
+            .unwrap()
+            .len(),
+        2,
+        "A's and B's effects are durably applied before the kill"
+    );
+    child.kill().unwrap();
+    let status = child.wait().unwrap();
+    assert!(
+        !status.success(),
+        "the child was killed, not finished: {status}"
+    );
+    let mut child_out = String::new();
+    let mut child_err = String::new();
+    use std::io::Read as _;
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut child_out)
+        .unwrap();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut child_err)
+        .unwrap();
+    assert_no_canary(&child_out);
+    assert_no_canary(&child_err);
+    let a: EnsureData =
+        serde_json::from_slice(&std::fs::read(dir.path().join("a.json")).unwrap()).unwrap();
+    assert_eq!(a.expires_at, shift(t0(), 3600));
+
+    // New process image of the runtime: reopen from disk, new adapter instance
+    // over the same ledger, same boot five minutes later.
+    let store = Arc::new(
+        Store::open(
+            &dir.path().join("state.db"),
+            Arc::new(heimdall_store::NoFaults),
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        store.transaction(|tx| tx.self_environment()).unwrap(),
+        Some(env_id()),
+        "environment identity survives the crash"
+    );
+    let anchor_before = store
+        .transaction(|tx| tx.grant_anchor(&a.grant_id))
+        .unwrap()
+        .unwrap();
+    let clock = VirtualClock::at(t0());
+    clock.advance(5 * MINUTE);
+    let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
+    let fake = FakeCredentialAdapter::with_ledger(
+        descriptor(),
+        vec![FakeStep::Prepare(outcome())],
+        &ledger,
+    )
+    .unwrap();
+    let ops = Operations::start(u10_crash_config(
+        &store,
+        &clock,
+        &sync,
+        fake.clone() as Arc<dyn CredentialAdapter>,
+    ))
+    .await
+    .unwrap();
+    assert_eq!(
+        FakeCredentialAdapter::ledger_entries(&ledger)
+            .unwrap()
+            .len(),
+        2,
+        "recovery reconciles, never prepares B a second time"
+    );
+    let b_bindings = store
+        .transaction(|tx| tx.bindings_for_work(&env_id(), &WorkId::parse("u10-crash-b").unwrap()))
+        .unwrap();
+    assert!(
+        b_bindings.is_empty(),
+        "an activation interrupted by the crash is never completed after the pause"
+    );
+    let b_retry = err(ops
+        .ensure(&unattended(501), {
+            let mut b = ensure_req("u10-crash-b", "u10-crash-b", &[("h2", "deploy")]);
+            b.until = Some(DeadlineIntent::Duration("1h".into()));
+            b
+        })
+        .await);
+    assert_ne!(b_retry.code, Code::AccessReady);
+    assert_eq!(
+        FakeCredentialAdapter::ledger_entries(&ledger)
+            .unwrap()
+            .len(),
+        2
+    );
+    // The pause is still in force for new work.
+    let blocked = err(ops
+        .ensure(
+            &unattended(501),
+            ensure_req("u10-crash-c", "u10-crash-c", &[("h1", "deploy")]),
+        )
+        .await);
+    assert_eq!(
+        blocked.code,
+        Code::PolicyPaused,
+        "a crash never revives a pause"
+    );
+    // A's deadline is unchanged, its anchor bound never lengthened.
+    let g = store
+        .transaction(|tx| tx.grant(&a.grant_id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(g.deadline.effective, a.expires_at, "deadline not reset");
+    ops.tick().await.unwrap();
+    let anchor_after = store
+        .transaction(|tx| tx.grant_anchor(&a.grant_id))
+        .unwrap()
+        .unwrap();
+    assert!(anchor_after.bound <= anchor_before.bound);
+    assert!(anchor_after.budget_end <= anchor_before.budget_end);
+    // A started before the pause; whatever its state, it never outlives 1 h.
+    clock.advance(55 * MINUTE);
+    ops.tick().await.unwrap();
+    let ended = store
+        .transaction(|tx| tx.grant(&a.grant_id))
+        .unwrap()
+        .unwrap()
+        .state;
+    assert!(
+        !matches!(ended, GrantState::Active | GrantState::Degraded),
+        "A ends at its original instant: {ended:?}"
+    );
+    // A runtime with another environment ID is refused over this store.
+    let mut other = u10_crash_config(&store, &clock, &sync, fake as Arc<dyn CredentialAdapter>);
+    other.environment = EnvironmentId::from_random_bytes([9; 16]);
+    assert_eq!(
+        Operations::start(other).await.unwrap_err().code,
+        Code::StateUnavailable
+    );
+    let page = store
+        .transaction(|tx| tx.stored_events_after(&env_id(), 0, &EventFilter::default(), 10_000))
+        .unwrap();
+    for e in &page.events {
+        assert_no_canary(&serde_json::to_string(&e.event).unwrap());
+    }
+}
+
+// =================================================================================
+// Gap fixes G08 and G10 (M01-wave2-gapfix)
+// =================================================================================
+
+/// Gap G08 (plan §6.3 #2; spec §6.2 "explicit deny and pause override allow"):
+/// with two applicable policies, a future cutoff on the one resolution did not
+/// choose (the second by ID) still bounds the grant: the activation anchor, the
+/// reported usability and every certificate's `valid_before` end at that cutoff.
+#[tokio::test]
+async fn g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant() {
+    let w = World::new().await;
+    let cutoff = shift(t0(), 30 * 60);
+    w.store
+        .transaction(|tx| {
+            tx.upsert_policy(
+                &StandingPolicy {
+                    id: PolicyId::parse("pol-z").unwrap(),
+                    revision: PolicyRevision(1),
+                    profile: ProfileId::parse("dev").unwrap(),
+                    workspace: None,
+                    scope: Scope {
+                        pairs: policy_pairs(),
+                        capabilities: ssh_only(),
+                    },
+                    environments: [env_id()].into_iter().collect(),
+                    max_window: 2 * HOUR,
+                    pause: PauseState::Active,
+                    cutoff_at: Some(cutoff),
+                    source: PolicySource::SetupDefault,
+                },
+                false,
+            )
+        })
+        .unwrap();
+    let mut req = ensure_req("g08", "work-g08", &[("h1", "deploy")]);
+    req.until = Some(DeadlineIntent::Duration("1h".into()));
+    let ready = ok(w.ops.ensure(&unattended(501), req).await).data;
+    assert!(ready.usable_until <= cutoff, "usable_until past the cutoff");
+    assert!(
+        ready.offline_until <= cutoff,
+        "offline_until past the cutoff"
+    );
+    let anchor = w
+        .store
+        .transaction(|tx| tx.grant_anchor(&ready.grant_id))
+        .unwrap()
+        .expect("activation anchor");
+    assert!(
+        anchor.bound <= cutoff,
+        "anchor bound {} is later than the other policy's cutoff {cutoff}",
+        anchor.bound
+    );
+    // valid_before one second past the cutoff is refused; at the cutoff it is not.
+    let late = w
+        .ops
+        .reserve_issuance(u10_issuance(&ready.grant_id, shift(cutoff, 1)))
+        .await
+        .unwrap_err();
+    assert_no_canary(&late.message);
+    assert_eq!(late.code, Code::CapabilityUnavailable);
+    let at_cutoff = w
+        .ops
+        .reserve_issuance(u10_issuance(&ready.grant_id, cutoff))
+        .await
+        .unwrap_or_else(|e| panic!("valid_before at the cutoff refused: {}", e.code));
+    assert!(at_cutoff.bounds.valid_before <= cutoff);
+    // Once the cutoff passes, issuance stops although the chosen policy has none.
+    w.clock.advance(31 * MINUTE);
+    let after = w
+        .ops
+        .reserve_issuance(u10_issuance(&ready.grant_id, shift(cutoff, 60)))
+        .await
+        .unwrap_err();
+    assert_eq!(after.code, Code::PolicyCutoff);
+    w.events();
+}
+
+/// Gap G10: a widening policy action under `TIME_UNCERTAIN` (forward skew past
+/// the tolerance) creates no decision record, so no record can stay approvable
+/// past `decision_lifetime` once time is safe again; narrowing still applies.
+#[tokio::test]
+async fn g10_widening_under_uncertain_time_creates_no_decision() {
+    let w = World::new().await;
+    ok(w.ops
+        .policy(
+            &attended(501),
+            PolicyAction::Pause {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    // The wall jumps forward far beyond the 60 s skew tolerance.
+    w.clock.set_wall(shift(t0(), 6 * 3600));
+    let e = err(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Resume {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(e.code, Code::TimeUncertain);
+    assert!(e.next.decision_ref.is_none());
+    let pending = w.store.transaction(|tx| tx.pending_decisions()).unwrap();
+    assert!(
+        pending.is_empty(),
+        "no widening record under uncertain time"
+    );
+    // Narrowing still applies while uncertain.
+    ok(w.ops
+        .policy(
+            &attended(501),
+            PolicyAction::Cutoff {
+                policy_id: policy_id(),
+                at: shift(t0(), 3600),
+            },
+        )
+        .await);
+    // Back to safe time: the widening creates a record whose lifetime is
+    // measured from accepted time.
+    w.clock.set_wall(t0());
+    let e = err(w
+        .ops
+        .policy(
+            &attended(501),
+            PolicyAction::Resume {
+                policy_id: policy_id(),
+            },
+        )
+        .await);
+    assert_eq!(e.code, Code::ApprovalRequired);
+    let rec = w
+        .store
+        .transaction(|tx| tx.decision(&decision_ref(&e)))
+        .unwrap()
+        .unwrap();
+    assert!(rec.created_at <= shift(t0(), 60));
+    assert!(rec.expires_at <= shift(t0(), 60 + 15 * 60));
+    w.events();
+}
+
+// =================================================================================
+// Gap fixes G03 and G04: the supervisor-owned cleanup executor (m01-plan U8
+// ⟨r2.1⟩ N06 (a) and (b)), through the production `Supervisor::cleanup_pass`,
+// the `ResourceCleaner` port and the `CleanupHook` deletion-boundary hook.
+// =================================================================================
+
+/// The external world the fake cleaner acts on: one slot per locator holding the
+/// generation currently installed there (a socket path's inode, a PID with start
+/// time). The delete is generation-bound: it empties the slot only if it still
+/// holds the generation being cleaned up.
+#[derive(Default)]
+struct FakeCleaner {
+    slots: std::sync::Mutex<BTreeMap<String, u64>>,
+    calls: std::sync::Mutex<Vec<(u64, Duration)>>,
+    unavailable: AtomicBool,
+    clock: std::sync::Mutex<Option<Arc<VirtualClock>>>,
+}
+
+impl FakeCleaner {
+    fn install(&self, locator: &str, generation: u64) {
+        self.slots
+            .lock()
+            .unwrap()
+            .insert(locator.to_owned(), generation);
+    }
+    fn slot(&self, locator: &str) -> Option<u64> {
+        self.slots.lock().unwrap().get(locator).copied()
+    }
+    fn calls(&self) -> Vec<(u64, Duration)> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+impl heimdall_app::ports::ResourceCleaner for FakeCleaner {
+    fn delete<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        resource: &'life1 heimdall_domain::resource::ManagedResource,
+    ) -> U10Fut<'async_trait, ()>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let at = self
+                .clock
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map_or(Duration::ZERO, |c| c.continuous());
+            self.calls.lock().unwrap().push((resource.generation.0, at));
+            if self.unavailable.load(Ordering::SeqCst) {
+                return Err(heimdall_app::ports::AdapterError::Unavailable(
+                    "fixture dependency down".into(),
+                ));
+            }
+            let mut slots = self.slots.lock().unwrap();
+            if slots.get(&resource.locator) == Some(&resource.generation.0) {
+                slots.remove(&resource.locator);
+            }
+            Ok(())
+        })
+    }
+}
+
+/// At `point`, installs generation N+1 at the same locator (store record by
+/// generation CAS, and the external slot): the replacement races the cleanup of
+/// N at the deletion boundary.
+struct ReplaceAt {
+    point: heimdall_app::reconcile::CleanupPoint,
+    store: Arc<Store>,
+    cleaner: Arc<FakeCleaner>,
+    fired: AtomicUsize,
+}
+
+impl heimdall_app::reconcile::CleanupHook for ReplaceAt {
+    fn at(
+        &self,
+        point: heimdall_app::reconcile::CleanupPoint,
+        resource: &heimdall_domain::resource::ManagedResource,
+    ) {
+        use heimdall_domain::resource::{ResourceGeneration, ResourceState};
+        if point != self.point || self.fired.fetch_add(1, Ordering::SeqCst) > 0 {
+            return;
+        }
+        let next = heimdall_domain::resource::ManagedResource {
+            generation: ResourceGeneration(resource.generation.0 + 1),
+            desired: ResourceState::Present,
+            observed: ResourceState::Present,
+            updated_at: shift(t0(), 1),
+            ..resource.clone()
+        };
+        self.store
+            .transaction(|tx| tx.upsert_resource(&next, Some(resource.generation)))
+            .unwrap();
+        self.cleaner.install(&resource.locator, next.generation.0);
+    }
+}
+
+/// Generation N of an endpoint whose owner ended (desired absent, observed
+/// present), installed in the store and in the fake world.
+fn ending_endpoint(w: &World, cleaner: &FakeCleaner) -> heimdall_domain::resource::ManagedResource {
+    use heimdall_domain::resource::{
+        ManagedResource, OwnerRef, ResourceGeneration, ResourceKind, ResourceState,
+    };
+    let r = ManagedResource {
+        id: heimdall_contract::ids::ResourceId::from_random_bytes([5; 16]),
+        kind: ResourceKind::Endpoint,
+        owner: OwnerRef::Runtime,
+        generation: ResourceGeneration(1),
+        desired: ResourceState::Absent,
+        observed: ResourceState::Present,
+        last_operation: None,
+        locator: "fixture-endpoint".into(),
+        updated_at: t0(),
+    };
+    w.store
+        .transaction(|tx| tx.upsert_resource(&r, None))
+        .unwrap();
+    cleaner.install(&r.locator, 1);
+    r
+}
+
+fn supervisor_with(
+    w: &World,
+    cleaner: &Arc<FakeCleaner>,
+    hook: Arc<dyn heimdall_app::reconcile::CleanupHook>,
+) -> heimdall_runtime::supervisor::Supervisor {
+    *cleaner.clock.lock().unwrap() = Some(w.clock.clone());
+    heimdall_runtime::supervisor::Supervisor::new(
+        w.ops.clone(),
+        heimdall_runtime::supervisor::SupervisorConfig::default(),
+    )
+    .with_state(w.store.clone(), w.clock.clone())
+    .with_cleaner(
+        cleaner.clone(),
+        hook,
+        heimdall_app::reconcile::Backoff::default(),
+    )
+}
+
+/// N06 (a) control: with no race the executor deletes generation N exactly once
+/// and records it absent at that generation.
+#[tokio::test]
+async fn g03_cleanup_executor_deletes_generation_n_once() {
+    let w = World::new().await;
+    let cleaner = Arc::new(FakeCleaner::default());
+    let r = ending_endpoint(&w, &cleaner);
+    let sup = supervisor_with(
+        &w,
+        &cleaner,
+        Arc::new(heimdall_app::reconcile::NoCleanupHook),
+    );
+    let report = sup.cleanup_pass().await.unwrap();
+    assert_eq!(report.deleted, vec![r.id.clone()]);
+    assert_eq!(cleaner.calls().len(), 1);
+    assert_eq!(cleaner.slot(&r.locator), None, "N is gone");
+    let stored = w
+        .store
+        .transaction(|tx| tx.resource(&r.id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.generation, r.generation);
+    assert_eq!(
+        stored.observed,
+        heimdall_domain::resource::ResourceState::Absent
+    );
+    // Nothing left to do: a second pass deletes nothing.
+    let again = sup.cleanup_pass().await.unwrap();
+    assert!(again.deleted.is_empty());
+    assert_eq!(cleaner.calls().len(), 1);
+    w.events();
+}
+
+/// N06 (a) at the deletion boundary: the replacement N+1 is created between the
+/// decision to delete N and the delete, at either hook point. N+1 survives in the
+/// store and in the world; N is gone (its slot was taken over); the executor never
+/// overwrites N+1's record.
+#[tokio::test]
+async fn g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary()
+ {
+    use heimdall_app::reconcile::CleanupPoint;
+    use heimdall_domain::resource::{ResourceGeneration, ResourceState};
+    for point in [CleanupPoint::Decided, CleanupPoint::Guarded] {
+        let w = World::new().await;
+        let cleaner = Arc::new(FakeCleaner::default());
+        let r = ending_endpoint(&w, &cleaner);
+        let hook = Arc::new(ReplaceAt {
+            point,
+            store: w.store.clone(),
+            cleaner: cleaner.clone(),
+            fired: AtomicUsize::new(0),
+        });
+        let sup = supervisor_with(&w, &cleaner, hook.clone());
+        let report = sup.cleanup_pass().await.unwrap();
+        assert_eq!(hook.fired.load(Ordering::SeqCst), 1, "{point:?}");
+        assert!(report.deleted.is_empty(), "{point:?}: {report:?}");
+        assert_eq!(report.superseded, vec![r.id.clone()], "{point:?}");
+        assert_eq!(cleaner.slot(&r.locator), Some(2), "{point:?}: N+1 survives");
+        let stored = w
+            .store
+            .transaction(|tx| tx.resource(&r.id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.generation, ResourceGeneration(2), "{point:?}");
+        assert_eq!(stored.desired, ResourceState::Present, "{point:?}");
+        assert_eq!(stored.observed, ResourceState::Present, "{point:?}");
+        // Guarded: the generation-bound delete of N ran and touched nothing of
+        // N+1; Decided: the guard stopped it before any delete.
+        let expected_calls = usize::from(point == CleanupPoint::Guarded);
+        assert_eq!(cleaner.calls().len(), expected_calls, "{point:?}");
+        assert!(cleaner.calls().iter().all(|(g, _)| *g == 1), "{point:?}");
+        // Later passes leave N+1 alone (desired = observed = present).
+        sup.cleanup_pass().await.unwrap();
+        assert_eq!(cleaner.slot(&r.locator), Some(2), "{point:?}");
+        w.events();
+    }
+}
+
+/// N06 (b): repeated `AdapterError::Unavailable` is retried only by the single
+/// supervisor executor, with `Backoff` spacing on the continuous clock (0.5 s,
+/// 1 s, 2 s, ... ), capped at `max_attempts` (8) calls, then a stable
+/// `SERVICE_UNAVAILABLE` code; no operation, decision record or prompt results,
+/// and `tick` (the operations path) never retries a resource.
+#[tokio::test]
+async fn g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff() {
+    let w = World::new().await;
+    let cleaner = Arc::new(FakeCleaner::default());
+    cleaner.unavailable.store(true, Ordering::SeqCst);
+    let r = ending_endpoint(&w, &cleaner);
+    let sup = supervisor_with(
+        &w,
+        &cleaner,
+        Arc::new(heimdall_app::reconcile::NoCleanupHook),
+    );
+    let start = w.clock.continuous();
+    let mut failed = Vec::new();
+    let step = Duration::from_millis(250);
+    for _ in 0..(4 * 120) {
+        let report = sup.cleanup_pass().await.unwrap();
+        failed.extend(report.failed);
+        // The operations path never touches resources.
+        w.ops.tick().await.unwrap();
+        w.clock.advance(step);
+    }
+    let offsets: Vec<Duration> = cleaner
+        .calls()
+        .iter()
+        .map(|(_, at)| at.saturating_sub(start))
+        .collect();
+    let ms = |v: u64| Duration::from_millis(v);
+    assert_eq!(
+        offsets,
+        vec![
+            ms(0),
+            ms(500),
+            ms(1_500),
+            ms(3_500),
+            ms(7_500),
+            ms(15_500),
+            ms(31_500),
+            ms(63_500),
+        ],
+        "attempts follow the backoff schedule and stop at the cap"
+    );
+    assert_eq!(failed, vec![(r.id.clone(), Code::ServiceUnavailable)]);
+    // After the cap nothing retries, whatever the clock does.
+    w.clock.advance(Duration::from_secs(3600));
+    let after = sup.cleanup_pass().await.unwrap();
+    assert!(after.retry_scheduled.is_empty() && after.failed.is_empty());
+    assert_eq!(cleaner.calls().len(), 8);
+    // No decision record, no operation, no prompt.
+    assert!(
+        w.store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.operation_counts())
+            .unwrap()
+            .iter()
+            .all(|(_, n)| *n == 0)
+    );
+    // The stable code is published once, redacted (no locator).
+    let failures: Vec<serde_json::Value> = w
+        .events()
+        .into_iter()
+        .filter(|e| e.event.event_type == EventType::ResourceChanged)
+        .map(|e| e.event.payload)
+        .collect();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert_eq!(failures[0]["outcome"], "cleanup_failed");
+    assert_eq!(failures[0]["code"], "SERVICE_UNAVAILABLE");
+    assert_eq!(failures[0]["attempts"], 8);
+    assert!(!failures[0].to_string().contains("fixture-endpoint"));
+    // The resource is still recorded present (truthful), generation unchanged.
+    let stored = w
+        .store
+        .transaction(|tx| tx.resource(&r.id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored.observed,
+        heimdall_domain::resource::ResourceState::Present
+    );
+}
+
+/// ADR-0006 §13.5 ruling 1 (gap G02), the other ends of a child: revoking only
+/// the child drops its reference on the parent at once (`revoking` never returns
+/// to live); a parent whose consumers already released becomes `released` then,
+/// with no tombstone and no cascade (release is never revoke, §13.1 item 2).
+#[tokio::test]
+async fn g02_a_revoked_child_frees_its_parent_without_revoking_it() {
+    let w = World::new().await;
+    let mut req = ensure_req("g02-p", "g02-parent", &[("h1", "deploy")]);
+    req.until = Some(DeadlineIntent::Duration("1h".into()));
+    let parent = ok(w.ops.ensure(&unattended(501), req).await).data;
+    let child = ok(w
+        .ops
+        .delegate(&unattended(501), u10_delegate(&parent, "g02-c", "30m"))
+        .await)
+    .data;
+    ok(w.ops
+        .release(
+            &unattended(501),
+            ReleaseRequest {
+                binding_id: parent.binding_id.clone(),
+            },
+        )
+        .await);
+    assert_eq!(w.grant(&parent.grant_id).state, GrantState::Active);
+    // Revoke the child alone (its tombstone, not the parent's).
+    u10_revoke(&w, &child.grant_id, "g02-rv-c").await;
+    let c = w.grant(&child.grant_id).state;
+    assert!(
+        matches!(c, GrantState::Revoked | GrantState::Revoking),
+        "{c:?}"
+    );
+    assert_eq!(
+        w.grant(&parent.grant_id).state,
+        GrantState::Released,
+        "no consumer and no live child left"
+    );
+    let parent_tombstone = w
+        .store
+        .transaction(|tx| tx.tombstone(&parent.grant_id))
+        .unwrap();
+    assert!(parent_tombstone.is_none(), "release is never revoke");
+    assert!(
+        w.store
+            .transaction(|tx| tx.grant_references(&parent.grant_id))
+            .unwrap()
+            .is_empty()
+    );
+    w.events();
+}

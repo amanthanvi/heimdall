@@ -33,8 +33,29 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - check.sh 0 with the test-discovery step: 308 tests, no 0-test target.
   - Store migration 0002 (SCHEMA_VERSION 2).
   - Windows pipe SDDL owner = the creating process's SID. Natively the first run exited 101 (ERROR_INVALID_OWNER) and the second exited 0 (`tests/evidence/artifacts/m01/u6w-native/r6-owner-sddl{,-2}/`). The cross-user case is blocked on the second Windows account.
-- Next: independent re-review of the revised contract; wave 2 (U5 app operations, U8 runtime, U9 CLI, U10 exit suite); independent code review; M01 exit; then M02.
-- If interrupted: resume the workflow with its script under the session's workflows/scripts dir and resumeFromRunId; units write only their owner paths (docs/architecture/m01-plan.md).
+- Design-fix round committed as f9ed3454.
+- Codex design re-review round 2 at f9ed3454 (`tests/evidence/artifacts/review-m01-design/round2/review.md`): proceed after fixes.
+  - F02, F04, F05, F07 and F10 are resolved. F01, F03, F06, F08 and F09 are partial.
+  - New findings: N01–N04 and N06 major, N05 minor.
+  - I checked N01 (shorten drops the tolerance margin) and N05 (reboot below the high-water mark accepted) against the code: both are real.
+  - Rulings (in the fixer's brief; it records them in ADR-0006 §13.4):
+    - every widening action and every added authority goes through a decision record;
+    - the client gets an explicit y/N confirmation;
+    - the reboot check is strict;
+    - the full issuance predicate applies at reserve and at publish;
+    - an oversized event ends the subscription at the last delivered cursor;
+    - the fake adapter gets a durable effect ledger, for service-death A06.
+- Fixer M01-T00-review2-fix is done (implemented_unverified; check.sh 0 on the shared checkout). N01–N06 are applied, and the rulings are recorded in ADR-0006 §13.4.
+- My rulings on the fixer's three questions are in ADR-0006 §13.5 and the m01-plan U5 notes:
+  - every ancestor must be issuable, and a delegated child holds an owned reference on its parent;
+  - generation is compared with the last validated generation, with automatic re-validation;
+  - extensions come from the resolved scope.
+- These are not committed yet. They will be committed with wave-2 stage A once its integrator is green, to avoid committing half-finished unit files.
+- Running:
+  - Workflow `wf_11ee3572-cd2` (M01 wave 2), in stages: U5t and U8a, then U5 (operations + events), then U8b, then U9, then U10. U10 includes the native Linux and Windows runs and the m01 evidence records. The workflow ends with a completeness critic, one gap-fix round and a final check.
+- Next: an independent code review of wave 2, then M01 exit, then M02.
+- Note for G06: Dependabot reports 4 rustls advisories (1 medium, 3 low) in the disposable X5 evidence lockfile `tests/evidence/artifacts/g02-r4/x5/rust-embed/Cargo.lock`. Production does not use it. An Iroh embedding in M06 must pin a patched rustls.
+- If interrupted: resume the workflow from its script in the session's workflows/scripts dir, using resumeFromRunId. Units write only their owner paths (docs/architecture/m01-plan.md).
 
 ## Owner decisions and inputs (2026-10-06)
 

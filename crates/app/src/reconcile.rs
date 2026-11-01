@@ -126,6 +126,33 @@ pub fn should_retry(
     Ok(())
 }
 
+/// Points of the cleanup executor's deletion boundary (m01-plan U8 ⟨r2.1⟩ N06):
+/// after the decision to delete and before the generation guard, and after the
+/// guard and before the generation-bound delete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CleanupPoint {
+    /// `plan` returned `Cleanup { generation }`; the guard has not run yet.
+    Decided,
+    /// `guard_cleanup` returned `Proceed`; the delete has not been called yet.
+    Guarded,
+}
+
+/// Fault-injection hook at the deletion boundary (production: [`NoCleanupHook`];
+/// tests create the replacement generation here). The hook runs inline on the
+/// executor; it never decides anything.
+pub trait CleanupHook: Send + Sync {
+    /// Called at `point` for `resource` (the record the executor planned on).
+    fn at(&self, point: CleanupPoint, resource: &ManagedResource);
+}
+
+/// The production cleanup hook: does nothing.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoCleanupHook;
+
+impl CleanupHook for NoCleanupHook {
+    fn at(&self, _point: CleanupPoint, _resource: &ManagedResource) {}
+}
+
 /// Resource records whose owner authority ended before `now` must have
 /// `desired = Absent` (pure helper used by `tick`).
 #[must_use]
