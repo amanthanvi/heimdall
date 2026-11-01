@@ -9,11 +9,11 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 
-use crate::code::Code;
-use crate::envelope::{EffectStatus, Envelope, ErrorDetail, NextAction};
-use crate::exit::ExitCode;
+use heimdall_contract::code::Code;
+use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction};
+use heimdall_contract::exit::ExitCode;
 
-use super::{assert_clean, repo_root};
+use crate::{assert_clean, repo_root};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Row {
@@ -91,7 +91,7 @@ fn effect_name(e: EffectStatus) -> &'static str {
 #[test]
 fn golden_file_matches_the_adr_table() {
     let adr = adr_rows();
-    assert_eq!(adr.len(), 28, "ADR section 5 row count");
+    assert_eq!(adr.len(), 29, "ADR section 5 row count");
     assert_eq!(golden_rows(), adr);
 }
 
@@ -179,11 +179,11 @@ fn error_envelope_golden_json_for_every_code() {
             continue;
         }
         let detail = ErrorDetail {
-            code: *code,
+            code: code.clone(),
             effect_status: code.default_effect_status(),
             retryable: code.retryable(),
             resource: None,
-            next: NextAction::for_code(*code),
+            next: NextAction::for_code(code.clone()),
             message: "m".to_owned(),
         };
         let env = Envelope::failed(None, detail);
@@ -198,7 +198,7 @@ fn error_envelope_golden_json_for_every_code() {
         // Omitted vs null: the envelope always materializes `next` and `warnings`.
         assert!(v.get("next").is_some_and(Value::is_null));
         assert_eq!(v["warnings"], json!([]));
-        let back: Envelope<crate::envelope::ErrorData> = serde_json::from_value(v).unwrap();
+        let back: Envelope<ErrorData> = serde_json::from_value(v).unwrap();
         assert_eq!(back, env);
     }
 }
@@ -230,4 +230,72 @@ fn retryable_never_applies_to_uncertain_or_refused_outcomes() {
             assert!(!code.retryable(), "{code}");
         }
     }
+}
+
+#[test]
+fn decision_stale_row_is_in_table_order() {
+    // ADR-0006 section 5 revision 2: after RESYNC_REQUIRED, before OUTCOME_UNKNOWN.
+    let names: Vec<&str> = Code::all().iter().map(Code::as_str).collect();
+    let at = names.iter().position(|n| *n == "DECISION_STALE").unwrap();
+    assert_eq!(names[at - 1], "RESYNC_REQUIRED");
+    assert_eq!(names[at + 1], "OUTCOME_UNKNOWN");
+    assert_eq!(Code::DecisionStale.exit_code(), ExitCode::Conflict);
+    assert_eq!(Code::DecisionStale.exit_code().as_i32(), 6);
+    assert!(!Code::DecisionStale.retryable());
+    assert_eq!(
+        Code::DecisionStale.default_effect_status(),
+        EffectStatus::None
+    );
+    assert_eq!(Code::DecisionStale.default_next_action(), "fix_request");
+}
+
+/// ADR-0006 section 9 / wave-1 E4: a code added by a newer peer is read as
+/// `Code::Unknown`, never as success, exits 1, reports an unknown effect, and is
+/// written back unchanged.
+#[test]
+fn unknown_code_reads_as_an_error_with_exit_one_and_round_trips() {
+    let longest = "Z".repeat(64);
+    for wire in ["FUTURE_THING", "A", "X_9", longest.as_str()] {
+        let json = format!("\"{wire}\"");
+        let code: Code = serde_json::from_str(&json).unwrap();
+        assert_eq!(code, Code::Unknown(wire.to_owned()), "{wire}");
+        assert!(!Code::all().contains(&code), "{wire}: not a table row");
+        assert!(!code.is_success(), "{wire}");
+        assert_eq!(code.exit_code(), ExitCode::Internal, "{wire}");
+        assert_eq!(code.exit_code().as_i32(), 1, "{wire}");
+        assert_eq!(
+            code.default_effect_status(),
+            EffectStatus::Unknown,
+            "{wire}"
+        );
+        assert!(!code.retryable(), "{wire}");
+        assert_eq!(code.as_str(), wire);
+        assert_eq!(serde_json::to_string(&code).unwrap(), json, "{wire}");
+        let again: Code = serde_json::from_str(&serde_json::to_string(&code).unwrap()).unwrap();
+        assert_eq!(again, code, "{wire}: round trip");
+    }
+    // Known spellings never fall back to Unknown.
+    for known in Code::all() {
+        let back: Code = serde_json::from_str(&format!("\"{}\"", known.as_str())).unwrap();
+        assert_eq!(&back, known);
+        assert!(!matches!(back, Code::Unknown(_)));
+    }
+    // The fallback stays bounded: overlong or non-token strings are refused.
+    assert!(serde_json::from_str::<Code>(&format!("\"{}\"", "Z".repeat(65))).is_err());
+    assert!(serde_json::from_str::<Code>("\"FUTURE THING\"").is_err());
+    assert!(serde_json::from_str::<Code>("\"FUTURE\\u001bX\"").is_err());
+}
+
+/// An envelope from a newer peer carrying an unknown code still parses; its code
+/// classifies as a non-success exit-1 error and the document round-trips.
+#[test]
+fn envelope_with_an_unknown_code_parses_and_is_not_success() {
+    let text = r#"{"schema_version":"1","operation_id":"op_00112233445566778899aabbccddeeff","state":"failed","code":"FUTURE_THING","data":{"error":{"code":"FUTURE_THING","effect_status":"unknown","retryable":false,"next":{"action":"report"},"message":"m"}},"warnings":[],"next":null}"#;
+    let v: Value = serde_json::from_str(text).unwrap();
+    let env: Envelope<ErrorData> = serde_json::from_value(v.clone()).unwrap();
+    assert_eq!(env.code, Code::Unknown("FUTURE_THING".to_owned()));
+    assert_eq!(env.data.error.code, env.code);
+    assert!(!env.code.is_success());
+    assert_eq!(env.code.exit_code(), ExitCode::Internal);
+    assert_eq!(serde_json::to_value(&env).unwrap(), v);
 }

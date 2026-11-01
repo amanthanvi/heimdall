@@ -32,7 +32,10 @@ use heimdall_domain::revocation::Tombstone;
 use heimdall_domain::time::TimeAnchor;
 
 mod codec;
+pub mod ext;
 pub mod migrations;
+
+pub use ext::{DecisionCompletion, StoredEvent, StoredEventPage};
 
 /// Store errors. Mapped to `STATE_UNAVAILABLE` by the application layer.
 #[derive(Debug, thiserror::Error)]
@@ -157,7 +160,7 @@ pub(crate) fn fire(hook: &dyn FaultHook, point: FaultPoint) -> Result<()> {
     }
 }
 
-/// Tables schema version 1 must contain; a versioned file missing one is corrupt.
+/// Tables the current schema must contain; a versioned file missing one is corrupt.
 const REQUIRED_TABLES: &[&str] = &[
     "meta",
     "operations",
@@ -171,11 +174,19 @@ const REQUIRED_TABLES: &[&str] = &[
     "tombstones",
     "resources",
     "events",
+    // schema version 2
+    "idempotency_markers",
+    "decisions",
+    "profile_snapshots",
+    "grant_anchors",
+    "recovery_intents",
+    "stage_receipts",
+    "issuance_log",
+    "credential_instances",
 ];
 
 const META_SELF_ENVIRONMENT: &str = "self_environment_id";
 const META_AUTHORITY_GENERATION: &str = "authority_generation";
-const META_TIME_ANCHOR: &str = "time_anchor";
 /// Per-environment retention boundary: `event_tail:<environment id>`.
 const META_EVENT_TAIL_PREFIX: &str = "event_tail:";
 
@@ -426,20 +437,29 @@ fn backup(
     Err(io_err("too many migration backups present"))
 }
 
-/// Terminal operation states that retention may purge. `outcome_unknown` is
-/// terminal on the wire but unresolved: it stays until reconciled.
-const PURGEABLE_OPERATION_STATES: &[OperationState] = &[
-    OperationState::Succeeded,
-    OperationState::Failed,
-    OperationState::Cancelled,
-];
-
-/// Operation states restart recovery resumes (non-terminal, spec §11.4).
-const OPEN_OPERATION_STATES: &[OperationState] = &[
+/// Every operation state; the store derives its state sets from the contract's
+/// predicates (`is_settled`, `is_quiescent`, `is_unresolved`) over this list.
+const ALL_OPERATION_STATES: &[OperationState] = &[
     OperationState::Queued,
     OperationState::Running,
     OperationState::AwaitingApproval,
+    OperationState::Succeeded,
+    OperationState::Failed,
+    OperationState::Cancelled,
+    OperationState::OutcomeUnknown,
 ];
+
+/// States matching `pred`, in [`ALL_OPERATION_STATES`] order. Settled states
+/// (`OperationState::is_settled`) are the only ones retention may purge and whose
+/// idempotency record may get an expiry; `outcome_unknown` is quiescent but
+/// unresolved and stays, with its evidence, until reconciled.
+pub(crate) fn operation_states(pred: fn(OperationState) -> bool) -> Vec<OperationState> {
+    ALL_OPERATION_STATES
+        .iter()
+        .copied()
+        .filter(|s| pred(*s))
+        .collect()
+}
 
 fn sql_in_list<T: serde::Serialize>(values: &[T]) -> Result<String> {
     let mut out = String::new();
@@ -483,7 +503,7 @@ fn policy_narrows(old: &StandingPolicy, new: &StandingPolicy) -> bool {
 }
 
 impl Txn<'_> {
-    fn meta(&self, key: &str) -> Result<Option<String>> {
+    pub(crate) fn meta(&self, key: &str) -> Result<Option<String>> {
         use rusqlite::OptionalExtension as _;
         Ok(self
             .tx
@@ -491,7 +511,7 @@ impl Txn<'_> {
             .optional()?)
     }
 
-    fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+    pub(crate) fn set_meta(&self, key: &str, value: &str) -> Result<()> {
         self.tx.execute(
             "INSERT INTO meta (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -545,9 +565,7 @@ impl Txn<'_> {
         let record = codec::doc(op)?;
         let result = op.result.as_ref().map(codec::doc).transpose()?;
         let code = op.code.as_ref().map(codec::enum_str).transpose()?;
-        let terminal_at = PURGEABLE_OPERATION_STATES
-            .contains(&op.state)
-            .then(|| codec::ts(op.updated_at));
+        let terminal_at = op.state.is_settled().then(|| codec::ts(op.updated_at));
         self.tx.execute(
             "INSERT INTO operations (id, kind, environment, caller_json, request_id,
                  request_hash, effect_class, state, code, effect_status, result_json,
@@ -582,7 +600,9 @@ impl Txn<'_> {
                 idem.request_hash.to_hex(),
                 idem.operation_id.as_str(),
                 codec::ts(idem.created_at),
-                codec::ts(idem.expires_at),
+                // NULL while the operation is pending (never expires); set at
+                // settlement by `settle_idempotency` (migration 0002 relaxes NOT NULL).
+                idem.expires_at.map(codec::ts),
             ],
         )?;
         Ok(())
@@ -594,7 +614,7 @@ impl Txn<'_> {
         key: &IdempotencyKey,
     ) -> Result<Option<IdempotencyRecord>> {
         use rusqlite::OptionalExtension as _;
-        let row: Option<(String, String, String, String)> = self
+        let row: Option<(String, String, String, Option<String>)> = self
             .tx
             .query_row(
                 "SELECT request_hash, operation_id, created_at, expires_at FROM idempotency
@@ -613,7 +633,7 @@ impl Txn<'_> {
             operation_id: OperationId::parse(&op)
                 .map_err(|_| codec::doc_error("stored operation id is malformed"))?,
             created_at: codec::parse_ts(&created)?,
-            expires_at: codec::parse_ts(&expires)?,
+            expires_at: expires.as_deref().map(codec::parse_ts).transpose()?,
         }))
     }
 
@@ -648,7 +668,7 @@ impl Txn<'_> {
                 op.id
             )));
         }
-        if PURGEABLE_OPERATION_STATES.contains(&old.state) && old.state != op.state {
+        if old.state.is_settled() && old.state != op.state {
             return Err(StoreError::GenerationConflict(format!(
                 "operation {} is already terminal",
                 op.id
@@ -657,9 +677,7 @@ impl Txn<'_> {
         let record = codec::doc(op)?;
         let result = op.result.as_ref().map(codec::doc).transpose()?;
         let code = op.code.as_ref().map(codec::enum_str).transpose()?;
-        let terminal_at = PURGEABLE_OPERATION_STATES
-            .contains(&op.state)
-            .then(|| codec::ts(op.updated_at));
+        let terminal_at = op.state.is_settled().then(|| codec::ts(op.updated_at));
         self.tx.execute(
             "UPDATE operations SET state = ?2, code = ?3, effect_status = ?4,
                  result_json = ?5, record_json = ?6, updated_at = ?7,
@@ -679,36 +697,69 @@ impl Txn<'_> {
         Ok(())
     }
 
-    /// Operations not in a terminal state (restart recovery, spec §13.3):
-    /// `queued`, `running`, `awaiting_approval`, oldest first. `outcome_unknown`
-    /// is terminal on the wire and is not listed here; it is never purged either.
+    /// Operations that are not quiescent (`!OperationState::is_quiescent`: queued,
+    /// running, awaiting approval), oldest first, for restart recovery (spec
+    /// §13.3). `outcome_unknown` operations are quiescent and listed by
+    /// [`Txn::unresolved_operations`] instead.
     pub fn open_operations(&mut self) -> Result<Vec<OperationRecord>> {
         let sql = format!(
             "SELECT record_json FROM operations WHERE state IN ({}) ORDER BY created_at, id",
-            sql_in_list(OPEN_OPERATION_STATES)?
+            sql_in_list(&operation_states(|s| !s.is_quiescent()))?
         );
         self.docs(&sql, [])
     }
 
-    /// Purge terminal operations and idempotency records past `before`
-    /// (retention contract, ADR-0006 §7.4). Never touches tombstones or policies.
+    /// Purge settled operations whose idempotency record expired at or before
+    /// `now` (retention contract, ADR-0006 §7.4; review F02, F07).
     ///
-    /// An operation is purged only when it reached `succeeded`, `failed` or
-    /// `cancelled` before `before` **and** its idempotency record expired before
-    /// `before`, so a retry inside the record's window is always deduplicated.
-    /// `outcome_unknown` and open operations are kept. Idempotency rows go with
-    /// their operation (`ON DELETE CASCADE`). Returns the operations removed.
-    pub fn purge_operations_before(&mut self, before: Timestamp) -> Result<u64> {
+    /// Only `succeeded`, `failed` and `cancelled` operations whose record has an
+    /// `expires_at` (set by [`Txn::settle_idempotency`]) at or before `now` go.
+    /// Each purged key leaves an [`heimdall_domain::idempotency::ExpiredKeyMarker`]
+    /// until `marker_until(expires_at)`, so a reuse stays `REQUEST_EXPIRED`. Pending
+    /// keys (no expiry), open and `outcome_unknown` operations are never purged.
+    /// The idempotency row, recovery intent and stage receipts go with their
+    /// settled operation (`ON DELETE CASCADE`); tombstones, policies, decisions,
+    /// issuance entries, grant anchors and meta are never touched. Returns the
+    /// operations removed.
+    pub fn purge_operations_before(&mut self, now: Timestamp) -> Result<u64> {
         let sql = format!(
-            "DELETE FROM operations
-             WHERE terminal_at IS NOT NULL AND terminal_at < ?1
-               AND state IN ({})
-               AND NOT EXISTS (SELECT 1 FROM idempotency i
-                               WHERE i.operation_id = operations.id AND i.expires_at >= ?1)",
-            sql_in_list(PURGEABLE_OPERATION_STATES)?
+            "SELECT o.id, o.record_json, i.expires_at
+             FROM operations o JOIN idempotency i ON i.operation_id = o.id
+             WHERE o.state IN ({}) AND i.expires_at IS NOT NULL AND i.expires_at <= ?1
+             ORDER BY o.id",
+            sql_in_list(&operation_states(OperationState::is_settled))?
         );
-        let n = self.tx.execute(&sql, [codec::ts(before)])?;
-        Ok(n as u64)
+        let due: Vec<(String, String, String)> = {
+            let mut stmt = self.tx.prepare(&sql)?;
+            let rows =
+                stmt.query_map([codec::ts(now)], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let mut removed = 0u64;
+        for (id, record, expires) in due {
+            let op: OperationRecord = codec::parse_doc(&record)?;
+            let expired_at = codec::parse_ts(&expires)?;
+            let key_hash = op
+                .key
+                .hash()
+                .map_err(|_| codec::doc_error("idempotency key cannot be hashed"))?;
+            let until = heimdall_domain::idempotency::marker_until(expired_at);
+            // A key purged again later (after an earlier marker aged out and the
+            // key was reused) keeps the later expiry and window; never shortened.
+            self.tx.execute(
+                "INSERT INTO idempotency_markers (key_hash, expired_at, marker_until)
+                 VALUES (?1, ?2, ?3)
+                 ON CONFLICT(key_hash) DO UPDATE SET
+                     expired_at = max(expired_at, excluded.expired_at),
+                     marker_until = max(marker_until, excluded.marker_until)",
+                rusqlite::params![key_hash.0.to_hex(), codec::ts(expired_at), codec::ts(until)],
+            )?;
+            let n = self
+                .tx
+                .execute("DELETE FROM operations WHERE id = ?1", [id.as_str()])?;
+            removed += n as u64;
+        }
+        Ok(removed)
     }
 
     // --- grants, references, tombstones, generation (spec §6.3, §6.7) -----------
@@ -1091,7 +1142,7 @@ impl Txn<'_> {
         Ok((event_id, seq))
     }
 
-    fn event_tail(&self, environment: &EnvironmentId) -> Result<u64> {
+    pub(crate) fn event_tail(&self, environment: &EnvironmentId) -> Result<u64> {
         let key = format!("{META_EVENT_TAIL_PREFIX}{environment}");
         match self.meta(&key)? {
             None => Ok(0),
@@ -1101,7 +1152,8 @@ impl Txn<'_> {
         }
     }
 
-    /// Read events after `after_seq` (bounded by `limit`).
+    /// Read events after `after_seq` (bounded by `limit`); the wave-1 form of
+    /// [`Txn::stored_events_after`].
     ///
     /// Each returned event carries a store-level marker in `cursor` from which
     /// [`event_seq`] recovers its sequence; the application replaces it with a
@@ -1114,57 +1166,38 @@ impl Txn<'_> {
         filter: &EventFilter,
         limit: u32,
     ) -> Result<EventPage> {
-        use rusqlite::types::Value;
-        let mut sql =
-            String::from("SELECT seq, record_json FROM events WHERE environment = ?1 AND seq > ?2");
-        let mut params: Vec<Value> = vec![
-            Value::Text(environment.as_str().to_owned()),
-            Value::Integer(i64::try_from(after_seq).unwrap_or(i64::MAX)),
-        ];
-        if let Some(op) = &filter.operation_id {
-            params.push(Value::Text(op.as_str().to_owned()));
-            sql.push_str(&format!(" AND operation_id = ?{}", params.len()));
-        }
-        if !filter.types.is_empty() {
-            let mut placeholders = Vec::with_capacity(filter.types.len());
-            for t in &filter.types {
-                params.push(Value::Text(codec::enum_str(t)?));
-                placeholders.push(format!("?{}", params.len()));
-            }
-            sql.push_str(&format!(" AND type IN ({})", placeholders.join(",")));
-        }
-        params.push(Value::Integer(i64::from(limit)));
-        sql.push_str(&format!(" ORDER BY seq LIMIT ?{}", params.len()));
+        let page = self.stored_events_after(environment, after_seq, filter, limit)?;
+        Ok(EventPage {
+            events: page
+                .events
+                .into_iter()
+                .map(|stored| {
+                    let mut event = stored.event;
+                    event.cursor = heimdall_contract::event::Cursor(format!(
+                        "{STORE_SEQ_PREFIX}{}",
+                        stored.seq
+                    ));
+                    event
+                })
+                .collect(),
+            head_seq: page.head_seq,
+            tail_seq: page.tail_seq,
+        })
+    }
 
-        let mut events = Vec::new();
-        {
-            let mut stmt = self.tx.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(params), |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
-            })?;
-            for row in rows {
-                let (seq, json) = row?;
-                let mut event: Event = codec::parse_doc(&json)?;
-                event.cursor = heimdall_contract::event::Cursor(format!("{STORE_SEQ_PREFIX}{seq}"));
-                events.push(event);
-            }
-        }
+    /// Highest sequence of the environment's log, never below its retention tail.
+    pub(crate) fn event_head(&self, environment: &EnvironmentId) -> Result<u64> {
         let tail_seq = self.event_tail(environment)?;
         let max_seq: Option<i64> = self.tx.query_row(
             "SELECT max(seq) FROM events WHERE environment = ?1",
             [environment.as_str()],
             |r| r.get(0),
         )?;
-        let head_seq = max_seq
+        Ok(max_seq
             .map(codec::uint)
             .transpose()?
             .unwrap_or(0)
-            .max(tail_seq);
-        Ok(EventPage {
-            events,
-            head_seq,
-            tail_seq,
-        })
+            .max(tail_seq))
     }
 
     /// Trim the event log to retention; returns the new tail sequence.
@@ -1218,17 +1251,14 @@ impl Txn<'_> {
 
     // --- time anchors (spec §6.4) ---------------------------------------------------------
 
-    /// Last persisted anchor.
+    /// Alias of [`Txn::runtime_anchor`] (wave-1 name; same stored record).
     pub fn time_anchor(&mut self) -> Result<Option<TimeAnchor>> {
-        self.meta(META_TIME_ANCHOR)?
-            .as_deref()
-            .map(codec::parse_doc)
-            .transpose()
+        self.runtime_anchor()
     }
 
-    /// Persist the anchor.
+    /// Alias of [`Txn::set_runtime_anchor`] (wave-1 name; same stored record).
     pub fn set_time_anchor(&mut self, anchor: &TimeAnchor) -> Result<()> {
-        self.set_meta(META_TIME_ANCHOR, &codec::doc(anchor)?)
+        self.set_runtime_anchor(anchor)
     }
 
     /// Count of operations by state (status/inspect).
@@ -1429,10 +1459,11 @@ mod tests {
                     true,
                 )?;
                 tx.set_time_anchor(&TimeAnchor {
+                    boot_id: heimdall_domain::time::BootId("boot-a".into()),
+                    continuous: std::time::Duration::ZERO,
                     wall: t0,
-                    monotonic: std::time::Duration::ZERO,
-                    process_generation: 1,
                 })?;
+                tx.raise_high_water_mark(t0)?;
                 tx.append_event(&Event {
                     schema_version: heimdall_contract::SchemaVersion::current(),
                     event_id: EventId::from_random_bytes([0; 16]),
@@ -1473,5 +1504,297 @@ mod tests {
         assert_eq!(event_seq(&e), Some(17));
         e.cursor = heimdall_contract::event::Cursor("AAEC".into());
         assert_eq!(event_seq(&e), None);
+    }
+
+    // --- migration 0001 -> 0002 on a populated v1 database ---------------------------
+
+    fn ts(s: &str) -> Timestamp {
+        s.parse().unwrap()
+    }
+
+    fn v1_op(n: u8, state: OperationState) -> (OperationRecord, IdempotencyRecord) {
+        use heimdall_contract::canonical::RequestHash;
+        use heimdall_domain::operation::{EffectClass, OperationKind, RecoveryMetadata};
+        use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+        let key = IdempotencyKey {
+            caller: CallerContext {
+                principal: PrincipalRef::UnixUser { uid: 501 },
+                role: ClientRole::Owner,
+            },
+            kind: OperationKind::Ensure,
+            request_id: heimdall_contract::ids::RequestId::parse(&format!("req-{n}")).unwrap(),
+        };
+        let created = ts("2026-10-01T00:00:00Z");
+        let op = OperationRecord {
+            id: OperationId::from_random_bytes([n; 16]),
+            kind: OperationKind::Ensure,
+            environment: EnvironmentId::from_random_bytes([7; 16]),
+            key: key.clone(),
+            request_hash: RequestHash([n; 32]),
+            effect_class: EffectClass::Local,
+            state,
+            code: None,
+            effect_status: heimdall_contract::envelope::EffectStatus::None,
+            result: None,
+            created_at: created,
+            updated_at: created,
+            cancellation: None,
+            recovery: RecoveryMetadata::default(),
+        };
+        let idem = IdempotencyRecord {
+            key,
+            request_hash: op.request_hash,
+            operation_id: op.id.clone(),
+            created_at: created,
+            // v1 required an expiry at insertion.
+            expires_at: Some(ts("2026-10-08T00:00:00Z")),
+        };
+        (op, idem)
+    }
+
+    fn v1_grant() -> GrantSnapshot {
+        use heimdall_domain::grant::AuthorizationSource;
+        use heimdall_domain::policy::PolicyRevision;
+        GrantSnapshot {
+            id: GrantId::from_random_bytes([4; 16]),
+            environment: EnvironmentId::from_random_bytes([7; 16]),
+            scope: heimdall_domain::scope::Scope::empty(),
+            starts_at: ts("2026-10-01T00:00:00Z"),
+            deadline: heimdall_domain::time::Deadline {
+                intent: heimdall_contract::request::DeadlineIntent::Duration("2h".into()),
+                resolved_at: ts("2026-10-01T00:00:00Z"),
+                effective: ts("2026-10-01T02:00:00Z"),
+            },
+            parent: None,
+            source: AuthorizationSource::StandingPolicy {
+                revision: PolicyRevision(1),
+            },
+            generation: AuthorityGeneration(0),
+            state: heimdall_contract::GrantState::Active,
+            enforcement: heimdall_domain::evidence::EnforcementEvidence::unknown(),
+        }
+    }
+
+    /// A v1 database exactly as a v1 build leaves it: only migration 0001 applied,
+    /// rows written through the v1 code paths plus raw rows for what v1 had no API
+    /// for (a binding, the boot-less `time_anchor` meta document).
+    fn populated_v1(db: &Path) -> Vec<(OperationRecord, IdempotencyRecord)> {
+        let s = Store::open_with_steps(db, Arc::new(NoFaults), &migrations::MIGRATIONS[..1], false)
+            .unwrap();
+        assert_eq!(s.schema_version().unwrap(), 1);
+        let ops = vec![
+            v1_op(1, OperationState::Queued),
+            v1_op(2, OperationState::Succeeded),
+            v1_op(3, OperationState::OutcomeUnknown),
+        ];
+        let env = EnvironmentId::from_random_bytes([7; 16]);
+        s.transaction(|tx| {
+            tx.init_self_environment(&env)?;
+            for (op, idem) in &ops {
+                tx.insert_operation(op, idem)?;
+            }
+            tx.insert_grant(&v1_grant())?;
+            tx.add_grant_reference(&GrantReference {
+                binding: heimdall_contract::ids::BindingId::from_random_bytes([5; 16]),
+                grant: v1_grant().id,
+                acquired_at: ts("2026-10-01T00:00:00Z"),
+            })?;
+            tx.insert_tombstone(&Tombstone {
+                grant: GrantId::from_random_bytes([6; 16]),
+                cascade: Vec::new(),
+                generation: AuthorityGeneration(0),
+                revoked_at: ts("2026-10-01T00:00:00Z"),
+                remote_pending: Vec::new(),
+            })?;
+            for i in 0..3i64 {
+                tx.append_event(&Event {
+                    schema_version: heimdall_contract::SchemaVersion::current(),
+                    event_id: EventId::from_random_bytes([0; 16]),
+                    event_type: heimdall_contract::event::EventType::OperationStateChanged,
+                    environment_id: env.clone(),
+                    operation_id: None,
+                    resource: None,
+                    timestamp: ts("2026-10-01T00:00:00Z")
+                        .checked_add(jiff::SignedDuration::from_secs(i * 60))
+                        .unwrap(),
+                    cursor: heimdall_contract::event::Cursor(String::new()),
+                    payload: serde_json::Value::Null,
+                })?;
+            }
+            tx.trim_events(&env, ts("2026-10-01T00:00:30Z"), 100)?;
+            Ok(())
+        })
+        .unwrap();
+        let c = s.lock();
+        c.execute(
+            "INSERT INTO meta (key, value) VALUES ('time_anchor', ?1)",
+            [r#"{"wall":"2026-10-01T00:00:05Z","monotonic":{"secs":1,"nanos":0},"process_generation":7}"#],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO bindings (id, environment, grant_id, work_id, record_json, created_at,
+                 released_at)
+             VALUES ('binding_v1', ?1, ?2, 'w', '{}', '2026-10-01T00:00:00.000000000Z',
+                 '2026-10-01T00:30:00.000000000Z')",
+            [env.as_str(), v1_grant().id.as_str()],
+        )
+        .unwrap();
+        ops
+    }
+
+    fn table_count(c: &rusqlite::Connection, table: &str) -> i64 {
+        c.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn migration_0002_preserves_a_populated_v1_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        let ops = populated_v1(&db);
+        let before: Vec<(String, i64)> = {
+            let c = rusqlite::Connection::open(&db).unwrap();
+            [
+                "operations",
+                "idempotency",
+                "grants",
+                "grant_references",
+                "bindings",
+                "tombstones",
+                "events",
+            ]
+            .iter()
+            .map(|t| ((*t).to_owned(), table_count(&c, t)))
+            .collect()
+        };
+        assert!(
+            before.iter().all(|(_, n)| *n > 0),
+            "fixture populated every table"
+        );
+
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
+        assert_eq!(migrations::SCHEMA_VERSION, 2);
+        assert!(
+            backup_path(&db, ".v1.backup").exists(),
+            "v1 file backed up first"
+        );
+        {
+            let c = s.lock();
+            for (table, n) in &before {
+                assert_eq!(table_count(&c, table), *n, "{table} rows preserved");
+            }
+            let fk_violation = c
+                .prepare("PRAGMA foreign_key_check")
+                .and_then(|mut st| st.exists([]))
+                .unwrap();
+            assert!(!fk_violation);
+            let expires_notnull: i64 = c
+                .query_row(
+                    "SELECT \"notnull\" FROM pragma_table_info('idempotency') WHERE name = 'expires_at'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(expires_notnull, 0, "expires_at is nullable after 0002");
+            let binding_state: String = c
+                .query_row(
+                    "SELECT state FROM bindings WHERE id = 'binding_v1'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(binding_state, "released");
+        }
+        let env = EnvironmentId::from_random_bytes([7; 16]);
+        s.transaction(|tx| {
+            assert_eq!(tx.self_environment()?, Some(env.clone()));
+            assert_eq!(tx.authority_generation()?, AuthorityGeneration(1));
+            for (op, idem) in &ops {
+                assert_eq!(tx.operation(&op.id)?.as_ref(), Some(op));
+                let rec = tx.idempotency_record(&idem.key)?.unwrap();
+                assert_eq!(rec.operation_id, op.id);
+                // Settled keys keep their v1 expiry; pending and unresolved keys
+                // become live (no expiry) under the 0002 protocol.
+                let want = op.state.is_settled().then_some(idem.expires_at).flatten();
+                assert_eq!(rec.expires_at, want, "{:?}", op.state);
+            }
+            assert_eq!(tx.grant(&v1_grant().id)?, Some(v1_grant()));
+            assert_eq!(
+                tx.grant_references(&v1_grant().id)?.len(),
+                1,
+                "v1 reference readable through the 0002 API"
+            );
+            let tomb = tx.tombstone(&GrantId::from_random_bytes([6; 16]))?.unwrap();
+            assert_eq!(tomb.generation, AuthorityGeneration(1));
+            let page = tx.stored_events_after(&env, 0, &EventFilter::default(), 10)?;
+            assert_eq!(page.events.len(), 2, "trimmed event stays trimmed");
+            assert!(page.tail_seq > 0 && page.head_seq > page.tail_seq);
+            // The boot-less v1 anchor is gone; its wall time seeds the high-water mark.
+            assert_eq!(tx.runtime_anchor()?, None);
+            assert_eq!(tx.time_anchor()?, None);
+            assert_eq!(tx.high_water_mark()?, Some(ts("2026-10-01T00:00:05Z")));
+            // New tables are usable.
+            assert_eq!(tx.unresolved_operations()?.len(), 1);
+            assert_eq!(tx.open_operations()?.len(), 1);
+            assert!(tx.pending_decisions()?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+        drop(s);
+        // Reopening at v2 neither migrates nor backs up again.
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 2);
+        assert!(!backup_path(&db, ".v1.backup.1").exists());
+    }
+
+    #[test]
+    fn failing_0002_step_leaves_the_v1_database_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("state.sqlite3");
+        populated_v1(&db);
+        // Migration 0002 with a statement that fails after the table rebuild.
+        let broken: &'static str =
+            Box::leak(format!("{}\nNOT SQL;", migrations::MIGRATIONS[1].sql).into_boxed_str());
+        let steps: &'static [Migration] = Box::leak(Box::new([
+            migrations::MIGRATIONS[0],
+            Migration {
+                version: 2,
+                name: "design_fix_broken",
+                sql: broken,
+            },
+        ]));
+        assert!(Store::open_with_steps(&db, Arc::new(NoFaults), steps, true).is_err());
+        let c = rusqlite::Connection::open(&db).unwrap();
+        assert_eq!(migrations::user_version(&c).unwrap(), 1);
+        let expires_notnull: i64 = c
+            .query_row(
+                "SELECT \"notnull\" FROM pragma_table_info('idempotency') WHERE name = 'expires_at'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(expires_notnull, 1, "v1 idempotency table intact");
+        assert_eq!(table_count(&c, "idempotency"), 3);
+        let markers: i64 = c
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name = 'idempotency_markers'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(markers, 0, "no half-applied 0002 table");
+        let anchor: i64 = c
+            .query_row(
+                "SELECT count(*) FROM meta WHERE key = 'time_anchor'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(anchor, 1, "v1 meta untouched");
+        drop(c);
+        // The good migration still applies afterwards.
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 2);
     }
 }

@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# M01-U6w: cross-build the heimdall-ipc unit-test binary for x86_64-pc-windows-gnu on a
-# macOS/Linux host, run it natively on the owner's Windows PC (non-elevated user,
-# through WSL interop) and save redacted output.
+# M01-U6w / U6b: cross-build the heimdall-ipc test binaries for x86_64-pc-windows-gnu
+# on a macOS/Linux host, run them natively on the owner's Windows PC (non-elevated
+# user, through WSL interop) and save redacted output.
+#
+# Binaries (one per Cargo test target, F09 harness): the lib unit tests (`windows::`
+# native pipe tests plus the platform-neutral unit tests), `adversarial_ipc_frames`
+# and `adversarial_agent_frames` (platform-neutral, in-memory streams), and
+# `integration_ipc_unix` (`#![cfg(unix)]`: on Windows it must report 0 tests; it is
+# run to show that).
 #
 # Usage: tests/native/windows-ipc/run-native.sh <artifact-dir>
-#   HM_SSH_CONFIG  ssh config for the Windows host (required)
-#   HM_HOST        ssh host alias in that config (required)
+#   HM_SSH_CONFIG  ssh config for the Windows host (required unless HM_BUILD_ONLY=1)
+#   HM_HOST        ssh host alias in that config (required unless HM_BUILD_ONLY=1)
 #   HM_TASK        scratch directory name (default: M01-U6w)
+#   HM_BUILD_ONLY  1 = cross-build and record the binaries' hashes, then stop (no ssh)
 #
 # Remote scripts run inside a function with stdin from /dev/null: Windows programs
 # started through interop would otherwise consume the rest of the script from stdin.
@@ -21,14 +28,18 @@
 # \\.\pipe\hm-M01-U6w-<pid>-<n>-<kind> and die with the test process.
 #
 # Output (all redacted: <winuser>, <winhost>, <winhome>, <wsluser>, <wslhome>,
-# S-1-5-21-<redacted>): build.txt, windows-tests.txt, all-tests.txt, host.txt,
-# commands.txt (each command with its real exit code), canary-scan.txt.
+# S-1-5-21-<redacted>): build.txt, windows-tests.txt, all-tests.txt (every binary,
+# each followed by its exit code), host.txt, commands.txt (each command with its real
+# exit code), canary-scan.txt.
 
 set -euo pipefail
 
 out=${1:?usage: run-native.sh <artifact-dir>}
-ssh_config=${HM_SSH_CONFIG:?set HM_SSH_CONFIG to the ssh config for the Windows test host}
-host=${HM_HOST:?set HM_HOST to the host alias in HM_SSH_CONFIG}
+build_only=${HM_BUILD_ONLY:-0}
+if [ "$build_only" != 1 ]; then
+    ssh_config=${HM_SSH_CONFIG:?set HM_SSH_CONFIG to the ssh config for the Windows test host}
+    host=${HM_HOST:?set HM_HOST to the host alias in HM_SSH_CONFIG}
+fi
 task=${HM_TASK:-M01-U6w}
 case "$task" in *[!A-Za-z0-9._-]*|'') echo "bad HM_TASK" >&2; exit 2 ;; esac
 
@@ -78,24 +89,52 @@ commands="$out/commands.txt"
 : >"$commands"
 record() { echo "exit $2: $1" >>"$commands"; }
 
+# Cargo target name : remote executable name. `heimdall_ipc` is the lib unit-test
+# binary (kept as heimdall_ipc_tests.exe, the name earlier evidence used).
+targets="heimdall_ipc:heimdall_ipc_tests adversarial_ipc_frames:adversarial_ipc_frames adversarial_agent_frames:adversarial_agent_frames integration_ipc_unix:integration_ipc_unix"
+
+# Build log: redact the local home path and user name.
+redact_build_log() {
+    python3 -I - "$out/build.txt" "$HOME" "$(id -un)" <<'PYREDACT'
+import sys
+path, home, user = sys.argv[1:4]
+text = open(path, encoding="utf-8", errors="replace").read().replace(home, "<home>").replace(user, "<user>")
+open(path, "w", encoding="utf-8").write(text)
+PYREDACT
+}
+
 cd "$repo"
 set +e
 PATH="$shim:$PATH" CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$shim/zigcc-win.sh" \
-    cargo test --target x86_64-pc-windows-gnu -p heimdall-ipc --lib --no-run --locked \
+    cargo test --target x86_64-pc-windows-gnu -p heimdall-ipc --lib \
+    --test adversarial_ipc_frames --test adversarial_agent_frames --test integration_ipc_unix \
+    --no-run --locked \
     --message-format=json-render-diagnostics >"$shim/build.json" 2>"$out/build.txt"
 rc=$?
 set -e
-record "cargo test --target x86_64-pc-windows-gnu -p heimdall-ipc --lib --no-run --locked (zig linker shims)" "$rc"
+record "cargo test --target x86_64-pc-windows-gnu -p heimdall-ipc --lib --test adversarial_ipc_frames --test adversarial_agent_frames --test integration_ipc_unix --no-run --locked (zig linker shims)" "$rc"
 [ "$rc" = 0 ] || exit "$rc"
-exe=$(jq -r 'select(.reason == "compiler-artifact" and .executable != null and (.target.kind | index("lib"))) | .executable' "$shim/build.json" | tail -1)
-[ -f "$exe" ] || { echo "test executable not found" >&2; exit 1; }
-echo "test binary sha256: $(shasum -a 256 "$exe" | cut -d' ' -f1)" >>"$out/build.txt"
+exe_for() {
+    jq -r --arg n "$1" 'select(.reason == "compiler-artifact" and .executable != null and .target.name == $n) | .executable' "$shim/build.json" | tail -1
+}
+for pair in $targets; do
+    exe=$(exe_for "${pair%%:*}")
+    [ -f "$exe" ] || { echo "test executable for ${pair%%:*} not found" >&2; exit 1; }
+    echo "${pair#*:}.exe sha256: $(shasum -a 256 "$exe" | cut -d' ' -f1)" >>"$out/build.txt"
+done
 echo "toolchain: $(rustc --version); zig $(zig version)" >>"$out/build.txt"
+if [ "$build_only" = 1 ]; then
+    redact_build_log
+    grep -E 'sha256|^toolchain' "$out/build.txt"
+    exit 0
+fi
 
 remote_created=1
 ssh -F "$ssh_config" -o BatchMode=yes "$host" "mkdir -p \"\$HOME/hm-m00/$task\""
-scp -F "$ssh_config" -q "$exe" "$host:hm-m00/$task/heimdall_ipc_tests.exe"
-record "scp test binary to WSL scratch" 0
+for pair in $targets; do
+    scp -F "$ssh_config" -q "$(exe_for "${pair%%:*}")" "$host:hm-m00/$task/${pair#*:}.exe"
+done
+record "scp $(echo "$targets" | wc -w | tr -d ' ') test binaries to WSL scratch" 0
 
 set +e
 ssh -F "$ssh_config" -o BatchMode=yes "$host" bash -s -- "$task" >"$shim/remote.txt" 2>&1 <<'REMOTE'
@@ -107,16 +146,25 @@ w=$(/mnt/c/Windows/System32/cmd.exe /c "echo %LOCALAPPDATA%" | tr -d '\r')
 [ -n "$w" ] || { echo "LOCALAPPDATA unavailable"; return 1; }
 wl=$(wslpath "$w")/hm-m00/$task
 mkdir -p "$wl/tmp"
-cp "$HOME/hm-m00/$task/heimdall_ipc_tests.exe" "$wl/"
+cp "$HOME/hm-m00/$task/"*.exe "$wl/"
 cd "$wl" || return 1
 TEMP=$(wslpath -w "$wl/tmp"); TMP=$TEMP; WSLENV=TEMP/w:TMP/w
 export TEMP TMP WSLENV
 timeout 300 ./heimdall_ipc_tests.exe windows:: --test-threads=1 >windows-tests.txt 2>&1
 wrc=$?
 echo "windows-tests-exit=$wrc"
-timeout 600 ./heimdall_ipc_tests.exe --test-threads=1 >all-tests.txt 2>&1
-echo "all-tests-exit=$?"
-leftover=$(/mnt/c/Windows/System32/tasklist.exe /FI "IMAGENAME eq heimdall_ipc_tests.exe" /NH | tr -d '\r' | grep -c heimdall_ipc_tests)
+: >all-tests.txt
+arc=0
+for b in heimdall_ipc_tests adversarial_ipc_frames adversarial_agent_frames integration_ipc_unix; do
+    echo "### $b" >>all-tests.txt
+    timeout 600 "./$b.exe" --test-threads=1 >>all-tests.txt 2>&1
+    brc=$?
+    echo "### $b exit=$brc" >>all-tests.txt
+    echo "all-tests-exit[$b]=$brc"
+    [ "$brc" = 0 ] || arc=$brc
+done
+echo "all-tests-exit=$arc"
+leftover=$(/mnt/c/Windows/System32/tasklist.exe /NH | tr -d '\r' | grep -c -E '^(heimdall_ipc_tests|adversarial_ipc_frames|adversarial_agent_frames|integration_ipc_unix)\.exe' || true)
 echo "leftover-test-processes=$leftover"
 echo "integrity=$(/mnt/c/Windows/System32/whoami.exe /groups | grep -o 'Medium Mandatory Level\|High Mandatory Level\|System Mandatory Level' | head -1)"
 echo "os=$(/mnt/c/Windows/System32/cmd.exe /c ver | tr -d '\r' | grep -v '^$')"
@@ -166,18 +214,13 @@ PY
 sed -n '1,/^---windows-tests---$/p' "$shim/redacted.txt" | sed '$d' >"$out/host.txt"
 sed -n '/^---windows-tests---$/,/^---all-tests---$/p' "$shim/redacted.txt" | sed '1d;$d' >"$out/windows-tests.txt"
 sed -n '/^---all-tests---$/,$p' "$shim/redacted.txt" | sed '1d' >"$out/all-tests.txt"
-# Build log: redact the local home path and user name.
-python3 -I - "$out/build.txt" "$HOME" "$(id -un)" <<'PY'
-import sys
-path, home, user = sys.argv[1:4]
-text = open(path, encoding="utf-8", errors="replace").read().replace(home, "<home>").replace(user, "<user>")
-open(path, "w", encoding="utf-8").write(text)
-PY
+redact_build_log
 
 hits=$(cat "$out"/*.txt | grep -c 'HEIMDALL_CANARY_' || true)
 echo "canary-prefix occurrences in saved output: $hits" >"$out/canary-scan.txt"
 record "canary-prefix scan over saved output (count = $hits)" "$([ "$hits" = 0 ] && echo 0 || echo 1)"
 cat "$out/host.txt"
 grep -E '^test result|^test windows::' "$out/windows-tests.txt" || true
+grep -E '^### |^test result' "$out/all-tests.txt" || true
 [ "$hits" = 0 ] || exit 1
 exit "$rc"

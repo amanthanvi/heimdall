@@ -185,6 +185,14 @@
       "success": false
     },
     {
+      "code": "DECISION_STALE",
+      "default_effect_status": "none",
+      "default_next_action": "fix_request",
+      "exit_code": 6,
+      "retryable": false,
+      "success": false
+    },
+    {
       "code": "OUTCOME_UNKNOWN",
       "default_effect_status": "unknown",
       "default_next_action": "reconcile",

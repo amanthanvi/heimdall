@@ -1,8 +1,13 @@
-//! Stable semantic codes (spec §11.6; ADR-0006 §5).
+//! Stable semantic codes (spec §11.6; ADR-0006 §5, §9).
 //!
 //! Codes are never localized and never carry secrets. Every error code has an
 //! effect status, a retryability flag and a machine next action. "Retryable" never
 //! means permission to replay an arbitrary remote mutation (spec §11.6).
+//!
+//! Forward compatibility (ADR-0006 §9, wave-1 E4): a reader built before a code was
+//! added deserializes it as [`Code::Unknown`] and treats it as an error with exit 1;
+//! it never mistakes it for success. Writers only ever emit the known table, which
+//! is what the generated schema enumerates.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,8 +16,7 @@ use crate::exit::ExitCode;
 
 /// The stable code table. Spec §11.6 lists the codes marked `spec`; the others are
 /// baseline additions recorded in ADR-0006 §5 (primitives-draft Q3 is folded in).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Code {
     // --- success ---------------------------------------------------------------
@@ -27,8 +31,8 @@ pub enum Code {
     // --- required interaction (exit 3) ------------------------------------------
     /// Additional owner authority is required; operation is `awaiting_approval`. (spec)
     ApprovalRequired,
-    /// A provider or terminal interaction is required that non-interactive mode
-    /// refuses to open (spec §11.3). (spec)
+    /// A provider, terminal or attended-owner interaction is required that this
+    /// path cannot provide (spec §11.3; ADR-0006 §3.1 attended confirmation). (spec)
     InteractionRequired,
     /// The provider will not sign while locked (spec §7.1). (spec)
     ProviderLocked,
@@ -40,8 +44,8 @@ pub enum Code {
     PolicyPaused,
     /// A policy cutoff is in effect; fresh identifiers do not bypass it (spec §6.1). (spec)
     PolicyCutoff,
-    /// The applicable grant or credential has expired; renewal cannot extend it
-    /// (spec §6.1). (spec)
+    /// The applicable grant or credential has expired, or the requested deadline has
+    /// already passed; renewal cannot extend it (spec §6.1). (spec)
     CredentialExpired,
     /// Destination host identity changed; recovery must not accept it silently
     /// (spec §9.1). (spec)
@@ -55,7 +59,8 @@ pub enum Code {
     // --- unavailable / dependency (exit 5) ------------------------------------------
     /// Destination not reachable over any approved route. (spec)
     DestinationUnreachable,
-    /// Safe time cannot be established; issuance stopped (spec §6.4). (spec)
+    /// Safe time cannot be established; issuance, signing and admission stopped
+    /// (spec §6.4; ADR-0005 §3.6). (spec)
     TimeUncertain,
     /// The SSH client or consumer is unsupported for the requested path (spec §10.3). (spec)
     UnsupportedClient,
@@ -72,12 +77,15 @@ pub enum Code {
     RequestConflict,
     /// Managed configuration conflicts with a newer user edit (spec §10.1). (spec)
     ConfigConflict,
-    /// The idempotency record for this key has aged out; the retry is not silently
-    /// treated as new (spec §11.4).
+    /// The idempotency record for this key has aged out (an expired-key marker is
+    /// on record); the retry is not silently treated as new (spec §11.4).
     RequestExpired,
     /// The event cursor is expired or foreign; take a snapshot and resume from its
     /// cursor boundary (spec §11.2, §11.5; primitives-draft Q3).
     ResyncRequired,
+    /// The decision record is no longer completable: already consumed, expired, or
+    /// the authority generation moved since it was issued (ADR-0006 §3.1).
+    DecisionStale,
 
     // --- uncertain external outcome (exit 7) -------------------------------------------
     /// An external mutation may or may not have applied (spec §7.5, §11.4). (spec)
@@ -89,89 +97,117 @@ pub enum Code {
     /// Unsupported schema major, protocol version, or required capability
     /// (spec §11.2).
     SchemaUnsupported,
-    /// The referenced operation, binding, grant, profile, or environment is unknown
-    /// to this runtime (possibly purged by retention).
+    /// The referenced operation, binding, grant, profile, decision or environment is
+    /// unknown to this runtime (possibly purged by retention).
     NotFound,
 
     // --- internal (exit 1) -----------------------------------------------------------------
     /// Unexpected internal failure; never used to hide a classified condition.
     InternalError,
+
+    /// A code this build does not know (emitted by a newer peer). Reader-side only:
+    /// never emitted by this build, never success, exit 1 (ADR-0006 §9).
+    Unknown(String),
 }
 
+/// Known codes in table order, paired with their wire spelling.
+const TABLE: &[(Code, &str)] = &[
+    (Code::Ok, "OK"),
+    (Code::AccessReady, "ACCESS_READY"),
+    (Code::Accepted, "ACCEPTED"),
+    (Code::ApprovalRequired, "APPROVAL_REQUIRED"),
+    (Code::InteractionRequired, "INTERACTION_REQUIRED"),
+    (Code::ProviderLocked, "PROVIDER_LOCKED"),
+    (Code::CapabilityUnavailable, "CAPABILITY_UNAVAILABLE"),
+    (Code::PolicyPaused, "POLICY_PAUSED"),
+    (Code::PolicyCutoff, "POLICY_CUTOFF"),
+    (Code::CredentialExpired, "CREDENTIAL_EXPIRED"),
+    (Code::HostTrustChanged, "HOST_TRUST_CHANGED"),
+    (Code::DelegationExceedsParent, "DELEGATION_EXCEEDS_PARENT"),
+    (Code::OperationCancelled, "OPERATION_CANCELLED"),
+    (Code::DestinationUnreachable, "DESTINATION_UNREACHABLE"),
+    (Code::TimeUncertain, "TIME_UNCERTAIN"),
+    (Code::UnsupportedClient, "UNSUPPORTED_CLIENT"),
+    (Code::ServiceUnavailable, "SERVICE_UNAVAILABLE"),
+    (Code::StateUnavailable, "STATE_UNAVAILABLE"),
+    (Code::Backpressure, "BACKPRESSURE"),
+    (Code::RequestConflict, "REQUEST_CONFLICT"),
+    (Code::ConfigConflict, "CONFIG_CONFLICT"),
+    (Code::RequestExpired, "REQUEST_EXPIRED"),
+    (Code::ResyncRequired, "RESYNC_REQUIRED"),
+    (Code::DecisionStale, "DECISION_STALE"),
+    (Code::OutcomeUnknown, "OUTCOME_UNKNOWN"),
+    (Code::UsageError, "USAGE_ERROR"),
+    (Code::SchemaUnsupported, "SCHEMA_UNSUPPORTED"),
+    (Code::NotFound, "NOT_FOUND"),
+    (Code::InternalError, "INTERNAL_ERROR"),
+];
+
+/// Known codes in table order (no `Unknown`).
+const ALL: &[Code] = &[
+    Code::Ok,
+    Code::AccessReady,
+    Code::Accepted,
+    Code::ApprovalRequired,
+    Code::InteractionRequired,
+    Code::ProviderLocked,
+    Code::CapabilityUnavailable,
+    Code::PolicyPaused,
+    Code::PolicyCutoff,
+    Code::CredentialExpired,
+    Code::HostTrustChanged,
+    Code::DelegationExceedsParent,
+    Code::OperationCancelled,
+    Code::DestinationUnreachable,
+    Code::TimeUncertain,
+    Code::UnsupportedClient,
+    Code::ServiceUnavailable,
+    Code::StateUnavailable,
+    Code::Backpressure,
+    Code::RequestConflict,
+    Code::ConfigConflict,
+    Code::RequestExpired,
+    Code::ResyncRequired,
+    Code::DecisionStale,
+    Code::OutcomeUnknown,
+    Code::UsageError,
+    Code::SchemaUnsupported,
+    Code::NotFound,
+    Code::InternalError,
+];
+
 impl Code {
-    /// The wire spelling (SCREAMING_SNAKE_CASE).
+    /// The wire spelling (SCREAMING_SNAKE_CASE); for `Unknown` the peer's string.
     #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Code::Ok => "OK",
-            Code::AccessReady => "ACCESS_READY",
-            Code::Accepted => "ACCEPTED",
-            Code::ApprovalRequired => "APPROVAL_REQUIRED",
-            Code::InteractionRequired => "INTERACTION_REQUIRED",
-            Code::ProviderLocked => "PROVIDER_LOCKED",
-            Code::CapabilityUnavailable => "CAPABILITY_UNAVAILABLE",
-            Code::PolicyPaused => "POLICY_PAUSED",
-            Code::PolicyCutoff => "POLICY_CUTOFF",
-            Code::CredentialExpired => "CREDENTIAL_EXPIRED",
-            Code::HostTrustChanged => "HOST_TRUST_CHANGED",
-            Code::DelegationExceedsParent => "DELEGATION_EXCEEDS_PARENT",
-            Code::OperationCancelled => "OPERATION_CANCELLED",
-            Code::DestinationUnreachable => "DESTINATION_UNREACHABLE",
-            Code::TimeUncertain => "TIME_UNCERTAIN",
-            Code::UnsupportedClient => "UNSUPPORTED_CLIENT",
-            Code::ServiceUnavailable => "SERVICE_UNAVAILABLE",
-            Code::StateUnavailable => "STATE_UNAVAILABLE",
-            Code::Backpressure => "BACKPRESSURE",
-            Code::RequestConflict => "REQUEST_CONFLICT",
-            Code::ConfigConflict => "CONFIG_CONFLICT",
-            Code::RequestExpired => "REQUEST_EXPIRED",
-            Code::ResyncRequired => "RESYNC_REQUIRED",
-            Code::OutcomeUnknown => "OUTCOME_UNKNOWN",
-            Code::UsageError => "USAGE_ERROR",
-            Code::SchemaUnsupported => "SCHEMA_UNSUPPORTED",
-            Code::NotFound => "NOT_FOUND",
-            Code::InternalError => "INTERNAL_ERROR",
+    pub fn as_str(&self) -> &str {
+        if let Code::Unknown(s) = self {
+            return s;
         }
+        TABLE
+            .iter()
+            .find(|(c, _)| c == self)
+            .map_or("INTERNAL_ERROR", |(_, s)| s)
     }
 
-    /// Every code, in table order (used by golden tests and schema export).
+    /// Parse a wire string; unknown spellings become [`Code::Unknown`].
+    #[must_use]
+    pub fn parse(s: &str) -> Code {
+        TABLE
+            .iter()
+            .find(|(_, w)| *w == s)
+            .map_or_else(|| Code::Unknown(s.to_owned()), |(c, _)| c.clone())
+    }
+
+    /// Every known code, in table order (used by golden tests and schema export).
+    /// `Unknown` is not a table row.
     #[must_use]
     pub fn all() -> &'static [Code] {
-        &[
-            Code::Ok,
-            Code::AccessReady,
-            Code::Accepted,
-            Code::ApprovalRequired,
-            Code::InteractionRequired,
-            Code::ProviderLocked,
-            Code::CapabilityUnavailable,
-            Code::PolicyPaused,
-            Code::PolicyCutoff,
-            Code::CredentialExpired,
-            Code::HostTrustChanged,
-            Code::DelegationExceedsParent,
-            Code::OperationCancelled,
-            Code::DestinationUnreachable,
-            Code::TimeUncertain,
-            Code::UnsupportedClient,
-            Code::ServiceUnavailable,
-            Code::StateUnavailable,
-            Code::Backpressure,
-            Code::RequestConflict,
-            Code::ConfigConflict,
-            Code::RequestExpired,
-            Code::ResyncRequired,
-            Code::OutcomeUnknown,
-            Code::UsageError,
-            Code::SchemaUnsupported,
-            Code::NotFound,
-            Code::InternalError,
-        ]
+        ALL
     }
 
     /// Whether the code reports success (including an accepted pending request).
     #[must_use]
-    pub fn is_success(self) -> bool {
+    pub fn is_success(&self) -> bool {
         matches!(self, Code::Ok | Code::AccessReady | Code::Accepted)
     }
 
@@ -179,7 +215,7 @@ impl Code {
     /// (spec §11.6; ADR-0006 §6). `Accepted` exits 0 only when the caller selected
     /// asynchronous behaviour; the CLI enforces that rule, not this table.
     #[must_use]
-    pub fn exit_code(self) -> ExitCode {
+    pub fn exit_code(&self) -> ExitCode {
         match self {
             Code::Ok | Code::AccessReady | Code::Accepted => ExitCode::Success,
             Code::ApprovalRequired | Code::InteractionRequired | Code::ProviderLocked => {
@@ -201,10 +237,11 @@ impl Code {
             Code::RequestConflict
             | Code::ConfigConflict
             | Code::RequestExpired
-            | Code::ResyncRequired => ExitCode::Conflict,
+            | Code::ResyncRequired
+            | Code::DecisionStale => ExitCode::Conflict,
             Code::OutcomeUnknown => ExitCode::OutcomeUnknown,
             Code::UsageError | Code::SchemaUnsupported | Code::NotFound => ExitCode::Usage,
-            Code::InternalError => ExitCode::Internal,
+            Code::InternalError | Code::Unknown(_) => ExitCode::Internal,
         }
     }
 
@@ -212,7 +249,7 @@ impl Code {
     /// later. Retryable codes still never authorize replaying an arbitrary remote
     /// mutation (spec §11.6); `OutcomeUnknown` requires reconciliation first.
     #[must_use]
-    pub fn retryable(self) -> bool {
+    pub fn retryable(&self) -> bool {
         matches!(
             self,
             Code::DestinationUnreachable
@@ -225,12 +262,13 @@ impl Code {
     }
 
     /// Default effect status reported with this code when the operation attaches
-    /// nothing more specific (spec §11.6 "effect status").
+    /// nothing more specific (spec §11.6 "effect status"). An unknown code reports
+    /// `unknown`: the reader cannot know what the newer peer did.
     #[must_use]
-    pub fn default_effect_status(self) -> EffectStatus {
+    pub fn default_effect_status(&self) -> EffectStatus {
         match self {
             Code::Ok | Code::AccessReady => EffectStatus::Applied,
-            Code::OutcomeUnknown => EffectStatus::Unknown,
+            Code::OutcomeUnknown | Code::Unknown(_) => EffectStatus::Unknown,
             Code::OperationCancelled => EffectStatus::Partial,
             _ => EffectStatus::None,
         }
@@ -239,7 +277,7 @@ impl Code {
     /// Machine next action name attached by default (ADR-0006 §5). Operations may
     /// attach a more specific [`crate::envelope::NextAction`].
     #[must_use]
-    pub fn default_next_action(self) -> &'static str {
+    pub fn default_next_action(&self) -> &'static str {
         match self {
             Code::Ok => "none",
             Code::AccessReady => "use_binding",
@@ -259,9 +297,10 @@ impl Code {
             Code::RequestConflict | Code::RequestExpired => "new_request_id",
             Code::ConfigConflict => "review_config",
             Code::ResyncRequired => "resync",
+            Code::DecisionStale => "fix_request",
             Code::OutcomeUnknown => "reconcile",
             Code::UsageError | Code::SchemaUnsupported | Code::NotFound => "fix_request",
-            Code::InternalError => "report",
+            Code::InternalError | Code::Unknown(_) => "report",
         }
     }
 }
@@ -269,6 +308,48 @@ impl Code {
 impl std::fmt::Display for Code {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+impl Serialize for Code {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Code {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = <String as Deserialize>::deserialize(d)?;
+        if s.is_empty()
+            || s.len() > 64
+            || !s
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b == b'_' || b.is_ascii_digit())
+        {
+            return Err(serde::de::Error::custom(
+                "code must be a bounded SCREAMING_SNAKE_CASE token",
+            ));
+        }
+        Ok(Code::parse(&s))
+    }
+}
+
+impl schemars::JsonSchema for Code {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Code".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        // The schema enumerates what this build emits; readers additionally accept
+        // any bounded token as `Unknown` (ADR-0006 §9).
+        let alternatives: Vec<serde_json::Value> = TABLE
+            .iter()
+            .map(|(_, wire)| serde_json::json!({ "type": "string", "const": wire }))
+            .collect();
+        schemars::json_schema!({
+            "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+            "oneOf": alternatives
+        })
     }
 }
 
@@ -288,8 +369,19 @@ mod tests {
     }
 
     #[test]
+    fn unknown_codes_are_errors_with_exit_one() {
+        let c: Code = serde_json::from_str("\"FUTURE_THING\"").unwrap();
+        assert_eq!(c, Code::Unknown("FUTURE_THING".into()));
+        assert!(!c.is_success());
+        assert_eq!(c.exit_code(), ExitCode::Internal);
+        assert_eq!(c.default_effect_status(), EffectStatus::Unknown);
+        assert_eq!(serde_json::to_string(&c).unwrap(), "\"FUTURE_THING\"");
+        assert!(serde_json::from_str::<Code>("\"lower case\"").is_err());
+        assert!(serde_json::from_str::<Code>("\"\"").is_err());
+    }
+
+    #[test]
     fn spec_codes_present() {
-        // spec §11.6 list, verbatim.
         let required = [
             "APPROVAL_REQUIRED",
             "CAPABILITY_UNAVAILABLE",
@@ -306,10 +398,11 @@ mod tests {
             "UNSUPPORTED_CLIENT",
             "TIME_UNCERTAIN",
         ];
-        let all: Vec<&str> = Code::all().iter().map(|c| c.as_str()).collect();
+        let all: Vec<&str> = Code::all().iter().map(Code::as_str).collect();
         for r in required {
             assert!(all.contains(&r), "missing spec code {r}");
         }
+        assert_eq!(TABLE.len(), ALL.len());
     }
 
     #[test]

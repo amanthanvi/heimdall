@@ -89,9 +89,15 @@ pub struct ClientHello {
     #[serde(default)]
     pub capabilities: BTreeSet<String>,
     /// Capabilities the client requires; a missing one is rejected explicitly
-    /// (spec §11.2 "required capability must be rejected explicitly").
+    /// (spec §11.2 "required capability must be rejected explicitly"). Must be a
+    /// subset of the negotiated set (`capabilities ∩ server offer`), ADR-0006 §2.3.
     #[serde(default)]
     pub required: BTreeSet<String>,
+    /// Interaction mode of this session. `non_interactive` sessions can never
+    /// become attended: `Attend` is refused with `INTERACTION_REQUIRED`
+    /// (ADR-0006 §3.1). Defaults to non-interactive when omitted.
+    #[serde(default)]
+    pub interaction: crate::request::InteractionMode,
 }
 
 /// First server frame on success.
@@ -143,6 +149,14 @@ pub enum ClientMessage {
         /// Subscription to stop.
         subscription: u64,
     },
+    /// Mark this session attended (owner present at the CLI/TUI interactive flow;
+    /// ADR-0006 §3.1). Only valid on a session whose hello declared `interactive`;
+    /// otherwise answered `INTERACTION_REQUIRED`. The runtime, not this frame,
+    /// decides attendance; the same-user terminal-imitation limit is disclosed.
+    Attend {
+        /// Per-connection sequence number.
+        seq: u64,
+    },
 }
 
 /// Server to client frames.
@@ -162,14 +176,23 @@ pub enum ServerMessage {
         /// Result envelope with the primitive's payload or an error.
         envelope: Envelope<serde_json::Value>,
     },
-    /// Subscription established.
+    /// Subscription established (ADR-0006 §8). Delivery order afterwards: retained
+    /// backlog after the client's cursor (or nothing when a snapshot was taken),
+    /// then live events strictly after `cursor`; overlap is deduplicated by the
+    /// server, so a consumer may still deduplicate by `event_id` but need not.
     Subscribed {
         /// Echoed sequence number.
         in_reply_to: u64,
         /// Subscription handle.
         subscription: u64,
-        /// Cursor boundary the subscription starts after.
+        /// Boundary the stream continues after. With `snapshot`, it is the
+        /// snapshot's consistent boundary; without, the client's cursor.
         cursor: Cursor,
+        /// Present when the client sent no cursor, or sent an expired/foreign one
+        /// and the server chose to resync it: a transactionally consistent view
+        /// taken at `cursor`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        snapshot: Option<crate::event::Snapshot<serde_json::Value>>,
     },
     /// An event for a subscription.
     Event {
@@ -207,6 +230,7 @@ mod tests {
             },
             capabilities: [capability::OPERATIONS_V1.to_owned()].into_iter().collect(),
             required: BTreeSet::new(),
+            interaction: crate::request::InteractionMode::NonInteractive,
         });
         let json = serde_json::to_string(&hello).unwrap();
         let back: ClientMessage = serde_json::from_str(&json).unwrap();

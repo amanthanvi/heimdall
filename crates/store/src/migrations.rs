@@ -14,7 +14,7 @@ use crate::codec::classify;
 use crate::{FaultHook, FaultPoint, Result, StoreError, fire};
 
 /// Schema version this build writes and the highest it reads.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A migration step.
 #[derive(Debug, Clone, Copy)]
@@ -28,11 +28,18 @@ pub struct Migration {
 }
 
 /// All steps in order.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/0001_init.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "design_fix",
+        sql: include_str!("../migrations/0002_design_fix.sql"),
+    },
+];
 
 /// Apply pending migrations to `conn`. Before the first pending step on a file-backed
 /// database the caller must have written a backup copy. Refuses to run when the

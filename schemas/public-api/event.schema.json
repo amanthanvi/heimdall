@@ -138,7 +138,7 @@
           ]
         },
         "kind": {
-          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`).",
+          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`, `decision`).",
           "type": "string"
         }
       },

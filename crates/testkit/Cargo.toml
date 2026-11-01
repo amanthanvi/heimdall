@@ -1,6 +1,6 @@
 [package]
 name = "heimdall-testkit"
-description = "Heimdall test support: virtual clock, scripted fault hooks, fake credential adapter, proptest strategies, canary assertions (plan §6.1–§6.4). Dev-dependency only."
+description = "Heimdall test support: virtual clock, scripted time sync, scripted fault hooks, fake credential adapter, proptest strategies, canary assertions (plan §6.1–§6.4). Dev-dependency only."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,32 +10,43 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# `heimdall-ipc` (and the Windows cross-check) depend on this crate with
+# default-features = false so the store (rusqlite) and app graphs stay out of the
+# IPC test build (wave-1 E2). Everything time/canary/strategy-related is unconditional.
+default = ["store", "app"]
+# ScriptedFaults (needs heimdall-store's FaultHook).
+store = ["dep:heimdall-store"]
+# FakeCredentialAdapter (needs heimdall-app's ports; implies store).
+app = ["store", "dep:heimdall-app", "dep:async-trait"]
+
 [dependencies]
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
-heimdall-store = { workspace = true }
-heimdall-app = { workspace = true }
-async-trait = { workspace = true }
+heimdall-store = { workspace = true, optional = true }
+heimdall-app = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
 jiff = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 
-# M01-U2 authority model/property tests (m01-plan.md §1 U2). Hosted here because
-# this crate already depends on heimdall-domain, heimdall-contract and proptest, so
-# the test target needs no new dependency edge and no Cargo.lock change.
+# Test targets hosted here (convention, m01-plan.md §0): real Cargo `[[test]]`
+# targets whose sources live under the repository `tests/` tree, hosted by the
+# crate that already has the needed dependency edges.
+
+# M01-U2 authority model/property tests.
 [[test]]
 name = "model_authority"
 path = "../../tests/model/authority.rs"
 
-# M01-U4 state store integration, property and fault tests (m01-plan.md §1 U4).
-# Hosted here for the same reason as U2: no new dependency edge, no Cargo.lock change.
+# M01-U4 state store integration, property and fault tests.
 [[test]]
 name = "integration_store"
 path = "../../tests/integration/store.rs"
+required-features = ["store"]
 
-# M01-U3 time and lifecycle model suites (m01-plan.md §1 U3). Same hosting as U2/U4;
-# U10's tests/model/mod.rs harness may later absorb all tests/model targets.
+# M01-U3 time and lifecycle model suites.
 [[test]]
 name = "model_time"
 path = "../../tests/model/time.rs"

@@ -492,6 +492,40 @@ pub enum PolicyAction {
     },
 }
 
+/// Verdict on a server-issued decision record (ADR-0006 §3.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    /// Grant exactly the recorded delta / action.
+    Approve,
+    /// Refuse it.
+    Deny,
+}
+
+/// Complete a pending decision (approval of added authority, a widening policy
+/// action, or a time confirmation). Only accepted on an **attended** control
+/// session; refused with `INTERACTION_REQUIRED` otherwise, and with
+/// `DECISION_STALE` when the record was consumed, expired, or issued under an older
+/// authority generation (ADR-0006 §3.1). Consume-once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DecideRequest {
+    /// Decision record to complete.
+    pub decision_id: crate::ids::DecisionId,
+    /// Verdict.
+    pub verdict: Verdict,
+}
+
+/// Attended owner confirmation of the current wall time to resolve
+/// `TIME_UNCERTAIN` after a reboot or sync loss (ADR-0005 §3.6). Never moves a
+/// deadline; never rebuilds a budget. Attended sessions only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConfirmTimeRequest {
+    /// The wall time the owner confirms as correct now (RFC 3339 with offset). It
+    /// must agree with the runtime's own wall clock within tolerance; the owner
+    /// cannot set time, only vouch for it.
+    pub observed_wall: Timestamp,
+}
+
 /// A request sent over the control endpoint. The variant is the operation kind.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -515,6 +549,10 @@ pub enum Request {
     Revoke(RevokeRequest),
     /// Owner-channel policy action.
     Policy(PolicyAction),
+    /// Complete a server-issued decision (attended sessions only).
+    Decide(DecideRequest),
+    /// Attended confirmation of the current time (attended sessions only).
+    ConfirmTime(ConfirmTimeRequest),
 }
 
 impl Request {
@@ -531,7 +569,32 @@ impl Request {
             Request::Release(_) => "release",
             Request::Revoke(_) => "revoke",
             Request::Policy(_) => "policy",
+            Request::Decide(_) => "decide",
+            Request::ConfirmTime(_) => "confirm_time",
         }
+    }
+
+    /// Whether the request may only be served on an attended session and is
+    /// refused **before dispatch** otherwise, with `INTERACTION_REQUIRED` and no
+    /// decision record (ADR-0006 §2.3, §3.1; design-fix second round R5): completing
+    /// a decision and confirming time. `Attend` itself is a frame, not a request;
+    /// its precondition is a session that declared `interactive`.
+    #[must_use]
+    pub fn requires_attended_session(&self) -> bool {
+        matches!(self, Request::Decide(_) | Request::ConfirmTime(_))
+    }
+
+    /// Whether the request is a widening policy action (`resume`, `clear_cutoff`).
+    /// These **are** dispatched on an unattended session: the application creates a
+    /// `WidenPolicy` decision record and returns `INTERACTION_REQUIRED` with
+    /// `next.decision_ref`, which an attended `decide` later completes; on an
+    /// attended session the action executes directly (ADR-0006 §3.1, R5).
+    #[must_use]
+    pub fn is_widening_policy_action(&self) -> bool {
+        matches!(
+            self,
+            Request::Policy(PolicyAction::Resume { .. } | PolicyAction::ClearCutoff { .. })
+        )
     }
 
     /// Whether the request can have external effects (and therefore gets an

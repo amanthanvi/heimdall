@@ -20,10 +20,22 @@
 //! handle must report `FILE_TYPE_PIPE`; anything else is refused without a data open
 //! (REPORT.md §16 "classify the path before opening it").
 //!
+//! Client-side server check (ADR-0006 §2.1 rev2, wave-1 E14): production clients use
+//! [`connect_with_owner`], which after classification and the `FILE_TYPE_PIPE`
+//! check reads the pipe's owner SID from the client handle (`GetSecurityInfo` with
+//! `OWNER_SECURITY_INFORMATION`) and refuses (`PermissionDenied`, before any byte is
+//! written) unless it equals the expected owner: the current user
+//! ([`ServerOwner::CurrentUser`]) or, for a documented elevated runtime whose pipes
+//! carry its token's default owner, a configured SID ([`ServerOwner::Sid`]). This is
+//! the Windows counterpart of the Unix client's server peer-credential check: a pipe
+//! name squatted by another user is refused. [`connect`] has no owner check and is
+//! for tests only.
+//!
 //! This is the crate's only `unsafe` boundary: the raw security-attributes pointer
-//! passed to `create_with_security_attributes_raw`, the SDDL conversion, and the
-//! impersonation/token calls. Each call is wrapped in a safe function with
-//! documented invariants; no unsafe escapes this module.
+//! passed to `create_with_security_attributes_raw`, the SDDL conversion, the
+//! impersonation/token calls, and the owner query on a client handle. Each call is
+//! wrapped in a safe function with documented invariants; no unsafe escapes this
+//! module.
 
 #![allow(unsafe_code)]
 
@@ -39,14 +51,15 @@ use tokio::net::windows::named_pipe::{
     ClientOptions, NamedPipeClient, NamedPipeServer, PipeMode, ServerOptions,
 };
 use windows_sys::Win32::Foundation::{
-    ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_LOCAL, HANDLE, LocalFree,
+    ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_LOCAL, ERROR_SUCCESS, HANDLE, LocalFree,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetSecurityInfo,
+    SDDL_REVISION_1, SE_KERNEL_OBJECT,
 };
 use windows_sys::Win32::Security::{
-    GetTokenInformation, PSID, RevertToSelf, SECURITY_ATTRIBUTES, TOKEN_INFORMATION_CLASS,
-    TOKEN_QUERY, TOKEN_USER, TokenUser,
+    GetTokenInformation, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, RevertToSelf,
+    SECURITY_ATTRIBUTES, TOKEN_INFORMATION_CLASS, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_TYPE_PIPE, GetFileType, GetFullPathNameW, SECURITY_IDENTIFICATION, SECURITY_SQOS_PRESENT,
@@ -228,8 +241,58 @@ pub fn classify_path(path: &Path) -> PathClass {
     }
 }
 
+/// Whose pipe a client is willing to talk to ([`connect_with_owner`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServerOwner {
+    /// The pipe must be owned by this process's user SID (the normal case: the
+    /// runtime runs as the same, non-elevated user).
+    CurrentUser,
+    /// The pipe must be owned by this literal SID string (`S-1-…`), for a
+    /// documented elevated runtime whose pipes carry its token's default owner.
+    /// Anything that is not a literal SID (an SDDL alias, an empty string) is
+    /// refused with `InvalidInput` before any open.
+    Sid(String),
+}
+
+/// Production client connect: [`connect`]'s classification, `SECURITY_IDENTIFICATION`
+/// open and `FILE_TYPE_PIPE` check, then the server-owner check (ADR-0006 §2.1 rev2,
+/// wave-1 E14).
+///
+/// The pipe's owner SID is read from the client handle (`GetSecurityInfo` with
+/// `OWNER_SECURITY_INFORMATION`) and compared, case-insensitively, with the
+/// expected owner. A mismatch is `PermissionDenied` and the handle is closed before
+/// any byte is written, so a hello (or anything else) never reaches a pipe another
+/// principal created under the runtime's name. Failure to read the owner is an
+/// error, never a pass. The SIDs involved are not logged.
+pub async fn connect_with_owner(path: &Path, owner: ServerOwner) -> io::Result<NamedPipeClient> {
+    let expected = match owner {
+        ServerOwner::CurrentUser => current_user_sid()?,
+        ServerOwner::Sid(sid) => {
+            if !is_sid_string(&sid) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "expected server owner is not a literal SID string",
+                ));
+            }
+            sid
+        }
+    };
+    let client = connect(path).await?;
+    let actual = handle_owner_sid(client.as_raw_handle())?;
+    if !actual.eq_ignore_ascii_case(&expected) {
+        tracing::warn!("named-pipe endpoint owned by an unexpected principal; refused");
+        drop(client);
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the endpoint is not owned by the expected user",
+        ));
+    }
+    Ok(client)
+}
+
 /// Connect with `SECURITY_IDENTIFICATION` after classification and a
-/// `FILE_TYPE_PIPE` handle check.
+/// `FILE_TYPE_PIPE` handle check. **No server-owner check; tests only. Production
+/// uses [`connect_with_owner`].**
 ///
 /// A path outside the pipe namespace is refused with `InvalidInput` before any
 /// open. The normalized path (the one that was classified) is what gets opened.
@@ -305,9 +368,16 @@ fn is_sid_string(s: &str) -> bool {
         })
 }
 
-/// Owner-only, protected DACL for one SID (`GA` maps to `FILE_ALL_ACCESS`).
-fn owner_only_sddl(sid: &str) -> String {
-    format!("D:P(A;;GA;;;{sid})")
+/// Owner-only security descriptor: an explicit owner (`O:<owner>`, so a client's
+/// `ServerOwner::CurrentUser` check holds even when the runtime is elevated and the
+/// default owner would otherwise be the Administrators group; design-fix second
+/// round R6) and a protected DACL granting `GA` (`FILE_ALL_ACCESS`) to `grantee`
+/// only. The owner must be a SID the creating process holds (its own user SID):
+/// Windows refuses any other owner with `ERROR_INVALID_OWNER` (observed natively,
+/// `tests/evidence/artifacts/m01/u6w-native/r6-owner-sddl`), so production passes
+/// the current user for both and only tests use a different grantee.
+fn owner_only_sddl(owner: &str, grantee: &str) -> String {
+    format!("O:{owner}D:P(A;;GA;;;{grantee})")
 }
 
 /// Memory returned by an API that documents `LocalFree` as its release function.
@@ -325,9 +395,12 @@ impl Drop for LocalAllocation {
     }
 }
 
-/// Create one pipe instance with the owner-only DACL.
+/// Create one pipe instance with the owner-only DACL. The descriptor's owner is
+/// always the creating process's own user SID (the only owner a non-elevated
+/// process may set); `dacl_sid` is the single grantee.
 fn create_instance(name: &str, dacl_sid: &str, first: bool) -> io::Result<NamedPipeServer> {
-    let sddl: Vec<u16> = OsStr::new(&owner_only_sddl(dacl_sid))
+    let owner = current_user_sid()?;
+    let sddl: Vec<u16> = OsStr::new(&owner_only_sddl(&owner, dacl_sid))
         .encode_wide()
         .chain(Some(0))
         .collect();
@@ -420,6 +493,45 @@ fn handle_file_type(handle: RawHandle) -> u32 {
     // SAFETY: the caller's object owns `handle` and keeps it open for the call;
     // GetFileType only queries the device type.
     unsafe { GetFileType(handle as HANDLE) }
+}
+
+/// Owner SID (string form) of the object behind an open handle: `GetSecurityInfo`
+/// with `OWNER_SECURITY_INFORMATION` (needs `READ_CONTROL`, which the client's
+/// `GENERIC_READ` open includes), then `ConvertSidToStringSidW`.
+fn handle_owner_sid(handle: RawHandle) -> io::Result<String> {
+    let mut owner: PSID = ptr::null_mut();
+    let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
+    // SAFETY: the caller's object owns `handle` and keeps it open for the call; the
+    // owner and descriptor out-pointers are valid for writes; group, DACL and SACL
+    // are not requested, so their out-pointers may be null.
+    let rc = unsafe {
+        GetSecurityInfo(
+            handle as HANDLE,
+            SE_KERNEL_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if rc != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(
+            i32::try_from(rc).unwrap_or(i32::MAX),
+        ));
+    }
+    // GetSecurityInfo allocated the descriptor with LocalAlloc; `owner` points into
+    // it, so the allocation must outlive the conversion below.
+    let descriptor = LocalAllocation(descriptor);
+    if owner.is_null() {
+        return Err(io::Error::other(
+            "endpoint security descriptor has no owner",
+        ));
+    }
+    let sid = sid_to_string(owner);
+    drop(descriptor);
+    sid
 }
 
 /// Client process ID (metadata only, spec §4.2).
@@ -524,8 +636,9 @@ fn connection_is_remote(pipe: RawHandle) -> Result<bool, PeerRejected> {
 /// `ConvertSidToStringSidW`.
 fn sid_to_string(sid: PSID) -> io::Result<String> {
     let mut text: *mut u16 = ptr::null_mut();
-    // SAFETY: `sid` points at a valid SID inside a live token-information buffer;
-    // `text` is a valid out-pointer.
+    // SAFETY: `sid` points at a valid SID inside a buffer the caller keeps alive for
+    // the call (a token-information buffer or a security descriptor); `text` is a
+    // valid out-pointer.
     if unsafe { ConvertSidToStringSidW(sid, &mut text) } == 0 {
         return Err(io::Error::last_os_error());
     }
@@ -548,10 +661,10 @@ fn sid_to_string(sid: PSID) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    //! Native Windows tests (M01-U6w). They run only on a Windows host
-    //! (`cargo test -p heimdall-ipc` there, or the cross-built test binary; see
-    //! tests/native/windows-ipc/README.md). Pipe names use the test prefix
-    //! `hm-M01-U6w-<pid>-<n>`; temporary files live under `%TEMP%`.
+    //! Native Windows tests (M01-U6w; server-owner check M01-U6b). They run only on
+    //! a Windows host (`cargo test -p heimdall-ipc` there, or the cross-built test
+    //! binary; see tests/native/windows-ipc/README.md). Pipe names use the test
+    //! prefix `hm-M01-U6w-<pid>-<n>`; temporary files live under `%TEMP%`.
 
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -562,6 +675,7 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use heimdall_contract::ipc::PrincipalInfo;
+    use heimdall_testkit::{CANARY_PREFIX, assert_no_canary};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_PIPE_NOT_CONNECTED};
     use windows_sys::Win32::Security::Authorization::{
@@ -572,17 +686,14 @@ mod tests {
 
     use super::*;
 
-    /// Synthetic canary carried through the pipe; it must never appear in any
-    /// error or debug text the tests produce.
-    const CANARY: &str = "HEIMDALL_CANARY_U6W_PIPE_PAYLOAD";
-    const CANARY_PREFIX: &str = "HEIMDALL_CANARY_";
     /// A well-formed SID that is not the test user (synthetic; no real account).
     const OTHER_SID: &str = "S-1-5-21-1000000001-1000000002-1000000003-1001";
 
-    /// Same rule as `heimdall_testkit::assert_no_canary` (this crate does not depend
-    /// on testkit).
-    fn assert_no_canary(output: &str) {
-        assert!(!output.contains(CANARY_PREFIX), "canary leaked into output");
+    /// Synthetic canary carried through the pipe, built per run (never committed
+    /// as a value); it must never appear in any error or debug text the tests
+    /// produce.
+    fn canary() -> String {
+        format!("{CANARY_PREFIX}u6w_pipe_{:x}", std::process::id())
     }
 
     fn unique_pipe(tag: &str) -> String {
@@ -650,7 +761,14 @@ mod tests {
         ] {
             assert!(!is_sid_string(bad), "accepted {bad:?}");
         }
-        assert_eq!(owner_only_sddl("S-1-5-21-1-2"), "D:P(A;;GA;;;S-1-5-21-1-2)");
+        assert_eq!(
+            owner_only_sddl("S-1-5-21-1-2", "S-1-5-21-1-2"),
+            "O:S-1-5-21-1-2D:P(A;;GA;;;S-1-5-21-1-2)"
+        );
+        assert_eq!(
+            owner_only_sddl("S-1-5-21-1-2", "S-1-5-32-545"),
+            "O:S-1-5-21-1-2D:P(A;;GA;;;S-1-5-32-545)"
+        );
     }
 
     #[test]
@@ -688,6 +806,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn same_user_connect_reports_owner_sid_and_owner_only_dacl() {
         let sid = current_user_sid().unwrap();
+        let canary = canary();
         let name = unique_pipe("control");
         let listener = Listener::bind(&name, EndpointKind::Control, &sid).unwrap();
         assert_eq!(listener.kind(), EndpointKind::Control);
@@ -712,10 +831,10 @@ mod tests {
             assert_eq!(connection_is_remote(server.as_raw_handle()), Ok(false));
 
             // Both directions carry bytes unchanged.
-            client.write_all(CANARY.as_bytes()).await.unwrap();
-            let mut got = vec![0u8; CANARY.len()];
+            client.write_all(canary.as_bytes()).await.unwrap();
+            let mut got = vec![0u8; canary.len()];
             server.read_exact(&mut got).await.unwrap();
-            assert_eq!(got, CANARY.as_bytes());
+            assert_eq!(got, canary.as_bytes());
             server.write_all(b"pong").await.unwrap();
             let mut pong = [0u8; 4];
             client.read_exact(&mut pong).await.unwrap();
@@ -882,5 +1001,77 @@ mod tests {
         // A replacement instance exists, so the name still answers.
         let again = connect(Path::new(&name)).await;
         assert!(again.is_ok(), "no instance left after refusal");
+    }
+
+    /// E14: a same-user server is accepted under both expectations, the owner read
+    /// back from the client handle is this user's SID, and bytes flow.
+    #[tokio::test(flavor = "current_thread")]
+    async fn connect_with_owner_accepts_a_same_user_server() {
+        let sid = current_user_sid().unwrap();
+        let name = unique_pipe("control");
+        let listener = Listener::bind(&name, EndpointKind::Control, &sid).unwrap();
+        for owner in [ServerOwner::CurrentUser, ServerOwner::Sid(sid.clone())] {
+            let (accepted, client) = tokio::join!(
+                listener.accept(),
+                connect_with_owner(Path::new(&name), owner.clone())
+            );
+            let (mut server, peer) = accepted.unwrap();
+            let mut client = client.unwrap_or_else(|e| panic!("{owner:?}: {e}"));
+            assert_eq!(handle_owner_sid(client.as_raw_handle()).unwrap(), sid);
+            assert!(matches!(peer, PeerIdentity::Windows { .. }));
+            client.write_all(b"ping").await.unwrap();
+            let mut got = [0u8; 4];
+            server.read_exact(&mut got).await.unwrap();
+            assert_eq!(&got, b"ping");
+        }
+    }
+
+    /// E14: our own pipe, but the client expects another (synthetic) owner: refused
+    /// by the owner comparison itself (no OS error), and the listener still serves
+    /// a correctly-expecting client afterwards. The real cross-user case (a pipe
+    /// created by a second account) is blocked: README "Not covered".
+    #[tokio::test(flavor = "current_thread")]
+    async fn connect_with_owner_refuses_an_unexpected_owner() {
+        let sid = current_user_sid().unwrap();
+        let name = unique_pipe("control");
+        let listener = Listener::bind(&name, EndpointKind::Control, &sid).unwrap();
+        let err = connect_with_owner(Path::new(&name), ServerOwner::Sid(OTHER_SID.into()))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{err}");
+        assert_eq!(err.raw_os_error(), None, "not the owner check: {err}");
+        assert!(!err.to_string().contains(&sid), "error text names a SID");
+        let (accepted, client) = tokio::join!(
+            listener.accept(),
+            connect_with_owner(Path::new(&name), ServerOwner::CurrentUser)
+        );
+        accepted.unwrap();
+        client.unwrap();
+    }
+
+    /// E14: an expectation that is not a literal SID, and a path outside the pipe
+    /// namespace, are refused with `InvalidInput` before any open (the absent pipe
+    /// would otherwise answer `NotFound`).
+    #[tokio::test(flavor = "current_thread")]
+    async fn connect_with_owner_refuses_bad_input_before_any_open() {
+        let absent = unique_pipe("absent");
+        for bad in ["", "WD", "BA", "S-1-5-21-1)(A;;GA;;;WD", "s-1-5-21-1-2"] {
+            let err = connect_with_owner(Path::new(&absent), ServerOwner::Sid(bad.into()))
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{bad:?}: {err}");
+            assert_eq!(err.raw_os_error(), None, "{bad:?}: {err}");
+        }
+        for path in ["NUL", r"\\.\pipe\..\C:\Windows\win.ini", r"C:\Windows"] {
+            let err = connect_with_owner(Path::new(path), ServerOwner::CurrentUser)
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput, "{path}: {err}");
+            assert_eq!(err.raw_os_error(), None, "{path}: {err}");
+        }
+        let err = connect_with_owner(Path::new(&absent), ServerOwner::CurrentUser)
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound, "{err}");
     }
 }

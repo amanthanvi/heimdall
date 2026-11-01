@@ -3,14 +3,16 @@
 //! * key order never changes the canonical bytes; array order always does;
 //! * `request_hash(ctx, a) == request_hash(ctx, b)` exactly when the canonical bytes
 //!   of `a` and `b` are equal (and the context participates in the hash);
-//! * canonical output is a parseable fixed point of canonicalization.
+//! * canonical output is a parseable fixed point of canonicalization;
+//! * floats round-trip through text exactly (`serde_json/float_roundtrip`, wave-1 E3),
+//!   so a parsed number canonicalizes back to the text it was printed as.
 
 use proptest::prelude::*;
 use serde_json::{Map, Number, Value, json};
 
-use crate::canonical::{CanonicalError, RequestHash, canonical_json, request_hash};
+use heimdall_contract::canonical::{CanonicalError, RequestHash, canonical_json, request_hash};
 
-use super::proptest_config;
+use crate::proptest_config;
 
 fn arb_string() -> impl Strategy<Value = String> {
     // Any scalar value, including controls, quotes, backslashes and astral planes.
@@ -43,12 +45,17 @@ fn arb_number(floats: bool) -> BoxedStrategy<Value> {
     }
 }
 
-/// Values for the properties that re-parse canonical text. Floats are excluded
-/// there: the workspace `serde_json` does not enable `float_roundtrip`, so
-/// `parse(print(f))` can differ from `f` in the last digit (see
-/// `floats_hash_consistently_but_do_not_round_trip_text`). Typed request payloads
-/// contain no floats (no public schema declares `"type": "number"`).
+/// Values for the properties that re-parse canonical text. Floats are included:
+/// the workspace `serde_json` enables `float_roundtrip` (wave-1 E3), so
+/// `parse(print(f)) == f` exactly and re-parsing never perturbs the last digit.
+/// Typed request payloads contain no floats (no public schema declares
+/// `"type": "number"`), but `extra` and raw `Value` payloads may.
 fn arb_value() -> impl Strategy<Value = Value> {
+    arb_value_with(true)
+}
+
+/// Integer-only values (the shape of every typed request payload).
+fn arb_int_value() -> impl Strategy<Value = Value> {
     arb_value_with(false)
 }
 
@@ -225,6 +232,57 @@ proptest! {
     }
 
     #[test]
+    fn integer_documents_reparse_to_identical_canonical_bytes(v in arb_int_value(), seed in any::<u64>()) {
+        let reparsed = reparse_with_key_order(&v, seed);
+        prop_assert_eq!(&reparsed, &v);
+        prop_assert_eq!(canonical_json(&reparsed).unwrap(), canonical_json(&v).unwrap());
+    }
+
+    /// Wave-1 E3: a JSON number that serde_json printed is parsed back to the same
+    /// `f64` (bit for bit) and canonicalizes to exactly the same text.
+    #[test]
+    fn float_roundtrip_parsed_number_canonicalizes_identically(
+        f in prop::num::f64::NORMAL | prop::num::f64::SUBNORMAL | prop::num::f64::ZERO
+    ) {
+        let number = Number::from_f64(f).unwrap();
+        let text = serde_json::to_string(&number).unwrap();
+        let parsed: Value = serde_json::from_str(&text).unwrap();
+        prop_assert_eq!(parsed.as_f64().map(f64::to_bits), Some(f.to_bits()), "{}", text);
+        prop_assert_eq!(String::from_utf8(canonical_json(&parsed).unwrap()).unwrap(), text.clone());
+        // Inside a document as well, where it is a member of a sorted object.
+        let doc_text = format!("{{\"b\":[{text}],\"a\":{text}}}");
+        let doc: Value = serde_json::from_str(&doc_text).unwrap();
+        prop_assert_eq!(
+            String::from_utf8(canonical_json(&doc).unwrap()).unwrap(),
+            format!("{{\"a\":{text},\"b\":[{text}]}}")
+        );
+    }
+
+    /// Any decimal text (not only serde_json's own shortest form) reaches a fixed
+    /// point after one canonicalization: canonical text re-parses to the same value
+    /// and the same bytes.
+    #[test]
+    fn decimal_text_reaches_a_canonical_fixed_point(
+        neg in any::<bool>(),
+        int in "[1-9][0-9]{0,20}|0",
+        frac in "[0-9]{1,20}",
+        exp in prop::option::of(-330i32..330),
+    ) {
+        let mut text = format!("{}{int}.{frac}", if neg { "-" } else { "" });
+        if let Some(e) = exp {
+            text.push_str(&format!("e{e}"));
+        }
+        let Ok(v) = serde_json::from_str::<Value>(&text) else {
+            // Out of f64 range: serde_json refuses it, nothing to canonicalize.
+            return Ok(());
+        };
+        let once = canonical_json(&v).unwrap();
+        let reparsed: Value = serde_json::from_slice(&once).unwrap();
+        prop_assert_eq!(&reparsed, &v);
+        prop_assert_eq!(canonical_json(&reparsed).unwrap(), once);
+    }
+
+    #[test]
     fn hash_hex_round_trips(bytes in any::<[u8; 32]>()) {
         let h = RequestHash(bytes);
         prop_assert_eq!(RequestHash::from_hex(&h.to_hex()).unwrap(), h);
@@ -288,7 +346,7 @@ fn numbers_keep_their_serde_json_form() {
 }
 
 #[test]
-fn floats_hash_consistently_but_do_not_round_trip_text() {
+fn floats_hash_consistently_and_round_trip_text() {
     // Parsing the same text is deterministic, so two parties that parse the same
     // document agree on its canonical bytes and hash.
     let text = r#"{"x":3.164269124987631e-115,"y":[1.5,2.25e300]}"#;
@@ -298,6 +356,23 @@ fn floats_hash_consistently_but_do_not_round_trip_text() {
     assert_eq!(
         request_hash("t", &a).unwrap(),
         request_hash("t", &b).unwrap()
+    );
+    // With `float_roundtrip` (wave-1 E3) the canonical text re-parses to the same
+    // values: a second party hashing the canonical form agrees with the first.
+    let canonical = canonical_json(&a).unwrap();
+    let c: Value = serde_json::from_slice(&canonical).unwrap();
+    assert_eq!(c, a);
+    assert_eq!(
+        request_hash("t", &c).unwrap(),
+        request_hash("t", &a).unwrap()
+    );
+    // A value whose shortest decimal needs all 17 significant digits.
+    let tricky = 0.1_f64 + 0.2_f64;
+    let printed = serde_json::to_string(&tricky).unwrap();
+    assert_eq!(printed, "0.30000000000000004");
+    assert_eq!(
+        serde_json::from_str::<f64>(&printed).unwrap().to_bits(),
+        tricky.to_bits()
     );
     // Non-finite values cannot be constructed, so canonicalization cannot be asked
     // to hash them; the error variant exists for hand-built maps only.

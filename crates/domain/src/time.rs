@@ -1,67 +1,94 @@
-//! Time model (spec §6.2, §6.4; ADR-0006 §10; ADR-0005 §3.6; overview §5).
+//! Time model (spec §6.2, §6.4; ADR-0005 §3.6 revision 3; ADR-0006 §10; overview §5).
 //!
-//! Two clocks, both injectable so virtual-clock tests drive production code:
-//! wall time ([`jiff::Timestamp`], UTC) for persisted absolute deadlines, and a
-//! monotonic clock for in-process intervals. Deadlines are resolved once at creation
-//! and persisted as absolute UTC instants together with the caller's original
-//! intent. Restarts, sleep and clock changes never extend authority: the check is
-//! always `now >= deadline` against the persisted instant, and implausible rollback
-//! stops issuance with `TIME_UNCERTAIN`.
+//! Three time sources, all injected so virtual-clock tests drive production code:
 //!
-//! ADR-0005 §3.6 pieces expressed here: the high-water mark ([`next_anchor`]),
-//! rollback and two-sided skew detection ([`assess_time`]), and the grant budget on
-//! the monotonic clock ([`budget_end`], [`admission`]). The ADR's boot-wide
-//! continuous clock, boot ID and "OS reports synchronized time" inputs are not part
-//! of [`Clock`]/[`TimeAnchor`] yet; until they are, a `process_generation` is the
-//! domain in which monotonic readings may be compared, and [`SystemClock`] uses
-//! `std::time::Instant`, whose counting of system sleep std leaves platform-dependent
-//! (Linux `CLOCK_MONOTONIC` excludes suspend).
+//! * the **wall clock** (`jiff::Timestamp`, UTC) for persisted absolute deadlines;
+//! * a **boot-scoped continuous clock** that keeps counting through sleep (Linux
+//!   `CLOCK_BOOTTIME`, macOS `mach_continuous_time`, Windows interrupt time including
+//!   suspend) together with the platform **boot ID** that names the boot the reading
+//!   belongs to; readings from different boots are never compared;
+//! * a **synchronization report** ([`TimeSync`]) saying whether the OS believes its
+//!   wall clock is synchronized.
+//!
+//! Rules (ADR-0005 §3.6), all pure functions here:
+//!
+//! * Deadlines are resolved once ([`resolve_deadline`]) and persisted as absolute UTC
+//!   instants together with the caller's verbatim intent. Nothing moves them later.
+//! * Each grant gets a persisted [`GrantAnchor`] (boot ID, continuous reading, wall
+//!   time) when it is activated or first validated in a boot; its budget end on the
+//!   continuous clock is `anchor.continuous + (bound − anchor.wall)`. Budgets only
+//!   shorten ([`shorten`]); they are never rebuilt from the current wall clock.
+//! * Admission ([`admission`]) is refused once **either** the wall clock reaches the
+//!   bound or the continuous budget runs out; an anchor from another boot is void
+//!   (`NeedsAnchor`, fail closed) until a time assessed `Safe` re-anchors it.
+//! * One shared gate ([`gate`]) is consulted before admission, signing and issuance:
+//!   the wall clock must not be below the persisted high-water mark; within a boot
+//!   it must agree with the continuous clock's prediction in **either** direction
+//!   (an implausible forward jump is as uncertain as a step back); after a reboot
+//!   (or at first start) it is accepted only at or above the high-water mark **and**
+//!   with synchronized time, or through an attended owner confirmation for this
+//!   boot. Otherwise `TIME_UNCERTAIN`: no issuance, no signature, no admission.
+//! * The high-water mark ([`next_high_water`]) is the latest wall time ever accepted;
+//!   it never decreases.
+//!
+//! Platform clock sources live in `heimdall_runtime::platform`; this crate holds
+//! only the trait and the rules.
 
 use std::time::Duration;
 
+use heimdall_contract::ids::{DecisionId, GrantId};
 use heimdall_contract::request::DeadlineIntent;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-/// Source of wall and monotonic time. Production uses [`SystemClock`]; tests use
-/// `heimdall_testkit::VirtualClock`.
+/// Opaque per-boot identifier (Linux `/proc/sys/kernel/random/boot_id`, macOS
+/// `kern.bootsessionuuid`, Windows the Session Manager `BootId` counter; see
+/// `heimdall_runtime::platform`). Compared for equality only.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BootId(pub String);
+
+/// Source of wall time, boot-scoped continuous time and the boot ID. Production:
+/// `heimdall_runtime::platform::SystemClock`; tests: `heimdall_testkit::VirtualClock`.
 pub trait Clock: Send + Sync {
     /// Current wall time (UTC instant).
     fn wall(&self) -> Timestamp;
-    /// Monotonic elapsed time since an arbitrary fixed origin of this process.
-    fn monotonic(&self) -> Duration;
-}
+    /// Continuous time since an arbitrary origin of the **current boot**; counts
+    /// sleep and suspend; never decreases within a boot.
+    fn continuous(&self) -> Duration;
+    /// Identifier of the current boot.
+    fn boot_id(&self) -> BootId;
 
-/// The operating system clocks.
-#[derive(Debug)]
-pub struct SystemClock {
-    origin: std::time::Instant,
-}
-
-impl SystemClock {
-    /// Create a system clock whose monotonic origin is now.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            origin: std::time::Instant::now(),
+    /// Paired reading of all three (one logical observation).
+    fn observe(&self) -> TimeAnchor {
+        TimeAnchor {
+            boot_id: self.boot_id(),
+            continuous: self.continuous(),
+            wall: self.wall(),
         }
     }
 }
 
-impl Default for SystemClock {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Whether the operating system reports synchronized wall time (ADR-0005 §3.6
+/// "the OS reports synchronized time"). `Unknown` fails closed exactly like
+/// `NotSynchronized`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncStatus {
+    /// The platform time service reports a successful synchronization.
+    Synchronized,
+    /// The platform reports no synchronization.
+    NotSynchronized,
+    /// No trustworthy signal is available (also used by stubs marked [I]).
+    Unknown,
 }
 
-impl Clock for SystemClock {
-    fn wall(&self) -> Timestamp {
-        Timestamp::now()
-    }
-
-    fn monotonic(&self) -> Duration {
-        self.origin.elapsed()
-    }
+/// Port reporting [`SyncStatus`]. Platform implementations are stubs returning
+/// `Unknown` until M03/M04 evidence selects the trustworthy signal per platform;
+/// the fail-closed rule in [`gate`] exists now.
+pub trait TimeSync: Send + Sync {
+    /// Current synchronization status.
+    fn status(&self) -> SyncStatus;
 }
 
 /// A resolved deadline: the intent as given, when it was resolved, and the
@@ -211,26 +238,26 @@ pub fn narrowest(bounds: impl IntoIterator<Item = Timestamp>) -> Option<Timestam
     bounds.into_iter().min()
 }
 
-/// Last persisted observation of both clocks (spec §6.4 "persisted absolute
-/// deadlines", rollback detection across restarts).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// One paired observation of the three clocks (ADR-0005 §3.6 "grant anchor" and the
+/// runtime's own anchor). Persisted in the transactional store.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimeAnchor {
-    /// Wall time observed.
+    /// Boot the continuous reading belongs to.
+    pub boot_id: BootId,
+    /// Continuous-clock reading.
+    pub continuous: Duration,
+    /// Wall time at the same moment.
     pub wall: Timestamp,
-    /// Monotonic reading at the same moment.
-    pub monotonic: Duration,
-    /// Monotonic origin generation; differs after every process start so readings
-    /// from different processes are never subtracted.
-    pub process_generation: u64,
 }
 
-/// Tolerances for time plausibility.
+/// Tolerances for time plausibility. The exact values are set by G09; these are
+/// the M01 defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimePolicy {
-    /// Wall time may run behind the previous anchor by at most this much.
+    /// Wall time may be below the high-water mark by at most this much.
     pub max_tolerated_rollback: Duration,
-    /// Within one process, wall progress may differ from monotonic progress by at
-    /// most this much before time is uncertain.
+    /// Within one boot, wall progress may differ from continuous progress by at
+    /// most this much, in either direction.
     pub max_tolerated_skew: Duration,
 }
 
@@ -243,140 +270,285 @@ impl Default for TimePolicy {
     }
 }
 
+/// An owner-present confirmation of the current time (ADR-0005 §3.6 "resolved
+/// interactively by an explicit owner confirmation ... never `--non-interactive`").
+/// It accepts the wall clock for **this boot** as a synthetic anchor; it never moves
+/// a deadline and never rebuilds a budget.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttendedTimeConfirmation {
+    /// Boot the confirmation applies to.
+    pub boot_id: BootId,
+    /// Paired observation at confirmation.
+    pub continuous: Duration,
+    /// Wall time the owner confirmed.
+    pub wall: Timestamp,
+    /// Decision record that carried the confirmation (consume-once).
+    pub decision: DecisionId,
+}
+
+impl AttendedTimeConfirmation {
+    /// The anchor this confirmation stands in for.
+    #[must_use]
+    pub fn as_anchor(&self) -> TimeAnchor {
+        TimeAnchor {
+            boot_id: self.boot_id.clone(),
+            continuous: self.continuous,
+            wall: self.wall,
+        }
+    }
+}
+
 /// Why safe time could not be established.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TimeUncertainty {
-    /// Wall clock is earlier than a persisted anchor by more than the tolerance.
-    Rollback {
-        /// Last persisted wall time.
-        anchor: Timestamp,
+    /// Wall clock is below the persisted high-water mark by more than the tolerance.
+    BelowHighWater {
+        /// Persisted mark.
+        mark: Timestamp,
         /// Observed wall time.
         observed: Timestamp,
     },
-    /// Within one process, wall and monotonic progress disagree beyond tolerance.
+    /// Within one boot, wall and continuous progress disagree beyond tolerance.
     Skew {
-        /// Wall progress since the anchor.
-        wall_delta: Duration,
-        /// Monotonic progress since the anchor.
-        monotonic_delta: Duration,
+        /// Wall progress since the reference anchor (negative when it went back).
+        wall_delta: jiff::SignedDuration,
+        /// Continuous progress since the reference anchor.
+        continuous_delta: Duration,
+    },
+    /// The continuous clock went backwards within one boot: impossible for a real
+    /// clock, fails closed.
+    ContinuousWentBackwards,
+    /// New boot (or first start): the wall clock is not reported synchronized and no
+    /// attended confirmation covers this boot.
+    Unsynchronized {
+        /// What the platform reported.
+        sync: SyncStatus,
     },
 }
 
-/// Result of a plausibility check.
+/// Result of the shared time gate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeStatus {
-    /// Safe to issue and to compare against deadlines.
+    /// Safe to admit, sign, issue and to persist as the new anchor / high-water.
     Safe,
-    /// Issuance must stop; passive reads continue with a warning (spec §6.4).
+    /// Issuance, signing and admission must stop; passive reads continue with a
+    /// warning (spec §6.4); owned masters are closed (ADR-0005 §3.6).
     Uncertain(TimeUncertainty),
 }
 
-/// Assess the current anchor against the previous one. Forward jumps are
-/// plausible (sleep, suspend) and only make deadlines expire sooner; rollback
-/// beyond tolerance and intra-process skew are uncertain.
+/// Everything the gate may look at. Built by the runtime from the store and the
+/// ports; the gate itself reads nothing else.
+#[derive(Debug, Clone)]
+pub struct GateInput<'a> {
+    /// The runtime's last accepted anchor, if any (same boot ⇒ prediction check;
+    /// other boot ⇒ reboot rules).
+    pub previous: Option<&'a TimeAnchor>,
+    /// Persisted high-water mark (latest accepted wall time).
+    pub high_water: Option<Timestamp>,
+    /// Current observation.
+    pub now: &'a TimeAnchor,
+    /// Platform synchronization report.
+    pub sync: SyncStatus,
+    /// Attended confirmation on record, if any.
+    pub confirmation: Option<&'a AttendedTimeConfirmation>,
+    /// Tolerances.
+    pub policy: &'a TimePolicy,
+}
+
+/// The shared time gate (ADR-0005 §3.6 "`TIME_UNCERTAIN` applies when"). Pure.
 ///
-/// Rules (overview §5; ADR-0005 §3.6 "`TIME_UNCERTAIN` applies when"):
-/// 1. `previous` is the persisted anchor whose `wall` is the high-water mark (see
-///    [`next_anchor`]). `now.wall` below it by more than `max_tolerated_rollback`
-///    is `Rollback`, whatever the process generation.
-/// 2. Within one monotonic domain (`process_generation` equal), the wall clock must
-///    follow the monotonic prediction `previous.wall + (now.monotonic −
-///    previous.monotonic)` within `max_tolerated_skew` **in either direction**: a
-///    step back hidden inside the rollback tolerance and an implausible forward
-///    jump are both `Skew`. Sleep is plausible only because the monotonic clock is
-///    expected to count it (ADR-0005 "continuous clock"); a forward wall jump
-///    matched by monotonic progress is `Safe`. A monotonic reading that went
-///    backwards inside one generation is impossible for a real clock and fails
-///    closed as `Skew`.
-/// 3. Across generations no monotonic comparison is possible; a forward jump (or a
-///    step back within tolerance) is `Safe`.
-/// 4. No previous anchor (first start): `Safe`; nothing to compare against.
+/// 1. `now.wall` below `high_water` by more than `max_tolerated_rollback` ⇒
+///    `BelowHighWater`, whatever the boot.
+/// 2. `previous` in the same boot: the continuous clock must not have gone backwards
+///    (`ContinuousWentBackwards`) and `now.wall` must lie within
+///    `max_tolerated_skew` of `previous.wall + (now.continuous − previous.continuous)`
+///    in either direction (`Skew`). Sleep passes because the continuous clock counts
+///    it; a frozen wall clock, a step back and an implausible forward jump all fail.
+/// 3. No `previous` in this boot (reboot or first start): accepted only when
+///    `sync == Synchronized`, or an attended confirmation for this boot exists and
+///    `now` agrees with its prediction as in rule 2. Otherwise `Unsynchronized`.
+///    Rule 1 still applies, so a rolled-back clock after downtime is refused even if
+///    it is above the mark but unsynchronized, and refused by the mark when below.
 ///
 /// Boundaries are inclusive on the safe side: a difference equal to a tolerance is
 /// `Safe`, one nanosecond more is `Uncertain`.
 #[must_use]
-pub fn assess_time(
+pub fn gate(input: &GateInput<'_>) -> TimeStatus {
+    let now = input.now;
+    let policy = input.policy;
+    if let Some(mark) = input.high_water {
+        let behind = mark.duration_since(now.wall);
+        if behind > signed(policy.max_tolerated_rollback) {
+            return TimeStatus::Uncertain(TimeUncertainty::BelowHighWater {
+                mark,
+                observed: now.wall,
+            });
+        }
+    }
+    if let Some(reference) = prediction_reference(input) {
+        return check_prediction(&reference, now, policy);
+    }
+    if input.sync == SyncStatus::Synchronized {
+        return TimeStatus::Safe;
+    }
+    TimeStatus::Uncertain(TimeUncertainty::Unsynchronized { sync: input.sync })
+}
+
+/// The same-boot anchor the prediction is measured against: the **later** (by
+/// continuous reading) of the runtime anchor and an attended confirmation for this
+/// boot. A confirmation accepted after a same-boot `Skew` therefore becomes the
+/// reference and clears the skew (ADR-0005 §3.6; design-fix second round R3).
+fn prediction_reference(input: &GateInput<'_>) -> Option<TimeAnchor> {
+    let now = input.now;
+    let prev = input.previous.filter(|p| p.boot_id == now.boot_id).cloned();
+    let conf = input
+        .confirmation
+        .filter(|c| c.boot_id == now.boot_id)
+        .map(AttendedTimeConfirmation::as_anchor);
+    match (prev, conf) {
+        (Some(p), Some(c)) => Some(if c.continuous >= p.continuous { c } else { p }),
+        (Some(p), None) => Some(p),
+        (None, Some(c)) => Some(c),
+        (None, None) => None,
+    }
+}
+
+/// The runtime anchor to persist after `accepted` passed the gate (design-fix second
+/// round R2). Within a boot the anchor is **re-based only on synchronized time**;
+/// otherwise the previous reference is kept, so drift against it accumulates and a
+/// slowly wrong or frozen wall clock is detected instead of being re-accepted every
+/// pass. A new boot's first acceptance (by synchronization) installs `accepted`; a
+/// confirmation installs its own anchor through `AttendedTimeConfirmation::as_anchor`.
+#[must_use]
+pub fn next_runtime_anchor(
     previous: Option<&TimeAnchor>,
-    now: &TimeAnchor,
-    policy: &TimePolicy,
-) -> TimeStatus {
-    let Some(previous) = previous else {
-        return TimeStatus::Safe;
-    };
-    let rollback_tolerance = signed(policy.max_tolerated_rollback);
-    // Positive when the observed wall time is earlier than the high-water mark.
-    let behind = previous.wall.duration_since(now.wall);
-    if behind > rollback_tolerance {
-        return TimeStatus::Uncertain(TimeUncertainty::Rollback {
-            anchor: previous.wall,
-            observed: now.wall,
-        });
+    accepted: &TimeAnchor,
+    sync: SyncStatus,
+) -> TimeAnchor {
+    match previous {
+        Some(p) if p.boot_id == accepted.boot_id && sync != SyncStatus::Synchronized => p.clone(),
+        _ => accepted.clone(),
     }
-    if previous.process_generation != now.process_generation {
-        return TimeStatus::Safe;
+}
+
+/// How far the accepted wall time may lag the truth, given the tolerances the gate
+/// used to accept it (design-fix second round R4): the rollback tolerance when the
+/// observation sits below the high-water mark, plus the skew tolerance when it was
+/// accepted through a same-boot prediction (runtime anchor or confirmation). Zero
+/// for an observation accepted at or above the mark on synchronized time with no
+/// same-boot reference. Only meaningful when [`gate`] returned `Safe`.
+#[must_use]
+pub fn accepted_tolerance(input: &GateInput<'_>) -> Duration {
+    let mut tolerance = Duration::ZERO;
+    if input.high_water.is_some_and(|mark| input.now.wall < mark) {
+        tolerance = tolerance.saturating_add(input.policy.max_tolerated_rollback);
     }
-    let wall_progress = now.wall.duration_since(previous.wall);
-    let wall_delta = Duration::try_from(wall_progress).unwrap_or(Duration::ZERO);
-    let Some(monotonic_delta) = now.monotonic.checked_sub(previous.monotonic) else {
-        return TimeStatus::Uncertain(TimeUncertainty::Skew {
-            wall_delta,
-            monotonic_delta: Duration::ZERO,
-        });
+    // A prediction-based acceptance (runtime anchor or confirmation) can hide up to
+    // the skew tolerance; synchronized time is trusted as-is, so the skew share
+    // applies only when the platform did not report synchronization.
+    if input.sync != SyncStatus::Synchronized && prediction_reference(input).is_some() {
+        tolerance = tolerance.saturating_add(input.policy.max_tolerated_skew);
+    }
+    tolerance
+}
+
+fn check_prediction(reference: &TimeAnchor, now: &TimeAnchor, policy: &TimePolicy) -> TimeStatus {
+    let Some(continuous_delta) = now.continuous.checked_sub(reference.continuous) else {
+        return TimeStatus::Uncertain(TimeUncertainty::ContinuousWentBackwards);
     };
+    let wall_delta = now.wall.duration_since(reference.wall);
     // Overflow means a disagreement far beyond any tolerance: fail closed.
-    let disagreement = wall_progress
-        .checked_sub(signed(monotonic_delta))
+    let disagreement = wall_delta
+        .checked_sub(signed(continuous_delta))
         .map_or(Duration::MAX, jiff::SignedDuration::unsigned_abs);
     if disagreement > policy.max_tolerated_skew {
         return TimeStatus::Uncertain(TimeUncertainty::Skew {
             wall_delta,
-            monotonic_delta,
+            continuous_delta,
         });
     }
     TimeStatus::Safe
 }
 
-/// The anchor to persist after `observed` was assessed [`TimeStatus::Safe`]
-/// against `previous` (ADR-0005 §3.6 "high-water mark": the latest wall-clock time
-/// accepted). The persisted wall time never moves backwards, so tolerated small
-/// step-backs cannot accumulate across anchors into an undetected rollback.
-///
-/// * `observed.wall >= previous.wall`: `observed` itself.
-/// * Same generation, small step back: `previous` is kept (it is a real, paired
-///   observation in the same monotonic domain, so later skew checks stay exact).
-/// * New generation, small step back: the mark `previous.wall` paired with the new
-///   generation's reading; later skew checks in that generation carry at most the
-///   rollback tolerance of error, far below the skew tolerance.
-///
-/// Never call this with an anchor assessed `Uncertain`: persisting it would accept
-/// the rollback.
+/// The high-water mark to persist after `accepted` was assessed `Safe`: the later of
+/// the previous mark and the accepted wall time. Never decreases.
 #[must_use]
-pub fn next_anchor(previous: Option<&TimeAnchor>, observed: TimeAnchor) -> TimeAnchor {
+pub fn next_high_water(previous: Option<Timestamp>, accepted: Timestamp) -> Timestamp {
     match previous {
-        Some(prev) if observed.wall < prev.wall => {
-            if prev.process_generation == observed.process_generation {
-                *prev
-            } else {
-                TimeAnchor {
-                    wall: prev.wall,
-                    ..observed
-                }
-            }
-        }
-        _ => observed,
+        Some(p) if p > accepted => p,
+        _ => accepted,
     }
 }
 
-/// Monotonic reading at which a grant's budget ends (ADR-0005 §3.6 "grant
-/// anchor"): `anchor.monotonic + (bound − anchor.wall)`, where `bound` is the
-/// absolute `min(deadline, cutoff, parent deadline)` and `anchor` is the paired
-/// observation taken when the grant was activated or first validated in this
-/// monotonic domain. A bound at or before the anchor ends the budget at the anchor.
-/// An earlier bound set later yields an earlier end; nothing here can lengthen it.
+/// A grant's persisted budget anchor (ADR-0005 §3.6 "grant anchor").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GrantAnchor {
+    /// Grant.
+    pub grant: GrantId,
+    /// Paired observation when activated or first validated in this boot.
+    pub anchor: TimeAnchor,
+    /// Absolute bound `min(deadline, cutoff, parent deadline)` the budget was cut from.
+    pub bound: Timestamp,
+    /// Continuous reading at which the budget ends in `anchor.boot_id`.
+    pub budget_end: Duration,
+}
+
+/// Build a grant anchor from an observation assessed `Safe` and the absolute bound:
+/// `budget_end = anchor.continuous + (bound − anchor.wall)`; a bound at or before
+/// the anchor ends the budget at the anchor.
 #[must_use]
-pub fn budget_end(anchor: &TimeAnchor, bound: Timestamp) -> Duration {
+pub fn anchor_grant(grant: GrantId, anchor: TimeAnchor, bound: Timestamp) -> GrantAnchor {
     let remaining = Duration::try_from(bound.duration_since(anchor.wall)).unwrap_or(Duration::ZERO);
-    anchor.monotonic.saturating_add(remaining)
+    let budget_end = anchor.continuous.saturating_add(remaining);
+    GrantAnchor {
+        grant,
+        anchor,
+        bound,
+        budget_end,
+    }
+}
+
+/// Like [`anchor_grant`] for an observation accepted **within a tolerance**
+/// (design-fix second round R4): the wall clock may lag the truth by up to
+/// `tolerance`, so the budget is cut as if the observation were that much later:
+/// `budget_end = continuous + (bound − (wall + tolerance))`. The grant may end up to
+/// `tolerance` early, never late. Callers `min()` the result with any existing
+/// same-boot budget (the store's `set_grant_anchor` refuses to lengthen).
+#[must_use]
+pub fn anchor_grant_with_tolerance(
+    grant: GrantId,
+    anchor: TimeAnchor,
+    bound: Timestamp,
+    tolerance: Duration,
+) -> GrantAnchor {
+    let pessimistic_wall = anchor
+        .wall
+        .checked_add(signed(tolerance))
+        .unwrap_or(Timestamp::MAX);
+    let remaining =
+        Duration::try_from(bound.duration_since(pessimistic_wall)).unwrap_or(Duration::ZERO);
+    let budget_end = anchor.continuous.saturating_add(remaining);
+    GrantAnchor {
+        grant,
+        anchor,
+        bound,
+        budget_end,
+    }
+}
+
+/// Apply a later-set earlier bound (cutoff, parent narrowing). The result never has
+/// a later bound or a longer budget than `current`; a later `new_bound` is ignored.
+#[must_use]
+pub fn shorten(current: &GrantAnchor, new_bound: Timestamp) -> GrantAnchor {
+    if new_bound >= current.bound {
+        return current.clone();
+    }
+    let shortened = anchor_grant(current.grant.clone(), current.anchor.clone(), new_bound);
+    GrantAnchor {
+        budget_end: shortened.budget_end.min(current.budget_end),
+        ..shortened
+    }
 }
 
 /// Result of the ADR-0005 §3.6 admission-deadline check.
@@ -386,32 +558,29 @@ pub enum Admission {
     /// [`TimeStatus::Safe`] and the grant/generation checks.
     Open,
     /// The admission deadline passed: the wall clock reached the bound, or the
-    /// monotonic budget ran out. The grant expires (`DeadlineReached`).
+    /// continuous budget ran out. The grant expires (`DeadlineReached`).
     Expired,
-    /// The budget anchor belongs to another monotonic domain (`process_generation`
-    /// differs), so branch (b) cannot be evaluated. Refuse admission (fail closed)
-    /// until the runtime re-anchors the grant from a wall time assessed
-    /// [`TimeStatus::Safe`]; this is not an expiry and must not emit
+    /// The anchor belongs to another boot, so the budget branch cannot be
+    /// evaluated. Refuse admission (fail closed) until the runtime re-anchors the
+    /// grant from a time assessed `Safe`; this is not an expiry and must not emit
     /// `DeadlineReached`. Only the wall branch has been checked.
     NeedsAnchor,
 }
 
 /// ADR-0005 §3.6 admission deadline: expired once **either** (a) the wall clock
-/// reaches the absolute `bound`, or (b) the monotonic clock reaches the grant's
-/// [`budget_end`]. Because (b) counts elapsed monotonic time, a frozen or
+/// reaches `anchor.bound`, or (b) the continuous clock reaches `budget_end` in the
+/// anchor's boot. Because (b) counts elapsed continuous time, a frozen or
 /// stepped-back wall clock cannot extend authority, and sleep counts against the
-/// budget when the monotonic clock includes it. The budget is never rebuilt
-/// implicitly; see [`Admission::NeedsAnchor`]. Callers must separately refuse while
-/// time is `Uncertain`.
+/// budget. Callers must separately refuse while time is `Uncertain`.
 #[must_use]
-pub fn admission(bound: Timestamp, budget_anchor: &TimeAnchor, now: &TimeAnchor) -> Admission {
-    if is_expired(now.wall, bound) {
+pub fn admission(grant: &GrantAnchor, now: &TimeAnchor) -> Admission {
+    if is_expired(now.wall, grant.bound) {
         return Admission::Expired;
     }
-    if budget_anchor.process_generation != now.process_generation {
+    if grant.anchor.boot_id != now.boot_id {
         return Admission::NeedsAnchor;
     }
-    if now.monotonic >= budget_end(budget_anchor, bound) {
+    if now.continuous >= grant.budget_end {
         return Admission::Expired;
     }
     Admission::Open
@@ -445,8 +614,6 @@ mod tests {
         let t: Timestamp = "2026-10-02T06:00:00Z".parse().unwrap();
         assert!(is_expired(t, t));
     }
-
-    // ---- resolve_deadline -------------------------------------------------------
 
     const H12: Duration = Duration::from_secs(12 * 3600);
 
@@ -629,13 +796,17 @@ mod tests {
         assert!(malformed(resolve(&abs(&long_abs))));
     }
 
-    // ---- assess_time ------------------------------------------------------------
+    // ---- gate / anchors ----------------------------------------------------------
 
-    fn anchor(wall: Timestamp, mono_secs: u64, generation: u64) -> TimeAnchor {
+    fn boot(n: u8) -> BootId {
+        BootId(format!("boot-{n}"))
+    }
+
+    fn at(boot_n: u8, cont_secs: u64, wall: Timestamp) -> TimeAnchor {
         TimeAnchor {
+            boot_id: boot(boot_n),
+            continuous: Duration::from_secs(cont_secs),
             wall,
-            monotonic: Duration::from_secs(mono_secs),
-            process_generation: generation,
         }
     }
 
@@ -644,319 +815,268 @@ mod tests {
             .unwrap()
     }
 
+    fn run(
+        previous: Option<&TimeAnchor>,
+        hw: Option<Timestamp>,
+        now: &TimeAnchor,
+        sync: SyncStatus,
+    ) -> TimeStatus {
+        gate(&GateInput {
+            previous,
+            high_water: hw,
+            now,
+            sync,
+            confirmation: None,
+            policy: &TimePolicy::default(),
+        })
+    }
+
     #[test]
-    fn first_start_is_safe() {
-        let p = TimePolicy::default();
+    fn first_start_needs_synchronized_time() {
+        let n = at(1, 10, now());
         assert_eq!(
-            assess_time(None, &anchor(now(), 0, 1), &p),
+            run(None, None, &n, SyncStatus::Synchronized),
             TimeStatus::Safe
         );
-    }
-
-    #[test]
-    fn rollback_boundary_is_inclusive_on_the_safe_side() {
-        let p = TimePolicy::default();
-        let prev = anchor(now(), 100, 1);
-        // Other generation (restart): 5 s back is tolerated, 5 s + 1 ns is not.
-        assert_eq!(
-            assess_time(Some(&prev), &anchor(plus(now(), -5), 0, 2), &p),
-            TimeStatus::Safe
-        );
-        let just_over = now().checked_sub(jiff::SignedDuration::new(5, 1)).unwrap();
-        assert_eq!(
-            assess_time(Some(&prev), &anchor(just_over, 0, 2), &p),
-            TimeStatus::Uncertain(TimeUncertainty::Rollback {
-                anchor: now(),
-                observed: just_over
-            })
-        );
-    }
-
-    #[test]
-    fn same_process_forward_jump_without_monotonic_progress_is_skew() {
-        let p = TimePolicy::default();
-        let prev = anchor(now(), 100, 1);
-        let jumped = anchor(plus(now(), 3600), 110, 1);
-        assert_eq!(
-            assess_time(Some(&prev), &jumped, &p),
-            TimeStatus::Uncertain(TimeUncertainty::Skew {
-                wall_delta: Duration::from_secs(3600),
-                monotonic_delta: Duration::from_secs(10),
-            })
-        );
-        // Exactly at the skew tolerance: safe.
-        let at_tol = anchor(plus(now(), 70), 110, 1);
-        assert_eq!(assess_time(Some(&prev), &at_tol, &p), TimeStatus::Safe);
-        // Sleep counted by the monotonic clock: safe.
-        let slept = anchor(plus(now(), 3600), 3700, 1);
-        assert_eq!(assess_time(Some(&prev), &slept, &p), TimeStatus::Safe);
-    }
-
-    #[test]
-    fn same_process_hidden_step_back_is_skew() {
-        let p = TimePolicy::default();
-        let prev = anchor(now(), 0, 1);
-        // Wall 3 s behind the anchor (inside rollback tolerance) after 120 s of
-        // monotonic progress: the wall clock was stepped back ~123 s.
-        let obs = anchor(plus(now(), -3), 120, 1);
-        assert_eq!(
-            assess_time(Some(&prev), &obs, &p),
-            TimeStatus::Uncertain(TimeUncertainty::Skew {
-                wall_delta: Duration::ZERO,
-                monotonic_delta: Duration::from_secs(120),
-            })
-        );
-    }
-
-    #[test]
-    fn monotonic_going_backwards_in_one_generation_fails_closed() {
-        let p = TimePolicy::default();
-        let prev = anchor(now(), 100, 1);
-        let obs = anchor(plus(now(), 1), 50, 1);
         assert!(matches!(
-            assess_time(Some(&prev), &obs, &p),
-            TimeStatus::Uncertain(TimeUncertainty::Skew { .. })
+            run(None, None, &n, SyncStatus::Unknown),
+            TimeStatus::Uncertain(TimeUncertainty::Unsynchronized { .. })
         ));
     }
 
     #[test]
-    fn restart_forward_jump_is_safe() {
-        let p = TimePolicy::default();
-        let prev = anchor(now(), 5000, 1);
-        let obs = anchor(plus(now(), 86_400), 0, 2);
-        assert_eq!(assess_time(Some(&prev), &obs, &p), TimeStatus::Safe);
-    }
-
-    // ---- high-water mark and budgets -------------------------------------------
-
-    #[test]
-    fn next_anchor_never_lowers_the_mark() {
-        let prev = anchor(now(), 100, 1);
-        let fwd = anchor(plus(now(), 10), 110, 1);
-        assert_eq!(next_anchor(Some(&prev), fwd), fwd);
-        assert_eq!(next_anchor(None, fwd), fwd);
-        let back_same = anchor(plus(now(), -2), 110, 1);
-        assert_eq!(next_anchor(Some(&prev), back_same), prev);
-        let back_new = anchor(plus(now(), -2), 3, 2);
+    fn same_boot_prediction_both_directions() {
+        let prev = at(1, 100, now());
+        let ok = at(1, 160, plus(now(), 60));
         assert_eq!(
-            next_anchor(Some(&prev), back_new),
-            TimeAnchor {
-                wall: now(),
-                monotonic: Duration::from_secs(3),
-                process_generation: 2
-            }
+            run(Some(&prev), Some(now()), &ok, SyncStatus::Unknown),
+            TimeStatus::Safe
+        );
+        let frozen = at(1, 400, now());
+        assert!(matches!(
+            run(Some(&prev), Some(now()), &frozen, SyncStatus::Synchronized),
+            TimeStatus::Uncertain(TimeUncertainty::Skew { .. })
+        ));
+        let jumped = at(1, 160, plus(now(), 3600));
+        assert!(matches!(
+            run(Some(&prev), Some(now()), &jumped, SyncStatus::Synchronized),
+            TimeStatus::Uncertain(TimeUncertainty::Skew { .. })
+        ));
+        let backwards = at(1, 50, plus(now(), 1));
+        assert_eq!(
+            run(Some(&prev), None, &backwards, SyncStatus::Synchronized),
+            TimeStatus::Uncertain(TimeUncertainty::ContinuousWentBackwards)
         );
     }
 
     #[test]
-    fn budget_runs_out_on_the_monotonic_clock() {
-        let bound = plus(now(), 3600);
-        let a = anchor(now(), 1000, 7);
-        assert_eq!(budget_end(&a, bound), Duration::from_secs(4600));
-        assert_eq!(budget_end(&a, plus(now(), -10)), Duration::from_secs(1000));
-        let at = |wall: Timestamp, mono: u64, generation: u64| {
-            admission(bound, &a, &anchor(wall, mono, generation))
+    fn reboot_needs_mark_and_sync_or_confirmation() {
+        let prev = at(1, 100, now());
+        let hw = Some(plus(now(), 7200));
+        // Above the mark but unsynchronized: refused (stopped 10:00, real 12:00, clock 10:01).
+        let rolled = at(2, 5, plus(now(), 7260));
+        assert!(matches!(
+            run(Some(&prev), hw, &rolled, SyncStatus::NotSynchronized),
+            TimeStatus::Uncertain(TimeUncertainty::Unsynchronized { .. })
+        ));
+        // Below the mark: refused even when synchronized.
+        let below = at(2, 5, plus(now(), 60));
+        assert!(matches!(
+            run(Some(&prev), hw, &below, SyncStatus::Synchronized),
+            TimeStatus::Uncertain(TimeUncertainty::BelowHighWater { .. })
+        ));
+        // Above the mark and synchronized: accepted.
+        let good = at(2, 5, plus(now(), 10_000));
+        assert_eq!(
+            run(Some(&prev), hw, &good, SyncStatus::Synchronized),
+            TimeStatus::Safe
+        );
+        // Attended confirmation for this boot replaces synchronization.
+        let conf = AttendedTimeConfirmation {
+            boot_id: boot(2),
+            continuous: Duration::from_secs(5),
+            wall: plus(now(), 10_000),
+            decision: DecisionId::from_random_bytes([1; 16]),
         };
-        // Wall frozen, monotonic past the budget: expired.
-        assert_eq!(at(now(), 4600, 7), Admission::Expired);
-        assert_eq!(at(now(), 4599, 7), Admission::Open);
-        // Wall stepped back an hour, monotonic past the budget: still expired.
-        assert_eq!(at(plus(now(), -3600), 4600, 7), Admission::Expired);
-        // Wall reached the bound first: expired.
-        assert_eq!(at(bound, 1001, 7), Admission::Expired);
-        // Anchor from another monotonic domain: refuse, but it is not an expiry.
-        assert_eq!(at(now(), 0, 8), Admission::NeedsAnchor);
-        // ...unless the wall branch alone already passed.
-        assert_eq!(at(bound, 0, 8), Admission::Expired);
-        // An earlier bound set later shortens the budget.
-        let cutoff = plus(now(), 600);
+        let later = at(2, 65, plus(now(), 10_060));
+        let st = gate(&GateInput {
+            previous: Some(&prev),
+            high_water: hw,
+            now: &later,
+            sync: SyncStatus::Unknown,
+            confirmation: Some(&conf),
+            policy: &TimePolicy::default(),
+        });
+        assert_eq!(st, TimeStatus::Safe);
+    }
+
+    #[test]
+    fn high_water_never_decreases() {
+        let a = now();
+        let b = plus(now(), 10);
+        assert_eq!(next_high_water(Some(b), a), b);
+        assert_eq!(next_high_water(Some(a), b), b);
+        assert_eq!(next_high_water(None, a), a);
+    }
+
+    #[test]
+    fn budget_only_shortens_and_survives_restart_in_the_same_boot() {
+        let g = GrantId::from_random_bytes([2; 16]);
+        let anchor = at(1, 1000, now());
+        let ga = anchor_grant(g.clone(), anchor, plus(now(), 3600));
+        assert_eq!(ga.budget_end, Duration::from_secs(4600));
+        let shorter = shorten(&ga, plus(now(), 1800));
+        assert_eq!(shorter.budget_end, Duration::from_secs(2800));
+        let not_longer = shorten(&shorter, plus(now(), 7200));
+        assert_eq!(not_longer, shorter);
+        // Same boot, later process: wall stuck, continuous ran past the budget.
+        let stuck = at(1, 4600, plus(now(), 5));
+        assert_eq!(admission(&ga, &stuck), Admission::Expired);
+        let open = at(1, 2000, plus(now(), 1000));
+        assert_eq!(admission(&ga, &open), Admission::Open);
+        // Other boot: void, fail closed, not an expiry.
+        let other = at(2, 0, plus(now(), 1000));
+        assert_eq!(admission(&ga, &other), Admission::NeedsAnchor);
+        // Wall branch still expires regardless of boot.
+        let late = at(2, 0, plus(now(), 3600));
+        assert_eq!(admission(&ga, &late), Admission::Expired);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests_rev2 {
+    use super::*;
+
+    fn boot(n: u8) -> BootId {
+        BootId(format!("boot-{n}"))
+    }
+
+    fn at(boot_n: u8, cont_secs: u64, wall: Timestamp) -> TimeAnchor {
+        TimeAnchor {
+            boot_id: boot(boot_n),
+            continuous: Duration::from_secs(cont_secs),
+            wall,
+        }
+    }
+
+    fn t0() -> Timestamp {
+        "2026-10-02T00:00:00Z".parse().unwrap()
+    }
+
+    fn plus(t: Timestamp, secs: i64) -> Timestamp {
+        t.checked_add(jiff::SignedDuration::from_secs(secs))
+            .unwrap()
+    }
+
+    #[test]
+    fn runtime_anchor_rebases_only_on_synchronized_time_within_a_boot() {
+        let prev = at(1, 100, t0());
+        let later = at(1, 160, plus(t0(), 60));
         assert_eq!(
-            admission(cutoff, &a, &anchor(now(), 1600, 7)),
-            Admission::Expired
+            next_runtime_anchor(Some(&prev), &later, SyncStatus::Unknown),
+            prev
+        );
+        assert_eq!(
+            next_runtime_anchor(Some(&prev), &later, SyncStatus::NotSynchronized),
+            prev
+        );
+        assert_eq!(
+            next_runtime_anchor(Some(&prev), &later, SyncStatus::Synchronized),
+            later
+        );
+        let other_boot = at(2, 5, plus(t0(), 7200));
+        assert_eq!(
+            next_runtime_anchor(Some(&prev), &other_boot, SyncStatus::Unknown),
+            other_boot
+        );
+        assert_eq!(
+            next_runtime_anchor(None, &later, SyncStatus::Unknown),
+            later
         );
     }
 
-    // ---- properties (plan §6.3 #5) ---------------------------------------------
+    #[test]
+    fn later_same_boot_confirmation_becomes_the_prediction_reference() {
+        let policy = TimePolicy::default();
+        let prev = at(1, 100, t0());
+        // Wall jumped an hour: skew against `prev`.
+        let jumped = at(1, 160, plus(t0(), 3660));
+        let before = gate(&GateInput {
+            previous: Some(&prev),
+            high_water: Some(t0()),
+            now: &jumped,
+            sync: SyncStatus::Unknown,
+            confirmation: None,
+            policy: &policy,
+        });
+        assert!(matches!(
+            before,
+            TimeStatus::Uncertain(TimeUncertainty::Skew { .. })
+        ));
+        // The owner confirms the jumped time; it is later than `prev`, so it wins.
+        let conf = AttendedTimeConfirmation {
+            boot_id: boot(1),
+            continuous: Duration::from_secs(160),
+            wall: plus(t0(), 3660),
+            decision: DecisionId::from_random_bytes([3; 16]),
+        };
+        let after = at(1, 190, plus(t0(), 3690));
+        let status = gate(&GateInput {
+            previous: Some(&prev),
+            high_water: Some(t0()),
+            now: &after,
+            sync: SyncStatus::Unknown,
+            confirmation: Some(&conf),
+            policy: &policy,
+        });
+        assert_eq!(status, TimeStatus::Safe);
+        assert_eq!(
+            accepted_tolerance(&GateInput {
+                previous: Some(&prev),
+                high_water: Some(t0()),
+                now: &after,
+                sync: SyncStatus::Unknown,
+                confirmation: Some(&conf),
+                policy: &policy,
+            }),
+            policy.max_tolerated_skew
+        );
+    }
 
-    mod props {
-        use super::*;
-        use proptest::prelude::*;
+    #[test]
+    fn tolerance_anchor_ends_early_never_late() {
+        let g = GrantId::from_random_bytes([4; 16]);
+        let anchor = at(1, 1000, t0());
+        let exact = anchor_grant(g.clone(), anchor.clone(), plus(t0(), 3600));
+        let tolerant =
+            anchor_grant_with_tolerance(g, anchor, plus(t0(), 3600), Duration::from_secs(60));
+        assert_eq!(exact.budget_end, Duration::from_secs(4600));
+        assert_eq!(tolerant.budget_end, Duration::from_secs(4540));
+        assert!(tolerant.budget_end <= exact.budget_end);
+    }
 
-        const DAY: i64 = 86_400;
-
-        fn config() -> ProptestConfig {
-            ProptestConfig {
-                cases: 512,
-                ..ProptestConfig::default()
-            }
-        }
-
-        fn base() -> impl Strategy<Value = Timestamp> {
-            (0i64..(365 * DAY)).prop_map(|s| plus(ts("2026-01-01T00:00:00Z"), s))
-        }
-
-        proptest! {
-            #![proptest_config(config())]
-
-            /// Monotone wall with matching monotonic progress (within skew) is Safe.
-            #[test]
-            fn monotone_matching_progress_is_safe(
-                t in base(),
-                mono0 in 0u64..1_000_000,
-                step in 0u64..(30 * DAY as u64),
-                jitter in -60i64..=60,
-                generation in any::<u64>(),
-            ) {
-                let p = TimePolicy::default();
-                let wall_step = (step as i64 + jitter).max(0);
-                let prev = anchor(t, mono0, generation);
-                let obs = anchor(plus(t, wall_step), mono0 + step, generation);
-                prop_assert_eq!(assess_time(Some(&prev), &obs, &p), TimeStatus::Safe);
-            }
-
-            /// Any rollback beyond tolerance is Uncertain(Rollback), in any generation.
-            #[test]
-            fn rollback_beyond_tolerance_is_uncertain(
-                t in base(),
-                back_ms in 5_001i64..(30 * DAY * 1000),
-                mono0 in 0u64..1_000_000,
-                mono_step in 0u64..1_000_000,
-                same_generation in any::<bool>(),
-                tolerance_s in 0u64..120,
-            ) {
-                let p = TimePolicy {
-                    max_tolerated_rollback: Duration::from_secs(tolerance_s),
-                    ..TimePolicy::default()
-                };
-                let back = jiff::SignedDuration::from_millis(back_ms)
-                    + jiff::SignedDuration::from_secs(tolerance_s as i64)
-                    - jiff::SignedDuration::from_secs(5);
-                let observed = t.checked_sub(back).unwrap();
-                let prev = anchor(t, mono0, 1);
-                let obs = anchor(observed, mono0 + mono_step, if same_generation { 1 } else { 2 });
-                prop_assert_eq!(
-                    assess_time(Some(&prev), &obs, &p),
-                    TimeStatus::Uncertain(TimeUncertainty::Rollback { anchor: t, observed })
-                );
-            }
-
-            /// Forward jumps are Safe across a restart (no monotonic comparison
-            /// possible) and within a process when the monotonic clock counted the
-            /// same interval (sleep on a continuous clock).
-            #[test]
-            fn forward_jumps_are_safe(
-                t in base(),
-                jump in 0i64..(400 * DAY),
-                mono0 in 0u64..1_000_000,
-                mono_after_restart in 0u64..1_000_000,
-            ) {
-                let p = TimePolicy::default();
-                let prev = anchor(t, mono0, 1);
-                let restarted = anchor(plus(t, jump), mono_after_restart, 2);
-                prop_assert_eq!(assess_time(Some(&prev), &restarted, &p), TimeStatus::Safe);
-                let slept = anchor(plus(t, jump), mono0 + jump as u64, 1);
-                prop_assert_eq!(assess_time(Some(&prev), &slept, &p), TimeStatus::Safe);
-            }
-
-            /// Within one process, disagreement beyond the skew tolerance in either
-            /// direction is Uncertain (ADR-0005 §3.6, forward jumps included).
-            #[test]
-            fn intra_process_disagreement_is_uncertain(
-                t in base(),
-                mono0 in 0u64..1_000_000,
-                mono_step in 0u64..(30 * DAY as u64),
-                excess in 1i64..(30 * DAY),
-                forward in any::<bool>(),
-            ) {
-                let p = TimePolicy::default();
-                let skew = p.max_tolerated_skew.as_secs() as i64;
-                let wall_step = if forward {
-                    mono_step as i64 + skew + excess
-                } else {
-                    mono_step as i64 - skew - excess
-                };
-                let prev = anchor(t, mono0, 9);
-                let obs = anchor(plus(t, wall_step), mono0 + mono_step, 9);
-                let status = assess_time(Some(&prev), &obs, &p);
-                prop_assert!(matches!(status, TimeStatus::Uncertain(_)), "{status:?}");
-            }
-
-            /// Pure: same input, same output.
-            #[test]
-            fn assess_is_pure(
-                t in base(),
-                d in -DAY..DAY,
-                m0 in 0u64..1_000_000,
-                m1 in 0u64..1_000_000,
-                g0 in 0u64..3,
-                g1 in 0u64..3,
-            ) {
-                let p = TimePolicy::default();
-                let prev = anchor(t, m0, g0);
-                let obs = anchor(plus(t, d), m1, g1);
-                prop_assert_eq!(assess_time(Some(&prev), &obs, &p), assess_time(Some(&prev), &obs, &p));
-            }
-
-            /// A persisted mark never decreases, whatever Safe readings arrive.
-            #[test]
-            fn high_water_mark_is_monotone(
-                t in base(),
-                steps in prop::collection::vec((-5i64..=120, 0u64..120, any::<bool>()), 1..40),
-            ) {
-                let p = TimePolicy::default();
-                let mut current = anchor(t, 0, 0);
-                let mut wall = t;
-                let mut mono = 0u64;
-                let mut generation = 0u64;
-                for (dw, dm, restart) in steps {
-                    wall = plus(wall, dw);
-                    if restart { generation += 1; mono = 0; } else { mono += dm; }
-                    let obs = anchor(wall, mono, generation);
-                    if assess_time(Some(&current), &obs, &p) == TimeStatus::Safe {
-                        let next = next_anchor(Some(&current), obs);
-                        prop_assert!(next.wall >= current.wall);
-                        current = next;
-                    }
-                }
-            }
-
-            /// Durations are added exactly once to `now`.
-            #[test]
-            fn duration_is_added_once(t in base(), secs in 1u64..=(12 * 3600)) {
-                let d = resolve_deadline(&dur(&format!("{secs}s")), t, H12).unwrap();
-                prop_assert_eq!(d.effective, plus(t, secs as i64));
-                prop_assert_eq!(d.resolved_at, t);
-                let iso = resolve_deadline(&dur(&format!("PT{secs}S")), t, H12).unwrap();
-                prop_assert_eq!(iso.effective, d.effective);
-            }
-
-            /// The same instant written with any offset resolves identically.
-            #[test]
-            fn offset_spelling_does_not_change_the_instant(
-                t in base(),
-                ahead in 1i64..(12 * 3600),
-                offset_min in -(14i32 * 60)..=(14 * 60),
-            ) {
-                let target = plus(t, ahead);
-                let offset = jiff::tz::Offset::from_seconds(offset_min * 60).unwrap();
-                let text = target.display_with_offset(offset).to_string();
-                let d = resolve_deadline(&abs(&text), t, H12).unwrap();
-                prop_assert_eq!(d.effective, target);
-            }
-
-            /// Effective deadline is always in (now, now + max_window].
-            #[test]
-            fn accepted_deadlines_are_within_window(
-                t in base(),
-                secs in -DAY..DAY,
-                window_s in 1u64..(2 * DAY as u64),
-            ) {
-                let window = Duration::from_secs(window_s);
-                if let Ok(d) = resolve_deadline(&dur(&format!("{secs}s")), t, window) {
-                    prop_assert!(d.effective > t);
-                    prop_assert!(d.effective.duration_since(t) <= signed(window));
-                }
-            }
-        }
+    #[test]
+    fn accepted_tolerance_is_zero_for_clean_synchronized_acceptance() {
+        let policy = TimePolicy::default();
+        let now = at(2, 5, plus(t0(), 10_000));
+        let input = GateInput {
+            previous: None,
+            high_water: Some(plus(t0(), 7200)),
+            now: &now,
+            sync: SyncStatus::Synchronized,
+            confirmation: None,
+            policy: &policy,
+        };
+        assert_eq!(gate(&input), TimeStatus::Safe);
+        assert_eq!(accepted_tolerance(&input), Duration::ZERO);
+        // Accepted within the rollback tolerance below the mark: the tolerance counts.
+        let below = at(2, 5, plus(t0(), 7197));
+        let input = GateInput {
+            now: &below,
+            ..input
+        };
+        assert_eq!(gate(&input), TimeStatus::Safe);
+        assert_eq!(accepted_tolerance(&input), policy.max_tolerated_rollback);
     }
 }

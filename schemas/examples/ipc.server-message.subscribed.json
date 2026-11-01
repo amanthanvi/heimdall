@@ -1,0 +1,11 @@
+{
+  "type": "subscribed",
+  "in_reply_to": 2,
+  "subscription": 1,
+  "cursor": "AQEBAAAAAAAB",
+  "snapshot": {
+    "data": {"operations": []},
+    "cursor": "AQEBAAAAAAAB",
+    "taken_at": "2026-10-31T12:00:02Z"
+  }
+}

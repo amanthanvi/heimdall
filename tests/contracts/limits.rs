@@ -1,14 +1,14 @@
 //! ADR-0006 section 2 limits, capability names and version constants (golden).
 //! A change here is a contract change that needs a new ADR revision and fixtures.
 
-use crate::event::MAX_CURSOR_LEN;
-use crate::ipc::{
+use heimdall_contract::event::MAX_CURSOR_LEN;
+use heimdall_contract::ipc::{
     EVENT_BUFFER_PER_SUBSCRIPTION, HELLO_TIMEOUT_MS, MAX_CONTROL_CONNECTIONS,
     MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES, MAX_INFLIGHT_REQUESTS_PER_CONNECTION,
     MAX_SIGNING_CONNECTIONS, MAX_SIGNING_FRAME_BYTES, MAX_SUBSCRIPTIONS_PER_CONNECTION, capability,
 };
-use crate::request::{MAX_ARGV_BYTES, MAX_SCOPE_PAIRS};
-use crate::{PROTOCOL_VERSION, SCHEMA_VERSION};
+use heimdall_contract::request::{MAX_ARGV_BYTES, MAX_SCOPE_PAIRS};
+use heimdall_contract::{PROTOCOL_VERSION, SCHEMA_VERSION};
 
 #[test]
 fn framing_and_connection_limits_match_adr_0006() {

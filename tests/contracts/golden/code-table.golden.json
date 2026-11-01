@@ -163,6 +163,13 @@
       "next": "resync"
     },
     {
+      "code": "DECISION_STALE",
+      "exit": 6,
+      "retryable": false,
+      "effect": "none",
+      "next": "fix_request"
+    },
+    {
       "code": "OUTCOME_UNKNOWN",
       "exit": 7,
       "retryable": false,

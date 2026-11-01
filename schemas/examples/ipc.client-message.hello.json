@@ -4,5 +4,6 @@
   "schema_version": "1",
   "client": {"name": "heimdall-cli", "version": "0.1.0"},
   "capabilities": ["events/1", "operations/1"],
-  "required": ["operations/1"]
+  "required": ["operations/1"],
+  "interaction": "interactive"
 }

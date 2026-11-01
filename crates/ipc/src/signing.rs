@@ -153,8 +153,10 @@ where
     .await
 }
 
-/// [`serve`] with an explicit idle timeout (tests use short ones).
-pub(crate) async fn serve_with_idle<S>(
+/// [`serve`] with an explicit idle timeout (tests use short ones). Public for the
+/// `adversarial_agent_frames` test target only; not a supported API.
+#[doc(hidden)]
+pub async fn serve_with_idle<S>(
     mut stream: S,
     signer: std::sync::Arc<dyn Signer>,
     shutdown: tokio_util::sync::CancellationToken,
@@ -263,16 +265,22 @@ impl<'a> Fields<'a> {
 }
 
 /// A parsed `SSH_AGENTC_SIGN_REQUEST` body (after the type byte).
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct SignFields<'a> {
-    pub(crate) key_blob: &'a [u8],
-    pub(crate) data: &'a [u8],
-    pub(crate) flags: u32,
+pub struct SignFields<'a> {
+    /// Opaque public key blob (not parsed in M01).
+    pub key_blob: &'a [u8],
+    /// Data to sign.
+    pub data: &'a [u8],
+    /// Signature flags.
+    pub flags: u32,
 }
 
 /// Split a sign request body; `None` on any overrun, short field or trailing
 /// byte.
-pub(crate) fn parse_sign_request(body: &[u8]) -> Option<SignFields<'_>> {
+#[doc(hidden)]
+#[must_use]
+pub fn parse_sign_request(body: &[u8]) -> Option<SignFields<'_>> {
     let mut f = Fields(body);
     let key_blob = f.string()?;
     let data = f.string()?;
@@ -305,7 +313,9 @@ fn frame(body: &[u8]) -> Option<Vec<u8>> {
 
 /// `SSH_AGENT_IDENTITIES_ANSWER` listing at most [`MAX_IDENTITIES`] identities, in
 /// the signer's order, stopping before the frame limit would be exceeded.
-pub(crate) fn identities_frame(identities: &[(Vec<u8>, String)]) -> Vec<u8> {
+#[doc(hidden)]
+#[must_use]
+pub fn identities_frame(identities: &[(Vec<u8>, String)]) -> Vec<u8> {
     let mut body = vec![12u8, 0, 0, 0, 0];
     let mut count: u32 = 0;
     for (blob, comment) in identities.iter().take(MAX_IDENTITIES) {
@@ -325,7 +335,9 @@ pub(crate) fn identities_frame(identities: &[(Vec<u8>, String)]) -> Vec<u8> {
 }
 
 /// `SSH_AGENT_SIGN_RESPONSE` (14) or `None` if it would exceed the frame limit.
-pub(crate) fn sign_response_frame(signature: &[u8]) -> Option<Vec<u8>> {
+#[doc(hidden)]
+#[must_use]
+pub fn sign_response_frame(signature: &[u8]) -> Option<Vec<u8>> {
     let mut body = Vec::with_capacity(5 + signature.len());
     body.push(14);
     put_string(&mut body, signature)?;
@@ -387,7 +399,3 @@ mod tests {
         assert_eq!(&empty_identities_frame()[..4], &5u32.to_be_bytes());
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/adversarial/agent_frames.rs"]
-mod agent_frames;

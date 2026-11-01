@@ -1,9 +1,9 @@
 //! Contract golden tests and schema consistency (M01-T06 part 1, unit U1).
 //!
-//! This directory is compiled as a `#[cfg(test)]` module tree of `heimdall-contract`
-//! (see the one-line `#[path]` hook at the end of `crates/contract/src/schema.rs`),
-//! so the tests use the crate's public types exactly as an external caller would,
-//! without a new dependency edge or Cargo target.
+//! This directory is the `contracts` Cargo test target of `heimdall-contract`
+//! (`[[test]]` in `crates/contract/Cargo.toml`; run with
+//! `cargo test -p heimdall-contract --test contracts`). It links the crate like any
+//! external caller and uses only its public API.
 //!
 //! * `code_table`: every `Code` row (exit, retryable, effect, next) against ADR-0006
 //!   section 5, by two independent sources (a mechanical transcription of the ADR
@@ -35,12 +35,14 @@ use std::path::PathBuf;
 use proptest::test_runner::{Config as ProptestConfig, FileFailurePersistence, RngSeed};
 
 /// Repository root (two levels above the crate manifest).
-pub(crate) fn repo_root() -> PathBuf {
+pub fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 /// Property-test configuration shared by every property in this tree.
-pub(crate) fn proptest_config() -> ProptestConfig {
+pub fn proptest_config() -> ProptestConfig {
+    // `Direct` paths are relative to the working directory, which Cargo sets to the
+    // package root (`crates/contract`) when it runs a test target.
     let mut config = ProptestConfig {
         cases: 256,
         failure_persistence: Some(Box::new(FileFailurePersistence::Direct(
@@ -58,7 +60,7 @@ pub(crate) fn proptest_config() -> ProptestConfig {
 
 /// Fail if text a test produced or consumed carries material that must never appear
 /// in a public contract artifact (ADR-0004 section 4; AGENTS.md canary rule).
-pub(crate) fn assert_clean(label: &str, text: &str) {
+pub fn assert_clean(label: &str, text: &str) {
     assert!(
         !text.contains("HEIMDALL_CANARY_"),
         "{label}: canary value present"

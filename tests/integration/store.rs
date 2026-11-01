@@ -16,29 +16,45 @@ use heimdall_contract::canonical::RequestHash;
 use heimdall_contract::envelope::EffectStatus;
 use heimdall_contract::event::{Cursor, Event, EventFilter, EventType};
 use heimdall_contract::ids::{
-    BindingId, EnvironmentId, EventId, GrantId, OperationId, PolicyId, ProfileId, RequestId,
-    ResourceId,
+    AccountName, BindingId, CredentialInstanceId, DecisionId, DestinationId, DeviceId,
+    EnvironmentId, EventId, GrantId, IssuanceId, OperationId, PolicyId, ProfileId, RequestId,
+    ResourceId, WorkId,
 };
-use heimdall_contract::request::{Capability, DeadlineIntent};
+use heimdall_contract::request::{Capability, DeadlineIntent, PolicyAction, Verdict};
 use heimdall_contract::{GrantState, OperationState, SchemaVersion, Timestamp};
+use heimdall_domain::binding::{BindingRecord, BindingState, ReleaseOutcome};
+use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
+use heimdall_domain::environment::{EnvironmentKind, EnvironmentPermissions, EnvironmentRecord};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::grant::{AuthorizationSource, GrantReference, GrantSnapshot};
 use heimdall_domain::idempotency::{
-    IdempotencyKey, IdempotencyOutcome, IdempotencyRecord, classify,
+    DEFAULT_RETENTION, ExpiredKeyMarker, IdempotencyKey, IdempotencyOutcome, IdempotencyRecord,
+    classify, marker_until, retention_expiry,
 };
-use heimdall_domain::operation::{EffectClass, OperationKind, OperationRecord, RecoveryMetadata};
+use heimdall_domain::issuance::{
+    CertificateBounds, CredentialInstance, CredentialState, IssuanceEntry, IssuanceRefusal,
+    IssuanceState,
+};
+use heimdall_domain::operation::{
+    AdapterIdentity, EffectClass, EffectReceipt, OperationKind, OperationRecord, RecoveryIntent,
+    RecoveryMetadata, ResolvedIntent, StageReceipt,
+};
 use heimdall_domain::policy::{
     AuthorityGeneration, PauseState, PolicyRevision, PolicySource, StandingPolicy,
 };
 use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::resource::{
     ManagedResource, OwnerRef, ResourceGeneration, ResourceKind, ResourceState,
 };
 use heimdall_domain::revocation::Tombstone;
-use heimdall_domain::scope::Scope;
-use heimdall_domain::time::{Deadline, TimeAnchor};
+use heimdall_domain::scope::{AccessPair, Scope};
+use heimdall_domain::time::{
+    AttendedTimeConfirmation, BootId, Deadline, GrantAnchor, TimeAnchor, anchor_grant, shorten,
+};
 use heimdall_store::{
-    FaultAction, FaultPoint, NoFaults, Store, StoreError, event_seq, migrations::SCHEMA_VERSION,
+    DecisionCompletion, FaultAction, FaultPoint, NoFaults, Store, StoreError, event_seq,
+    migrations::SCHEMA_VERSION,
 };
 use heimdall_testkit::{CANARY_PREFIX, ScriptedFaults, assert_no_canary, strategies};
 use proptest::prelude::*;
@@ -91,12 +107,13 @@ fn key(uid: u32, request: &str) -> IdempotencyKey {
     }
 }
 
+/// An operation and its idempotency record as inserted: pending, so the record
+/// has no expiry until `settle_idempotency` (ruling R2).
 fn operation(
     n: u64,
     key: IdempotencyKey,
     hash: RequestHash,
     created: Timestamp,
-    expires: Timestamp,
 ) -> (OperationRecord, IdempotencyRecord) {
     let op = OperationRecord {
         id: op_id(n),
@@ -119,7 +136,7 @@ fn operation(
         request_hash: hash,
         operation_id: op.id.clone(),
         created_at: created,
-        expires_at: expires,
+        expires_at: None,
     };
     (op, idem)
 }
@@ -130,7 +147,6 @@ fn simple_op(n: u64) -> (OperationRecord, IdempotencyRecord) {
         key(501, &format!("req-{n}")),
         RequestHash([n as u8; 32]),
         t0(),
-        plus(t0(), 7 * 86_400),
     )
 }
 
@@ -224,6 +240,136 @@ fn tombstone(b: u8) -> Tombstone {
         revoked_at: t0(),
         remote_pending: Vec::new(),
     }
+}
+
+fn time_anchor(boot: &str, continuous_s: u64, wall: Timestamp) -> TimeAnchor {
+    TimeAnchor {
+        boot_id: BootId(boot.into()),
+        continuous: Duration::from_secs(continuous_s),
+        wall,
+    }
+}
+
+fn limited(uid: u32) -> CallerContext {
+    CallerContext {
+        principal: PrincipalRef::UnixUser { uid },
+        role: ClientRole::LimitedConsumer,
+    }
+}
+
+fn binding(b: u8, grant: &GrantId, owner: CallerContext, work: &str) -> BindingRecord {
+    BindingRecord {
+        id: BindingId::from_random_bytes([b; 16]),
+        environment: env_id(7),
+        grant: grant.clone(),
+        work_id: WorkId::parse(work).unwrap(),
+        owner,
+        profile: ProfileId::parse("default").unwrap(),
+        profile_revision: 1,
+        scope: scope(&[("h1", "u1")], &[Capability::SshAuthentication]),
+        mechanism: "fake".into(),
+        parent: None,
+        created_at: plus(t0(), i64::from(b)),
+        released_at: None,
+        state: BindingState::Active,
+    }
+}
+
+fn profile_def(revision: u64, pairs: &[(&str, &str)]) -> ProfileDefinition {
+    ProfileDefinition {
+        id: ProfileId::parse("default").unwrap(),
+        revision,
+        scope: scope(pairs, &[Capability::SshAuthentication]),
+        label: Some("synthetic".into()),
+    }
+}
+
+fn environment(b: u8, label: &str) -> EnvironmentRecord {
+    EnvironmentRecord {
+        id: env_id(b),
+        device: DeviceId::from_random_bytes([b; 16]),
+        kind: EnvironmentKind::NativeSession,
+        label: Some(label.into()),
+        permissions: EnvironmentPermissions::default(),
+    }
+}
+
+fn decision(b: u8, generation: u64) -> DecisionRecord {
+    DecisionRecord {
+        id: DecisionId::from_random_bytes([b; 16]),
+        kind: DecisionKind::WidenPolicy {
+            action: PolicyAction::Resume {
+                policy_id: PolicyId::parse("personal").unwrap(),
+            },
+        },
+        generation: AuthorityGeneration(generation),
+        created_at: plus(t0(), i64::from(b)),
+        expires_at: plus(t0(), 900),
+        state: DecisionState::Pending,
+        decided_at: None,
+    }
+}
+
+fn issuance(b: u8, grant: &GrantId, valid_before: Timestamp) -> IssuanceEntry {
+    IssuanceEntry {
+        id: IssuanceId::from_random_bytes([b; 16]),
+        grant: grant.clone(),
+        generation: AuthorityGeneration(0),
+        pair: AccessPair {
+            destination: DestinationId::parse("h1").unwrap(),
+            account: AccountName::parse("u1").unwrap(),
+        },
+        bounds: CertificateBounds {
+            serial: u64::from(b),
+            key_id: format!("key-{b}"),
+            principal: "hm:h1:u1".into(),
+            valid_after: t0(),
+            valid_before,
+            extensions: BTreeSet::new(),
+            subject_fingerprint: "SHA256:synthetic".into(),
+        },
+        state: IssuanceState::Reserved,
+        reserved_at: plus(t0(), i64::from(b)),
+        settled_at: None,
+        void_reason: None,
+    }
+}
+
+fn request_doc(n: u64) -> serde_json::Value {
+    serde_json::json!({"kind": "ensure", "request_id": format!("req-{n}"), "work_id": "w"})
+}
+
+fn resolved_intent() -> ResolvedIntent {
+    ResolvedIntent {
+        profile: ProfileId::parse("default").unwrap(),
+        profile_revision: 1,
+        scope: scope(&[("h1", "u1")], &[Capability::SshAuthentication]),
+        deadline: Deadline {
+            intent: DeadlineIntent::Duration("2h".into()),
+            resolved_at: t0(),
+            effective: plus(t0(), 7200),
+        },
+        policy_revision: Some(PolicyRevision(1)),
+        generation: AuthorityGeneration(0),
+        grant: None,
+        binding: None,
+        adapter: None,
+    }
+}
+
+fn adapter() -> AdapterIdentity {
+    AdapterIdentity {
+        mechanism: "fake".into(),
+        instance: "fake-1".into(),
+    }
+}
+
+/// Settle `op` as succeeded at `at` (wave-1 `update_operation`).
+fn succeed(op: &mut OperationRecord, at: Timestamp) {
+    op.state = OperationState::Succeeded;
+    op.code = Some(heimdall_contract::Code::AccessReady);
+    op.effect_status = EffectStatus::Applied;
+    op.updated_at = at;
 }
 
 /// A per-run synthetic canary; never committed.
@@ -354,13 +500,7 @@ fn duplicate_idempotency_key_is_refused_by_the_store() {
     let (op1, idem1) = simple_op(1);
     s.transaction(|tx| tx.insert_operation(&op1, &idem1))
         .unwrap();
-    let (op2, idem2) = operation(
-        2,
-        idem1.key.clone(),
-        RequestHash([2; 32]),
-        t0(),
-        plus(t0(), 60),
-    );
+    let (op2, idem2) = operation(2, idem1.key.clone(), RequestHash([2; 32]), t0());
     assert!(
         s.transaction(|tx| tx.insert_operation(&op2, &idem2))
             .is_err()
@@ -371,20 +511,8 @@ fn duplicate_idempotency_key_is_refused_by_the_store() {
 #[test]
 fn cross_owner_request_id_is_a_distinct_key() {
     let s = mem();
-    let (a, ia) = operation(
-        1,
-        key(501, "same"),
-        RequestHash([1; 32]),
-        t0(),
-        plus(t0(), 60),
-    );
-    let (b, ib) = operation(
-        2,
-        key(502, "same"),
-        RequestHash([1; 32]),
-        t0(),
-        plus(t0(), 60),
-    );
+    let (a, ia) = operation(1, key(501, "same"), RequestHash([1; 32]), t0());
+    let (b, ib) = operation(2, key(502, "same"), RequestHash([1; 32]), t0());
     s.transaction(|tx| {
         tx.insert_operation(&a, &ia)?;
         tx.insert_operation(&b, &ib)
@@ -753,17 +881,25 @@ fn events_have_per_environment_monotonic_sequence_filters_and_trim() {
     assert!(next > tail);
 }
 
+/// Ruling: `time_anchor`/`set_time_anchor` are aliases of the runtime anchor.
 #[test]
 fn time_anchor_round_trips() {
     let s = mem();
     assert_eq!(s.transaction(|tx| tx.time_anchor()).unwrap(), None);
-    let anchor = TimeAnchor {
-        wall: plus(t0(), 5),
-        monotonic: Duration::from_millis(1234),
-        process_generation: 7,
-    };
+    let anchor = time_anchor("boot-a", 1234, plus(t0(), 5));
     s.transaction(|tx| tx.set_time_anchor(&anchor)).unwrap();
-    assert_eq!(s.transaction(|tx| tx.time_anchor()).unwrap(), Some(anchor));
+    let (old, new) = s
+        .transaction(|tx| Ok((tx.time_anchor()?, tx.runtime_anchor()?)))
+        .unwrap();
+    assert_eq!(old, Some(anchor.clone()));
+    assert_eq!(new, Some(anchor));
+    let replaced = time_anchor("boot-b", 7, plus(t0(), 9));
+    s.transaction(|tx| tx.set_runtime_anchor(&replaced))
+        .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.time_anchor()).unwrap(),
+        Some(replaced)
+    );
 }
 
 // --- secrets never stored (spec §13.3) -----------------------------------------------------
@@ -836,11 +972,14 @@ fn before_commit_failure_leaves_no_row() {
         .transaction(|tx| Ok((tx.operation(&op.id)?, tx.idempotency_record(&idem.key)?)))
         .unwrap();
     assert_eq!((o, i), (None, None));
-    // Opening a fresh store visits the migration points first; then the failed
-    // transaction (before transaction, before commit) and the verifying one.
+    // Opening a fresh store visits the migration points of both steps (0001,
+    // 0002) first; then the failed transaction (before transaction, before
+    // commit) and the verifying one.
     assert_eq!(
         faults.visited(),
         vec![
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
             FaultPoint::BeforeTransaction,
@@ -889,7 +1028,7 @@ fn after_commit_failure_is_visible_and_retry_replays() {
             let rec = tx.idempotency_record(&idem.key)?;
             Ok((
                 tx.operation(&op.id)?,
-                classify(rec.as_ref(), idem.request_hash, plus(t0(), 1)),
+                classify(rec.as_ref(), None, idem.request_hash, plus(t0(), 1)),
             ))
         })
         .unwrap();
@@ -1116,6 +1255,7 @@ fn truncated_file_is_corrupt_not_fresh() {
 
 #[test]
 fn newer_schema_is_refused_and_untouched() {
+    assert_eq!(SCHEMA_VERSION, 2);
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&99u32.to_be_bytes())
@@ -1129,6 +1269,1159 @@ fn newer_schema_is_refused_and_untouched() {
             }
         )
     });
+    // The next version (3) is just as foreign.
+    let dir = tempfile::tempdir().unwrap();
+    let db = corrupt_copy(dir.path(), |b| {
+        b[60..64].copy_from_slice(&(SCHEMA_VERSION + 1).to_be_bytes())
+    });
+    assert_refused_and_untouched(&db, |e| {
+        matches!(
+            e,
+            StoreError::NewerSchema {
+                found: 3,
+                supported: 2
+            }
+        )
+    });
+}
+
+// --- R1: time anchors, high-water mark, attended confirmation (review F01) ------------------
+
+#[test]
+fn high_water_mark_never_lowers() {
+    let s = mem();
+    let got = s
+        .transaction(|tx| {
+            let none = tx.high_water_mark()?;
+            let a = tx.raise_high_water_mark(plus(t0(), 100))?;
+            let b = tx.raise_high_water_mark(plus(t0(), 50))?;
+            let stored = tx.high_water_mark()?;
+            let c = tx.raise_high_water_mark(plus(t0(), 101))?;
+            Ok((none, a, b, stored, c, tx.high_water_mark()?))
+        })
+        .unwrap();
+    assert_eq!(
+        got,
+        (
+            None,
+            plus(t0(), 100),
+            plus(t0(), 100),
+            Some(plus(t0(), 100)),
+            plus(t0(), 101),
+            Some(plus(t0(), 101))
+        )
+    );
+    // Survives reopen.
+    let dir = tempfile::tempdir().unwrap();
+    let db = file_db(dir.path());
+    {
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        s.transaction(|tx| tx.raise_high_water_mark(plus(t0(), 7)))
+            .unwrap();
+    }
+    let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.raise_high_water_mark(t0())).unwrap(),
+        plus(t0(), 7)
+    );
+}
+
+#[test]
+fn grant_anchor_cannot_lengthen_within_a_boot_but_is_replaced_in_a_new_boot() {
+    let s = mem();
+    let g = GrantId::from_random_bytes([1; 16]);
+    let bound = plus(t0(), 3600);
+    let first = anchor_grant(g.clone(), time_anchor("boot-a", 1000, t0()), bound);
+    assert_eq!(first.budget_end, Duration::from_secs(4600));
+    // Same boot, later budget end (re-anchored from a later continuous reading).
+    let longer = anchor_grant(g.clone(), time_anchor("boot-a", 2000, t0()), bound);
+    // Same boot, same budget but a later bound.
+    let later_bound = GrantAnchor {
+        bound: plus(bound, 60),
+        ..first.clone()
+    };
+    let shorter = shorten(&first, plus(t0(), 1800));
+    assert!(shorter.budget_end < first.budget_end && shorter.bound < first.bound);
+    let (a, b, c, kept, d, again, stored) = s
+        .transaction(|tx| {
+            Ok((
+                tx.set_grant_anchor(&first)?,
+                tx.set_grant_anchor(&longer)?,
+                tx.set_grant_anchor(&later_bound)?,
+                tx.grant_anchor(&g)?,
+                tx.set_grant_anchor(&shorter)?,
+                tx.set_grant_anchor(&first)?,
+                tx.grant_anchor(&g)?,
+            ))
+        })
+        .unwrap();
+    assert_eq!(
+        (&a, &b, &c),
+        (&first, &first, &first),
+        "refusals return the stored anchor"
+    );
+    assert_eq!(kept, Some(first.clone()));
+    assert_eq!(d, shorter, "shortening is accepted");
+    assert_eq!(
+        again, shorter,
+        "the earlier, longer anchor cannot come back"
+    );
+    assert_eq!(stored, Some(shorter.clone()));
+    // A new boot: the old continuous reading means nothing; a fresh anchor (even
+    // with a later budget and bound) replaces it.
+    let rebooted = anchor_grant(g.clone(), time_anchor("boot-b", 5, plus(t0(), 600)), bound);
+    assert!(rebooted.budget_end > shorter.budget_end && rebooted.bound > shorter.bound);
+    let got = s
+        .transaction(|tx| Ok((tx.set_grant_anchor(&rebooted)?, tx.grant_anchor(&g)?)))
+        .unwrap();
+    assert_eq!(got, (rebooted.clone(), Some(rebooted)));
+    assert_eq!(
+        s.transaction(|tx| tx.grant_anchor(&GrantId::from_random_bytes([2; 16])))
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn time_confirmation_round_trips_and_is_replaced() {
+    let s = mem();
+    let c1 = AttendedTimeConfirmation {
+        boot_id: BootId("boot-a".into()),
+        continuous: Duration::from_secs(10),
+        wall: plus(t0(), 10),
+        decision: DecisionId::from_random_bytes([1; 16]),
+    };
+    let c2 = AttendedTimeConfirmation {
+        boot_id: BootId("boot-b".into()),
+        decision: DecisionId::from_random_bytes([2; 16]),
+        ..c1.clone()
+    };
+    let got = s
+        .transaction(|tx| {
+            let none = tx.time_confirmation()?;
+            tx.set_time_confirmation(&c1)?;
+            let one = tx.time_confirmation()?;
+            tx.set_time_confirmation(&c2)?;
+            Ok((none, one, tx.time_confirmation()?, tx.runtime_anchor()?))
+        })
+        .unwrap();
+    assert_eq!(got, (None, Some(c1), Some(c2), None));
+}
+
+// --- R2: idempotency settlement and expired-key markers (review F02) -------------------------
+
+#[test]
+fn settle_then_purge_leaves_a_marker_that_expires_reuse_until_marker_purge() {
+    let s = mem();
+    let (mut op, idem) = simple_op(1);
+    let settled_at = plus(t0(), 60);
+    let expires = retention_expiry(settled_at, DEFAULT_RETENTION);
+    s.transaction(|tx| {
+        tx.insert_operation(&op, &idem)?;
+        succeed(&mut op, settled_at);
+        tx.update_operation(&op)?;
+        tx.settle_idempotency(&idem.key, expires)?;
+        // Idempotent: the first settlement wins.
+        tx.settle_idempotency(&idem.key, plus(expires, 999))
+    })
+    .unwrap();
+    let rec = s
+        .transaction(|tx| tx.idempotency_record(&idem.key))
+        .unwrap()
+        .unwrap();
+    assert_eq!(rec.expires_at, Some(expires));
+    assert_eq!(
+        classify(Some(&rec), None, idem.request_hash, plus(expires, -1)),
+        IdempotencyOutcome::Replay(op.id.clone())
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.purge_operations_before(plus(expires, -1)))
+            .unwrap(),
+        0,
+        "not due before expires_at"
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.purge_operations_before(expires))
+            .unwrap(),
+        1,
+        "due at expires_at"
+    );
+    let key_hash = idem.key.hash().unwrap();
+    let (gone_op, gone_rec, marker) = s
+        .transaction(|tx| {
+            Ok((
+                tx.operation(&op.id)?,
+                tx.idempotency_record(&idem.key)?,
+                tx.expired_key_marker(&key_hash)?,
+            ))
+        })
+        .unwrap();
+    assert_eq!((gone_op, gone_rec), (None, None));
+    let marker = marker.expect("purge leaves a marker");
+    assert_eq!(
+        marker,
+        ExpiredKeyMarker {
+            key_hash,
+            expired_at: expires,
+            marker_until: marker_until(expires),
+        }
+    );
+    // Reuse inside the window, with the same or another hash: expired, never new.
+    for h in [idem.request_hash, RequestHash([0xee; 32])] {
+        assert_eq!(
+            classify(None, Some(&marker), h, plus(expires, 86_400)),
+            IdempotencyOutcome::Expired
+        );
+    }
+    // Another caller's same request ID is a different key with no marker.
+    let foreign = key(502, "req-1").hash().unwrap();
+    assert_ne!(foreign, key_hash);
+    assert_eq!(
+        s.transaction(|tx| tx.expired_key_marker(&foreign)).unwrap(),
+        None
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.purge_markers_before(plus(marker.marker_until, -1)))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.purge_markers_before(marker.marker_until))
+            .unwrap(),
+        1
+    );
+    let after = s
+        .transaction(|tx| tx.expired_key_marker(&key_hash))
+        .unwrap();
+    assert_eq!(after, None);
+    assert_eq!(
+        classify(None, after.as_ref(), idem.request_hash, marker.marker_until),
+        IdempotencyOutcome::New
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.purge_operations_before(plus(expires, 10 * 86_400)))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn pending_keys_never_expire_and_are_never_purged() {
+    let s = mem();
+    let far = plus(t0(), 10 * 365 * 86_400);
+    let states = [
+        OperationState::Queued,
+        OperationState::Running,
+        OperationState::AwaitingApproval,
+        OperationState::OutcomeUnknown,
+    ];
+    for (n, state) in (1u64..).zip(states) {
+        let (mut op, idem) = simple_op(n);
+        s.transaction(|tx| {
+            tx.insert_operation(&op, &idem)?;
+            if state != OperationState::Queued {
+                op.state = state;
+                tx.update_operation(&op)?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let e = s
+            .transaction(|tx| tx.settle_idempotency(&idem.key, t0()))
+            .unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)), "{state:?}");
+        no_canary(&e);
+    }
+    // Settled but not yet given an expiry: still live.
+    let (mut op5, idem5) = simple_op(5);
+    s.transaction(|tx| {
+        tx.insert_operation(&op5, &idem5)?;
+        succeed(&mut op5, plus(t0(), 1));
+        tx.update_operation(&op5)
+    })
+    .unwrap();
+    // Even a record handed to `insert_operation` with an expiry already set does
+    // not make an open or unresolved operation purgeable: purge also requires a
+    // settled state.
+    for (n, state) in [
+        (6, OperationState::Running),
+        (7, OperationState::OutcomeUnknown),
+    ] {
+        let (mut op, mut idem) = simple_op(n);
+        op.state = state;
+        idem.expires_at = Some(t0());
+        s.transaction(|tx| tx.insert_operation(&op, &idem)).unwrap();
+    }
+    assert_eq!(
+        s.transaction(|tx| tx.purge_operations_before(far)).unwrap(),
+        0
+    );
+    s.transaction(|tx| {
+        assert!(tx.operation(&op_id(6))?.is_some());
+        assert!(tx.operation(&op_id(7))?.is_some());
+        for n in 1..=5 {
+            let (_, idem) = simple_op(n);
+            let rec = tx.idempotency_record(&idem.key)?.expect("kept");
+            assert_eq!(rec.expires_at, None);
+            assert_eq!(
+                classify(Some(&rec), None, idem.request_hash, far),
+                IdempotencyOutcome::Replay(op_id(n))
+            );
+            assert_eq!(tx.expired_key_marker(&idem.key.hash().unwrap())?, None);
+        }
+        Ok(())
+    })
+    .unwrap();
+    let (_, ghost) = simple_op(9);
+    assert!(
+        s.transaction(|tx| tx.settle_idempotency(&ghost.key, t0()))
+            .is_err()
+    );
+}
+
+// --- R3: decision records (review F03) --------------------------------------------------------
+
+#[test]
+fn decisions_complete_once_and_go_stale_when_the_generation_moves() {
+    let s = mem();
+    let (d1, d2, d3) = (decision(1, 0), decision(2, 0), decision(3, 0));
+    s.transaction(|tx| {
+        tx.insert_decision(&d1)?;
+        tx.insert_decision(&d2)?;
+        tx.insert_decision(&d3)
+    })
+    .unwrap();
+    assert!(matches!(
+        s.transaction(|tx| tx.insert_decision(&d1)),
+        Err(StoreError::GenerationConflict(_))
+    ));
+    let mut decided = decision(4, 0);
+    decided.state = DecisionState::Approved;
+    assert!(s.transaction(|tx| tx.insert_decision(&decided)).is_err());
+    let pending: Vec<_> = s
+        .transaction(|tx| tx.pending_decisions())
+        .unwrap()
+        .into_iter()
+        .map(|d| d.id)
+        .collect();
+    assert_eq!(pending, vec![d1.id.clone(), d2.id.clone(), d3.id.clone()]);
+
+    let now = plus(t0(), 60);
+    let first = s
+        .transaction(|tx| tx.complete_decision(&d1.id, Verdict::Approve, now))
+        .unwrap();
+    let mut approved = d1.clone();
+    approved.state = DecisionState::Approved;
+    approved.decided_at = Some(now);
+    assert_eq!(first, DecisionCompletion::Completed(approved.clone()));
+    // Consume-once.
+    let again = s
+        .transaction(|tx| tx.complete_decision(&d1.id, Verdict::Deny, now))
+        .unwrap();
+    assert!(
+        matches!(&again, DecisionCompletion::Refused { record, .. } if *record == approved),
+        "{again:?}"
+    );
+    // Expired: refused, unchanged.
+    let late = s
+        .transaction(|tx| tx.complete_decision(&d2.id, Verdict::Approve, d2.expires_at))
+        .unwrap();
+    assert!(matches!(&late, DecisionCompletion::Refused { record, .. } if *record == d2));
+    assert_eq!(
+        s.transaction(|tx| tx.decision(&d2.id)).unwrap(),
+        Some(d2.clone())
+    );
+    // The generation moves (revocation): stale even for Deny, persisted.
+    s.transaction(|tx| tx.insert_tombstone(&tombstone(9)))
+        .unwrap();
+    let stale = s
+        .transaction(|tx| tx.complete_decision(&d3.id, Verdict::Deny, now))
+        .unwrap();
+    let DecisionCompletion::Refused { reason, record } = stale else {
+        panic!("stale decision completed");
+    };
+    no_canary(&reason);
+    assert_eq!(record.state, DecisionState::Stale);
+    assert_eq!(record.decided_at, None);
+    assert_eq!(
+        s.transaction(|tx| tx.decision(&d3.id)).unwrap(),
+        Some(record)
+    );
+    let pending: Vec<_> = s
+        .transaction(|tx| tx.pending_decisions())
+        .unwrap()
+        .into_iter()
+        .map(|d| d.id)
+        .collect();
+    assert_eq!(pending, vec![d2.id.clone()]);
+    assert!(
+        s.transaction(|tx| tx.complete_decision(&decision(8, 0).id, Verdict::Approve, now))
+            .is_err()
+    );
+}
+
+// --- R4: bindings, profiles, environments, policy lookup, denial (review F04) ---------------
+
+#[test]
+fn binding_release_is_idempotent_and_authorized_by_ownership() {
+    let s = mem();
+    let g = grant(1, None, plus(t0(), 3600), GrantState::Active);
+    let mine = binding(1, &g.id, limited(501), "work-a");
+    let mine2 = binding(2, &g.id, limited(501), "work-a");
+    let elsewhere = BindingRecord {
+        environment: env_id(8),
+        ..binding(3, &g.id, limited(501), "work-a")
+    };
+    s.transaction(|tx| {
+        tx.insert_grant(&g)?;
+        tx.insert_binding(&mine)?;
+        tx.insert_binding(&mine2)?;
+        tx.insert_binding(&elsewhere)
+    })
+    .unwrap();
+    assert!(matches!(
+        s.transaction(|tx| tx.insert_binding(&mine)),
+        Err(StoreError::GenerationConflict(_))
+    ));
+    let ghost = binding(
+        4,
+        &GrantId::from_random_bytes([0xaa; 16]),
+        limited(501),
+        "w",
+    );
+    assert!(s.transaction(|tx| tx.insert_binding(&ghost)).is_err());
+    let (got, work, refs, ghost_row) = s
+        .transaction(|tx| {
+            Ok((
+                tx.binding(&mine.id)?,
+                tx.bindings_for_work(&env_id(7), &WorkId::parse("work-a").unwrap())?,
+                tx.grant_references(&g.id)?,
+                tx.binding(&ghost.id)?,
+            ))
+        })
+        .unwrap();
+    assert_eq!(got, Some(mine.clone()));
+    assert_eq!(work, vec![mine.clone(), mine2.clone()]);
+    assert_eq!(ghost_row, None);
+    let held: BTreeSet<_> = refs.iter().map(|r| r.binding.clone()).collect();
+    assert_eq!(
+        held,
+        [mine.id.clone(), mine2.id.clone(), elsewhere.id.clone()]
+            .into_iter()
+            .collect()
+    );
+
+    let now = plus(t0(), 600);
+    let release = |id: &BindingId, who: CallerContext| {
+        s.transaction(|tx| tx.release_binding(id, &who, now))
+            .unwrap()
+    };
+    // A foreign limited consumer holding the ID cannot release it.
+    assert_eq!(release(&mine.id, limited(502)), ReleaseOutcome::NotOwner);
+    assert_eq!(
+        s.transaction(|tx| tx.binding(&mine.id))
+            .unwrap()
+            .unwrap()
+            .state,
+        BindingState::Active
+    );
+    assert_eq!(
+        release(&mine.id, limited(501)),
+        ReleaseOutcome::Released {
+            remaining_references: 2
+        }
+    );
+    assert_eq!(
+        release(&mine.id, limited(501)),
+        ReleaseOutcome::AlreadyReleased
+    );
+    assert_eq!(
+        release(&mine.id, limited(502)),
+        ReleaseOutcome::NotOwner,
+        "ownership is checked before the released state is revealed"
+    );
+    let released = s.transaction(|tx| tx.binding(&mine.id)).unwrap().unwrap();
+    assert_eq!(released.state, BindingState::Released);
+    assert_eq!(released.released_at, Some(now));
+    // The owner role may release another principal's binding.
+    assert_eq!(
+        release(&mine2.id, caller(503)),
+        ReleaseOutcome::Released {
+            remaining_references: 1
+        }
+    );
+    // Release never revokes the grant (ADR-0006 §13.2).
+    assert_eq!(
+        s.transaction(|tx| tx.grant(&g.id)).unwrap().unwrap().state,
+        GrantState::Active
+    );
+    assert!(
+        s.transaction(|tx| tx.release_binding(&ghost.id, &caller(501), now))
+            .is_err()
+    );
+}
+
+#[test]
+fn profile_snapshot_is_immutable_at_a_revision() {
+    let s = mem();
+    let id = ProfileId::parse("default").unwrap();
+    let v1 = profile_def(1, &[("h1", "u1")]);
+    s.transaction(|tx| tx.upsert_profile(&v1)).unwrap();
+    // Same revision, wider scope: refused; nothing changes.
+    let widened = profile_def(1, &[("h1", "u1"), ("h9", "root")]);
+    let e = s.transaction(|tx| tx.upsert_profile(&widened)).unwrap_err();
+    assert!(matches!(e, StoreError::GenerationConflict(_)));
+    no_canary(&e);
+    let (cur, snap) = s
+        .transaction(|tx| Ok((tx.profile(&id)?, tx.profile_snapshot(&id, 1)?)))
+        .unwrap();
+    assert_eq!(cur, Some(v1.clone()));
+    assert_eq!(snap, Some(v1.snapshot()));
+    // A new revision gets its own snapshot; the old one is unchanged.
+    let v2 = profile_def(2, &[("h1", "u1"), ("h2", "u1")]);
+    s.transaction(|tx| {
+        tx.upsert_profile(&v2)?;
+        tx.upsert_profile(&v2) // identical re-upsert is a no-op
+    })
+    .unwrap();
+    let (cur, s1, s2, s3) = s
+        .transaction(|tx| {
+            Ok((
+                tx.profile(&id)?,
+                tx.profile_snapshot(&id, 1)?,
+                tx.profile_snapshot(&id, 2)?,
+                tx.profile_snapshot(&id, 3)?,
+            ))
+        })
+        .unwrap();
+    assert_eq!(cur, Some(v2.clone()));
+    assert_eq!(
+        s1,
+        Some(v1.snapshot()),
+        "adding a host never widens revision 1"
+    );
+    assert_eq!(s2, Some(v2.snapshot()));
+    assert_eq!(s3, None);
+    // A stale writer cannot roll the definition back.
+    assert!(matches!(
+        s.transaction(|tx| tx.upsert_profile(&v1)),
+        Err(StoreError::GenerationConflict(_))
+    ));
+    assert_eq!(s.transaction(|tx| tx.profile(&id)).unwrap(), Some(v2));
+}
+
+#[test]
+fn environments_upsert_and_policies_for_matches_profile_and_environment() {
+    let s = mem();
+    let e7 = environment(7, "laptop");
+    let renamed = EnvironmentRecord {
+        label: Some("laptop-2".into()),
+        ..e7.clone()
+    };
+    let got = s
+        .transaction(|tx| {
+            let none = tx.environment(&e7.id)?;
+            tx.upsert_environment(&e7)?;
+            let one = tx.environment(&e7.id)?;
+            tx.upsert_environment(&renamed)?;
+            Ok((none, one, tx.environment(&e7.id)?))
+        })
+        .unwrap();
+    assert_eq!(got, (None, Some(e7), Some(renamed)));
+
+    let named = |id: &str, profile: &str, envs: &[u8]| StandingPolicy {
+        id: PolicyId::parse(id).unwrap(),
+        profile: ProfileId::parse(profile).unwrap(),
+        environments: envs.iter().map(|b| env_id(*b)).collect(),
+        ..policy(1)
+    };
+    let policies = [
+        named("personal", "default", &[7]),
+        named("other-env", "default", &[8]),
+        named("other-profile", "work", &[7]),
+        named("both", "default", &[7, 8]),
+    ];
+    s.transaction(|tx| {
+        for p in &policies {
+            tx.upsert_policy(p, false)?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    let ids = |profile: &str, env: u8| -> Vec<String> {
+        s.transaction(|tx| tx.policies_for(&ProfileId::parse(profile).unwrap(), &env_id(env)))
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id.as_str().to_owned())
+            .collect()
+    };
+    assert_eq!(ids("default", 7), ["both", "personal"]);
+    assert_eq!(ids("default", 8), ["both", "other-env"]);
+    assert_eq!(ids("work", 7), ["other-profile"]);
+    assert!(ids("work", 8).is_empty());
+    assert!(ids("default", 9).is_empty());
+}
+
+#[test]
+fn denied_ancestor_walks_through_a_revoked_grandparent() {
+    let s = mem();
+    let d = plus(t0(), 3600);
+    let gp = grant(1, None, d, GrantState::Revoked);
+    let parent = grant(2, Some(gp.id.clone()), d, GrantState::Active);
+    let child = grant(3, Some(parent.id.clone()), d, GrantState::Active);
+    let lone = grant(4, None, d, GrantState::Active);
+    s.transaction(|tx| {
+        for g in [&gp, &parent, &child, &lone] {
+            tx.insert_grant(g)?;
+        }
+        tx.insert_tombstone(&tombstone(1))?; // the grandparent
+        Ok(())
+    })
+    .unwrap();
+    let got = s
+        .transaction(|tx| {
+            Ok((
+                tx.denied_ancestor(&child.id)?,
+                tx.denied_ancestor(&parent.id)?,
+                tx.denied_ancestor(&gp.id)?,
+                tx.denied_ancestor(&lone.id)?,
+                tx.denied_ancestor(&GrantId::from_random_bytes([0xcc; 16]))?,
+                tx.tombstone(&child.id)?,
+                tx.tombstone(&gp.id)?.map(|t| t.generation),
+            ))
+        })
+        .unwrap();
+    assert_eq!(
+        got,
+        (
+            Some(gp.id.clone()),
+            Some(gp.id.clone()),
+            Some(gp.id.clone()),
+            None,
+            None,
+            None,
+            Some(AuthorityGeneration(1))
+        )
+    );
+    // The nearest tombstoned ancestor wins.
+    s.transaction(|tx| tx.insert_tombstone(&tombstone(2)))
+        .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.denied_ancestor(&child.id)).unwrap(),
+        Some(parent.id.clone())
+    );
+}
+
+// --- R5: recovery intent and stage receipts (review F05) -------------------------------------
+
+#[test]
+fn recovery_intent_round_trips_and_only_gains_facts() {
+    let s = mem();
+    let (op, idem) = simple_op(1);
+    s.transaction(|tx| tx.insert_operation(&op, &idem)).unwrap();
+    let bare = RecoveryIntent {
+        request: request_doc(1),
+        resolved: None,
+    };
+    let resolved = RecoveryIntent {
+        resolved: Some(resolved_intent()),
+        ..bare.clone()
+    };
+    let mut with_grant = resolved.clone();
+    if let Some(r) = with_grant.resolved.as_mut() {
+        r.grant = Some(GrantId::from_random_bytes([1; 16]));
+        r.adapter = Some(adapter());
+    }
+    let got = s
+        .transaction(|tx| {
+            let none = tx.recovery_intent(&op.id)?;
+            tx.set_recovery_intent(&op.id, &bare)?;
+            let a = tx.recovery_intent(&op.id)?;
+            tx.set_recovery_intent(&op.id, &resolved)?;
+            let b = tx.recovery_intent(&op.id)?;
+            tx.set_recovery_intent(&op.id, &with_grant)?;
+            tx.set_recovery_intent(&op.id, &with_grant)?; // repeat: no-op
+            Ok((none, a, b, tx.recovery_intent(&op.id)?))
+        })
+        .unwrap();
+    assert_eq!(
+        got,
+        (
+            None,
+            Some(bare.clone()),
+            Some(resolved.clone()),
+            Some(with_grant.clone())
+        )
+    );
+    // Anything that would re-resolve or rewrite the intent is refused.
+    let mut other_request = with_grant.clone();
+    other_request.request = request_doc(2);
+    let mut moved_deadline = with_grant.clone();
+    let mut reassigned = with_grant.clone();
+    if let (Some(d), Some(r)) = (
+        moved_deadline.resolved.as_mut(),
+        reassigned.resolved.as_mut(),
+    ) {
+        d.deadline.effective = plus(t0(), 99_999);
+        r.grant = Some(GrantId::from_random_bytes([2; 16]));
+    }
+    for bad in [&other_request, &moved_deadline, &reassigned, &bare] {
+        let e = s
+            .transaction(|tx| tx.set_recovery_intent(&op.id, bad))
+            .unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)));
+        no_canary(&e);
+    }
+    assert_eq!(
+        s.transaction(|tx| tx.recovery_intent(&op.id)).unwrap(),
+        Some(with_grant)
+    );
+    // The operation must exist.
+    assert!(
+        s.transaction(|tx| tx.set_recovery_intent(&op_id(77), &bare))
+            .is_err()
+    );
+    // Key material is refused and never echoed.
+    let c = canary();
+    let leaky = RecoveryIntent {
+        request: serde_json::json!({"k": format!("-----BEGIN OPENSSH PRIVATE KEY-----{c}")}),
+        resolved: None,
+    };
+    let (op2, idem2) = simple_op(2);
+    s.transaction(|tx| tx.insert_operation(&op2, &idem2))
+        .unwrap();
+    let e = s
+        .transaction(|tx| tx.set_recovery_intent(&op2.id, &leaky))
+        .unwrap_err();
+    no_canary(&e);
+    assert_no_canary(&e.to_string());
+    assert_eq!(
+        s.transaction(|tx| tx.recovery_intent(&op2.id)).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn stage_receipts_are_append_only_and_ordered() {
+    let s = mem();
+    let (op1, i1) = simple_op(1);
+    let (op2, i2) = simple_op(2);
+    let receipts = [
+        StageReceipt {
+            stage: "load_authority".into(),
+            recorded_at: plus(t0(), 1),
+            effect: EffectReceipt::NotAttempted,
+        },
+        StageReceipt {
+            stage: "prepare".into(),
+            recorded_at: plus(t0(), 2),
+            effect: EffectReceipt::Attempted {
+                adapter: adapter(),
+                effect_token: "tok-1".into(),
+            },
+        },
+        // Same instant as the previous one: order still follows append order.
+        StageReceipt {
+            stage: "prepare".into(),
+            recorded_at: plus(t0(), 2),
+            effect: EffectReceipt::Confirmed {
+                adapter: adapter(),
+                credential_ref: "cred-ref-1".into(),
+            },
+        },
+    ];
+    s.transaction(|tx| {
+        tx.insert_operation(&op1, &i1)?;
+        tx.insert_operation(&op2, &i2)?;
+        for r in &receipts {
+            tx.append_stage_receipt(&op1.id, r)?;
+        }
+        tx.append_stage_receipt(&op2.id, &receipts[0])
+    })
+    .unwrap();
+    // A later transaction appends after the earlier ones.
+    let late = StageReceipt {
+        stage: "bind".into(),
+        recorded_at: plus(t0(), 3),
+        effect: EffectReceipt::NotAttempted,
+    };
+    s.transaction(|tx| tx.append_stage_receipt(&op1.id, &late))
+        .unwrap();
+    let (r1, r2, none) = s
+        .transaction(|tx| {
+            Ok((
+                tx.stage_receipts(&op1.id)?,
+                tx.stage_receipts(&op2.id)?,
+                tx.stage_receipts(&op_id(77))?,
+            ))
+        })
+        .unwrap();
+    let mut want = receipts.to_vec();
+    want.push(late);
+    assert_eq!(r1, want);
+    assert_eq!(r2, vec![receipts[0].clone()]);
+    assert!(none.is_empty());
+    assert!(
+        s.transaction(|tx| tx.append_stage_receipt(&op_id(77), &receipts[0]))
+            .is_err()
+    );
+}
+
+// --- R6: issuance substrate (review F06; ADR-0005 §3.5) --------------------------------------
+
+#[test]
+fn issuance_reserve_publish_void_cas_and_residual() {
+    let s = mem();
+    let g = GrantId::from_random_bytes([1; 16]);
+    let g2 = GrantId::from_random_bytes([2; 16]);
+    let e1 = issuance(1, &g, t("2026-10-01T06:00:00Z"));
+    let e2 = issuance(2, &g, t("2026-10-01T09:00:00Z"));
+    let e3 = issuance(3, &g, t("2026-10-01T05:00:00Z"));
+    let e4 = issuance(4, &g2, t("2026-10-01T07:00:00Z"));
+    s.transaction(|tx| {
+        for e in [&e1, &e2, &e3, &e4] {
+            tx.reserve_issuance(e)?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    assert!(matches!(
+        s.transaction(|tx| tx.reserve_issuance(&e1)),
+        Err(StoreError::GenerationConflict(_))
+    ));
+    let mut not_reserved = issuance(5, &g, t("2026-10-01T10:00:00Z"));
+    not_reserved.state = IssuanceState::Published;
+    assert!(
+        s.transaction(|tx| tx.reserve_issuance(&not_reserved))
+            .is_err()
+    );
+    // Reserved entries already count (a reservation may have been signed).
+    assert_eq!(
+        s.transaction(|tx| tx.issuance_residual(std::slice::from_ref(&g)))
+            .unwrap(),
+        Some(e2.bounds.valid_before)
+    );
+
+    let now = plus(t0(), 60);
+    let published = s
+        .transaction(|tx| tx.publish_issuance(&e1.id, now))
+        .unwrap();
+    assert_eq!(published.state, IssuanceState::Published);
+    assert_eq!(published.settled_at, Some(now));
+    let reason = IssuanceRefusal::StaleGeneration;
+    let voided = s
+        .transaction(|tx| tx.void_issuance(&e2.id, &reason, now))
+        .unwrap();
+    assert_eq!(voided.state, IssuanceState::Voided);
+    assert_eq!(voided.void_reason, Some(reason.clone()));
+    // CAS: only `reserved` moves.
+    for r in [
+        s.transaction(|tx| tx.publish_issuance(&e1.id, now)),
+        s.transaction(|tx| tx.publish_issuance(&e2.id, now)),
+        s.transaction(|tx| tx.void_issuance(&e1.id, &reason, now)),
+        s.transaction(|tx| tx.void_issuance(&e2.id, &reason, now)),
+    ] {
+        let e = r.unwrap_err();
+        assert!(matches!(e, StoreError::GenerationConflict(_)), "{e}");
+        no_canary(&e);
+    }
+    assert!(
+        s.transaction(|tx| tx.publish_issuance(&IssuanceId::from_random_bytes([9; 16]), now))
+            .is_err()
+    );
+    let (entries, residual, both, none) = s
+        .transaction(|tx| {
+            Ok((
+                tx.issuance_entries(&g)?,
+                tx.issuance_residual(std::slice::from_ref(&g))?,
+                tx.issuance_residual(&[g.clone(), g2.clone()])?,
+                tx.issuance_residual(&[])?,
+            ))
+        })
+        .unwrap();
+    let states: Vec<_> = entries.iter().map(|e| (e.id.clone(), e.state)).collect();
+    assert_eq!(
+        states,
+        vec![
+            (e1.id.clone(), IssuanceState::Published),
+            (e2.id.clone(), IssuanceState::Voided),
+            (e3.id.clone(), IssuanceState::Reserved),
+        ]
+    );
+    // Voided (09:00) never counts; published (06:00) beats reserved (05:00).
+    assert_eq!(residual, Some(e1.bounds.valid_before));
+    assert_eq!(both, Some(e4.bounds.valid_before));
+    assert_eq!(none, None);
+}
+
+#[test]
+fn credential_instances_round_trip_and_destroyed_is_absorbing() {
+    let s = mem();
+    let g = GrantId::from_random_bytes([1; 16]);
+    let pending = CredentialInstance {
+        id: CredentialInstanceId::from_random_bytes([1; 16]),
+        grant: g.clone(),
+        key_handle_ref: "handle-1".into(),
+        certificates: Vec::new(),
+        state: CredentialState::Pending,
+    };
+    let installed = CredentialInstance {
+        certificates: vec![IssuanceId::from_random_bytes([3; 16])],
+        state: CredentialState::Installed,
+        // A different grant/handle in the update is ignored (identity is fixed).
+        grant: GrantId::from_random_bytes([2; 16]),
+        key_handle_ref: "handle-other".into(),
+        ..pending.clone()
+    };
+    let got = s
+        .transaction(|tx| {
+            let none = tx.credential_instance(&pending.id)?;
+            tx.insert_credential_instance(&pending)?;
+            let a = tx.credential_instance(&pending.id)?;
+            tx.update_credential_instance(&installed)?;
+            Ok((none, a, tx.credential_instance(&pending.id)?))
+        })
+        .unwrap();
+    let want_installed = CredentialInstance {
+        certificates: installed.certificates.clone(),
+        state: CredentialState::Installed,
+        ..pending.clone()
+    };
+    assert_eq!(got, (None, Some(pending.clone()), Some(want_installed)));
+    assert!(matches!(
+        s.transaction(|tx| tx.insert_credential_instance(&pending)),
+        Err(StoreError::GenerationConflict(_))
+    ));
+    let destroyed = CredentialInstance {
+        certificates: Vec::new(),
+        state: CredentialState::Destroyed,
+        ..pending.clone()
+    };
+    s.transaction(|tx| tx.update_credential_instance(&destroyed))
+        .unwrap();
+    assert!(matches!(
+        s.transaction(|tx| tx.update_credential_instance(&pending)),
+        Err(StoreError::GenerationConflict(_))
+    ));
+    assert_eq!(
+        s.transaction(|tx| tx.credential_instance(&pending.id))
+            .unwrap(),
+        Some(destroyed)
+    );
+    let ghost = CredentialInstance {
+        id: CredentialInstanceId::from_random_bytes([9; 16]),
+        ..pending
+    };
+    assert!(
+        s.transaction(|tx| tx.update_credential_instance(&ghost))
+            .is_err()
+    );
+}
+
+// --- R7: unresolved operations (review F07) ----------------------------------------------------
+
+#[test]
+fn outcome_unknown_is_unresolved_not_open_and_survives_purge() {
+    let s = mem();
+    let (queued, qi) = simple_op(1);
+    let (mut unknown, ui) = simple_op(2);
+    let (mut done, di) = simple_op(3);
+    let g = grant(1, None, plus(t0(), 3600), GrantState::Active);
+    let anchor = anchor_grant(
+        g.id.clone(),
+        time_anchor("boot-a", 1, t0()),
+        plus(t0(), 3600),
+    );
+    let receipt = StageReceipt {
+        stage: "prepare".into(),
+        recorded_at: plus(t0(), 30),
+        effect: EffectReceipt::Uncertain {
+            adapter: adapter(),
+            effect_token: "tok-2".into(),
+        },
+    };
+    let intent = RecoveryIntent {
+        request: request_doc(2),
+        resolved: Some(resolved_intent()),
+    };
+    s.transaction(|tx| {
+        tx.insert_operation(&queued, &qi)?;
+        tx.insert_operation(&unknown, &ui)?;
+        tx.insert_operation(&done, &di)?;
+        tx.set_recovery_intent(&unknown.id, &intent)?;
+        tx.append_stage_receipt(&unknown.id, &receipt)?;
+        unknown.state = OperationState::OutcomeUnknown;
+        unknown.effect_status = EffectStatus::Unknown;
+        unknown.updated_at = plus(t0(), 60);
+        tx.update_operation(&unknown)?;
+        succeed(&mut done, plus(t0(), 60));
+        tx.update_operation(&done)?;
+        tx.settle_idempotency(&di.key, plus(t0(), 120))?;
+        tx.set_recovery_intent(
+            &done.id,
+            &RecoveryIntent {
+                request: request_doc(3),
+                resolved: None,
+            },
+        )?;
+        tx.append_stage_receipt(&done.id, &receipt)?;
+        tx.insert_grant(&g)?;
+        tx.insert_tombstone(&tombstone(5))?;
+        tx.insert_decision(&decision(1, 1))?;
+        tx.reserve_issuance(&issuance(1, &g.id, plus(t0(), 1800)))?;
+        tx.set_grant_anchor(&anchor)?;
+        Ok(())
+    })
+    .unwrap();
+    let (open, unresolved) = s
+        .transaction(|tx| Ok((tx.open_operations()?, tx.unresolved_operations()?)))
+        .unwrap();
+    assert_eq!(open, vec![queued.clone()]);
+    assert_eq!(unresolved, vec![unknown.clone()]);
+    let e = s
+        .transaction(|tx| tx.settle_idempotency(&ui.key, plus(t0(), 120)))
+        .unwrap_err();
+    assert!(matches!(e, StoreError::GenerationConflict(_)));
+
+    let far = plus(t0(), 10 * 365 * 86_400);
+    assert_eq!(
+        s.transaction(|tx| tx.purge_operations_before(far)).unwrap(),
+        1,
+        "only the settled, expired operation goes"
+    );
+    s.transaction(|tx| {
+        assert_eq!(tx.unresolved_operations()?, vec![unknown.clone()]);
+        assert_eq!(tx.open_operations()?, vec![queued.clone()]);
+        assert_eq!(tx.operation(&unknown.id)?, Some(unknown.clone()));
+        assert_eq!(tx.idempotency_record(&ui.key)?.unwrap().expires_at, None);
+        assert_eq!(tx.recovery_intent(&unknown.id)?, Some(intent.clone()));
+        assert_eq!(tx.stage_receipts(&unknown.id)?, vec![receipt.clone()]);
+        // The settled operation went with its own evidence and left a marker.
+        assert_eq!(tx.operation(&done.id)?, None);
+        assert_eq!(tx.recovery_intent(&done.id)?, None);
+        assert!(tx.stage_receipts(&done.id)?.is_empty());
+        assert!(tx.expired_key_marker(&di.key.hash().unwrap())?.is_some());
+        // Authority and issuance state is untouched.
+        assert!(tx.tombstone(&tombstone(5).grant)?.is_some());
+        assert!(tx.decision(&decision(1, 1).id)?.is_some());
+        assert_eq!(tx.issuance_entries(&g.id)?.len(), 1);
+        assert_eq!(tx.grant_anchor(&g.id)?, Some(anchor.clone()));
+        Ok(())
+    })
+    .unwrap();
+    // Reconciliation settles it; only then can it expire and be purged.
+    unknown.state = OperationState::Failed;
+    unknown.updated_at = plus(t0(), 200);
+    s.transaction(|tx| {
+        tx.update_operation(&unknown)?;
+        tx.settle_idempotency(&ui.key, plus(t0(), 300))
+    })
+    .unwrap();
+    assert!(
+        s.transaction(|tx| tx.unresolved_operations())
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        s.transaction(|tx| tx.purge_operations_before(far)).unwrap(),
+        1
+    );
+}
+
+// --- R8: neutral event sequences (review F08) --------------------------------------------------
+
+#[test]
+fn stored_events_after_sequences_are_monotonic_and_page_boundaries_match() {
+    let s = mem();
+    let a = env_id(0xa);
+    let b = env_id(0xb);
+    let appended = s
+        .transaction(|tx| {
+            let mut out = Vec::new();
+            for i in 0..8i64 {
+                let env = if i % 3 == 0 { &b } else { &a };
+                let (_, seq) = tx.append_event(&event(
+                    env,
+                    EventType::OperationStateChanged,
+                    None,
+                    plus(t0(), i * 60),
+                ))?;
+                out.push((env.clone(), seq));
+            }
+            Ok(out)
+        })
+        .unwrap();
+    let a_seqs: Vec<u64> = appended
+        .iter()
+        .filter(|(e, _)| *e == a)
+        .map(|(_, s)| *s)
+        .collect();
+    let (page, boundary, generation, wave1) = s
+        .transaction(|tx| {
+            Ok((
+                tx.stored_events_after(&a, 0, &EventFilter::default(), 100)?,
+                tx.snapshot_boundary(&a)?,
+                tx.authority_generation()?,
+                tx.events_after(&a, 0, &EventFilter::default(), 100)?,
+            ))
+        })
+        .unwrap();
+    let seqs: Vec<u64> = page.events.iter().map(|e| e.seq).collect();
+    assert_eq!(seqs, a_seqs);
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "strictly increasing");
+    assert_eq!(page.head_seq, *a_seqs.last().unwrap());
+    assert_eq!(page.tail_seq, 0);
+    assert_eq!(boundary, (generation, page.head_seq));
+    for e in &page.events {
+        assert_eq!(e.event.environment_id, a);
+        assert!(e.event.cursor.0.is_empty(), "storage holds no cursor");
+        no_canary(&e.event.payload);
+    }
+    // The wave-1 form carries the same sequences in its marker.
+    let markers: Vec<u64> = wave1.events.iter().map(|e| event_seq(e).unwrap()).collect();
+    assert_eq!(markers, seqs);
+    assert_eq!(
+        (wave1.head_seq, wave1.tail_seq),
+        (page.head_seq, page.tail_seq)
+    );
+    // Paging: continuing after the last returned sequence loses nothing.
+    let mut seen = Vec::new();
+    let mut after = 0;
+    loop {
+        let p = s
+            .transaction(|tx| tx.stored_events_after(&a, after, &EventFilter::default(), 2))
+            .unwrap();
+        assert_eq!(p.head_seq, page.head_seq, "head is environment-wide");
+        let Some(last) = p.events.last() else { break };
+        after = last.seq;
+        seen.extend(p.events.iter().map(|e| e.seq));
+    }
+    assert_eq!(seen, seqs);
+    // Trim: tail moves to the trim boundary, head stays, the rest is above tail.
+    let tail = s
+        .transaction(|tx| tx.trim_events(&a, plus(t0(), 150), 1000))
+        .unwrap();
+    let trimmed = s
+        .transaction(|tx| tx.stored_events_after(&a, 0, &EventFilter::default(), 100))
+        .unwrap();
+    assert_eq!(trimmed.tail_seq, tail);
+    assert_eq!(trimmed.head_seq, page.head_seq);
+    assert!(trimmed.events.iter().all(|e| e.seq > tail));
+    // A revocation moves the generation, not the head; both read together.
+    s.transaction(|tx| tx.insert_tombstone(&tombstone(1)))
+        .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.snapshot_boundary(&a)).unwrap(),
+        (generation.next(), page.head_seq)
+    );
+    // An empty environment.
+    let empty = s
+        .transaction(|tx| tx.stored_events_after(&env_id(0xc), 0, &EventFilter::default(), 10))
+        .unwrap();
+    assert_eq!(
+        (empty.events.len(), empty.head_seq, empty.tail_seq),
+        (0, 0, 0)
+    );
 }
 
 // --- property tests (plan §6.3 #4, #6) -------------------------------------------------------
@@ -1157,10 +2450,10 @@ proptest! {
             let now = plus(t0(), n as i64);
             let outcome = s.transaction(|tx| {
                 let rec = tx.idempotency_record(&k)?;
-                let outcome = classify(rec.as_ref(), hash, now);
+                let marker = tx.expired_key_marker(&k.hash().unwrap())?;
+                let outcome = classify(rec.as_ref(), marker.as_ref(), hash, now);
                 if outcome == IdempotencyOutcome::New {
-                    let (op, idem) =
-                        operation(n as u64 + 1, k.clone(), hash, now, plus(now, 86_400));
+                    let (op, idem) = operation(n as u64 + 1, k.clone(), hash, now);
                     tx.insert_operation(&op, &idem)?;
                 }
                 Ok(outcome)
@@ -1216,12 +2509,109 @@ proptest! {
         }
     }
 
-    /// Retention purge never deletes tombstones, policies or the self environment,
-    /// and removes exactly the resolved-terminal operations whose terminal time and
-    /// idempotency expiry are both before the purge instant.
+    /// R1: within one boot a stored grant budget never lengthens (neither its
+    /// continuous budget end nor its bound); an anchor from another boot replaces it.
+    #[test]
+    fn grant_anchor_budget_never_lengthens_within_a_boot(
+        steps in prop::collection::vec((0u8..2, 0u64..10_000, 0i64..20_000), 1..30)
+    ) {
+        let s = mem();
+        let g = GrantId::from_random_bytes([1; 16]);
+        let mut model: Option<GrantAnchor> = None;
+        for (boot, continuous, bound_s) in steps {
+            let candidate = anchor_grant(
+                g.clone(),
+                time_anchor(&format!("boot-{boot}"), continuous, t0()),
+                plus(t0(), bound_s),
+            );
+            let got = s.transaction(|tx| tx.set_grant_anchor(&candidate)).unwrap();
+            let expected = match &model {
+                Some(m)
+                    if m.anchor.boot_id == candidate.anchor.boot_id
+                        && (candidate.budget_end > m.budget_end || candidate.bound > m.bound) =>
+                {
+                    m.clone()
+                }
+                _ => candidate.clone(),
+            };
+            if let Some(m) = &model
+                && m.anchor.boot_id == got.anchor.boot_id
+            {
+                prop_assert!(got.budget_end <= m.budget_end && got.bound <= m.bound);
+            }
+            prop_assert_eq!(&got, &expected);
+            prop_assert_eq!(
+                s.transaction(|tx| tx.grant_anchor(&g)).unwrap(),
+                Some(expected.clone())
+            );
+            model = Some(expected);
+        }
+    }
+
+    /// R1: the persisted high-water mark is the running maximum of accepted times.
+    #[test]
+    fn high_water_mark_is_the_running_maximum(
+        accepted in prop::collection::vec(-100_000i64..100_000, 1..40)
+    ) {
+        let s = mem();
+        let mut max: Option<Timestamp> = None;
+        for a in accepted {
+            let at = plus(t0(), a);
+            let got = s.transaction(|tx| tx.raise_high_water_mark(at)).unwrap();
+            max = Some(max.map_or(at, |m| m.max(at)));
+            prop_assert_eq!(Some(got), max);
+            prop_assert_eq!(s.transaction(|tx| tx.high_water_mark()).unwrap(), max);
+        }
+    }
+
+    /// R6: the stored residual equals the latest `valid_before` among reserved and
+    /// published entries whatever reserve/publish/void sequence ran, and a settled
+    /// entry never moves again.
+    #[test]
+    fn issuance_residual_counts_reserved_and_published_only(
+        entries in prop::collection::vec((0u8..3, 1i64..100_000), 0..20)
+    ) {
+        let s = mem();
+        let g = GrantId::from_random_bytes([1; 16]);
+        let mut expected: Option<Timestamp> = None;
+        for (i, (action, before_s)) in entries.iter().enumerate() {
+            let e = issuance(i as u8, &g, plus(t0(), *before_s));
+            s.transaction(|tx| tx.reserve_issuance(&e)).unwrap();
+            match action {
+                0 => {}
+                1 => {
+                    s.transaction(|tx| tx.publish_issuance(&e.id, t0())).unwrap();
+                }
+                _ => {
+                    s.transaction(|tx| {
+                        tx.void_issuance(&e.id, &IssuanceRefusal::BoundPassed, t0())
+                    })
+                    .unwrap();
+                    let r = s.transaction(|tx| tx.publish_issuance(&e.id, t0()));
+                    prop_assert!(matches!(r, Err(StoreError::GenerationConflict(_))));
+                }
+            }
+            if *action != 2 {
+                expected = expected.max(Some(e.bounds.valid_before));
+            }
+            prop_assert_eq!(
+                s.transaction(|tx| tx.issuance_residual(std::slice::from_ref(&g))).unwrap(),
+                expected
+            );
+        }
+        let all = s.transaction(|tx| tx.issuance_entries(&g)).unwrap();
+        prop_assert_eq!(all.len(), entries.len());
+        prop_assert_eq!(heimdall_domain::issuance::residual(&all), expected);
+    }
+
+    /// Retention purge (rulings R2, R7) never deletes tombstones, policies or the
+    /// self environment, and removes exactly the settled operations whose
+    /// idempotency record was settled with an expiry at or before the purge
+    /// instant, leaving a marker for each purged key. Pending keys (open and
+    /// `outcome_unknown` operations, or settled ones not yet given an expiry) stay.
     #[test]
     fn purge_keeps_authority_state_and_unexpired_records(
-        ops in prop::collection::vec((0u8..7, 0i64..200, 0i64..200), 0..20),
+        ops in prop::collection::vec((0u8..7, 0i64..200, 0i64..200, any::<bool>()), 0..20),
         purge_at in 0i64..400,
         scope_seed in strategies::scope(),
     ) {
@@ -1238,18 +2628,18 @@ proptest! {
             OperationState::OutcomeUnknown,
         ];
         let mut expect_kept = BTreeSet::new();
-        let before = plus(t0(), purge_at * 3600);
+        let mut expect_marker: BTreeMap<OperationId, Timestamp> = BTreeMap::new();
+        let now = plus(t0(), purge_at * 3600);
         s.transaction(|tx| {
             tx.init_self_environment(&env_id(1))?;
             tx.insert_tombstone(&tombstone(1))?;
             tx.upsert_policy(&p, false)?;
-            for (i, (state_ix, done_h, expiry_h)) in ops.iter().enumerate() {
+            for (i, (state_ix, done_h, expiry_h, settle)) in ops.iter().enumerate() {
                 let (mut op, idem) = operation(
                     i as u64 + 1,
                     key(501, &format!("r{i}")),
                     RequestHash([1; 32]),
                     t0(),
-                    plus(t0(), expiry_h * 3600),
                 );
                 tx.insert_operation(&op, &idem)?;
                 let state = states[usize::from(*state_ix)];
@@ -1258,19 +2648,28 @@ proptest! {
                     op.updated_at = plus(t0(), done_h * 3600);
                     tx.update_operation(&op)?;
                 }
-                let resolved = matches!(
-                    state,
-                    OperationState::Succeeded | OperationState::Failed | OperationState::Cancelled
-                );
-                let purgeable = resolved && op.updated_at < before && idem.expires_at < before;
-                if !purgeable {
+                let expires = plus(t0(), (done_h + expiry_h) * 3600);
+                let mut settled_with_expiry = false;
+                if *settle {
+                    let r = tx.settle_idempotency(&idem.key, expires);
+                    if state.is_settled() {
+                        r?;
+                        settled_with_expiry = true;
+                    } else {
+                        // Pending keys never get an expiry.
+                        assert!(matches!(r, Err(StoreError::GenerationConflict(_))));
+                    }
+                }
+                if settled_with_expiry && expires <= now {
+                    expect_marker.insert(op.id.clone(), expires);
+                } else {
                     expect_kept.insert(op.id.clone());
                 }
             }
             Ok(())
         }).unwrap();
         let gen_before = s.transaction(|tx| tx.authority_generation()).unwrap();
-        let removed = s.transaction(|tx| tx.purge_operations_before(before)).unwrap();
+        let removed = s.transaction(|tx| tx.purge_operations_before(now)).unwrap();
         prop_assert_eq!(removed as usize, ops.len() - expect_kept.len());
         s.transaction(|tx| {
             for i in 0..ops.len() {
@@ -1279,14 +2678,28 @@ proptest! {
                 let kept = tx.operation(&id)?.is_some();
                 assert_eq!(kept, expect_kept.contains(&id));
                 assert_eq!(tx.idempotency_record(&k)?.is_some(), kept);
+                let marker = tx.expired_key_marker(&k.hash().unwrap())?;
+                match expect_marker.get(&id) {
+                    Some(expired_at) => {
+                        let m = marker.expect("purged key leaves a marker");
+                        assert_eq!(m.expired_at, *expired_at);
+                        assert_eq!(m.marker_until, marker_until(*expired_at));
+                        // A reuse inside the window is REQUEST_EXPIRED, never new.
+                        assert_eq!(
+                            classify(None, Some(&m), RequestHash([1; 32]), now),
+                            IdempotencyOutcome::Expired
+                        );
+                    }
+                    None => assert_eq!(marker, None),
+                }
             }
             assert_eq!(tx.self_environment()?, Some(env_id(1)));
             assert_eq!(tx.policy(&p.id)?, Some(p.clone()));
             assert_eq!(tx.authority_generation()?, gen_before);
+            assert!(tx.tombstone(&tombstone(1).grant)?.is_some());
             Ok(())
         }).unwrap();
-        // Tombstone rows and every meta key are checked at the SQL level by the
-        // crate's unit property `purge_never_touches_tombstones_policies_or_meta`
-        // (no public tombstone reader exists).
+        // Every meta key is checked at the SQL level by the crate's unit property
+        // `purge_never_touches_tombstones_policies_or_meta`.
     }
 }

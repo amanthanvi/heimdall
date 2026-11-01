@@ -25,10 +25,15 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
 
 - Goal: release-ready V1 candidate (plan §10), all open items done; publishing stays a separate action (plan §10.3).
 - Done 2026-10-31: ADR-0004 (delegated decisions), ADR-0005 (recipe B1; three Codex review rounds, accept), ADR-0006 (G08 baseline) + Rust workspace skeleton f5616784; X4 Windows stores verified; G03 P-B08/09/10 verified.
-- Running: M01 design review (Codex, `tests/evidence/artifacts/review-m01-design/`); workflow `wf_244d841f-7b7` = M01 wave 1 (U1 contract tests, U2 authority, U3 time, U4 store, U6+U7 Unix IPC + signing framer, U6w Windows pipe tested on the PC) + integrator.
+- M01 wave 1 ran as workflow `wf_244d841f-7b7` (U1 contract tests, U2 authority, U3 time, U4 store, U6+U7 Unix IPC + signing framer, U6w Windows pipe tested on the PC) + integrator.
 - Design review done (Codex, `tests/evidence/artifacts/review-m01-design/`): proceed after fixes, 1 blocker (time model: boot-scoped continuous budgets, high-water, reboot sync) + 8 major (expired-key markers, attended confirmation decisions, binding/snapshot store APIs, recovery intent/receipts, issuance substrate, OutcomeUnknown settled-vs-final, event snapshot/replay/live, test harness wiring) + 1 minor (hello required ⊆ negotiated). Orchestrator rulings as summarized in the 2026-10-31 thread; applied by a design-fix round after wave 1, before U5.
-- Wave 1 committed bae96744 + 78c701cc (implemented_unverified; check.sh 0, 253 tests). Running: design-fix round M01-T00-design-fix (architect agent) applying the review's blocker/majors and wave-1 escalations E1–E15 with the orchestrator's rulings.
-- Next: re-review of the revised contract; wave 2 (U5), U8, U9, U10; independent code review; M01 exit; then M02.
+- Wave 1 committed bae96744 + 78c701cc (implemented_unverified; check.sh 0, 253 tests).
+- Design-fix round M01-T00-design-fix integrated (implemented_unverified):
+  - What went in: the review's blocker and majors, escalations E1–E15, and rulings R1–R8 (ADR-0006 §13.2) plus the §13 questions (§13.3).
+  - check.sh 0 with the test-discovery step: 308 tests, no 0-test target.
+  - Store migration 0002 (SCHEMA_VERSION 2).
+  - Windows pipe SDDL owner = the creating process's SID. Natively the first run exited 101 (ERROR_INVALID_OWNER) and the second exited 0 (`tests/evidence/artifacts/m01/u6w-native/r6-owner-sddl{,-2}/`). The cross-user case is blocked on the second Windows account.
+- Next: independent re-review of the revised contract; wave 2 (U5 app operations, U8 runtime, U9 CLI, U10 exit suite); independent code review; M01 exit; then M02.
 - If interrupted: resume the workflow with its script under the session's workflows/scripts dir and resumeFromRunId; units write only their owner paths (docs/architecture/m01-plan.md).
 
 ## Owner decisions and inputs (2026-10-06)

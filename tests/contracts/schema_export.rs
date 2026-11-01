@@ -10,10 +10,10 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use crate::code::Code;
-use crate::schema::{code_table, public_schemas};
+use heimdall_contract::code::Code;
+use heimdall_contract::schema::{code_table, public_schemas};
 
-use super::{assert_clean, repo_root};
+use crate::{assert_clean, repo_root};
 
 /// `(file name, bytes)` for every exported document, in export order.
 fn render_all() -> Vec<(String, String)> {
@@ -102,6 +102,7 @@ fn codes_json_rows_equal_the_model_and_golden() {
     assert_eq!(checked_in["schema_version"], "1");
     let rows = checked_in["codes"].as_array().unwrap();
     let grows = golden["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 29, "ADR-0006 section 5 has 29 rows");
     assert_eq!(rows.len(), grows.len());
     for (row, g) in rows.iter().zip(grows) {
         assert_eq!(row["code"], g["code"]);
@@ -179,4 +180,69 @@ fn schema_ids_are_never_secret_bearing_formats() {
         assert!(!text.contains("\"format\": \"password\""), "{name}");
         assert!(!text.contains("\"format\": \"byte\""), "{name}");
     }
+}
+
+/// Wave-1 E5: every envelope schema (top-level documents and envelope definitions
+/// embedded in other documents, e.g. IPC `reject`/`response`) lists `warnings` and
+/// `next` as required, because writers always emit them.
+#[test]
+fn envelope_schemas_require_warnings_and_next() {
+    fn requires(schema: &Value, field: &str) -> bool {
+        schema["required"]
+            .as_array()
+            .is_some_and(|r| r.iter().any(|f| f == field))
+    }
+    let mut checked = 0;
+    for s in public_schemas() {
+        let doc = serde_json::to_value(&s.schema).unwrap();
+        if s.name == "envelope" || s.name.starts_with("envelope.") {
+            for field in [
+                "schema_version",
+                "state",
+                "code",
+                "data",
+                "warnings",
+                "next",
+            ] {
+                assert!(requires(&doc, field), "{}: `{field}` not required", s.name);
+            }
+            assert!(
+                !requires(&doc, "operation_id"),
+                "{}: operation_id is optional",
+                s.name
+            );
+            checked += 1;
+        }
+        if let Some(defs) = doc["$defs"].as_object() {
+            for (name, def) in defs {
+                if name.starts_with("Envelope") {
+                    for field in ["warnings", "next"] {
+                        assert!(requires(def, field), "{}#{name}: `{field}`", s.name);
+                    }
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked >= 6, "envelope schemas found: {checked}");
+}
+
+/// Wave-1 E5, reader side: the schema describes what writers emit; a lenient reader
+/// still accepts an envelope that omits `warnings` and `next` (as empty and `null`)
+/// and materializes both when it writes the document back.
+#[test]
+fn envelope_without_warnings_and_next_still_deserializes() {
+    use heimdall_contract::envelope::{Envelope, ErrorData};
+    let bare = r#"{"schema_version":"1","state":"succeeded","code":"OK","data":{"k":1}}"#;
+    let env: Envelope<Value> = serde_json::from_str(bare).unwrap();
+    assert!(env.warnings.is_empty());
+    assert!(env.next.is_none());
+    let written = serde_json::to_value(&env).unwrap();
+    assert_eq!(written["warnings"], serde_json::json!([]));
+    assert!(written.get("next").is_some_and(Value::is_null));
+
+    let bare_error = r#"{"schema_version":"1","state":"failed","code":"USAGE_ERROR","data":{"error":{"code":"USAGE_ERROR","effect_status":"none","retryable":false,"next":{"action":"fix_request"},"message":"m"}}}"#;
+    let err: Envelope<ErrorData> = serde_json::from_str(bare_error).unwrap();
+    assert!(err.warnings.is_empty() && err.next.is_none());
+    assert_eq!(err.code, Code::UsageError);
 }

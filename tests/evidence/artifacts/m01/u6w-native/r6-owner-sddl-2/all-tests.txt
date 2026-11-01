@@ -1,0 +1,78 @@
+### heimdall_ipc_tests
+
+running 24 tests
+test endpoint::tests::only_same_user_passes ... ok
+test endpoint::tests::windows_pipe_names_carry_only_the_token ... ok
+test frame::tests::decode_error_does_not_echo_peer_bytes ... ok
+test frame::tests::oversize_is_rejected_before_allocation ... ok
+test frame::tests::round_trip_and_partial ... ok
+test session::tests::inconsistent_hello_requiring_an_unoffered_capability_is_rejected ... ok
+test session::tests::rejects_wrong_major_and_missing_required_capability ... ok
+test session::tests::subscription_start_debug_omits_contents ... ok
+test signing::tests::allow_list_is_exact ... ok
+test signing::tests::canned_frames_are_well_formed ... ok
+test windows::tests::bind_outside_runtime_errors_instead_of_panicking ... ok
+test windows::tests::bind_refuses_non_pipe_names_and_non_sid_owners ... ok
+test windows::tests::classify_path_namespace_rules ... ok
+test windows::tests::connect_with_owner_accepts_a_same_user_server ... ok
+test windows::tests::connect_with_owner_refuses_an_unexpected_owner ... ok
+test windows::tests::connect_with_owner_refuses_bad_input_before_any_open ... ok
+test windows::tests::current_user_sid_is_a_literal_sid ... ok
+test windows::tests::dacl_denies_unlisted_principal ... ok
+test windows::tests::existing_name_makes_bind_fail_first_instance ... ok
+test windows::tests::missing_pipe_is_not_found ... ok
+test windows::tests::non_pipe_endpoints_refused_before_any_open ... ok
+test windows::tests::same_user_connect_reports_owner_sid_and_owner_only_dacl ... ok
+test windows::tests::sid_mismatch_is_disconnected_and_listener_keeps_waiting ... ok
+test windows::tests::sid_string_validation_rejects_aliases_and_injection ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.52s
+
+### heimdall_ipc_tests exit=0
+### adversarial_ipc_frames
+
+running 10 tests
+test attend_on_a_non_interactive_session_is_refused ... ok
+test client_messages_round_trip ... ok
+test codec_matches_pure_decoder ... ok
+test codec_refuses_oversize_from_the_header_without_reserving ... ok
+test decode_frame_never_panics ... ok
+test many_valid_requests_are_all_answered ... ok
+test parse_errors_never_quote_the_input ... ok
+test production_hello_timeout_closes_a_silent_connection ... ok
+test serve_survives_adversarial_streams ... ok
+test zero_length_and_wrong_types_after_hello_close_with_goodbye ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+
+### adversarial_ipc_frames exit=0
+### adversarial_agent_frames
+
+running 16 tests
+test a_valid_frame_after_an_oversize_header_is_never_read ... ok
+test classify_is_total ... ok
+test control_bytes_on_the_signing_endpoint_get_failure_and_no_json_parse ... ok
+test disallowed_types_get_failure_and_the_connection_stays_usable ... ok
+test framer_survives_arbitrary_streams ... ok
+test identities_answer_never_exceeds_the_frame_limit ... ok
+test idle_connection_closes_at_the_idle_timeout ... ok
+test m01_default_endpoint_lists_nothing_and_refuses_signing ... ok
+test oversize_signature_becomes_failure ... ok
+test oversize_zero_length_and_truncated_frames_close_without_reply ... ok
+test public_serve_closes_after_thirty_seconds_idle ... ok
+test report_section4_crafted_frame_corpus ... ok
+test shutdown_closes_promptly ... ok
+test sign_fields_are_exact ... ok
+test sign_request_reaches_the_signer_verbatim_and_answer_interoperates ... ok
+test sixty_fifth_identity_is_never_listed ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+### adversarial_agent_frames exit=0
+### integration_ipc_unix
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+### integration_ipc_unix exit=0

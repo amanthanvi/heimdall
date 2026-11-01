@@ -56,9 +56,9 @@ M02 adapters are both known callers; no plugin framework exists.
 | Crate (lib name) | Responsibility | Must not own | Depends on | Public surface (skeleton) |
 |---|---|---|---|---|
 | `heimdall-contract` | Wire contract: `Envelope<T>`, `Code` table with exit/retry/effect/next, `ExitCode`, `OperationState`/`GrantState`, typed IDs, `Event`/`Cursor`/`Snapshot`, six-primitive request/response types, IPC message set + hard limits, canonical JSON + `RequestHash`, JSON Schema generator | Semantics (transitions, authority, hashing *inputs*), I/O | serde, serde_json, schemars, jiff, sha2 | `code::Code`, `exit::ExitCode`, `envelope::*`, `state::*`, `ids::*`, `event::*`, `request::*`, `ipc::*`, `canonical::{canonical_json, request_hash}`, `schema::{public_schemas, code_table}`, `version::*` |
-| `heimdall-domain` | Pure functions and data: `Scope` algebra, `StandingPolicy` (pause/cutoff, revision, `AuthorityGeneration`), `ProfileSnapshot`, `EnvironmentRecord`, `resolve_authority`, `GrantSnapshot`, `OperationRecord`, `grant_transition`/`operation_transition`, `Clock` + `Deadline` + `TimeAnchor`/`assess_time`, `IdempotencyKey`/`compute_hash`/`classify`, `EnforcementEvidence`, `ManagedResource`/`may_cleanup`, `Tombstone`/`generation_still_valid` | Provider SDK calls, UI, hidden I/O, retry loops (plan §4.1) | contract, jiff, serde | module per concept; every function `pub` and pure |
-| `heimdall-store` | SQLite state (`Store`, `Txn`), versioned migrations with backup, WAL + `synchronous=FULL`, fault points (`FaultHook`, `FaultPoint`), per-environment event sequence, retention purge that never touches tombstones/policies | Secrets in plaintext (references only, spec §13.3), authorization, wire rendering | domain, contract, rusqlite | `Store::{open, open_in_memory, transaction, schema_version}`, `Txn` repository methods, `migrations::{MIGRATIONS, SCHEMA_VERSION, apply}` |
-| `heimdall-app` | `Operations` (inspect/ensure/bind/delegate/observe/cancel/release/revoke/policy/tick), `ensure::EnsureStage` pipeline + `StageHook`, `SingleFlight`, `reconcile::{plan, Backoff, should_retry, guard_cleanup}`, `EventPublisher` + reader-scoped cursors, `OpError`/`Completed` → envelope, `ports::{CredentialAdapter, DecisionChannel}`, `ids` (CSPRNG) | Shell-string construction, per-frontend retry loops, SQL, framing, rendering | domain, contract, store, tokio (sync/time), async-trait, getrandom, base64ct | as listed; everything returns `OpResult<T>` |
+| `heimdall-domain` | Pure functions and data: `Scope` algebra, `StandingPolicy` (pause/cutoff, revision, `AuthorityGeneration`), `ProfileSnapshot`, `EnvironmentRecord`, `resolve_authority` (+`Denial::DeadlinePassed`), `GrantSnapshot`, `BindingRecord`/`may_act_on`, `OperationRecord` + `RecoveryIntent`/`StageReceipt`/`EffectReceipt`, `grant_transition`/`operation_transition`, time (`Clock`/`BootId`/`TimeSync`/`TimeAnchor`/`gate`/`GrantAnchor`/`admission`), `IdempotencyKey`/`compute_hash`/`classify` + `ExpiredKeyMarker`, `DecisionRecord`/`complete`, issuance records + `check`/`residual`, `EnforcementEvidence`, `ManagedResource`/`may_cleanup`, `Tombstone`/`generation_still_valid` | Provider SDK calls, UI, hidden I/O, retry loops, platform clock syscalls (plan §4.1) | contract, jiff, serde | module per concept; every function `pub` and pure |
+| `heimdall-store` | SQLite state (`Store`, `Txn`), versioned migrations with backup (0001 init, 0002 design-fix tables), WAL + `synchronous=FULL`, fault points (`FaultHook`, `FaultPoint`), neutral per-environment event sequences, retention purge that leaves expired-key markers and never touches tombstones, policies, decisions, issuance entries, grant anchors or unresolved operations | Secrets in plaintext (references only, spec §13.3), authorization, wire rendering, reader-scoped cursors | domain, contract, rusqlite | `Store::{open, open_in_memory, transaction, schema_version}`, `Txn` repository methods in `lib.rs` (wave 1) and `ext.rs` (bindings, profiles/snapshots, environments, policies_for, tombstone/denied_ancestor, decisions, time anchors/high-water/confirmation, idempotency settlement/markers, recovery intent/receipts, issuance reserve/publish/void/residual, unresolved_operations, stored_events_after/snapshot_boundary), `migrations::{MIGRATIONS, SCHEMA_VERSION, apply}` |
+| `heimdall-app` | `Operations` (inspect/ensure/bind/delegate/observe/cancel/release/revoke/policy/tick + `attend`/`decide`/`confirm_time`) over `context::Caller { context, attendance, interaction }`, `OperationsConfig { store, clock, time_sync, time_policy, environment, adapters, stage_hook, limits, default_window }`, `TimeGate` (the one shared gate; `SafeNow`), `ensure::EnsureStage` pipeline + `StageHook` (injected in production), `SingleFlight`, `reconcile::{plan, Backoff, should_retry, guard_cleanup}`, `EventPublisher` + `SubscriptionStart`/`SequencedEvent` + reader-scoped cursors built at delivery, `OpError`/`Completed` → envelope, `ports::CredentialAdapter` (prepare/renew/**reconcile**/revoke with `effect_token`), `ids` (CSPRNG) | Shell-string construction, per-frontend retry loops, SQL, framing, rendering, owner decisions as a port (they are store records) | domain, contract, store, tokio (sync/time), async-trait, getrandom, base64ct | as listed; everything returns `OpResult<T>` |
 | `heimdall-ipc` | Control endpoint transport (Unix socket dir + `peer_cred`; Windows named pipe + DACL + client SID), length-prefixed JSON framing, hello negotiation, per-connection limits, `Dispatcher` trait, `ControlClient`, bounded SSH-agent framer for the signing endpoint with an exact allow-list and `Signer` trait | Authorization, operation logic, storage | contract, tokio (net/io), tokio-util codec, ssh-agent-lib (proto only), windows-sys (Windows) | `endpoint::*`, `frame::*`, `session::{negotiate, ControlConnection, ControlClient, Dispatcher}`, `signing::{classify, serve, Signer}`, `unix::*`/`windows::*` |
 | `heimdall-runtime` | `Config`/`Paths` (TOML + schema), `InstanceLock` (`File::try_lock`), `InstanceInfo`, `Service::{start, run}`, `Supervisor` (resource owners, deadline scheduler, time guard), `launcher::ensure_running` (on-demand start), `telemetry::{init, redact}` | Authority semantics, operation logic, wire formats, rendering | app, ipc, store, domain, contract, tokio, toml, schemars, etcetera, tracing | as listed |
 | `heimdall` (bin) | clap command tree (spec §11.1), envelope rendering and exit mapping (`output`), `service run` entry, `tui` entry (M02-T05), `schema export|show` (implemented) | Any authorization or lifecycle implementation (plan §4.1 "Interfaces") | runtime, app, ipc, contract, clap | `heimdall` executable |
@@ -137,34 +137,44 @@ overflow behaviour:
 | Retries per resource | `reconcile::Backoff::max_attempts` = 8, cap 60 s, jitter | resource `failed`, durable next step, no prompt storm |
 | Frame sizes | 1 MiB control, 16 KiB hello, 256 KiB signing | reject before allocation, close |
 
-## 5. Time model (spec §6.2, §6.4; ADR-0006 §10)
+## 5. Time model (spec §6.2, §6.4; ADR-0005 §3.6 revision 3; ADR-0006 §10) — revised by the design-fix round
 
-* `domain::time::Clock` (`wall()` → `jiff::Timestamp` UTC, `monotonic()` →
-  `Duration`) is injected everywhere time is read: `Operations`, `Supervisor`,
-  adapters receive `now` as a value. `SystemClock` in production,
-  `testkit::VirtualClock` in tests (advance, monotonic-only advance, wall rollback,
-  restart). Virtual-clock tests therefore drive the real `Operations`, `Supervisor::
-  scheduler_pass` and `time_guard_pass` code, not copies.
-* Deadlines are resolved **once** at creation (`resolve_deadline`): the caller's
-  intent (absolute RFC 3339 with offset, or a duration) is kept verbatim in
-  `Deadline.intent`, the enforced instant in `Deadline.effective` (UTC); both are
-  persisted in the immutable grant columns. Enforcement is always
-  `now >= effective` against the persisted instant (`is_expired`), after restart,
-  wake or clock change alike. Ambiguous local times are rejected at the human input
-  boundary (`DeadlineError::Ambiguous`, jiff disambiguation); machine requests must
-  be unambiguous.
-* Monotonic time is used for in-process intervals only (backoff, renewal cadence,
-  skew detection). It is never persisted across processes except inside a
-  `TimeAnchor` tagged with a `process_generation`.
-* **Rollback detection.** The time guard persists `TimeAnchor { wall, monotonic,
-  process_generation }` every `anchor_interval` and after wake. `assess_time`
-  returns `Uncertain(Rollback)` when wall < previous anchor − `max_tolerated_rollback`
-  (default 5 s), and `Uncertain(Skew)` when, within one process, wall progress and
-  monotonic progress differ by more than `max_tolerated_skew` (60 s). Forward jumps
-  are plausible (sleep) and only make deadlines expire sooner. On `Uncertain`,
-  issuance and activation stop with `TIME_UNCERTAIN`; passive reads continue with a
-  warning; expiry checks still run (they can only deny). Server clock errors are a
-  separate diagnosis (M03).
+* **Three injected sources.** `domain::time::Clock` gives `wall()` (UTC
+  `Timestamp`), `continuous()` (boot-scoped, counts sleep: Linux `CLOCK_BOOTTIME`,
+  macOS `mach_continuous_time`, Windows `QueryInterruptTime`) and `boot_id()`
+  (Linux `/proc/sys/kernel/random/boot_id`, macOS `kern.bootsessionuuid`, Windows
+  the Session Manager `BootId` counter [I], evidenced in M04); `domain::time::
+  TimeSync` reports whether the OS says its clock is synchronized (platform stubs
+  return `Unknown` until M03/M04 evidence; `Unknown` fails closed). Production
+  sources live in `runtime::platform` (`SystemClock`, `SystemTimeSync`); tests use
+  `testkit::VirtualClock` (advance, continuous-only advance, wall step, reboot) and
+  `testkit::ScriptedTimeSync`, so virtual-clock tests drive the real gate, the real
+  `Operations` and the real `Supervisor` passes.
+* **Deadlines** are resolved once (`resolve_deadline`), intent kept verbatim,
+  effective instant persisted in the immutable grant columns; nothing moves them.
+  Ambiguous local times are refused at the human input boundary.
+* **Per-grant anchors.** At activation, or at first validation in a boot, the
+  runtime persists `GrantAnchor { boot_id, continuous, wall, bound, budget_end =
+  continuous + (bound − wall) }`. `admission(grant_anchor, now)` is `Expired` once
+  the wall clock reaches the bound **or** the continuous budget runs out, and
+  `NeedsAnchor` (fail closed, not an expiry) when the anchor belongs to another
+  boot. Budgets only shorten (`shorten`); they are never rebuilt from the wall clock;
+  a same-boot process restart resumes from the persisted anchor.
+* **One shared gate.** `app::TimeGate::check` (over `domain::time::gate`) runs before
+  every admission, signature and issuance, in `Operations`, the signer (M03) and the
+  issuer (M03) alike; there is no supervisor-private flag. It returns `Safe` and
+  persists the new runtime anchor and **high-water mark** (latest accepted wall
+  time, never lowered), or `Uncertain` → `TIME_UNCERTAIN` and persists nothing, when:
+  the wall clock is below the high-water mark by more than `max_tolerated_rollback`
+  (5 s); within a boot it disagrees with the continuous-clock prediction from the
+  last accepted anchor by more than `max_tolerated_skew` (60 s) **in either
+  direction** (frozen wall, step back, implausible forward jump) or the continuous
+  clock went backwards; after a reboot or at first start it is not both at/above the
+  mark **and** reported synchronized, unless an attended owner confirmation covers
+  this boot (`Operations::confirm_time`, attended sessions only; it never moves a
+  deadline or budget). Passive reads continue with a warning while uncertain; the
+  wall-bound expiry still applies (it can only deny). Tolerances are M01 defaults;
+  G09 sets the final values. Server clock errors are a separate diagnosis (M03).
 
 ## 6. Storage model (spec §13.3, P08; plan §4.3)
 
@@ -203,6 +213,13 @@ failure to `INTERNAL_ERROR`; adapter errors map by variant (`ProviderLocked` →
 `ACCEPTED` exits 0 only when the caller chose `--async` (`output::exit_code_for`).
 `run` exits with the child's status after launch (spec §10.4; M02).
 
+Design-fix additions: `Denial::DeadlinePassed` → `CREDENTIAL_EXPIRED`; a decision
+that is consumed, expired or issued under an older generation → `DECISION_STALE`
+(exit 6); an owner-present action on an unattended session → `INTERACTION_REQUIRED`
+with `next.decision_ref`; a code unknown to the reader → `Code::Unknown(String)`,
+never success, exit 1, effect `unknown` (ADR-0006 §9). `Code` is `Clone`, not
+`Copy`, because of the reader fallback.
+
 ## 8. Mapping to spec §13.1 and plan §7.1
 
 | spec §13.1 box | crate |
@@ -221,13 +238,25 @@ integration,adversarial}` hold cross-crate tests as `m01-plan.md` assigns them.
 
 ## 9. `unsafe` inventory
 
-`unsafe_code = "deny"` at workspace level. Exactly one module may opt in:
-`crates/ipc/src/windows.rs` (`#![allow(unsafe_code)]`) for `CreateNamedPipeW`
-security attributes (`create_with_security_attributes_raw`), SDDL conversion, and
-the client-token query (`ImpersonateNamedPipeClient` → `OpenThreadToken` →
-`GetTokenInformation(TokenUser)` → `RevertToSelf`). Each call is wrapped in a safe
-function with its invariants documented; no `unsafe` leaves the module. Unix needs
-none (tokio provides `peer_cred`; std provides file locks and permission bits).
+`unsafe_code = "deny"` at workspace level. Exactly two modules may opt in:
+
+1. `crates/ipc/src/windows.rs` (`#![allow(unsafe_code)]`): `CreateNamedPipeW`
+   security attributes (`create_with_security_attributes_raw`), SDDL conversion,
+   the client-token query (`ImpersonateNamedPipeClient` → `OpenThreadToken` →
+   `GetTokenInformation(TokenUser)` → `RevertToSelf`), the remote-client check
+   (`GetNamedPipeClientComputerNameW`), and the client-side server-owner check
+   `handle_owner_sid` (`GetSecurityInfo(OWNER_SECURITY_INFORMATION)` on the client
+   handle, `ConvertSidToStringSidW`, the returned descriptor and string released
+   with `LocalFree` exactly once; design-fix second round R8). The server's SDDL
+   sets an explicit owner `O:<sid>` (R6) so the check holds for elevated runtimes.
+2. `crates/runtime/src/platform.rs` (`#![allow(unsafe_code)]`): the boot-scoped
+   continuous clock and boot ID syscalls (`clock_gettime(CLOCK_BOOTTIME)`,
+   `mach_continuous_time`/`mach_timebase_info`, `sysctlbyname`,
+   `QueryInterruptTime`, the `BootId` registry read).
+
+Each call is wrapped in a safe function with its invariants documented; no `unsafe`
+leaves either module. Unix IPC needs none (tokio provides `peer_cred`; std provides
+file locks and permission bits).
 Dependencies' internal `unsafe` is not audited by this document (REPORT.md §8
 lesson); `cargo-deny`/`cargo auditable`/OSV scanning are M08 obligations
 (ADR-0002 §11).
@@ -244,8 +273,21 @@ lesson); `cargo-deny`/`cargo auditable`/OSV scanning are M08 obligations
   (AGENTS.md). Toolchain pinned in `rust-toolchain.toml` (1.99.1, edition 2024,
   resolver 3). `Cargo.lock` committed; CI uses `--locked`.
 * `tools/validation/check.sh`: `cargo fmt --all --check`, `cargo clippy --workspace
-  --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`; prints
-  each real exit code; the schema-consistency diff is enabled by M01-T06.
+  --all-targets --locked -- -D warnings`, `cargo test --workspace --locked`, the
+  generated-schema diff (two exports must match each other and
+  `schemas/public-api/`), and a zero-test guard: any non-doctest test target that
+  reports `running 0 tests` fails the run (review F09). Each step prints its real
+  exit code.
+* **Test-target convention (review F09).** Every planned suite is a real Cargo
+  `[[test]]` target whose source lives under the repository `tests/{model,
+  contracts,integration,adversarial,e2e}/` tree (plan §7.1 layout), declared with
+  `path = "../../tests/..."` in the crate that already has the needed dependency
+  edges (`heimdall-testkit` hosts the model and store suites, `heimdall-contract`
+  the contracts suite, `heimdall-ipc` its integration/adversarial suites). No
+  `#[path]` inclusion into unit-test modules; items a suite needs are `pub`
+  (`#[doc(hidden)]` when not part of the public surface). Pipeline faults are
+  injected through production code (`OperationsConfig.stage_hook`,
+  `Store::open*(faults)`), never through test-only code paths.
 * Lessons carried from `prototypes/rust/REPORT.md` into this design: classify a
   Windows path before opening it and check `FILE_TYPE_PIPE`/`FILE_TYPE_DISK` on the
   handle (§16); crossterm 0.29 hangs on terminal hang-up and `Terminal::clear()`

@@ -2,17 +2,27 @@
 //! §2.6; `prototypes/rust/REPORT.md` §4 crafted-frame corpus, ported to the
 //! server side).
 //!
-//! Compiled as a unit-test module of `heimdall_ipc::signing` (`#[path]` include)
-//! so it can drive the private framer pieces; every test runs against in-memory
+//! Cargo test target `adversarial_agent_frames` hosted by `heimdall-ipc` (review
+//! F09 convention). It drives the framer through the public `heimdall_ipc::signing`
+//! API plus its `#[doc(hidden)]` pieces (`serve_with_idle`, `identities_frame`,
+//! `sign_response_frame`, `parse_sign_request`); every test runs against in-memory
 //! duplex streams with synthetic, public-format fixture blobs (no real keys).
 //! Interoperability is checked by encoding requests and decoding answers with
-//! `ssh_agent_lib::proto`, an independent implementation of the protocol.
+//! `ssh_agent_lib::proto`, an independent implementation of the protocol. Idle
+//! timeouts run in paused virtual time (tokio `test-util`).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use heimdall_contract::ipc::MAX_SIGNING_FRAME_BYTES;
+use heimdall_ipc::signing::{
+    AllowedRequest, IDLE_TIMEOUT_MS, MAX_IDENTITIES, NoIdentities, Signer, SigningRefusal,
+    classify, empty_identities_frame, failure_frame, identities_frame, parse_sign_request, serve,
+    serve_with_idle, sign_response_frame,
+};
+use heimdall_testkit::CANARY_PREFIX;
 use proptest::prelude::*;
 use ssh_agent_lib::proto::{PublicCredential, Request, Response, SignRequest};
 use ssh_encoding::{Decode, Encode};
@@ -20,21 +30,24 @@ use ssh_key::public::{Ed25519PublicKey, KeyData};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
 
-use super::*;
-
-/// Same rule as `heimdall_testkit::assert_no_canary` (testkit is not a
-/// dev-dependency of this crate; see the M01-U6U7 hand-off escalation).
+/// `heimdall_testkit::assert_no_canary` over raw bytes (ASCII canaries survive
+/// the lossy conversion intact).
 fn assert_no_canary(output: &[u8]) {
-    let needle = b"HEIMDALL_CANARY_";
-    assert!(
-        !output.windows(needle.len()).any(|w| w == needle),
-        "canary leaked into output"
-    );
+    heimdall_testkit::assert_no_canary(&String::from_utf8_lossy(output));
 }
 
 fn synthetic_canary() -> String {
     // Built per run; never committed as a value.
-    format!("HEIMDALL_CANARY_{:x}", std::process::id())
+    format!("{CANARY_PREFIX}{:x}", std::process::id())
+}
+
+/// Independent reader for one draft-miller `string` (u32 length + bytes): returns
+/// the string and the rest, or `None` on overrun. Deliberately not the library's
+/// own reader, so the answer is checked against a second implementation.
+fn read_string(buf: &[u8]) -> Option<(&[u8], &[u8])> {
+    let (len, rest) = buf.split_first_chunk::<4>()?;
+    let len = u32::from_be_bytes(*len) as usize;
+    (len <= rest.len()).then(|| rest.split_at(len))
 }
 
 /// `(key_blob, data, flags)` as the signer received them.
@@ -182,12 +195,18 @@ fn identities_answer_never_exceeds_the_frame_limit() {
     assert_eq!(body[0], 12);
     let n = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
     assert!(n > 0 && n < 64, "listed {n}");
-    let mut f = Fields(&body[5..]);
-    for _ in 0..n {
-        f.string().unwrap();
-        f.string().unwrap();
+    let mut rest = &body[5..];
+    for i in 0..n {
+        let (blob, after_blob) = read_string(rest).unwrap();
+        let (comment, after_comment) = read_string(after_blob).unwrap();
+        assert_eq!(blob, vec![i as u8; 8 << 10].as_slice());
+        assert_eq!(comment, format!("big-{i}").as_bytes());
+        rest = after_comment;
     }
-    assert!(f.0.is_empty());
+    assert!(
+        rest.is_empty(),
+        "trailing bytes after the listed identities"
+    );
     assert!(out.len() <= 4 + MAX_SIGNING_FRAME_BYTES);
 }
 
@@ -312,11 +331,12 @@ async fn control_bytes_on_the_signing_endpoint_get_failure_and_no_json_parse() {
             name: canary.clone(),
             version: "0".into(),
         },
-        capabilities: crate::session::server_capabilities(),
+        capabilities: heimdall_ipc::session::server_capabilities(),
         required: Default::default(),
+        interaction: heimdall_contract::request::InteractionMode::NonInteractive,
     });
     let control_frame =
-        crate::frame::encode_frame(&hello, heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES)
+        heimdall_ipc::frame::encode_frame(&hello, heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES)
             .unwrap();
     assert_eq!(control_frame[4], b'{');
     // `{` (0x7b = 123) is not an agent type: classified, refused, never parsed.
@@ -341,7 +361,8 @@ async fn control_bytes_on_the_signing_endpoint_get_failure_and_no_json_parse() {
     // A control-sized frame (above the signing limit) closes the connection.
     let big = serde_json::json!({ "type": "request", "pad": "x".repeat(300 << 10) });
     let big =
-        crate::frame::encode_frame(&big, heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES).unwrap();
+        heimdall_ipc::frame::encode_frame(&big, heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES)
+            .unwrap();
     let (res, out, _) = exchange(&big, Arc::new(NoIdentities), IDLE).await;
     assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
     assert!(out.is_empty());
@@ -411,9 +432,8 @@ async fn report_section4_crafted_frame_corpus() {
 
 #[tokio::test]
 async fn idle_connection_closes_at_the_idle_timeout() {
-    // Short real-time timeout; the production constant is asserted below. A
-    // virtual-time run of the 30 s constant needs tokio `test-util`, which this
-    // crate's dev-dependencies do not enable (escalated).
+    // Short real-time timeout; the production constant runs in virtual time in
+    // `public_serve_closes_after_thirty_seconds_idle`.
     let idle = Duration::from_millis(100);
     let (client, server) = tokio::io::duplex(1024);
     let start = Instant::now();
@@ -448,19 +468,32 @@ async fn idle_connection_closes_at_the_idle_timeout() {
     assert_eq!(IDLE_TIMEOUT_MS, 30_000);
 }
 
-/// The public `serve` with the real 30 s constant, in real time. Ignored by
-/// default (30 s); run with `cargo test -p heimdall-ipc -- --ignored`.
-#[tokio::test]
-#[ignore = "takes 30 s of real time; virtual time needs tokio test-util"]
+/// The public `serve` with the production 30 s constant, in paused virtual time
+/// (tokio `test-util`): closed exactly at the deadline, not before. A trickling
+/// peer (header byte, then silence) is cut off at the same deadline.
+#[tokio::test(start_paused = true)]
 async fn public_serve_closes_after_thirty_seconds_idle() {
+    let deadline = Duration::from_millis(IDLE_TIMEOUT_MS);
     let (_client, server) = tokio::io::duplex(1024);
-    let start = Instant::now();
+    let start = tokio::time::Instant::now();
     serve(server, Arc::new(NoIdentities), CancellationToken::new())
         .await
         .unwrap();
     let elapsed = start.elapsed();
     assert!(
-        elapsed >= Duration::from_millis(IDLE_TIMEOUT_MS) && elapsed < Duration::from_secs(40),
+        elapsed >= deadline && elapsed < deadline + Duration::from_secs(1),
+        "{elapsed:?}"
+    );
+
+    let (mut client, server) = tokio::io::duplex(1024);
+    client.write_all(&[0]).await.unwrap();
+    let start = tokio::time::Instant::now();
+    serve(server, Arc::new(NoIdentities), CancellationToken::new())
+        .await
+        .unwrap();
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed >= deadline && elapsed < deadline + Duration::from_secs(1),
         "{elapsed:?}"
     );
 }

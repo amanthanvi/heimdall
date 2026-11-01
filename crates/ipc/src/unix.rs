@@ -4,13 +4,19 @@
 //!   under the state dir; created `0700`, owned by the runtime's uid; both checked
 //!   (`fstat` after open, compared with the `lstat` of the path so a symlink or a
 //!   swapped directory is refused) before any bind.
-//! * Socket: `0600`. The workspace has no `libc`/`rustix` and denies `unsafe`, so
-//!   the process umask is not changed around `bind`; the socket is `chmod`ed to
-//!   `0600` immediately after `bind`, before the first `accept`. During that window
-//!   the socket is unreachable for other users because its directory is `0700`
-//!   and ours (the directory, not the socket mode, is the barrier; macOS ignores
-//!   socket modes for `connect` anyway). The peer check on every accepted
-//!   connection is the authentication.
+//! * Socket: `0600`. **Umask equivalent, as implemented** (ADR-0006 §2.1 rev2,
+//!   wave-1 E13): the baseline's "bound under umask `077`" is met by the pair
+//!   (a) the runtime directory verified `0700` and owned by the runtime uid through
+//!   `fstat` on an opened handle (above), then (b) `chmod 0600` of the socket
+//!   immediately after `bind`, re-checked by `lstat` (socket, our uid, no
+//!   group/other bits; otherwise the socket is unlinked and `bind` fails), all
+//!   before the first `accept`. The workspace has no `libc`/`rustix` and denies
+//!   `unsafe`, so the process umask itself is never changed (it is process-wide
+//!   and would race other threads). Between `bind` and `chmod` the socket is
+//!   unreachable for other users because its directory is `0700` and ours: the
+//!   directory, not the socket mode, is the barrier (macOS ignores socket modes
+//!   for `connect` anyway). The peer check on every accepted connection is the
+//!   authentication.
 //! * Stale socket: unlinked only when it is a socket, owned by our uid, and dead
 //!   (`connect` → `ECONNREFUSED`); never by glob. A live socket, a foreign-owned
 //!   socket, or any non-socket file at the path is left in place and `bind` fails.
@@ -21,6 +27,15 @@
 //!   connecting; after connecting the server's peer credentials must be ours too
 //!   (stale-socket and squatting defence; a same-user attacker is out of scope,
 //!   spec §14.1).
+//! * The same rules serve all three endpoint kinds (control, signing, issuer); the
+//!   kind only selects the file name and the frame limit.
+//! * Server identity: [`crate::session::ControlConnection::with_server_identity`]
+//!   is kept (decision recorded with E13): the runtime (M01-U8) sets the
+//!   environment ID and server `PeerInfo` once per listener.
+//!
+//! The injected-`stat` rules ([`PathFacts`], [`classify_existing`],
+//! [`check_private_dir`], [`check_own_socket`]) are `#[doc(hidden)] pub` for the
+//! `integration_ipc_unix` test target; they are not a supported API.
 
 use std::fs;
 use std::io;
@@ -295,26 +310,37 @@ fn ensure_private_dir(dir: &Path, uid: u32) -> io::Result<()> {
 }
 
 /// File kind as far as the endpoint checks care.
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FileKind {
+pub enum FileKind {
+    /// A real directory.
     Dir,
+    /// A Unix socket.
     Socket,
+    /// A symbolic link (never followed).
     Symlink,
+    /// Anything else.
     Other,
 }
 
 /// The `stat` fields the endpoint checks use. Separate from `fs::Metadata` so the
 /// foreign-owner branches can be tested with injected values (changing a file's
 /// owner needs root).
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PathFacts {
-    pub(crate) kind: FileKind,
-    pub(crate) uid: u32,
-    pub(crate) mode: u32,
+pub struct PathFacts {
+    /// File kind (`lstat`, symlinks not followed).
+    pub kind: FileKind,
+    /// Owner uid.
+    pub uid: u32,
+    /// Permission bits (`& 0o7777`).
+    pub mode: u32,
 }
 
 impl PathFacts {
-    pub(crate) fn of(meta: &fs::Metadata) -> Self {
+    /// Facts from `lstat`/`fstat` metadata.
+    #[must_use]
+    pub fn of(meta: &fs::Metadata) -> Self {
         let ft = meta.file_type();
         let kind = if ft.is_symlink() {
             FileKind::Symlink
@@ -334,18 +360,23 @@ impl PathFacts {
 }
 
 /// Why a runtime directory is not acceptable.
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum DirProblem {
+pub enum DirProblem {
+    /// Not a real directory.
     #[error("runtime directory path is not a directory (or is a symlink)")]
     NotADirectory,
+    /// Owned by another uid.
     #[error("runtime directory is owned by another user")]
     WrongOwner,
+    /// Group or other permission bits set.
     #[error("runtime directory grants group or other access")]
     TooPermissive,
 }
 
 /// Pure directory rule: a real directory, ours, no group/other bits.
-pub(crate) fn check_private_dir(f: &PathFacts, uid: u32) -> Result<(), DirProblem> {
+#[doc(hidden)]
+pub fn check_private_dir(f: &PathFacts, uid: u32) -> Result<(), DirProblem> {
     if f.kind != FileKind::Dir {
         return Err(DirProblem::NotADirectory);
     }
@@ -359,7 +390,8 @@ pub(crate) fn check_private_dir(f: &PathFacts, uid: u32) -> Result<(), DirProble
 }
 
 /// Pure client rule for the socket file itself.
-pub(crate) fn check_own_socket(f: &PathFacts, uid: u32) -> Result<(), ConnectError> {
+#[doc(hidden)]
+pub fn check_own_socket(f: &PathFacts, uid: u32) -> Result<(), ConnectError> {
     if f.kind == FileKind::Socket && f.uid == uid && f.mode & 0o077 == 0 {
         Ok(())
     } else {
@@ -368,8 +400,9 @@ pub(crate) fn check_own_socket(f: &PathFacts, uid: u32) -> Result<(), ConnectErr
 }
 
 /// What occupies an endpoint path before `bind`.
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Existing {
+pub enum Existing {
     /// Nothing there.
     Absent,
     /// Our socket, nobody listening: safe to unlink.
@@ -384,7 +417,8 @@ pub(crate) enum Existing {
 
 /// Pure stale-socket rule. `probe` connects to the path; it is called only for a
 /// socket we own.
-pub(crate) fn classify_existing(
+#[doc(hidden)]
+pub fn classify_existing(
     facts: Option<PathFacts>,
     uid: u32,
     probe: impl FnOnce() -> io::Result<()>,
@@ -413,7 +447,3 @@ pub(crate) fn classify_existing(
         _ => Existing::LiveOurs,
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/integration/ipc_unix.rs"]
-mod ipc_unix;

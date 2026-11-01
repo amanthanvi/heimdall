@@ -183,6 +183,18 @@ prefixed_id!(
     /// Event ID; consumers deduplicate by it (spec §11.5).
     EventId, "evt"
 );
+prefixed_id!(
+    /// Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).
+    DecisionId, "dec"
+);
+prefixed_id!(
+    /// Issuance-log entry ID (ADR-0005 §3.5 reserve/publish/void).
+    IssuanceId, "iss"
+);
+prefixed_id!(
+    /// Credential instance ID (ADR-0005 §12: key handle plus per-pair certificates).
+    CredentialInstanceId, "cred"
+);
 
 token_id!(
     /// Caller-chosen request ID; part of the idempotency key (spec §11.4).

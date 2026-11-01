@@ -172,6 +172,44 @@ fn revoking_stays_pending_at_deadline_until_complete() {
     );
 }
 
+/// ADR-0006 §4.1 (review F07): `outcome_unknown` is quiescent (nothing runs) but
+/// not settled (the effect is not known); only reconciliation settles it.
+#[test]
+fn outcome_unknown_is_quiescent_not_settled_until_reconciled() {
+    use OperationEvent as E;
+    use OperationState as S;
+    let unknown = S::OutcomeUnknown;
+    assert!(unknown.is_quiescent());
+    assert!(!unknown.is_settled());
+    assert!(unknown.is_unresolved());
+    for (event, settled) in [
+        (E::ReconciledApplied, S::Succeeded),
+        (E::ReconciledNotApplied, S::Failed),
+    ] {
+        let next = operation_transition(unknown, event).unwrap();
+        assert_eq!(next, settled, "{event:?}");
+        assert!(next.is_settled() && next.is_quiescent() && !next.is_unresolved());
+    }
+    // No retry, cancellation or blind outcome moves it.
+    for e in OP_EVENTS {
+        if !matches!(e, E::ReconciledApplied | E::ReconciledNotApplied) {
+            assert!(operation_transition(unknown, e).is_err(), "{e:?}");
+        }
+    }
+    // The three classes partition the states.
+    for st in OP_STATES {
+        let active = matches!(st, S::Queued | S::Running | S::AwaitingApproval);
+        assert_eq!(st.is_quiescent(), !active, "{st:?}");
+        assert_eq!(
+            st.is_settled(),
+            matches!(st, S::Succeeded | S::Failed | S::Cancelled),
+            "{st:?}"
+        );
+        assert_eq!(st.is_unresolved(), st == S::OutcomeUnknown, "{st:?}");
+        assert_eq!(st.is_quiescent(), st.is_settled() || st.is_unresolved());
+    }
+}
+
 #[test]
 fn only_active_and_degraded_permit_use() {
     for s in GRANT_STATES {
@@ -292,9 +330,9 @@ mod props {
             }
         }
 
-        /// Operation traces: succeeded/failed/cancelled absorb; `outcome_unknown`
-        /// leaves only through reconciliation to a terminal truth; a timeout is
-        /// not an event, so no event table entry models it.
+        /// Operation traces: settled states (succeeded/failed/cancelled) absorb;
+        /// `outcome_unknown` is quiescent and leaves only through reconciliation to
+        /// a settled truth; a timeout is not an event, so no table entry models it.
         #[test]
         fn operation_traces_are_absorbing(
             start in op_state(),
@@ -308,6 +346,7 @@ mod props {
                         before,
                         OperationState::Succeeded | OperationState::Failed | OperationState::Cancelled
                     ));
+                    prop_assert!(!before.is_settled(), "{:?} is settled", before);
                     if before == OperationState::OutcomeUnknown {
                         prop_assert!(matches!(
                             e,

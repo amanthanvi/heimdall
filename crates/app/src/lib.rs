@@ -13,6 +13,7 @@
 //! Must not own: shell-string construction, per-frontend retry loops, transport
 //! framing, terminal rendering, or storage SQL.
 
+pub mod context;
 pub mod ensure;
 pub mod error;
 pub mod events;
@@ -21,6 +22,9 @@ pub mod operations;
 pub mod ports;
 pub mod reconcile;
 pub mod singleflight;
+pub mod timegate;
 
+pub use context::{Attendance, Caller};
 pub use error::{OpError, OpResult};
 pub use operations::{Operations, OperationsConfig};
+pub use timegate::{SafeNow, TimeGate};

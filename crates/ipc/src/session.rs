@@ -1,5 +1,5 @@
-//! Control-endpoint sessions: hello negotiation, request dispatch, subscriptions
-//! (ADR-0006 §2.3–§2.5).
+//! Control-endpoint sessions: hello negotiation, attendance, request dispatch,
+//! subscriptions (ADR-0006 §2.3–§2.5, §3.1, §8).
 //!
 //! Wire rules enforced here (both sides share [`crate::frame`]):
 //!
@@ -7,7 +7,9 @@
 //!   `MAX_HELLO_FRAME_BYTES` and must arrive within `hello_timeout_ms`, otherwise
 //!   the connection is closed. A malformed or wrong first frame gets
 //!   `Reject(USAGE_ERROR)` and a close; a negotiation failure gets
-//!   `Reject(SCHEMA_UNSUPPORTED)` and a close.
+//!   `Reject(SCHEMA_UNSUPPORTED)` and a close. `required` must be a subset of the
+//!   **negotiated** set (server offer ∩ client `capabilities`), so a hello cannot
+//!   require what it did not offer to speak (review F10).
 //! * Afterwards frames are limited to `MAX_CONTROL_FRAME_BYTES`. A declared
 //!   length above the limit is refused from the 4-byte header alone, before any
 //!   buffer for the body is reserved. Malformed frames end the connection with
@@ -16,13 +18,38 @@
 //!   the excess request is answered `BACKPRESSURE` with `retry_after_ms` and is
 //!   not dispatched. At most `max_subscriptions` subscriptions exist; the excess
 //!   subscribe is answered `BACKPRESSURE`.
-//! * A subscriber that lags its bounded broadcast buffer gets exactly one
-//!   `ResyncRequired` event per lag episode; the backlog is dropped, never
-//!   buffered without bound.
 //! * When the peer disconnects, outstanding dispatch futures are dropped (the
 //!   application layer is cancellation-safe: a dropped caller never changes
 //!   operation state, plan §6.3 #7); on `shutdown` the server sends
 //!   `Goodbye(SERVICE_UNAVAILABLE)` and closes.
+//!
+//! **Attendance** (ADR-0006 §2.3, §3.1; review F03). The hello's `interaction`
+//! is recorded in the session's [`SessionInfo`]. `Attend` on a session that
+//! declared `interactive` marks it attended and is answered `OK {"attended":
+//! true}`; on any other session it is answered `INTERACTION_REQUIRED` and changes
+//! nothing. A request for which `Request::requires_attended_session()` holds
+//! (decisions, time confirmation, `resume`, `clear_cutoff`) on an unattended
+//! session is answered `INTERACTION_REQUIRED` and never dispatched; the
+//! application layer checks again (defence in depth). Attendance is a session
+//! property set by the runtime when it accepts `Attend`; it is never a request
+//! field, and every dispatch receives a snapshot of it taken when the request
+//! frame was read. **Disclosed limit:** a process running as the same OS user can
+//! open an interactive session and send `Attend` itself, imitating the terminal
+//! flow (spec §13.2, §14.2). Attendance is a boundary against non-interactive
+//! agents and paired clients, not isolation from same-user code.
+//!
+//! **Subscriptions** (ADR-0006 §8; review F08). [`Dispatcher::subscribe`] returns
+//! a [`SubscriptionStart`]: the live receiver (created before the boundary was
+//! read), the boundary as the reader's cursor and as a neutral sequence, and either
+//! a consistent snapshot or the retained backlog after the client's cursor. The
+//! session replies `Subscribed { cursor, snapshot }`, then sends every backlog
+//! event (already cursor-personalized by the dispatcher), then live events with
+//! `seq > boundary_seq` only, each personalized by the subscription's `cursor_for`
+//! at delivery. Overlap between the boundary read and the live receiver is
+//! therefore deduplicated here. A subscriber that lags its bounded broadcast
+//! buffer gets exactly one `ResyncRequired` event per lag episode; the backlog is
+//! dropped, never buffered without bound. The backlog itself is bounded by the
+//! dispatcher (store retention and paging), not by this module.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::future::Future;
@@ -33,13 +60,14 @@ use std::time::Duration;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
 use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData, ErrorDetail, NextAction};
-use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, MAX_CURSOR_LEN};
+use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, MAX_CURSOR_LEN, Snapshot};
 use heimdall_contract::ids::{EnvironmentId, EventId};
 use heimdall_contract::ipc::{
     ClientHello, ClientMessage, EVENT_BUFFER_PER_SUBSCRIPTION, HELLO_TIMEOUT_MS,
     MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES, MAX_SUBSCRIPTIONS_PER_CONNECTION, PeerInfo,
     PrincipalInfo, ServerHello, ServerMessage, capability,
 };
+use heimdall_contract::request::{InteractionMode, Request};
 use heimdall_contract::{Code, PROTOCOL_VERSION, SchemaVersion};
 use tokio::sync::broadcast;
 use tokio_util::bytes::{Buf, Bytes, BytesMut};
@@ -64,6 +92,10 @@ pub fn server_capabilities() -> BTreeSet<String> {
 
 /// Negotiate a client hello. Pure: the transport has already authenticated the
 /// peer and supplies `principal`.
+///
+/// The negotiated set is the server offer ∩ the client's `capabilities`; every
+/// `required` capability must be in it (ADR-0006 §2.3 rev2, review F10), else
+/// `SCHEMA_UNSUPPORTED`. Rejection messages never quote client-supplied strings.
 pub fn negotiate(
     hello: &ClientHello,
     principal: PrincipalInfo,
@@ -74,7 +106,7 @@ pub fn negotiate(
         Box::new(Envelope::failed(
             None,
             ErrorDetail {
-                code,
+                code: code.clone(),
                 effect_status: EffectStatus::None,
                 retryable: false,
                 resource: None,
@@ -97,15 +129,16 @@ pub fn negotiate(
         ));
     }
     let offered = server_capabilities();
-    if let Some(missing) = hello.required.iter().find(|r| !offered.contains(*r)) {
-        let _ = missing;
-        return Err(reject(
-            Code::SchemaUnsupported,
-            "a required capability is not available",
-        ));
-    }
     let capabilities: BTreeSet<String> =
         offered.intersection(&hello.capabilities).cloned().collect();
+    if !hello.required.is_subset(&capabilities) {
+        let message = if hello.required.is_subset(&offered) {
+            "a required capability is missing from the client's own capabilities"
+        } else {
+            "a required capability is not available"
+        };
+        return Err(reject(Code::SchemaUnsupported, message));
+    }
     Ok(ServerHello {
         protocol: PROTOCOL_VERSION,
         schema_version: SchemaVersion::current(),
@@ -114,6 +147,65 @@ pub fn negotiate(
         principal,
         environment_id: environment,
     })
+}
+
+/// What a [`Dispatcher`] learns about the session a request or subscription came
+/// from (ADR-0006 §2.3, §3.1).
+///
+/// `principal` is what the transport authenticated; `interaction` is what the
+/// hello declared; `attended` is set only by the session itself, when it accepts
+/// `Attend` on an `interactive` session. None of it is read from request content.
+/// Each dispatch gets a copy taken when its frame was read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionInfo {
+    /// Authenticated OS principal.
+    pub principal: PrincipalInfo,
+    /// Interaction mode declared in the hello.
+    pub interaction: InteractionMode,
+    /// Whether the session was marked attended (owner present at the interactive
+    /// CLI/TUI flow). Same-user code can imitate that flow (module docs).
+    pub attended: bool,
+}
+
+/// One live event as published: the neutral store sequence and the event with
+/// a not-yet-personalized cursor (the session sets it with `cursor_for`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveEvent {
+    /// Store sequence (monotonic per environment).
+    pub seq: u64,
+    /// The event; its `cursor` is replaced at delivery.
+    pub event: Event,
+}
+
+/// What a subscription starts with (ADR-0006 §8; review F08). Same shape as
+/// `heimdall_app::events::SubscriptionStart`; the runtime adapts one to the other.
+pub struct SubscriptionStart {
+    /// Boundary the stream continues after, as the reader's cursor (sent in
+    /// `Subscribed.cursor`).
+    pub cursor: Cursor,
+    /// Highest sequence reflected in `snapshot`/`backlog`; live events with
+    /// `seq <= boundary_seq` are duplicates and are not sent.
+    pub boundary_seq: u64,
+    /// Consistent snapshot taken at the boundary, when the client had no usable
+    /// cursor.
+    pub snapshot: Option<Snapshot<serde_json::Value>>,
+    /// Retained events after the client's cursor up to the boundary, in order and
+    /// already cursor-personalized for this reader.
+    pub backlog: Vec<Event>,
+    /// Live receiver created **before** the boundary was read.
+    pub live: broadcast::Receiver<Arc<LiveEvent>>,
+    /// Builds this reader's cursor for a live event's sequence.
+    pub cursor_for: Arc<dyn Fn(u64) -> Cursor + Send + Sync>,
+}
+
+impl std::fmt::Debug for SubscriptionStart {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SubscriptionStart")
+            .field("boundary_seq", &self.boundary_seq)
+            .field("snapshot", &self.snapshot.is_some())
+            .field("backlog", &self.backlog.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// Per-connection bookkeeping limits (ADR-0006 §2.5).
@@ -149,13 +241,19 @@ const CLIENT_EVENT_BACKLOG: usize =
 /// Length-prefixed frame codec with a hard, switchable limit. The declared length
 /// is compared with the limit from the header alone; only an accepted length
 /// reserves buffer space. Bytes left at EOF are [`FrameError::Truncated`].
+///
+/// Public for the `adversarial_ipc_frames` test target only; not a supported API.
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BoundedFrameCodec {
+pub struct BoundedFrameCodec {
     max: usize,
 }
 
 impl BoundedFrameCodec {
-    pub(crate) fn new(max: usize) -> Self {
+    /// Codec refusing frames above `max` bytes.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn new(max: usize) -> Self {
         Self { max }
     }
 }
@@ -224,7 +322,11 @@ where
 /// quote fragments of the (untrusted, possibly secret-bearing) input; only the
 /// error category survives, so logging a returned [`FrameError`] never echoes
 /// peer bytes.
-pub(crate) fn parse_frame<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, FrameError> {
+///
+/// Public for [`crate::frame::decode_frame`] and the test targets; not a
+/// supported API.
+#[doc(hidden)]
+pub fn parse_frame<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, FrameError> {
     serde_json::from_slice(bytes).map_err(|e| {
         let what = match e.classify() {
             serde_json::error::Category::Io => "malformed frame (io)",
@@ -238,14 +340,14 @@ pub(crate) fn parse_frame<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Resul
 
 /// Error envelope with the code table's defaults (ADR-0006 §5).
 fn error_envelope(code: Code, effect_status: EffectStatus, message: &str) -> Envelope<ErrorData> {
-    let mut next = NextAction::for_code(code);
+    let mut next = NextAction::for_code(code.clone());
     if code == Code::Backpressure {
         next.retry_after_ms = Some(BACKPRESSURE_RETRY_AFTER_MS);
     }
     Envelope::failed(
         None,
         ErrorDetail {
-            code,
+            code: code.clone(),
             effect_status,
             retryable: code.retryable(),
             resource: None,
@@ -296,6 +398,8 @@ fn session_event_id() -> EventId {
     EventId::from_random_bytes(bytes)
 }
 
+/// A `ResyncRequired` event whose cursor is the last position the subscriber
+/// was delivered (before the gap): resuming from it never skips the gap.
 fn resync_event(environment: &EnvironmentId, cursor: &Cursor, dropped: u64) -> Event {
     Event {
         schema_version: SchemaVersion::current(),
@@ -336,31 +440,24 @@ enum Done {
     Subscribed {
         seq: u64,
         filter: EventFilter,
-        result: SubscribeResult,
+        from: Option<Cursor>,
+        result: Result<SubscriptionStart, Box<Envelope<ErrorData>>>,
     },
 }
-
-type SubscribeResult = Result<
-    (
-        Cursor,
-        broadcast::Receiver<std::sync::Arc<heimdall_contract::event::Event>>,
-    ),
-    Box<Envelope<ErrorData>>,
->;
 
 type Pending<'a> = Pin<Box<dyn Future<Output = Done> + Send + 'a>>;
 
 struct SubPoll {
     id: u64,
-    rx: broadcast::Receiver<Arc<Event>>,
-    result: Result<Arc<Event>, broadcast::error::RecvError>,
+    rx: broadcast::Receiver<Arc<LiveEvent>>,
+    result: Result<Arc<LiveEvent>, broadcast::error::RecvError>,
 }
 
 type SubFuture = Pin<Box<dyn Future<Output = Option<SubPoll>> + Send>>;
 
 fn next_from(
     id: u64,
-    mut rx: broadcast::Receiver<Arc<Event>>,
+    mut rx: broadcast::Receiver<Arc<LiveEvent>>,
     stop: CancellationToken,
 ) -> SubFuture {
     Box::pin(async move {
@@ -374,8 +471,21 @@ fn next_from(
 
 struct SubState {
     filter: EventFilter,
+    /// Last position delivered to (or passed by) this subscriber; the cursor of a
+    /// `ResyncRequired` event.
     last_cursor: Cursor,
+    /// Live events at or below this sequence were covered by the snapshot/backlog.
+    boundary_seq: u64,
+    cursor_for: Arc<dyn Fn(u64) -> Cursor + Send + Sync>,
     stop: CancellationToken,
+}
+
+/// Whether a reply went out as built or was replaced because it exceeded the
+/// frame limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sent {
+    AsBuilt,
+    Replaced,
 }
 
 impl<S> ControlConnection<S>
@@ -395,6 +505,10 @@ where
     /// Set what the server reports in `ServerHello` (its environment ID and
     /// software). Required before [`ControlConnection::serve`]; without it the
     /// connection is closed with `Goodbye(INTERNAL_ERROR)`.
+    ///
+    /// Kept as a builder by decision (ADR-0006 §2.1 rev2, wave-1 E13): the runtime
+    /// (M01-U8) sets the environment ID and server `PeerInfo` once per listener and
+    /// applies them to each accepted connection.
     #[must_use]
     pub fn with_server_identity(mut self, environment_id: EnvironmentId, server: PeerInfo) -> Self {
         self.identity = Some((environment_id, server));
@@ -514,8 +628,12 @@ where
         wire.codec_mut().max = MAX_CONTROL_FRAME_BYTES;
 
         // ---- request / subscription loop ---------------------------------
+        let mut session = SessionInfo {
+            principal,
+            interaction: hello.interaction,
+            attended: false,
+        };
         let dispatcher = &dispatcher;
-        let principal = &principal;
         let mut inflight: FuturesUnordered<Pending<'_>> = FuturesUnordered::new();
         let mut pending_subscribes = 0usize;
         let mut subs: HashMap<u64, SubState> = HashMap::new();
@@ -536,51 +654,56 @@ where
                     break Ok(());
                 }
                 Some(done) = inflight.next(), if !inflight.is_empty() => {
-                    let msg = match done {
-                        Done::Response { seq, envelope } => ServerMessage::Response {
-                            in_reply_to: seq,
-                            envelope,
-                        },
-                        Done::Subscribed { seq, filter, result } => {
-                            pending_subscribes -= 1;
-                            match result {
-                                Ok((cursor, rx)) => {
-                                    let id = next_sub_id;
-                                    next_sub_id += 1;
-                                    let stop = shutdown.child_token();
-                                    sub_polls.push(next_from(id, rx, stop.clone()));
-                                    subs.insert(id, SubState {
-                                        filter,
-                                        last_cursor: cursor.clone(),
-                                        stop,
-                                    });
-                                    ServerMessage::Subscribed {
-                                        in_reply_to: seq,
-                                        subscription: id,
-                                        cursor,
-                                    }
-                                }
-                                Err(env) => ServerMessage::Response {
-                                    in_reply_to: seq,
-                                    envelope: to_value_envelope(*env),
-                                },
+                    match done {
+                        Done::Response { seq, envelope } => {
+                            let msg = ServerMessage::Response { in_reply_to: seq, envelope };
+                            if let Err(e) = send_or_internal(&mut wire, msg).await {
+                                break Err(e);
                             }
                         }
-                    };
-                    if let Err(e) = send_or_internal(&mut wire, msg).await {
-                        break Err(e);
+                        Done::Subscribed { seq, result: Err(env), .. } => {
+                            pending_subscribes -= 1;
+                            let msg = ServerMessage::Response {
+                                in_reply_to: seq,
+                                envelope: to_value_envelope(*env),
+                            };
+                            if let Err(e) = send_or_internal(&mut wire, msg).await {
+                                break Err(e);
+                            }
+                        }
+                        Done::Subscribed { seq, filter, from, result: Ok(start) } => {
+                            pending_subscribes -= 1;
+                            let id = next_sub_id;
+                            next_sub_id += 1;
+                            let stop = shutdown.child_token();
+                            match start_subscription(&mut wire, &environment, seq, id, filter, from, start, stop).await {
+                                Ok(Some((state, live))) => {
+                                    sub_polls.push(next_from(id, live, state.stop.clone()));
+                                    subs.insert(id, state);
+                                }
+                                // The `Subscribed` frame was over the limit and was
+                                // replaced by an error response: no subscription.
+                                Ok(None) => {}
+                                Err(e) => break Err(e),
+                            }
+                        }
                     }
                 }
                 Some(Some(poll)) = sub_polls.next(), if !sub_polls.is_empty() => {
                     let SubPoll { id, mut rx, result } = poll;
                     let Some(state) = subs.get_mut(&id) else { continue };
                     let msg = match result {
-                        Ok(event) => {
-                            state.last_cursor = event.cursor.clone();
-                            filter_matches(&state.filter, &event).then(|| ServerMessage::Event {
-                                subscription: id,
-                                event: (*event).clone(),
-                            })
+                        // Covered by the snapshot/backlog: overlap, not sent.
+                        Ok(live) if live.seq <= state.boundary_seq => None,
+                        Ok(live) => {
+                            let mut event = live.event.clone();
+                            event.cursor = (state.cursor_for)(live.seq);
+                            let before = std::mem::replace(&mut state.last_cursor, event.cursor.clone());
+                            if filter_matches(&state.filter, &event) {
+                                Some((ServerMessage::Event { subscription: id, event }, before))
+                            } else {
+                                None
+                            }
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             let mut dropped = n;
@@ -592,10 +715,13 @@ where
                                     Err(_) => break,
                                 }
                             }
-                            Some(ServerMessage::Event {
-                                subscription: id,
-                                event: resync_event(&environment, &state.last_cursor, dropped),
-                            })
+                            Some((
+                                ServerMessage::Event {
+                                    subscription: id,
+                                    event: resync_event(&environment, &state.last_cursor, dropped),
+                                },
+                                state.last_cursor.clone(),
+                            ))
                         }
                         Err(broadcast::error::RecvError::Closed) => {
                             subs.remove(&id);
@@ -603,8 +729,8 @@ where
                         }
                     };
                     sub_polls.push(next_from(id, rx, state.stop.clone()));
-                    if let Some(msg) = msg
-                        && let Err(e) = send_event(&mut wire, msg, &environment, &state.last_cursor).await
+                    if let Some((msg, before)) = msg
+                        && let Err(e) = send_event(&mut wire, msg, &environment, &before).await
                     {
                         break Err(e);
                     }
@@ -634,14 +760,29 @@ where
                     };
                     let reply = match msg {
                         ClientMessage::Request { seq, request } => {
-                            if inflight.len() >= limits.max_inflight {
+                            if request.requires_attended_session() && !session.attended {
+                                // Defence in depth: never dispatched (ADR-0006 §2.3).
+                                Some(response(seq, Code::InteractionRequired, "this request requires an attended interactive session"))
+                            } else if inflight.len() >= limits.max_inflight {
                                 Some(response(seq, Code::Backpressure, "too many requests in flight on this connection"))
                             } else {
+                                let session = session.clone();
                                 inflight.push(Box::pin(async move {
-                                    let envelope = dispatcher.dispatch(principal, request).await;
+                                    let envelope = dispatcher.dispatch(&session, request).await;
                                     Done::Response { seq, envelope }
                                 }));
                                 None
+                            }
+                        }
+                        ClientMessage::Attend { seq } => {
+                            if session.interaction == InteractionMode::Interactive {
+                                session.attended = true;
+                                Some(ServerMessage::Response {
+                                    in_reply_to: seq,
+                                    envelope: Envelope::ok(serde_json::json!({ "attended": true })),
+                                })
+                            } else {
+                                Some(response(seq, Code::InteractionRequired, "only a session that declared interactive mode can be attended"))
                             }
                         }
                         ClientMessage::Subscribe { seq, filter, from_cursor } => {
@@ -653,9 +794,10 @@ where
                                 Some(response(seq, Code::Backpressure, "too many requests in flight on this connection"))
                             } else {
                                 pending_subscribes += 1;
+                                let session = session.clone();
                                 inflight.push(Box::pin(async move {
-                                    let result = dispatcher.subscribe(principal, filter.clone(), from_cursor).await;
-                                    Done::Subscribed { seq, filter, result }
+                                    let result = dispatcher.subscribe(&session, filter.clone(), from_cursor.clone()).await;
+                                    Done::Subscribed { seq, filter, from: from_cursor, result }
                                 }));
                                 None
                             }
@@ -705,17 +847,78 @@ where
     }
 }
 
+/// Reply `Subscribed`, then send the backlog, and hand back the state for live
+/// delivery. `Ok(None)` when the `Subscribed` frame itself was over the limit (it
+/// was replaced by an `INTERNAL_ERROR` response and no subscription exists).
+#[allow(clippy::too_many_arguments)]
+async fn start_subscription<S>(
+    wire: &mut Wire<S>,
+    environment: &EnvironmentId,
+    seq: u64,
+    id: u64,
+    filter: EventFilter,
+    from: Option<Cursor>,
+    start: SubscriptionStart,
+    stop: CancellationToken,
+) -> Result<Option<(SubState, broadcast::Receiver<Arc<LiveEvent>>)>, FrameError>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let SubscriptionStart {
+        cursor,
+        boundary_seq,
+        snapshot,
+        backlog,
+        live,
+        cursor_for,
+    } = start;
+    let reply = ServerMessage::Subscribed {
+        in_reply_to: seq,
+        subscription: id,
+        cursor: cursor.clone(),
+        snapshot,
+    };
+    if send_or_internal(wire, reply).await? == Sent::Replaced {
+        return Ok(None);
+    }
+    // Backlog: the reader's position starts at its own cursor and ends at the
+    // boundary.
+    let mut last = from.unwrap_or_else(|| cursor.clone());
+    for event in backlog {
+        let next = event.cursor.clone();
+        if filter_matches(&filter, &event) {
+            let msg = ServerMessage::Event {
+                subscription: id,
+                event,
+            };
+            send_event(wire, msg, environment, &last).await?;
+        }
+        last = next;
+    }
+    Ok(Some((
+        SubState {
+            filter,
+            last_cursor: cursor,
+            boundary_seq,
+            cursor_for,
+            stop,
+        },
+        live,
+    )))
+}
+
 fn goodbye_unknown() -> ServerMessage {
     goodbye(Code::UsageError, "unsupported client message")
 }
 
 /// Send a response or subscription frame; one that exceeds the frame limit is
 /// replaced by an `INTERNAL_ERROR` response for the same sequence number.
-async fn send_or_internal<S>(wire: &mut Wire<S>, msg: ServerMessage) -> Result<(), FrameError>
+async fn send_or_internal<S>(wire: &mut Wire<S>, msg: ServerMessage) -> Result<Sent, FrameError>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     match write_frame(wire, &msg, MAX_CONTROL_FRAME_BYTES).await {
+        Ok(()) => Ok(Sent::AsBuilt),
         Err(FrameError::TooLarge { .. }) => {
             let seq = match &msg {
                 ServerMessage::Response { in_reply_to, .. }
@@ -728,18 +931,20 @@ where
                 MAX_CONTROL_FRAME_BYTES,
             )
             .await
+            .map(|()| Sent::Replaced)
         }
-        other => other,
+        Err(e) => Err(e),
     }
 }
 
 /// Send an event frame; one that exceeds the frame limit is replaced by a
-/// `ResyncRequired` event (the consumer re-reads state from a snapshot).
+/// `ResyncRequired` event at `before` (the position delivered before it), so the
+/// consumer re-reads state from a snapshot and a resume never skips it.
 async fn send_event<S>(
     wire: &mut Wire<S>,
     msg: ServerMessage,
     environment: &EnvironmentId,
-    cursor: &Cursor,
+    before: &Cursor,
 ) -> Result<(), FrameError>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -754,7 +959,7 @@ where
                 wire,
                 &ServerMessage::Event {
                     subscription,
-                    event: resync_event(environment, cursor, 1),
+                    event: resync_event(environment, before, 1),
                 },
                 MAX_CONTROL_FRAME_BYTES,
             )
@@ -767,25 +972,28 @@ where
 /// What the runtime provides to a connection.
 #[async_trait::async_trait]
 pub trait Dispatcher: Send + Sync {
-    /// Handle one request for the authenticated principal.
+    /// Handle one request. `session` is a copy taken when the request frame was
+    /// read. A request for which `Request::requires_attended_session()` holds
+    /// reaches the dispatcher only from an attended session; the application must
+    /// check again (it is the authority, this module is defence in depth).
     async fn dispatch(
         &self,
-        principal: &PrincipalInfo,
-        request: heimdall_contract::request::Request,
+        session: &SessionInfo,
+        request: Request,
     ) -> Envelope<serde_json::Value>;
-    /// Subscribe to events (returns the start cursor and a receiver).
+
+    /// Start a subscription (ADR-0006 §8): create the live receiver first, then read
+    /// the boundary and the backlog after `from` (or a snapshot when `from` is
+    /// absent or unusable) in one store transaction. The backlog must already be
+    /// bounded and cursor-personalized for this reader. An error envelope (for
+    /// example `RESYNC_REQUIRED` for a strict caller) is sent as the subscribe
+    /// response.
     async fn subscribe(
         &self,
-        principal: &PrincipalInfo,
-        filter: heimdall_contract::event::EventFilter,
-        from: Option<heimdall_contract::event::Cursor>,
-    ) -> Result<
-        (
-            heimdall_contract::event::Cursor,
-            tokio::sync::broadcast::Receiver<std::sync::Arc<heimdall_contract::event::Event>>,
-        ),
-        Box<Envelope<ErrorData>>,
-    >;
+        session: &SessionInfo,
+        filter: EventFilter,
+        from: Option<Cursor>,
+    ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>>;
 }
 
 /// Why the server ended a client's session. Carried inside
@@ -837,7 +1045,7 @@ pub fn transport_failure_envelope(err: &FrameError, request_sent: bool) -> Envel
             } else {
                 effect
             };
-            error_envelope(*code, effect, "the runtime closed the connection")
+            error_envelope(code.clone(), effect, "the runtime closed the connection")
         }
         None => error_envelope(
             Code::ServiceUnavailable,
@@ -850,18 +1058,23 @@ pub fn transport_failure_envelope(err: &FrameError, request_sent: bool) -> Envel
 /// Result of [`ControlClient::subscribe`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum SubscribeOutcome {
-    /// Subscription established.
+    /// Subscription established. Backlog events (if any) and then live events
+    /// follow through [`ControlClient::next_event`].
     Subscribed {
         /// Handle for events and `unsubscribe`.
         subscription: u64,
-        /// Boundary the subscription starts after.
+        /// Boundary the stream continues after (the snapshot's boundary when a
+        /// snapshot is present).
         cursor: Cursor,
+        /// Consistent view at `cursor`, when the server started from a snapshot
+        /// (no cursor sent, or an expired/foreign one the server resynced).
+        snapshot: Option<Snapshot<serde_json::Value>>,
     },
     /// The server refused (e.g. `BACKPRESSURE`, `RESYNC_REQUIRED`).
     Refused(Box<Envelope<serde_json::Value>>),
 }
 
-/// Client side: connect, hello, request, subscribe.
+/// Client side: connect, hello, attend, request, subscribe.
 #[derive(Debug)]
 pub struct ControlClient<S> {
     stream: Wire<S>,
@@ -880,10 +1093,15 @@ where
 {
     /// Perform the hello exchange on a connected stream. A server rejection is
     /// returned as an error carrying a [`ServerRefusal`] (see [`server_refusal`]).
+    ///
+    /// `required` is also offered in `capabilities` (the server requires
+    /// `required ⊆ offer ∩ capabilities`). `interaction` is the session's mode:
+    /// only an `Interactive` session can later be attended ([`Self::attend`]).
     pub async fn handshake(
         stream: S,
         client: PeerInfo,
         required: BTreeSet<String>,
+        interaction: InteractionMode,
     ) -> Result<Self, crate::frame::FrameError> {
         let mut wire = Framed::new(stream, BoundedFrameCodec::new(MAX_HELLO_FRAME_BYTES));
         let mut capabilities = server_capabilities();
@@ -894,6 +1112,7 @@ where
             client,
             capabilities,
             required: required.clone(),
+            interaction,
         });
         write_frame(&mut wire, &hello, MAX_HELLO_FRAME_BYTES).await?;
         let reply = tokio::time::timeout(Duration::from_millis(HELLO_TIMEOUT_MS), wire.next())
@@ -997,13 +1216,27 @@ where
     /// map them with [`transport_failure_envelope`] (request already sent).
     pub async fn request(
         &mut self,
-        request: heimdall_contract::request::Request,
+        request: Request,
     ) -> Result<Envelope<serde_json::Value>, crate::frame::FrameError> {
         let seq = self.take_seq();
         self.send(&ClientMessage::Request { seq, request }).await?;
         match self.await_reply(seq).await? {
             ServerMessage::Response { envelope, .. } => Ok(envelope),
             _ => Err(invalid("subscription reply to a request")),
+        }
+    }
+
+    /// Ask the runtime to mark this session attended (ADR-0006 §3.1). `OK
+    /// {"attended": true}` on a session whose hello declared `Interactive`,
+    /// `INTERACTION_REQUIRED` otherwise. The caller (CLI/TUI) sends this only from
+    /// its owner-present interactive flow; same-user code can imitate that flow,
+    /// which is the disclosed limit.
+    pub async fn attend(&mut self) -> Result<Envelope<serde_json::Value>, FrameError> {
+        let seq = self.take_seq();
+        self.send(&ClientMessage::Attend { seq }).await?;
+        match self.await_reply(seq).await? {
+            ServerMessage::Response { envelope, .. } => Ok(envelope),
+            _ => Err(invalid("unexpected attend reply")),
         }
     }
 
@@ -1024,10 +1257,12 @@ where
             ServerMessage::Subscribed {
                 subscription,
                 cursor,
+                snapshot,
                 ..
             } => Ok(SubscribeOutcome::Subscribed {
                 subscription,
                 cursor,
+                snapshot,
             }),
             ServerMessage::Response { envelope, .. } => {
                 Ok(SubscribeOutcome::Refused(Box::new(envelope)))
@@ -1094,6 +1329,7 @@ mod tests {
             },
             capabilities: server_capabilities(),
             required: required.iter().map(|s| (*s).to_owned()).collect(),
+            interaction: InteractionMode::NonInteractive,
         }
     }
 
@@ -1101,32 +1337,77 @@ mod tests {
         EnvironmentId::from_random_bytes([7; 16])
     }
 
+    fn srv() -> PeerInfo {
+        PeerInfo {
+            name: "heimdall".into(),
+            version: "0".into(),
+        }
+    }
+
     #[test]
     fn rejects_wrong_major_and_missing_required_capability() {
         let p = PrincipalInfo::OsUserUnix { uid: 501 };
-        let srv = PeerInfo {
-            name: "heimdall".into(),
-            version: "0".into(),
-        };
-        let ok = negotiate(
-            &hello(PROTOCOL_VERSION, "1", &[]),
-            p.clone(),
-            env(),
-            srv.clone(),
-        );
+        let ok = negotiate(&hello(PROTOCOL_VERSION, "1", &[]), p.clone(), env(), srv());
         assert!(ok.is_ok());
-        let bad_schema = negotiate(
-            &hello(PROTOCOL_VERSION, "2", &[]),
-            p.clone(),
-            env(),
-            srv.clone(),
-        );
+        let bad_schema = negotiate(&hello(PROTOCOL_VERSION, "2", &[]), p.clone(), env(), srv());
         assert_eq!(bad_schema.unwrap_err().code, Code::SchemaUnsupported);
-        let bad_cap = negotiate(&hello(PROTOCOL_VERSION, "1", &["nope/9"]), p, env(), srv);
+        let bad_cap = negotiate(&hello(PROTOCOL_VERSION, "1", &["nope/9"]), p, env(), srv());
         assert_eq!(bad_cap.unwrap_err().code, Code::SchemaUnsupported);
     }
-}
 
-#[cfg(test)]
-#[path = "../../../tests/adversarial/ipc_frames.rs"]
-mod ipc_frames;
+    /// Review F10: `required` must be within the negotiated set, not merely the
+    /// server's offer. A hello that requires `events/1` but omits it from its own
+    /// capabilities is rejected; the same hello with `events/1` offered passes and
+    /// the server hello lists it.
+    #[test]
+    fn inconsistent_hello_requiring_an_unoffered_capability_is_rejected() {
+        let p = PrincipalInfo::OsUserUnix { uid: 501 };
+        let mut inconsistent = hello(PROTOCOL_VERSION, "1", &[capability::EVENTS_V1]);
+        inconsistent.capabilities.remove(capability::EVENTS_V1);
+        assert!(server_capabilities().contains(capability::EVENTS_V1));
+        let err = negotiate(&inconsistent, p.clone(), env(), srv()).unwrap_err();
+        assert_eq!(err.code, Code::SchemaUnsupported);
+        assert_eq!(err.data.error.effect_status, EffectStatus::None);
+
+        // Required, offered, and served: accepted and in effect.
+        let consistent = hello(PROTOCOL_VERSION, "1", &[capability::EVENTS_V1]);
+        let ok = negotiate(&consistent, p.clone(), env(), srv()).unwrap();
+        assert!(ok.capabilities.contains(capability::EVENTS_V1));
+
+        // Not required and not offered: accepted, and absent from the result.
+        let mut narrow = hello(PROTOCOL_VERSION, "1", &[]);
+        narrow.capabilities.remove(capability::EVENTS_V1);
+        let ok = negotiate(&narrow, p.clone(), env(), srv()).unwrap();
+        assert!(!ok.capabilities.contains(capability::EVENTS_V1));
+
+        // Empty capabilities with any requirement: rejected.
+        let mut empty = hello(PROTOCOL_VERSION, "1", &[capability::OPERATIONS_V1]);
+        empty.capabilities.clear();
+        assert_eq!(
+            negotiate(&empty, p, env(), srv()).unwrap_err().code,
+            Code::SchemaUnsupported
+        );
+    }
+
+    #[test]
+    fn subscription_start_debug_omits_contents() {
+        // Synthetic canary built per run (never committed as a value).
+        let canary = format!(
+            "{}{:x}",
+            heimdall_testkit::CANARY_PREFIX,
+            std::process::id()
+        );
+        let (_tx, live) = broadcast::channel(1);
+        let start = SubscriptionStart {
+            cursor: Cursor(canary),
+            boundary_seq: 9,
+            snapshot: None,
+            backlog: Vec::new(),
+            live,
+            cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),
+        };
+        let shown = format!("{start:?}");
+        assert!(shown.contains("boundary_seq: 9"));
+        heimdall_testkit::assert_no_canary(&shown);
+    }
+}

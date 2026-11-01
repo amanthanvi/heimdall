@@ -1,8 +1,14 @@
-# Windows named-pipe endpoint: native tests (M01-U6w)
+# Windows named-pipe endpoint: native tests (M01-U6w; server-owner check M01-U6b)
 
 The tests live next to the code they test, in `crates/ipc/src/windows.rs`
 (`#[cfg(test)] mod tests`), because the module is `cfg(windows)` and its helpers are
 private. They compile only for a Windows target and run only on a Windows host.
+
+Status of the server-owner check (wave-1 E14, ADR-0006 §2.1 rev2):
+`implemented_unverified`. The three `connect_with_owner_*` tests below compile for
+`x86_64-pc-windows-gnu` (`cargo clippy --target x86_64-pc-windows-gnu -p heimdall-ipc
+--all-targets -- -D warnings`) and their binary cross-links, but they have not run on
+a Windows host yet; cross-compilation does not close the claim (AGENTS.md).
 
 | Test | Claim (m01-plan.md U6w; ADR-0006 §2.1) |
 |---|---|
@@ -14,25 +20,49 @@ private. They compile only for a Windows target and run only on a Windows host.
 | `classify_path_namespace_rules` | the `GetFullPathNameW` + `\\.\pipe\` / `\\?\pipe\` rule, including `..` escapes, UNC `\\localhost\pipe\`, `GLOBALROOT`, empty names and embedded NUL |
 | `bind_refuses_non_pipe_names_and_non_sid_owners`, `sid_string_validation_rejects_aliases_and_injection` | `bind` refuses non-pipe names and owner strings that are SDDL aliases or ACE injections |
 | `bind_outside_runtime_errors_instead_of_panicking`, `missing_pipe_is_not_found`, `current_user_sid_is_a_literal_sid` | error-path and helper checks |
+| `connect_with_owner_accepts_a_same_user_server` (U6b, E14) | a same-user server is accepted with `ServerOwner::CurrentUser` and with `ServerOwner::Sid(<this user's SID>)`; the owner SID read back from the client handle (`GetSecurityInfo`, `OWNER_SECURITY_INFORMATION`) equals the current user's SID; bytes flow. Run non-elevated: an elevated server's pipes carry its token's default owner (typically `BUILTIN\Administrators`), which is what `ServerOwner::Sid` exists for |
+| `connect_with_owner_refuses_an_unexpected_owner` (U6b, E14) | our own pipe, but the client expects a different (synthetic) SID: `PermissionDenied` from the owner comparison itself (no OS error code), no SID in the error text, and the listener still serves a correctly-expecting client afterwards. This exercises the comparison; it is not the cross-user test |
+| `connect_with_owner_refuses_bad_input_before_any_open` (U6b, E14) | an expected owner that is not a literal SID (`""`, `WD`, `BA`, an ACE injection, lower-case `s-1-…`) and a path outside the pipe namespace are `InvalidInput` with no OS error, before any open (an absent pipe would otherwise answer `NotFound`, which the last case confirms) |
+
+The platform-neutral IPC suites are separate Cargo test targets since the F09
+harness migration and run on Windows too: `adversarial_ipc_frames` (control framing,
+attendance refusal, paused-time hello deadline) and `adversarial_agent_frames`
+(signing framer). `integration_ipc_unix` is `#![cfg(unix)]` and must report
+`0 passed` on Windows.
 
 ## Running
 
-On a Windows host with the Rust toolchain: `cargo test -p heimdall-ipc --lib windows::`.
+On a Windows host with the Rust toolchain: `cargo test -p heimdall-ipc --lib windows::`
+for the pipe tests, `cargo test -p heimdall-ipc` for every target.
 
 From macOS (what M01-U6w used): `tests/native/windows-ipc/run-native.sh <artifact-dir>`.
-It cross-builds the `heimdall-ipc` lib test binary for `x86_64-pc-windows-gnu` with
+It cross-builds the four `heimdall-ipc` test binaries (lib, `adversarial_ipc_frames`,
+`adversarial_agent_frames`, `integration_ipc_unix`) for `x86_64-pc-windows-gnu` with
 zig as the linker (two shims in a temporary directory: `zig cc -target
 x86_64-windows-gnu` with cargo-zigbuild-style argument filtering, and `zig dlltool`
-for the `raw-dylib` import libraries that `windows-sys` 0.61 uses), copies it to the
-owner's Windows PC over ssh, runs it as the non-elevated user through WSL interop
-from `%LOCALAPPDATA%\hm-m00\M01-U6w\` with `TEMP`/`TMP` pointed there, saves redacted
-output, scans it for `HEIMDALL_CANARY_`, and removes both scratch directories.
+for the `raw-dylib` import libraries that `windows-sys` 0.61 uses), copies them to the
+owner's Windows PC over ssh, runs them as the non-elevated user through WSL interop
+from `%LOCALAPPDATA%\hm-m00\M01-U6w\` with `TEMP`/`TMP` pointed there (the lib's
+`windows::` tests first, then every binary in full, each exit code recorded), saves
+redacted output, scans it for `HEIMDALL_CANARY_`, and removes both scratch
+directories. `HM_BUILD_ONLY=1` stops after the cross-build and records the binaries'
+SHA-256 (no ssh); M01-U6b ran only that mode.
 
 ## Not covered (blocked)
 
 * **Cross-user rejection** with a real second Windows account: blocked on the
   disposable second account (ADR-0004 §3). The two DACL/SID tests above exercise the
   same code paths with a synthetic SID, not a second principal.
+* **Server-owner check against a pipe created by another user** (E14 native proof):
+  blocked on the same disposable second Windows account. Plan: as the second account
+  (non-elevated; for example a scheduled task or `runas` started by the owner),
+  create `\\.\pipe\hm-M01-U6b-<n>-control` with a DACL that also grants the test
+  user read/write; as the test user, `connect` (no owner check) succeeds, which shows
+  the pipe is reachable, and `connect_with_owner(.., ServerOwner::CurrentUser)` is
+  refused with `PermissionDenied` before any byte is written; the second account's
+  server sees the client close without data. Expected status after that run:
+  `verified` for the E14 claim; until then `blocked` (second account) with the
+  same-user and synthetic-SID cases `implemented_unverified`.
 * **Remote-client rejection** over SMB: not run, because it would need a pipe that
   accepts network clients (no network listeners). `PIPE_REJECT_REMOTE_CLIENTS` is
   set on every instance, and `client_sid` independently refuses any connection for

@@ -16,6 +16,7 @@
 pub mod config;
 pub mod instance;
 pub mod launcher;
+pub mod platform;
 pub mod service;
 pub mod supervisor;
 pub mod telemetry;

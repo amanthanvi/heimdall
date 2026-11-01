@@ -20,3 +20,10 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+
+# Contract golden tests and schema-consistency checks (M01-T06 part 1; review F09):
+# a real Cargo test target whose sources live under the repository `tests/` tree
+# next to `schemas/` (convention, m01-plan.md §0).
+[[test]]
+name = "contracts"
+path = "../../tests/contracts/mod.rs"

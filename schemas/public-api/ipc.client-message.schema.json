@@ -104,6 +104,26 @@
         "seq",
         "subscription"
       ]
+    },
+    {
+      "description": "Mark this session attended (owner present at the CLI/TUI interactive flow;\nADR-0006 §3.1). Only valid on a session whose hello declared `interactive`;\notherwise answered `INTERACTION_REQUIRED`. The runtime, not this frame,\ndecides attendance; the same-user terminal-imitation limit is disclosed.",
+      "type": "object",
+      "properties": {
+        "seq": {
+          "description": "Per-connection sequence number.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "type": {
+          "type": "string",
+          "const": "attend"
+        }
+      },
+      "required": [
+        "type",
+        "seq"
+      ]
     }
   ],
   "$defs": {
@@ -245,6 +265,11 @@
           "description": "Client software.",
           "$ref": "#/$defs/PeerInfo"
         },
+        "interaction": {
+          "description": "Interaction mode of this session. `non_interactive` sessions can never\nbecome attended: `Attend` is refused with `INTERACTION_REQUIRED`\n(ADR-0006 §3.1). Defaults to non-interactive when omitted.",
+          "$ref": "#/$defs/InteractionMode",
+          "default": "non_interactive"
+        },
         "protocol": {
           "description": "Protocol version the client speaks.",
           "type": "integer",
@@ -253,7 +278,7 @@
           "minimum": 0
         },
         "required": {
-          "description": "Capabilities the client requires; a missing one is rejected explicitly\n(spec §11.2 \"required capability must be rejected explicitly\").",
+          "description": "Capabilities the client requires; a missing one is rejected explicitly\n(spec §11.2 \"required capability must be rejected explicitly\"). Must be a\nsubset of the negotiated set (`capabilities ∩ server offer`), ADR-0006 §2.3.",
           "type": "array",
           "default": [],
           "items": {
@@ -270,6 +295,20 @@
         "protocol",
         "schema_version",
         "client"
+      ]
+    },
+    "ConfirmTimeRequest": {
+      "description": "Attended owner confirmation of the current wall time to resolve\n`TIME_UNCERTAIN` after a reboot or sync loss (ADR-0005 §3.6). Never moves a\ndeadline; never rebuilds a budget. Attended sessions only.",
+      "type": "object",
+      "properties": {
+        "observed_wall": {
+          "description": "The wall time the owner confirms as correct now (RFC 3339 with offset). It\nmust agree with the runtime's own wall clock within tolerance; the owner\ncannot set time, only vouch for it.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "observed_wall"
       ]
     },
     "Cursor": {
@@ -314,6 +353,28 @@
           ]
         }
       ]
+    },
+    "DecideRequest": {
+      "description": "Complete a pending decision (approval of added authority, a widening policy\naction, or a time confirmation). Only accepted on an **attended** control\nsession; refused with `INTERACTION_REQUIRED` otherwise, and with\n`DECISION_STALE` when the record was consumed, expired, or issued under an older\nauthority generation (ADR-0006 §3.1). Consume-once.",
+      "type": "object",
+      "properties": {
+        "decision_id": {
+          "description": "Decision record to complete.",
+          "$ref": "#/$defs/DecisionId"
+        },
+        "verdict": {
+          "description": "Verdict.",
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "decision_id",
+        "verdict"
+      ]
+    },
+    "DecisionId": {
+      "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
+      "type": "string"
     },
     "DelegateRequest": {
       "description": "`delegate` request (primitives-draft §4.4; spec §6.7, §8.7).",
@@ -1007,6 +1068,34 @@
           "required": [
             "op"
           ]
+        },
+        {
+          "description": "Complete a server-issued decision (attended sessions only).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "decide"
+            }
+          },
+          "$ref": "#/$defs/DecideRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Attended confirmation of the current time (attended sessions only).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "confirm_time"
+            }
+          },
+          "$ref": "#/$defs/ConfirmTimeRequest",
+          "required": [
+            "op"
+          ]
         }
       ]
     },
@@ -1068,6 +1157,21 @@
     "SchemaVersion": {
       "description": "A `schema_version` value as received from a peer.",
       "type": "string"
+    },
+    "Verdict": {
+      "description": "Verdict on a server-issued decision record (ADR-0006 §3.1).",
+      "oneOf": [
+        {
+          "description": "Grant exactly the recorded delta / action.",
+          "type": "string",
+          "const": "approve"
+        },
+        {
+          "description": "Refuse it.",
+          "type": "string",
+          "const": "deny"
+        }
+      ]
     },
     "WaitMode": {
       "description": "Delivery preference; not part of the idempotency hash (ADR-0006 §7).",

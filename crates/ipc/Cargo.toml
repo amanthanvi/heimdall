@@ -30,3 +30,28 @@ windows-sys = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 proptest = { workspace = true }
+# Canary helper, VirtualClock and strategies only: no store/app graph in the IPC
+# test build or the Windows cross-check (wave-1 E2).
+heimdall-testkit = { workspace = true, default-features = false }
+# Paused virtual time for idle-timeout and hello-timeout tests (wave-1 E2).
+tokio = { workspace = true, features = ["test-util"] }
+
+# Test targets hosted here (convention, m01-plan.md §0; review F09): real Cargo
+# `[[test]]` targets whose sources live under the repository `tests/` tree. Items they
+# need beyond the supported API are `#[doc(hidden)] pub` in the library.
+
+# M01-U6 Unix endpoint and session integration over real sockets. The file is
+# `#![cfg(unix)]`, so on Windows the target builds with zero tests.
+[[test]]
+name = "integration_ipc_unix"
+path = "../../tests/integration/ipc_unix.rs"
+
+# M01-U6 control-endpoint framing under adversarial input (all platforms).
+[[test]]
+name = "adversarial_ipc_frames"
+path = "../../tests/adversarial/ipc_frames.rs"
+
+# M01-U7 signing-endpoint SSH-agent framer under adversarial input (all platforms).
+[[test]]
+name = "adversarial_agent_frames"
+path = "../../tests/adversarial/agent_frames.rs"

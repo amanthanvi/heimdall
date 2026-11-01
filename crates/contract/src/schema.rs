@@ -93,10 +93,3 @@ mod tests {
         );
     }
 }
-
-// Contract golden tests and schema-consistency checks (M01-T06 part 1) live under
-// `tests/contracts/` at the repository root so the fixtures and the tests sit next to
-// `schemas/`; they are compiled into this crate's test build only.
-#[cfg(test)]
-#[path = "../../../tests/contracts/mod.rs"]
-mod contract_tests;

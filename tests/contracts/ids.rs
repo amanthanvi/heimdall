@@ -6,12 +6,12 @@
 
 use proptest::prelude::*;
 
-use crate::ids::{
+use heimdall_contract::ids::{
     AccountName, BindingId, DestinationId, DeviceId, EnvironmentId, EventId, GrantId, IdError,
     MAX_ID_LEN, OperationId, PolicyId, ProfileId, RequestId, ResourceId, WorkId, WorkspaceId,
 };
 
-use super::proptest_config;
+use crate::proptest_config;
 
 type Parser = fn(&str) -> Result<(), IdError>;
 

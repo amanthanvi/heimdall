@@ -1,9 +1,16 @@
 //! Adapter ports (spec §13.1 "Adapters declare supported operations, side effects,
-//! interaction requirements, and enforcement capability").
+//! interaction requirements, and enforcement capability"; review F05).
 //!
 //! M01 has one implementation, `heimdall_testkit::FakeCredentialAdapter`; M02 adds
-//! the native-agent and 1Password adapters, M03 the managed signer. Adapters never
-//! start their own retry loops (spec §11.5) and never prompt.
+//! the native-agent and 1Password adapters, M03 the managed signer and issuer.
+//! Adapters never start their own retry loops (spec §11.5) and never prompt.
+//!
+//! Effects are idempotent per `effect_token`: the application mints the token,
+//! writes an `Attempted` stage receipt, then calls `prepare`. After a crash or a
+//! lost reply it asks the **same** adapter to `reconcile(token)` instead of calling
+//! `prepare` again; a stage marker or request hash is never treated as a receipt.
+//! Owner decisions are not a port any more: they are server-issued
+//! `heimdall_domain::decision::DecisionRecord`s completed on attended sessions.
 
 use std::collections::BTreeSet;
 
@@ -13,6 +20,7 @@ use heimdall_contract::ids::{DestinationId, GrantId};
 use heimdall_contract::request::{Capability, RequiredCapabilities};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::grant::GrantSnapshot;
+use heimdall_domain::operation::AdapterIdentity;
 use heimdall_domain::scope::Scope;
 
 /// Interaction an adapter may need (spec §7.2, §11.3).
@@ -31,8 +39,8 @@ pub enum InteractionRequirement {
 /// Static declaration of what an adapter can do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdapterDescriptor {
-    /// Mechanism name reported as `credential_mechanism`.
-    pub mechanism: &'static str,
+    /// Stable identity (mechanism + instance) recorded in receipts.
+    pub identity: AdapterIdentity,
     /// Capabilities it can realize.
     pub capabilities: BTreeSet<Capability>,
     /// Whether it has external side effects beyond local process/state.
@@ -43,6 +51,14 @@ pub struct AdapterDescriptor {
     pub enforcement: EnforcementEvidence,
     /// Whether it can sign while the desktop/vault is locked (verified, not assumed).
     pub lock_continuity: LockContinuity,
+}
+
+impl AdapterDescriptor {
+    /// Mechanism name reported as `credential_mechanism`.
+    #[must_use]
+    pub fn mechanism(&self) -> &str {
+        &self.identity.mechanism
+    }
 }
 
 /// Lock-continuity claim (spec §6.4, R-CR-02).
@@ -71,7 +87,7 @@ pub enum AdapterError {
     /// Minimum capability cannot be met.
     #[error("capability unavailable")]
     CapabilityUnavailable,
-    /// External effect uncertain.
+    /// External effect uncertain (lost acknowledgment); reconcile with the token.
     #[error("outcome unknown: {0}")]
     OutcomeUnknown(String),
     /// Protocol or parse failure from the dependency (bounded, redacted).
@@ -90,7 +106,11 @@ pub struct PrepareRequest<'a> {
     pub required: &'a RequiredCapabilities,
     /// Whether prompts are permitted.
     pub interactive: bool,
-    /// Now.
+    /// Idempotency token for this effect, already recorded in an `Attempted`
+    /// receipt. A repeated call with the same token must not produce a second
+    /// effect.
+    pub effect_token: &'a str,
+    /// Now (from the time gate).
     pub now: Timestamp,
 }
 
@@ -109,6 +129,17 @@ pub struct PrepareOutcome {
     pub credential_ref: String,
 }
 
+/// What reconciliation established about an earlier `effect_token`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReconcileOutcome {
+    /// The effect happened; here is what it produced.
+    Applied(PrepareOutcome),
+    /// The effect did not happen; a fresh `prepare` is safe.
+    NotApplied,
+    /// Still unknown; the operation stays `outcome_unknown`.
+    Unknown,
+}
+
 /// Result of a local revocation step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevokeOutcome {
@@ -124,25 +155,21 @@ pub trait CredentialAdapter: Send + Sync {
     /// Static declaration.
     fn descriptor(&self) -> &AdapterDescriptor;
 
-    /// Prepare credentials for a grant. Must be idempotent for the same grant and
-    /// must not extend `grant.deadline`.
+    /// Prepare credentials for a grant. Idempotent per `effect_token`; must not
+    /// extend `grant.deadline`.
     async fn prepare(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError>;
 
     /// Renew within the grant (never past its deadline or cutoff).
     async fn renew(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError>;
 
+    /// Establish what happened to an earlier effect (recovery after a crash or a
+    /// lost reply). Must not perform the effect.
+    async fn reconcile(
+        &self,
+        grant: &GrantId,
+        effect_token: &str,
+    ) -> Result<ReconcileOutcome, AdapterError>;
+
     /// Apply local revocation for a grant; remote effects are reported, not assumed.
     async fn revoke(&self, grant: &GrantId, now: Timestamp) -> Result<RevokeOutcome, AdapterError>;
-}
-
-/// Owner-decision port (primitives-draft §2: approval is not a primitive; it
-/// happens on an owner channel). M01 records decisions in the store; the TUI/CLI
-/// decision flow arrives with G05.
-#[async_trait]
-pub trait DecisionChannel: Send + Sync {
-    /// Register a pending decision and return its nonsecret reference.
-    async fn request_decision(
-        &self,
-        delta: &heimdall_domain::authority::AuthorityDelta,
-    ) -> Result<String, AdapterError>;
 }

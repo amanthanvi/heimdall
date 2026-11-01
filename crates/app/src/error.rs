@@ -30,10 +30,10 @@ impl OpError {
     #[must_use]
     pub fn new(code: Code, message: impl Into<String>) -> Self {
         Self {
-            code,
             effect_status: code.default_effect_status(),
+            next: NextAction::for_code(code.clone()),
+            code,
             resource: None,
-            next: NextAction::for_code(code),
             message: message.into(),
             operation_id: None,
         }
@@ -73,7 +73,7 @@ impl OpError {
             _ => OperationState::Failed,
         };
         let detail = ErrorDetail {
-            code: self.code,
+            code: self.code.clone(),
             effect_status: self.effect_status,
             retryable: self.code.retryable(),
             resource: self.resource,

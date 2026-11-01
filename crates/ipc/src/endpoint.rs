@@ -2,13 +2,19 @@
 
 use std::path::{Path, PathBuf};
 
-/// The two local endpoints. They never share a path, a listener, or a protocol.
+/// The three local endpoints. They never share a path, a listener, or a protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EndpointKind {
     /// Management: policy, preparation, inspection, lifecycle.
     Control,
     /// Already-authorized credential operations only (SSH agent protocol).
     Signing,
+    /// Issuance requests from the runtime's own supervisor process(es) only
+    /// (ADR-0005 §3.1, §12; ADR-0006 §2.1 rev2). Same owner-only transport as the
+    /// control endpoint and control-size frames; never materialized into a
+    /// binding, container, worker or forwarded endpoint (spec §7.3). The protocol
+    /// arrives in M03; the kind, path and non-exposure rule are fixed now.
+    Issuer,
 }
 
 impl EndpointKind {
@@ -18,6 +24,7 @@ impl EndpointKind {
         match self {
             EndpointKind::Control => "control",
             EndpointKind::Signing => "signing",
+            EndpointKind::Issuer => "issuer",
         }
     }
 
@@ -25,7 +32,9 @@ impl EndpointKind {
     #[must_use]
     pub fn max_frame_bytes(self) -> usize {
         match self {
-            EndpointKind::Control => heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES,
+            EndpointKind::Control | EndpointKind::Issuer => {
+                heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES
+            }
             EndpointKind::Signing => heimdall_contract::ipc::MAX_SIGNING_FRAME_BYTES,
         }
     }
@@ -38,6 +47,8 @@ pub struct EndpointPaths {
     pub control: PathBuf,
     /// Unix: `<runtime_dir>/signing.sock`; Windows: `\\.\pipe\heimdall-<instance>-signing`.
     pub signing: PathBuf,
+    /// Unix: `<runtime_dir>/issuer.sock`; Windows: `\\.\pipe\heimdall-<instance>-issuer`.
+    pub issuer: PathBuf,
 }
 
 impl EndpointPaths {
@@ -62,6 +73,7 @@ impl EndpointPaths {
             Self {
                 control: pipe(EndpointKind::Control),
                 signing: pipe(EndpointKind::Signing),
+                issuer: pipe(EndpointKind::Issuer),
             }
         }
         #[cfg(not(windows))]
@@ -71,6 +83,7 @@ impl EndpointPaths {
             Self {
                 control: sock(EndpointKind::Control),
                 signing: sock(EndpointKind::Signing),
+                issuer: sock(EndpointKind::Issuer),
             }
         }
     }
@@ -81,6 +94,7 @@ impl EndpointPaths {
         match kind {
             EndpointKind::Control => &self.control,
             EndpointKind::Signing => &self.signing,
+            EndpointKind::Issuer => &self.issuer,
         }
     }
 }
@@ -160,8 +174,17 @@ mod tests {
         let p = EndpointPaths::for_runtime(dir, "ignored");
         assert_eq!(p.control, dir.join("control.sock"));
         assert_eq!(p.signing, dir.join("signing.sock"));
+        assert_eq!(p.issuer, dir.join("issuer.sock"));
         assert_ne!(p.path(EndpointKind::Control), p.path(EndpointKind::Signing));
+        assert_ne!(p.path(EndpointKind::Issuer), p.path(EndpointKind::Control));
+        assert_ne!(p.path(EndpointKind::Issuer), p.path(EndpointKind::Signing));
+        assert_eq!(p.path(EndpointKind::Issuer), p.issuer.as_path());
         assert!(EndpointKind::Signing.max_frame_bytes() < EndpointKind::Control.max_frame_bytes());
+        assert_eq!(
+            EndpointKind::Issuer.max_frame_bytes(),
+            heimdall_contract::ipc::MAX_CONTROL_FRAME_BYTES
+        );
+        assert_eq!(EndpointKind::Issuer.name(), "issuer");
     }
 
     #[cfg(windows)]
@@ -175,6 +198,10 @@ mod tests {
         assert_eq!(
             p.signing,
             PathBuf::from(r"\\.\pipe\heimdall-0123abcd-signing")
+        );
+        assert_eq!(
+            p.issuer,
+            PathBuf::from(r"\\.\pipe\heimdall-0123abcd-issuer")
         );
     }
 

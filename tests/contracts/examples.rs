@@ -7,18 +7,21 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::code::Code;
-use crate::envelope::{EffectStatus, Envelope, ErrorData};
-use crate::event::{Event, Snapshot};
-use crate::exit::ExitCode;
-use crate::ipc::{ClientHello, ClientMessage, ServerMessage};
-use crate::request::{EnsureData, Request, RevokeData};
-use crate::schema::public_schemas;
-use crate::state::OperationState;
-use crate::version::SchemaVersion;
+use heimdall_contract::code::Code;
+use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData};
+use heimdall_contract::event::{Event, Snapshot};
+use heimdall_contract::exit::ExitCode;
+use heimdall_contract::ids::DecisionId;
+use heimdall_contract::ipc::{ClientHello, ClientMessage, ServerMessage};
+use heimdall_contract::request::{
+    ConfirmTimeRequest, DecideRequest, EnsureData, InteractionMode, Request, RevokeData, Verdict,
+};
+use heimdall_contract::schema::public_schemas;
+use heimdall_contract::state::OperationState;
+use heimdall_contract::version::SchemaVersion;
 
-use super::jsonschema_lite::validate;
-use super::{assert_clean, repo_root};
+use crate::jsonschema_lite::validate;
+use crate::{assert_clean, repo_root};
 
 #[derive(Clone, Copy, Debug)]
 enum Kind {
@@ -84,18 +87,23 @@ const EXAMPLES: &[(&str, Kind)] = &[
     ("envelope.error.conflict.json", Kind::EnvelopeError),
     ("envelope.error.resync.json", Kind::EnvelopeError),
     ("envelope.error.outcome-unknown.json", Kind::EnvelopeError),
+    ("envelope.error.decision-stale.json", Kind::EnvelopeError),
     ("event.operation-state-changed.json", Kind::Event),
     ("snapshot.operations.json", Kind::Snapshot),
     ("request.ensure.json", Kind::Request),
     ("request.revoke.json", Kind::Request),
     ("request.policy-cutoff.json", Kind::Request),
     ("request.observe-events.json", Kind::Request),
+    ("request.decide.json", Kind::Request),
+    ("request.confirm-time.json", Kind::Request),
     ("ipc.client-message.hello.json", Kind::ClientMessage),
     ("ipc.client-message.request.json", Kind::ClientMessage),
     ("ipc.client-message.subscribe.json", Kind::ClientMessage),
+    ("ipc.client-message.attend.json", Kind::ClientMessage),
     ("ipc.server-message.hello.json", Kind::ServerMessage),
     ("ipc.server-message.reject.json", Kind::ServerMessage),
     ("ipc.server-message.response.json", Kind::ServerMessage),
+    ("ipc.server-message.subscribed.json", Kind::ServerMessage),
     ("ipc.server-message.goodbye.json", Kind::ServerMessage),
 ];
 
@@ -332,6 +340,7 @@ fn error_examples_cover_every_exit_class_and_agree_with_the_code_table() {
         ("envelope.error.unavailable.json", ExitCode::Unavailable),
         ("envelope.error.conflict.json", ExitCode::Conflict),
         ("envelope.error.resync.json", ExitCode::Conflict),
+        ("envelope.error.decision-stale.json", ExitCode::Conflict),
         (
             "envelope.error.outcome-unknown.json",
             ExitCode::OutcomeUnknown,
@@ -450,11 +459,141 @@ fn success_examples_carry_no_private_material_fields() {
 #[test]
 fn emitted_documents_always_materialize_next_and_warnings() {
     // ADR-0006 section 3: `warnings` is always an array, `next` always present
-    // (null when nothing is expected). The generated schema leaves both optional on
-    // input (serde defaults); this pins the emitted form.
+    // (null when nothing is expected). The generated schema lists both as required
+    // (wave-1 E5, `schema_export::envelope_schemas_require_warnings_and_next`); a
+    // lenient reader still defaults them. This pins the emitted form.
     let ok = serde_json::to_value(Envelope::ok(json!({}))).unwrap();
     let obj: &Map<String, Value> = ok.as_object().unwrap();
     assert!(obj["next"].is_null());
     assert_eq!(obj["warnings"], json!([]));
     assert!(!obj.contains_key("operation_id"), "omitted, not null");
+}
+
+#[test]
+fn decision_stale_example_matches_its_table_row() {
+    let env: Envelope<ErrorData> =
+        serde_json::from_value(load("envelope.error.decision-stale.json").1).unwrap();
+    assert_eq!(env.code, Code::DecisionStale);
+    assert_eq!(env.state, OperationState::Failed);
+    assert_eq!(env.code.exit_code().as_i32(), 6);
+    let err = &env.data.error;
+    assert_eq!(err.effect_status, EffectStatus::None);
+    assert!(!err.retryable);
+    assert_eq!(err.next.action, "fix_request");
+    let resource = err.resource.as_ref().unwrap();
+    assert_eq!(resource.kind, "decision");
+    assert!(DecisionId::parse(resource.id.as_deref().unwrap()).is_ok());
+}
+
+#[test]
+fn decide_and_confirm_time_examples_are_attended_only_requests() {
+    // ADR-0006 section 3.1: both are served on attended sessions only.
+    let decide: Request = serde_json::from_value(load("request.decide.json").1).unwrap();
+    let Request::Decide(DecideRequest {
+        decision_id,
+        verdict,
+    }) = &decide
+    else {
+        panic!("not a decide request: {decide:?}");
+    };
+    assert_eq!(decision_id.as_str(), "dec_00112233445566778899aabbccddeeff");
+    assert_eq!(*verdict, Verdict::Approve);
+    assert_eq!(decide.kind(), "decide");
+    assert!(decide.requires_attended_session());
+    assert!(decide.is_effectful());
+
+    let confirm: Request = serde_json::from_value(load("request.confirm-time.json").1).unwrap();
+    let Request::ConfirmTime(ConfirmTimeRequest { observed_wall }) = &confirm else {
+        panic!("not a confirm_time request: {confirm:?}");
+    };
+    assert_eq!(
+        *observed_wall,
+        "2026-10-31T12:00:05Z"
+            .parse::<heimdall_contract::Timestamp>()
+            .unwrap()
+    );
+    assert_eq!(confirm.kind(), "confirm_time");
+    assert!(confirm.requires_attended_session());
+
+    // Unattended requests stay unattended; only the widening policy actions join.
+    for file in [
+        "request.ensure.json",
+        "request.revoke.json",
+        "request.policy-cutoff.json",
+    ] {
+        let r: Request = serde_json::from_value(load(file).1).unwrap();
+        assert!(!r.requires_attended_session(), "{file}");
+    }
+    // A decision ID of another kind is refused at the boundary.
+    let mut bad = load("request.decide.json").1;
+    bad["decision_id"] = json!("op_00112233445566778899aabbccddeeff");
+    assert!(serde_json::from_value::<Request>(bad).is_err());
+    let mut bad = load("request.decide.json").1;
+    bad["verdict"] = json!("maybe");
+    assert!(serde_json::from_value::<Request>(bad).is_err());
+}
+
+#[test]
+fn client_hello_interaction_defaults_to_non_interactive() {
+    let (_, hello) = load("ipc.client-message.hello.json");
+    let ClientMessage::Hello(declared) = serde_json::from_value(hello.clone()).unwrap() else {
+        panic!("not a hello");
+    };
+    assert_eq!(declared.interaction, InteractionMode::Interactive);
+
+    // An older client that omits the field is non-interactive, never attended.
+    let mut legacy = hello;
+    legacy.as_object_mut().unwrap().remove("interaction");
+    let ClientMessage::Hello(omitted) = serde_json::from_value(legacy).unwrap() else {
+        panic!("not a hello");
+    };
+    assert_eq!(omitted.interaction, InteractionMode::NonInteractive);
+    assert_eq!(
+        ClientHello {
+            interaction: InteractionMode::Interactive,
+            ..omitted.clone()
+        },
+        declared
+    );
+    let schema = schema_doc(Kind::ClientMessage);
+    let mut written = serde_json::to_value(ClientMessage::Hello(omitted)).unwrap();
+    assert_eq!(written["interaction"], json!("non_interactive"));
+    assert!(validate(&schema, &written).is_ok());
+    written["interaction"] = json!("attended");
+    assert!(
+        validate(&schema, &written).is_err(),
+        "unknown interaction mode"
+    );
+}
+
+#[test]
+fn attend_and_subscribed_examples_parse_to_the_documented_shapes() {
+    let ClientMessage::Attend { seq } =
+        serde_json::from_value(load("ipc.client-message.attend.json").1).unwrap()
+    else {
+        panic!("not an attend frame");
+    };
+    assert_eq!(seq, 3);
+
+    let (_, subscribed) = load("ipc.server-message.subscribed.json");
+    let ServerMessage::Subscribed {
+        in_reply_to,
+        subscription,
+        cursor,
+        snapshot,
+    } = serde_json::from_value(subscribed.clone()).unwrap()
+    else {
+        panic!("not a subscribed frame");
+    };
+    assert_eq!((in_reply_to, subscription), (2, 1));
+    let snapshot: Snapshot<Value> = snapshot.expect("snapshot present");
+    // With a snapshot, the stream continues after the snapshot's own boundary.
+    assert_eq!(snapshot.cursor, cursor);
+    // Without one (the client resumed from its cursor) the field is omitted.
+    let mut resumed = subscribed;
+    resumed.as_object_mut().unwrap().remove("snapshot");
+    let back = Kind::ServerMessage.round_trip(&resumed);
+    assert_eq!(back, resumed);
+    assert!(back.get("snapshot").is_none(), "omitted, not null");
+    assert!(validate(&schema_doc(Kind::ServerMessage), &resumed).is_ok());
 }

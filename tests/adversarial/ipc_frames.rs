@@ -1,11 +1,12 @@
 //! Control-endpoint framing under adversarial input (M01-U6; plan §6.3 A29
 //! "parsers bounded"; ADR-0006 §2.2).
 //!
-//! Compiled as a unit-test module of `heimdall_ipc::session` (`#[path]` include).
-//! Fuzz-style: `proptest` byte strategies (malformed, truncated, oversized and
-//! mutated frames) against the pure `decode_frame`, the streaming
-//! `BoundedFrameCodec`, and a full `ControlConnection::serve` over an in-memory
-//! duplex stream. Reproduce a failure with `PROPTEST_RNG_SEED=<seed>`.
+//! Cargo test target `adversarial_ipc_frames` hosted by `heimdall-ipc` (review F09
+//! convention; platform-neutral, in-memory duplex streams only). Fuzz-style:
+//! `proptest` byte strategies (malformed, truncated, oversized and mutated frames)
+//! against the pure `decode_frame`, the streaming `BoundedFrameCodec` (a
+//! `#[doc(hidden)]` export), and a full `ControlConnection::serve`. Reproduce a
+//! failure with `PROPTEST_RNG_SEED=<seed>`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -13,14 +14,22 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use heimdall_contract::event::{Cursor, Event, EventFilter};
-use heimdall_contract::ids::EnvironmentId;
+use heimdall_contract::event::{Cursor, EventFilter};
+use heimdall_contract::ids::{DecisionId, EnvironmentId};
 use heimdall_contract::ipc::{
-    ClientHello, ClientMessage, MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES, PeerInfo,
-    PrincipalInfo, ServerMessage,
+    ClientHello, ClientMessage, HELLO_TIMEOUT_MS, MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES,
+    PeerInfo, PrincipalInfo, ServerMessage,
 };
-use heimdall_contract::request::{InspectRequest, InspectSubject, Request};
+use heimdall_contract::request::{
+    DecideRequest, InspectRequest, InspectSubject, InteractionMode, Request, Verdict,
+};
 use heimdall_contract::{Envelope, ErrorData, PROTOCOL_VERSION, SchemaVersion};
+use heimdall_ipc::frame::{FrameError, decode_frame, encode_frame};
+use heimdall_ipc::session::{
+    BoundedFrameCodec, ConnectionLimits, ControlConnection, Dispatcher, LiveEvent, SessionInfo,
+    SubscriptionStart, parse_frame, server_capabilities,
+};
+use heimdall_testkit::CANARY_PREFIX;
 use proptest::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::broadcast;
@@ -28,43 +37,50 @@ use tokio_util::bytes::BytesMut;
 use tokio_util::codec::Decoder;
 use tokio_util::sync::CancellationToken;
 
-use super::*;
-use crate::frame::{FrameError, decode_frame, encode_frame};
-
-/// Same rule as `heimdall_testkit::assert_no_canary` (testkit is not a
-/// dev-dependency of this crate; see the M01-U6U7 hand-off escalation).
+/// `heimdall_testkit::assert_no_canary` over raw bytes (ASCII canaries survive
+/// the lossy conversion intact).
 fn assert_no_canary(output: &[u8]) {
-    let needle = b"HEIMDALL_CANARY_";
-    assert!(
-        !output.windows(needle.len()).any(|w| w == needle),
-        "canary leaked into output"
-    );
+    heimdall_testkit::assert_no_canary(&String::from_utf8_lossy(output));
 }
 
+/// Synthetic canary built per run; never committed as a value.
 fn canary() -> String {
-    format!("HEIMDALL_CANARY_{:x}", std::process::id())
+    format!("{CANARY_PREFIX}{:x}", std::process::id())
 }
 
 struct EchoDispatcher {
-    events: broadcast::Sender<Arc<Event>>,
+    events: broadcast::Sender<Arc<LiveEvent>>,
 }
 
 #[async_trait::async_trait]
 impl Dispatcher for EchoDispatcher {
     async fn dispatch(
         &self,
-        _principal: &PrincipalInfo,
+        session: &SessionInfo,
         request: Request,
     ) -> Envelope<serde_json::Value> {
+        // An attended-only request must never get here on these sessions (they
+        // never declare `interactive`).
+        assert!(
+            !request.requires_attended_session() || session.attended,
+            "attended-only request dispatched on an unattended session"
+        );
         Envelope::ok(serde_json::json!({ "kind": request.kind() }))
     }
     async fn subscribe(
         &self,
-        _principal: &PrincipalInfo,
+        _session: &SessionInfo,
         _filter: EventFilter,
         _from: Option<Cursor>,
-    ) -> Result<(Cursor, broadcast::Receiver<Arc<Event>>), Box<Envelope<ErrorData>>> {
-        Ok((Cursor("c0".into()), self.events.subscribe()))
+    ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+        Ok(SubscriptionStart {
+            cursor: Cursor("c0".into()),
+            boundary_seq: 0,
+            snapshot: None,
+            backlog: Vec::new(),
+            live: self.events.subscribe(),
+            cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),
+        })
     }
 }
 
@@ -79,8 +95,27 @@ fn hello(name: &str) -> Vec<u8> {
             },
             capabilities: server_capabilities(),
             required: BTreeSet::new(),
+            interaction: InteractionMode::NonInteractive,
         }),
         MAX_HELLO_FRAME_BYTES,
+    )
+    .unwrap()
+}
+
+fn attend_frame(seq: u64) -> Vec<u8> {
+    encode_frame(&ClientMessage::Attend { seq }, MAX_CONTROL_FRAME_BYTES).unwrap()
+}
+
+fn decide_frame(seq: u64) -> Vec<u8> {
+    encode_frame(
+        &ClientMessage::Request {
+            seq,
+            request: Request::Decide(DecideRequest {
+                decision_id: DecisionId::from_random_bytes([seq.to_le_bytes()[0]; 16]),
+                verdict: Verdict::Approve,
+            }),
+        },
+        MAX_CONTROL_FRAME_BYTES,
     )
     .unwrap()
 }
@@ -106,6 +141,19 @@ fn rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
+fn connection<S>(stream: S, limits: ConnectionLimits) -> ControlConnection<S>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+{
+    ControlConnection::new(stream, limits).with_server_identity(
+        EnvironmentId::from_random_bytes([1; 16]),
+        PeerInfo {
+            name: "heimdall".into(),
+            version: "test".into(),
+        },
+    )
+}
+
 /// Feed `input` to a served connection, close the write side, and return the
 /// server result plus all frames it sent (each must decode as `ServerMessage`).
 async fn drive(input: Vec<u8>) -> (Result<(), FrameError>, Vec<ServerMessage>) {
@@ -117,13 +165,7 @@ async fn drive(input: Vec<u8>) -> (Result<(), FrameError>, Vec<ServerMessage>) {
         hello_timeout_ms: 2_000,
         ..ConnectionLimits::default()
     };
-    let conn = ControlConnection::new(server, limits).with_server_identity(
-        EnvironmentId::from_random_bytes([1; 16]),
-        PeerInfo {
-            name: "heimdall".into(),
-            version: "test".into(),
-        },
-    );
+    let conn = connection(server, limits);
     let srv = conn.serve(
         PrincipalInfo::OsUserUnix { uid: 1 },
         dispatcher,
@@ -158,6 +200,69 @@ async fn drive(input: Vec<u8>) -> (Result<(), FrameError>, Vec<ServerMessage>) {
     }
     assert!(rest.is_empty(), "server sent a partial frame");
     (res, frames)
+}
+
+/// The production hello deadline (`HELLO_TIMEOUT_MS`, 5 s) in paused virtual time:
+/// a silent peer is cut off exactly at the deadline, not before.
+#[tokio::test(start_paused = true)]
+async fn production_hello_timeout_closes_a_silent_connection() {
+    let (_client, server) = tokio::io::duplex(1024);
+    let dispatcher = EchoDispatcher {
+        events: broadcast::channel(8).0,
+    };
+    let start = tokio::time::Instant::now();
+    let res = connection(server, ConnectionLimits::default())
+        .serve(
+            PrincipalInfo::OsUserUnix { uid: 1 },
+            dispatcher,
+            CancellationToken::new(),
+        )
+        .await;
+    let elapsed = start.elapsed();
+    match res {
+        Err(FrameError::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::TimedOut),
+        other => panic!("{other:?}"),
+    }
+    assert!(
+        elapsed >= Duration::from_millis(HELLO_TIMEOUT_MS)
+            && elapsed < Duration::from_millis(HELLO_TIMEOUT_MS + 1_000),
+        "{elapsed:?}"
+    );
+}
+
+/// Attend and attended-only requests on a non-interactive session over the wire:
+/// both answered `INTERACTION_REQUIRED` with their sequence numbers, nothing
+/// dispatched (`EchoDispatcher` asserts it), the session stays usable.
+#[test]
+fn attend_on_a_non_interactive_session_is_refused() {
+    let mut input = hello("t");
+    input.extend(decide_frame(1));
+    input.extend(attend_frame(2));
+    input.extend(decide_frame(3));
+    input.extend(request_frame(4));
+    let (res, frames) = rt().block_on(drive(input));
+    res.unwrap();
+    let mut answers: Vec<(u64, heimdall_contract::Code)> = frames
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::Response {
+                in_reply_to,
+                envelope,
+            } => Some((*in_reply_to, envelope.code.clone())),
+            _ => None,
+        })
+        .collect();
+    answers.sort_by_key(|(seq, _)| *seq);
+    use heimdall_contract::Code::{InteractionRequired, Ok as OkCode};
+    assert_eq!(
+        answers,
+        [
+            (1, InteractionRequired),
+            (2, InteractionRequired),
+            (3, InteractionRequired),
+            (4, OkCode)
+        ]
+    );
 }
 
 #[test]
@@ -261,6 +366,8 @@ fn piece() -> impl Strategy<Value = Vec<u8>> {
         // valid frames
         Just(hello("p")),
         any::<u64>().prop_map(request_frame),
+        any::<u64>().prop_map(attend_frame),
+        any::<u64>().prop_map(decide_frame),
         // valid frame truncated at a random point
         (any::<u64>(), any::<prop::sample::Index>()).prop_map(|(s, i)| {
             let f = request_frame(s);
@@ -374,6 +481,7 @@ proptest! {
     fn client_messages_round_trip(seq in any::<u64>(), sub in any::<u64>()) {
         for msg in [
             ClientMessage::Unsubscribe { seq, subscription: sub },
+            ClientMessage::Attend { seq },
             ClientMessage::Subscribe { seq, filter: EventFilter::default(), from_cursor: Some(Cursor("c".into())) },
         ] {
             let bytes = encode_frame(&msg, MAX_CONTROL_FRAME_BYTES).unwrap();

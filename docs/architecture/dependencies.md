@@ -23,10 +23,10 @@ edition 2024, resolver 3. Highest MSRV in the direct set is rusqlite's 1.89.
 | Crate | Pinned | Licence | Used by | Purpose | Rejected alternatives |
 |---|---|---|---|---|---|
 | serde | 1.0.229 | MIT OR Apache-2.0 | all | (de)serialization of every wire and stored type | hand-written JSON (rejected: contract drift); `miniserde` (no derive breadth) |
-| serde_json | 1.0.154 | MIT OR Apache-2.0 | all | JSON for envelopes, events, stored documents; `Value` for canonicalization (`preserve_order` deliberately **off**) | `simd-json` (unsafe-heavy, no need) |
+| serde_json | 1.0.154 (`float_roundtrip`, design-fix E3) | MIT OR Apache-2.0 | all | JSON for envelopes, events, stored documents; `Value` for canonicalization (`preserve_order` deliberately **off**; `float_roundtrip` so a parsed float canonicalizes back to the same text) | `simd-json` (unsafe-heavy, no need) |
 | schemars | 1.2.3 (features `derive`, `jiff02`) | MIT | contract, runtime | JSON Schema generated from the canonical Rust model (spec P10, plan §4.5) | hand-written schemas (rejected: two sources of truth); `typify` (inverse direction) |
 | toml | 1.1.8 (`parse`, `serde`, `std`; no `display` yet) | MIT OR Apache-2.0 | runtime | `config.toml` parsing (spec P10) | `toml_edit` (needed only when setup writes config, M02) |
-| jiff | 0.2.38 (`std`, `serde`, `tz-system`, `tzdb-bundle-platform`) | Unlicense OR MIT | contract, domain, app, runtime | `Timestamp` (UTC instant, RFC 3339 with offset), spans, time-zone disambiguation for human input (spec §6.2), schemars integration | `time` 0.3.55 (no tz database or disambiguation API); `chrono` + `chrono-tz` (two crates, weaker ambiguity semantics) |
+| jiff | 0.2.38 (`std`, `serde`, `tz-system`, `tzdb-zoneinfo`, `tzdb-bundle-platform`) | Unlicense OR MIT | contract, domain, app, runtime | `Timestamp` (UTC instant, RFC 3339 with offset), spans, time-zone disambiguation for human input (spec §6.2; `tzdb-zoneinfo` reads the system zoneinfo on Unix so named-zone input is diagnosed as ambiguous/nonexistent, design-fix E9–E11; bundled database on Windows), schemars integration | `time` 0.3.55 (no tz database or disambiguation API); `chrono` + `chrono-tz` (two crates, weaker ambiguity semantics) |
 | tokio | 1.54.1 (`rt`, `net`, `io-util`, `time`, `sync`, `macros`, `signal`; **no** `rt-multi-thread`) | MIT | app, ipc, runtime, bin | current-thread async runtime; `UnixStream::peer_cred`; Windows named-pipe `ServerOptions`/`ClientOptions`; timers; `broadcast`/`watch` | std threads + mpsc (rejected: no peer_cred/named-pipe flags without unsafe, Iroh is tokio-native); `smol`/`async-std` (no named-pipe security options) |
 | tokio-util | 0.7.20 (`codec`) | MIT | ipc, runtime, bin | `LengthDelimitedCodec` with `max_frame_length`; `CancellationToken` | hand-rolled framing (kept only as the pure test helper) |
 | futures-util | 0.3.34 (`std`, `sink`, no default) | MIT OR Apache-2.0 | ipc | `StreamExt`/`SinkExt` for framed streams | `tokio-stream` (no sink side) |
@@ -37,6 +37,7 @@ edition 2024, resolver 3. Highest MSRV in the direct set is rusqlite's 1.89.
 | ssh-encoding | 0.2.0 (`alloc`) | Apache-2.0 OR MIT | ipc | RFC 4251 encodings shared with ssh-key 0.6 | 0.3.0 (incompatible with ssh-key 0.6/ssh-agent-lib 0.6; revisit when ssh-key 0.7 is stable) |
 | sha2 | 0.10.9 | MIT OR Apache-2.0 | contract | SHA-256 for request hashes and cursor reader tags; 0.10 line to share one copy with ssh-key 0.6 | `blake3` (second hash family for no gain); sha2 0.11 (would duplicate sha2 in the graph) |
 | getrandom | 0.4.3 | MIT OR Apache-2.0 | app | OS CSPRNG for IDs and pipe-name tokens | `rand` 0.10 (API churn; not needed for IDs); `uuid` (v4 only wraps getrandom, v7 leaks time) |
+| libc | 0.2.191 (`std`, no default; Unix only) | MIT OR Apache-2.0 | runtime (`platform.rs`, design-fix round) | boot-scoped continuous clock and boot ID: `clock_gettime(CLOCK_BOOTTIME)`, `mach_continuous_time`/`mach_timebase_info`, `sysctlbyname("kern.bootsessionuuid")` (ADR-0005 §3.6); same version the lock already carried through tokio | `rustix` 1.1.6 (has `ClockId::Boottime` but no `mach_continuous_time`/`sysctl`; arrives with M02 `run` anyway); `nix` (larger; the prototype used it only for `pthread_sigmask`) |
 | base64ct | 1.8.3 (`alloc`) | Apache-2.0 OR MIT | app | base64url cursors; already in the graph through ssh-encoding | `base64` 0.23 (second base64 crate) |
 | thiserror | 2.0.21 | MIT OR Apache-2.0 | all | error enums | `anyhow` in libraries (rejected: codes must stay classified) |
 | tracing | 0.1.44 (`std`) | MIT | store, app, ipc, runtime, bin | structured local diagnostics (spec §13.6) | `log` (no spans/fields) |
@@ -51,10 +52,16 @@ edition 2024, resolver 3. Highest MSRV in the direct set is rusqlite's 1.89.
 
 ## 2. Not used, and why
 
-* `rustix` / `nix` / `libc` directly: not needed in M01 (tokio supplies peer
-  credentials; std supplies file locks since Rust 1.89 and permission bits). M02
-  `run` (process groups, termios, signal mirroring; REPORT.md §15) will add `rustix`
-  with a recorded entry.
+* `rustix` / `nix`: not needed in M01 (tokio supplies peer credentials; std
+  supplies file locks since Rust 1.89 and permission bits; `libc` covers the three
+  clock/boot-ID syscalls). M02 `run` (process groups, termios, signal mirroring;
+  REPORT.md §15) will add `rustix` with a recorded entry.
+* Dev-only feature changes of the design-fix round: `heimdall-testkit` gained
+  features `store` (ScriptedFaults) and `app` (FakeCredentialAdapter,
+  ScriptedStageHook), both default-on; `heimdall-ipc`'s dev-dependency uses
+  `default-features = false` so the IPC test build and the Windows cross-check do
+  not pull rusqlite (E2); `heimdall-ipc` dev-dependencies enable tokio `test-util`
+  (paused virtual time for timeout tests). No new package entered the lock.
 * `zeroize` / `secrecy`: arrive with M03 key handling (already in the graph through
   ssh-key).
 * `anyhow`: never in libraries; the CLI maps every failure to a `Code`.

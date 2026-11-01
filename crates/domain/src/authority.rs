@@ -94,6 +94,13 @@ pub enum Denial {
     RoleForbidden,
     /// Parent grant is not usable.
     ParentNotUsable,
+    /// The requested (or re-resolved) deadline is already at or before `now`
+    /// (wave-1 E8; maps to `CREDENTIAL_EXPIRED`). Resolution never moves a past
+    /// deadline later, so an expired binding cannot be revived by re-resolution.
+    DeadlinePassed {
+        /// The deadline that has passed.
+        deadline: Timestamp,
+    },
 }
 
 /// Serializable mirror of [`ActivationBlock`].

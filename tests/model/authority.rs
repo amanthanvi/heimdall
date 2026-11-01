@@ -1237,6 +1237,7 @@ fn generator_reaches_every_outcome_class() {
             AuthorityDecision::Denied(Denial::ExceedsParent { .. }) => "exceeds_parent",
             AuthorityDecision::Denied(Denial::CapabilityUnavailable { .. }) => "capability",
             AuthorityDecision::Denied(Denial::RoleForbidden) => "role",
+            AuthorityDecision::Denied(Denial::DeadlinePassed { .. }) => "deadline_passed",
         };
         *seen.entry(class).or_default() += 1;
     }

@@ -5,5 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 #
-# Reproduce a random failure: PROPTEST_RNG_SEED=<u64> cargo test -p heimdall-contract
+# Reproduce a random failure: PROPTEST_RNG_SEED=<u64> cargo test -p heimdall-contract --test contracts
 # (the default seed is fixed in tests/contracts/mod.rs; no failure has been recorded).

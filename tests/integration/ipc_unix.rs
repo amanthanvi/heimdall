@@ -1,53 +1,59 @@
 //! Unix control endpoint and sessions over real sockets (M01-U6; ADR-0006 §2.1,
 //! §2.2, §2.3, §2.5; spec §13.2).
 //!
-//! Compiled as a unit-test module of `heimdall_ipc::unix` (`#[path]` include) so
-//! it can reach the injected-`stat` decision functions. Every socket lives in a
-//! fresh temp directory created by the test; nothing outside it is touched.
+//! Cargo test target `integration_ipc_unix` hosted by `heimdall-ipc` (review F09
+//! convention): it uses only the crate's public API plus the `#[doc(hidden)]`
+//! injected-`stat` rules of `heimdall_ipc::unix`. Every socket lives in a fresh
+//! temp directory created by the test; nothing outside it is touched. The file is
+//! `#![cfg(unix)]`: on Windows the target builds with zero tests.
 //!
 //! Not covered here, recorded as `blocked`: a real peer with a different uid
 //! (needs a second Unix account) and a real foreign-owned socket file (needs
 //! root to `chown`). Those branches are exercised with forged `PeerIdentity`
 //! values and injected `PathFacts`.
 
+#![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use heimdall_contract::event::{Cursor, Event, EventFilter, EventType};
-use heimdall_contract::ids::{EnvironmentId, EventId, OperationId};
+use heimdall_contract::event::{Cursor, Event, EventFilter, EventType, Snapshot};
+use heimdall_contract::ids::{DecisionId, EnvironmentId, EventId, OperationId, PolicyId};
 use heimdall_contract::ipc::{
     ClientHello, ClientMessage, MAX_CONTROL_FRAME_BYTES, MAX_HELLO_FRAME_BYTES, PeerInfo,
-    PrincipalInfo, ServerMessage,
+    PrincipalInfo, ServerMessage, capability,
 };
-use heimdall_contract::request::{CancelRequest, InspectRequest, InspectSubject, Request};
+use heimdall_contract::request::{
+    CancelRequest, ConfirmTimeRequest, DecideRequest, InspectRequest, InspectSubject,
+    InteractionMode, PolicyAction, Request, Verdict,
+};
 use heimdall_contract::{Code, EffectStatus, Envelope, ErrorData, PROTOCOL_VERSION, SchemaVersion};
+use heimdall_ipc::endpoint::{
+    EndpointKind, EndpointPaths, ExpectedOwner, PeerIdentity, PeerRejected, verify_peer,
+};
+use heimdall_ipc::frame::{FrameError, decode_frame, encode_frame};
+use heimdall_ipc::session::{
+    ConnectionLimits, ControlClient, ControlConnection, Dispatcher, LiveEvent, ServerRefusal,
+    SessionInfo, SubscribeOutcome, SubscriptionStart, server_capabilities, server_refusal,
+    transport_failure_envelope,
+};
+use heimdall_ipc::unix::{
+    ConnectError, DirProblem, Existing, FileKind, Listener, PathFacts, check_own_socket,
+    check_private_dir, classify_existing, connect, current_uid,
+};
+use heimdall_testkit::{CANARY_PREFIX, assert_no_canary};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::UnixStream;
 use tokio::sync::{Semaphore, broadcast};
 use tokio_util::sync::CancellationToken;
 
-use super::*;
-use crate::endpoint::{EndpointPaths, ExpectedOwner, verify_peer};
-use crate::frame::{FrameError, decode_frame, encode_frame};
-use crate::session::{
-    ConnectionLimits, ControlClient, ControlConnection, Dispatcher, ServerRefusal,
-    SubscribeOutcome, server_refusal, transport_failure_envelope,
-};
-
-/// Same rule as `heimdall_testkit::assert_no_canary` (testkit is not a
-/// dev-dependency of this crate; see the M01-U6U7 hand-off escalation).
-pub(crate) fn assert_no_canary(output: &str) {
-    assert!(
-        !output.contains("HEIMDALL_CANARY_"),
-        "canary leaked into output"
-    );
-}
-
+/// Synthetic canary built per run; never committed as a value.
 fn canary() -> String {
-    format!("HEIMDALL_CANARY_{:x}", std::process::id())
+    format!("{CANARY_PREFIX}{:x}", std::process::id())
 }
 
 fn env_id() -> EnvironmentId {
@@ -81,20 +87,23 @@ fn cancel(n: u8) -> Request {
     })
 }
 
-/// Test dispatcher: records requests in a shared "journal", optionally holds
-/// each dispatch until the gate grants a permit, answers `inspect` with the
-/// journal, and serves subscriptions from a shared broadcast channel.
+/// Test dispatcher: records requests in a shared "journal" (cancel operation IDs)
+/// and every dispatch with the session it saw, optionally holds each dispatch
+/// until the gate grants a permit, answers `inspect` with the journal, and serves
+/// subscriptions from a shared broadcast channel with cursors `c<seq>`.
 #[derive(Clone)]
 struct TestDispatcher {
     journal: Arc<Mutex<Vec<String>>>,
+    seen: Arc<Mutex<Vec<(&'static str, SessionInfo)>>>,
     gate: Option<Arc<Semaphore>>,
-    events: broadcast::Sender<Arc<Event>>,
+    events: broadcast::Sender<Arc<LiveEvent>>,
 }
 
 impl TestDispatcher {
     fn new() -> Self {
         Self {
             journal: Arc::default(),
+            seen: Arc::default(),
             gate: None,
             events: broadcast::channel(heimdall_contract::ipc::EVENT_BUFFER_PER_SUBSCRIPTION).0,
         }
@@ -111,9 +120,13 @@ impl TestDispatcher {
 impl Dispatcher for TestDispatcher {
     async fn dispatch(
         &self,
-        principal: &PrincipalInfo,
+        session: &SessionInfo,
         request: Request,
     ) -> Envelope<serde_json::Value> {
+        self.seen
+            .lock()
+            .unwrap()
+            .push((request.kind(), session.clone()));
         if let Request::Cancel(c) = &request {
             self.journal
                 .lock()
@@ -126,28 +139,35 @@ impl Dispatcher for TestDispatcher {
         let journal = self.journal.lock().unwrap().clone();
         Envelope::ok(serde_json::json!({
             "kind": request.kind(),
-            "principal": principal,
+            "principal": session.principal,
+            "attended": session.attended,
+            "interaction": session.interaction,
             "journal": journal,
         }))
     }
 
     async fn subscribe(
         &self,
-        _principal: &PrincipalInfo,
+        _session: &SessionInfo,
         _filter: EventFilter,
         from: Option<Cursor>,
-    ) -> Result<(Cursor, broadcast::Receiver<Arc<Event>>), Box<Envelope<ErrorData>>> {
-        Ok((
-            from.unwrap_or_else(|| Cursor("c0".into())),
-            self.events.subscribe(),
-        ))
+    ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+        Ok(SubscriptionStart {
+            cursor: from.unwrap_or_else(|| Cursor("c0".into())),
+            boundary_seq: 0,
+            snapshot: None,
+            backlog: Vec::new(),
+            live: self.events.subscribe(),
+            cursor_for: Arc::new(|seq| Cursor(format!("c{seq}"))),
+        })
     }
 }
 
-fn event(n: u64, ty: EventType, op: Option<OperationId>) -> Arc<Event> {
+/// A neutral event (cursor not yet personalized; the session sets it).
+fn neutral(n: u64, ty: EventType, op: Option<OperationId>) -> Event {
     let mut id = [0u8; 16];
     id[..8].copy_from_slice(&n.to_be_bytes());
-    Arc::new(Event {
+    Event {
         schema_version: SchemaVersion::current(),
         event_id: EventId::from_random_bytes(id),
         event_type: ty,
@@ -155,9 +175,131 @@ fn event(n: u64, ty: EventType, op: Option<OperationId>) -> Arc<Event> {
         operation_id: op,
         resource: None,
         timestamp: heimdall_contract::Timestamp::UNIX_EPOCH,
-        cursor: Cursor(format!("c{n}")),
+        cursor: Cursor(String::new()),
         payload: serde_json::json!({ "n": n }),
+    }
+}
+
+fn event(n: u64, ty: EventType, op: Option<OperationId>) -> Arc<LiveEvent> {
+    Arc::new(LiveEvent {
+        seq: n,
+        event: neutral(n, ty, op),
     })
+}
+
+/// Stand-in for the runtime's event publisher (ADR-0006 §8): a durable log of
+/// neutral sequences plus the bounded live channel. Every subscription is a
+/// distinct reader `r<k>` with its own `cursor_for` (`r<k>:<seq>`), standing in
+/// for reader-scoped cursor tags. `subscribe` follows the handshake order: live
+/// receiver first, then (after `race` events committed by "another task" in
+/// between) one read of head + backlog-or-snapshot.
+#[derive(Clone)]
+struct LogDispatcher {
+    log: Arc<Mutex<Vec<LiveEvent>>>,
+    live: broadcast::Sender<Arc<LiveEvent>>,
+    readers: Arc<AtomicU64>,
+    race: Arc<Mutex<Vec<LiveEvent>>>,
+    snapshot_pad: usize,
+}
+
+impl LogDispatcher {
+    fn new() -> Self {
+        Self {
+            log: Arc::default(),
+            live: broadcast::channel(heimdall_contract::ipc::EVENT_BUFFER_PER_SUBSCRIPTION).0,
+            readers: Arc::default(),
+            race: Arc::default(),
+            snapshot_pad: 0,
+        }
+    }
+
+    /// Durable append, then live announce (no receivers is not an error).
+    fn publish(&self, ev: LiveEvent) {
+        self.log.lock().unwrap().push(ev.clone());
+        let _ = self.live.send(Arc::new(ev));
+    }
+
+    /// Announce only (an event the log already holds, announced late).
+    fn announce(&self, ev: LiveEvent) {
+        let _ = self.live.send(Arc::new(ev));
+    }
+}
+
+fn seq_of(cursor: &Cursor) -> Option<u64> {
+    cursor.0.rsplit_once(':')?.1.parse().ok()
+}
+
+#[async_trait::async_trait]
+impl Dispatcher for LogDispatcher {
+    async fn dispatch(
+        &self,
+        _session: &SessionInfo,
+        request: Request,
+    ) -> Envelope<serde_json::Value> {
+        Envelope::ok(serde_json::json!({ "kind": request.kind() }))
+    }
+
+    async fn subscribe(
+        &self,
+        _session: &SessionInfo,
+        _filter: EventFilter,
+        from: Option<Cursor>,
+    ) -> Result<SubscriptionStart, Box<Envelope<ErrorData>>> {
+        let tag = format!("r{}", self.readers.fetch_add(1, Ordering::SeqCst));
+        // 1. Live receiver first.
+        let live = self.live.subscribe();
+        // A concurrent commit lands between the receiver and the boundary read: it
+        // is in the receiver *and* in what the boundary read sees.
+        let raced: Vec<LiveEvent> = self.race.lock().unwrap().drain(..).collect();
+        for ev in raced {
+            self.publish(ev);
+        }
+        // 2. One consistent read: head plus backlog-or-snapshot.
+        let log = self.log.lock().unwrap().clone();
+        let boundary_seq = log.last().map_or(0, |e| e.seq);
+        let cursor_for: Arc<dyn Fn(u64) -> Cursor + Send + Sync> =
+            Arc::new(move |seq| Cursor(format!("{tag}:{seq}")));
+        let cursor = cursor_for(boundary_seq);
+        let (snapshot, backlog) = match from.as_ref().and_then(seq_of) {
+            None => (
+                Some(Snapshot {
+                    data: serde_json::json!({
+                        "through": boundary_seq,
+                        "pad": "x".repeat(self.snapshot_pad),
+                    }),
+                    cursor: cursor.clone(),
+                    taken_at: heimdall_contract::Timestamp::UNIX_EPOCH,
+                }),
+                Vec::new(),
+            ),
+            Some(after) => (
+                None,
+                log.iter()
+                    .filter(|e| e.seq > after)
+                    .map(|e| {
+                        let mut ev = e.event.clone();
+                        ev.cursor = cursor_for(e.seq);
+                        ev
+                    })
+                    .collect(),
+            ),
+        };
+        Ok(SubscriptionStart {
+            cursor,
+            boundary_seq,
+            snapshot,
+            backlog,
+            live,
+            cursor_for,
+        })
+    }
+}
+
+fn live_event(n: u64) -> LiveEvent {
+    LiveEvent {
+        seq: n,
+        event: neutral(n, EventType::OperationStateChanged, None),
+    }
 }
 
 struct Fixture {
@@ -171,14 +313,14 @@ fn fixture() -> Fixture {
     Fixture { _tmp: tmp, paths }
 }
 
-fn principal_for(peer: &crate::endpoint::PeerIdentity) -> PrincipalInfo {
+fn principal_for(peer: &PeerIdentity) -> PrincipalInfo {
     verify_peer(peer, &ExpectedOwner::Uid(current_uid())).unwrap()
 }
 
 /// Accept one connection on `listener` and serve it to completion.
-async fn serve_one(
+async fn serve_one<D: Dispatcher>(
     listener: &Listener,
-    dispatcher: TestDispatcher,
+    dispatcher: D,
     limits: ConnectionLimits,
     shutdown: CancellationToken,
 ) -> Result<(), FrameError> {
@@ -190,25 +332,62 @@ async fn serve_one(
         .await
 }
 
+fn client_hello(schema: &str, name: &str) -> ClientHello {
+    ClientHello {
+        protocol: PROTOCOL_VERSION,
+        schema_version: SchemaVersion(schema.into()),
+        client: PeerInfo {
+            name: name.into(),
+            version: "0".into(),
+        },
+        capabilities: server_capabilities(),
+        required: BTreeSet::new(),
+        interaction: InteractionMode::NonInteractive,
+    }
+}
+
 fn hello_frame(schema: &str, name: &str) -> Vec<u8> {
     encode_frame(
-        &ClientMessage::Hello(ClientHello {
-            protocol: PROTOCOL_VERSION,
-            schema_version: SchemaVersion(schema.into()),
-            client: PeerInfo {
-                name: name.into(),
-                version: "0".into(),
-            },
-            capabilities: crate::session::server_capabilities(),
-            required: BTreeSet::new(),
-        }),
+        &ClientMessage::Hello(client_hello(schema, name)),
         MAX_HELLO_FRAME_BYTES,
     )
     .unwrap()
 }
 
+fn frame_of(msg: &ClientMessage) -> Vec<u8> {
+    encode_frame(msg, MAX_CONTROL_FRAME_BYTES).unwrap()
+}
+
+/// Read from `stream` until `n` more server frames are decoded (`buf` keeps
+/// partial bytes between calls); the raw bytes are scanned for canaries.
+async fn read_n(stream: &mut UnixStream, buf: &mut Vec<u8>, n: usize) -> Vec<ServerMessage> {
+    let mut got = Vec::new();
+    loop {
+        while got.len() < n {
+            match decode_frame::<ServerMessage>(buf, MAX_CONTROL_FRAME_BYTES).unwrap() {
+                Some((m, used)) => {
+                    got.push(m);
+                    buf.drain(..used);
+                }
+                None => break,
+            }
+        }
+        if got.len() == n {
+            return got;
+        }
+        let mut chunk = [0u8; 4096];
+        let read = tokio::time::timeout(Duration::from_secs(10), stream.read(&mut chunk))
+            .await
+            .expect("server frame did not arrive")
+            .unwrap();
+        assert!(read > 0, "server closed early");
+        assert_no_canary(&String::from_utf8_lossy(&chunk[..read]));
+        buf.extend_from_slice(&chunk[..read]);
+    }
+}
+
 /// Read every server frame until EOF; also asserts no canary in the raw bytes.
-async fn read_all_frames(stream: &mut tokio::net::UnixStream) -> Vec<ServerMessage> {
+async fn read_all_frames(stream: &mut UnixStream) -> Vec<ServerMessage> {
     let mut buf = Vec::new();
     let _ = tokio::time::timeout(Duration::from_secs(10), stream.read_to_end(&mut buf)).await;
     assert_no_canary(&String::from_utf8_lossy(&buf));
@@ -225,7 +404,7 @@ async fn read_all_frames(stream: &mut tokio::net::UnixStream) -> Vec<ServerMessa
 
 fn reject_code(m: &ServerMessage) -> Option<Code> {
     match m {
-        ServerMessage::Reject(env) => Some(env.code),
+        ServerMessage::Reject(env) => Some(env.code.clone()),
         _ => None,
     }
 }
@@ -465,18 +644,20 @@ async fn same_user_peer_is_accepted_and_reported() {
     let server = serve_one(&l, d, ConnectionLimits::default(), shutdown.clone());
     let client = async {
         let s = connect(&f.paths.control).await.unwrap();
-        let mut c = ControlClient::handshake(s, client_info(), BTreeSet::new())
-            .await
-            .unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             c.server().principal,
             PrincipalInfo::OsUserUnix { uid: current_uid() }
         );
         assert_eq!(c.server().environment_id, env_id());
-        assert_eq!(
-            c.server().capabilities,
-            crate::session::server_capabilities()
-        );
+        assert_eq!(c.server().capabilities, server_capabilities());
         let env = c.request(inspect()).await.unwrap();
         assert_eq!(env.code, Code::Ok);
         assert_eq!(env.data["kind"], "inspect");
@@ -494,16 +675,16 @@ fn forged_peer_with_another_uid_is_rejected() {
     // A real second account is required for the live cross-user case (blocked).
     let me = current_uid();
     let other = me.wrapping_add(1);
-    let forged = crate::endpoint::PeerIdentity::Unix {
+    let forged = PeerIdentity::Unix {
         uid: other,
         gid: 0,
         pid: Some(1),
     };
     assert_eq!(
         verify_peer(&forged, &ExpectedOwner::Uid(me)),
-        Err(crate::endpoint::PeerRejected::DifferentUser)
+        Err(PeerRejected::DifferentUser)
     );
-    let root = crate::endpoint::PeerIdentity::Unix {
+    let root = PeerIdentity::Unix {
         uid: 0,
         gid: 0,
         pid: None,
@@ -522,9 +703,9 @@ async fn signing_endpoint_over_a_real_socket_is_distinct_and_peer_checked() {
     let server = async {
         let (stream, peer) = sign.accept().await.unwrap();
         principal_for(&peer);
-        crate::signing::serve(
+        heimdall_ipc::signing::serve(
             stream,
-            Arc::new(crate::signing::NoIdentities),
+            Arc::new(heimdall_ipc::signing::NoIdentities),
             CancellationToken::new(),
         )
         .await
@@ -545,8 +726,8 @@ async fn signing_endpoint_over_a_real_socket_is_distinct_and_peer_checked() {
     assert_eq!(
         out,
         [
-            crate::signing::empty_identities_frame().as_slice(),
-            crate::signing::failure_frame().as_slice()
+            heimdall_ipc::signing::empty_identities_frame().as_slice(),
+            heimdall_ipc::signing::failure_frame().as_slice()
         ]
         .concat()
     );
@@ -558,7 +739,7 @@ async fn signing_endpoint_over_a_real_socket_is_distinct_and_peer_checked() {
 /// result and every frame the server sent.
 async fn raw_session(
     limits: ConnectionLimits,
-    script: impl AsyncFnOnce(&mut tokio::net::UnixStream),
+    script: impl AsyncFnOnce(&mut UnixStream),
 ) -> (Result<(), FrameError>, Vec<ServerMessage>, Duration) {
     let f = fixture();
     let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
@@ -729,6 +910,23 @@ async fn schema_or_capability_mismatch_is_rejected_explicitly() {
     assert_eq!(frames.len(), 1);
     assert_eq!(reject_code(&frames[0]), Some(Code::SchemaUnsupported));
 
+    // Review F10: an inconsistent hello that requires `events/1` while omitting it
+    // from its own capabilities is rejected, although the server offers it.
+    let mut inconsistent = client_hello("1", "t");
+    inconsistent.capabilities.remove(capability::EVENTS_V1);
+    inconsistent
+        .required
+        .insert(capability::EVENTS_V1.to_owned());
+    assert!(server_capabilities().contains(capability::EVENTS_V1));
+    let frame = encode_frame(&ClientMessage::Hello(inconsistent), MAX_HELLO_FRAME_BYTES).unwrap();
+    let (r, frames, _) = raw_session(ConnectionLimits::default(), async |s| {
+        s.write_all(&frame).await.unwrap();
+    })
+    .await;
+    r.unwrap();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(reject_code(&frames[0]), Some(Code::SchemaUnsupported));
+
     // Through the client: a required capability the server lacks.
     let f = fixture();
     let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
@@ -741,9 +939,10 @@ async fn schema_or_capability_mismatch_is_rejected_explicitly() {
     let client = async {
         let s = connect(&f.paths.control).await.unwrap();
         let required: BTreeSet<String> = ["future/9".to_owned()].into_iter().collect();
-        let err = ControlClient::handshake(s, client_info(), required)
-            .await
-            .unwrap_err();
+        let err =
+            ControlClient::handshake(s, client_info(), required, InteractionMode::NonInteractive)
+                .await
+                .unwrap_err();
         match server_refusal(&err) {
             Some(ServerRefusal::Rejected(env)) => {
                 assert_eq!(env.code, Code::SchemaUnsupported);
@@ -914,9 +1113,14 @@ async fn fifth_subscription_gets_backpressure_and_events_flow() {
     let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
     let client = async {
         let s = connect(&f.paths.control).await.unwrap();
-        let mut c = ControlClient::handshake(s, client_info(), BTreeSet::new())
-            .await
-            .unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
         let op = OperationId::from_random_bytes([3; 16]);
         let mut subs = Vec::new();
         for i in 0..4 {
@@ -932,8 +1136,10 @@ async fn fifth_subscription_gets_backpressure_and_events_flow() {
                 SubscribeOutcome::Subscribed {
                     subscription,
                     cursor,
+                    snapshot,
                 } => {
                     assert_eq!(cursor, Cursor("c0".into()));
+                    assert_eq!(snapshot, None);
                     subs.push(subscription);
                 }
                 other => panic!("{other:?}"),
@@ -987,9 +1193,14 @@ async fn lagging_subscriber_gets_one_resync_and_the_backlog_is_dropped() {
     let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
     let client = async {
         let s = connect(&f.paths.control).await.unwrap();
-        let mut c = ControlClient::handshake(s, client_info(), BTreeSet::new())
-            .await
-            .unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
         let SubscribeOutcome::Subscribed { subscription, .. } =
             c.subscribe(EventFilter::default(), None).await.unwrap()
         else {
@@ -1048,7 +1259,7 @@ async fn server_dropped_mid_response_surfaces_service_unavailable() {
                 frames.push(m);
                 buf.drain(..used);
                 if frames.len() == 1 {
-                    let hello = crate::session::negotiate(
+                    let hello = heimdall_ipc::session::negotiate(
                         match &frames[0] {
                             ClientMessage::Hello(h) => h,
                             _ => panic!(),
@@ -1089,9 +1300,14 @@ async fn server_dropped_mid_response_surfaces_service_unavailable() {
     };
     let client = async {
         let s = connect(&f.paths.control).await.unwrap();
-        let mut c = ControlClient::handshake(s, client_info(), BTreeSet::new())
-            .await
-            .unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
         let err = c.request(cancel(42)).await.unwrap_err();
         assert!(matches!(err, FrameError::Truncated), "{err:?}");
         let env = transport_failure_envelope(&err, true);
@@ -1110,9 +1326,14 @@ async fn server_dropped_mid_response_surfaces_service_unavailable() {
     let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
     let client = async {
         let s = connect(&f.paths.control).await.unwrap();
-        let mut c = ControlClient::handshake(s, client_info(), BTreeSet::new())
-            .await
-            .unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
         let env = c.request(inspect()).await.unwrap();
         let expected = OperationId::from_random_bytes([42; 16]);
         assert_eq!(env.data["journal"], serde_json::json!([expected.as_str()]));
@@ -1139,9 +1360,14 @@ async fn server_task_dropped_while_dispatching_surfaces_service_unavailable() {
     };
     let client = async {
         let s = connect(&f.paths.control).await.unwrap();
-        let mut c = ControlClient::handshake(s, client_info(), BTreeSet::new())
-            .await
-            .unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
         let req = c.request(cancel(9));
         let watcher = async {
             while journal.lock().unwrap().is_empty() {
@@ -1174,9 +1400,14 @@ async fn shutdown_sends_goodbye_service_unavailable() {
     );
     let client = async {
         let s = connect(&f.paths.control).await.unwrap();
-        let mut c = ControlClient::handshake(s, client_info(), BTreeSet::new())
-            .await
-            .unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
         shutdown.cancel();
         let err = c.next_event().await.unwrap_err();
         match server_refusal(&err) {
@@ -1188,6 +1419,479 @@ async fn shutdown_sends_goodbye_service_unavailable() {
         let env = transport_failure_envelope(&err, false);
         assert_eq!(env.code, Code::ServiceUnavailable);
         assert_eq!(env.data.error.effect_status, EffectStatus::None);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+// ---- attended sessions (ADR-0006 §2.3, §3.1; review F03) -------------------------
+
+fn decide() -> Request {
+    Request::Decide(DecideRequest {
+        decision_id: DecisionId::from_random_bytes([5; 16]),
+        verdict: Verdict::Approve,
+    })
+}
+
+fn policy(action: fn(PolicyId) -> PolicyAction) -> Request {
+    Request::Policy(action(PolicyId::parse("fixture-policy").unwrap()))
+}
+
+/// Requests the session refuses before dispatch on an unattended session
+/// (ADR-0006 §2.3; design-fix second round R5). Widening policy actions are
+/// deliberately not here: they are dispatched and the application answers with a
+/// `WidenPolicy` decision record.
+fn attended_only_requests() -> Vec<Request> {
+    vec![
+        decide(),
+        Request::ConfirmTime(ConfirmTimeRequest {
+            observed_wall: heimdall_contract::Timestamp::UNIX_EPOCH,
+        }),
+    ]
+}
+
+fn assert_interaction_required(env: &Envelope<serde_json::Value>) {
+    assert_eq!(env.code, Code::InteractionRequired);
+    let detail: ErrorData = serde_json::from_value(env.data.clone()).unwrap();
+    assert_eq!(detail.error.effect_status, EffectStatus::None);
+    assert_eq!(detail.error.next.action, "interact");
+}
+
+#[tokio::test]
+async fn non_interactive_session_can_never_be_attended() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = TestDispatcher::new();
+    let seen = d.seen.clone();
+    let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        for req in attended_only_requests() {
+            assert!(req.requires_attended_session());
+            assert_interaction_required(&c.request(req).await.unwrap());
+        }
+        assert_interaction_required(&c.attend().await.unwrap());
+        // Still refused after the failed Attend, and never dispatched.
+        assert_interaction_required(&c.request(decide()).await.unwrap());
+        assert!(
+            seen.lock().unwrap().is_empty(),
+            "refused request was dispatched"
+        );
+        // Ordinary requests are dispatched with an unattended session.
+        let env = c.request(inspect()).await.unwrap();
+        assert_eq!(env.code, Code::Ok);
+        assert_eq!(env.data["attended"], false);
+        assert_eq!(env.data["interaction"], "non_interactive");
+        let pause = c
+            .request(policy(|policy_id| PolicyAction::Pause { policy_id }))
+            .await
+            .unwrap();
+        assert_eq!(pause.code, Code::Ok, "narrowing actions need no attendance");
+        // Widening actions are dispatched even when unattended (R5): the application
+        // layer answers them with a `WidenPolicy` decision record, which this test
+        // dispatcher does not model; the session must not refuse them itself.
+        let widening = policy(|policy_id| PolicyAction::Resume { policy_id });
+        assert!(widening.is_widening_policy_action());
+        assert!(!widening.requires_attended_session());
+        let _ = c.request(widening).await.unwrap();
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 3, "inspect, pause and resume were dispatched");
+        assert!(seen.iter().all(|(_, s)| !s.attended));
+        drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+#[tokio::test]
+async fn interactive_session_is_attended_only_after_attend() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = TestDispatcher::new();
+    let seen = d.seen.clone();
+    let server = serve_one(&l, d, ConnectionLimits::default(), CancellationToken::new());
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::Interactive,
+        )
+        .await
+        .unwrap();
+        // Declared interactive but not yet attended: refused, not dispatched.
+        for req in attended_only_requests() {
+            assert_interaction_required(&c.request(req).await.unwrap());
+        }
+        assert!(seen.lock().unwrap().is_empty());
+        let before = c.request(inspect()).await.unwrap();
+        assert_eq!(before.data["attended"], false);
+        assert_eq!(before.data["interaction"], "interactive");
+
+        let attend = c.attend().await.unwrap();
+        assert_eq!(attend.code, Code::Ok);
+        assert_eq!(attend.data, serde_json::json!({ "attended": true }));
+        // Idempotent.
+        assert_eq!(c.attend().await.unwrap().code, Code::Ok);
+
+        // Attended: decide and confirm_time pass the session gate, and the widening
+        // policy actions (dispatched either way, R5) now arrive on an attended
+        // session, where the application executes them directly.
+        let widening = [
+            policy(|policy_id| PolicyAction::Resume { policy_id }),
+            policy(|policy_id| PolicyAction::ClearCutoff { policy_id }),
+        ];
+        for req in attended_only_requests().into_iter().chain(widening) {
+            let kind = req.kind();
+            let env = c.request(req).await.unwrap();
+            assert_eq!(env.code, Code::Ok, "{kind}");
+            assert_eq!(env.data["attended"], true, "{kind}");
+        }
+        let seen = seen.lock().unwrap().clone();
+        let kinds: Vec<&str> = seen.iter().map(|(k, _)| *k).collect();
+        assert_eq!(
+            kinds,
+            ["inspect", "decide", "confirm_time", "policy", "policy"]
+        );
+        assert!(!seen[0].1.attended);
+        assert!(seen[1..].iter().all(|(_, s)| s.attended
+            && s.interaction == InteractionMode::Interactive
+            && s.principal == PrincipalInfo::OsUserUnix { uid: current_uid() }));
+        drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+#[tokio::test]
+async fn hello_without_interaction_defaults_to_non_interactive() {
+    // A hello that omits `interaction` (an older or minimal client).
+    let mut hello = serde_json::to_value(ClientMessage::Hello(client_hello("1", "t"))).unwrap();
+    assert!(
+        hello
+            .as_object_mut()
+            .unwrap()
+            .remove("interaction")
+            .is_some()
+    );
+    let mut input = encode_frame(&hello, MAX_HELLO_FRAME_BYTES).unwrap();
+    input.extend(frame_of(&ClientMessage::Attend { seq: 1 }));
+    input.extend(frame_of(&ClientMessage::Request {
+        seq: 2,
+        request: decide(),
+    }));
+    let (r, frames, _) = raw_session(ConnectionLimits::default(), async |s| {
+        s.write_all(&input).await.unwrap();
+        s.shutdown().await.unwrap();
+    })
+    .await;
+    r.unwrap();
+    assert!(matches!(frames[0], ServerMessage::Hello(_)));
+    for (frame, seq) in frames[1..].iter().zip([1u64, 2]) {
+        match frame {
+            ServerMessage::Response {
+                in_reply_to,
+                envelope,
+            } => {
+                assert_eq!(*in_reply_to, seq);
+                assert_interaction_required(envelope);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(frames.len(), 3);
+}
+
+// ---- subscriptions: snapshot / backlog / live handoff (ADR-0006 §8; review F08) ---
+
+fn subscribe_frame(seq: u64, from_cursor: Option<Cursor>) -> Vec<u8> {
+    frame_of(&ClientMessage::Subscribe {
+        seq,
+        filter: EventFilter::default(),
+        from_cursor,
+    })
+}
+
+fn event_of(m: &ServerMessage) -> (u64, &Event) {
+    match m {
+        ServerMessage::Event {
+            subscription,
+            event,
+        } => (*subscription, event),
+        other => panic!("expected an event, got {other:?}"),
+    }
+}
+
+/// Publish during replay-to-live: an event committed between the live
+/// receiver's creation and the boundary read is in both the backlog and the
+/// receiver; it is delivered exactly once. A late re-announce of an event at or
+/// below the boundary is dropped too. Wire order (raw frames): `Subscribed`, then
+/// the backlog in order, then live events after the boundary.
+#[tokio::test]
+async fn publish_during_replay_to_live_is_delivered_exactly_once_in_order() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = LogDispatcher::new();
+    d.publish(live_event(1));
+    d.publish(live_event(2));
+    d.race.lock().unwrap().push(live_event(3));
+    let server = serve_one(
+        &l,
+        d.clone(),
+        ConnectionLimits::default(),
+        CancellationToken::new(),
+    );
+    let client = async {
+        let mut s = connect(&f.paths.control).await.unwrap();
+        let mut buf = Vec::new();
+        s.write_all(&hello_frame("1", "t")).await.unwrap();
+        // Resume after seq 1 (a cursor this fake accepts from any reader).
+        s.write_all(&subscribe_frame(1, Some(Cursor("r-:1".into()))))
+            .await
+            .unwrap();
+        let first = read_n(&mut s, &mut buf, 4).await;
+        assert!(matches!(first[0], ServerMessage::Hello(_)));
+        let subscription = match &first[1] {
+            ServerMessage::Subscribed {
+                in_reply_to,
+                subscription,
+                cursor,
+                snapshot,
+            } => {
+                assert_eq!(*in_reply_to, 1);
+                assert_eq!(
+                    cursor,
+                    &Cursor("r0:3".into()),
+                    "boundary after the raced commit"
+                );
+                assert!(
+                    snapshot.is_none(),
+                    "a usable cursor gets the backlog, not a snapshot"
+                );
+                *subscription
+            }
+            other => panic!("{other:?}"),
+        };
+        let backlog: Vec<(u64, Event)> = first[2..]
+            .iter()
+            .map(|m| {
+                let (sub, ev) = event_of(m);
+                (sub, ev.clone())
+            })
+            .collect();
+        assert_eq!(
+            backlog
+                .iter()
+                .map(|(_, e)| e.payload["n"].as_u64().unwrap())
+                .collect::<Vec<_>>(),
+            [2, 3]
+        );
+        assert!(backlog.iter().all(|(sub, _)| *sub == subscription));
+        assert_eq!(backlog[0].1.cursor, Cursor("r0:2".into()));
+        assert_eq!(backlog[1].1.cursor, Cursor("r0:3".into()));
+
+        // Late re-announce of seq 2 (at or below the boundary): dropped. Then live.
+        d.announce(live_event(2));
+        d.publish(live_event(4));
+        d.publish(live_event(5));
+        let live = read_n(&mut s, &mut buf, 2).await;
+        let ids: Vec<(u64, Cursor)> = live
+            .iter()
+            .map(|m| {
+                let (sub, ev) = event_of(m);
+                assert_eq!(sub, subscription);
+                (ev.payload["n"].as_u64().unwrap(), ev.cursor.clone())
+            })
+            .collect();
+        assert_eq!(
+            ids,
+            [(4, Cursor("r0:4".into())), (5, Cursor("r0:5".into()))],
+            "the raced seq 3 or the re-announced seq 2 was delivered twice"
+        );
+        // Every event ID seen exactly once.
+        let mut all: Vec<EventId> = backlog.iter().map(|(_, e)| e.event_id.clone()).collect();
+        all.extend(live.iter().map(|m| event_of(m).1.event_id.clone()));
+        let unique: std::collections::HashSet<_> = all.iter().cloned().collect();
+        assert_eq!(unique.len(), all.len());
+        assert_eq!(all.len(), 4);
+        // Dropping the stream here ends the session (peer closed between frames).
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+/// No cursor: the subscription starts from a snapshot whose cursor is the
+/// boundary; the raced commit is reflected in the snapshot and not re-sent live.
+#[tokio::test]
+async fn no_cursor_starts_from_a_snapshot_at_the_boundary() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = LogDispatcher::new();
+    d.publish(live_event(1));
+    d.race.lock().unwrap().push(live_event(2));
+    let server = serve_one(
+        &l,
+        d.clone(),
+        ConnectionLimits::default(),
+        CancellationToken::new(),
+    );
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        let SubscribeOutcome::Subscribed {
+            subscription,
+            cursor,
+            snapshot,
+        } = c.subscribe(EventFilter::default(), None).await.unwrap()
+        else {
+            panic!("refused")
+        };
+        let snapshot = snapshot.expect("snapshot");
+        assert_eq!(snapshot.cursor, cursor);
+        assert_eq!(cursor, Cursor("r0:2".into()));
+        assert_eq!(snapshot.data["through"], 2);
+        d.publish(live_event(3));
+        let (sub, ev) = c.next_event().await.unwrap();
+        assert_eq!(sub, subscription);
+        assert_eq!(
+            ev.payload["n"], 3,
+            "the raced seq 2 was re-sent after the snapshot"
+        );
+        assert_eq!(ev.cursor, Cursor("r0:3".into()));
+        drop(c);
+    };
+    let (r, ()) = tokio::join!(server, client);
+    r.unwrap();
+}
+
+/// Two readers get the same event (same `event_id`) with their own cursors, each
+/// built by that subscription's `cursor_for`, and each cursor resumes that reader.
+#[tokio::test]
+async fn two_readers_get_the_same_event_with_their_own_cursors() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = LogDispatcher::new();
+    let stop = CancellationToken::new();
+    let server_a = serve_one(&l, d.clone(), ConnectionLimits::default(), stop.clone());
+    let server_b = serve_one(&l, d.clone(), ConnectionLimits::default(), stop.clone());
+    let client = async {
+        let mut readers = Vec::new();
+        for _ in 0..2 {
+            let s = connect(&f.paths.control).await.unwrap();
+            let mut c = ControlClient::handshake(
+                s,
+                client_info(),
+                BTreeSet::new(),
+                InteractionMode::NonInteractive,
+            )
+            .await
+            .unwrap();
+            let SubscribeOutcome::Subscribed { cursor, .. } =
+                c.subscribe(EventFilter::default(), None).await.unwrap()
+            else {
+                panic!("refused")
+            };
+            readers.push((c, cursor));
+        }
+        assert_ne!(readers[0].1, readers[1].1, "reader cursors must differ");
+        d.publish(live_event(7));
+        let mut got = Vec::new();
+        for (c, _) in &mut readers {
+            let (_, ev) = c.next_event().await.unwrap();
+            got.push(ev);
+        }
+        assert_eq!(got[0].event_id, got[1].event_id);
+        assert_eq!(got[0].payload, got[1].payload);
+        assert_ne!(got[0].cursor, got[1].cursor);
+        let tags: Vec<&str> = got
+            .iter()
+            .map(|e| e.cursor.0.split_once(':').unwrap().0)
+            .collect();
+        assert_ne!(tags[0], tags[1]);
+        assert!(got.iter().all(|e| seq_of(&e.cursor) == Some(7)));
+        // Each reader's cursor is usable: resuming from it replays nothing new and
+        // the next event continues after it.
+        let (c, _) = &mut readers[0];
+        let SubscribeOutcome::Subscribed {
+            subscription,
+            snapshot,
+            ..
+        } = c
+            .subscribe(EventFilter::default(), Some(got[0].cursor.clone()))
+            .await
+            .unwrap()
+        else {
+            panic!("refused")
+        };
+        assert!(snapshot.is_none());
+        d.publish(live_event(8));
+        // The first subscription and the resumed one both get seq 8, nothing older.
+        let mut subs_seen = BTreeSet::new();
+        for _ in 0..2 {
+            let (sub, ev) = c.next_event().await.unwrap();
+            assert_eq!(ev.payload["n"], 8);
+            subs_seen.insert(sub);
+        }
+        assert!(subs_seen.contains(&subscription));
+        stop.cancel();
+    };
+    let (a, b, ()) = tokio::join!(server_a, server_b, client);
+    a.unwrap();
+    b.unwrap();
+}
+
+/// A `Subscribed` frame over the control limit (oversize snapshot) is replaced by
+/// an `INTERNAL_ERROR` response and no subscription exists afterwards.
+#[tokio::test]
+async fn oversize_subscribed_frame_establishes_no_subscription() {
+    let f = fixture();
+    let l = Listener::bind(&f.paths.control, EndpointKind::Control).unwrap();
+    let d = LogDispatcher {
+        snapshot_pad: MAX_CONTROL_FRAME_BYTES,
+        ..LogDispatcher::new()
+    };
+    let server = serve_one(
+        &l,
+        d.clone(),
+        ConnectionLimits::default(),
+        CancellationToken::new(),
+    );
+    let client = async {
+        let s = connect(&f.paths.control).await.unwrap();
+        let mut c = ControlClient::handshake(
+            s,
+            client_info(),
+            BTreeSet::new(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        .unwrap();
+        match c.subscribe(EventFilter::default(), None).await.unwrap() {
+            SubscribeOutcome::Refused(env) => assert_eq!(env.code, Code::InternalError),
+            other => panic!("{other:?}"),
+        }
+        d.publish(live_event(1));
+        // Nothing is delivered for the refused subscription; the handle is unknown.
+        assert_eq!(c.unsubscribe(1).await.unwrap().code, Code::NotFound);
+        let env = c.request(inspect()).await.unwrap();
+        assert_eq!(env.code, Code::Ok);
+        drop(c);
     };
     let (r, ()) = tokio::join!(server, client);
     r.unwrap();

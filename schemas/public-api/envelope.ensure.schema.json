@@ -13,7 +13,7 @@
       "$ref": "#/$defs/EnsureData"
     },
     "next": {
-      "description": "Machine next action, or `null` when nothing is expected of the caller.",
+      "description": "Machine next action, or `null` when nothing is expected of the caller.\nAlways emitted, `null` when absent (required-nullable in the schema:\n`NextAction | null`).",
       "anyOf": [
         {
           "$ref": "#/$defs/NextAction"
@@ -44,7 +44,7 @@
       "$ref": "#/$defs/OperationState"
     },
     "warnings": {
-      "description": "Non-fatal findings.",
+      "description": "Non-fatal findings. Always emitted (listed in the schema's `required`); a\nlenient reader still accepts omission as empty.",
       "type": "array",
       "default": [],
       "items": {
@@ -56,7 +56,9 @@
     "schema_version",
     "state",
     "code",
-    "data"
+    "data",
+    "warnings",
+    "next"
   ],
   "$defs": {
     "BindingId": {
@@ -64,145 +66,121 @@
       "type": "string"
     },
     "Code": {
-      "description": "The stable code table. Spec §11.6 lists the codes marked `spec`; the others are\nbaseline additions recorded in ADR-0006 §5 (primitives-draft Q3 is folded in).",
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
       "oneOf": [
         {
-          "description": "Synchronous read or control action completed.",
           "type": "string",
           "const": "OK"
         },
         {
-          "description": "`ensure`/`bind` produced usable access (spec §11.3 example). (spec)",
           "type": "string",
           "const": "ACCESS_READY"
         },
         {
-          "description": "Asynchronous request accepted; the payload reports a pending state\n(spec §11.6 \"asynchronous accepted/pending\").",
           "type": "string",
           "const": "ACCEPTED"
         },
         {
-          "description": "Additional owner authority is required; operation is `awaiting_approval`. (spec)",
           "type": "string",
           "const": "APPROVAL_REQUIRED"
         },
         {
-          "description": "A provider or terminal interaction is required that non-interactive mode\nrefuses to open (spec §11.3). (spec)",
           "type": "string",
           "const": "INTERACTION_REQUIRED"
         },
         {
-          "description": "The provider will not sign while locked (spec §7.1). (spec)",
           "type": "string",
           "const": "PROVIDER_LOCKED"
         },
         {
-          "description": "The minimum requested capability cannot be met (spec §4.3). (spec)",
           "type": "string",
           "const": "CAPABILITY_UNAVAILABLE"
         },
         {
-          "description": "The standing policy is paused (spec §6.1). (spec)",
           "type": "string",
           "const": "POLICY_PAUSED"
         },
         {
-          "description": "A policy cutoff is in effect; fresh identifiers do not bypass it (spec §6.1). (spec)",
           "type": "string",
           "const": "POLICY_CUTOFF"
         },
         {
-          "description": "The applicable grant or credential has expired; renewal cannot extend it\n(spec §6.1). (spec)",
           "type": "string",
           "const": "CREDENTIAL_EXPIRED"
         },
         {
-          "description": "Destination host identity changed; recovery must not accept it silently\n(spec §9.1). (spec)",
           "type": "string",
           "const": "HOST_TRUST_CHANGED"
         },
         {
-          "description": "A delegation request is broader or longer than its parent (spec §6.7;\nprimitives-draft Q3).",
           "type": "string",
           "const": "DELEGATION_EXCEEDS_PARENT"
         },
         {
-          "description": "The operation was explicitly cancelled (spec §11.4).",
           "type": "string",
           "const": "OPERATION_CANCELLED"
         },
         {
-          "description": "Destination not reachable over any approved route. (spec)",
           "type": "string",
           "const": "DESTINATION_UNREACHABLE"
         },
         {
-          "description": "Safe time cannot be established; issuance stopped (spec §6.4). (spec)",
           "type": "string",
           "const": "TIME_UNCERTAIN"
         },
         {
-          "description": "The SSH client or consumer is unsupported for the requested path (spec §10.3). (spec)",
           "type": "string",
           "const": "UNSUPPORTED_CLIENT"
         },
         {
-          "description": "The per-user runtime cannot be reached or started (spec §13.1).",
           "type": "string",
           "const": "SERVICE_UNAVAILABLE"
         },
         {
-          "description": "The local state store is unavailable, locked, corrupt, or newer than this\nbuild; unsafe operations stop and recovery is offered (spec §13.3, §15.2).",
           "type": "string",
           "const": "STATE_UNAVAILABLE"
         },
         {
-          "description": "A bounded queue or buffer is full; retry with backoff or resync (spec §11.5).",
           "type": "string",
           "const": "BACKPRESSURE"
         },
         {
-          "description": "Same idempotency key with different canonical parameters (spec §11.4). (spec)",
           "type": "string",
           "const": "REQUEST_CONFLICT"
         },
         {
-          "description": "Managed configuration conflicts with a newer user edit (spec §10.1). (spec)",
           "type": "string",
           "const": "CONFIG_CONFLICT"
         },
         {
-          "description": "The idempotency record for this key has aged out; the retry is not silently\ntreated as new (spec §11.4).",
           "type": "string",
           "const": "REQUEST_EXPIRED"
         },
         {
-          "description": "The event cursor is expired or foreign; take a snapshot and resume from its\ncursor boundary (spec §11.2, §11.5; primitives-draft Q3).",
           "type": "string",
           "const": "RESYNC_REQUIRED"
         },
         {
-          "description": "An external mutation may or may not have applied (spec §7.5, §11.4). (spec)",
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
           "type": "string",
           "const": "OUTCOME_UNKNOWN"
         },
         {
-          "description": "Invalid arguments or request body.",
           "type": "string",
           "const": "USAGE_ERROR"
         },
         {
-          "description": "Unsupported schema major, protocol version, or required capability\n(spec §11.2).",
           "type": "string",
           "const": "SCHEMA_UNSUPPORTED"
         },
         {
-          "description": "The referenced operation, binding, grant, profile, or environment is unknown\nto this runtime (possibly purged by retention).",
           "type": "string",
           "const": "NOT_FOUND"
         },
         {
-          "description": "Unexpected internal failure; never used to hide a classified condition.",
           "type": "string",
           "const": "INTERNAL_ERROR"
         }
@@ -523,22 +501,22 @@
           "const": "awaiting_approval"
         },
         {
-          "description": "Terminal: completed with a result.",
+          "description": "Settled: completed with a result.",
           "type": "string",
           "const": "succeeded"
         },
         {
-          "description": "Terminal: failed with a classified error.",
+          "description": "Settled: failed with a classified error.",
           "type": "string",
           "const": "failed"
         },
         {
-          "description": "Terminal: explicitly cancelled; the result says whether an irreversible or\nuncertain step may have occurred.",
+          "description": "Settled: explicitly cancelled; the result says whether an irreversible or\nuncertain step may have occurred.",
           "type": "string",
           "const": "cancelled"
         },
         {
-          "description": "Terminal until reconciled: an external effect may or may not have applied.",
+          "description": "Unresolved: an external effect may or may not have applied. Quiescent until\nreconciliation settles it to `succeeded` or `failed`; never purged while\nunresolved; never retried blindly.",
           "type": "string",
           "const": "outcome_unknown"
         }

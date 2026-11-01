@@ -111,17 +111,19 @@ mod tests {
         enum Kind {
             Hello,
         }
-        let marker = "HEIMDALL_CANARY_FRAME_DECODE";
+        // Synthetic canary built per run (never committed as a value).
+        let marker = format!(
+            "{}frame_decode_{:x}",
+            heimdall_testkit::CANARY_PREFIX,
+            std::process::id()
+        );
         let body = format!("\"{marker}\"");
         let mut bytes = u32::try_from(body.len()).unwrap().to_be_bytes().to_vec();
         bytes.extend_from_slice(body.as_bytes());
         let err = decode_frame::<Kind>(&bytes, 1024).unwrap_err();
         let shown = format!("{err} {err:?}");
         assert!(matches!(err, FrameError::Json(_)));
-        assert!(
-            !shown.contains("HEIMDALL_CANARY_"),
-            "decode error echoed input"
-        );
+        heimdall_testkit::assert_no_canary(&shown);
     }
 
     #[test]

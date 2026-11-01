@@ -1,0 +1,9 @@
+windows-tests-exit=101
+all-tests-exit[heimdall_ipc_tests]=101
+all-tests-exit[adversarial_ipc_frames]=0
+all-tests-exit[adversarial_agent_frames]=0
+all-tests-exit[integration_ipc_unix]=0
+all-tests-exit=101
+leftover-test-processes=0
+integrity=Medium Mandatory Level
+os=Microsoft Windows [Version 10.0.26300.9711]

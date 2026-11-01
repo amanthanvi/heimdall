@@ -10,6 +10,7 @@ use crate::version::SchemaVersion;
 /// Every ordinary structured result. `T` is the per-primitive `data` payload; errors
 /// use [`ErrorData`]. Field order is the spec example's order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[schemars(transform = require_warnings_and_next)]
 pub struct Envelope<T> {
     /// Major schema version of this document.
     pub schema_version: SchemaVersion,
@@ -22,12 +23,35 @@ pub struct Envelope<T> {
     pub code: Code,
     /// Per-primitive payload; never contains private keys or reusable secrets.
     pub data: T,
-    /// Non-fatal findings.
+    /// Non-fatal findings. Always emitted (listed in the schema's `required`); a
+    /// lenient reader still accepts omission as empty.
     #[serde(default)]
     pub warnings: Vec<Warning>,
     /// Machine next action, or `null` when nothing is expected of the caller.
+    /// Always emitted, `null` when absent (required-nullable in the schema:
+    /// `NextAction | null`).
     #[serde(default)]
     pub next: Option<NextAction>,
+}
+
+/// Schema transform (design-fix second round R1): `warnings` and `next` are always
+/// emitted, so they are `required` in the generated envelope schemas while `next`
+/// keeps its `null` alternative. `#[schemars(required)]` would instead drop the
+/// null alternative (schemars 1.x reads it as "must be `Some`").
+fn require_warnings_and_next(schema: &mut schemars::Schema) {
+    let Some(obj) = schema.as_object_mut() else {
+        return;
+    };
+    let required = obj
+        .entry("required")
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    if let serde_json::Value::Array(list) = required {
+        for field in ["warnings", "next"] {
+            if !list.iter().any(|v| v == field) {
+                list.push(serde_json::Value::String(field.to_owned()));
+            }
+        }
+    }
 }
 
 impl<T> Envelope<T> {
@@ -120,7 +144,7 @@ pub enum EffectStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ResourceRef {
     /// Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,
-    /// `environment`, `endpoint`, `config`, `store`, `clock`).
+    /// `environment`, `endpoint`, `config`, `store`, `clock`, `decision`).
     pub kind: String,
     /// Opaque identifier, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -160,7 +184,7 @@ impl Envelope<ErrorData> {
             schema_version: SchemaVersion::current(),
             operation_id,
             state: OperationState::Failed,
-            code: error.code,
+            code: error.code.clone(),
             data: ErrorData { error },
             warnings: Vec::new(),
             next: None,
