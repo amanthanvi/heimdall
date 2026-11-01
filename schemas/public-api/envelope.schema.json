@@ -182,12 +182,51 @@
         {
           "type": "string",
           "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
         }
       ]
     },
     "Cursor": {
       "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
       "type": "string"
+    },
+    "InteractionKind": {
+      "description": "The human step an authentication may need (ADR-0007 §7 interaction profile).",
+      "oneOf": [
+        {
+          "description": "No interaction (only ever `declared` for a native agent key).",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "The provider asks for approval (1Password).",
+          "type": "string",
+          "const": "provider_approval"
+        },
+        {
+          "description": "The provider must be unlocked.",
+          "type": "string",
+          "const": "provider_unlock"
+        },
+        {
+          "description": "A hardware presence touch (FIDO `sk-*` keys).",
+          "type": "string",
+          "const": "hardware_presence"
+        },
+        {
+          "description": "A passphrase prompt.",
+          "type": "string",
+          "const": "passphrase"
+        },
+        {
+          "description": "Not known; never satisfies a non-interactive requirement.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
     },
     "NextAction": {
       "description": "Machine next action (spec §11.2 `next`, §11.6 \"machine-readable next action\").\n`action` names are stable; parameters are present only when relevant.",
@@ -231,6 +270,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_interaction": {
+          "description": "The provider-owned interaction, with action `interact`, for\n`PROVIDER_LOCKED` and provider-owned `INTERACTION_REQUIRED` (ADR-0007 §7).\nNever combined with `decision_ref`: provider dialogs are not Heimdall\ndecisions (spec §5.5).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderInteractionRef"
             },
             {
               "type": "null"
@@ -292,6 +342,44 @@
           "description": "Unresolved: an external effect may or may not have applied. Quiescent until\nreconciliation settles it to `succeeded` or `failed`; never purged while\nunresolved; never retried blindly.",
           "type": "string",
           "const": "outcome_unknown"
+        }
+      ]
+    },
+    "ProviderInteractionRef": {
+      "description": "The provider-owned interaction a next action points at (spec §5.5). Used with\naction `interact` for `PROVIDER_LOCKED` and provider-owned\n`INTERACTION_REQUIRED`; never combined with `decision_ref`.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "What it asks for.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "provider": {
+          "description": "The provider whose dialog it is.",
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "kind"
+      ]
+    },
+    "ProviderKind": {
+      "description": "Which provider serves an agent endpoint (ADR-0007 §7 \"Detection is passive\").",
+      "oneOf": [
+        {
+          "description": "An OpenSSH-compatible agent (`ssh-agent`, the Windows OpenSSH agent service).",
+          "type": "string",
+          "const": "native_agent"
+        },
+        {
+          "description": "The 1Password SSH agent.",
+          "type": "string",
+          "const": "onepassword"
+        },
+        {
+          "description": "Not determinable passively (for example the Windows `openssh-ssh-agent` pipe,\nF18).",
+          "type": "string",
+          "const": "unknown"
         }
       ]
     },

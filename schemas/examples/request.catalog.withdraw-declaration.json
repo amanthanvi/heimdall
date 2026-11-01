@@ -1,0 +1,8 @@
+{
+  "op": "catalog",
+  "action": "withdraw_declaration",
+  "identity": "idn_0123456789abcdef0123456789abcdef",
+  "revision": 3,
+  "reason": "listing_missing",
+  "request_id": "req-0210"
+}

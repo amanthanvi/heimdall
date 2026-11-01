@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "state": "failed",
+  "code": "CAPABILITY_UNAVAILABLE",
+  "data": {
+    "error": {
+      "code": "CAPABILITY_UNAVAILABLE",
+      "effect_status": "none",
+      "retryable": false,
+      "next": {"action": "narrow_request"},
+      "message": "setup is not available in this build",
+      "reason": "driver_unavailable"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "narrow_request"}
+}

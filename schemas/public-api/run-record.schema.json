@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RunRecord",
+  "description": "One side-channel record, tagged by `type`.",
+  "oneOf": [
+    {
+      "description": "Heimdall stopped before launching (or the launch call returned an error).",
+      "type": "object",
+      "properties": {
+        "binding_id": {
+          "description": "The binding, when one was created.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BindingId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "code": {
+          "description": "The stable code (for example `LAUNCH_FAILED`, `INTERACTION_REQUIRED`).",
+          "$ref": "#/$defs/Code"
+        },
+        "exit_code": {
+          "description": "The exit status Heimdall uses.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "operation_id": {
+          "description": "The operation, when one was created.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "description": "Stable `snake_case` sub-reason.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "description": "Major schema version.",
+          "$ref": "#/$defs/SchemaVersion"
+        },
+        "type": {
+          "type": "string",
+          "const": "prelaunch_failed"
+        }
+      },
+      "required": [
+        "type",
+        "schema_version",
+        "code",
+        "exit_code"
+      ]
+    },
+    {
+      "description": "An **attempt** to launch, written in full before exec or spawn.",
+      "type": "object",
+      "properties": {
+        "attempt": {
+          "description": "Always 1.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "binding_id": {
+          "description": "The binding.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BindingId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "consumer_overrides": {
+          "description": "Consumer settings another source keeps in force (for example a Git\n`core.sshCommand` at some scope).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConsumerOverride"
+          }
+        },
+        "executable": {
+          "description": "The resolved executable.",
+          "type": "string"
+        },
+        "operation_id": {
+          "description": "The operation.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pid": {
+          "description": "Heimdall's own PID (the child's on Unix, after exec).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "schema_version": {
+          "description": "Major schema version.",
+          "$ref": "#/$defs/SchemaVersion"
+        },
+        "type": {
+          "type": "string",
+          "const": "launching"
+        }
+      },
+      "required": [
+        "type",
+        "schema_version",
+        "attempt",
+        "executable",
+        "pid"
+      ]
+    },
+    {
+      "description": "Windows only: `CreateProcessW` returned; positive proof of launch.",
+      "type": "object",
+      "properties": {
+        "pid": {
+          "description": "The child's PID.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "schema_version": {
+          "description": "Major schema version.",
+          "$ref": "#/$defs/SchemaVersion"
+        },
+        "type": {
+          "type": "string",
+          "const": "spawned"
+        }
+      },
+      "required": [
+        "type",
+        "schema_version",
+        "pid"
+      ]
+    },
+    {
+      "description": "Windows only: the child exited.",
+      "type": "object",
+      "properties": {
+        "exit_code": {
+          "description": "The child's exact exit code.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema_version": {
+          "description": "Major schema version.",
+          "$ref": "#/$defs/SchemaVersion"
+        },
+        "type": {
+          "type": "string",
+          "const": "exited"
+        }
+      },
+      "required": [
+        "type",
+        "schema_version",
+        "exit_code"
+      ]
+    }
+  ],
+  "$defs": {
+    "BindingId": {
+      "description": "Work binding ID (spec §4.1 \"Work binding\").",
+      "type": "string"
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "ConfigProvenance": {
+      "description": "Where a configuration directive was read: a display path and a 1-based line.",
+      "type": "object",
+      "properties": {
+        "line": {
+          "description": "1-based line number.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "path_display": {
+          "description": "Display path (`~` for the home directory; `--redact` aware).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_display",
+        "line"
+      ]
+    },
+    "ConsumerKind": {
+      "description": "A consumer program.",
+      "oneOf": [
+        {
+          "description": "`ssh`.",
+          "type": "string",
+          "const": "ssh"
+        },
+        {
+          "description": "`scp`.",
+          "type": "string",
+          "const": "scp"
+        },
+        {
+          "description": "`sftp`.",
+          "type": "string",
+          "const": "sftp"
+        },
+        {
+          "description": "`git`.",
+          "type": "string",
+          "const": "git"
+        },
+        {
+          "description": "`ssh-keygen`.",
+          "type": "string",
+          "const": "ssh_keygen"
+        }
+      ]
+    },
+    "ConsumerOverride": {
+      "description": "A consumer setting another source keeps in force (ADR-0007 §8 \"Git under\n`run`\"). Names the setting, never its value.",
+      "type": "object",
+      "properties": {
+        "consumer": {
+          "description": "Which consumer.",
+          "$ref": "#/$defs/ConsumerKind"
+        },
+        "setting": {
+          "description": "The setting (`core.sshCommand`, `GIT_SSH_COMMAND`, `GIT_SSH`,\n`IdentityAgent`, `SSH_AUTH_SOCK`).",
+          "type": "string"
+        },
+        "source": {
+          "description": "Where it comes from.",
+          "$ref": "#/$defs/OverrideSource"
+        }
+      },
+      "required": [
+        "consumer",
+        "setting",
+        "source"
+      ]
+    },
+    "GitScope": {
+      "description": "A Git configuration scope (`git config --show-scope`).",
+      "oneOf": [
+        {
+          "description": "System file.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "Global file (`~/.gitconfig` or the XDG file).",
+          "type": "string",
+          "const": "global"
+        },
+        {
+          "description": "Repository file.",
+          "type": "string",
+          "const": "local"
+        },
+        {
+          "description": "Worktree file.",
+          "type": "string",
+          "const": "worktree"
+        },
+        {
+          "description": "Command scope (`-c`, `GIT_CONFIG_COUNT`).",
+          "type": "string",
+          "const": "command"
+        }
+      ]
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "OverrideSource": {
+      "description": "Where an overriding consumer setting comes from (tagged by `kind`).",
+      "oneOf": [
+        {
+          "description": "An OpenSSH configuration directive (for example an effective\n`IdentityAgent`).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "ssh_config"
+            }
+          },
+          "$ref": "#/$defs/ConfigProvenance",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A Git configuration scope.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "git_scope"
+            },
+            "scope": {
+              "description": "The scope.",
+              "$ref": "#/$defs/GitScope"
+            }
+          },
+          "required": [
+            "kind",
+            "scope"
+          ]
+        },
+        {
+          "description": "The process environment.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "environment"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "SchemaVersion": {
+      "description": "A `schema_version` value as received from a peer.",
+      "type": "string"
+    }
+  }
+}

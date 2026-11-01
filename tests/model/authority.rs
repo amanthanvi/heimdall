@@ -377,6 +377,7 @@ fn required_strategy() -> impl Strategy<Value = RequiredCapabilities> {
             capabilities,
             destination_scope_at_least: min,
             offline_until: offline.map(at),
+            unattended: false,
         })
 }
 

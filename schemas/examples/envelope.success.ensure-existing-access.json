@@ -1,0 +1,61 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "succeeded",
+  "code": "ACCESS_READY",
+  "data": {
+    "binding_id": "binding_0123456789abcdef0123456789abcdef",
+    "environment_id": "env_fedcba9876543210fedcba9876543210",
+    "profile_revision": 2,
+    "grant_id": "grant_aaaaaaaabbbbbbbbccccccccdddddddd",
+    "expires_at": "2026-11-01T18:00:00Z",
+    "usable_until": "2026-11-01T18:00:00Z",
+    "offline_until": "2026-11-01T09:00:00Z",
+    "refresh_dependency": "none",
+    "credential_mechanism": "native_agent",
+    "enforcement": {
+      "destination_scope": "client_routing",
+      "new_authentication_expiry": "none",
+      "workload_isolation": "shared_os_user",
+      "existing_connections": "unknown",
+      "revocation": "unknown"
+    },
+    "consumer": {
+      "environment": [["SSH_AUTH_SOCK", "/run/user/1000/ssh-agent.socket"]],
+      "executables": [
+        {"consumer": "ssh", "path": "/usr/bin/ssh", "version": "OpenSSH_9.5p2", "sha256": "cabb46077159c16e9b70f50c6badb365aefc4d64d83ac2d8a395ad3d1732a673", "basis": "observed"}
+      ],
+      "overrides": [
+        {"consumer": "ssh", "setting": "IdentityAgent", "source": {"kind": "ssh_config", "path_display": "~/.ssh/config", "line": 14}}
+      ],
+      "pairs": [
+        {
+          "destination": "dest-1",
+          "account": "deploy",
+          "identity": "idn_0123456789abcdef0123456789abcdef",
+          "mechanism": "native_agent",
+          "endpoint": {"kind": "unix_socket", "locator": "/run/user/1000/ssh-agent.socket"},
+          "alias": "build-box",
+          "interaction": "none",
+          "interaction_basis": "declared",
+          "declared_at": "2026-10-20T08:00:00Z",
+          "identity_selection": "exclusive",
+          "selection_observed_at": "2026-11-01T09:00:00Z",
+          "declaration": {
+            "revision": 3,
+            "endpoint": {"kind": "unix_socket", "locator": "/run/user/1000/ssh-agent.socket"},
+            "expires_at": "2026-11-19T08:00:00Z"
+          },
+          "noninteractive": {"eligible": true},
+          "eligibility_checked_at": "2026-11-01T09:00:01Z"
+        }
+      ]
+    },
+    "credential_availability": "current_only",
+    "provider": {"provider": "native_agent", "availability": "available", "interaction": "none", "observed_level": "static", "observed_at": "2026-11-01T09:00:00Z", "basis": "declared"}
+  },
+  "warnings": [
+    {"code": "SHARED_OS_USER", "message": "isolation is same-user convenience only"}
+  ],
+  "next": {"action": "use_binding", "binding_id": "binding_0123456789abcdef0123456789abcdef"}
+}

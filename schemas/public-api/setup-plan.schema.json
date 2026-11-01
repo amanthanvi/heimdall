@@ -1,0 +1,1391 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SetupPlan",
+  "description": "A preview result (`Request::Setup(Preview)` data; schema `setup-plan`).",
+  "type": "object",
+  "properties": {
+    "aliases": {
+      "description": "Affected aliases.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AliasPreview"
+      }
+    },
+    "consent": {
+      "description": "Consent.",
+      "$ref": "#/$defs/ConsentNeed"
+    },
+    "files": {
+      "description": "File changes.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FileChange"
+      }
+    },
+    "findings": {
+      "description": "Findings.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Finding"
+      }
+    },
+    "git": {
+      "description": "The Git part, when planned.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GitConfigChange"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "intent": {
+      "description": "What was planned.",
+      "$ref": "#/$defs/PreviewIntent"
+    },
+    "manual_reasons": {
+      "description": "Why manual: [`manual_reason`]'s values.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
+    "mode": {
+      "description": "Automatic or manual.",
+      "$ref": "#/$defs/SetupMode"
+    },
+    "plan_digest": {
+      "description": "The digest an effectful request must carry.",
+      "$ref": "#/$defs/PlanDigest"
+    },
+    "unaffected_names_checked": {
+      "description": "How many unaffected names were checked to keep their behaviour.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "plan_digest",
+    "intent",
+    "mode",
+    "consent",
+    "unaffected_names_checked"
+  ],
+  "$defs": {
+    "AliasKind": {
+      "description": "How an alias is defined in a plan.",
+      "oneOf": [
+        {
+          "description": "Rendered into P.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "Defined by the user; observed only.",
+          "type": "string",
+          "const": "observed"
+        }
+      ]
+    },
+    "AliasPreview": {
+      "description": "One alias in a plan.",
+      "type": "object",
+      "properties": {
+        "after": {
+          "description": "Behaviour after the plan.",
+          "$ref": "#/$defs/BehaviorSummary"
+        },
+        "alias": {
+          "description": "The alias.",
+          "type": "string"
+        },
+        "before": {
+          "description": "Behaviour now.",
+          "$ref": "#/$defs/BehaviorSummary"
+        },
+        "changes": {
+          "description": "What changes.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BehaviorChange"
+          }
+        },
+        "identity_selection": {
+          "description": "The identity selection after the plan.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentitySelectionReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inherited": {
+          "description": "Directives the alias inherits from user configuration.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DirectiveObservation"
+          }
+        },
+        "kind": {
+          "description": "Managed or observed.",
+          "$ref": "#/$defs/AliasKind"
+        },
+        "restore": {
+          "description": "The consented restore state (rollback and repair; ADR-0007 §5.2).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BehaviorSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "alias",
+        "kind",
+        "before",
+        "after"
+      ]
+    },
+    "BehaviorChange": {
+      "description": "One directive whose relevant behaviour differs between two states.",
+      "type": "object",
+      "properties": {
+        "after": {
+          "description": "After (`certainty: unset` when absent).",
+          "$ref": "#/$defs/DirectiveObservation"
+        },
+        "before": {
+          "description": "Before (`certainty: unset` when absent).",
+          "$ref": "#/$defs/DirectiveObservation"
+        },
+        "directive": {
+          "description": "Directive keyword.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "directive",
+        "before",
+        "after"
+      ]
+    },
+    "BehaviorSummary": {
+      "description": "A behaviour digest and the directives behind it.",
+      "type": "object",
+      "properties": {
+        "digest": {
+          "description": "Behaviour digest (provenance reduced to its source role; ADR-0007 §5.2).",
+          "type": "string"
+        },
+        "directives": {
+          "description": "The relevant directives.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DirectiveObservation"
+          }
+        }
+      },
+      "required": [
+        "digest"
+      ]
+    },
+    "BindingId": {
+      "description": "Work binding ID (spec §4.1 \"Work binding\").",
+      "type": "string"
+    },
+    "Certainty": {
+      "description": "Whether a statically evaluated value is decided.",
+      "oneOf": [
+        {
+          "description": "Decided statically.",
+          "type": "string",
+          "const": "determined"
+        },
+        {
+          "description": "Not decidable statically.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "ConfigProvenance": {
+      "description": "Where a configuration directive was read: a display path and a 1-based line.",
+      "type": "object",
+      "properties": {
+        "line": {
+          "description": "1-based line number.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "path_display": {
+          "description": "Display path (`~` for the home directory; `--redact` aware).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_display",
+        "line"
+      ]
+    },
+    "ConflictKind": {
+      "description": "A conflict a repair addresses (ADR-0007 §5.5, §5.7). Also a stable error reason.",
+      "oneOf": [
+        {
+          "description": "The user file changed since the plan.",
+          "type": "string",
+          "const": "user_config_changed"
+        },
+        {
+          "description": "The managed file was edited.",
+          "type": "string",
+          "const": "managed_file_edited"
+        },
+        {
+          "description": "A marker line was edited.",
+          "type": "string",
+          "const": "marker_edited"
+        },
+        {
+          "description": "A marker appears more than once.",
+          "type": "string",
+          "const": "marker_duplicated"
+        },
+        {
+          "description": "The include block is conditional.",
+          "type": "string",
+          "const": "include_conditional"
+        },
+        {
+          "description": "A target file cannot be managed (manual mode).",
+          "type": "string",
+          "const": "unmanageable_file"
+        },
+        {
+          "description": "A managed alias collides with a user alias.",
+          "type": "string",
+          "const": "alias_collision"
+        },
+        {
+          "description": "Another writer changed a file during the transaction.",
+          "type": "string",
+          "const": "concurrent_writer"
+        },
+        {
+          "description": "Git's configuration lock is held.",
+          "type": "string",
+          "const": "git_config_locked"
+        },
+        {
+          "description": "A setup operation is held for the owner (ADR-0007 §5.7 outcome H).",
+          "type": "string",
+          "const": "projection_held"
+        }
+      ]
+    },
+    "ConsentNeed": {
+      "description": "Whether applying the plan needs an `ApplyProjection` decision.",
+      "type": "object",
+      "properties": {
+        "decision_required": {
+          "description": "A decision is required.",
+          "type": "boolean"
+        },
+        "reasons": {
+          "description": "Why.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConsentReason"
+          }
+        }
+      },
+      "required": [
+        "decision_required"
+      ]
+    },
+    "ConsentReason": {
+      "description": "One consent reason.",
+      "type": "object",
+      "properties": {
+        "item": {
+          "description": "The affected item (an alias or `git`).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Why.",
+          "$ref": "#/$defs/ConsentReasonKind"
+        }
+      },
+      "required": [
+        "item",
+        "kind"
+      ]
+    },
+    "ConsentReasonKind": {
+      "description": "Why a plan needs an owner decision (ADR-0007 §5.2).",
+      "oneOf": [
+        {
+          "description": "The item reaches a state the owner has not consented to.",
+          "type": "string",
+          "const": "new_state"
+        },
+        {
+          "description": "The item exposes inherited behaviour.",
+          "type": "string",
+          "const": "exposes_inherited"
+        },
+        {
+          "description": "The item's current or after state is undetermined.",
+          "type": "string",
+          "const": "undetermined_state"
+        },
+        {
+          "description": "Git's SSH selection changes.",
+          "type": "string",
+          "const": "git_selection_changed"
+        }
+      ]
+    },
+    "Cursor": {
+      "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "DirectiveCertainty": {
+      "description": "Whether a directive's static value is decided (ADR-0007 §6 three-valued\nevaluation).",
+      "oneOf": [
+        {
+          "description": "One value, decided.",
+          "type": "string",
+          "const": "determined"
+        },
+        {
+          "description": "Several candidate values; static evaluation cannot choose.",
+          "type": "string",
+          "const": "undetermined"
+        },
+        {
+          "description": "Not set.",
+          "type": "string",
+          "const": "unset"
+        }
+      ]
+    },
+    "DirectiveObservation": {
+      "description": "One directive of an alias's relevant behaviour.",
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "description": "Certainty.",
+          "$ref": "#/$defs/DirectiveCertainty"
+        },
+        "directive": {
+          "description": "Directive keyword (canonical case, e.g. `IdentityAgent`).",
+          "type": "string"
+        },
+        "provenance": {
+          "description": "Where each value or candidate was read.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConfigProvenance"
+          }
+        },
+        "values": {
+          "description": "The value (determined) or the candidate values (undetermined); empty when\nunset.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "directive",
+        "certainty"
+      ]
+    },
+    "FileChange": {
+      "description": "One file a plan changes.",
+      "type": "object",
+      "properties": {
+        "after_sha256": {
+          "description": "SHA-256 after, lowercase hex; absent when the file is removed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "before_sha256": {
+          "description": "SHA-256 before, lowercase hex; absent when the file does not exist.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "diff": {
+          "description": "Unified diff, at most [`MAX_DIFF_BYTES`].",
+          "type": "string"
+        },
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Role.",
+          "$ref": "#/$defs/ProjectionFileRole"
+        }
+      },
+      "required": [
+        "role",
+        "path_display",
+        "diff"
+      ]
+    },
+    "Finding": {
+      "description": "One doctor or preview finding.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable code: one of [`finding`]'s values (readers tolerate unknown ones).",
+          "type": "string"
+        },
+        "level": {
+          "description": "The probe level that found it.",
+          "$ref": "#/$defs/ProbeLevel"
+        },
+        "message": {
+          "description": "Human text; never contains secrets.",
+          "type": "string"
+        },
+        "next": {
+          "description": "The remedy.",
+          "$ref": "#/$defs/NextAction"
+        },
+        "provenance": {
+          "description": "Configuration location, when there is one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "description": "Stable `snake_case` sub-reason (for example `modified_after_exchange` on\n`conflict_artifact_present`, the hold reason on `projection_held`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "severity": {
+          "description": "Severity.",
+          "$ref": "#/$defs/FindingSeverity"
+        },
+        "subject": {
+          "description": "What it concerns.",
+          "$ref": "#/$defs/ResourceRef"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "subject",
+        "level",
+        "message",
+        "next"
+      ]
+    },
+    "FindingSeverity": {
+      "description": "Finding severity.",
+      "oneOf": [
+        {
+          "description": "Informational.",
+          "type": "string",
+          "const": "info"
+        },
+        {
+          "description": "Worth attention.",
+          "type": "string",
+          "const": "warning"
+        },
+        {
+          "description": "Breaks or weakens access.",
+          "type": "string",
+          "const": "problem"
+        }
+      ]
+    },
+    "GitApplicability": {
+      "description": "Whether the Git include can be applied (ADR-0007 §5.6).",
+      "oneOf": [
+        {
+          "description": "No `core.sshCommand` at the system or global scopes (including every file\nthey include).",
+          "type": "string",
+          "const": "applicable"
+        },
+        {
+          "description": "See `reason`.",
+          "type": "string",
+          "const": "not_applicable"
+        }
+      ]
+    },
+    "GitConfigChange": {
+      "description": "The Git part of a plan (ADR-0007 §5.6).",
+      "type": "object",
+      "properties": {
+        "applicability": {
+          "description": "Whether it can be applied.",
+          "$ref": "#/$defs/GitApplicability"
+        },
+        "effective_after": {
+          "description": "Git's effective selection after the plan.",
+          "$ref": "#/$defs/GitSshSelection"
+        },
+        "effective_before": {
+          "description": "Git's effective selection now.",
+          "$ref": "#/$defs/GitSshSelection"
+        },
+        "global_file": {
+          "description": "The global file B_git goes into.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitGlobalFile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "include_block": {
+          "description": "The change to the global file.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileChange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "managed_file": {
+          "description": "The change to P_git.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileChange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "previous_values": {
+          "description": "The values that make it not applicable; empty when applicable.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/GitValueObservation"
+          }
+        },
+        "reason": {
+          "description": "Why not, when not applicable (for example `git_config_unreadable`,\n`git_global_redirected`, `git_ssh_command_present`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "applicability",
+        "effective_before",
+        "effective_after"
+      ]
+    },
+    "GitFileResolution": {
+      "description": "How the global Git file was chosen (ADR-0007 §5.6 first-read rule).",
+      "oneOf": [
+        {
+          "description": "The first existing file in Git's read order.",
+          "type": "string",
+          "const": "first_read_existing"
+        },
+        {
+          "description": "None existed; `~/.gitconfig` is created.",
+          "type": "string",
+          "const": "created"
+        }
+      ]
+    },
+    "GitGlobalFile": {
+      "description": "The chosen global Git file.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "Which file.",
+          "$ref": "#/$defs/GitGlobalFileKind"
+        },
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        },
+        "resolution": {
+          "description": "How it was chosen.",
+          "$ref": "#/$defs/GitFileResolution"
+        }
+      },
+      "required": [
+        "path_display",
+        "file",
+        "resolution"
+      ]
+    },
+    "GitGlobalFileKind": {
+      "description": "Which global Git file holds B_git.",
+      "oneOf": [
+        {
+          "description": "`~/.gitconfig`.",
+          "type": "string",
+          "const": "home_gitconfig"
+        },
+        {
+          "description": "`$XDG_CONFIG_HOME/git/config`.",
+          "type": "string",
+          "const": "xdg_config"
+        }
+      ]
+    },
+    "GitScope": {
+      "description": "A Git configuration scope (`git config --show-scope`).",
+      "oneOf": [
+        {
+          "description": "System file.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "Global file (`~/.gitconfig` or the XDG file).",
+          "type": "string",
+          "const": "global"
+        },
+        {
+          "description": "Repository file.",
+          "type": "string",
+          "const": "local"
+        },
+        {
+          "description": "Worktree file.",
+          "type": "string",
+          "const": "worktree"
+        },
+        {
+          "description": "Command scope (`-c`, `GIT_CONFIG_COUNT`).",
+          "type": "string",
+          "const": "command"
+        }
+      ]
+    },
+    "GitSshClassification": {
+      "description": "What Git's effective SSH program is (the value itself is never reported).",
+      "oneOf": [
+        {
+          "description": "The verified client.",
+          "type": "string",
+          "const": "verified_client"
+        },
+        {
+          "description": "Git for Windows' bundled MSYS ssh.",
+          "type": "string",
+          "const": "bundled_msys"
+        },
+        {
+          "description": "Something else.",
+          "type": "string",
+          "const": "other"
+        },
+        {
+          "description": "Not established.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "GitSshSelection": {
+      "description": "Git's effective SSH selection (ADR-0007 §5.6, §8).",
+      "type": "object",
+      "properties": {
+        "classification": {
+          "description": "What it is.",
+          "$ref": "#/$defs/GitSshClassification"
+        },
+        "scope": {
+          "description": "The winning scope, for `config`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "description": "Where it comes from.",
+          "$ref": "#/$defs/GitSshSource"
+        }
+      },
+      "required": [
+        "source",
+        "classification"
+      ]
+    },
+    "GitSshSource": {
+      "description": "Where Git's effective SSH program comes from (ADR-0007 F22 order).",
+      "oneOf": [
+        {
+          "description": "`GIT_SSH_COMMAND` in the environment.",
+          "type": "string",
+          "const": "env_git_ssh_command"
+        },
+        {
+          "description": "`core.sshCommand` at its winning scope.",
+          "type": "string",
+          "const": "config"
+        },
+        {
+          "description": "`GIT_SSH` in the environment.",
+          "type": "string",
+          "const": "env_git_ssh"
+        },
+        {
+          "description": "Git's default.",
+          "type": "string",
+          "const": "default"
+        }
+      ]
+    },
+    "GitValueObservation": {
+      "description": "One observed `core.sshCommand` value, by digest only (ADR-0007 §5.6).",
+      "type": "object",
+      "properties": {
+        "conditional": {
+          "description": "Reached through `includeIf` (counted whatever the condition).",
+          "type": "boolean",
+          "default": false
+        },
+        "count": {
+          "description": "How many times the value occurs at this origin.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "origin_display": {
+          "description": "Display origin (`file:~/.gitconfig`), when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "description": "Scope.",
+          "$ref": "#/$defs/GitScope"
+        },
+        "value_sha256": {
+          "description": "SHA-256 of the value, lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "value_sha256",
+        "count"
+      ]
+    },
+    "IdentitiesOnly": {
+      "description": "`IdentitiesOnly` as statically evaluated for the alias.",
+      "oneOf": [
+        {
+          "description": "Determined `yes`.",
+          "type": "string",
+          "const": "determined_yes"
+        },
+        {
+          "description": "Determined `no` (or unset).",
+          "type": "string",
+          "const": "determined_no"
+        },
+        {
+          "description": "Not decidable statically.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "IdentityBacking": {
+      "description": "What backs an identity entry (ADR-0007 §7, F9): an agent when the private key\nfile is absent, a file when it is present (stat only; never opened).",
+      "oneOf": [
+        {
+          "description": "Private key file absent: used through the alias's agent.",
+          "type": "string",
+          "const": "agent"
+        },
+        {
+          "description": "Private key file present.",
+          "type": "string",
+          "const": "file"
+        },
+        {
+          "description": "Not established.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "IdentityEntry": {
+      "description": "One entry of an alias's identity list.",
+      "type": "object",
+      "properties": {
+        "backing": {
+          "description": "What backs it.",
+          "$ref": "#/$defs/IdentityBacking"
+        },
+        "certainty": {
+          "description": "Whether the entry is decided.",
+          "$ref": "#/$defs/Certainty"
+        },
+        "cleared": {
+          "description": "Whether a fallback clearance (ADR-0007 §7, M2-R05) cleared it; present only\nwhere a clearance was evaluated (readiness, the pre-launch check, doctor).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fingerprint": {
+          "description": "Public fingerprint (`SHA256:…`) read from the `.pub` file, when present.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Entry kind.",
+          "$ref": "#/$defs/IdentityEntryKind"
+        },
+        "provenance": {
+          "description": "Directive location, when it comes from a file.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "description": "Where it comes from.",
+          "$ref": "#/$defs/IdentityEntrySource"
+        }
+      },
+      "required": [
+        "kind",
+        "source",
+        "certainty",
+        "backing"
+      ]
+    },
+    "IdentityEntryKind": {
+      "description": "The kind of an identity-list entry.",
+      "oneOf": [
+        {
+          "description": "An `IdentityFile` entry.",
+          "type": "string",
+          "const": "identity_file"
+        },
+        {
+          "description": "A `CertificateFile` entry.",
+          "type": "string",
+          "const": "certificate_file"
+        }
+      ]
+    },
+    "IdentityEntrySource": {
+      "description": "Where an identity-list entry comes from.",
+      "oneOf": [
+        {
+          "description": "The Heimdall-managed projection.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "The user's configuration.",
+          "type": "string",
+          "const": "user"
+        },
+        {
+          "description": "The system configuration.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "ssh's default identity files.",
+          "type": "string",
+          "const": "default"
+        }
+      ]
+    },
+    "IdentitySelection": {
+      "description": "Whether ssh can only use the adopted identity for an alias (ADR-0007 §3 item 3).",
+      "oneOf": [
+        {
+          "description": "Only the adopted identity can be offered.",
+          "type": "string",
+          "const": "exclusive"
+        },
+        {
+          "description": "Other identities the configuration adds can be offered.",
+          "type": "string",
+          "const": "not_exclusive"
+        },
+        {
+          "description": "Static evaluation cannot decide (for example behind `Match exec`).",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "IdentitySelectionReport": {
+      "description": "The static identity selection of an alias (ADR-0007 §3 item 3).",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "Every entry ssh may try, in order.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/IdentityEntry"
+          }
+        },
+        "identities_only": {
+          "description": "`IdentitiesOnly` for the alias.",
+          "$ref": "#/$defs/IdentitiesOnly"
+        },
+        "selection": {
+          "description": "The verdict.",
+          "$ref": "#/$defs/IdentitySelection"
+        }
+      },
+      "required": [
+        "selection",
+        "identities_only"
+      ]
+    },
+    "InteractionKind": {
+      "description": "The human step an authentication may need (ADR-0007 §7 interaction profile).",
+      "oneOf": [
+        {
+          "description": "No interaction (only ever `declared` for a native agent key).",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "The provider asks for approval (1Password).",
+          "type": "string",
+          "const": "provider_approval"
+        },
+        {
+          "description": "The provider must be unlocked.",
+          "type": "string",
+          "const": "provider_unlock"
+        },
+        {
+          "description": "A hardware presence touch (FIDO `sk-*` keys).",
+          "type": "string",
+          "const": "hardware_presence"
+        },
+        {
+          "description": "A passphrase prompt.",
+          "type": "string",
+          "const": "passphrase"
+        },
+        {
+          "description": "Not known; never satisfies a non-interactive requirement.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "NextAction": {
+      "description": "Machine next action (spec §11.2 `next`, §11.6 \"machine-readable next action\").\n`action` names are stable; parameters are present only when relevant.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "Stable action name; defaults come from [`Code::default_next_action`].",
+          "type": "string"
+        },
+        "binding_id": {
+          "description": "Binding to use.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BindingId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cursor": {
+          "description": "Cursor to resume from after a resync.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision_ref": {
+          "description": "Nonsecret reference to a pending owner decision.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "description": "Operation to observe.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_interaction": {
+          "description": "The provider-owned interaction, with action `interact`, for\n`PROVIDER_LOCKED` and provider-owned `INTERACTION_REQUIRED` (ADR-0007 §7).\nNever combined with `decision_ref`: provider dialogs are not Heimdall\ndecisions (spec §5.5).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderInteractionRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retry_after_ms": {
+          "description": "Suggested minimum delay before a retry.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "PlanDigest": {
+      "description": "A plan digest: lowercase hex SHA-256 (64 characters), transparent on the wire.",
+      "type": "string"
+    },
+    "PreviewIntent": {
+      "description": "What a preview plans (ADR-0007 §5.1).",
+      "oneOf": [
+        {
+          "description": "Install or re-render the projection.",
+          "type": "object",
+          "properties": {
+            "include_git": {
+              "description": "Also install the Git include (ADR-0007 §5.6).",
+              "type": "boolean",
+              "default": false
+            },
+            "kind": {
+              "type": "string",
+              "const": "apply"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Remove the projection.",
+          "type": "object",
+          "properties": {
+            "items": {
+              "description": "The items to roll back; default both.",
+              "type": "array",
+              "default": [
+                "ssh",
+                "git"
+              ],
+              "items": {
+                "$ref": "#/$defs/ProjectionItem"
+              },
+              "uniqueItems": true
+            },
+            "keep_key_files": {
+              "description": "Keep the materialized public key files.",
+              "type": "boolean",
+              "default": false
+            },
+            "kind": {
+              "type": "string",
+              "const": "rollback"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Repair a conflict.",
+          "type": "object",
+          "properties": {
+            "conflict": {
+              "description": "The conflict.",
+              "$ref": "#/$defs/ConflictKind"
+            },
+            "kind": {
+              "type": "string",
+              "const": "repair"
+            },
+            "operation": {
+              "description": "The held operation, required for `retry_held` and `keep_held` and\nrefused otherwise. Their plan's digest covers the held operation's\ncanonical observation and each held step's content fingerprint.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/OperationId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "resolution": {
+              "description": "The resolution.",
+              "$ref": "#/$defs/RepairResolution"
+            }
+          },
+          "required": [
+            "kind",
+            "conflict",
+            "resolution"
+          ]
+        }
+      ]
+    },
+    "ProbeLevel": {
+      "description": "The probe ladder levels (ADR-0007 §6; spec §10.2), weakest first.",
+      "oneOf": [
+        {
+          "description": "Parse and evaluate without executing anything (the default).",
+          "type": "string",
+          "const": "static"
+        },
+        {
+          "description": "`ssh -G` against the real tree (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "evaluate"
+        },
+        {
+          "description": "One `SSH_AGENTC_REQUEST_IDENTITIES` to a named endpoint.",
+          "type": "string",
+          "const": "agent"
+        },
+        {
+          "description": "TCP connect and read the identification line.",
+          "type": "string",
+          "const": "network"
+        },
+        {
+          "description": "Host-key verification with nothing to sign (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "host_verification"
+        },
+        {
+          "description": "A real authentication (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "authentication"
+        }
+      ]
+    },
+    "ProjectionFileRole": {
+      "description": "The role of a file in a projection plan or result.",
+      "oneOf": [
+        {
+          "description": "The user's OpenSSH configuration (holds B).",
+          "type": "string",
+          "const": "user_ssh"
+        },
+        {
+          "description": "The managed OpenSSH file P.",
+          "type": "string",
+          "const": "managed_ssh"
+        },
+        {
+          "description": "A materialized public key file.",
+          "type": "string",
+          "const": "key_file"
+        },
+        {
+          "description": "The global Git file (holds B_git).",
+          "type": "string",
+          "const": "git_include"
+        },
+        {
+          "description": "The managed Git file P_git.",
+          "type": "string",
+          "const": "git_managed"
+        }
+      ]
+    },
+    "ProjectionItem": {
+      "description": "A projection item: the OpenSSH projection or the Git include (ADR-0007 §5.4).",
+      "oneOf": [
+        {
+          "description": "The OpenSSH include block B and the managed file P (with key files).",
+          "type": "string",
+          "const": "ssh"
+        },
+        {
+          "description": "The Git include block B_git and the managed file P_git.",
+          "type": "string",
+          "const": "git"
+        }
+      ]
+    },
+    "ProviderInteractionRef": {
+      "description": "The provider-owned interaction a next action points at (spec §5.5). Used with\naction `interact` for `PROVIDER_LOCKED` and provider-owned\n`INTERACTION_REQUIRED`; never combined with `decision_ref`.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "What it asks for.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "provider": {
+          "description": "The provider whose dialog it is.",
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "kind"
+      ]
+    },
+    "ProviderKind": {
+      "description": "Which provider serves an agent endpoint (ADR-0007 §7 \"Detection is passive\").",
+      "oneOf": [
+        {
+          "description": "An OpenSSH-compatible agent (`ssh-agent`, the Windows OpenSSH agent service).",
+          "type": "string",
+          "const": "native_agent"
+        },
+        {
+          "description": "The 1Password SSH agent.",
+          "type": "string",
+          "const": "onepassword"
+        },
+        {
+          "description": "Not determinable passively (for example the Windows `openssh-ssh-agent` pipe,\nF18).",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "RepairResolution": {
+      "description": "How a repair resolves its conflict.",
+      "oneOf": [
+        {
+          "description": "Render the projection again.",
+          "type": "string",
+          "const": "rerender"
+        },
+        {
+          "description": "Remove duplicated markers.",
+          "type": "string",
+          "const": "remove_duplicate_markers"
+        },
+        {
+          "description": "Move the include block to the top.",
+          "type": "string",
+          "const": "move_include_to_top"
+        },
+        {
+          "description": "Switch to manual mode.",
+          "type": "string",
+          "const": "manual_mode"
+        },
+        {
+          "description": "Retry a held operation's recovery (only with `projection_held`).",
+          "type": "string",
+          "const": "retry_held"
+        },
+        {
+          "description": "Close a held operation, keeping what is there (only with `projection_held`).",
+          "type": "string",
+          "const": "keep_held"
+        }
+      ]
+    },
+    "ResourceRef": {
+      "description": "A reference to the resource an error concerns. Opaque IDs only; never a secret.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Opaque identifier, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`, `decision`, and\nsince M02 `projection`, `identity`, `provider`, `executable`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "SetupMode": {
+      "description": "Whether Heimdall edits the user file or only writes P (ADR-0007 §5.1).",
+      "oneOf": [
+        {
+          "description": "Heimdall inserts the include block.",
+          "type": "string",
+          "const": "automatic"
+        },
+        {
+          "description": "The owner inserts it; see `manual_reasons`.",
+          "type": "string",
+          "const": "manual"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "source": "m02-plan U0 Tests (journaled_operation_kinds_match_their_request_kind) and section 5 items 2-4, transcribed; shared by the contract half (tests/contracts/m02.rs, Request::kind and Request::admission) and the domain half (OperationKind::as_str and its serde form)",
+  "journaled": {
+    "Ensure": "ensure",
+    "Delegate": "delegate",
+    "Bind": "bind",
+    "Revoke": "revoke",
+    "SetupApply": "setup.apply",
+    "SetupRollback": "setup.rollback",
+    "SetupRepair": "setup.repair",
+    "Catalog": "catalog"
+  },
+  "synchronous": ["cancel", "release", "policy", "decide", "confirm_time"],
+  "read_only": ["inspect", "observe", "shutdown", "setup.preview"],
+  "declared_never_constructed": {
+    "Cancel": "cancel",
+    "Release": "release",
+    "Policy": "policy"
+  },
+  "reserved": {
+    "Probe": "probe"
+  }
+}

@@ -1,0 +1,29 @@
+[package]
+name = "heimdall-localenv"
+description = "Heimdall local environment: SSH path and client discovery, agent endpoint detection, passive doctor, explicit probes, Git observation, and the projection file transaction (m02-plan U3, U4; ADR-0007 §5, §6)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+heimdall-app = { workspace = true }
+heimdall-sshconf = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+# U1/U3: `Include` glob expansion in bytewise order (dependencies.md).
+glob = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# U4 `replace`: atomic exchange and no-replace renames through the reviewed safe
+# wrapper (m02-plan §6 P5; dependencies.md). sys.rs keeps the remaining FFI.
+rustix = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }

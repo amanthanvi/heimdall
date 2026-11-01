@@ -100,6 +100,9 @@ fn outcome() -> PrepareOutcome {
         refresh_dependency: RefreshDependency::None,
         enforcement: EnforcementEvidence::unknown(),
         credential_ref: format!("{CANARY_PREFIX}events_fixture"),
+        availability: Default::default(),
+        provider: None,
+        integration: Default::default(),
     }
 }
 

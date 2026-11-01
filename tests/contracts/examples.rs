@@ -8,6 +8,7 @@
 use serde_json::{Map, Value, json};
 
 use heimdall_contract::code::Code;
+use heimdall_contract::doctor::DoctorReport;
 use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData};
 use heimdall_contract::event::{Event, Snapshot};
 use heimdall_contract::exit::ExitCode;
@@ -16,7 +17,9 @@ use heimdall_contract::ipc::{ClientHello, ClientMessage, ServerMessage};
 use heimdall_contract::request::{
     ConfirmTimeRequest, DecideRequest, EnsureData, InteractionMode, Request, RevokeData, Verdict,
 };
+use heimdall_contract::run_record::RunRecord;
 use heimdall_contract::schema::public_schemas;
+use heimdall_contract::setup::{SetupPlan, SetupResult};
 use heimdall_contract::state::OperationState;
 use heimdall_contract::version::SchemaVersion;
 
@@ -34,6 +37,10 @@ enum Kind {
     Request,
     ClientMessage,
     ServerMessage,
+    DoctorReport,
+    RunRecord,
+    SetupPlan,
+    SetupResult,
 }
 
 impl Kind {
@@ -48,6 +55,10 @@ impl Kind {
             Kind::Request => "request",
             Kind::ClientMessage => "ipc.client-message",
             Kind::ServerMessage => "ipc.server-message",
+            Kind::DoctorReport => "doctor-report",
+            Kind::RunRecord => "run-record",
+            Kind::SetupPlan => "setup-plan",
+            Kind::SetupResult => "setup-result",
         }
     }
 
@@ -67,6 +78,10 @@ impl Kind {
             Kind::Request => go::<Request>(v),
             Kind::ClientMessage => go::<ClientMessage>(v),
             Kind::ServerMessage => go::<ServerMessage>(v),
+            Kind::DoctorReport => go::<DoctorReport>(v),
+            Kind::RunRecord => go::<RunRecord>(v),
+            Kind::SetupPlan => go::<SetupPlan>(v),
+            Kind::SetupResult => go::<SetupResult>(v),
         }
     }
 }
@@ -105,6 +120,49 @@ const EXAMPLES: &[(&str, Kind)] = &[
     ("ipc.server-message.response.json", Kind::ServerMessage),
     ("ipc.server-message.subscribed.json", Kind::ServerMessage),
     ("ipc.server-message.goodbye.json", Kind::ServerMessage),
+    // ADR-0006 revision 3 (m02-plan section 5; U0 "the new examples").
+    ("request.setup.preview-apply.json", Kind::Request),
+    ("request.setup.preview-rollback.json", Kind::Request),
+    ("request.setup.preview-repair.json", Kind::Request),
+    ("request.setup.apply.json", Kind::Request),
+    ("request.setup.rollback.json", Kind::Request),
+    ("request.setup.repair.json", Kind::Request),
+    ("request.catalog.upsert-destination.json", Kind::Request),
+    (
+        "request.catalog.upsert-destination-observed.json",
+        Kind::Request,
+    ),
+    ("request.catalog.remove-destination.json", Kind::Request),
+    ("request.catalog.adopt-identity.json", Kind::Request),
+    (
+        "request.catalog.adopt-identity-onepassword.json",
+        Kind::Request,
+    ),
+    ("request.catalog.remove-identity.json", Kind::Request),
+    ("request.catalog.upsert-profile.json", Kind::Request),
+    ("request.catalog.remove-profile.json", Kind::Request),
+    ("request.catalog.declare-interaction.json", Kind::Request),
+    ("request.catalog.withdraw-declaration.json", Kind::Request),
+    ("request.bind-launch.json", Kind::Request),
+    ("doctor-report.json", Kind::DoctorReport),
+    ("run-record.prelaunch-failed.json", Kind::RunRecord),
+    ("run-record.launching.json", Kind::RunRecord),
+    ("run-record.spawned.json", Kind::RunRecord),
+    ("run-record.exited.json", Kind::RunRecord),
+    ("setup-plan.apply.json", Kind::SetupPlan),
+    ("setup-plan.rollback-manual.json", Kind::SetupPlan),
+    ("setup-result.held.json", Kind::SetupResult),
+    (
+        "envelope.success.ensure-existing-access.json",
+        Kind::EnvelopeEnsure,
+    ),
+    ("envelope.error.projection-held.json", Kind::EnvelopeError),
+    ("envelope.error.launch-failed.json", Kind::EnvelopeError),
+    (
+        "envelope.error.driver-unavailable.json",
+        Kind::EnvelopeError,
+    ),
+    ("envelope.error.provider-locked.json", Kind::EnvelopeError),
 ];
 
 fn load(file: &str) -> (String, Value) {
@@ -130,19 +188,27 @@ fn checked_in_schema(kind: Kind) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+/// Strings carry no control character, except the line feeds and tabs of a rendered
+/// diff (`FileChange.diff`, m02-plan section 5 item 2), which is multi-line file text
+/// by design. ESC and every other control character stay refused there too.
 fn all_strings_are_clean(label: &str, v: &Value) {
-    match v {
-        Value::String(s) => {
-            assert!(
-                !s.chars().any(char::is_control),
-                "{label}: control character in a string"
-            );
-            assert_clean(label, s);
+    fn walk(label: &str, key: Option<&str>, v: &Value) {
+        match v {
+            Value::String(s) => {
+                let multiline = key == Some("diff");
+                assert!(
+                    !s.chars()
+                        .any(|c| c.is_control() && !(multiline && matches!(c, '\n' | '\t'))),
+                    "{label}: control character in a string"
+                );
+                assert_clean(label, s);
+            }
+            Value::Array(items) => items.iter().for_each(|i| walk(label, key, i)),
+            Value::Object(map) => map.iter().for_each(|(k, i)| walk(label, Some(k), i)),
+            _ => {}
         }
-        Value::Array(items) => items.iter().for_each(|i| all_strings_are_clean(label, i)),
-        Value::Object(map) => map.values().for_each(|i| all_strings_are_clean(label, i)),
-        _ => {}
     }
+    walk(label, None, v);
 }
 
 #[test]
@@ -345,6 +411,17 @@ fn error_examples_cover_every_exit_class_and_agree_with_the_code_table() {
             "envelope.error.outcome-unknown.json",
             ExitCode::OutcomeUnknown,
         ),
+        // ADR-0006 revision 3.
+        (
+            "envelope.error.projection-held.json",
+            ExitCode::OutcomeUnknown,
+        ),
+        ("envelope.error.launch-failed.json", ExitCode::LaunchFailed),
+        ("envelope.error.driver-unavailable.json", ExitCode::Denied),
+        (
+            "envelope.error.provider-locked.json",
+            ExitCode::InteractionRequired,
+        ),
     ];
     let mut classes = std::collections::BTreeSet::new();
     for (file, class) in table {
@@ -370,7 +447,7 @@ fn error_examples_cover_every_exit_class_and_agree_with_the_code_table() {
     }
     assert_eq!(
         classes.into_iter().collect::<Vec<_>>(),
-        vec![1, 2, 3, 4, 5, 6, 7],
+        vec![1, 2, 3, 4, 5, 6, 7, 127],
         "every non-success exit class has an example"
     );
 }

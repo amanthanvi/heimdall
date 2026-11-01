@@ -6,6 +6,9 @@
 //! request/response types of the six primitives (docs/contracts/primitives-draft.md),
 //! the local IPC message set and its hard limits (spec §13.2), canonical JSON for
 //! request hashing (spec §11.4) and the JSON Schema generator (plan §4.5).
+//! ADR-0006 revision 3 (M02; m02-plan §5) adds the setup and catalog requests
+//! (`setup`, `catalog`), provider and identity-selection types (`provider`), the
+//! doctor report (`doctor`) and the `run` side-channel records (`run_record`).
 //!
 //! It owns no semantics: state *transitions*, authority resolution and hashing
 //! *inputs* live in `heimdall-domain`. Nothing here performs I/O. Dependencies are
@@ -17,14 +20,19 @@
 //! distinct; timestamps are RFC 3339 with an explicit offset; IDs are opaque.
 
 pub mod canonical;
+pub mod catalog;
 pub mod code;
+pub mod doctor;
 pub mod envelope;
 pub mod event;
 pub mod exit;
 pub mod ids;
 pub mod ipc;
+pub mod provider;
 pub mod request;
+pub mod run_record;
 pub mod schema;
+pub mod setup;
 pub mod state;
 pub mod version;
 

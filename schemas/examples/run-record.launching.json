@@ -1,0 +1,12 @@
+{
+  "type": "launching",
+  "schema_version": "1",
+  "attempt": 1,
+  "executable": "/usr/bin/git",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "binding_id": "binding_0123456789abcdef0123456789abcdef",
+  "pid": 4242,
+  "consumer_overrides": [
+    {"consumer": "git", "setting": "core.sshCommand", "source": {"kind": "git_scope", "scope": "local"}}
+  ]
+}

@@ -153,24 +153,17 @@
       "description": "`bind` forms (primitives-draft §4.3).",
       "oneOf": [
         {
-          "description": "Launch `argv` without a shell under the binding (spec §10.4). The runtime\nnever launches; the CLI does, after `ensure` returns the integration.",
+          "description": "Launch a program without a shell under the binding (spec §10.4). The runtime\nnever launches; the CLI does. `argv` never crosses IPC (Q8, ADR-0007 §8):\nthe request names the resolved executable and the holder process.",
           "type": "object",
           "properties": {
-            "argv": {
-              "description": "Argument vector, bounded by [`MAX_ARGV_BYTES`]. Non-UTF-8 arguments are\ncarried by the CLI process, not over IPC.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
             "form": {
               "type": "string",
               "const": "launch"
             }
           },
+          "$ref": "#/$defs/LaunchBinding",
           "required": [
-            "form",
-            "argv"
+            "form"
           ]
         },
         {
@@ -248,6 +241,214 @@
         }
       ]
     },
+    "CatalogRequest": {
+      "description": "`Request::Catalog`, tagged by `action`.",
+      "oneOf": [
+        {
+          "description": "Create or replace a destination.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "upsert_destination"
+            },
+            "destination": {
+              "description": "The destination.",
+              "$ref": "#/$defs/DestinationSpec"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "destination",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Remove a destination.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove_destination"
+            },
+            "id": {
+              "description": "Destination ID.",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "id",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Adopt an existing identity.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "adopt_identity"
+            },
+            "identity": {
+              "description": "The identity.",
+              "$ref": "#/$defs/IdentitySpec"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "identity",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Remove an adopted identity.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove_identity"
+            },
+            "id": {
+              "description": "Identity ID.",
+              "$ref": "#/$defs/IdentityId"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "id",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Create or replace a profile.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "upsert_profile"
+            },
+            "profile": {
+              "description": "The profile.",
+              "$ref": "#/$defs/ProfileSpec"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "profile",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Remove a profile.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove_profile"
+            },
+            "id": {
+              "description": "Profile ID.",
+              "$ref": "#/$defs/ProfileId"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "id",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Declare an identity's interaction; always creates a `DeclareInteraction`\ndecision (QR1), completed only by an attended `decide`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "declare_interaction"
+            },
+            "identity": {
+              "description": "Identity ID.",
+              "$ref": "#/$defs/IdentityId"
+            },
+            "interaction": {
+              "description": "The declared interaction.",
+              "$ref": "#/$defs/DeclaredInteraction"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "identity",
+            "interaction",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Withdraw a declaration (narrowing; no decision). Answered with\n[`WithdrawDeclarationData`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "withdraw_declaration"
+            },
+            "identity": {
+              "description": "Identity ID.",
+              "$ref": "#/$defs/IdentityId"
+            },
+            "reason": {
+              "description": "Why.",
+              "$ref": "#/$defs/WithdrawReason",
+              "default": "owner"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            },
+            "revision": {
+              "description": "Expected revision: with it the withdrawal is a compare-and-swap, and a\nnewer declaration stays live (`withdrawn: false`).",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "action",
+            "identity",
+            "request_id"
+          ]
+        }
+      ]
+    },
     "ClientHello": {
       "description": "First client frame.",
       "type": "object",
@@ -309,6 +510,61 @@
       },
       "required": [
         "observed_wall"
+      ]
+    },
+    "ConflictKind": {
+      "description": "A conflict a repair addresses (ADR-0007 §5.5, §5.7). Also a stable error reason.",
+      "oneOf": [
+        {
+          "description": "The user file changed since the plan.",
+          "type": "string",
+          "const": "user_config_changed"
+        },
+        {
+          "description": "The managed file was edited.",
+          "type": "string",
+          "const": "managed_file_edited"
+        },
+        {
+          "description": "A marker line was edited.",
+          "type": "string",
+          "const": "marker_edited"
+        },
+        {
+          "description": "A marker appears more than once.",
+          "type": "string",
+          "const": "marker_duplicated"
+        },
+        {
+          "description": "The include block is conditional.",
+          "type": "string",
+          "const": "include_conditional"
+        },
+        {
+          "description": "A target file cannot be managed (manual mode).",
+          "type": "string",
+          "const": "unmanageable_file"
+        },
+        {
+          "description": "A managed alias collides with a user alias.",
+          "type": "string",
+          "const": "alias_collision"
+        },
+        {
+          "description": "Another writer changed a file during the transaction.",
+          "type": "string",
+          "const": "concurrent_writer"
+        },
+        {
+          "description": "Git's configuration lock is held.",
+          "type": "string",
+          "const": "git_config_locked"
+        },
+        {
+          "description": "A setup operation is held for the owner (ADR-0007 §5.7 outcome H).",
+          "type": "string",
+          "const": "projection_held"
+        }
       ]
     },
     "Cursor": {
@@ -376,6 +632,16 @@
       "description": "Server-issued decision record ID (ADR-0006 §3.1 attended confirmation).",
       "type": "string"
     },
+    "DeclaredInteraction": {
+      "description": "The interaction an owner may declare (QR1). Only `none` exists.",
+      "oneOf": [
+        {
+          "description": "The key asks for no confirmation.",
+          "type": "string",
+          "const": "none"
+        }
+      ]
+    },
     "DelegateRequest": {
       "description": "`delegate` request (primitives-draft §4.4; spec §6.7, §8.7).",
       "type": "object",
@@ -424,6 +690,62 @@
         "request_id"
       ]
     },
+    "DestinationDefinitionSpec": {
+      "description": "How a managed destination is defined; an observed one stays in the user's file.",
+      "oneOf": [
+        {
+          "description": "Rendered into the managed file P.",
+          "type": "object",
+          "properties": {
+            "account": {
+              "description": "`User`.",
+              "$ref": "#/$defs/AccountName"
+            },
+            "hostname": {
+              "description": "`HostName`.",
+              "type": "string"
+            },
+            "identity": {
+              "description": "The adopted identity the alias uses.",
+              "$ref": "#/$defs/IdentityId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "managed"
+            },
+            "port": {
+              "description": "`Port`; ssh's default when absent.",
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "kind",
+            "hostname",
+            "account",
+            "identity"
+          ]
+        },
+        {
+          "description": "Defined by the user; Heimdall only observes it.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "observed"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
     "DestinationId": {
       "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
       "type": "string"
@@ -461,6 +783,69 @@
           "type": "string",
           "const": "isolated_execution_boundary"
         }
+      ]
+    },
+    "DestinationSpec": {
+      "description": "A destination as the caller specifies it.",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "The OpenSSH alias.",
+          "type": "string"
+        },
+        "definition": {
+          "description": "Definition.",
+          "$ref": "#/$defs/DestinationDefinitionSpec"
+        },
+        "id": {
+          "description": "Destination ID.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "label": {
+          "description": "Owner label.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "alias",
+        "definition"
+      ]
+    },
+    "EndpointKind": {
+      "description": "The transport of an agent endpoint.",
+      "oneOf": [
+        {
+          "description": "A Unix-domain socket path.",
+          "type": "string",
+          "const": "unix_socket"
+        },
+        {
+          "description": "A Windows named pipe name.",
+          "type": "string",
+          "const": "named_pipe"
+        }
+      ]
+    },
+    "EndpointRef": {
+      "description": "A reference to an agent endpoint. The locator is a path or pipe name, never a\nsecret; it is compared exactly (a changed locator lapses a declaration,\nADR-0007 §7).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Transport.",
+          "$ref": "#/$defs/EndpointKind"
+        },
+        "locator": {
+          "description": "Socket path or pipe name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "locator"
       ]
     },
     "EnsurePreview": {
@@ -660,6 +1045,100 @@
       "description": "Grant ID (spec §4.1 \"Grant\").",
       "type": "string"
     },
+    "IdentityId": {
+      "description": "Adopted existing-access identity in the catalog (ADR-0007 §7; m02-plan §5\nitem 1). Runtime-generated at adoption; never derived from key material.",
+      "type": "string"
+    },
+    "IdentitySourceSpec": {
+      "description": "Where an adopted identity is used from.",
+      "oneOf": [
+        {
+          "description": "A key held by a native agent at this endpoint.",
+          "type": "object",
+          "properties": {
+            "endpoint": {
+              "description": "The agent endpoint.",
+              "$ref": "#/$defs/EndpointRef"
+            },
+            "kind": {
+              "type": "string",
+              "const": "native_agent"
+            }
+          },
+          "required": [
+            "kind",
+            "endpoint"
+          ]
+        },
+        {
+          "description": "A key held by the 1Password agent.",
+          "type": "object",
+          "properties": {
+            "endpoint": {
+              "description": "The endpoint, when not the documented default.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EndpointRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "onepassword"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A public key file (the private key is never opened).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "public_key_file"
+            },
+            "path": {
+              "description": "Path of the `.pub` file.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ]
+        }
+      ]
+    },
+    "IdentitySpec": {
+      "description": "An identity to adopt. Its interaction profile comes from ADR-0007 §7, not from\nthe request.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "description": "Owner label.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "public_key": {
+          "description": "The OpenSSH one-line public key.",
+          "type": "string"
+        },
+        "source": {
+          "description": "Where it is used from.",
+          "$ref": "#/$defs/IdentitySourceSpec"
+        }
+      },
+      "required": [
+        "source",
+        "public_key"
+      ]
+    },
     "InspectRequest": {
       "description": "`inspect` request (read-only; never contacts agents, network, or executable\nconfiguration; spec §10.2).",
       "type": "object",
@@ -726,6 +1205,16 @@
           "description": "Pending owner decisions.",
           "type": "string",
           "const": "decisions"
+        },
+        {
+          "description": "Catalog identities with fresh eligibility and each live declaration's\nreference (M02).",
+          "type": "string",
+          "const": "identities"
+        },
+        {
+          "description": "Projection resources, read-only (M02).",
+          "type": "string",
+          "const": "projections"
         }
       ]
     },
@@ -742,6 +1231,30 @@
           "type": "string",
           "const": "non_interactive"
         }
+      ]
+    },
+    "LaunchBinding": {
+      "description": "`bind(launch)` (m02-plan §5 item 5). Wire form:\n`{\"form\":\"launch\",\"executable\":…,\"holder\":{…}}`.",
+      "type": "object",
+      "properties": {
+        "executable": {
+          "description": "The resolved executable: absolute, 1 to 4096 bytes, no NUL. A resolved path\nthat is not Unicode is refused locally (`LAUNCH_FAILED`, `refused_path`).",
+          "type": "string"
+        },
+        "holder": {
+          "description": "The holder process (delivery metadata; not hashed).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessHolder"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "executable"
       ]
     },
     "ObserveRequest": {
@@ -836,6 +1349,10 @@
         "version"
       ]
     },
+    "PlanDigest": {
+      "description": "A plan digest: lowercase hex SHA-256 (64 characters), transparent on the wire.",
+      "type": "string"
+    },
     "PolicyAction": {
       "description": "Owner-channel policy actions (primitives-draft §4.6; spec §6.1).",
       "oneOf": [
@@ -923,9 +1440,160 @@
       "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
       "type": "string"
     },
+    "PreviewIntent": {
+      "description": "What a preview plans (ADR-0007 §5.1).",
+      "oneOf": [
+        {
+          "description": "Install or re-render the projection.",
+          "type": "object",
+          "properties": {
+            "include_git": {
+              "description": "Also install the Git include (ADR-0007 §5.6).",
+              "type": "boolean",
+              "default": false
+            },
+            "kind": {
+              "type": "string",
+              "const": "apply"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Remove the projection.",
+          "type": "object",
+          "properties": {
+            "items": {
+              "description": "The items to roll back; default both.",
+              "type": "array",
+              "default": [
+                "ssh",
+                "git"
+              ],
+              "items": {
+                "$ref": "#/$defs/ProjectionItem"
+              },
+              "uniqueItems": true
+            },
+            "keep_key_files": {
+              "description": "Keep the materialized public key files.",
+              "type": "boolean",
+              "default": false
+            },
+            "kind": {
+              "type": "string",
+              "const": "rollback"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "Repair a conflict.",
+          "type": "object",
+          "properties": {
+            "conflict": {
+              "description": "The conflict.",
+              "$ref": "#/$defs/ConflictKind"
+            },
+            "kind": {
+              "type": "string",
+              "const": "repair"
+            },
+            "operation": {
+              "description": "The held operation, required for `retry_held` and `keep_held` and\nrefused otherwise. Their plan's digest covers the held operation's\ncanonical observation and each held step's content fingerprint.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/OperationId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "resolution": {
+              "description": "The resolution.",
+              "$ref": "#/$defs/RepairResolution"
+            }
+          },
+          "required": [
+            "kind",
+            "conflict",
+            "resolution"
+          ]
+        }
+      ]
+    },
+    "ProcessHolder": {
+      "description": "The process holding a binding reference: its PID and an opaque OS start-time\ntoken, so a reused PID never counts (ADR-0007 §8). Lifecycle metadata, never\nauthorization; excluded from the request hash.",
+      "type": "object",
+      "properties": {
+        "pid": {
+          "description": "PID (> 0).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "started_at": {
+          "description": "Opaque OS start-time token: 1 to 64 bytes of `[A-Za-z0-9._:-]`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid",
+        "started_at"
+      ]
+    },
     "ProfileId": {
       "description": "Profile name (spec §4.1 \"Profile\").",
       "type": "string"
+    },
+    "ProfileSpec": {
+      "description": "A profile as the caller specifies it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Profile ID.",
+          "$ref": "#/$defs/ProfileId"
+        },
+        "label": {
+          "description": "Owner label.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pairs": {
+          "description": "Its destination/account pairs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AccessPairRef"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "pairs"
+      ]
+    },
+    "ProjectionItem": {
+      "description": "A projection item: the OpenSSH projection or the Git include (ADR-0007 §5.4).",
+      "oneOf": [
+        {
+          "description": "The OpenSSH include block B and the managed file P (with key files).",
+          "type": "string",
+          "const": "ssh"
+        },
+        {
+          "description": "The Git include block B_git and the managed file P_git.",
+          "type": "string",
+          "const": "git"
+        }
+      ]
     },
     "ReleaseRequest": {
       "description": "`release` request (drops this consumer's reference; primitives-draft §4.6).",
@@ -938,6 +1606,41 @@
       },
       "required": [
         "binding_id"
+      ]
+    },
+    "RepairResolution": {
+      "description": "How a repair resolves its conflict.",
+      "oneOf": [
+        {
+          "description": "Render the projection again.",
+          "type": "string",
+          "const": "rerender"
+        },
+        {
+          "description": "Remove duplicated markers.",
+          "type": "string",
+          "const": "remove_duplicate_markers"
+        },
+        {
+          "description": "Move the include block to the top.",
+          "type": "string",
+          "const": "move_include_to_top"
+        },
+        {
+          "description": "Switch to manual mode.",
+          "type": "string",
+          "const": "manual_mode"
+        },
+        {
+          "description": "Retry a held operation's recovery (only with `projection_held`).",
+          "type": "string",
+          "const": "retry_held"
+        },
+        {
+          "description": "Close a held operation, keeping what is there (only with `projection_held`).",
+          "type": "string",
+          "const": "keep_held"
+        }
       ]
     },
     "Request": {
@@ -1110,6 +1813,34 @@
           "required": [
             "op"
           ]
+        },
+        {
+          "description": "Projection setup (M02; needs `setup/1`, which is not offered until the\nactivation change set).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "setup"
+            }
+          },
+          "$ref": "#/$defs/SetupRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "Catalog change (M02; needs `setup/1`).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "catalog"
+            }
+          },
+          "$ref": "#/$defs/CatalogRequest",
+          "required": [
+            "op"
+          ]
         }
       ]
     },
@@ -1147,6 +1878,10 @@
             "null"
           ],
           "format": "date-time"
+        },
+        "unattended": {
+          "description": "New authentications must need no human interaction until the deadline,\nincluding through desktop and vault lock (m02-plan §5 item 6). `unknown`\nnever satisfies it. Omitted when false, so M01 request hashes are unchanged.",
+          "type": "boolean"
         }
       }
     },
@@ -1171,6 +1906,98 @@
     "SchemaVersion": {
       "description": "A `schema_version` value as received from a peer.",
       "type": "string"
+    },
+    "SetupRequest": {
+      "description": "`Request::Setup`, tagged by `action`.",
+      "oneOf": [
+        {
+          "description": "Read-only plan; not journaled, no operation ID. Answered with [`SetupPlan`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "preview"
+            },
+            "intent": {
+              "description": "What to plan.",
+              "$ref": "#/$defs/PreviewIntent"
+            }
+          },
+          "required": [
+            "action",
+            "intent"
+          ]
+        },
+        {
+          "description": "Apply a previewed `apply` plan.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "apply"
+            },
+            "plan_digest": {
+              "description": "The digest of the plan the caller saw.",
+              "$ref": "#/$defs/PlanDigest"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "plan_digest",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Apply a previewed `rollback` plan.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "rollback"
+            },
+            "plan_digest": {
+              "description": "The digest of the plan the caller saw.",
+              "$ref": "#/$defs/PlanDigest"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "plan_digest",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Apply a previewed `repair` plan.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "repair"
+            },
+            "plan_digest": {
+              "description": "The digest of the plan the caller saw.",
+              "$ref": "#/$defs/PlanDigest"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "plan_digest",
+            "request_id"
+          ]
+        }
+      ]
     },
     "ShutdownRequest": {
       "description": "Ask the runtime to stop (ADR-0006 §13.6 item 8; capability\n[`crate::ipc::capability::SERVICE_CONTROL_V1`]).\n\nAccepted only from the owner principal on the control endpoint (never from a\nlimited consumer), on any session (attended or not: stopping the service is an\navailability action, not a widening of authority; a same-user process could end\nthe process anyway). Idempotent: a repeated request while the runtime is\ndraining answers `OK` again. The runtime answers `OK {\"stopping\": true, ...}`\nfirst, then drains gracefully: it stops accepting, lets in-flight operations\nreach a durable stage (bounded; anything still running resumes through restart\nrecovery), persists, removes its advertisement and endpoints, and exits 0.\nNot an operation: no operation ID, no idempotency record.",
@@ -1226,6 +2053,21 @@
           "required": [
             "mode"
           ]
+        }
+      ]
+    },
+    "WithdrawReason": {
+      "description": "Why a declaration is withdrawn.",
+      "oneOf": [
+        {
+          "description": "The owner withdrew it.",
+          "type": "string",
+          "const": "owner"
+        },
+        {
+          "description": "An explicit agent listing lacked the fingerprint (ADR-0007 §7; QR9).",
+          "type": "string",
+          "const": "listing_missing"
         }
       ]
     },

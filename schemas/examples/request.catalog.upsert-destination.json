@@ -1,0 +1,17 @@
+{
+  "op": "catalog",
+  "action": "upsert_destination",
+  "destination": {
+    "id": "dest-1",
+    "alias": "build-box",
+    "definition": {
+      "kind": "managed",
+      "hostname": "build.example.net",
+      "port": 2222,
+      "account": "deploy",
+      "identity": "idn_0123456789abcdef0123456789abcdef"
+    },
+    "label": "build machine"
+  },
+  "request_id": "req-0201"
+}

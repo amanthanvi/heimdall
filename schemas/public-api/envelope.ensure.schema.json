@@ -61,6 +61,10 @@
     "next"
   ],
   "$defs": {
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
     "BindingId": {
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
@@ -183,7 +187,68 @@
         {
           "type": "string",
           "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
         }
+      ]
+    },
+    "ConfigProvenance": {
+      "description": "Where a configuration directive was read: a display path and a 1-based line.",
+      "type": "object",
+      "properties": {
+        "line": {
+          "description": "1-based line number.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "path_display": {
+          "description": "Display path (`~` for the home directory; `--redact` aware).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_display",
+        "line"
+      ]
+    },
+    "ConsumerExecutable": {
+      "description": "A client executable an integration relies on.",
+      "type": "object",
+      "properties": {
+        "basis": {
+          "description": "How it was established.",
+          "$ref": "#/$defs/EvidenceBasis"
+        },
+        "consumer": {
+          "description": "Which consumer.",
+          "$ref": "#/$defs/ConsumerKind"
+        },
+        "path": {
+          "description": "Absolute path.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA-256, lowercase hex.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "description": "Reported version, when a local query ran.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "consumer",
+        "path",
+        "basis"
       ]
     },
     "ConsumerIntegration": {
@@ -207,6 +272,27 @@
             ]
           }
         },
+        "executables": {
+          "description": "Client executables the integration relies on (R-SS-03).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConsumerExecutable"
+          }
+        },
+        "overrides": {
+          "description": "Consumer settings another source keeps in force.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConsumerOverride"
+          }
+        },
+        "pairs": {
+          "description": "One entry per destination/account pair of the grant (ADR-0007 §7).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PairIntegration"
+          }
+        },
         "signing_endpoint": {
           "description": "Signing endpoint path or pipe name, if one is materialized.",
           "type": [
@@ -223,8 +309,121 @@
         }
       }
     },
+    "ConsumerKind": {
+      "description": "A consumer program.",
+      "oneOf": [
+        {
+          "description": "`ssh`.",
+          "type": "string",
+          "const": "ssh"
+        },
+        {
+          "description": "`scp`.",
+          "type": "string",
+          "const": "scp"
+        },
+        {
+          "description": "`sftp`.",
+          "type": "string",
+          "const": "sftp"
+        },
+        {
+          "description": "`git`.",
+          "type": "string",
+          "const": "git"
+        },
+        {
+          "description": "`ssh-keygen`.",
+          "type": "string",
+          "const": "ssh_keygen"
+        }
+      ]
+    },
+    "ConsumerOverride": {
+      "description": "A consumer setting another source keeps in force (ADR-0007 §8 \"Git under\n`run`\"). Names the setting, never its value.",
+      "type": "object",
+      "properties": {
+        "consumer": {
+          "description": "Which consumer.",
+          "$ref": "#/$defs/ConsumerKind"
+        },
+        "setting": {
+          "description": "The setting (`core.sshCommand`, `GIT_SSH_COMMAND`, `GIT_SSH`,\n`IdentityAgent`, `SSH_AUTH_SOCK`).",
+          "type": "string"
+        },
+        "source": {
+          "description": "Where it comes from.",
+          "$ref": "#/$defs/OverrideSource"
+        }
+      },
+      "required": [
+        "consumer",
+        "setting",
+        "source"
+      ]
+    },
+    "CredentialAvailability": {
+      "description": "Credential availability (spec §4.3): how long new authentications keep working\nwithout further action.",
+      "oneOf": [
+        {
+          "description": "Usable now; no claim about later.",
+          "type": "string",
+          "const": "current_only"
+        },
+        {
+          "description": "Usable through the deadline.",
+          "type": "string",
+          "const": "through_deadline"
+        },
+        {
+          "description": "Depends on a refresh before the deadline.",
+          "type": "string",
+          "const": "refresh_dependent"
+        },
+        {
+          "description": "A human step may be needed for new authentications.",
+          "type": "string",
+          "const": "interaction_required"
+        },
+        {
+          "description": "Not established (the default for older documents).",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
     "Cursor": {
       "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "DeclarationRef": {
+      "description": "The declaration a fresh eligibility relied on (ADR-0007 §7 \"Launch eligibility is\nchecked fresh\"). The CLI's pre-launch check requires the same revision and\nendpoint and an unexpired `expires_at`.",
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "description": "The endpoint it covers.",
+          "$ref": "#/$defs/EndpointRef"
+        },
+        "expires_at": {
+          "description": "When it lapses.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "revision": {
+          "description": "The declaration row's revision.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "revision",
+        "endpoint",
+        "expires_at"
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
       "type": "string"
     },
     "DestinationScopeEnforcement": {
@@ -260,6 +459,39 @@
           "type": "string",
           "const": "isolated_execution_boundary"
         }
+      ]
+    },
+    "EndpointKind": {
+      "description": "The transport of an agent endpoint.",
+      "oneOf": [
+        {
+          "description": "A Unix-domain socket path.",
+          "type": "string",
+          "const": "unix_socket"
+        },
+        {
+          "description": "A Windows named pipe name.",
+          "type": "string",
+          "const": "named_pipe"
+        }
+      ]
+    },
+    "EndpointRef": {
+      "description": "A reference to an agent endpoint. The locator is a path or pipe name, never a\nsecret; it is compared exactly (a changed locator lapses a declaration,\nADR-0007 §7).",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Transport.",
+          "$ref": "#/$defs/EndpointKind"
+        },
+        "locator": {
+          "description": "Socket path or pipe name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "locator"
       ]
     },
     "Enforcement": {
@@ -307,6 +539,11 @@
           "description": "Consumer integration descriptor; contains endpoints and config references,\nnever secrets.",
           "$ref": "#/$defs/ConsumerIntegration"
         },
+        "credential_availability": {
+          "description": "Credential availability (spec §4.3), computed fresh for every result. Always\nwritten; a document that omits it reads as `unknown`.",
+          "$ref": "#/$defs/CredentialAvailability",
+          "default": "unknown"
+        },
         "credential_mechanism": {
           "description": "Mechanism name (`managed_certificate`, `native_agent`, `external_signer`, ...).",
           "type": "string"
@@ -339,6 +576,17 @@
           "format": "uint64",
           "minimum": 0
         },
+        "provider": {
+          "description": "The provider's observed state, for existing-access mechanisms.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "refresh_dependency": {
           "description": "What ongoing readiness depends on.",
           "$ref": "#/$defs/RefreshDependency"
@@ -367,6 +615,31 @@
       "description": "Stable environment ID (spec §4.1 \"Environment\").",
       "type": "string"
     },
+    "EvidenceBasis": {
+      "description": "How a reported fact was established (ADR-0007 §7). `declared` is an owner\nstatement, never an observation.",
+      "oneOf": [
+        {
+          "description": "Observed by a probe.",
+          "type": "string",
+          "const": "observed"
+        },
+        {
+          "description": "Taken from pinned vendor documentation.",
+          "type": "string",
+          "const": "documented"
+        },
+        {
+          "description": "Inferred; labelled `[I]` in reports.",
+          "type": "string",
+          "const": "inferred"
+        },
+        {
+          "description": "Declared by the owner through an attended decision.",
+          "type": "string",
+          "const": "declared"
+        }
+      ]
+    },
     "ExistingConnectionsPolicy": {
       "description": "Effect on existing connections at expiry (spec §6.6).",
       "oneOf": [
@@ -387,9 +660,98 @@
         }
       ]
     },
+    "GitScope": {
+      "description": "A Git configuration scope (`git config --show-scope`).",
+      "oneOf": [
+        {
+          "description": "System file.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "Global file (`~/.gitconfig` or the XDG file).",
+          "type": "string",
+          "const": "global"
+        },
+        {
+          "description": "Repository file.",
+          "type": "string",
+          "const": "local"
+        },
+        {
+          "description": "Worktree file.",
+          "type": "string",
+          "const": "worktree"
+        },
+        {
+          "description": "Command scope (`-c`, `GIT_CONFIG_COUNT`).",
+          "type": "string",
+          "const": "command"
+        }
+      ]
+    },
     "GrantId": {
       "description": "Grant ID (spec §4.1 \"Grant\").",
       "type": "string"
+    },
+    "IdentityId": {
+      "description": "Adopted existing-access identity in the catalog (ADR-0007 §7; m02-plan §5\nitem 1). Runtime-generated at adoption; never derived from key material.",
+      "type": "string"
+    },
+    "IdentitySelection": {
+      "description": "Whether ssh can only use the adopted identity for an alias (ADR-0007 §3 item 3).",
+      "oneOf": [
+        {
+          "description": "Only the adopted identity can be offered.",
+          "type": "string",
+          "const": "exclusive"
+        },
+        {
+          "description": "Other identities the configuration adds can be offered.",
+          "type": "string",
+          "const": "not_exclusive"
+        },
+        {
+          "description": "Static evaluation cannot decide (for example behind `Match exec`).",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "InteractionKind": {
+      "description": "The human step an authentication may need (ADR-0007 §7 interaction profile).",
+      "oneOf": [
+        {
+          "description": "No interaction (only ever `declared` for a native agent key).",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "The provider asks for approval (1Password).",
+          "type": "string",
+          "const": "provider_approval"
+        },
+        {
+          "description": "The provider must be unlocked.",
+          "type": "string",
+          "const": "provider_unlock"
+        },
+        {
+          "description": "A hardware presence touch (FIDO `sk-*` keys).",
+          "type": "string",
+          "const": "hardware_presence"
+        },
+        {
+          "description": "A passphrase prompt.",
+          "type": "string",
+          "const": "passphrase"
+        },
+        {
+          "description": "Not known; never satisfies a non-interactive requirement.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
     },
     "NewAuthenticationExpiry": {
       "description": "What ends new authentication at expiry (spec §4.3 \"Expiry\").",
@@ -464,6 +826,17 @@
             }
           ]
         },
+        "provider_interaction": {
+          "description": "The provider-owned interaction, with action `interact`, for\n`PROVIDER_LOCKED` and provider-owned `INTERACTION_REQUIRED` (ADR-0007 §7).\nNever combined with `decision_ref`: provider dialogs are not Heimdall\ndecisions (spec §5.5).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderInteractionRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "retry_after_ms": {
           "description": "Suggested minimum delay before a retry.",
           "type": [
@@ -476,6 +849,26 @@
       },
       "required": [
         "action"
+      ]
+    },
+    "NoninteractiveEligibility": {
+      "description": "Whether a pair may be used on the no-interaction path, computed fresh per result.",
+      "type": "object",
+      "properties": {
+        "eligible": {
+          "description": "Eligible for non-interactive use.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Why not, when not: one of [`noninteractive_reason`]'s values.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "eligible"
       ]
     },
     "OperationId": {
@@ -520,6 +913,290 @@
           "type": "string",
           "const": "outcome_unknown"
         }
+      ]
+    },
+    "OverrideSource": {
+      "description": "Where an overriding consumer setting comes from (tagged by `kind`).",
+      "oneOf": [
+        {
+          "description": "An OpenSSH configuration directive (for example an effective\n`IdentityAgent`).",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "ssh_config"
+            }
+          },
+          "$ref": "#/$defs/ConfigProvenance",
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "description": "A Git configuration scope.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "git_scope"
+            },
+            "scope": {
+              "description": "The scope.",
+              "$ref": "#/$defs/GitScope"
+            }
+          },
+          "required": [
+            "kind",
+            "scope"
+          ]
+        },
+        {
+          "description": "The process environment.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "environment"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ]
+    },
+    "PairIntegration": {
+      "description": "One destination/account pair's integration (ADR-0007 §7). `endpoint`, `alias`,\n`mechanism`, `identity_selection` and `selection_observed_at` are history\n(prepared facts); the interaction and eligibility fields are computed fresh in\nthe transaction that builds each result (M2-R04).",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "alias": {
+          "description": "The managed alias.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "declaration": {
+          "description": "The live declaration the eligibility relied on.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeclarationRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "declared_at": {
+          "description": "When the owner declared it (`basis: declared` only).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "destination": {
+          "description": "Destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "eligibility_checked_at": {
+          "description": "When the eligibility was computed.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "endpoint": {
+          "description": "The agent endpoint.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EndpointRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "identity": {
+          "description": "The adopted identity.",
+          "$ref": "#/$defs/IdentityId"
+        },
+        "identity_selection": {
+          "description": "The recorded identity selection.",
+          "$ref": "#/$defs/IdentitySelection"
+        },
+        "interaction": {
+          "description": "Fresh interaction.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "interaction_basis": {
+          "description": "How the interaction was established.",
+          "$ref": "#/$defs/EvidenceBasis"
+        },
+        "mechanism": {
+          "description": "Mechanism (`native_agent`, `onepassword`).",
+          "type": "string"
+        },
+        "noninteractive": {
+          "description": "Fresh non-interactive eligibility.",
+          "$ref": "#/$defs/NoninteractiveEligibility"
+        },
+        "selection_observed_at": {
+          "description": "When the selection was observed.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "destination",
+        "account",
+        "identity",
+        "mechanism",
+        "interaction",
+        "interaction_basis",
+        "identity_selection",
+        "selection_observed_at",
+        "noninteractive",
+        "eligibility_checked_at"
+      ]
+    },
+    "ProbeLevel": {
+      "description": "The probe ladder levels (ADR-0007 §6; spec §10.2), weakest first.",
+      "oneOf": [
+        {
+          "description": "Parse and evaluate without executing anything (the default).",
+          "type": "string",
+          "const": "static"
+        },
+        {
+          "description": "`ssh -G` against the real tree (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "evaluate"
+        },
+        {
+          "description": "One `SSH_AGENTC_REQUEST_IDENTITIES` to a named endpoint.",
+          "type": "string",
+          "const": "agent"
+        },
+        {
+          "description": "TCP connect and read the identification line.",
+          "type": "string",
+          "const": "network"
+        },
+        {
+          "description": "Host-key verification with nothing to sign (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "host_verification"
+        },
+        {
+          "description": "A real authentication (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "authentication"
+        }
+      ]
+    },
+    "ProviderAvailability": {
+      "description": "Whether the provider can sign now (ADR-0007 §7 \"Provider states\").",
+      "oneOf": [
+        {
+          "description": "Observed available.",
+          "type": "string",
+          "const": "available"
+        },
+        {
+          "description": "Observed locked (needs the explicit `agent` level).",
+          "type": "string",
+          "const": "locked"
+        },
+        {
+          "description": "No endpoint (passively established).",
+          "type": "string",
+          "const": "unavailable"
+        },
+        {
+          "description": "Not established.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "ProviderInteractionRef": {
+      "description": "The provider-owned interaction a next action points at (spec §5.5). Used with\naction `interact` for `PROVIDER_LOCKED` and provider-owned\n`INTERACTION_REQUIRED`; never combined with `decision_ref`.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "What it asks for.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "provider": {
+          "description": "The provider whose dialog it is.",
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "kind"
+      ]
+    },
+    "ProviderKind": {
+      "description": "Which provider serves an agent endpoint (ADR-0007 §7 \"Detection is passive\").",
+      "oneOf": [
+        {
+          "description": "An OpenSSH-compatible agent (`ssh-agent`, the Windows OpenSSH agent service).",
+          "type": "string",
+          "const": "native_agent"
+        },
+        {
+          "description": "The 1Password SSH agent.",
+          "type": "string",
+          "const": "onepassword"
+        },
+        {
+          "description": "Not determinable passively (for example the Windows `openssh-ssh-agent` pipe,\nF18).",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "ProviderStatus": {
+      "description": "A provider's observed state (ADR-0007 §7 \"Provider states\").",
+      "type": "object",
+      "properties": {
+        "availability": {
+          "description": "Whether it can sign now.",
+          "$ref": "#/$defs/ProviderAvailability"
+        },
+        "basis": {
+          "description": "How it was established.",
+          "$ref": "#/$defs/EvidenceBasis"
+        },
+        "interaction": {
+          "description": "The interaction its identities need.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "observed_at": {
+          "description": "When it was observed (RFC 3339, explicit offset).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "observed_level": {
+          "description": "The probe level that observed it.",
+          "$ref": "#/$defs/ProbeLevel"
+        },
+        "provider": {
+          "description": "Which provider.",
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "availability",
+        "interaction",
+        "observed_level",
+        "observed_at",
+        "basis"
       ]
     },
     "RefreshDependency": {

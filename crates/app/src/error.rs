@@ -36,14 +36,20 @@ pub struct OpError {
     pub code: Code,
     /// Whether any external effect happened.
     pub effect_status: EffectStatus,
-    /// Resource concerned.
-    pub resource: Option<ResourceRef>,
+    /// Resource concerned. Boxed so that the error stays small enough to travel in
+    /// other enums (⟨M02⟩ the reason and the next action's provider reference made it
+    /// grow).
+    pub resource: Option<Box<ResourceRef>>,
     /// Next action (defaults from the code).
     pub next: NextAction,
     /// Human text; no secrets, no terminal escapes.
     pub message: String,
     /// Operation, when one exists.
     pub operation_id: Option<OperationId>,
+    /// ⟨M02⟩ Stable `snake_case` sub-reason (m02-plan §5 item 14, U0b row 14; wire
+    /// `data.error.reason`, the wave-0 E3 reading). Values from
+    /// `heimdall_contract::envelope::reason`; never request content.
+    pub reason: Option<String>,
 }
 
 impl OpError {
@@ -57,16 +63,34 @@ impl OpError {
             resource: None,
             message: message.into(),
             operation_id: None,
+            reason: None,
         }
+    }
+
+    /// ⟨M02⟩ Attach a stable sub-reason (`data.error.reason`).
+    #[must_use]
+    pub fn with_reason(mut self, reason: &str) -> Self {
+        self.reason = Some(reason.to_owned());
+        self
+    }
+
+    /// ⟨M02⟩ `CAPABILITY_UNAVAILABLE`, reason `driver_unavailable`, effect `none`:
+    /// the answer for a request, decision or cancellation whose driver is not in this
+    /// build (m02-plan §5 item 4, the wave-0 fail-closed landing; ADR-0007 §12.7 QR7).
+    #[must_use]
+    pub fn driver_unavailable(message: &str) -> Self {
+        OpError::new(Code::CapabilityUnavailable, message.to_owned())
+            .with_reason(heimdall_contract::envelope::reason::DRIVER_UNAVAILABLE)
+            .with_effect(EffectStatus::None)
     }
 
     /// Attach a resource reference.
     #[must_use]
     pub fn with_resource(mut self, kind: &str, id: Option<String>) -> Self {
-        self.resource = Some(ResourceRef {
+        self.resource = Some(Box::new(ResourceRef {
             kind: kind.to_owned(),
             id,
-        });
+        }));
         self
     }
 
@@ -143,9 +167,10 @@ impl OpError {
             code: self.code.clone(),
             effect_status: self.effect_status,
             retryable: self.code.retryable(),
-            resource: self.resource.clone(),
+            resource: self.resource.as_deref().cloned(),
             next: self.next.clone(),
             message: self.message.clone(),
+            reason: self.reason.clone(),
         }
     }
 
@@ -155,10 +180,11 @@ impl OpError {
         Self {
             code: detail.code,
             effect_status: detail.effect_status,
-            resource: detail.resource,
+            resource: detail.resource.map(Box::new),
             next: detail.next,
             message: detail.message,
             operation_id,
+            reason: detail.reason,
         }
     }
 
@@ -179,6 +205,9 @@ impl From<heimdall_store::StoreError> for OpError {
         use heimdall_store::StoreError as S;
         let msg = match &e {
             S::NewerSchema { .. } => "state store is newer than this build".to_owned(),
+            S::OlderSchema { .. } => {
+                "state store is older than this build; it was not upgraded".to_owned()
+            }
             S::Corrupt(_) => "state store failed integrity check; recovery required".to_owned(),
             _ => "state store unavailable".to_owned(),
         };

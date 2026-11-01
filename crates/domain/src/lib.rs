@@ -11,10 +11,12 @@
 
 pub mod authority;
 pub mod binding;
+pub mod catalog;
 pub mod decision;
 pub mod environment;
 pub mod evidence;
 pub mod grant;
+pub mod holder;
 pub mod idempotency;
 pub mod issuance;
 pub mod lifecycle;
@@ -22,6 +24,7 @@ pub mod operation;
 pub mod policy;
 pub mod principal;
 pub mod profile;
+pub mod projection;
 pub mod resource;
 pub mod revocation;
 pub mod scope;

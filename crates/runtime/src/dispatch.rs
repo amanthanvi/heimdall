@@ -202,6 +202,12 @@ impl OperationsDispatcher {
             Request::Policy(r) => render(ops.policy(&caller, r).await),
             Request::Decide(r) => render(ops.decide(&caller, r).await),
             Request::ConfirmTime(r) => render(ops.confirm_time(&caller, r).await),
+            // ⟨M02⟩ m02-plan U0b row 17: routed to the application's entry points,
+            // which answer `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) in wave 0
+            // before any admission (row 18; ADR-0007 §12.7 QR7). A session never
+            // gets here in wave 0: `setup/1` is not offered.
+            Request::Setup(r) => render(ops.setup(&caller, r).await),
+            Request::Catalog(r) => render(ops.catalog(&caller, r).await),
             // A request kind this build does not know is never executed.
             _ => error_value(OpError::new(
                 Code::UsageError,

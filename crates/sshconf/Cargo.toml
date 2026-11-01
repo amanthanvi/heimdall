@@ -1,0 +1,16 @@
+[package]
+name = "heimdall-sshconf"
+description = "Heimdall OpenSSH and Git configuration text: lexer, parser, directive table, include loader, static evaluator, renderer, block editors, consent classification (m02-plan U1, U2; ADR-0007 §2-§4). Pure: reads only through ConfigSource and never executes anything"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+thiserror = { workspace = true }

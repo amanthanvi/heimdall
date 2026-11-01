@@ -10,16 +10,27 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use crate::Timestamp;
+use crate::catalog::CatalogRequest;
+use crate::doctor::{ConfigProvenance, GitScope};
 use crate::event::{Cursor, EventFilter};
 use crate::ids::{
-    AccountName, BindingId, DestinationId, EnvironmentId, GrantId, OperationId, PolicyId,
-    ProfileId, RequestId, WorkId,
+    AccountName, BindingId, DestinationId, EnvironmentId, GrantId, IdentityId, OperationId,
+    PolicyId, ProfileId, RequestId, WorkId,
 };
+use crate::provider::{
+    CredentialAvailability, DeclarationRef, EndpointRef, EvidenceBasis, IdentitySelection,
+    InteractionKind, NoninteractiveEligibility, ProviderStatus,
+};
+use crate::setup::SetupRequest;
 
 /// Maximum number of destination/account pairs one request may name.
 pub const MAX_SCOPE_PAIRS: usize = 1024;
-/// Maximum argv length accepted by `bind(launch)` (bytes, summed).
-pub const MAX_ARGV_BYTES: usize = 1 << 20;
+/// Maximum size of `bind(launch)`'s resolved executable path, in bytes. (M02 Q8:
+/// `argv` no longer crosses IPC, so its old bound left the contract for
+/// `heimdall-launch`.)
+pub const MAX_EXECUTABLE_BYTES: usize = 4096;
+/// Maximum size of a holder process's opaque start-time token, in bytes.
+pub const MAX_STARTED_AT_BYTES: usize = 64;
 
 /// Deadline intent as given by the caller, kept verbatim so that a retry of
 /// `--for 2h` hashes equal (spec §6.2, primitives-draft §5).
@@ -185,6 +196,15 @@ pub struct RequiredCapabilities {
     /// Credentials must remain usable offline until this instant.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offline_until: Option<Timestamp>,
+    /// New authentications must need no human interaction until the deadline,
+    /// including through desktop and vault lock (m02-plan §5 item 6). `unknown`
+    /// never satisfies it. Omitted when false, so M01 request hashes are unchanged.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub unattended: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// Whether Heimdall may open prompts (spec §11.3; R-AP-06).
@@ -240,6 +260,11 @@ pub enum InspectSubject {
     Operations,
     /// Pending owner decisions.
     Decisions,
+    /// Catalog identities with fresh eligibility and each live declaration's
+    /// reference (M02).
+    Identities,
+    /// Projection resources, read-only (M02).
+    Projections,
 }
 
 /// `inspect` request (read-only; never contacts agents, network, or executable
@@ -327,6 +352,13 @@ pub struct EnsureData {
     /// Consumer integration descriptor; contains endpoints and config references,
     /// never secrets.
     pub consumer: ConsumerIntegration,
+    /// Credential availability (spec §4.3), computed fresh for every result. Always
+    /// written; a document that omits it reads as `unknown`.
+    #[serde(default)]
+    pub credential_availability: CredentialAvailability,
+    /// The provider's observed state, for existing-access mechanisms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<ProviderStatus>,
 }
 
 /// Dependency of continued readiness (spec §6.5).
@@ -344,7 +376,7 @@ pub enum RefreshDependency {
 }
 
 /// How a consumer reaches the binding (no secrets).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConsumerIntegration {
     /// Signing endpoint path or pipe name, if one is materialized.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -355,21 +387,214 @@ pub struct ConsumerIntegration {
     /// Environment variables a launcher should set (names and values; never secrets).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environment: Vec<(String, String)>,
+    /// Client executables the integration relies on (R-SS-03).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub executables: Vec<ConsumerExecutable>,
+    /// Consumer settings another source keeps in force.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub overrides: Vec<ConsumerOverride>,
+    /// One entry per destination/account pair of the grant (ADR-0007 §7).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pairs: Vec<PairIntegration>,
+}
+
+/// A consumer program.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ConsumerKind {
+    /// `ssh`.
+    Ssh,
+    /// `scp`.
+    Scp,
+    /// `sftp`.
+    Sftp,
+    /// `git`.
+    Git,
+    /// `ssh-keygen`.
+    SshKeygen,
+}
+
+/// A client executable an integration relies on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConsumerExecutable {
+    /// Which consumer.
+    pub consumer: ConsumerKind,
+    /// Absolute path.
+    pub path: String,
+    /// Reported version, when a local query ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// SHA-256, lowercase hex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    /// How it was established.
+    pub basis: EvidenceBasis,
+}
+
+/// Where an overriding consumer setting comes from (tagged by `kind`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum OverrideSource {
+    /// An OpenSSH configuration directive (for example an effective
+    /// `IdentityAgent`).
+    SshConfig(ConfigProvenance),
+    /// A Git configuration scope.
+    GitScope {
+        /// The scope.
+        scope: GitScope,
+    },
+    /// The process environment.
+    Environment,
+}
+
+/// A consumer setting another source keeps in force (ADR-0007 §8 "Git under
+/// `run`"). Names the setting, never its value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConsumerOverride {
+    /// Which consumer.
+    pub consumer: ConsumerKind,
+    /// The setting (`core.sshCommand`, `GIT_SSH_COMMAND`, `GIT_SSH`,
+    /// `IdentityAgent`, `SSH_AUTH_SOCK`).
+    pub setting: String,
+    /// Where it comes from.
+    pub source: OverrideSource,
+}
+
+/// One destination/account pair's integration (ADR-0007 §7). `endpoint`, `alias`,
+/// `mechanism`, `identity_selection` and `selection_observed_at` are history
+/// (prepared facts); the interaction and eligibility fields are computed fresh in
+/// the transaction that builds each result (M2-R04).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PairIntegration {
+    /// Destination.
+    pub destination: DestinationId,
+    /// Account.
+    pub account: AccountName,
+    /// The adopted identity.
+    pub identity: IdentityId,
+    /// Mechanism (`native_agent`, `onepassword`).
+    pub mechanism: String,
+    /// The agent endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<EndpointRef>,
+    /// The managed alias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    /// Fresh interaction.
+    pub interaction: InteractionKind,
+    /// How the interaction was established.
+    pub interaction_basis: EvidenceBasis,
+    /// When the owner declared it (`basis: declared` only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_at: Option<Timestamp>,
+    /// The recorded identity selection.
+    pub identity_selection: IdentitySelection,
+    /// When the selection was observed.
+    pub selection_observed_at: Timestamp,
+    /// The live declaration the eligibility relied on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declaration: Option<DeclarationRef>,
+    /// Fresh non-interactive eligibility.
+    pub noninteractive: NoninteractiveEligibility,
+    /// When the eligibility was computed.
+    pub eligibility_checked_at: Timestamp,
 }
 
 /// `bind` forms (primitives-draft §4.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "form", rename_all = "snake_case")]
 pub enum BindForm {
-    /// Launch `argv` without a shell under the binding (spec §10.4). The runtime
-    /// never launches; the CLI does, after `ensure` returns the integration.
-    Launch {
-        /// Argument vector, bounded by [`MAX_ARGV_BYTES`]. Non-UTF-8 arguments are
-        /// carried by the CLI process, not over IPC.
-        argv: Vec<String>,
-    },
+    /// Launch a program without a shell under the binding (spec §10.4). The runtime
+    /// never launches; the CLI does. `argv` never crosses IPC (Q8, ADR-0007 §8):
+    /// the request names the resolved executable and the holder process.
+    Launch(LaunchBinding),
     /// Produce a bound consumer configuration for a consumer Heimdall cannot launch.
     Materialize,
+}
+
+/// The process holding a binding reference: its PID and an opaque OS start-time
+/// token, so a reused PID never counts (ADR-0007 §8). Lifecycle metadata, never
+/// authorization; excluded from the request hash.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProcessHolder {
+    /// PID (> 0).
+    pub pid: u32,
+    /// Opaque OS start-time token: 1 to 64 bytes of `[A-Za-z0-9._:-]`.
+    pub started_at: String,
+}
+
+/// `bind(launch)` (m02-plan §5 item 5). Wire form:
+/// `{"form":"launch","executable":…,"holder":{…}}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LaunchBinding {
+    /// The resolved executable: absolute, 1 to 4096 bytes, no NUL. A resolved path
+    /// that is not Unicode is refused locally (`LAUNCH_FAILED`, `refused_path`).
+    pub executable: String,
+    /// The holder process (delivery metadata; not hashed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<ProcessHolder>,
+}
+
+/// A [`LaunchBinding`] that breaks m02-plan §5 item 5.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum LaunchBindingError {
+    /// Empty, longer than [`MAX_EXECUTABLE_BYTES`], or containing NUL.
+    #[error("the executable is 1 to 4096 bytes without NUL")]
+    ExecutableLength,
+    /// Not an absolute path on this platform.
+    #[error("the executable must be an absolute path")]
+    ExecutableNotAbsolute,
+    /// `holder.pid` is 0.
+    #[error("the holder PID must be positive")]
+    HolderPid,
+    /// `holder.started_at` is empty, longer than [`MAX_STARTED_AT_BYTES`], or
+    /// outside `[A-Za-z0-9._:-]`.
+    #[error("the holder start time is 1 to 64 bytes of [A-Za-z0-9._:-]")]
+    HolderStartedAt,
+}
+
+impl LaunchBinding {
+    /// Check m02-plan §5 item 5's rules. "Absolute" is this platform's rule
+    /// ([`std::path::Path::is_absolute`]); the runtime and the CLI share a machine.
+    pub fn validate(&self) -> Result<(), LaunchBindingError> {
+        let exe = &self.executable;
+        if exe.is_empty() || exe.len() > MAX_EXECUTABLE_BYTES || exe.contains('\0') {
+            return Err(LaunchBindingError::ExecutableLength);
+        }
+        if !std::path::Path::new(exe).is_absolute() {
+            return Err(LaunchBindingError::ExecutableNotAbsolute);
+        }
+        if let Some(holder) = &self.holder {
+            if holder.pid == 0 {
+                return Err(LaunchBindingError::HolderPid);
+            }
+            let t = &holder.started_at;
+            if t.is_empty()
+                || t.len() > MAX_STARTED_AT_BYTES
+                || !t
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
+            {
+                return Err(LaunchBindingError::HolderStartedAt);
+            }
+        }
+        Ok(())
+    }
 }
 
 /// `bind` request.
@@ -571,6 +796,26 @@ pub enum Request {
     /// Graceful runtime stop (owner principal, control endpoint, any session;
     /// needs the negotiated `service-control/1` capability).
     Shutdown(ShutdownRequest),
+    /// Projection setup (M02; needs `setup/1`, which is not offered until the
+    /// activation change set).
+    Setup(SetupRequest),
+    /// Catalog change (M02; needs `setup/1`).
+    Catalog(CatalogRequest),
+}
+
+/// How the application admits a request (m02-plan U0 "journaled kinds"; ADR-0006
+/// §7). [`Request::admission`] matches every variant without a wildcard, so a new
+/// variant does not compile until it is classified here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Admission {
+    /// Admitted as a journaled operation row whose `OperationKind::as_str()` is
+    /// this string (equal to [`Request::kind`]).
+    Journaled(&'static str),
+    /// Effectful, but settled synchronously under ADR-0006 §7 idempotency with no
+    /// operation row (`cancel`, `release`, `policy`, `decide`, `confirm_time`).
+    Synchronous,
+    /// Not effectful: no operation ID and no journal entry.
+    ReadOnly,
 }
 
 impl Request {
@@ -590,18 +835,54 @@ impl Request {
             Request::Decide(_) => "decide",
             Request::ConfirmTime(_) => "confirm_time",
             Request::Shutdown(_) => "shutdown",
+            Request::Setup(r) => r.kind(),
+            Request::Catalog(_) => "catalog",
+        }
+    }
+
+    /// How the application admits this request. Exhaustive by construction.
+    #[must_use]
+    pub fn admission(&self) -> Admission {
+        match self {
+            Request::Inspect(_) | Request::Observe(_) | Request::Shutdown(_) => Admission::ReadOnly,
+            Request::Ensure(_) => Admission::Journaled("ensure"),
+            Request::Delegate(_) => Admission::Journaled("delegate"),
+            Request::Bind(_) => Admission::Journaled("bind"),
+            Request::Revoke(_) => Admission::Journaled("revoke"),
+            Request::Cancel(_)
+            | Request::Release(_)
+            | Request::Policy(_)
+            | Request::Decide(_)
+            | Request::ConfirmTime(_) => Admission::Synchronous,
+            Request::Setup(SetupRequest::Preview { .. }) => Admission::ReadOnly,
+            Request::Setup(SetupRequest::Apply { .. }) => Admission::Journaled("setup.apply"),
+            Request::Setup(SetupRequest::Rollback { .. }) => Admission::Journaled("setup.rollback"),
+            Request::Setup(SetupRequest::Repair { .. }) => Admission::Journaled("setup.repair"),
+            Request::Catalog(_) => Admission::Journaled("catalog"),
         }
     }
 
     /// The capability a session must have negotiated to send this request, when it
     /// needs one beyond `operations/1` (ADR-0006 §2.4): `Shutdown` needs
-    /// `service-control/1`. A session without it gets `SCHEMA_UNSUPPORTED` and the
-    /// request is never dispatched.
+    /// `service-control/1`; `Setup` and `Catalog` need `setup/1` (m02-plan §5
+    /// item 4). A session without it gets `SCHEMA_UNSUPPORTED` and the request is
+    /// never dispatched. Exhaustive, so a new variant must state its capability.
     #[must_use]
     pub fn required_capability(&self) -> Option<&'static str> {
         match self {
             Request::Shutdown(_) => Some(crate::ipc::capability::SERVICE_CONTROL_V1),
-            _ => None,
+            Request::Setup(_) | Request::Catalog(_) => Some(crate::ipc::capability::SETUP_V1),
+            Request::Inspect(_)
+            | Request::Ensure(_)
+            | Request::Bind(_)
+            | Request::Delegate(_)
+            | Request::Observe(_)
+            | Request::Cancel(_)
+            | Request::Release(_)
+            | Request::Revoke(_)
+            | Request::Policy(_)
+            | Request::Decide(_)
+            | Request::ConfirmTime(_) => None,
         }
     }
 
@@ -631,15 +912,13 @@ impl Request {
         )
     }
 
-    /// Whether the request can have external effects (and therefore gets an
-    /// operation ID and journal entry). `Shutdown` is a runtime lifecycle request,
-    /// not a journaled operation: it gets neither.
+    /// Whether the request can have external effects. `Shutdown` is a runtime
+    /// lifecycle request, not a journaled operation, and `Setup(Preview)` is
+    /// read-only. Which effectful requests get an operation row is
+    /// [`Self::admission`].
     #[must_use]
     pub fn is_effectful(&self) -> bool {
-        !matches!(
-            self,
-            Request::Inspect(_) | Request::Observe(_) | Request::Shutdown(_)
-        )
+        self.admission() != Admission::ReadOnly
     }
 }
 

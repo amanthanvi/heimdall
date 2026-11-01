@@ -283,6 +283,10 @@ mod enabled {
             enforcement: enforcement(),
             // Synthetic canary built at runtime: it must never be printed.
             credential_ref: format!("{CANARY_PREFIX}cli_fixture_{}", std::process::id()),
+            // ⟨M02⟩ U0b row 15: the new outcome fields at their M01-equivalent values.
+            availability: Default::default(),
+            provider: None,
+            integration: Default::default(),
         })
     }
 

@@ -1,0 +1,7 @@
+{
+  "op": "catalog",
+  "action": "declare_interaction",
+  "identity": "idn_0123456789abcdef0123456789abcdef",
+  "interaction": "none",
+  "request_id": "req-0209"
+}

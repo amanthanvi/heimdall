@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "failed",
+  "code": "PROVIDER_LOCKED",
+  "data": {
+    "error": {
+      "code": "PROVIDER_LOCKED",
+      "effect_status": "none",
+      "retryable": true,
+      "resource": {"kind": "provider"},
+      "next": {"action": "interact", "provider_interaction": {"provider": "onepassword", "kind": "provider_unlock"}},
+      "message": "the provider is locked; unlock it and retry"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "interact", "provider_interaction": {"provider": "onepassword", "kind": "provider_unlock"}}
+}

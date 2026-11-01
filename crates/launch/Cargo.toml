@@ -1,0 +1,19 @@
+[package]
+name = "heimdall-launch"
+description = "Heimdall process contract: program resolution without a shell, environment delta, side-channel run records, Unix exec, Windows spawn-and-wait, TUI handoff, and the pre-launch eligibility check (m02-plan U8; ADR-0007 §8)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+heimdall-localenv = { workspace = true }
+thiserror = { workspace = true }
+# U8 windows::spawn_and_wait: the console control guard (tokio ctrl_c/ctrl_break).
+tokio = { workspace = true }

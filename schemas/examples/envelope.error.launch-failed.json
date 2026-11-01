@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "state": "failed",
+  "code": "LAUNCH_FAILED",
+  "data": {
+    "error": {
+      "code": "LAUNCH_FAILED",
+      "effect_status": "none",
+      "retryable": false,
+      "resource": {"kind": "executable"},
+      "next": {"action": "fix_request"},
+      "message": "the program was not found on PATH",
+      "reason": "not_found"
+    }
+  },
+  "warnings": [],
+  "next": {"action": "fix_request"}
+}

@@ -1860,3 +1860,133 @@ fn usage_failures_keep_human_help_version_and_errors() {
     assert!(argv.stdout.is_empty(), "{argv:?}");
     assert!(!argv.stderr.is_empty(), "{argv:?}");
 }
+
+/// ⟨M02⟩ `w0_m02_cli_commands_report_not_available_and_never_panic` (m02-plan U0b
+/// wave-0 acceptance; §5 item 4). Hosted here, a `heimdall` package target, because
+/// only such a target gets the real binary (wave-0 verify E6). Every M02 command of
+/// the U0 clap tree, run through the real binary, exits 2 with M01's "not available
+/// in this build" envelope (`USAGE_ERROR`, effect `none`), never panics, and never
+/// contacts the runtime: the Heimdall home it names is never created (an on-demand
+/// start or a client connection would create it). An argument canary built at run
+/// time never reaches any output.
+#[test]
+fn w0_m02_cli_commands_report_not_available_and_never_panic() {
+    let argv_canary = format!("{}ARGV", heimdall_testkit::CANARY_PREFIX);
+    let lines: Vec<Vec<&str>> = vec![
+        vec!["setup"],
+        vec!["setup", "preview"],
+        vec!["setup", "preview", "--include-git"],
+        vec!["setup", "apply", "--include-git", "--request-id", "r1"],
+        vec!["setup", "rollback", "--keep-key-files"],
+        vec!["setup", "repair", "user_config_changed", "rerender"],
+        vec!["setup", "repair", "--operation", "op_x", "retry"],
+        vec!["setup", "repair", "--operation", "op_x", "keep"],
+        vec!["setup", "status"],
+        vec!["connect", "lab"],
+        vec![
+            "connect",
+            "lab",
+            "--allow-provider-interaction",
+            "--meta-file",
+            "m.ndjson",
+        ],
+        vec![
+            "run",
+            "--profile",
+            "p",
+            "--",
+            "tool",
+            &argv_canary,
+            "--json",
+        ],
+        vec!["run", "--require-unattended", "--", "tool"],
+        vec!["doctor"],
+        vec![
+            "doctor",
+            "--active-probe",
+            "agent,network",
+            "--allow-config-commands",
+            "--alias",
+            "a",
+            "--no-local-exec",
+            "--redact",
+        ],
+        vec!["tui"],
+        vec![
+            "destination",
+            "add",
+            "lab",
+            "--hostname",
+            "h.example",
+            "--port",
+            "22",
+        ],
+        vec!["destination", "add", "lab", "--observed"],
+        vec!["destination", "list"],
+        vec!["destination", "show", "lab"],
+        vec!["destination", "remove", "lab"],
+        vec!["identity", "list"],
+        vec!["identity", "adopt", "--pub", "k.pub"],
+        vec![
+            "identity",
+            "adopt",
+            "--from-agent",
+            "--active-probe",
+            "agent",
+        ],
+        vec!["identity", "declare-interaction", "idn_x", "none"],
+        vec!["identity", "withdraw-declaration", "idn_x"],
+        vec!["identity", "remove", "idn_x"],
+        vec!["profile", "create", "p", "--pair", "d:a"],
+        vec!["profile", "show", "p"],
+        vec!["profile", "add", "p", "--pair", "d:a"],
+        vec!["profile", "remove", "p"],
+        vec!["profile", "list"],
+        vec!["uninstall"],
+        vec!["uninstall", "--purge-state"],
+    ];
+    let scratch = tempfile::tempdir().expect("scratch");
+    for (i, line) in lines.iter().enumerate() {
+        let home = scratch.path().join(format!("home-{i}"));
+        let mut cmd = Command::new(bin());
+        cmd.arg("--json")
+            .arg("--non-interactive")
+            .arg("--home")
+            .arg(&home)
+            .args(line);
+        for v in TEST_VARS {
+            cmd.env_remove(v);
+        }
+        cmd.env_remove("HEIMDALL_LOG")
+            .env("HEIMDALL_HOME", &home)
+            .stdin(Stdio::null());
+        let out = cmd.output().expect("spawn heimdall");
+        let out = Out {
+            code: out.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        };
+        scan("stdout", &out.stdout);
+        scan("stderr", &out.stderr);
+        assert_eq!(out.code, 2, "{line:?}: {out:?}");
+        assert!(!out.stderr.contains("panicked"), "{line:?}: {out:?}");
+        let env = out.json();
+        assert_eq!(env["code"], "USAGE_ERROR", "{line:?}: {env}");
+        assert_eq!(env["data"]["error"]["effect_status"], "none", "{line:?}");
+        assert!(
+            env["data"]["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("not available")),
+            "{line:?}: {env}"
+        );
+        assert!(
+            !home.exists(),
+            "{line:?} created the Heimdall home, so it reached for the runtime"
+        );
+    }
+    assert_eq!(
+        std::fs::read_dir(scratch.path()).map(Iterator::count).ok(),
+        Some(0),
+        "nothing was created under the scratch directory"
+    );
+}

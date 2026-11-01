@@ -183,6 +183,10 @@
         {
           "type": "string",
           "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
         }
       ]
     },
@@ -222,6 +226,17 @@
         "error": {
           "description": "The error.",
           "$ref": "#/$defs/ErrorDetail"
+        },
+        "setup": {
+          "description": "A setup operation's partial result: a held operation's envelope\n(`OUTCOME_UNKNOWN`, reason `projection_held`) lists every item and held\nstep here (m02-plan §5 item 2). Boxed so the common error stays small.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SetupResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -248,6 +263,13 @@
           "description": "Machine next action.",
           "$ref": "#/$defs/NextAction"
         },
+        "reason": {
+          "description": "Stable `snake_case` sub-reason refining the code (m02-plan §5 item 14; the\nvalues are in [`reason`]). Readers tolerate unknown values.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "resource": {
           "description": "Resource the error concerns.",
           "anyOf": [
@@ -270,6 +292,160 @@
         "retryable",
         "next",
         "message"
+      ]
+    },
+    "FileOutcome": {
+      "description": "One file of an item's outcome.",
+      "type": "object",
+      "properties": {
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Role.",
+          "$ref": "#/$defs/ProjectionFileRole"
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/FileOutcomeState"
+        }
+      },
+      "required": [
+        "role",
+        "path_display",
+        "state"
+      ]
+    },
+    "FileOutcomeState": {
+      "description": "A file's outcome.",
+      "oneOf": [
+        {
+          "description": "Written and active.",
+          "type": "string",
+          "const": "applied"
+        },
+        {
+          "description": "Not written.",
+          "type": "string",
+          "const": "not_applied"
+        },
+        {
+          "description": "Restored.",
+          "type": "string",
+          "const": "restored"
+        },
+        {
+          "description": "Written but not referenced (the item did not commit).",
+          "type": "string",
+          "const": "written_inactive"
+        },
+        {
+          "description": "Removed.",
+          "type": "string",
+          "const": "removed"
+        },
+        {
+          "description": "Kept as found (`keep_held`).",
+          "type": "string",
+          "const": "conflict_preserved"
+        },
+        {
+          "description": "Held for the owner.",
+          "type": "string",
+          "const": "held"
+        }
+      ]
+    },
+    "InteractionKind": {
+      "description": "The human step an authentication may need (ADR-0007 §7 interaction profile).",
+      "oneOf": [
+        {
+          "description": "No interaction (only ever `declared` for a native agent key).",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "The provider asks for approval (1Password).",
+          "type": "string",
+          "const": "provider_approval"
+        },
+        {
+          "description": "The provider must be unlocked.",
+          "type": "string",
+          "const": "provider_unlock"
+        },
+        {
+          "description": "A hardware presence touch (FIDO `sk-*` keys).",
+          "type": "string",
+          "const": "hardware_presence"
+        },
+        {
+          "description": "A passphrase prompt.",
+          "type": "string",
+          "const": "passphrase"
+        },
+        {
+          "description": "Not known; never satisfies a non-interactive requirement.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "ItemOutcome": {
+      "description": "One item's outcome.",
+      "type": "object",
+      "properties": {
+        "files": {
+          "description": "Its files.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FileOutcome"
+          }
+        },
+        "item": {
+          "description": "The item.",
+          "$ref": "#/$defs/ProjectionItem"
+        },
+        "outcome": {
+          "description": "Its outcome.",
+          "$ref": "#/$defs/ItemOutcomeKind"
+        }
+      },
+      "required": [
+        "item",
+        "outcome"
+      ]
+    },
+    "ItemOutcomeKind": {
+      "description": "An item's outcome.",
+      "oneOf": [
+        {
+          "description": "Applied.",
+          "type": "string",
+          "const": "applied"
+        },
+        {
+          "description": "Not applied; nothing changed.",
+          "type": "string",
+          "const": "not_applied"
+        },
+        {
+          "description": "Applied, then restored after a failed check.",
+          "type": "string",
+          "const": "restored"
+        },
+        {
+          "description": "Closed by the owner with `keep_held`.",
+          "type": "string",
+          "const": "conflict_preserved"
+        },
+        {
+          "description": "Held for the owner (ADR-0007 §5.7 outcome H).",
+          "type": "string",
+          "const": "held"
+        }
       ]
     },
     "NextAction": {
@@ -314,6 +490,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_interaction": {
+          "description": "The provider-owned interaction, with action `interact`, for\n`PROVIDER_LOCKED` and provider-owned `INTERACTION_REQUIRED` (ADR-0007 §7).\nNever combined with `decision_ref`: provider dialogs are not Heimdall\ndecisions (spec §5.5).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderInteractionRef"
             },
             {
               "type": "null"
@@ -378,6 +565,142 @@
         }
       ]
     },
+    "ProjectionFileRole": {
+      "description": "The role of a file in a projection plan or result.",
+      "oneOf": [
+        {
+          "description": "The user's OpenSSH configuration (holds B).",
+          "type": "string",
+          "const": "user_ssh"
+        },
+        {
+          "description": "The managed OpenSSH file P.",
+          "type": "string",
+          "const": "managed_ssh"
+        },
+        {
+          "description": "A materialized public key file.",
+          "type": "string",
+          "const": "key_file"
+        },
+        {
+          "description": "The global Git file (holds B_git).",
+          "type": "string",
+          "const": "git_include"
+        },
+        {
+          "description": "The managed Git file P_git.",
+          "type": "string",
+          "const": "git_managed"
+        }
+      ]
+    },
+    "ProjectionItem": {
+      "description": "A projection item: the OpenSSH projection or the Git include (ADR-0007 §5.4).",
+      "oneOf": [
+        {
+          "description": "The OpenSSH include block B and the managed file P (with key files).",
+          "type": "string",
+          "const": "ssh"
+        },
+        {
+          "description": "The Git include block B_git and the managed file P_git.",
+          "type": "string",
+          "const": "git"
+        }
+      ]
+    },
+    "ProviderInteractionRef": {
+      "description": "The provider-owned interaction a next action points at (spec §5.5). Used with\naction `interact` for `PROVIDER_LOCKED` and provider-owned\n`INTERACTION_REQUIRED`; never combined with `decision_ref`.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "What it asks for.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "provider": {
+          "description": "The provider whose dialog it is.",
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "kind"
+      ]
+    },
+    "ProviderKind": {
+      "description": "Which provider serves an agent endpoint (ADR-0007 §7 \"Detection is passive\").",
+      "oneOf": [
+        {
+          "description": "An OpenSSH-compatible agent (`ssh-agent`, the Windows OpenSSH agent service).",
+          "type": "string",
+          "const": "native_agent"
+        },
+        {
+          "description": "The 1Password SSH agent.",
+          "type": "string",
+          "const": "onepassword"
+        },
+        {
+          "description": "Not determinable passively (for example the Windows `openssh-ssh-agent` pipe,\nF18).",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "RemainingArtifact": {
+      "description": "An artifact left for the owner.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Kind.",
+          "$ref": "#/$defs/RemainingArtifactKind"
+        },
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path_display"
+      ]
+    },
+    "RemainingArtifactKind": {
+      "description": "The kind of an artifact left for the owner.",
+      "oneOf": [
+        {
+          "description": "A backup copy.",
+          "type": "string",
+          "const": "backup"
+        },
+        {
+          "description": "A conflict file.",
+          "type": "string",
+          "const": "conflict_file"
+        },
+        {
+          "description": "A manual-mode block the owner inserted.",
+          "type": "string",
+          "const": "manual_block"
+        },
+        {
+          "description": "The Heimdall state store.",
+          "type": "string",
+          "const": "state_store"
+        },
+        {
+          "description": "A recovery record.",
+          "type": "string",
+          "const": "recovery_record"
+        },
+        {
+          "description": "The quarantine directory.",
+          "type": "string",
+          "const": "quarantine"
+        }
+      ]
+    },
     "ResourceRef": {
       "description": "A reference to the resource an error concerns. Opaque IDs only; never a secret.",
       "type": "object",
@@ -390,7 +713,7 @@
           ]
         },
         "kind": {
-          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`, `decision`).",
+          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`, `decision`, and\nsince M02 `projection`, `identity`, `provider`, `executable`).",
           "type": "string"
         }
       },
@@ -401,6 +724,37 @@
     "SchemaVersion": {
       "description": "A `schema_version` value as received from a peer.",
       "type": "string"
+    },
+    "SetupResult": {
+      "description": "An apply, rollback or repair result (schema `setup-result`). A held operation's\nerror envelope (`OUTCOME_UNKNOWN`, reason `projection_held`) carries it in\n`data.setup`.",
+      "type": "object",
+      "properties": {
+        "generation": {
+          "description": "The projection generation.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "items": {
+          "description": "One outcome per item.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ItemOutcome"
+          }
+        },
+        "remaining": {
+          "description": "Artifacts left for the owner.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RemainingArtifact"
+          }
+        }
+      },
+      "required": [
+        "generation"
+      ]
     },
     "Warning": {
       "description": "A non-fatal finding attached to a result.",

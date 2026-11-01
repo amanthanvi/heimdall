@@ -231,6 +231,14 @@
       "exit_code": 1,
       "retryable": false,
       "success": false
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "default_effect_status": "none",
+      "default_next_action": "fix_request",
+      "exit_code": 127,
+      "retryable": false,
+      "success": false
     }
   ],
   "schema_version": "1"

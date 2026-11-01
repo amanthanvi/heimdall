@@ -1,0 +1,20 @@
+{
+  "plan_digest": "441cc1c05b8ab58fc11ddc5f7da747d34f5f15f76ab3bd4ed9622307342c75c4",
+  "intent": {"kind": "rollback", "keep_key_files": true, "items": ["ssh"]},
+  "mode": "manual",
+  "manual_reasons": ["atomic_exchange_unsupported"],
+  "files": [],
+  "aliases": [],
+  "consent": {"decision_required": false, "reasons": []},
+  "unaffected_names_checked": 0,
+  "findings": [
+    {
+      "code": "atomic_exchange_unsupported",
+      "severity": "warning",
+      "subject": {"kind": "projection"},
+      "level": "static",
+      "message": "the filesystem holding ~/.ssh cannot exchange files atomically",
+      "next": {"action": "review_config"}
+    }
+  ]
+}

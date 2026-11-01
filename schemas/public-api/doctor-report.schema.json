@@ -1,0 +1,1611 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DoctorReport",
+  "description": "The doctor report (`heimdall doctor --json` data; schema `doctor-report`).",
+  "type": "object",
+  "properties": {
+    "aliases": {
+      "description": "Aliases.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/AliasObservation"
+      }
+    },
+    "clients": {
+      "description": "Client executables.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ClientObservation"
+      }
+    },
+    "config_files": {
+      "description": "Configuration files.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ConfigFileObservation"
+      }
+    },
+    "findings": {
+      "description": "Findings.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Finding"
+      }
+    },
+    "git": {
+      "description": "Git, when a `git` executable was found.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GitObservation"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "levels_declined": {
+      "description": "Every level declined (with its reason in `probes`).",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ProbeLevel"
+      },
+      "uniqueItems": true
+    },
+    "levels_performed": {
+      "description": "Every level performed.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ProbeLevel"
+      },
+      "uniqueItems": true
+    },
+    "probes": {
+      "description": "One record per level performed or declined.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ProbeRecord"
+      }
+    },
+    "projection": {
+      "description": "The managed projection, when the store could be read.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProjectionObservation"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "providers": {
+      "description": "Providers.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ProviderStatus"
+      }
+    }
+  },
+  "required": [
+    "levels_performed"
+  ],
+  "$defs": {
+    "AliasDefinition": {
+      "description": "How an alias is defined.",
+      "oneOf": [
+        {
+          "description": "Rendered by Heimdall into P.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "A catalog destination whose definition stays in the user's file.",
+          "type": "string",
+          "const": "observed"
+        },
+        {
+          "description": "Only in the user's configuration; not in the catalog.",
+          "type": "string",
+          "const": "user_only"
+        }
+      ]
+    },
+    "AliasObservation": {
+      "description": "One alias's statically evaluated behaviour.",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "The alias (`--redact` aware).",
+          "type": "string"
+        },
+        "behavior": {
+          "description": "Its relevant directives.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DirectiveObservation"
+          }
+        },
+        "definition": {
+          "description": "How it is defined.",
+          "$ref": "#/$defs/AliasDefinition"
+        },
+        "identity_selection": {
+          "description": "Its identity selection, when evaluated.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentitySelectionReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "alias",
+        "definition"
+      ]
+    },
+    "BindingId": {
+      "description": "Work binding ID (spec §4.1 \"Work binding\").",
+      "type": "string"
+    },
+    "Certainty": {
+      "description": "Whether a statically evaluated value is decided.",
+      "oneOf": [
+        {
+          "description": "Decided statically.",
+          "type": "string",
+          "const": "determined"
+        },
+        {
+          "description": "Not decidable statically.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "ClientObservation": {
+      "description": "One client executable candidate (R-SS-03: path, version and SHA-256 reported).",
+      "type": "object",
+      "properties": {
+        "consumer": {
+          "description": "Which consumer program.",
+          "$ref": "#/$defs/ConsumerKind"
+        },
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        },
+        "selected": {
+          "description": "Whether this is the verified client Heimdall selects.",
+          "type": "boolean"
+        },
+        "sha256": {
+          "description": "SHA-256 of the executable, lowercase hex.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "How it was found.",
+          "$ref": "#/$defs/ClientSource"
+        },
+        "version": {
+          "description": "Reported version (`OpenSSH_9.5p2`), when a local query ran.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "consumer",
+        "path_display",
+        "source",
+        "selected"
+      ]
+    },
+    "ClientSource": {
+      "description": "How a client executable was found (U3 `ClientSource`).",
+      "oneOf": [
+        {
+          "description": "Found on `PATH`.",
+          "type": "string",
+          "const": "path"
+        },
+        {
+          "description": "The Windows in-box `System32\\OpenSSH` client.",
+          "type": "string",
+          "const": "system32"
+        },
+        {
+          "description": "The client bundled with Git for Windows.",
+          "type": "string",
+          "const": "git_bundled"
+        },
+        {
+          "description": "Named in `config.toml` `[clients]`.",
+          "type": "string",
+          "const": "configured"
+        }
+      ]
+    },
+    "Code": {
+      "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "OK"
+        },
+        {
+          "type": "string",
+          "const": "ACCESS_READY"
+        },
+        {
+          "type": "string",
+          "const": "ACCEPTED"
+        },
+        {
+          "type": "string",
+          "const": "APPROVAL_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "INTERACTION_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "PROVIDER_LOCKED"
+        },
+        {
+          "type": "string",
+          "const": "CAPABILITY_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_PAUSED"
+        },
+        {
+          "type": "string",
+          "const": "POLICY_CUTOFF"
+        },
+        {
+          "type": "string",
+          "const": "CREDENTIAL_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "HOST_TRUST_CHANGED"
+        },
+        {
+          "type": "string",
+          "const": "DELEGATION_EXCEEDS_PARENT"
+        },
+        {
+          "type": "string",
+          "const": "OPERATION_CANCELLED"
+        },
+        {
+          "type": "string",
+          "const": "DESTINATION_UNREACHABLE"
+        },
+        {
+          "type": "string",
+          "const": "TIME_UNCERTAIN"
+        },
+        {
+          "type": "string",
+          "const": "UNSUPPORTED_CLIENT"
+        },
+        {
+          "type": "string",
+          "const": "SERVICE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "STATE_UNAVAILABLE"
+        },
+        {
+          "type": "string",
+          "const": "BACKPRESSURE"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "CONFIG_CONFLICT"
+        },
+        {
+          "type": "string",
+          "const": "REQUEST_EXPIRED"
+        },
+        {
+          "type": "string",
+          "const": "RESYNC_REQUIRED"
+        },
+        {
+          "type": "string",
+          "const": "DECISION_STALE"
+        },
+        {
+          "type": "string",
+          "const": "OUTCOME_UNKNOWN"
+        },
+        {
+          "type": "string",
+          "const": "USAGE_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "SCHEMA_UNSUPPORTED"
+        },
+        {
+          "type": "string",
+          "const": "NOT_FOUND"
+        },
+        {
+          "type": "string",
+          "const": "INTERNAL_ERROR"
+        },
+        {
+          "type": "string",
+          "const": "LAUNCH_FAILED"
+        }
+      ]
+    },
+    "ConfigFileObservation": {
+      "description": "One configuration file the static pass read or tried to read.",
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "description": "Size in bytes, when read.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        },
+        "readable": {
+          "description": "Whether it could be read within the bounds.",
+          "type": "boolean"
+        },
+        "role": {
+          "description": "Role.",
+          "$ref": "#/$defs/ConfigFileRole"
+        },
+        "sha256": {
+          "description": "SHA-256 of its content, lowercase hex, when read.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path_display",
+        "role",
+        "readable"
+      ]
+    },
+    "ConfigFileRole": {
+      "description": "The role of a configuration file in the report.",
+      "oneOf": [
+        {
+          "description": "The user's `~/.ssh/config`.",
+          "type": "string",
+          "const": "user"
+        },
+        {
+          "description": "The system `ssh_config`.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "A file reached through `Include`.",
+          "type": "string",
+          "const": "included"
+        },
+        {
+          "description": "The Heimdall-managed include file P.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "The global Git configuration file.",
+          "type": "string",
+          "const": "git_global"
+        },
+        {
+          "description": "The Heimdall-managed Git file P_git.",
+          "type": "string",
+          "const": "git_managed"
+        }
+      ]
+    },
+    "ConfigProvenance": {
+      "description": "Where a configuration directive was read: a display path and a 1-based line.",
+      "type": "object",
+      "properties": {
+        "line": {
+          "description": "1-based line number.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "path_display": {
+          "description": "Display path (`~` for the home directory; `--redact` aware).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_display",
+        "line"
+      ]
+    },
+    "ConfigTreeDifference": {
+      "description": "One difference between the two configuration-tree snapshots.",
+      "type": "object",
+      "properties": {
+        "change": {
+          "description": "The change.",
+          "$ref": "#/$defs/TreeChange"
+        },
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_display",
+        "change"
+      ]
+    },
+    "ConflictKind": {
+      "description": "A conflict a repair addresses (ADR-0007 §5.5, §5.7). Also a stable error reason.",
+      "oneOf": [
+        {
+          "description": "The user file changed since the plan.",
+          "type": "string",
+          "const": "user_config_changed"
+        },
+        {
+          "description": "The managed file was edited.",
+          "type": "string",
+          "const": "managed_file_edited"
+        },
+        {
+          "description": "A marker line was edited.",
+          "type": "string",
+          "const": "marker_edited"
+        },
+        {
+          "description": "A marker appears more than once.",
+          "type": "string",
+          "const": "marker_duplicated"
+        },
+        {
+          "description": "The include block is conditional.",
+          "type": "string",
+          "const": "include_conditional"
+        },
+        {
+          "description": "A target file cannot be managed (manual mode).",
+          "type": "string",
+          "const": "unmanageable_file"
+        },
+        {
+          "description": "A managed alias collides with a user alias.",
+          "type": "string",
+          "const": "alias_collision"
+        },
+        {
+          "description": "Another writer changed a file during the transaction.",
+          "type": "string",
+          "const": "concurrent_writer"
+        },
+        {
+          "description": "Git's configuration lock is held.",
+          "type": "string",
+          "const": "git_config_locked"
+        },
+        {
+          "description": "A setup operation is held for the owner (ADR-0007 §5.7 outcome H).",
+          "type": "string",
+          "const": "projection_held"
+        }
+      ]
+    },
+    "ConsumerKind": {
+      "description": "A consumer program.",
+      "oneOf": [
+        {
+          "description": "`ssh`.",
+          "type": "string",
+          "const": "ssh"
+        },
+        {
+          "description": "`scp`.",
+          "type": "string",
+          "const": "scp"
+        },
+        {
+          "description": "`sftp`.",
+          "type": "string",
+          "const": "sftp"
+        },
+        {
+          "description": "`git`.",
+          "type": "string",
+          "const": "git"
+        },
+        {
+          "description": "`ssh-keygen`.",
+          "type": "string",
+          "const": "ssh_keygen"
+        }
+      ]
+    },
+    "Containment": {
+      "description": "How a probe's children were contained.",
+      "oneOf": [
+        {
+          "description": "No child was started.",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "Unix process group (a descendant that leaves it is not contained).",
+          "type": "string",
+          "const": "process_group"
+        },
+        {
+          "description": "Windows job object with kill-on-close.",
+          "type": "string",
+          "const": "job_object"
+        }
+      ]
+    },
+    "Cursor": {
+      "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "DirectiveCertainty": {
+      "description": "Whether a directive's static value is decided (ADR-0007 §6 three-valued\nevaluation).",
+      "oneOf": [
+        {
+          "description": "One value, decided.",
+          "type": "string",
+          "const": "determined"
+        },
+        {
+          "description": "Several candidate values; static evaluation cannot choose.",
+          "type": "string",
+          "const": "undetermined"
+        },
+        {
+          "description": "Not set.",
+          "type": "string",
+          "const": "unset"
+        }
+      ]
+    },
+    "DirectiveObservation": {
+      "description": "One directive of an alias's relevant behaviour.",
+      "type": "object",
+      "properties": {
+        "certainty": {
+          "description": "Certainty.",
+          "$ref": "#/$defs/DirectiveCertainty"
+        },
+        "directive": {
+          "description": "Directive keyword (canonical case, e.g. `IdentityAgent`).",
+          "type": "string"
+        },
+        "provenance": {
+          "description": "Where each value or candidate was read.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConfigProvenance"
+          }
+        },
+        "values": {
+          "description": "The value (determined) or the candidate values (undetermined); empty when\nunset.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "directive",
+        "certainty"
+      ]
+    },
+    "EvidenceBasis": {
+      "description": "How a reported fact was established (ADR-0007 §7). `declared` is an owner\nstatement, never an observation.",
+      "oneOf": [
+        {
+          "description": "Observed by a probe.",
+          "type": "string",
+          "const": "observed"
+        },
+        {
+          "description": "Taken from pinned vendor documentation.",
+          "type": "string",
+          "const": "documented"
+        },
+        {
+          "description": "Inferred; labelled `[I]` in reports.",
+          "type": "string",
+          "const": "inferred"
+        },
+        {
+          "description": "Declared by the owner through an attended decision.",
+          "type": "string",
+          "const": "declared"
+        }
+      ]
+    },
+    "ExcludedEffect": {
+      "description": "An effect Heimdall enforced did not happen during a level (ADR-0007 §6).\nWhenever configuration commands ran, a record excludes nothing they could do.",
+      "oneOf": [
+        {
+          "description": "No configuration command ran.",
+          "type": "string",
+          "const": "config_execution"
+        },
+        {
+          "description": "No agent was contacted.",
+          "type": "string",
+          "const": "agent_contact"
+        },
+        {
+          "description": "No provider was contacted.",
+          "type": "string",
+          "const": "provider_contact"
+        },
+        {
+          "description": "No network was used.",
+          "type": "string",
+          "const": "network"
+        },
+        {
+          "description": "Nothing was signed.",
+          "type": "string",
+          "const": "signing"
+        },
+        {
+          "description": "Nothing was changed.",
+          "type": "string",
+          "const": "mutation"
+        }
+      ]
+    },
+    "Finding": {
+      "description": "One doctor or preview finding.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable code: one of [`finding`]'s values (readers tolerate unknown ones).",
+          "type": "string"
+        },
+        "level": {
+          "description": "The probe level that found it.",
+          "$ref": "#/$defs/ProbeLevel"
+        },
+        "message": {
+          "description": "Human text; never contains secrets.",
+          "type": "string"
+        },
+        "next": {
+          "description": "The remedy.",
+          "$ref": "#/$defs/NextAction"
+        },
+        "provenance": {
+          "description": "Configuration location, when there is one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "description": "Stable `snake_case` sub-reason (for example `modified_after_exchange` on\n`conflict_artifact_present`, the hold reason on `projection_held`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "severity": {
+          "description": "Severity.",
+          "$ref": "#/$defs/FindingSeverity"
+        },
+        "subject": {
+          "description": "What it concerns.",
+          "$ref": "#/$defs/ResourceRef"
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "subject",
+        "level",
+        "message",
+        "next"
+      ]
+    },
+    "FindingSeverity": {
+      "description": "Finding severity.",
+      "oneOf": [
+        {
+          "description": "Informational.",
+          "type": "string",
+          "const": "info"
+        },
+        {
+          "description": "Worth attention.",
+          "type": "string",
+          "const": "warning"
+        },
+        {
+          "description": "Breaks or weakens access.",
+          "type": "string",
+          "const": "problem"
+        }
+      ]
+    },
+    "GitObservation": {
+      "description": "Git as the doctor sees it.",
+      "type": "object",
+      "properties": {
+        "selection": {
+          "description": "Effective selection.",
+          "$ref": "#/$defs/GitSshSelection"
+        },
+        "values": {
+          "description": "Every observed value.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/GitValueObservation"
+          }
+        }
+      },
+      "required": [
+        "selection"
+      ]
+    },
+    "GitScope": {
+      "description": "A Git configuration scope (`git config --show-scope`).",
+      "oneOf": [
+        {
+          "description": "System file.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "Global file (`~/.gitconfig` or the XDG file).",
+          "type": "string",
+          "const": "global"
+        },
+        {
+          "description": "Repository file.",
+          "type": "string",
+          "const": "local"
+        },
+        {
+          "description": "Worktree file.",
+          "type": "string",
+          "const": "worktree"
+        },
+        {
+          "description": "Command scope (`-c`, `GIT_CONFIG_COUNT`).",
+          "type": "string",
+          "const": "command"
+        }
+      ]
+    },
+    "GitSshClassification": {
+      "description": "What Git's effective SSH program is (the value itself is never reported).",
+      "oneOf": [
+        {
+          "description": "The verified client.",
+          "type": "string",
+          "const": "verified_client"
+        },
+        {
+          "description": "Git for Windows' bundled MSYS ssh.",
+          "type": "string",
+          "const": "bundled_msys"
+        },
+        {
+          "description": "Something else.",
+          "type": "string",
+          "const": "other"
+        },
+        {
+          "description": "Not established.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "GitSshSelection": {
+      "description": "Git's effective SSH selection (ADR-0007 §5.6, §8).",
+      "type": "object",
+      "properties": {
+        "classification": {
+          "description": "What it is.",
+          "$ref": "#/$defs/GitSshClassification"
+        },
+        "scope": {
+          "description": "The winning scope, for `config`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "description": "Where it comes from.",
+          "$ref": "#/$defs/GitSshSource"
+        }
+      },
+      "required": [
+        "source",
+        "classification"
+      ]
+    },
+    "GitSshSource": {
+      "description": "Where Git's effective SSH program comes from (ADR-0007 F22 order).",
+      "oneOf": [
+        {
+          "description": "`GIT_SSH_COMMAND` in the environment.",
+          "type": "string",
+          "const": "env_git_ssh_command"
+        },
+        {
+          "description": "`core.sshCommand` at its winning scope.",
+          "type": "string",
+          "const": "config"
+        },
+        {
+          "description": "`GIT_SSH` in the environment.",
+          "type": "string",
+          "const": "env_git_ssh"
+        },
+        {
+          "description": "Git's default.",
+          "type": "string",
+          "const": "default"
+        }
+      ]
+    },
+    "GitValueObservation": {
+      "description": "One observed `core.sshCommand` value, by digest only (ADR-0007 §5.6).",
+      "type": "object",
+      "properties": {
+        "conditional": {
+          "description": "Reached through `includeIf` (counted whatever the condition).",
+          "type": "boolean",
+          "default": false
+        },
+        "count": {
+          "description": "How many times the value occurs at this origin.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "origin_display": {
+          "description": "Display origin (`file:~/.gitconfig`), when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "description": "Scope.",
+          "$ref": "#/$defs/GitScope"
+        },
+        "value_sha256": {
+          "description": "SHA-256 of the value, lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "value_sha256",
+        "count"
+      ]
+    },
+    "IdentitiesOnly": {
+      "description": "`IdentitiesOnly` as statically evaluated for the alias.",
+      "oneOf": [
+        {
+          "description": "Determined `yes`.",
+          "type": "string",
+          "const": "determined_yes"
+        },
+        {
+          "description": "Determined `no` (or unset).",
+          "type": "string",
+          "const": "determined_no"
+        },
+        {
+          "description": "Not decidable statically.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "IdentityBacking": {
+      "description": "What backs an identity entry (ADR-0007 §7, F9): an agent when the private key\nfile is absent, a file when it is present (stat only; never opened).",
+      "oneOf": [
+        {
+          "description": "Private key file absent: used through the alias's agent.",
+          "type": "string",
+          "const": "agent"
+        },
+        {
+          "description": "Private key file present.",
+          "type": "string",
+          "const": "file"
+        },
+        {
+          "description": "Not established.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "IdentityEntry": {
+      "description": "One entry of an alias's identity list.",
+      "type": "object",
+      "properties": {
+        "backing": {
+          "description": "What backs it.",
+          "$ref": "#/$defs/IdentityBacking"
+        },
+        "certainty": {
+          "description": "Whether the entry is decided.",
+          "$ref": "#/$defs/Certainty"
+        },
+        "cleared": {
+          "description": "Whether a fallback clearance (ADR-0007 §7, M2-R05) cleared it; present only\nwhere a clearance was evaluated (readiness, the pre-launch check, doctor).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fingerprint": {
+          "description": "Public fingerprint (`SHA256:…`) read from the `.pub` file, when present.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Entry kind.",
+          "$ref": "#/$defs/IdentityEntryKind"
+        },
+        "provenance": {
+          "description": "Directive location, when it comes from a file.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "description": "Where it comes from.",
+          "$ref": "#/$defs/IdentityEntrySource"
+        }
+      },
+      "required": [
+        "kind",
+        "source",
+        "certainty",
+        "backing"
+      ]
+    },
+    "IdentityEntryKind": {
+      "description": "The kind of an identity-list entry.",
+      "oneOf": [
+        {
+          "description": "An `IdentityFile` entry.",
+          "type": "string",
+          "const": "identity_file"
+        },
+        {
+          "description": "A `CertificateFile` entry.",
+          "type": "string",
+          "const": "certificate_file"
+        }
+      ]
+    },
+    "IdentityEntrySource": {
+      "description": "Where an identity-list entry comes from.",
+      "oneOf": [
+        {
+          "description": "The Heimdall-managed projection.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "The user's configuration.",
+          "type": "string",
+          "const": "user"
+        },
+        {
+          "description": "The system configuration.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "ssh's default identity files.",
+          "type": "string",
+          "const": "default"
+        }
+      ]
+    },
+    "IdentitySelection": {
+      "description": "Whether ssh can only use the adopted identity for an alias (ADR-0007 §3 item 3).",
+      "oneOf": [
+        {
+          "description": "Only the adopted identity can be offered.",
+          "type": "string",
+          "const": "exclusive"
+        },
+        {
+          "description": "Other identities the configuration adds can be offered.",
+          "type": "string",
+          "const": "not_exclusive"
+        },
+        {
+          "description": "Static evaluation cannot decide (for example behind `Match exec`).",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "IdentitySelectionReport": {
+      "description": "The static identity selection of an alias (ADR-0007 §3 item 3).",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "Every entry ssh may try, in order.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/IdentityEntry"
+          }
+        },
+        "identities_only": {
+          "description": "`IdentitiesOnly` for the alias.",
+          "$ref": "#/$defs/IdentitiesOnly"
+        },
+        "selection": {
+          "description": "The verdict.",
+          "$ref": "#/$defs/IdentitySelection"
+        }
+      },
+      "required": [
+        "selection",
+        "identities_only"
+      ]
+    },
+    "InteractionKind": {
+      "description": "The human step an authentication may need (ADR-0007 §7 interaction profile).",
+      "oneOf": [
+        {
+          "description": "No interaction (only ever `declared` for a native agent key).",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "The provider asks for approval (1Password).",
+          "type": "string",
+          "const": "provider_approval"
+        },
+        {
+          "description": "The provider must be unlocked.",
+          "type": "string",
+          "const": "provider_unlock"
+        },
+        {
+          "description": "A hardware presence touch (FIDO `sk-*` keys).",
+          "type": "string",
+          "const": "hardware_presence"
+        },
+        {
+          "description": "A passphrase prompt.",
+          "type": "string",
+          "const": "passphrase"
+        },
+        {
+          "description": "Not known; never satisfies a non-interactive requirement.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "NextAction": {
+      "description": "Machine next action (spec §11.2 `next`, §11.6 \"machine-readable next action\").\n`action` names are stable; parameters are present only when relevant.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "description": "Stable action name; defaults come from [`Code::default_next_action`].",
+          "type": "string"
+        },
+        "binding_id": {
+          "description": "Binding to use.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BindingId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cursor": {
+          "description": "Cursor to resume from after a resync.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision_ref": {
+          "description": "Nonsecret reference to a pending owner decision.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "description": "Operation to observe.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provider_interaction": {
+          "description": "The provider-owned interaction, with action `interact`, for\n`PROVIDER_LOCKED` and provider-owned `INTERACTION_REQUIRED` (ADR-0007 §7).\nNever combined with `decision_ref`: provider dialogs are not Heimdall\ndecisions (spec §5.5).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderInteractionRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retry_after_ms": {
+          "description": "Suggested minimum delay before a retry.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    },
+    "ProbeLevel": {
+      "description": "The probe ladder levels (ADR-0007 §6; spec §10.2), weakest first.",
+      "oneOf": [
+        {
+          "description": "Parse and evaluate without executing anything (the default).",
+          "type": "string",
+          "const": "static"
+        },
+        {
+          "description": "`ssh -G` against the real tree (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "evaluate"
+        },
+        {
+          "description": "One `SSH_AGENTC_REQUEST_IDENTITIES` to a named endpoint.",
+          "type": "string",
+          "const": "agent"
+        },
+        {
+          "description": "TCP connect and read the identification line.",
+          "type": "string",
+          "const": "network"
+        },
+        {
+          "description": "Host-key verification with nothing to sign (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "host_verification"
+        },
+        {
+          "description": "A real authentication (needs `--allow-config-commands`).",
+          "type": "string",
+          "const": "authentication"
+        }
+      ]
+    },
+    "ProbeOutcome": {
+      "description": "How a probe level ended.",
+      "oneOf": [
+        {
+          "description": "Completed.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "Completed with a failure.",
+          "type": "string",
+          "const": "failed"
+        },
+        {
+          "description": "Timed out and was stopped.",
+          "type": "string",
+          "const": "timeout"
+        },
+        {
+          "description": "Refused (for example a non-interactive authentication with an interactive\nidentity).",
+          "type": "string",
+          "const": "refused"
+        },
+        {
+          "description": "Not run; see `decline_reason`.",
+          "type": "string",
+          "const": "declined"
+        }
+      ]
+    },
+    "ProbeRecord": {
+      "description": "What one probe level did (ADR-0007 §6).",
+      "type": "object",
+      "properties": {
+        "authorization": {
+          "description": "The authorizations given (for example `allow_config_commands`).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "code": {
+          "description": "The code it ended with, when it failed.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Code"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "config_tree_changed": {
+          "description": "Whether the snapshot after the level differs from the static pass's; absent\nfor levels that run no configuration. `false` is not proof that the tree was\nunchanged while ssh read it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "config_tree_differences": {
+          "description": "The differences (at most [`MAX_CONFIG_TREE_DIFFERENCES`]).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConfigTreeDifference"
+          }
+        },
+        "containment": {
+          "description": "How children were contained.",
+          "$ref": "#/$defs/Containment"
+        },
+        "decline_reason": {
+          "description": "Why it was declined: one of [`decline_reason`]'s values.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "description": "How long it ran.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "effects_excluded": {
+          "description": "The effects Heimdall enforced did not happen.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ExcludedEffect"
+          },
+          "uniqueItems": true
+        },
+        "executed_config_commands": {
+          "description": "The executing constructs the static pass found **before** the run. Never\ncomplete: the run may have executed others.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConfigProvenance"
+          }
+        },
+        "level": {
+          "description": "The level.",
+          "$ref": "#/$defs/ProbeLevel"
+        },
+        "outcome": {
+          "description": "How it ended.",
+          "$ref": "#/$defs/ProbeOutcome"
+        },
+        "started_at": {
+          "description": "When it started.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "target": {
+          "description": "What it targeted (an alias, an endpoint display form, or `*`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "target",
+        "started_at",
+        "duration_ms",
+        "outcome",
+        "containment"
+      ]
+    },
+    "ProjectionObservation": {
+      "description": "The managed projection as the doctor sees it.",
+      "type": "object",
+      "properties": {
+        "conflict": {
+          "description": "The conflict, when `state` is `conflict`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConflictKind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "generation": {
+          "description": "Recorded generation, when one is recorded.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/ProjectionState"
+        }
+      },
+      "required": [
+        "state"
+      ]
+    },
+    "ProjectionState": {
+      "description": "The state of the managed projection.",
+      "oneOf": [
+        {
+          "description": "No projection is installed.",
+          "type": "string",
+          "const": "absent"
+        },
+        {
+          "description": "Installed and matching its record.",
+          "type": "string",
+          "const": "healthy"
+        },
+        {
+          "description": "A conflict was found (see `conflict`).",
+          "type": "string",
+          "const": "conflict"
+        },
+        {
+          "description": "Manual mode: Heimdall writes P but not the user file.",
+          "type": "string",
+          "const": "manual"
+        },
+        {
+          "description": "The include block is conditional (inside `Host` or `Match`).",
+          "type": "string",
+          "const": "conditional"
+        }
+      ]
+    },
+    "ProviderAvailability": {
+      "description": "Whether the provider can sign now (ADR-0007 §7 \"Provider states\").",
+      "oneOf": [
+        {
+          "description": "Observed available.",
+          "type": "string",
+          "const": "available"
+        },
+        {
+          "description": "Observed locked (needs the explicit `agent` level).",
+          "type": "string",
+          "const": "locked"
+        },
+        {
+          "description": "No endpoint (passively established).",
+          "type": "string",
+          "const": "unavailable"
+        },
+        {
+          "description": "Not established.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "ProviderInteractionRef": {
+      "description": "The provider-owned interaction a next action points at (spec §5.5). Used with\naction `interact` for `PROVIDER_LOCKED` and provider-owned\n`INTERACTION_REQUIRED`; never combined with `decision_ref`.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "What it asks for.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "provider": {
+          "description": "The provider whose dialog it is.",
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "kind"
+      ]
+    },
+    "ProviderKind": {
+      "description": "Which provider serves an agent endpoint (ADR-0007 §7 \"Detection is passive\").",
+      "oneOf": [
+        {
+          "description": "An OpenSSH-compatible agent (`ssh-agent`, the Windows OpenSSH agent service).",
+          "type": "string",
+          "const": "native_agent"
+        },
+        {
+          "description": "The 1Password SSH agent.",
+          "type": "string",
+          "const": "onepassword"
+        },
+        {
+          "description": "Not determinable passively (for example the Windows `openssh-ssh-agent` pipe,\nF18).",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "ProviderStatus": {
+      "description": "A provider's observed state (ADR-0007 §7 \"Provider states\").",
+      "type": "object",
+      "properties": {
+        "availability": {
+          "description": "Whether it can sign now.",
+          "$ref": "#/$defs/ProviderAvailability"
+        },
+        "basis": {
+          "description": "How it was established.",
+          "$ref": "#/$defs/EvidenceBasis"
+        },
+        "interaction": {
+          "description": "The interaction its identities need.",
+          "$ref": "#/$defs/InteractionKind"
+        },
+        "observed_at": {
+          "description": "When it was observed (RFC 3339, explicit offset).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "observed_level": {
+          "description": "The probe level that observed it.",
+          "$ref": "#/$defs/ProbeLevel"
+        },
+        "provider": {
+          "description": "Which provider.",
+          "$ref": "#/$defs/ProviderKind"
+        }
+      },
+      "required": [
+        "provider",
+        "availability",
+        "interaction",
+        "observed_level",
+        "observed_at",
+        "basis"
+      ]
+    },
+    "ResourceRef": {
+      "description": "A reference to the resource an error concerns. Opaque IDs only; never a secret.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Opaque identifier, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,\n`environment`, `endpoint`, `config`, `store`, `clock`, `decision`, and\nsince M02 `projection`, `identity`, `provider`, `executable`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "TreeChange": {
+      "description": "How a file differs between the static pass's snapshot and the one taken after\nthe level (ADR-0007 §6 \"After the run\").",
+      "oneOf": [
+        {
+          "description": "Reached only after the level.",
+          "type": "string",
+          "const": "added"
+        },
+        {
+          "description": "Reached only before the level.",
+          "type": "string",
+          "const": "removed"
+        },
+        {
+          "description": "Content digest differs.",
+          "type": "string",
+          "const": "modified"
+        },
+        {
+          "description": "Unreadable in the second snapshot.",
+          "type": "string",
+          "const": "unreadable"
+        }
+      ]
+    }
+  }
+}

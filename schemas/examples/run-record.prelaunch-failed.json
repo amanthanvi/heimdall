@@ -1,0 +1,9 @@
+{
+  "type": "prelaunch_failed",
+  "schema_version": "1",
+  "code": "LAUNCH_FAILED",
+  "exit_code": 127,
+  "reason": "not_found",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "binding_id": "binding_0123456789abcdef0123456789abcdef"
+}

@@ -2917,6 +2917,77 @@ ruling differs.
   (U0 + U0b phase 1) starts. Its first step verifies the reconciliation and T01–T07
   against the code, and an independent review of wave 0's code follows.
 
+### 12.14 Rulings on the wave-0 verification and integration escalations (orchestrator, 2026-11-01)
+
+Sources: `docs/architecture/m02-wave0-verify.md` (E1–E16) and the wave-0 integrator's
+report (workflow `wf_ce8d2e38-72a`). Wave 0 is green: check.sh exits 0 from a clean
+build, with 828 tests (M01's 735 plus 93 new).
+
+1. **E7 and the restore cause, needed before U4.**
+   * `RecoveryState::build(step, &[StageReceipt], &[FileStep])` is accepted. The step
+     list is needed for the per-shape phase order and for `release_due`. The frozen
+     signature changes accordingly.
+   * `RestoreCtx::Done` carries its cause: whether a restore recorded a mismatch or
+     completed cleanly. This amends §5.7: a recognized completed restore must know
+     whether a conflict artifact exists.
+   * U4 builds against these two changes.
+2. **E8: port-crossing types live in `heimdall-domain`.** Confirmed:
+   * `StepObservation` with `normalize`, `EntryObs`, `RecoveryState` and its parts,
+     `StepShape`, `StepDecision`, `HoldReason`, `StepFingerprint` and `EntryFingerprint`
+     are in `heimdall-domain`, owned by the integrator;
+   * `decide`, `decide_item`, `observe_*` and `materialize` stay in `heimdall-localenv`.
+3. **E1–E5, readings confirmed:**
+   * **E1:** cancelling an open setup or catalog operation is refused with
+     `CAPABILITY_UNAVAILABLE`/`driver_unavailable` while the drivers are off. Phase 2
+     adds a U0b row: a setup cancel is allowed only before the first commit point (§5.4),
+     and after it the answer is `OUTCOME_UNKNOWN` with `next: reconcile`.
+   * **E2:** the per-operation `runtime_lifecycle` payload is
+     `{phase: unresolved, operation_id, kind, state, reason}`.
+   * **E3:** the field is `ErrorDetail.reason` (wire `data.error.reason`).
+   * **E4:** the new `OperationKind` variants use the dotted wire name in serde too, so
+     serde equals `as_str` for every kind, asserted by test.
+   * **E5:** the exhaustive kind classifier lives inside `heimdall-contract`.
+4. **E6, E9–E16:** each fail-closed reading is accepted.
+   * **E6:** the CLI wave-0 test is hosted in the `heimdall` package. `m02_integration`
+     and `wave0_fail_closed` are modules of `model_operations`.
+   * **E9:** a source-scan test ensures `Rendered` is built only in
+     `sshconf::render`, `localenv::materialize` and `localenv::projection::git`.
+   * **E10:** `SetupIntent::validate` decodes the content and refuses armor. Tests scan
+     the decoded bytes.
+   * **E11:** at most one `git_lock` step, directly before `git_include`. It does not
+     commit, and its holder line ends in exactly one `\n`.
+   * **E12:** `BaseMissing` maps to `IntentInvalid`.
+   * **E13:** M01 test literals may change only by adding the new fields at their
+     default values.
+   * **E14:** `Operations::start` does not enforce the 1 s floor, so tests may set a lower
+     value. The production default is 30 s.
+   * **E15:** restore recognition follows ADR property 4 and rows F5b/F5c.
+   * **E16:** "T01–T07" means T01–T06 plus §12.11 item 7.
+5. **Deviations accepted:**
+   * Migration 0005 adds a `projection_records` table and an index on
+     `operations(environment, kind)`. The §5 item 18 wording is amended to include them.
+   * The bind hash is unchanged: materialize keeps the M01 input byte for byte, and
+     launch hashes `{form, executable}` without the holder.
+   * Inspect of identities and projections is owner-only, so U8's pre-launch check runs
+     with the owner role.
+   * `OpError.resource` is now boxed.
+6. **Identity selection crosses the port in full.** `PrepareOutcome.integration` carries
+   a full `IdentitySelectionReport` (its entries and `identities_only`), not only the
+   verdict. Fallback clearance (QR8, §12.5 item 5) can then judge the inherited entries.
+   * U6 implements it, and the U0b phase-2 row records it with the adapter timeout.
+   * Until then, a fallback is never cleared, which fails closed.
+7. **The duplicate skeleton run.** A coordination error by the orchestrator ran two
+   instances of W0-skeleton. The combined tree builds, is clean under fmt and clippy on
+   both the host and the Windows target, and passes its tests. The independent review of
+   wave 0's code checks the semantics of `ports.rs`, `cli.rs`, `adapters` and `launch`
+   against m02-plan U0, which is the authority; neither instance's text is.
+8. **Later-unit items stay with their units:**
+   * `Limits.adapter_call_timeout`: U0b phase 2, row 24;
+   * `OperationsConfig.projection`: U5;
+   * `HEIMDALL_TEST_CLOCK_OFFSET_S`: U8;
+   * the 1Password socket-path excerpts are blocked until a live source can be pinned.
+     Until then, detection uses `SSH_AUTH_SOCK` and IdentityAgent only.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

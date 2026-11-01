@@ -1,0 +1,5 @@
+{
+  "op": "setup",
+  "action": "preview",
+  "intent": {"kind": "apply", "include_git": true}
+}

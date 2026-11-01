@@ -983,6 +983,9 @@ mod u8b {
             refresh_dependency: RefreshDependency::None,
             enforcement: enforcement(),
             credential_ref: canary(),
+            availability: Default::default(),
+            provider: None,
+            integration: Default::default(),
         }
     }
 

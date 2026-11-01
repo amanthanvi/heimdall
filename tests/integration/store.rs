@@ -1033,11 +1033,13 @@ fn before_commit_failure_leaves_no_row() {
         .unwrap();
     assert_eq!((o, i), (None, None));
     // Opening a fresh store visits the migration points of every step (0001,
-    // 0002, 0003, 0004) first; then the failed transaction (before transaction,
-    // before commit) and the verifying one.
+    // 0002, 0003, 0004, 0005) first; then the failed transaction (before
+    // transaction, before commit) and the verifying one.
     assert_eq!(
         faults.visited(),
         vec![
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
@@ -1319,7 +1321,7 @@ fn truncated_file_is_corrupt_not_fresh() {
 
 #[test]
 fn newer_schema_is_refused_and_untouched() {
-    assert_eq!(SCHEMA_VERSION, 4);
+    assert_eq!(SCHEMA_VERSION, 5);
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&99u32.to_be_bytes())
@@ -1333,7 +1335,7 @@ fn newer_schema_is_refused_and_untouched() {
             }
         )
     });
-    // The next version (5) is just as foreign.
+    // The next version (6) is just as foreign.
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&(SCHEMA_VERSION + 1).to_be_bytes())
@@ -1342,8 +1344,8 @@ fn newer_schema_is_refused_and_untouched() {
         matches!(
             e,
             StoreError::NewerSchema {
-                found: 5,
-                supported: 4
+                found: 6,
+                supported: 5
             }
         )
     });
@@ -2004,6 +2006,7 @@ fn recovery_intent_approval_basis_is_add_only() {
             grant: Some(GrantId::from_random_bytes([4; 16])),
             ..resolved_intent()
         }),
+        local: None,
     };
     let mut approved = waiting.clone();
     if let Some(r) = approved.resolved.as_mut() {
@@ -2048,6 +2051,7 @@ fn recovery_intent_round_trips_and_only_gains_facts() {
     let bare = RecoveryIntent {
         request: request_doc(1),
         resolved: None,
+        local: None,
     };
     let resolved = RecoveryIntent {
         resolved: Some(resolved_intent()),
@@ -2112,6 +2116,7 @@ fn recovery_intent_round_trips_and_only_gains_facts() {
     let leaky = RecoveryIntent {
         request: serde_json::json!({"k": format!("-----BEGIN OPENSSH PRIVATE KEY-----{c}")}),
         resolved: None,
+        local: None,
     };
     let (op2, idem2) = simple_op(2);
     s.transaction(|tx| tx.insert_operation(&op2, &idem2))
@@ -2137,6 +2142,7 @@ fn stage_receipts_are_append_only_and_ordered() {
             stage: "load_authority".into(),
             recorded_at: plus(t0(), 1),
             effect: EffectReceipt::NotAttempted,
+            local: None,
         },
         StageReceipt {
             stage: "prepare".into(),
@@ -2145,6 +2151,7 @@ fn stage_receipts_are_append_only_and_ordered() {
                 adapter: adapter(),
                 effect_token: "tok-1".into(),
             },
+            local: None,
         },
         // Same instant as the previous one: order still follows append order.
         StageReceipt {
@@ -2154,6 +2161,7 @@ fn stage_receipts_are_append_only_and_ordered() {
                 adapter: adapter(),
                 credential_ref: "cred-ref-1".into(),
             },
+            local: None,
         },
     ];
     s.transaction(|tx| {
@@ -2170,6 +2178,7 @@ fn stage_receipts_are_append_only_and_ordered() {
         stage: "bind".into(),
         recorded_at: plus(t0(), 3),
         effect: EffectReceipt::NotAttempted,
+        local: None,
     };
     s.transaction(|tx| tx.append_stage_receipt(&op1.id, &late))
         .unwrap();
@@ -2365,10 +2374,12 @@ fn outcome_unknown_is_unresolved_not_open_and_survives_purge() {
             adapter: adapter(),
             effect_token: "tok-2".into(),
         },
+        local: None,
     };
     let intent = RecoveryIntent {
         request: request_doc(2),
         resolved: Some(resolved_intent()),
+        local: None,
     };
     s.transaction(|tx| {
         tx.insert_operation(&queued, &qi)?;
@@ -2388,6 +2399,7 @@ fn outcome_unknown_is_unresolved_not_open_and_survives_purge() {
             &RecoveryIntent {
                 request: request_doc(3),
                 resolved: None,
+                local: None,
             },
         )?;
         tx.append_stage_receipt(&done.id, &receipt)?;
@@ -2899,6 +2911,7 @@ fn grant_approval_is_written_once_and_survives_operation_purge() {
                 grant: Some(g.id.clone()),
                 ..resolved_intent()
             }),
+            local: None,
         };
         if let Some(r) = intent.resolved.as_mut() {
             r.approval = Some(approval_basis(1));
@@ -3103,6 +3116,7 @@ fn recovery_intent_covered_basis_is_add_only() {
             grant: Some(GrantId::from_random_bytes([4; 16])),
             ..resolved_intent()
         }),
+        local: None,
     };
     let with = |g: u64| {
         let mut i = waiting.clone();
@@ -3574,6 +3588,7 @@ fn grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant() {
             adapter: Some(a),
             ..resolved_intent()
         }),
+        local: None,
     };
     let (op1, i1) = simple_op(11);
     let (op2, i2) = simple_op(12);
@@ -3589,6 +3604,7 @@ fn grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant() {
                 stage: "prepare".into(),
                 recorded_at: plus(t0(), 1),
                 effect: EffectReceipt::NotAttempted,
+                local: None,
             },
         )?;
         tx.append_stage_receipt(
@@ -3600,6 +3616,7 @@ fn grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant() {
                     adapter: adapter(),
                     credential_ref: "cred-ref-1".into(),
                 },
+                local: None,
             },
         )?;
         tx.set_recovery_intent(&op2.id, &pinned(&g, adapter(), 12))?;
@@ -3612,6 +3629,7 @@ fn grant_adapters_come_from_the_intents_and_receipts_that_pin_the_grant() {
                     adapter: second.clone(),
                     effect_token: "tok-2".into(),
                 },
+                local: None,
             },
         )?;
         tx.set_recovery_intent(&op3.id, &pinned(&other_grant, foreign.clone(), 13))?;
@@ -3672,6 +3690,7 @@ fn grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it(
                         adapter: Some(adapter()),
                         ..resolved_intent()
                     }),
+                    local: None,
                 },
             )?;
             if let Some(effect) = effect {
@@ -3681,6 +3700,7 @@ fn grant_has_effect_receipt_reads_only_the_effects_of_the_operations_pinning_it(
                         stage: "reconcile".into(),
                         recorded_at: plus(t0(), 1),
                         effect: effect.clone(),
+                        local: None,
                     },
                 )?;
             }
@@ -3772,4 +3792,1472 @@ fn r1319_cleanup_intents_are_kept_per_grant_and_operation_with_increasing_versio
         .transaction(|tx| tx.record_cleanup_intent(&intent(&g1, false)))
         .unwrap();
     assert!(d.version > c.version, "a version is never reused");
+}
+
+// --- ⟨M02⟩ existing access: migration 0005, read-only open, catalog, declarations,
+// --- projection records and atomic setup admission (m02-plan U0 Tests, §5 items
+// --- 17a and 18; U0b rows 16, 20 and 23) ----------------------------------------------
+
+mod m02 {
+    use super::*;
+    use heimdall_contract::catalog::DeclaredInteraction;
+    use heimdall_contract::ids::IdentityId;
+    use heimdall_contract::provider::{
+        EndpointKind, EndpointRef, IdentitiesOnly, IdentitySelection, IdentitySelectionReport,
+    };
+    use heimdall_contract::setup::{
+        ConflictKind, PlanDigest, PreviewIntent, ProjectionItem, RepairResolution,
+    };
+    use heimdall_domain::catalog::{
+        CatalogAction, CatalogIntent, DeclarationEndReason, DeclarationState,
+        DestinationDefinition, DestinationRecord, IdentityRecord, IdentitySource,
+        InteractionDeclaration, InteractionProfile, PreparedFacts, PreparedPair,
+    };
+    use heimdall_domain::holder::ProcessHolder;
+    use heimdall_domain::operation::{
+        FilePhase, HoldReason, ItemPhase, LocalIntent, LocalReceipt, STAGE_SETUP_FILE,
+        STAGE_SETUP_ITEM,
+    };
+    use heimdall_domain::projection::{
+        Base, BehaviorState, ConsentRecord, ConsentedStates, FileIdentity, FileRole, FileStep,
+        ItemCommit, ItemId, ItemRecord, ProjectionApproval, ProjectionLocator, ProjectionRecord,
+        Rendered, SetupIntent, Sha256Hex, Target, projection_resource_id,
+    };
+    use heimdall_domain::revocation::{CleanupIntent, PendingRemoteRevocation, RemoteObligation};
+    use heimdall_store::{EndOutcome, RawDocuments, SetupAdmitted};
+    use std::sync::Barrier;
+
+    const P: &[u8] = b"Host work\n  HostName example.invalid\n  IdentitiesOnly yes\n";
+
+    fn setup_intent(generation: u64, intent: PreviewIntent) -> SetupIntent {
+        SetupIntent {
+            plan_digest: PlanDigest::from_sha256([u8::try_from(generation % 251).unwrap(); 32]),
+            intent,
+            generation,
+            approval: None,
+            consent: ConsentRecord::default(),
+            files: vec![FileStep {
+                role: FileRole::ManagedSsh,
+                path: "/scratch/ssh/heimdall.conf".into(),
+                base: Base::Absent,
+                target: Target::Present {
+                    sha256: Sha256Hex::of(P),
+                },
+                content: Rendered::from_renderer(P.to_vec()).into_whole(),
+                commit: true,
+                staged_name: Some(
+                    ".heimdall.conf.hm-stage-00112233445566778899aabbccddeeff".into(),
+                ),
+                displaced_name: None,
+            }],
+        }
+    }
+
+    fn apply() -> PreviewIntent {
+        PreviewIntent::Apply { include_git: false }
+    }
+
+    /// A setup operation (queued), its idempotency record and its intent.
+    fn setup_op(
+        n: u64,
+        env: &EnvironmentId,
+        kind: OperationKind,
+        intent: PreviewIntent,
+    ) -> (OperationRecord, IdempotencyRecord, RecoveryIntent) {
+        let key = IdempotencyKey {
+            caller: caller(501),
+            kind,
+            request_id: RequestId::parse(&format!("setup-{n}")).unwrap(),
+        };
+        let mut hash = [0u8; 32];
+        hash[..8].copy_from_slice(&n.to_be_bytes());
+        let op = OperationRecord {
+            id: op_id(n),
+            kind,
+            environment: env.clone(),
+            key: key.clone(),
+            request_hash: RequestHash(hash),
+            effect_class: EffectClass::LocalResources,
+            state: OperationState::Queued,
+            code: None,
+            effect_status: EffectStatus::None,
+            result: None,
+            created_at: plus(t0(), i64::try_from(n % 100_000).unwrap()),
+            updated_at: plus(t0(), i64::try_from(n % 100_000).unwrap()),
+            cancellation: None,
+            recovery: RecoveryMetadata::default(),
+        };
+        let idem = IdempotencyRecord {
+            key,
+            request_hash: op.request_hash,
+            operation_id: op.id.clone(),
+            created_at: op.created_at,
+            expires_at: None,
+        };
+        let rec = RecoveryIntent {
+            request: serde_json::json!({"action": kind.as_str(), "request_id": format!("setup-{n}")}),
+            resolved: None,
+            local: Some(LocalIntent::Setup(setup_intent(n.max(1), intent))),
+        };
+        (op, idem, rec)
+    }
+
+    fn admit(
+        s: &Store,
+        (op, idem, intent): &(OperationRecord, IdempotencyRecord, RecoveryIntent),
+        target: Option<&OperationId>,
+    ) -> SetupAdmitted {
+        s.transaction(|tx| tx.insert_setup_operation(op, idem, intent, target))
+            .unwrap()
+    }
+
+    fn set_state(s: &Store, id: &OperationId, state: OperationState) {
+        s.transaction(|tx| {
+            let mut op = tx.operation(id)?.unwrap();
+            op.state = state;
+            op.updated_at = plus(op.updated_at, 1);
+            tx.update_operation(&op)
+        })
+        .unwrap();
+    }
+
+    /// What one operation left behind: (operation, idempotency record, intent).
+    fn rows_of(s: &Store, op: &OperationRecord) -> (bool, bool, bool) {
+        s.transaction(|tx| {
+            Ok((
+                tx.operation(&op.id)?.is_some(),
+                tx.idempotency_record(&op.key)?.is_some(),
+                tx.recovery_intent(&op.id)?.is_some(),
+            ))
+        })
+        .unwrap()
+    }
+
+    fn held_receipt() -> StageReceipt {
+        StageReceipt {
+            stage: STAGE_SETUP_FILE.into(),
+            recorded_at: plus(t0(), 50),
+            effect: EffectReceipt::Attempted {
+                adapter: AdapterIdentity {
+                    mechanism: "config_projection".into(),
+                    instance: env_id(40).to_string(),
+                },
+                effect_token: "eff_setup".into(),
+            },
+            local: Some(LocalReceipt::File {
+                step: 0,
+                phase: FilePhase::Held {
+                    reason: HoldReason::ActiveEntryModified,
+                    observed: Vec::new(),
+                },
+            }),
+        }
+    }
+
+    fn held_repair(
+        n: u64,
+        env: &EnvironmentId,
+        target: &OperationId,
+    ) -> (OperationRecord, IdempotencyRecord, RecoveryIntent) {
+        setup_op(
+            n,
+            env,
+            OperationKind::SetupRepair,
+            PreviewIntent::Repair {
+                conflict: ConflictKind::ProjectionHeld,
+                resolution: RepairResolution::RetryHeld,
+                operation: Some(target.clone()),
+            },
+        )
+    }
+
+    // --- migration 0004 → 0005 on a populated database ---------------------------------
+
+    /// m02-plan U0: migration 0004→0005 on a populated database. M01 stage receipts
+    /// and recovery intents, pending remote revocation records (current form with
+    /// `claim_seq` and `effect_seq`; legacy form with `effect_round` and no
+    /// `claim_seq`), the store-wide claim counter, and cleanup intents (one in
+    /// flight) with their version counter all decode unchanged and re-encode
+    /// byte-identically after the migration; the legacy record still migrates
+    /// through `migrate_claim_seq`; the counters keep increasing; `cleared_by_claim`
+    /// answers as before.
+    #[test]
+    fn migration_0004_to_0005_keeps_m01_records_counters_and_receipts() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = file_db(dir.path());
+        let (r1, r2) = (
+            GrantId::from_random_bytes([91; 16]),
+            GrantId::from_random_bytes([92; 16]),
+        );
+        let legacy_obligation = RemoteObligation {
+            grant: r2.clone(),
+            adapter: adapter(),
+            reason: None,
+            attempts: None,
+            stopped: false,
+            effect_round: Some(2),
+            effect_seq: None,
+        };
+        let (claim_counter, version_counter) = {
+            let s4 = Store::open_at_schema_version(&db, Arc::new(NoFaults), 4).unwrap();
+            assert_eq!(s4.schema_version().unwrap(), 4);
+            s4.transaction(|tx| {
+                tx.insert_tombstone(&tombstone(91))?;
+                tx.insert_tombstone(&tombstone(92))?;
+                let first = tx.next_remote_claim_seq(0)?;
+                let second = tx.next_remote_claim_seq(first)?;
+                tx.set_remote_revocation(&PendingRemoteRevocation {
+                    root: r1.clone(),
+                    grants: vec![r1.clone()],
+                    attempts: 2,
+                    last_attempt_at: plus(t0(), 2),
+                    stopped: false,
+                    obligations: vec![RemoteObligation {
+                        grant: r1.clone(),
+                        adapter: adapter(),
+                        reason: None,
+                        attempts: Some(2),
+                        stopped: false,
+                        effect_round: None,
+                        effect_seq: Some(first),
+                    }],
+                    claimed_at: Some(plus(t0(), 2)),
+                    rearmed_effects: Vec::new(),
+                    cap: Some(8),
+                    claim_seq: Some(second),
+                })?;
+                tx.set_remote_revocation(&PendingRemoteRevocation {
+                    root: r2.clone(),
+                    grants: vec![r2.clone()],
+                    attempts: 3,
+                    last_attempt_at: plus(t0(), 3),
+                    stopped: false,
+                    obligations: vec![legacy_obligation.clone()],
+                    claimed_at: None,
+                    rearmed_effects: Vec::new(),
+                    cap: None,
+                    claim_seq: None,
+                })?;
+                let intent = |g: &GrantId, n: u64, in_flight: bool| CleanupIntent {
+                    grant: g.clone(),
+                    operation: op_id(n),
+                    adapter: Some(adapter()),
+                    effect_token: format!("eff_{n}"),
+                    confirmed: !in_flight,
+                    in_flight,
+                    version: 0,
+                    recorded_at: plus(t0(), 4),
+                };
+                tx.record_cleanup_intent(&intent(&r1, 81, true))?;
+                let last = tx.record_cleanup_intent(&intent(&r2, 82, false))?;
+                for n in 1..=2u64 {
+                    let (op, idem) = simple_op(n);
+                    tx.insert_operation(&op, &idem)?;
+                    tx.set_recovery_intent(
+                        &op.id,
+                        &RecoveryIntent {
+                            request: request_doc(n),
+                            resolved: (n == 2).then(resolved_intent),
+                            local: None,
+                        },
+                    )?;
+                    for (i, effect) in [
+                        EffectReceipt::NotAttempted,
+                        EffectReceipt::Attempted {
+                            adapter: adapter(),
+                            effect_token: format!("eff_{n}"),
+                        },
+                        EffectReceipt::Confirmed {
+                            adapter: adapter(),
+                            credential_ref: format!("cred_{n}"),
+                        },
+                        EffectReceipt::Uncertain {
+                            adapter: adapter(),
+                            effect_token: format!("eff_{n}"),
+                        },
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        tx.append_stage_receipt(
+                            &op.id,
+                            &StageReceipt {
+                                stage: format!("stage{i}"),
+                                recorded_at: plus(t0(), i64::try_from(i).unwrap()),
+                                effect,
+                                local: None,
+                            },
+                        )?;
+                    }
+                }
+                Ok((second, last.version))
+            })
+            .unwrap()
+        };
+        let snapshot = |s: &Store| {
+            s.transaction(|tx| {
+                Ok((
+                    tx.raw_documents(RawDocuments::StageReceipts)?,
+                    tx.raw_documents(RawDocuments::RecoveryIntents)?,
+                    tx.raw_documents(RawDocuments::Meta)?,
+                    tx.remote_revocations()?,
+                    tx.cleanup_intents()?,
+                ))
+            })
+            .unwrap()
+        };
+        let before = snapshot(&Store::open_at_schema_version(&db, Arc::new(NoFaults), 4).unwrap());
+        assert_eq!(before.0.len(), 8);
+        assert_eq!(before.1.len(), 2);
+        assert_eq!(before.4.len(), 2);
+        let probes = [None, Some(0), Some(1), Some(2), Some(3), Some(4), Some(9)];
+        let cleared = |records: &[PendingRemoteRevocation]| -> Vec<bool> {
+            records
+                .iter()
+                .flat_map(|r| r.obligations.iter())
+                .flat_map(|o| probes.iter().map(|p| o.cleared_by_claim(*p)))
+                .collect()
+        };
+        let cleared_before = cleared(&before.3);
+
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(SCHEMA_VERSION, 5);
+        let mut backup = db.as_os_str().to_owned();
+        backup.push(".v4.backup");
+        assert!(PathBuf::from(backup).exists(), "v4 file backed up first");
+        let after = snapshot(&s);
+        assert_eq!(after.0, before.0, "stage receipts byte-identical");
+        assert_eq!(after.1, before.1, "recovery intents byte-identical");
+        assert_eq!(
+            after.2, before.2,
+            "meta records (counters, revocations, intents) byte-identical"
+        );
+        assert_eq!(after.3, before.3, "pending remote records decode unchanged");
+        assert_eq!(after.4, before.4, "cleanup intents decode unchanged");
+        assert!(after.4.iter().any(|i| i.in_flight));
+        // Each M01 document decodes with `local: None` and re-encodes byte-identically.
+        for (_, raw) in &after.0 {
+            let r: StageReceipt = serde_json::from_str(raw).unwrap();
+            assert_eq!(r.local, None);
+            assert_eq!(&serde_json::to_string(&r).unwrap(), raw);
+        }
+        for (_, raw) in &after.1 {
+            let i: RecoveryIntent = serde_json::from_str(raw).unwrap();
+            assert_eq!(i.local, None);
+            assert_eq!(&serde_json::to_string(&i).unwrap(), raw);
+        }
+        for (key, raw) in &after.2 {
+            if key.starts_with("remote_revocation:") {
+                let r: PendingRemoteRevocation = serde_json::from_str(raw).unwrap();
+                assert_eq!(&serde_json::to_string(&r).unwrap(), raw, "{key}");
+            } else if key.starts_with("cleanup_intent:") {
+                let i: CleanupIntent = serde_json::from_str(raw).unwrap();
+                assert_eq!(&serde_json::to_string(&i).unwrap(), raw, "{key}");
+            }
+        }
+        assert!(after.2.iter().any(|(k, v)| k == "remote_revocation_claim_seq" && *v == claim_counter.to_string()));
+        assert!(
+            after
+                .2
+                .iter()
+                .any(|(k, v)| k == "cleanup_intent_version" && *v == version_counter.to_string())
+        );
+        // The legacy record is still in its legacy form and migrates when loaded.
+        let mut legacy = after.3.iter().find(|r| r.root == r2).unwrap().clone();
+        assert_eq!(legacy.claim_seq, None);
+        assert_eq!(legacy.obligations, vec![legacy_obligation]);
+        legacy.migrate_claim_seq();
+        assert_eq!(legacy.claim_seq, Some(3));
+        assert_eq!(legacy.obligations[0].effect_seq, Some(3));
+        assert_eq!(legacy.obligations[0].effect_round, None);
+        // cleared_by_claim gives the same answers, and the counters keep increasing.
+        assert_eq!(cleared(&after.3), cleared_before);
+        let (next_seq, next_version) = s
+            .transaction(|tx| {
+                let seq = tx.next_remote_claim_seq(0)?;
+                let v = tx.record_cleanup_intent(&before.4[0])?;
+                Ok((seq, v.version))
+            })
+            .unwrap();
+        assert!(next_seq > claim_counter, "{next_seq} > {claim_counter}");
+        assert!(
+            next_version > version_counter,
+            "{next_version} > {version_counter}"
+        );
+        // The new tables start empty.
+        s.transaction(|tx| {
+            assert!(tx.destinations()?.is_empty());
+            assert!(tx.identities()?.is_empty());
+            assert!(tx.binding_holders()?.is_empty());
+            assert!(tx.projection_resources(&env_id(7))?.is_empty());
+            assert_eq!(tx.projection_record(&env_id(7))?, None);
+            assert!(tx.open_setup_operations(&env_id(7))?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+        drop(s);
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
+        let mut second = db.as_os_str().to_owned();
+        second.push(".v4.backup.1");
+        assert!(!PathBuf::from(second).exists(), "no second migration");
+    }
+
+    // --- read-only open --------------------------------------------------------------
+
+    /// m02-plan §5 item 18, U0b row 20: `open_read_only` never creates, migrates or
+    /// writes; it refuses a newer schema and reports an older one.
+    #[test]
+    fn open_read_only_refuses_newer_reports_older_and_never_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.sqlite3");
+        assert!(Store::open_read_only(&missing, Arc::new(NoFaults)).is_err());
+        assert!(!missing.exists(), "a read-only open never creates");
+
+        let old = dir.path().join("v4.sqlite3");
+        drop(Store::open_at_schema_version(&old, Arc::new(NoFaults), 4).unwrap());
+        let bytes = std::fs::read(&old).unwrap();
+        let e = Store::open_read_only(&old, Arc::new(NoFaults)).unwrap_err();
+        assert!(
+            matches!(
+                e,
+                StoreError::OlderSchema {
+                    found: 4,
+                    supported: 5
+                }
+            ),
+            "{e}"
+        );
+        no_canary(&e);
+        assert_eq!(std::fs::read(&old).unwrap(), bytes, "never upgraded");
+
+        let current = file_db(dir.path());
+        fixture_file(&current);
+        let s = Store::open_read_only(&current, Arc::new(NoFaults)).unwrap();
+        assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(
+            s.transaction(|tx| tx.self_environment()).unwrap(),
+            Some(env_id(1))
+        );
+        assert!(s.transaction(|tx| tx.destinations()).unwrap().is_empty());
+        let write = s.transaction(|tx| {
+            tx.init_self_environment(&env_id(1))
+                .and_then(|()| tx.upsert_destination(&destination(1, "work", 1)))
+        });
+        assert!(write.is_err(), "a read-only store refuses writes");
+        drop(s);
+        let s = Store::open(&current, Arc::new(NoFaults)).unwrap();
+        assert!(s.transaction(|tx| tx.destinations()).unwrap().is_empty());
+        drop(s);
+
+        // A newer user_version is refused by both opens, and the file is untouched.
+        let newer = corrupt_copy(dir.path(), |b| {
+            b[60..64].copy_from_slice(&(SCHEMA_VERSION + 1).to_be_bytes())
+        });
+        let bytes = std::fs::read(&newer).unwrap();
+        assert!(matches!(
+            Store::open_read_only(&newer, Arc::new(NoFaults)),
+            Err(StoreError::NewerSchema {
+                found: 6,
+                supported: 5
+            })
+        ));
+        assert_refused_and_untouched(&newer, |e| {
+            matches!(
+                e,
+                StoreError::NewerSchema {
+                    found: 6,
+                    supported: 5
+                }
+            )
+        });
+        assert_eq!(std::fs::read(&newer).unwrap(), bytes);
+    }
+
+    // --- catalog ------------------------------------------------------------------------
+
+    fn endpoint(locator: &str) -> EndpointRef {
+        EndpointRef {
+            kind: EndpointKind::UnixSocket,
+            locator: locator.into(),
+        }
+    }
+
+    fn destination(n: u8, alias: &str, revision: u64) -> DestinationRecord {
+        DestinationRecord {
+            id: DestinationId::parse(&format!("dest{n}")).unwrap(),
+            alias: alias.into(),
+            revision,
+            definition: DestinationDefinition::Managed {
+                hostname: "example.invalid".into(),
+                port: None,
+                account: AccountName::parse("git").unwrap(),
+                identity: IdentityId::from_random_bytes([n; 16]),
+            },
+            label: None,
+            updated_at: t0(),
+        }
+    }
+
+    fn identity(n: u8, revision: u64) -> IdentityRecord {
+        let source = IdentitySource::NativeAgent {
+            endpoint: endpoint("/scratch/agent.sock"),
+        };
+        let public_key = format!("ssh-ed25519 AAAAfixture{n} fixture");
+        IdentityRecord {
+            id: IdentityId::from_random_bytes([n; 16]),
+            revision,
+            interaction: InteractionProfile::default_for(&source, &public_key),
+            source,
+            public_key,
+            fingerprint: format!("SHA256:fixture{n}"),
+            label: None,
+            adopted_at: t0(),
+            updated_at: t0(),
+        }
+    }
+
+    #[test]
+    fn catalog_destinations_and_identities_are_unique_and_revisioned() {
+        let s = mem();
+        s.transaction(|tx| {
+            tx.upsert_destination(&destination(1, "work", 1))?;
+            tx.upsert_destination(&destination(2, "home", 1))?;
+            // The alias is unique; a collision changes nothing.
+            assert!(matches!(
+                tx.upsert_destination(&destination(3, "work", 1)),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            // A rename keeps the destination ID; a stale revision never wins.
+            tx.upsert_destination(&destination(1, "office", 2))?;
+            assert!(matches!(
+                tx.upsert_destination(&destination(1, "work", 1)),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            assert!(matches!(
+                tx.upsert_destination(&destination(1, "elsewhere", 2)),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            tx.upsert_destination(&destination(1, "office", 2))?;
+            assert_eq!(tx.destination_by_alias("work")?, None);
+            assert_eq!(
+                tx.destination_by_alias("office")?.map(|d| d.id),
+                Some(DestinationId::parse("dest1").unwrap())
+            );
+            let aliases: Vec<String> = tx.destinations()?.into_iter().map(|d| d.alias).collect();
+            assert_eq!(aliases, ["home", "office"]);
+            assert!(tx.remove_destination(&DestinationId::parse("dest2").unwrap())?);
+            assert!(!tx.remove_destination(&DestinationId::parse("dest2").unwrap())?);
+
+            tx.upsert_identity(&identity(1, 1))?;
+            let mut dup = identity(2, 1);
+            dup.fingerprint = identity(1, 1).fingerprint;
+            assert!(matches!(
+                tx.upsert_identity(&dup),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            assert_eq!(
+                tx.identity_by_fingerprint("SHA256:fixture1")?,
+                Some(identity(1, 1))
+            );
+            let mut armored = identity(3, 1);
+            armored.label = Some("-----BEGIN OPENSSH PRIVATE KEY-----".into());
+            assert!(
+                tx.upsert_identity(&armored).is_err(),
+                "key armor is refused"
+            );
+            assert_eq!(tx.identities()?.len(), 1);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    fn declaration(revision: u64, at: &str) -> InteractionDeclaration {
+        InteractionDeclaration {
+            revision,
+            state: DeclarationState::Live,
+            interaction: DeclaredInteraction::None,
+            fingerprint: "SHA256:fixture1".into(),
+            endpoint: endpoint(at),
+            declared_at: t0(),
+            expires_at: plus(t0(), 30 * 86_400),
+            decision: DecisionId::from_random_bytes([5; 16]),
+            ended_at: None,
+            end_reason: None,
+        }
+    }
+
+    /// U0b row 20: the declaration revision CAS and `end_interaction_declaration`.
+    #[test]
+    fn declaration_revision_cas_and_end() {
+        let s = mem();
+        let idn = IdentityId::from_random_bytes([1; 16]);
+        s.transaction(|tx| {
+            assert_eq!(
+                tx.end_interaction_declaration(
+                    &idn,
+                    None,
+                    DeclarationEndReason::OwnerWithdrawn,
+                    t0()
+                )?,
+                EndOutcome {
+                    ended: false,
+                    revision: 0
+                }
+            );
+            tx.put_interaction_declaration(&idn, 0, &declaration(1, "/scratch/a.sock"))?;
+            for (expected, revision) in [(0, 1), (1, 3), (2, 3)] {
+                assert!(matches!(
+                    tx.put_interaction_declaration(
+                        &idn,
+                        expected,
+                        &declaration(revision, "/scratch/a.sock")
+                    ),
+                    Err(StoreError::GenerationConflict(_))
+                ));
+            }
+            let mut ended = declaration(2, "/scratch/a.sock");
+            ended.state = DeclarationState::Withdrawn;
+            assert!(
+                tx.put_interaction_declaration(&idn, 1, &ended).is_err(),
+                "written live only"
+            );
+            // A re-declaration is the next revision.
+            tx.put_interaction_declaration(&idn, 1, &declaration(2, "/scratch/b.sock"))?;
+            assert_eq!(
+                tx.interaction_declaration(&idn)?.map(|d| d.revision),
+                Some(2)
+            );
+            // A withdrawal naming the older revision leaves the newer one live.
+            assert_eq!(
+                tx.end_interaction_declaration(
+                    &idn,
+                    Some(1),
+                    DeclarationEndReason::ListingMissing,
+                    plus(t0(), 5)
+                )?,
+                EndOutcome {
+                    ended: false,
+                    revision: 2
+                }
+            );
+            assert_eq!(
+                tx.interaction_declaration(&idn)?.unwrap().state,
+                DeclarationState::Live
+            );
+            assert_eq!(
+                tx.end_interaction_declaration(
+                    &idn,
+                    Some(2),
+                    DeclarationEndReason::ListingMissing,
+                    plus(t0(), 6)
+                )?,
+                EndOutcome {
+                    ended: true,
+                    revision: 3
+                }
+            );
+            let row = tx.interaction_declaration(&idn)?.unwrap();
+            assert_eq!(
+                (row.state, row.ended_at, row.end_reason),
+                (
+                    DeclarationState::Lapsed,
+                    Some(plus(t0(), 6)),
+                    Some(DeclarationEndReason::ListingMissing)
+                )
+            );
+            // Not live any more: nothing to end.
+            assert_eq!(
+                tx.end_interaction_declaration(
+                    &idn,
+                    None,
+                    DeclarationEndReason::OwnerWithdrawn,
+                    plus(t0(), 7)
+                )?,
+                EndOutcome {
+                    ended: false,
+                    revision: 3
+                }
+            );
+            tx.put_interaction_declaration(&idn, 3, &declaration(4, "/scratch/b.sock"))?;
+            assert_eq!(
+                tx.end_interaction_declaration(
+                    &idn,
+                    None,
+                    DeclarationEndReason::OwnerWithdrawn,
+                    plus(t0(), 8)
+                )?,
+                EndOutcome {
+                    ended: true,
+                    revision: 5
+                }
+            );
+            assert_eq!(
+                tx.interaction_declaration(&idn)?.unwrap().state,
+                DeclarationState::Withdrawn
+            );
+            // Removing the identity keeps the row, so revisions are never reused.
+            tx.upsert_identity(&identity(1, 1))?;
+            assert!(tx.remove_identity(&idn)?);
+            assert_eq!(
+                tx.interaction_declaration(&idn)?.map(|d| d.revision),
+                Some(5)
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // --- prepared facts, holders -----------------------------------------------------
+
+    #[test]
+    fn prepared_facts_and_binding_holders_round_trip() {
+        let s = mem();
+        let g = grant(70, None, plus(t0(), 7200), GrantState::Active);
+        let b = binding(71, &g.id, caller(501), "work-1");
+        let facts = |n: u64| PreparedFacts {
+            provider: None,
+            executables: Vec::new(),
+            overrides: Vec::new(),
+            environment: vec![("SSH_AUTH_SOCK".into(), "/scratch/agent.sock".into())],
+            pairs: vec![PreparedPair {
+                destination: DestinationId::parse("dest1").unwrap(),
+                account: AccountName::parse("git").unwrap(),
+                identity: IdentityId::from_random_bytes([1; 16]),
+                mechanism: "native_agent".into(),
+                endpoint: Some(endpoint("/scratch/agent.sock")),
+                alias: Some("work".into()),
+                identity_selection: IdentitySelectionReport {
+                    selection: IdentitySelection::Exclusive,
+                    entries: Vec::new(),
+                    identities_only: IdentitiesOnly::DeterminedYes,
+                },
+                selection_observed_at: plus(t0(), i64::try_from(n).unwrap()),
+            }],
+            recorded_at: plus(t0(), i64::try_from(n).unwrap()),
+        };
+        s.transaction(|tx| {
+            assert!(
+                tx.set_grant_prepared_facts(&g.id, &facts(1)).is_err(),
+                "the grant must exist"
+            );
+            tx.insert_grant(&g)?;
+            assert_eq!(tx.grant_prepared_facts(&g.id)?, None);
+            tx.set_grant_prepared_facts(&g.id, &facts(1))?;
+            tx.set_grant_prepared_facts(&g.id, &facts(2))?;
+            assert_eq!(tx.grant_prepared_facts(&g.id)?, Some(facts(2)));
+
+            let holder = ProcessHolder {
+                pid: 4242,
+                started_at: "1730419200.5".into(),
+            };
+            assert!(
+                tx.set_binding_holder(&b.id, &holder).is_err(),
+                "the binding must exist"
+            );
+            tx.insert_binding(&b)?;
+            tx.set_binding_holder(&b.id, &holder)?;
+            assert!(
+                tx.set_binding_holder(
+                    &b.id,
+                    &ProcessHolder {
+                        pid: 0,
+                        started_at: "x".into()
+                    }
+                )
+                .is_err()
+            );
+            let replaced = ProcessHolder {
+                pid: 4243,
+                started_at: "1730419201.5".into(),
+            };
+            tx.set_binding_holder(&b.id, &replaced)?;
+            assert_eq!(tx.binding_holder(&b.id)?, Some(replaced.clone()));
+            assert_eq!(tx.binding_holders()?, vec![(b.id.clone(), replaced)]);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // --- projection resources, records, consent: one atomic commit ----------------------
+
+    fn locator(role: FileRole, path: &str, ino: u64, birth: Option<i128>) -> ProjectionLocator {
+        ProjectionLocator {
+            role,
+            path: path.into(),
+            identity: FileIdentity::Unix { dev: 1, ino, birth },
+            sha256: Sha256Hex::of(path.as_bytes()),
+        }
+    }
+
+    fn item_commit(
+        env: &EnvironmentId,
+        op: &OperationId,
+        generation: u64,
+    ) -> (ItemCommit, StageReceipt) {
+        let resources = vec![
+            locator(
+                FileRole::ManagedSsh,
+                "/scratch/ssh/heimdall.conf",
+                10 + generation,
+                Some(7),
+            ),
+            locator(
+                FileRole::Key,
+                "/scratch/ssh/heimdall/k1.pub",
+                20 + generation,
+                None,
+            ),
+        ];
+        let mut consent = ConsentRecord::default();
+        let state = BehaviorState {
+            digest: Sha256Hex::of(b"managed"),
+            determined: true,
+        };
+        consent.items.insert(
+            ItemId::alias("work"),
+            ConsentedStates {
+                managed: state.clone(),
+                restore: state,
+                decision: DecisionId::from_random_bytes([6; 16]),
+            },
+        );
+        let record = ProjectionRecord {
+            environment: env.clone(),
+            items: [(
+                ProjectionItem::Ssh,
+                ItemRecord {
+                    generation,
+                    files: resources.clone(),
+                    aliases: vec!["work".into()],
+                    operation: op.clone(),
+                    committed_at: plus(t0(), 60),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let receipt = StageReceipt {
+            stage: STAGE_SETUP_ITEM.into(),
+            recorded_at: plus(t0(), 60),
+            effect: EffectReceipt::Confirmed {
+                adapter: AdapterIdentity {
+                    mechanism: "config_projection".into(),
+                    instance: env.to_string(),
+                },
+                credential_ref: format!("projection/ssh/{generation}"),
+            },
+            local: Some(LocalReceipt::Item {
+                item: ProjectionItem::Ssh,
+                phase: ItemPhase::Committed { generation },
+            }),
+        };
+        (
+            ItemCommit {
+                item: ProjectionItem::Ssh,
+                generation,
+                resources,
+                record,
+                consent,
+            },
+            receipt,
+        )
+    }
+
+    /// U0b row 20: `commit_projection_item` writes the receipt, the resources, the
+    /// record and the consent atomically, and nothing when the store is injected to
+    /// fail or a check refuses.
+    #[test]
+    fn commit_projection_item_is_one_transaction() {
+        let env = env_id(40);
+        let faults = ScriptedFaults::new([
+            (FaultPoint::BeforeCommit, FaultAction::Continue),
+            (FaultPoint::BeforeCommit, FaultAction::Fail),
+        ]);
+        let s = Store::open_in_memory(faults).unwrap();
+        let setup = setup_op(1, &env, OperationKind::SetupApply, apply());
+        assert_eq!(admit(&s, &setup, None), SetupAdmitted::Inserted);
+        let op = setup.0.id.clone();
+        let (commit, receipt) = item_commit(&env, &op, 1);
+        let e = s
+            .transaction(|tx| tx.commit_projection_item(&op, &commit, &receipt))
+            .unwrap_err();
+        assert!(matches!(
+            e,
+            StoreError::InjectedFault(FaultPoint::BeforeCommit)
+        ));
+        let nothing = |s: &Store| {
+            s.transaction(|tx| {
+                Ok((
+                    tx.projection_resources(&env)?.is_empty(),
+                    tx.projection_record(&env)?.is_none(),
+                    tx.get_projection_consent(&env)?.items.is_empty(),
+                    tx.stage_receipts(&op)?.is_empty(),
+                ))
+            })
+            .unwrap()
+        };
+        assert_eq!(
+            nothing(&s),
+            (true, true, true, true),
+            "a failed commit leaves nothing"
+        );
+
+        s.transaction(|tx| tx.commit_projection_item(&op, &commit, &receipt))
+            .unwrap();
+        s.transaction(|tx| {
+            let resources = tx.projection_resources(&env)?;
+            assert_eq!(resources.len(), 2);
+            for r in &resources {
+                assert_eq!(r.generation, ResourceGeneration(1));
+                assert_eq!(
+                    r.owner,
+                    OwnerRef::Projection {
+                        environment: env.clone()
+                    }
+                );
+                assert_eq!(r.kind, ResourceKind::ConfigProjection);
+                let l: ProjectionLocator = serde_json::from_str(&r.locator).unwrap();
+                assert_eq!(r.id, projection_resource_id(&env, l.role, &l.path));
+                assert_eq!(r.locator, l.canonical().unwrap());
+            }
+            assert_eq!(tx.projection_record(&env)?, Some(commit.record.clone()));
+            assert_eq!(tx.get_projection_consent(&env)?, commit.consent);
+            assert_eq!(tx.stage_receipts(&op)?, vec![receipt.clone()]);
+            Ok(())
+        })
+        .unwrap();
+
+        // Refusals write nothing: a stale generation, a receipt for another item or
+        // generation, an operation of another environment, a non-setup operation.
+        let refusals: Vec<(&str, ItemCommit, StageReceipt, OperationId)> = {
+            let (c1, r1) = item_commit(&env, &op, 1);
+            let (c2, mut r2) = item_commit(&env, &op, 2);
+            r2.local = Some(LocalReceipt::Item {
+                item: ProjectionItem::Ssh,
+                phase: ItemPhase::Committed { generation: 3 },
+            });
+            let (mut c3, r3) = item_commit(&env, &op, 2);
+            c3.record.environment = env_id(41);
+            let (c4, mut r4) = item_commit(&env, &op, 2);
+            r4.effect = EffectReceipt::NotAttempted;
+            let (mut c5, r5) = item_commit(&env, &op, 2);
+            c5.resources.push(locator(
+                FileRole::GitManaged,
+                "/scratch/heimdall.gitconfig",
+                9,
+                None,
+            ));
+            vec![
+                ("stale generation", c1, r1, op.clone()),
+                ("receipt generation", c2, r2, op.clone()),
+                ("other environment", c3, r3, op.clone()),
+                ("not confirmed", c4, r4, op.clone()),
+                ("resource of another item", c5, r5, op.clone()),
+            ]
+        };
+        for (name, c, r, o) in refusals {
+            assert!(
+                s.transaction(|tx| tx.commit_projection_item(&o, &c, &r))
+                    .is_err(),
+                "{name}"
+            );
+        }
+        let (ensure, idem) = simple_op(2);
+        s.transaction(|tx| tx.insert_operation(&ensure, &idem))
+            .unwrap();
+        let (c, r) = item_commit(&env_id(7), &ensure.id, 2);
+        assert!(
+            s.transaction(|tx| tx.commit_projection_item(&ensure.id, &c, &r))
+                .is_err()
+        );
+        s.transaction(|tx| {
+            assert_eq!(
+                tx.stage_receipts(&op)?.len(),
+                1,
+                "no refused receipt was written"
+            );
+            assert!(
+                tx.projection_resources(&env)?
+                    .iter()
+                    .all(|r| r.generation == ResourceGeneration(1))
+            );
+            Ok(())
+        })
+        .unwrap();
+
+        // The next generation replaces each resource by generation CAS.
+        let (c2, r2) = item_commit(&env, &op, 2);
+        s.transaction(|tx| tx.commit_projection_item(&op, &c2, &r2))
+            .unwrap();
+        s.transaction(|tx| {
+            assert!(
+                tx.projection_resources(&env)?
+                    .iter()
+                    .all(|r| r.generation == ResourceGeneration(2))
+            );
+            assert_eq!(tx.stage_receipts(&op)?.len(), 2);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// U0b row 20: projection resources by generation and identity CAS; birth is
+    /// never a wildcard.
+    #[test]
+    fn projection_resource_generation_and_identity_cas() {
+        let s = mem();
+        let env = env_id(42);
+        let l = locator(
+            FileRole::ManagedSsh,
+            "/scratch/ssh/heimdall.conf",
+            10,
+            Some(5),
+        );
+        let res = |generation: u64, l: &ProjectionLocator| ManagedResource {
+            id: projection_resource_id(&env, l.role, &l.path),
+            kind: ResourceKind::ConfigProjection,
+            owner: OwnerRef::Projection {
+                environment: env.clone(),
+            },
+            generation: ResourceGeneration(generation),
+            desired: ResourceState::Present,
+            observed: ResourceState::Present,
+            last_operation: None,
+            locator: l.canonical().unwrap(),
+            updated_at: t0(),
+        };
+        let v2 = locator(
+            FileRole::ManagedSsh,
+            "/scratch/ssh/heimdall.conf",
+            11,
+            Some(6),
+        );
+        s.transaction(|tx| {
+            tx.put_projection_resource(&res(1, &l), None)?;
+            assert!(matches!(
+                tx.put_projection_resource(&res(1, &l), None),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            let same_inode_no_birth = FileIdentity::Unix {
+                dev: 1,
+                ino: 10,
+                birth: None,
+            };
+            let other_birth = FileIdentity::Unix {
+                dev: 1,
+                ino: 10,
+                birth: Some(9),
+            };
+            for (generation, identity) in [
+                (ResourceGeneration(2), &l.identity),
+                (ResourceGeneration(1), &same_inode_no_birth),
+                (ResourceGeneration(1), &other_birth),
+            ] {
+                assert!(matches!(
+                    tx.put_projection_resource(&res(2, &v2), Some((generation, identity))),
+                    Err(StoreError::GenerationConflict(_))
+                ));
+            }
+            assert!(matches!(
+                tx.put_projection_resource(
+                    &res(0, &v2),
+                    Some((ResourceGeneration(1), &l.identity))
+                ),
+                Err(StoreError::GenerationConflict(_))
+            ));
+            tx.put_projection_resource(&res(2, &v2), Some((ResourceGeneration(1), &l.identity)))?;
+            let stored = tx.projection_resources(&env)?;
+            assert_eq!(stored, vec![res(2, &v2)]);
+            // Only canonical projection locators of projection-owned config files.
+            let mut not_canonical = res(1, &locator(FileRole::Key, "/scratch/k.pub", 3, None));
+            not_canonical.locator =
+                serde_json::to_string(&locator(FileRole::Key, "/scratch/k.pub", 3, None)).unwrap();
+            assert!(tx.put_projection_resource(&not_canonical, None).is_err());
+            let mut runtime_owned = res(1, &locator(FileRole::Key, "/scratch/k2.pub", 4, None));
+            runtime_owned.owner = OwnerRef::Runtime;
+            assert!(tx.put_projection_resource(&runtime_owned, None).is_err());
+            assert!(tx.projection_resources(&env_id(43))?.is_empty());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // --- recovery intent `local`: add-only (U0b row 16) ----------------------------------
+
+    #[test]
+    fn recovery_intent_local_is_add_only_and_never_beside_resolved() {
+        let s = mem();
+        let env = env_id(44);
+        let (op, idem, intent) = setup_op(1, &env, OperationKind::SetupApply, apply());
+        let LocalIntent::Setup(base) = intent.local.clone().unwrap() else {
+            panic!("setup intent");
+        };
+        let with = |f: &dyn Fn(&mut SetupIntent)| {
+            let mut i = base.clone();
+            f(&mut i);
+            RecoveryIntent {
+                local: Some(LocalIntent::Setup(i)),
+                ..intent.clone()
+            }
+        };
+        let conflict =
+            |r: heimdall_store::Result<()>| matches!(r, Err(StoreError::GenerationConflict(_)));
+        s.transaction(|tx| {
+            tx.insert_operation(&op, &idem)?;
+            // Both at once is refused, on the first write too.
+            let both = RecoveryIntent {
+                resolved: Some(resolved_intent()),
+                ..intent.clone()
+            };
+            assert!(conflict(tx.set_recovery_intent(&op.id, &both)));
+            // None → Some is allowed.
+            tx.set_recovery_intent(
+                &op.id,
+                &RecoveryIntent {
+                    local: None,
+                    ..intent.clone()
+                },
+            )?;
+            tx.set_recovery_intent(&op.id, &intent)?;
+            // Once set: no field but the approval changes, and it cannot be removed.
+            assert!(conflict(
+                tx.set_recovery_intent(&op.id, &with(&|i| i.generation = 9))
+            ));
+            assert!(conflict(tx.set_recovery_intent(
+                &op.id,
+                &RecoveryIntent {
+                    local: None,
+                    ..intent.clone()
+                }
+            )));
+            let catalog = RecoveryIntent {
+                local: Some(LocalIntent::Catalog(CatalogIntent {
+                    action: CatalogAction::RemoveIdentity {
+                        id: IdentityId::from_random_bytes([1; 16]),
+                    },
+                    approval: None,
+                })),
+                ..intent.clone()
+            };
+            assert!(conflict(tx.set_recovery_intent(&op.id, &catalog)));
+            assert!(conflict(tx.set_recovery_intent(&op.id, &both)));
+            // The approval goes None → Some once and is never replaced or removed.
+            let approval = |n: u8| ProjectionApproval {
+                decision: DecisionId::from_random_bytes([n; 16]),
+                plan_digest: base.plan_digest.clone(),
+            };
+            let a1 = with(&|i| i.approval = Some(approval(1)));
+            tx.set_recovery_intent(&op.id, &a1)?;
+            tx.set_recovery_intent(&op.id, &a1)?;
+            assert!(conflict(tx.set_recovery_intent(
+                &op.id,
+                &with(&|i| i.approval = Some(approval(2)))
+            )));
+            assert!(conflict(tx.set_recovery_intent(&op.id, &intent)));
+            assert_eq!(tx.recovery_intent(&op.id)?, Some(a1));
+            // An invalid local intent is refused before anything is written.
+            let invalid = with(&|i| {
+                i.files[0].target = Target::Present {
+                    sha256: Sha256Hex::of(b"x"),
+                }
+            });
+            assert!(tx.set_recovery_intent(&op.id, &invalid).is_err());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // --- atomic setup admission (§12.8 item 6; U0b row 23) -------------------------------
+
+    /// Two store handles (two SQLite connections) on one file race
+    /// `insert_setup_operation` for one environment from two threads released by a
+    /// barrier. Over 500 rounds exactly one is inserted per round, the loser gets
+    /// `InProgress` naming the winner and leaves no row; the winner is then settled.
+    #[test]
+    fn insert_setup_operation_check_and_insert_are_one_transaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = file_db(dir.path());
+        let a = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
+        let b = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
+        let env = env_id(45);
+        for round in 0..500u64 {
+            let barrier = Arc::new(Barrier::new(2));
+            let handles: Vec<_> = [(Arc::clone(&a), 0u64), (Arc::clone(&b), 1u64)]
+                .into_iter()
+                .map(|(store, side)| {
+                    let barrier = Arc::clone(&barrier);
+                    let env = env.clone();
+                    std::thread::spawn(move || {
+                        let setup = setup_op(
+                            10_000 + round * 2 + side,
+                            &env,
+                            OperationKind::SetupApply,
+                            apply(),
+                        );
+                        barrier.wait();
+                        let admitted = store
+                            .transaction(|tx| {
+                                tx.insert_setup_operation(&setup.0, &setup.1, &setup.2, None)
+                            })
+                            .unwrap();
+                        (setup.0, admitted)
+                    })
+                })
+                .collect();
+            let results: Vec<(OperationRecord, SetupAdmitted)> =
+                handles.into_iter().map(|h| h.join().unwrap()).collect();
+            let winners: Vec<&OperationRecord> = results
+                .iter()
+                .filter(|(_, r)| *r == SetupAdmitted::Inserted)
+                .map(|(op, _)| op)
+                .collect();
+            assert_eq!(winners.len(), 1, "round {round}: exactly one admission");
+            let winner = winners[0].clone();
+            let (loser, refusal) = results.iter().find(|(op, _)| op.id != winner.id).unwrap();
+            assert_eq!(
+                refusal,
+                &SetupAdmitted::InProgress(vec![winner.id.clone()]),
+                "round {round}: the loser names the winner"
+            );
+            assert_eq!(
+                rows_of(&a, loser),
+                (false, false, false),
+                "round {round}: the loser left nothing"
+            );
+            assert_eq!(rows_of(&b, &winner), (true, true, true));
+            set_state(
+                if round % 2 == 0 { &a } else { &b },
+                &winner.id,
+                OperationState::Succeeded,
+            );
+        }
+        let open = a.transaction(|tx| tx.open_setup_operations(&env)).unwrap();
+        assert!(open.is_empty());
+    }
+
+    #[test]
+    fn insert_setup_operation_blocks_on_every_open_or_unresolved_state() {
+        let env = env_id(46);
+        for (n, state, blocks) in [
+            (1, OperationState::Queued, true),
+            (2, OperationState::Running, true),
+            (3, OperationState::AwaitingApproval, true),
+            (4, OperationState::OutcomeUnknown, true),
+            (5, OperationState::Succeeded, false),
+            (6, OperationState::Failed, false),
+            (7, OperationState::Cancelled, false),
+        ] {
+            let s = mem();
+            for kind in OperationKind::SETUP {
+                let blocker = setup_op(n, &env, kind, apply());
+                let s2 = mem();
+                assert_eq!(admit(&s2, &blocker, None), SetupAdmitted::Inserted);
+                if state != OperationState::Queued {
+                    set_state(&s2, &blocker.0.id, state);
+                }
+                let next = setup_op(100 + n, &env, OperationKind::SetupApply, apply());
+                let expect = if blocks {
+                    SetupAdmitted::InProgress(vec![blocker.0.id.clone()])
+                } else {
+                    SetupAdmitted::Inserted
+                };
+                assert_eq!(admit(&s2, &next, None), expect, "{kind:?} in {state:?}");
+                let rows = rows_of(&s2, &next.0);
+                assert_eq!(rows, (!blocks, !blocks, !blocks));
+            }
+            // A non-setup open operation, or a setup operation of another
+            // environment, never blocks.
+            let (ensure, idem) = simple_op(n);
+            s.transaction(|tx| tx.insert_operation(&ensure, &idem))
+                .unwrap();
+            let elsewhere = setup_op(200 + n, &env_id(47), OperationKind::SetupApply, apply());
+            assert_eq!(admit(&s, &elsewhere, None), SetupAdmitted::Inserted);
+            let mine = setup_op(300 + n, &env, OperationKind::SetupApply, apply());
+            assert_eq!(admit(&s, &mine, None), SetupAdmitted::Inserted);
+        }
+        // Blockers are listed oldest first.
+        let s = mem();
+        let older = setup_op(1, &env, OperationKind::SetupApply, apply());
+        assert_eq!(admit(&s, &older, None), SetupAdmitted::Inserted);
+        set_state(&s, &older.0.id, OperationState::OutcomeUnknown);
+        let blockers = s.transaction(|tx| tx.open_setup_operations(&env)).unwrap();
+        assert_eq!(blockers, vec![older.0.id.clone()]);
+        // Caller errors are refused before anything is read or written.
+        let (ensure, idem) = simple_op(9);
+        let bad_kind = RecoveryIntent {
+            request: request_doc(9),
+            resolved: None,
+            local: older.2.local.clone(),
+        };
+        assert!(
+            s.transaction(|tx| tx.insert_setup_operation(&ensure, &idem, &bad_kind, None))
+                .is_err()
+        );
+        let mut catalog = setup_op(10, &env, OperationKind::SetupApply, apply());
+        catalog.2.local = None;
+        assert!(
+            s.transaction(|tx| tx.insert_setup_operation(&catalog.0, &catalog.1, &catalog.2, None))
+                .is_err()
+        );
+        assert_eq!(rows_of(&s, &catalog.0), (false, false, false));
+    }
+
+    #[test]
+    fn insert_setup_operation_repair_exception_is_exact() {
+        let env = env_id(48);
+        let held = |s: &Store, n: u64| {
+            let o = setup_op(n, &env, OperationKind::SetupApply, apply());
+            assert_eq!(admit(s, &o, None), SetupAdmitted::Inserted);
+            set_state(s, &o.0.id, OperationState::OutcomeUnknown);
+            s.transaction(|tx| tx.append_stage_receipt(&o.0.id, &held_receipt()))
+                .unwrap();
+            o.0.id
+        };
+        // Exactly one blocker O, outcome_unknown, last receipt held: a repair naming O
+        // is admitted.
+        let s = mem();
+        let o = held(&s, 1);
+        assert_eq!(
+            admit(&s, &held_repair(2, &env, &o), Some(&o)),
+            SetupAdmitted::Inserted
+        );
+
+        // Naming another operation: refused.
+        let s = mem();
+        let o = held(&s, 1);
+        let other = op_id(77);
+        assert_eq!(
+            admit(&s, &held_repair(2, &env, &other), Some(&other)),
+            SetupAdmitted::InProgress(vec![o.clone()])
+        );
+        // No target at all: refused.
+        assert_eq!(
+            admit(
+                &s,
+                &setup_op(3, &env, OperationKind::SetupRepair, apply()),
+                None
+            ),
+            SetupAdmitted::InProgress(vec![o.clone()])
+        );
+        // O not held: its last receipt is not `held`, or it is not outcome_unknown.
+        let s = mem();
+        let o = held(&s, 1);
+        let mut later = held_receipt();
+        later.local = Some(LocalReceipt::File {
+            step: 0,
+            phase: FilePhase::Exchanged,
+        });
+        s.transaction(|tx| tx.append_stage_receipt(&o, &later))
+            .unwrap();
+        assert_eq!(
+            admit(&s, &held_repair(2, &env, &o), Some(&o)),
+            SetupAdmitted::InProgress(vec![o.clone()])
+        );
+        let s = mem();
+        let o = held(&s, 1);
+        set_state(&s, &o, OperationState::Running);
+        assert_eq!(
+            admit(&s, &held_repair(2, &env, &o), Some(&o)),
+            SetupAdmitted::InProgress(vec![o.clone()])
+        );
+        // A second blocker exists.
+        let s = mem();
+        let o = held(&s, 1);
+        let second = setup_op(5, &env, OperationKind::SetupRollback, apply());
+        s.transaction(|tx| {
+            tx.insert_operation(&second.0, &second.1)?;
+            tx.set_recovery_intent(&second.0.id, &second.2)
+        })
+        .unwrap();
+        assert_eq!(
+            admit(&s, &held_repair(6, &env, &o), Some(&o)),
+            SetupAdmitted::InProgress(vec![o.clone(), second.0.id.clone()])
+        );
+        // A target only with a held repair of kind setup.repair that names it.
+        let s = mem();
+        let o = held(&s, 1);
+        let mut wrong_kind = held_repair(2, &env, &o);
+        wrong_kind.0.kind = OperationKind::SetupApply;
+        wrong_kind.0.key.kind = OperationKind::SetupApply;
+        wrong_kind.1.key.kind = OperationKind::SetupApply;
+        assert!(
+            s.transaction(|tx| tx.insert_setup_operation(
+                &wrong_kind.0,
+                &wrong_kind.1,
+                &wrong_kind.2,
+                Some(&o)
+            ))
+            .is_err()
+        );
+        let not_held_resolution = setup_op(
+            3,
+            &env,
+            OperationKind::SetupRepair,
+            PreviewIntent::Repair {
+                conflict: ConflictKind::MarkerEdited,
+                resolution: RepairResolution::Rerender,
+                operation: None,
+            },
+        );
+        assert!(
+            s.transaction(|tx| tx.insert_setup_operation(
+                &not_held_resolution.0,
+                &not_held_resolution.1,
+                &not_held_resolution.2,
+                Some(&o)
+            ))
+            .is_err()
+        );
+        assert_eq!(rows_of(&s, &not_held_resolution.0), (false, false, false));
+    }
+
+    /// The admission state survives a restart, and a crash (an injected failure at
+    /// `BeforeCommit`) leaves no operation, idempotency record or intent.
+    #[test]
+    fn insert_setup_operation_state_survives_restart_and_a_crash_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = file_db(dir.path());
+        let env = env_id(49);
+        let blocker = setup_op(1, &env, OperationKind::SetupApply, apply());
+        {
+            let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+            assert_eq!(admit(&s, &blocker, None), SetupAdmitted::Inserted);
+        }
+        let next = setup_op(2, &env, OperationKind::SetupRollback, apply());
+        {
+            let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+            assert_eq!(
+                admit(&s, &next, None),
+                SetupAdmitted::InProgress(vec![blocker.0.id.clone()])
+            );
+            set_state(&s, &blocker.0.id, OperationState::Failed);
+        }
+        {
+            let faults = ScriptedFaults::new([(FaultPoint::BeforeCommit, FaultAction::Fail)]);
+            let s = Store::open(&db, faults).unwrap();
+            let e = s
+                .transaction(|tx| tx.insert_setup_operation(&next.0, &next.1, &next.2, None))
+                .unwrap_err();
+            assert!(matches!(
+                e,
+                StoreError::InjectedFault(FaultPoint::BeforeCommit)
+            ));
+            no_canary(&e);
+        }
+        let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+        assert_eq!(
+            rows_of(&s, &next.0),
+            (false, false, false),
+            "a crash leaves nothing"
+        );
+        assert!(
+            s.transaction(|tx| tx.open_setup_operations(&env))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(admit(&s, &next, None), SetupAdmitted::Inserted);
+        assert_eq!(rows_of(&s, &next.0), (true, true, true));
+    }
 }

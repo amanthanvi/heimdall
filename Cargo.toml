@@ -1,4 +1,4 @@
-# Heimdall production workspace (M01). See docs/architecture/overview.md for the
+# Heimdall production workspace (M01, M02). See docs/architecture/overview.md for the
 # crate map and docs/architecture/dependencies.md for every dependency decision.
 #
 # Every third-party version is pinned exactly ("=x.y.z") and Cargo.lock is
@@ -15,6 +15,13 @@ members = [
     "crates/runtime",
     "crates/testkit",
     "crates/heimdall",
+    # M02 (m02-plan U0): the pure configuration-text crate, the local environment
+    # (discovery, doctor, probes, projection transaction), the existing-access
+    # adapters, and the process contract.
+    "crates/sshconf",
+    "crates/localenv",
+    "crates/adapters",
+    "crates/launch",
 ]
 
 [workspace.package]
@@ -35,6 +42,10 @@ heimdall-app = { path = "crates/app" }
 heimdall-ipc = { path = "crates/ipc" }
 heimdall-runtime = { path = "crates/runtime" }
 heimdall-testkit = { path = "crates/testkit" }
+heimdall-sshconf = { path = "crates/sshconf" }
+heimdall-localenv = { path = "crates/localenv" }
+heimdall-adapters = { path = "crates/adapters" }
+heimdall-launch = { path = "crates/launch" }
 
 # --- serialization and schemas ---------------------------------------------
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -49,7 +60,8 @@ toml = { version = "=1.1.8", default-features = false, features = ["parse", "ser
 jiff = { version = "=0.2.38", default-features = false, features = ["std", "serde", "tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 
 # --- async runtime and I/O -----------------------------------------------------
-tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "io-util", "time", "sync", "macros", "signal"] }
+# process (M02, m02-plan U0): bounded local queries, probes and the Windows launcher.
+tokio = { version = "=1.54.1", default-features = false, features = ["rt", "net", "io-util", "time", "sync", "macros", "signal", "process"] }
 tokio-util = { version = "=0.7.20", default-features = false, features = ["codec"] }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std", "sink"] }
 async-trait = { version = "=0.1.92" }
@@ -77,11 +89,20 @@ clap = { version = "=4.6.7", default-features = false, features = ["std", "deriv
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
 crossterm = { version = "=0.29.0" }
 
+# --- configuration text (M02) ------------------------------------------------------
+# sshconf/localenv: OpenSSH `Include` glob expansion in bytewise order (m02-plan U0, U1).
+glob = { version = "=0.3.4" }
+
 # --- platform ------------------------------------------------------------------------
 etcetera = { version = "=0.11.0" }
 # runtime::platform: CLOCK_BOOTTIME / mach_continuous_time / kern.bootsessionuuid
 # (ADR-0005 §3.6). Same version the lock already carries through tokio.
 libc = { version = "=0.2.191", default-features = false, features = ["std"] }
+# localenv (Unix): the atomic exchange and no-replace renames through the reviewed safe
+# wrapper `fs::renameat_with` (Linux renameat2 RENAME_EXCHANGE/RENAME_NOREPLACE, macOS
+# renameatx_np RENAME_SWAP/RENAME_EXCL), m02-plan §6 P5. The version the lock already
+# carries through tempfile. Dev-only users add `pty`, `termios`, `process`.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"] }
 windows-sys = { version = "=0.61.2", features = [
     "Win32_Foundation",
     "Win32_Security",
@@ -92,6 +113,11 @@ windows-sys = { version = "=0.61.2", features = [
     "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_System_WindowsProgramming",
+    # M02 (m02-plan U0): kill-on-close job objects for probes, the console control
+    # guard of the Windows launcher, the profile folder (account home, ADR-0007 F19).
+    "Win32_System_JobObjects",
+    "Win32_System_Console",
+    "Win32_UI_Shell",
 ] }
 
 # --- test only -------------------------------------------------------------------------
@@ -113,8 +139,9 @@ dbg_macro = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
 unimplemented = "warn"
-# The M01 skeleton marks every unit body with todo!("M01-Txx ..."); the implementing
-# unit removes it. Re-enable as "deny" when M01 closes.
+# The M02 skeleton (m02-plan U0) marks unit bodies that no request, CLI command,
+# restart recovery or store method can reach with todo!("M02-Uxx ..."); the
+# implementing unit removes it. M01 left none. Re-enable as "deny" when M02 closes.
 todo = "allow"
 
 [profile.release]

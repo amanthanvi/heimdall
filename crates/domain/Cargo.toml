@@ -16,6 +16,11 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 jiff = { workspace = true }
 thiserror = { workspace = true }
+# M02 (m02-plan §5 item 17): `SetupIntent::validate` binds `StepContent` bytes to
+# their SHA-256 digests, and stored content is RFC 4648 §4 base64. Both crates are
+# already pinned in the workspace (sha2: contract; base64ct: app).
+sha2 = { workspace = true }
+base64ct = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

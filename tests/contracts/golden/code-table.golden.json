@@ -203,6 +203,13 @@
       "retryable": false,
       "effect": "none",
       "next": "report"
+    },
+    {
+      "code": "LAUNCH_FAILED",
+      "exit": 127,
+      "retryable": false,
+      "effect": "none",
+      "next": "fix_request"
     }
   ]
 }

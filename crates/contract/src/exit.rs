@@ -1,7 +1,9 @@
 //! CLI exit codes for non-child commands (spec §11.6; ADR-0006 §6).
 //!
 //! `heimdall run -- <argv>` is different: after launch the exit status is the
-//! child's (spec §10.4). Pre-launch failures use this table.
+//! child's (spec §10.4). Pre-launch failures use this table; a program that cannot
+//! be launched exits 127, or 126 when it is not executable (`LAUNCH_FAILED`,
+//! ADR-0007 §8).
 
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +27,12 @@ pub enum ExitCode {
     Conflict = 6,
     /// Uncertain external outcome.
     OutcomeUnknown = 7,
+    /// `run`/`connect` only: the program was found but is not executable
+    /// (`LAUNCH_FAILED`, reason `not_executable`; ADR-0007 §8).
+    NotExecutable = 126,
+    /// `run`/`connect` only: the program could not be launched (not found, refused,
+    /// current directory, side-channel write failed; `LAUNCH_FAILED`, ADR-0007 §8).
+    LaunchFailed = 127,
 }
 
 impl ExitCode {

@@ -41,6 +41,11 @@ pub fn public_schemas() -> Vec<NamedSchema> {
         named::<ClientMessage>("ipc.client-message"),
         named::<ServerMessage>("ipc.server-message"),
         named::<crate::code::Code>("code"),
+        // ADR-0006 revision 3 (m02-plan §5 items 2, 11, 12).
+        named::<crate::doctor::DoctorReport>("doctor-report"),
+        named::<crate::run_record::RunRecord>("run-record"),
+        named::<crate::setup::SetupPlan>("setup-plan"),
+        named::<crate::setup::SetupResult>("setup-result"),
     ]
 }
 

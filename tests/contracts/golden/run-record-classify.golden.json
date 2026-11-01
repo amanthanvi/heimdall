@@ -1,0 +1,139 @@
+{
+  "source": "ADR-0007 section 8 'Reader classification' table, one or more cases per row (adr_row is the row's first cell, verbatim), plus the fail-closed readings documented on contract::run_record::classify (adr_row null)",
+  "cases": [
+    {
+      "adr_row": "none",
+      "platform": "unix",
+      "records": [],
+      "expect": {"classification": "not_launched"}
+    },
+    {
+      "adr_row": "none",
+      "platform": "windows",
+      "records": [],
+      "expect": {"classification": "not_launched"}
+    },
+    {
+      "adr_row": "… `prelaunch_failed`",
+      "platform": "unix",
+      "records": [
+        {"type": "prelaunch_failed", "schema_version": "1", "code": "INTERACTION_REQUIRED", "exit_code": 3, "reason": "interaction_unknown", "binding_id": "binding_0123456789abcdef0123456789abcdef"}
+      ],
+      "expect": {"classification": "not_launched", "code": "INTERACTION_REQUIRED", "reason": "interaction_unknown"}
+    },
+    {
+      "adr_row": "… `prelaunch_failed`",
+      "platform": "unix",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "/usr/local/bin/tool", "pid": 4242},
+        {"type": "prelaunch_failed", "schema_version": "1", "code": "LAUNCH_FAILED", "exit_code": 126, "reason": "not_executable"}
+      ],
+      "expect": {"classification": "not_launched", "code": "LAUNCH_FAILED", "reason": "not_executable"}
+    },
+    {
+      "adr_row": "… `prelaunch_failed`",
+      "platform": "windows",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "C:\\tools\\build.cmd", "pid": 4242},
+        {"type": "prelaunch_failed", "schema_version": "1", "code": "LAUNCH_FAILED", "exit_code": 127, "reason": "exec_error"}
+      ],
+      "expect": {"classification": "not_launched", "code": "LAUNCH_FAILED", "reason": "exec_error"}
+    },
+    {
+      "adr_row": "`launching` and nothing after (Unix)",
+      "platform": "unix",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "/usr/bin/ssh", "pid": 4242}
+      ],
+      "expect": {"classification": "indeterminate"}
+    },
+    {
+      "adr_row": "`launching` and nothing after (Windows)",
+      "platform": "windows",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "C:\\Windows\\System32\\OpenSSH\\ssh.exe", "pid": 4242}
+      ],
+      "expect": {"classification": "indeterminate"}
+    },
+    {
+      "adr_row": "`launching`, `spawned` (Windows)",
+      "platform": "windows",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "C:\\Windows\\System32\\OpenSSH\\ssh.exe", "pid": 4242},
+        {"type": "spawned", "schema_version": "1", "pid": 5151}
+      ],
+      "expect": {"classification": "launched"}
+    },
+    {
+      "adr_row": "`launching`, `spawned`, `exited` (Windows)",
+      "platform": "windows",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "C:\\Windows\\System32\\OpenSSH\\ssh.exe", "pid": 4242},
+        {"type": "spawned", "schema_version": "1", "pid": 5151},
+        {"type": "exited", "schema_version": "1", "exit_code": 3221225786}
+      ],
+      "expect": {"classification": "launched", "exit_code": 3221225786}
+    },
+    {
+      "adr_row": null,
+      "note": "spawned is Windows-only: on Unix it proves nothing",
+      "platform": "unix",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "/usr/bin/ssh", "pid": 4242},
+        {"type": "spawned", "schema_version": "1", "pid": 5151}
+      ],
+      "expect": {"classification": "indeterminate"}
+    },
+    {
+      "adr_row": null,
+      "note": "spawned without launching contradicts the invariant",
+      "platform": "windows",
+      "records": [
+        {"type": "spawned", "schema_version": "1", "pid": 5151}
+      ],
+      "expect": {"classification": "indeterminate"}
+    },
+    {
+      "adr_row": null,
+      "note": "prelaunch_failed after spawned contradicts the spawn",
+      "platform": "windows",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "C:\\Windows\\System32\\OpenSSH\\ssh.exe", "pid": 4242},
+        {"type": "spawned", "schema_version": "1", "pid": 5151},
+        {"type": "prelaunch_failed", "schema_version": "1", "code": "LAUNCH_FAILED", "exit_code": 127}
+      ],
+      "expect": {"classification": "indeterminate"}
+    },
+    {
+      "adr_row": null,
+      "note": "a record after exited",
+      "platform": "windows",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 1, "executable": "C:\\Windows\\System32\\OpenSSH\\ssh.exe", "pid": 4242},
+        {"type": "spawned", "schema_version": "1", "pid": 5151},
+        {"type": "exited", "schema_version": "1", "exit_code": 0},
+        {"type": "spawned", "schema_version": "1", "pid": 5152}
+      ],
+      "expect": {"classification": "indeterminate"}
+    },
+    {
+      "adr_row": null,
+      "note": "attempt other than 1",
+      "platform": "windows",
+      "records": [
+        {"type": "launching", "schema_version": "1", "attempt": 2, "executable": "C:\\Windows\\System32\\OpenSSH\\ssh.exe", "pid": 4242},
+        {"type": "spawned", "schema_version": "1", "pid": 5151}
+      ],
+      "expect": {"classification": "indeterminate"}
+    },
+    {
+      "adr_row": null,
+      "note": "an unsupported schema major is never read as not_launched",
+      "platform": "unix",
+      "records": [
+        {"type": "prelaunch_failed", "schema_version": "2", "code": "USAGE_ERROR", "exit_code": 2}
+      ],
+      "expect": {"classification": "indeterminate"}
+    }
+  ]
+}

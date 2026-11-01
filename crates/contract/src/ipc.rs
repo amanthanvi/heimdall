@@ -53,6 +53,11 @@ pub mod capability {
     /// item 8). A session that did not negotiate it cannot send `Shutdown`
     /// (`SCHEMA_UNSUPPORTED`).
     pub const SERVICE_CONTROL_V1: &str = "service-control/1";
+    /// Setup and catalog requests (`Request::Setup`, `Request::Catalog`; m02-plan
+    /// §5 item 4). A session without it gets `SCHEMA_UNSUPPORTED`. **Not offered**
+    /// until the M02 activation change set: `heimdall_ipc::session` and `inspect
+    /// capabilities` do not list it yet, so no session can negotiate it.
+    pub const SETUP_V1: &str = "setup/1";
 }
 
 /// Identifies the peer software; informational only, never authority (spec §4.2).
@@ -164,6 +169,10 @@ pub enum ClientMessage {
 }
 
 /// Server to client frames.
+// A frame is built once per reply and serialized at once; boxing `Reject` (grown by
+// ADR-0006 revision 3's error `reason` and provider interaction) would change the
+// constructor every server uses, for no measurable gain.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[non_exhaustive]

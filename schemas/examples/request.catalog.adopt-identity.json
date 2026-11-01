@@ -1,0 +1,13 @@
+{
+  "op": "catalog",
+  "action": "adopt_identity",
+  "identity": {
+    "source": {
+      "kind": "native_agent",
+      "endpoint": {"kind": "unix_socket", "locator": "/run/user/1000/ssh-agent.socket"}
+    },
+    "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA synthetic-example",
+    "label": "work key"
+  },
+  "request_id": "req-0204"
+}

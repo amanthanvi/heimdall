@@ -3,8 +3,16 @@
 //! M01 wires `access ensure|release|revoke|delegate|pause|resume|cutoff`,
 //! `operation show|wait|cancel|events`, `decision list|approve|deny`,
 //! `time confirm`, `service run|status|stop`, `inspect`, `status` and
-//! `schema export|show`. `setup`, `connect`, `run`, `doctor` and `tui` are
-//! declared so help is complete and answer `USAGE_ERROR` until their milestone.
+//! `schema export|show`.
+//!
+//! **M02 commands (m02-plan U0, U8, U9, U10).** `setup`, `connect`, `run`,
+//! `doctor`, `tui`, `destination`, `identity`, `profile` and `uninstall` carry
+//! their full M02 argument trees, each handled in its own file (`setup_cmd`,
+//! `connect_cmd`, `run_cmd`, `doctor_cmd`, `tui`, `catalog_cmd`, `uninstall_cmd`).
+//! Until the unit that owns a handler lands, the handler answers M01's "not
+//! available in this build" envelope ([`not_available`]: `USAGE_ERROR`, exit 2,
+//! effect `none`) without building an async runtime, reading the store or
+//! contacting the runtime (§5 item 4, fail-closed landing).
 //!
 //! Every command except `service run` and `schema` is a client of the runtime's
 //! control endpoint (overview §3); nothing here authorizes access. Effectful
@@ -53,7 +61,9 @@ use heimdall_ipc::session::{SubscribeOutcome, transport_failure_envelope};
 use crate::client::{Client, Ctx, connect, error};
 use crate::output::{self, error_value};
 use crate::prompt::{self, Answer};
-use crate::service_cmd;
+use crate::{
+    catalog_cmd, connect_cmd, doctor_cmd, run_cmd, service_cmd, setup_cmd, tui, uninstall_cmd,
+};
 
 /// Heimdall: set up access once; your terminals, tools, and agents work across
 /// environments.
@@ -78,29 +88,37 @@ pub struct Cli {
 /// Top-level commands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Adopt supported local access (M02).
-    Setup,
-    /// Convenience connect; ordinary ssh also works (M02).
-    Connect {
-        /// Destination alias.
-        destination: String,
-    },
+    /// Adopt supported local access: preview, apply, roll back or repair the
+    /// managed OpenSSH projection (M02; ADR-0007 §5). Without an action, `apply`.
+    Setup(SetupArgs),
+    /// Convenience connect through the verified client; ordinary ssh also works
+    /// (M02; ADR-0007 §8).
+    Connect(ConnectArgs),
     /// Ensure access then launch argv without a shell (spec §10.4) (M02).
     Run(RunArgs),
     /// Summary of the runtime, open work, and pending owner decisions. Never
     /// starts the runtime.
     Status,
-    /// Passive diagnostics by default (spec §10.2) (M02).
-    Doctor {
-        /// Explicit probe level; never default.
-        #[arg(long, value_name = "LEVEL")]
-        active_probe: Option<String>,
-    },
+    /// Passive diagnostics by default (spec §10.2); explicit probes only by named
+    /// level (M02; ADR-0007 §6). Never starts the runtime.
+    Doctor(DoctorArgs),
     /// Terminal UI (M02).
     Tui,
+    /// Destination catalog: managed and observed aliases (M02).
+    #[command(subcommand)]
+    Destination(DestinationCommand),
+    /// Adopted identities and their interaction declarations (M02; ADR-0007 §7).
+    #[command(subcommand)]
+    Identity(IdentityCommand),
+    /// Profiles: named sets of destination/account pairs (M02).
+    #[command(subcommand)]
+    Profile(ProfileCommand),
+    /// Remove the projection, restore your files, and report what remains (M02).
+    Uninstall(UninstallArgs),
     /// Read-only inspection of runtime state. Never starts the runtime.
     Inspect {
-        /// Subject: capabilities|environments|profiles|destinations|bindings|grants|operations|decisions.
+        /// Subject: capabilities|environments|profiles|destinations|bindings|grants|operations|decisions
+        /// (M02 adds identities|projections).
         subject: String,
         /// Dry-run authority preview for this profile: the resolved snapshot and
         /// the outcome (`allowed`, `approval_required` with the exact delta, or
@@ -142,7 +160,7 @@ pub enum Command {
     Schema(SchemaCommand),
 }
 
-/// `run` arguments.
+/// `run` arguments (ADR-0007 §8; m02-plan U8).
 #[derive(Debug, Args)]
 pub struct RunArgs {
     /// Profile to ensure.
@@ -151,9 +169,303 @@ pub struct RunArgs {
     /// Work ID.
     #[arg(long)]
     pub work_id: Option<String>,
-    /// Argument vector after `--`, passed byte-exact.
+    /// Idempotency request ID for the ensure and bind (a fresh one is minted and
+    /// reported when absent). A retry with the same ID never relaunches by itself.
+    #[arg(long)]
+    pub request_id: Option<String>,
+    /// Caller minimums.
+    #[command(flatten)]
+    pub require: RequireArgs,
+    /// Launch options.
+    #[command(flatten)]
+    pub launch: LaunchArgs,
+    /// Argument vector after `--`, passed byte-exact. Never sent to the runtime,
+    /// journaled or logged.
     #[arg(last = true, required = true, value_name = "ARGV")]
     pub argv: Vec<OsString>,
+}
+
+/// Launch options shared by `run` and `connect` (ADR-0007 §7, §8).
+#[derive(Debug, Args, Default)]
+pub struct LaunchArgs {
+    /// Under `--non-interactive`, accept that the provider (not Heimdall) may show
+    /// its own approval or unlock dialog; without it, an identity that may need
+    /// interaction is refused before launch (exit 3).
+    #[arg(long)]
+    pub allow_provider_interaction: bool,
+    /// Write NDJSON run records to this open descriptor (Unix only; must be a
+    /// pipe, socket or regular file; set close-on-exec).
+    #[arg(long, value_name = "FD", conflicts_with = "meta_file")]
+    pub meta_fd: Option<i32>,
+    /// Write NDJSON run records to this new file (created exclusively, owner-only).
+    #[arg(long, value_name = "PATH")]
+    pub meta_file: Option<PathBuf>,
+}
+
+/// `connect` arguments (ADR-0007 §8).
+#[derive(Debug, Args)]
+pub struct ConnectArgs {
+    /// Destination alias (managed or observed).
+    pub destination: String,
+    /// Launch options.
+    #[command(flatten)]
+    pub launch: LaunchArgs,
+}
+
+/// `setup` arguments (ADR-0007 §5; m02-plan U9).
+#[derive(Debug, Args)]
+pub struct SetupArgs {
+    /// Action; without one, `apply`.
+    #[command(subcommand)]
+    pub action: Option<SetupCommand>,
+}
+
+/// `setup` actions. Every effectful action previews first, shows the exact plan
+/// (with the restore column) and submits its plan digest.
+#[derive(Debug, Subcommand)]
+pub enum SetupCommand {
+    /// Show what apply would change. Read-only; runs nothing from your
+    /// configuration.
+    Preview {
+        /// Also plan the global Git include (`core.sshCommand`, ADR-0007 §5.6).
+        #[arg(long)]
+        include_git: bool,
+    },
+    /// Preview, confirm, then apply exactly the previewed plan.
+    Apply {
+        /// Also apply the global Git include.
+        #[arg(long)]
+        include_git: bool,
+        /// Idempotency request ID (a fresh one is minted and reported when absent).
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+    /// Remove the projection and restore your files to the consented state.
+    Rollback {
+        /// Keep the materialized public-key files.
+        #[arg(long)]
+        keep_key_files: bool,
+        /// Idempotency request ID.
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+    /// Repair a reported conflict (`repair <conflict> <resolution>`), or a held
+    /// operation (`repair --operation <id> retry|keep`).
+    Repair(RepairArgs),
+    /// Projection state, held operations and kept quarantine entries (read-only).
+    Status,
+}
+
+/// `setup repair` arguments.
+#[derive(Debug, Args)]
+pub struct RepairArgs {
+    /// The held operation to repair; then the only argument is `retry` or `keep`.
+    #[arg(long, value_name = "OPERATION_ID")]
+    pub operation: Option<String>,
+    /// `<conflict> <resolution>`, or `retry`|`keep` with `--operation`.
+    #[arg(required = true, num_args = 1..=2, value_name = "ARG")]
+    pub args: Vec<String>,
+    /// Idempotency request ID.
+    #[arg(long)]
+    pub request_id: Option<String>,
+}
+
+/// `doctor` arguments (ADR-0007 §6; m02-plan U9).
+#[derive(Debug, Args)]
+pub struct DoctorArgs {
+    /// Explicit probe levels, comma-separated or repeated: evaluate, agent,
+    /// network, host_verification, authentication. Never on by default.
+    #[arg(long = "active-probe", value_name = "LEVEL", value_delimiter = ',')]
+    pub active_probe: Vec<String>,
+    /// Authorize the evaluate, host_verification and authentication levels to run
+    /// your configuration's commands with whatever effects they have.
+    #[arg(long)]
+    pub allow_config_commands: bool,
+    /// Restrict the report to these aliases (repeatable).
+    #[arg(long = "alias", value_name = "ALIAS")]
+    pub aliases: Vec<String>,
+    /// Run no local version or Git queries.
+    #[arg(long)]
+    pub no_local_exec: bool,
+    /// Redact paths and host names in the report.
+    #[arg(long)]
+    pub redact: bool,
+}
+
+/// `destination` subcommands (m02-plan U9; §5 item 3).
+#[derive(Debug, Subcommand)]
+pub enum DestinationCommand {
+    /// Add or update a destination.
+    Add(DestinationAddArgs),
+    /// List destinations (read-only).
+    List,
+    /// Show one destination (read-only).
+    Show {
+        /// Destination ID or alias.
+        destination: String,
+    },
+    /// Remove a destination. The projection is marked stale; no file changes.
+    Remove {
+        /// Destination ID or alias.
+        destination: String,
+        /// Idempotency request ID.
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+}
+
+/// `destination add` arguments.
+#[derive(Debug, Args)]
+pub struct DestinationAddArgs {
+    /// The alias used with ssh.
+    pub alias: String,
+    /// Managed definition: the host name Heimdall renders.
+    #[arg(
+        long,
+        required_unless_present = "observed",
+        conflicts_with = "observed"
+    )]
+    pub hostname: Option<String>,
+    /// Managed definition: port.
+    #[arg(long, requires = "hostname")]
+    pub port: Option<u16>,
+    /// Managed definition: remote account.
+    #[arg(long, requires = "hostname")]
+    pub account: Option<String>,
+    /// Managed definition: adopted identity (`idn_…`).
+    #[arg(long, requires = "hostname")]
+    pub identity: Option<String>,
+    /// Observed: an alias your own configuration already defines.
+    #[arg(long)]
+    pub observed: bool,
+    /// Stable destination ID to update (kept when the alias changes).
+    #[arg(long)]
+    pub id: Option<String>,
+    /// Label.
+    #[arg(long)]
+    pub label: Option<String>,
+    /// Idempotency request ID.
+    #[arg(long)]
+    pub request_id: Option<String>,
+}
+
+/// `identity` subcommands (ADR-0007 §7; m02-plan U9).
+#[derive(Debug, Subcommand)]
+pub enum IdentityCommand {
+    /// List adopted identities with their interaction basis (read-only).
+    List,
+    /// Adopt an identity by its public key, from a `.pub` file or from an agent
+    /// listing (the explicit `agent` probe). Private keys are never read.
+    Adopt(IdentityAdoptArgs),
+    /// Declare that an identity needs no interaction (an owner decision: terminal
+    /// and typed `yes`).
+    DeclareInteraction {
+        /// Identity ID.
+        identity: String,
+        /// The declared interaction.
+        #[arg(value_parser = ["none"])]
+        interaction: String,
+        /// Idempotency request ID.
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+    /// Withdraw an interaction declaration (narrowing; no decision).
+    WithdrawDeclaration {
+        /// Identity ID.
+        identity: String,
+        /// Idempotency request ID.
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+    /// Remove an adopted identity.
+    Remove {
+        /// Identity ID.
+        identity: String,
+        /// Idempotency request ID.
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+}
+
+/// `identity adopt` arguments.
+#[derive(Debug, Args)]
+pub struct IdentityAdoptArgs {
+    /// Choose from an agent listing (asks first on a terminal; needs
+    /// `--active-probe agent` under `--non-interactive`).
+    #[arg(long, conflicts_with = "pub_file")]
+    pub from_agent: bool,
+    /// The identity's OpenSSH public-key file.
+    #[arg(
+        long = "pub",
+        value_name = "FILE",
+        required_unless_present = "from_agent"
+    )]
+    pub pub_file: Option<PathBuf>,
+    /// Explicit probe level authorizing the agent listing (`agent`).
+    #[arg(long = "active-probe", value_name = "LEVEL", requires = "from_agent")]
+    pub active_probe: Option<String>,
+    /// Label.
+    #[arg(long)]
+    pub label: Option<String>,
+    /// Idempotency request ID.
+    #[arg(long)]
+    pub request_id: Option<String>,
+}
+
+/// `profile` subcommands (m02-plan U9).
+#[derive(Debug, Subcommand)]
+pub enum ProfileCommand {
+    /// Create a profile.
+    Create {
+        /// Profile ID.
+        profile: String,
+        /// `destination:account` pairs (repeatable).
+        #[arg(long = "pair", value_name = "DEST:ACCOUNT")]
+        pairs: Vec<String>,
+        /// Label.
+        #[arg(long)]
+        label: Option<String>,
+        /// Idempotency request ID.
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+    /// Show a profile (read-only).
+    Show {
+        /// Profile ID.
+        profile: String,
+    },
+    /// Add pairs to a profile (bumps its revision; existing grants keep theirs).
+    Add {
+        /// Profile ID.
+        profile: String,
+        /// `destination:account` pairs (repeatable).
+        #[arg(long = "pair", value_name = "DEST:ACCOUNT", required = true)]
+        pairs: Vec<String>,
+        /// Idempotency request ID.
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+    /// Remove pairs from a profile; without `--pair`, remove the profile.
+    Remove {
+        /// Profile ID.
+        profile: String,
+        /// `destination:account` pairs (repeatable).
+        #[arg(long = "pair", value_name = "DEST:ACCOUNT")]
+        pairs: Vec<String>,
+        /// Idempotency request ID.
+        #[arg(long)]
+        request_id: Option<String>,
+    },
+    /// List profiles (read-only).
+    List,
+}
+
+/// `uninstall` arguments (Q6; m02-plan U9).
+#[derive(Debug, Args)]
+pub struct UninstallArgs {
+    /// Also delete Heimdall's state store once every rollback completed.
+    #[arg(long)]
+    pub purge_state: bool,
 }
 
 /// `access` subcommands.
@@ -217,11 +529,27 @@ pub struct RequireArgs {
     /// Credentials must stay usable offline until this RFC 3339 instant.
     #[arg(long = "require-offline-until", value_name = "INSTANT")]
     pub offline_until: Option<String>,
+    /// New authentications must need no human interaction until the deadline,
+    /// including through desktop and vault lock (M02, §5 item 6). `unknown` never
+    /// satisfies it.
+    #[arg(long = "require-unattended")]
+    pub unattended: bool,
 }
 
 impl RequireArgs {
+    /// Whether any minimum was given.
+    fn any(&self) -> bool {
+        !self.capabilities.is_empty()
+            || self.destination_scope.is_some()
+            || self.offline_until.is_some()
+            || self.unattended
+    }
+
     fn to_request(&self) -> Result<RequiredCapabilities, Done> {
-        let mut out = RequiredCapabilities::default();
+        let mut out = RequiredCapabilities {
+            unattended: self.unattended,
+            ..RequiredCapabilities::default()
+        };
         for c in &self.capabilities {
             let cap = serde_json::from_value(serde_json::Value::String(c.clone()))
                 .map_err(|_| Done::of(usage("unknown capability")))?;
@@ -422,6 +750,25 @@ fn usage(message: &str) -> Envelope<serde_json::Value> {
     error_value(error(Code::UsageError, message))
 }
 
+/// M01's "not available in this build" text, unchanged (m02-plan §5 item 4).
+pub(crate) const NOT_AVAILABLE_MESSAGE: &str =
+    "this command is not available in this build (planned for M02)";
+
+/// The envelope a command answers until its unit lands: `USAGE_ERROR`, effect
+/// `none`, next `fix_request` (M01's envelope for `setup`, `connect`, `run`,
+/// `doctor` and `tui`).
+pub(crate) fn not_available_envelope() -> Envelope<serde_json::Value> {
+    usage(NOT_AVAILABLE_MESSAGE)
+}
+
+/// Print [`not_available_envelope`] and return its exit code (2). Builds no async
+/// runtime, opens no store and never contacts the runtime.
+pub(crate) fn not_available(ctx: &Ctx) -> ExitCode {
+    let env = not_available_envelope();
+    output::emit(&env, ctx.json);
+    output::exit_code_for(env.code, false)
+}
+
 /// Whether the raw argument list requests machine output: an exact `--json`
 /// token before the first bare `--` (after `--`, tokens are the launched argv
 /// of `heimdall run`, never Heimdall flags). Used only when clap could not parse
@@ -494,17 +841,17 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
         Some(Command::Service(ServiceCommand::Stop)) => return service_cmd::stop(&ctx),
-        Some(
-            Command::Setup
-            | Command::Connect { .. }
-            | Command::Run(_)
-            | Command::Doctor { .. }
-            | Command::Tui,
-        ) => {
-            let env = usage("this command is not available in this build (planned for M02)");
-            output::emit(&env, ctx.json);
-            return output::exit_code_for(env.code, false);
-        }
+        // M02 commands: each handler owns its command and, until its unit lands,
+        // answers `not_available` before any runtime contact.
+        Some(Command::Setup(args)) => return setup_cmd::run(&ctx, args),
+        Some(Command::Connect(args)) => return connect_cmd::run(&ctx, args),
+        Some(Command::Run(args)) => return run_cmd::run(&ctx, args),
+        Some(Command::Doctor(args)) => return doctor_cmd::run(&ctx, args),
+        Some(Command::Tui) => return tui::run(&ctx),
+        Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
+        Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
+        Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
+        Some(Command::Uninstall(args)) => return uninstall_cmd::run(&ctx, args),
         None => Command::Status,
         Some(c) => c,
     };
@@ -603,10 +950,7 @@ async fn run_client(ctx: &Ctx, command: Command) -> Result<Done, Done> {
                     .map_err(|_| Done::of(usage("unknown inspect subject")))?;
             let preview = match preview {
                 None => {
-                    if !require.capabilities.is_empty()
-                        || require.destination_scope.is_some()
-                        || require.offline_until.is_some()
-                    {
+                    if require.any() {
                         return Err(Done::of(usage("minimums need --preview")));
                     }
                     None
@@ -1352,6 +1696,225 @@ mod tests {
     #[test]
     fn command_tree_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    /// One command line per M02 command and action of the U0 clap tree (m02-plan
+    /// U9 command list, U8 `run`/`connect`, U10 `tui`).
+    const M02_COMMAND_LINES: &[&[&str]] = &[
+        &["setup"],
+        &["setup", "preview"],
+        &["setup", "preview", "--include-git"],
+        &["setup", "apply", "--include-git", "--request-id", "r1"],
+        &["setup", "rollback", "--keep-key-files"],
+        &["setup", "repair", "user_config_changed", "rerender"],
+        &["setup", "repair", "--operation", "op_x", "retry"],
+        &["setup", "repair", "--operation", "op_x", "keep"],
+        &["setup", "status"],
+        &["connect", "lab"],
+        &[
+            "connect",
+            "lab",
+            "--allow-provider-interaction",
+            "--meta-file",
+            "m.ndjson",
+        ],
+        &[
+            "run",
+            "--profile",
+            "p",
+            "--",
+            "tool",
+            "HEIMDALL_CANARY_ARGV",
+            "--json",
+        ],
+        &[
+            "run",
+            "--meta-fd",
+            "3",
+            "--require-unattended",
+            "--",
+            "tool",
+        ],
+        &["doctor"],
+        &[
+            "doctor",
+            "--active-probe",
+            "agent,network",
+            "--allow-config-commands",
+            "--alias",
+            "a",
+            "--alias",
+            "b",
+            "--no-local-exec",
+            "--redact",
+        ],
+        &["tui"],
+        &[
+            "destination",
+            "add",
+            "lab",
+            "--hostname",
+            "h.example",
+            "--port",
+            "22",
+        ],
+        &["destination", "add", "lab", "--observed"],
+        &["destination", "list"],
+        &["destination", "show", "lab"],
+        &["destination", "remove", "lab"],
+        &["identity", "list"],
+        &["identity", "adopt", "--pub", "k.pub"],
+        &[
+            "identity",
+            "adopt",
+            "--from-agent",
+            "--active-probe",
+            "agent",
+        ],
+        &["identity", "declare-interaction", "idn_x", "none"],
+        &["identity", "withdraw-declaration", "idn_x"],
+        &["identity", "remove", "idn_x"],
+        &["profile", "create", "p", "--pair", "d:a"],
+        &["profile", "show", "p"],
+        &["profile", "add", "p", "--pair", "d:a"],
+        &["profile", "remove", "p"],
+        &["profile", "list"],
+        &["uninstall"],
+        &["uninstall", "--purge-state"],
+    ];
+
+    /// `w0_m02_cli_commands_report_not_available_and_never_panic`, in-process form
+    /// (m02-plan U0b, §5 item 4; the binary-level form is hosted by a `heimdall`
+    /// package target, wave-0 verify E6). Every M02 command parses, answers M01's
+    /// "not available in this build" envelope with exit 2, and never contacts the
+    /// runtime: the Heimdall home it names is never created (an on-demand start or
+    /// a client connection would create or read it).
+    #[test]
+    fn w0_m02_commands_answer_not_available_and_never_contact_the_runtime() {
+        let scratch = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        for (i, line) in M02_COMMAND_LINES.iter().enumerate() {
+            let home = scratch.path().join(format!("home-{i}"));
+            let home_arg = home.to_string_lossy().into_owned();
+            let argv: Vec<&str> = ["heimdall", "--json", "--non-interactive", "--home"]
+                .into_iter()
+                .chain(std::iter::once(home_arg.as_str()))
+                .chain(line.iter().copied())
+                .collect();
+            let cli = Cli::try_parse_from(&argv)
+                .unwrap_or_else(|e| panic!("{line:?} must parse: {:?}", e.kind()));
+            assert!(
+                matches!(
+                    cli.command,
+                    Some(
+                        Command::Setup(_)
+                            | Command::Connect(_)
+                            | Command::Run(_)
+                            | Command::Doctor(_)
+                            | Command::Tui
+                            | Command::Destination(_)
+                            | Command::Identity(_)
+                            | Command::Profile(_)
+                            | Command::Uninstall(_)
+                    )
+                ),
+                "{line:?} is an M02 command"
+            );
+            let exit = dispatch(cli);
+            assert_eq!(exit, ExitCode::Usage, "{line:?}");
+            assert!(
+                !home.exists(),
+                "{line:?} touched the Heimdall home, so it reached for the runtime"
+            );
+        }
+        assert_eq!(
+            std::fs::read_dir(scratch.path()).map(Iterator::count).ok(),
+            Some(0),
+            "nothing was created anywhere under the scratch directory"
+        );
+    }
+
+    #[test]
+    fn not_available_envelope_is_m01s_usage_error_with_no_effect() {
+        let env = not_available_envelope();
+        assert_eq!(env.code, Code::UsageError);
+        let value = serde_json::to_value(&env).unwrap_or_else(|e| panic!("serialize: {e}"));
+        let error = &value["data"]["error"];
+        assert_eq!(error["code"], "USAGE_ERROR", "{value}");
+        assert_eq!(error["effect_status"], "none", "{value}");
+        assert_eq!(error["message"], NOT_AVAILABLE_MESSAGE, "{value}");
+        assert_eq!(
+            output::exit_code_for(env.code.clone(), false),
+            ExitCode::Usage
+        );
+        // The envelope is fixed text: no argument of any command can reach it.
+        assert!(!value.to_string().contains("HEIMDALL_CANARY"), "{value}");
+    }
+
+    #[test]
+    fn m02_argument_trees_refuse_malformed_lines() {
+        for line in [
+            &["setup", "repair"][..],
+            &["setup", "repair", "a", "b", "c"],
+            &["setup", "bogus"],
+            &["connect"],
+            &["connect", "lab", "--meta-fd", "3", "--meta-file", "m"],
+            &["run", "--profile", "p"],
+            &["destination", "add", "lab"],
+            &["destination", "add", "lab", "--observed", "--hostname", "h"],
+            &["identity", "adopt"],
+            &["identity", "adopt", "--from-agent", "--pub", "k.pub"],
+            &[
+                "identity",
+                "declare-interaction",
+                "idn_x",
+                "provider_approval",
+            ],
+            &["profile", "add", "p"],
+        ] {
+            let argv: Vec<&str> = std::iter::once("heimdall")
+                .chain(line.iter().copied())
+                .collect();
+            let Err(e) = Cli::try_parse_from(&argv) else {
+                panic!("{line:?} must not parse");
+            };
+            assert!(e.use_stderr(), "{line:?} is a usage error, not help");
+        }
+    }
+
+    #[test]
+    fn require_unattended_is_carried_into_the_request_never_dropped() {
+        let args = RequireArgs {
+            unattended: true,
+            ..RequireArgs::default()
+        };
+        assert!(args.any());
+        let Ok(required) = args.to_request() else {
+            panic!("--require-unattended alone is a valid minimum");
+        };
+        assert!(required.unattended, "the minimum is never dropped silently");
+        assert!(!RequireArgs::default().any());
+        let Ok(none) = RequireArgs::default().to_request() else {
+            panic!("no minimum is valid");
+        };
+        assert!(!none.unattended);
+        // Parsed from the command line as well.
+        let cli = Cli::try_parse_from([
+            "heimdall",
+            "access",
+            "ensure",
+            "--profile",
+            "p",
+            "--work-id",
+            "w",
+            "--request-id",
+            "r",
+            "--require-unattended",
+        ])
+        .unwrap_or_else(|e| panic!("parse: {:?}", e.kind()));
+        let Some(Command::Access(AccessCommand::Ensure(a))) = cli.command else {
+            panic!("access ensure");
+        };
+        assert!(a.require.unattended);
     }
 
     #[test]

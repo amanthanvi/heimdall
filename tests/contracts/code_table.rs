@@ -88,16 +88,19 @@ fn effect_name(e: EffectStatus) -> &'static str {
     }
 }
 
+/// ADR-0006 revision 3 (m02-plan section 5 item 13) grows the table to 30 rows
+/// with `LAUNCH_FAILED`.
 #[test]
 fn golden_file_matches_the_adr_table() {
     let adr = adr_rows();
-    assert_eq!(adr.len(), 29, "ADR section 5 row count");
+    assert_eq!(adr.len(), 30, "ADR section 5 row count");
     assert_eq!(golden_rows(), adr);
 }
 
 #[test]
 fn every_code_matches_its_golden_row() {
     let golden = golden_rows();
+    assert_eq!(golden.len(), 30, "golden row count (ADR-0006 revision 3)");
     let codes = Code::all();
     assert_eq!(codes.len(), golden.len(), "Code::all() vs ADR rows");
     for (code, row) in codes.iter().zip(&golden) {
@@ -185,6 +188,7 @@ fn error_envelope_golden_json_for_every_code() {
             resource: None,
             next: NextAction::for_code(code.clone()),
             message: "m".to_owned(),
+            reason: None,
         };
         let env = Envelope::failed(None, detail);
         let v = serde_json::to_value(&env).unwrap();
@@ -298,4 +302,49 @@ fn envelope_with_an_unknown_code_parses_and_is_not_success() {
     assert!(!env.code.is_success());
     assert_eq!(env.code.exit_code(), ExitCode::Internal);
     assert_eq!(serde_json::to_value(&env).unwrap(), v);
+}
+
+/// m02-plan section 5 item 13 (ADR-0007 section 8): `LAUNCH_FAILED` exits 127, or 126
+/// when the reason is `not_executable`; retryable no, effect `none`, next
+/// `fix_request`; it is the 30th row.
+#[test]
+fn launch_failed_row_and_its_126_rule() {
+    let names: Vec<&str> = Code::all().iter().map(Code::as_str).collect();
+    assert_eq!(names.len(), 30);
+    assert_eq!(names.last(), Some(&"LAUNCH_FAILED"));
+    let c = Code::LaunchFailed;
+    assert_eq!(c.exit_code(), ExitCode::LaunchFailed);
+    assert_eq!(c.exit_code().as_i32(), 127);
+    assert_eq!(
+        c.exit_code_for_reason(Some("not_executable")),
+        ExitCode::NotExecutable
+    );
+    assert_eq!(c.exit_code_for_reason(Some("not_executable")).as_i32(), 126);
+    for other in [
+        None,
+        Some("not_found"),
+        Some("refused_path"),
+        Some("meta_unavailable"),
+    ] {
+        assert_eq!(c.exit_code_for_reason(other).as_i32(), 127, "{other:?}");
+    }
+    // The 126 rule belongs to LAUNCH_FAILED only.
+    for code in Code::all() {
+        if *code != Code::LaunchFailed {
+            assert_eq!(
+                code.exit_code_for_reason(Some("not_executable")),
+                code.exit_code(),
+                "{code}"
+            );
+        }
+    }
+    assert!(!c.retryable());
+    assert!(!c.is_success());
+    assert_eq!(c.default_effect_status(), EffectStatus::None);
+    assert_eq!(c.default_next_action(), "fix_request");
+    assert_eq!(serde_json::to_string(&c).unwrap(), "\"LAUNCH_FAILED\"");
+    assert_eq!(
+        serde_json::from_str::<Code>("\"LAUNCH_FAILED\"").unwrap(),
+        Code::LaunchFailed
+    );
 }

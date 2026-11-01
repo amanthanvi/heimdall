@@ -2,7 +2,7 @@
 //! §13.5; R-RT-04; plan §6.3 property 6).
 
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{BindingId, GrantId, OperationId, ResourceId};
+use heimdall_contract::ids::{BindingId, EnvironmentId, GrantId, OperationId, ResourceId};
 use serde::{Deserialize, Serialize};
 
 /// Monotonic per-resource generation. Cleanup of generation N must not touch a
@@ -47,6 +47,12 @@ pub enum OwnerRef {
     },
     /// The runtime itself (control endpoint, instance lock).
     Runtime,
+    /// ⟨M02⟩ The managed projection of an environment (m02-plan §5 item 17): its
+    /// `config_projection` resources (P, P_git, key files).
+    Projection {
+        /// The environment.
+        environment: EnvironmentId,
+    },
 }
 
 /// Desired/observed resource state (spec §13.5).

@@ -231,6 +231,10 @@ mod fake_adapter {
             "refresh_dependency": out.refresh_dependency,
             "enforcement": out.enforcement,
             "credential_ref": out.credential_ref,
+            // ⟨M02⟩ U0b row 15: the outcome's new fields survive a restart too.
+            "availability": out.availability,
+            "provider": out.provider,
+            "integration": out.integration,
         })
         .to_string();
         line.push('\n');
@@ -244,6 +248,8 @@ mod fake_adapter {
     fn parse_line(line: &str) -> std::io::Result<(String, PrepareOutcome)> {
         let v: serde_json::Value = serde_json::from_str(line).map_err(bad)?;
         let get = |k: &str| v[k].clone();
+        // ⟨M02⟩ A field an older ledger line lacks reads as its default.
+        let present = |k: &str| v.get(k).is_some_and(|x| !x.is_null());
         Ok((
             serde_json::from_value(get("effect_token")).map_err(bad)?,
             PrepareOutcome {
@@ -253,6 +259,17 @@ mod fake_adapter {
                     .map_err(bad)?,
                 enforcement: serde_json::from_value(get("enforcement")).map_err(bad)?,
                 credential_ref: serde_json::from_value(get("credential_ref")).map_err(bad)?,
+                availability: if present("availability") {
+                    serde_json::from_value(get("availability")).map_err(bad)?
+                } else {
+                    Default::default()
+                },
+                provider: serde_json::from_value(get("provider")).map_err(bad)?,
+                integration: if present("integration") {
+                    serde_json::from_value(get("integration")).map_err(bad)?
+                } else {
+                    Default::default()
+                },
             },
         ))
     }
@@ -562,6 +579,9 @@ mod ledger_tests {
             refresh_dependency: RefreshDependency::None,
             enforcement: EnforcementEvidence::unknown(),
             credential_ref: "cred-ref-1".into(),
+            availability: Default::default(),
+            provider: None,
+            integration: Default::default(),
         }
     }
 
@@ -599,6 +619,7 @@ mod ledger_tests {
             interactive: false,
             effect_token: token,
             now: t0(),
+            pairs: &[],
         }))
     }
 

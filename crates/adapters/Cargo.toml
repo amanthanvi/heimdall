@@ -1,0 +1,27 @@
+[package]
+name = "heimdall-adapters"
+description = "Heimdall existing-access credential adapters: the native SSH agent and the 1Password SSH agent, their passive detection, interaction states and consumer integration (m02-plan U6; ADR-0007 §7)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+# The ports these adapters implement (`CredentialAdapter`, `ProviderProbe`).
+heimdall-app = { workspace = true }
+# `ipc::agent_client` (U6): the bounded `SSH_AGENTC_REQUEST_IDENTITIES` client.
+heimdall-ipc = { workspace = true }
+# Passive endpoint detection and the static identity selection (U3).
+heimdall-localenv = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+heimdall-testkit = { workspace = true }

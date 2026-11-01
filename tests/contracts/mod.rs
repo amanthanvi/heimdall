@@ -15,6 +15,9 @@
 //! * `ids`: identifier parser bounds (A29 "parsers bounded").
 //! * `schema_export`: export determinism and agreement of `schemas/public-api/`.
 //! * `limits`: ADR-0006 section 2 limits and version constants.
+//! * `m02`: ADR-0006 revision 3 deltas (m02-plan section 5): the journaled-kind
+//!   mapping, `bind(launch)` without `argv`, the `run` record reader against
+//!   ADR-0007 section 8, error reasons and the additive fields.
 //!
 //! Property tests run 256 cases with a fixed default seed so a failure reproduces;
 //! set `PROPTEST_RNG_SEED=<u64>` to explore other seeds. Failing cases persist to
@@ -28,6 +31,7 @@ mod examples;
 mod ids;
 mod jsonschema_lite;
 mod limits;
+mod m02;
 mod schema_export;
 
 use std::path::PathBuf;

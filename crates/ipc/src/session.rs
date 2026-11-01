@@ -97,6 +97,12 @@ use tokio_util::sync::CancellationToken;
 use crate::frame::{FrameError, encode_frame};
 
 /// Capabilities this build serves.
+///
+/// ⟨M02⟩ `setup/1` is deliberately **not** offered until the activation change set
+/// (m02-plan §5 item 4 and U0b row 19, phase 1; ADR-0007 §12.7 QR7): no session can
+/// negotiate it, a hello that requires it is rejected with `SCHEMA_UNSUPPORTED`,
+/// and the gate answers every Setup and Catalog request `SCHEMA_UNSUPPORTED`
+/// without dispatching it.
 #[must_use]
 pub fn server_capabilities() -> BTreeSet<String> {
     [
@@ -133,6 +139,7 @@ pub fn negotiate(
                 resource: None,
                 next: NextAction::for_code(code),
                 message: message.to_owned(),
+                reason: None,
             },
         ))
     };
@@ -374,6 +381,7 @@ fn error_envelope(code: Code, effect_status: EffectStatus, message: &str) -> Env
             resource: None,
             next,
             message: message.to_owned(),
+            reason: None,
         },
     )
 }

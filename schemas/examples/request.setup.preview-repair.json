@@ -1,0 +1,10 @@
+{
+  "op": "setup",
+  "action": "preview",
+  "intent": {
+    "kind": "repair",
+    "conflict": "projection_held",
+    "resolution": "retry_held",
+    "operation": "op_00112233445566778899aabbccddeeff"
+  }
+}

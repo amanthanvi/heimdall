@@ -1,0 +1,92 @@
+{
+  "levels_performed": ["static"],
+  "levels_declined": ["evaluate"],
+  "clients": [
+    {
+      "consumer": "ssh",
+      "path_display": "/usr/bin/ssh",
+      "source": "path",
+      "version": "OpenSSH_9.5p2",
+      "sha256": "cabb46077159c16e9b70f50c6badb365aefc4d64d83ac2d8a395ad3d1732a673",
+      "selected": true
+    }
+  ],
+  "config_files": [
+    {"path_display": "~/.ssh/config", "role": "user", "readable": true, "sha256": "05e9825af2f599ec9c430fd4ca8e904c273e6ec4986b3934f98107465595538d", "bytes": 412},
+    {"path_display": "~/.ssh/conf.d/private.conf", "role": "included", "readable": false}
+  ],
+  "aliases": [
+    {
+      "alias": "build-box",
+      "definition": "managed",
+      "behavior": [
+        {"directive": "IdentityAgent", "values": ["/run/user/1000/ssh-agent.socket", "none"], "certainty": "undetermined", "provenance": [{"path_display": "~/.ssh/heimdall/config", "line": 6}, {"path_display": "~/.ssh/config", "line": 14}]}
+      ],
+      "identity_selection": {
+        "selection": "undetermined",
+        "entries": [
+          {"kind": "identity_file", "source": "managed", "provenance": {"path_display": "~/.ssh/heimdall/config", "line": 7}, "certainty": "determined", "fingerprint": "SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk", "backing": "agent", "cleared": true},
+          {"kind": "identity_file", "source": "user", "provenance": {"path_display": "~/.ssh/config", "line": 15}, "certainty": "undetermined", "backing": "unknown", "cleared": false}
+        ],
+        "identities_only": "undetermined"
+      }
+    }
+  ],
+  "providers": [
+    {"provider": "native_agent", "availability": "unknown", "interaction": "unknown", "observed_level": "static", "observed_at": "2026-11-01T09:00:00Z", "basis": "inferred"}
+  ],
+  "projection": {"state": "conflict", "generation": 4, "conflict": "projection_held"},
+  "git": {
+    "selection": {"source": "config", "scope": "global", "classification": "other"},
+    "values": [
+      {"scope": "global", "origin_display": "file:~/.gitconfig", "value_sha256": "1fd9a83b5f3d15748c4ea4c87408fbe85e76da640c0f1790af206f8f4a6ed30b", "count": 1, "conditional": false}
+    ]
+  },
+  "findings": [
+    {
+      "code": "dynamic_match_unresolved",
+      "severity": "warning",
+      "subject": {"kind": "config"},
+      "level": "static",
+      "provenance": {"path_display": "~/.ssh/config", "line": 13},
+      "message": "a Match exec section cannot be decided without running it",
+      "next": {"action": "review_config"}
+    },
+    {
+      "code": "projection_held",
+      "severity": "problem",
+      "subject": {"kind": "operation", "id": "op_00112233445566778899aabbccddeeff"},
+      "level": "static",
+      "message": "a setup operation is held for the owner",
+      "next": {"action": "reconcile", "operation_id": "op_00112233445566778899aabbccddeeff"},
+      "reason": "active_entry_modified"
+    }
+  ],
+  "probes": [
+    {
+      "level": "static",
+      "target": "build-box",
+      "started_at": "2026-11-01T09:00:00Z",
+      "duration_ms": 14,
+      "outcome": "ok",
+      "authorization": [],
+      "executed_config_commands": [],
+      "effects_excluded": ["config_execution", "agent_contact", "provider_contact", "network", "signing", "mutation"],
+      "containment": "none",
+      "config_tree_differences": []
+    },
+    {
+      "level": "evaluate",
+      "target": "build-box",
+      "started_at": "2026-11-01T09:00:00Z",
+      "duration_ms": 0,
+      "outcome": "declined",
+      "decline_reason": "config_commands_not_authorized",
+      "authorization": [],
+      "executed_config_commands": [{"path_display": "~/.ssh/config", "line": 13}],
+      "effects_excluded": [],
+      "containment": "none",
+      "config_tree_differences": []
+    }
+  ]
+}

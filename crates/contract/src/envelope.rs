@@ -113,6 +113,12 @@ pub struct NextAction {
     /// Cursor to resume from after a resync.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<crate::event::Cursor>,
+    /// The provider-owned interaction, with action `interact`, for
+    /// `PROVIDER_LOCKED` and provider-owned `INTERACTION_REQUIRED` (ADR-0007 §7).
+    /// Never combined with `decision_ref`: provider dialogs are not Heimdall
+    /// decisions (spec §5.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_interaction: Option<crate::provider::ProviderInteractionRef>,
 }
 
 impl NextAction {
@@ -123,6 +129,13 @@ impl NextAction {
             action: code.default_next_action().to_owned(),
             ..Self::default()
         }
+    }
+
+    /// Whether the action respects spec §5.5: a provider interaction is never
+    /// combined with a Heimdall decision reference.
+    #[must_use]
+    pub fn is_well_formed(&self) -> bool {
+        !(self.provider_interaction.is_some() && self.decision_ref.is_some())
     }
 }
 
@@ -144,7 +157,8 @@ pub enum EffectStatus {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ResourceRef {
     /// Resource kind (`operation`, `binding`, `grant`, `policy`, `destination`,
-    /// `environment`, `endpoint`, `config`, `store`, `clock`, `decision`).
+    /// `environment`, `endpoint`, `config`, `store`, `clock`, `decision`, and
+    /// since M02 `projection`, `identity`, `provider`, `executable`).
     pub kind: String,
     /// Opaque identifier, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,6 +181,10 @@ pub struct ErrorDetail {
     pub next: NextAction,
     /// Human text; may change without breaking callers; never contains secrets.
     pub message: String,
+    /// Stable `snake_case` sub-reason refining the code (m02-plan §5 item 14; the
+    /// values are in [`reason`]). Readers tolerate unknown values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// The `data` payload of an error envelope.
@@ -174,6 +192,89 @@ pub struct ErrorDetail {
 pub struct ErrorData {
     /// The error.
     pub error: ErrorDetail,
+    /// A setup operation's partial result: a held operation's envelope
+    /// (`OUTCOME_UNKNOWN`, reason `projection_held`) lists every item and held
+    /// step here (m02-plan §5 item 2). Boxed so the common error stays small.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<Box<crate::setup::SetupResult>>,
+}
+
+/// Stable values of [`ErrorDetail::reason`] (m02-plan §5 item 14). The conflict
+/// kinds ([`crate::setup::ConflictKind`]) and the manual reasons
+/// ([`crate::setup::manual_reason`]) are reasons too, with the same spelling.
+pub mod reason {
+    /// Launch: the program was not found.
+    pub const NOT_FOUND: &str = "not_found";
+    /// Launch: the program would resolve from the current directory.
+    pub const CURRENT_DIRECTORY: &str = "current_directory";
+    /// Launch: a batch script path with a refused character (Q-B).
+    pub const REFUSED_BATCH_PATH: &str = "refused_batch_path";
+    /// Launch: an argument std refuses to escape (named by index only).
+    pub const REFUSED_ARGUMENT: &str = "refused_argument";
+    /// Launch: found but not executable (exit 126).
+    pub const NOT_EXECUTABLE: &str = "not_executable";
+    /// Launch: exec or spawn returned an error.
+    pub const EXEC_ERROR: &str = "exec_error";
+    /// Launch: the resolved path is not valid Unicode.
+    pub const REFUSED_PATH: &str = "refused_path";
+    /// Launch: the side-channel `launching` record could not be written.
+    pub const META_UNAVAILABLE: &str = "meta_unavailable";
+    /// Provider: the agent endpoint is absent.
+    pub const ENDPOINT_ABSENT: &str = "endpoint_absent";
+    /// Provider: the identity is not listed by its agent.
+    pub const IDENTITY_NOT_LISTED: &str = "identity_not_listed";
+    /// Provider: the provider owns an interaction.
+    pub const PROVIDER_INTERACTION: &str = "provider_interaction";
+    /// Provider: the identity's interaction is unknown.
+    pub const INTERACTION_UNKNOWN: &str = "interaction_unknown";
+    /// One grant's pairs name identities of different mechanisms (P6).
+    pub const MIXED_MECHANISMS: &str = "mixed_mechanisms";
+    /// A real-tree probe level without `--allow-config-commands`.
+    pub const CONFIG_COMMANDS_NOT_AUTHORIZED: &str = "config_commands_not_authorized";
+    /// A `core.sshCommand` value is present.
+    pub const GIT_SSH_COMMAND_PRESENT: &str = "git_ssh_command_present";
+    /// The request's driver is not in this build or runtime (wave-0 landing; a
+    /// runtime without a projection writer).
+    pub const DRIVER_UNAVAILABLE: &str = "driver_unavailable";
+    /// An uncleared fallback identity may prompt (ADR-0007 §7, M2-R05).
+    pub const FALLBACK_IDENTITY_INTERACTION: &str = "fallback_identity_interaction";
+    /// The static pass could not fully read the configuration tree.
+    pub const CONFIG_NOT_FULLY_READABLE: &str = "config_not_fully_readable";
+    /// A Git configuration file is unreadable.
+    pub const GIT_CONFIG_UNREADABLE: &str = "git_config_unreadable";
+    /// Another setup operation of this environment is open or unresolved.
+    pub const SETUP_IN_PROGRESS: &str = "setup_in_progress";
+    /// A setup operation is held for the owner (with `OUTCOME_UNKNOWN`).
+    pub const PROJECTION_HELD: &str = "projection_held";
+    /// A plan exceeds the setup intent's content bounds.
+    pub const PROJECTION_TOO_LARGE: &str = "projection_too_large";
+
+    /// The reasons defined here, in documentation order. Together with the conflict
+    /// kinds and the manual reasons they are every reason this build writes.
+    pub const ALL: &[&str] = &[
+        NOT_FOUND,
+        CURRENT_DIRECTORY,
+        REFUSED_BATCH_PATH,
+        REFUSED_ARGUMENT,
+        NOT_EXECUTABLE,
+        EXEC_ERROR,
+        REFUSED_PATH,
+        META_UNAVAILABLE,
+        ENDPOINT_ABSENT,
+        IDENTITY_NOT_LISTED,
+        PROVIDER_INTERACTION,
+        INTERACTION_UNKNOWN,
+        MIXED_MECHANISMS,
+        CONFIG_COMMANDS_NOT_AUTHORIZED,
+        GIT_SSH_COMMAND_PRESENT,
+        DRIVER_UNAVAILABLE,
+        FALLBACK_IDENTITY_INTERACTION,
+        CONFIG_NOT_FULLY_READABLE,
+        GIT_CONFIG_UNREADABLE,
+        SETUP_IN_PROGRESS,
+        PROJECTION_HELD,
+        PROJECTION_TOO_LARGE,
+    ];
 }
 
 impl Envelope<ErrorData> {
@@ -185,7 +286,7 @@ impl Envelope<ErrorData> {
             operation_id,
             state: OperationState::Failed,
             code: error.code.clone(),
-            data: ErrorData { error },
+            data: ErrorData { error, setup: None },
             warnings: Vec::new(),
             next: None,
         }

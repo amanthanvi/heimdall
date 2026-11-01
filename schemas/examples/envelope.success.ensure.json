@@ -23,7 +23,8 @@
     "consumer": {
       "signing_endpoint": "/run/user/1000/heimdall/binding_0123456789abcdef0123456789abcdef/signing.sock",
       "environment": [["SSH_AUTH_SOCK", "/run/user/1000/heimdall/binding_0123456789abcdef0123456789abcdef/signing.sock"]]
-    }
+    },
+    "credential_availability": "refresh_dependent"
   },
   "warnings": [
     {"code": "SHARED_OS_USER", "message": "isolation is same-user convenience only"}

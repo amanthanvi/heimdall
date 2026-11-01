@@ -2,7 +2,7 @@
 //! credentials, and never change when routes, addresses, or labels change.
 //!
 //! Wire form: `<prefix>_<32 lowercase hex>` for runtime-generated IDs
-//! (`op_`, `grant_`, `binding_`, `env_`, `evt_`, `res_`, `dev_`, `ws_`), and a
+//! (`op_`, `grant_`, `binding_`, `env_`, `evt_`, `res_`, `dev_`, `ws_`, `idn_`), and a
 //! bounded caller-chosen token for `request_id`, `work_id`, profile, destination
 //! and policy names. Parsing is bounded and rejects control characters.
 
@@ -194,6 +194,11 @@ prefixed_id!(
 prefixed_id!(
     /// Credential instance ID (ADR-0005 §12: key handle plus per-pair certificates).
     CredentialInstanceId, "cred"
+);
+prefixed_id!(
+    /// Adopted existing-access identity in the catalog (ADR-0007 §7; m02-plan §5
+    /// item 1). Runtime-generated at adoption; never derived from key material.
+    IdentityId, "idn"
 );
 
 token_id!(

@@ -529,6 +529,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glob"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -583,6 +589,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "heimdall-adapters"
+version = "0.1.0-m01"
+dependencies = [
+ "async-trait",
+ "heimdall-app",
+ "heimdall-contract",
+ "heimdall-domain",
+ "heimdall-ipc",
+ "heimdall-localenv",
+ "heimdall-testkit",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "heimdall-app"
 version = "0.1.0-m01"
 dependencies = [
@@ -619,11 +640,13 @@ dependencies = [
 name = "heimdall-domain"
 version = "0.1.0-m01"
 dependencies = [
+ "base64ct",
  "heimdall-contract",
  "jiff",
  "proptest",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
 ]
 
@@ -646,6 +669,32 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "windows-sys",
+]
+
+[[package]]
+name = "heimdall-launch"
+version = "0.1.0-m01"
+dependencies = [
+ "heimdall-contract",
+ "heimdall-domain",
+ "heimdall-localenv",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "heimdall-localenv"
+version = "0.1.0-m01"
+dependencies = [
+ "async-trait",
+ "glob",
+ "heimdall-app",
+ "heimdall-contract",
+ "heimdall-domain",
+ "heimdall-sshconf",
+ "rustix",
+ "thiserror",
  "windows-sys",
 ]
 
@@ -674,6 +723,15 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows-sys",
+]
+
+[[package]]
+name = "heimdall-sshconf"
+version = "0.1.0-m01"
+dependencies = [
+ "heimdall-contract",
+ "heimdall-domain",
+ "thiserror",
 ]
 
 [[package]]

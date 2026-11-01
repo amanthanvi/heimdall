@@ -102,7 +102,11 @@ fn codes_json_rows_equal_the_model_and_golden() {
     assert_eq!(checked_in["schema_version"], "1");
     let rows = checked_in["codes"].as_array().unwrap();
     let grows = golden["rows"].as_array().unwrap();
-    assert_eq!(rows.len(), 29, "ADR-0006 section 5 has 29 rows");
+    assert_eq!(
+        rows.len(),
+        30,
+        "ADR-0006 section 5 has 30 rows (revision 3)"
+    );
     assert_eq!(rows.len(), grows.len());
     for (row, g) in rows.iter().zip(grows) {
         assert_eq!(row["code"], g["code"]);

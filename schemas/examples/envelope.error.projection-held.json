@@ -1,0 +1,30 @@
+{
+  "schema_version": "1",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "state": "outcome_unknown",
+  "code": "OUTCOME_UNKNOWN",
+  "data": {
+    "error": {
+      "code": "OUTCOME_UNKNOWN",
+      "effect_status": "unknown",
+      "retryable": false,
+      "resource": {"kind": "projection"},
+      "next": {"action": "reconcile", "operation_id": "op_00112233445566778899aabbccddeeff"},
+      "message": "the setup operation is held: a file changed during the transaction",
+      "reason": "projection_held"
+    },
+    "setup": {
+      "generation": 4,
+      "items": [
+        {
+          "item": "ssh",
+          "outcome": "held",
+          "files": [{"role": "user_ssh", "path_display": "~/.ssh/config", "state": "held"}]
+        }
+      ],
+      "remaining": [{"kind": "quarantine", "path_display": "~/.ssh/heimdall/.quarantine"}]
+    }
+  },
+  "warnings": [],
+  "next": {"action": "reconcile", "operation_id": "op_00112233445566778899aabbccddeeff"}
+}

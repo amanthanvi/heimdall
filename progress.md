@@ -423,3 +423,7 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   3. U0b phase 1;
   4. the integrator, running check.sh twice.
   - Then: an independent code review, and wave 1.
+- Incident, M02 wave 0: my SendMessage reply to W0-skeleton (agent ad327f7) resumed it while it was waiting on a background task. Two instances then ran the same packet, and each saw the other as a foreign writer.
+  - Told the instances apart: the instance that paused stays read-only; the active one finishes.
+  - The wave-0 integrator reconciles anything left inconsistent.
+  - Lesson: never SendMessage to a running workflow agent. If coordination is needed, let the integrator stage handle it.

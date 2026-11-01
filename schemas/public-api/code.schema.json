@@ -118,6 +118,10 @@
     {
       "type": "string",
       "const": "INTERNAL_ERROR"
+    },
+    {
+      "type": "string",
+      "const": "LAUNCH_FAILED"
     }
   ]
 }

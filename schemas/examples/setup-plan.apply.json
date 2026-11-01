@@ -1,0 +1,81 @@
+{
+  "plan_digest": "57a1282fa0e4f045faeab0a3ca083727ea3c373b58261103f25971d1531e35fd",
+  "intent": {"kind": "apply", "include_git": true},
+  "mode": "automatic",
+  "manual_reasons": [],
+  "files": [
+    {
+      "role": "user_ssh",
+      "path_display": "~/.ssh/config",
+      "before_sha256": "05e9825af2f599ec9c430fd4ca8e904c273e6ec4986b3934f98107465595538d",
+      "after_sha256": "5457a97cd2bb5f219b8f38f3ef538933c9efdd2092c15a2871377a48ecb3de41",
+      "diff": "--- ~/.ssh/config\n+++ ~/.ssh/config\n@@ -1,0 +1,3 @@\n+# heimdall:begin 7f3a\n+Include ~/.ssh/heimdall/config\n+# heimdall:end 7f3a\n"
+    },
+    {
+      "role": "managed_ssh",
+      "path_display": "~/.ssh/heimdall/config",
+      "after_sha256": "3af81aaa3f2e37c684fc4856ad7b6e975b991173a200707940b0d85234a53b5f",
+      "diff": "+Host build-box\n+  HostName build.example.net\n+  Port 2222\n+  User deploy\n+  IdentitiesOnly yes\n"
+    }
+  ],
+  "git": {
+    "applicability": "applicable",
+    "global_file": {"path_display": "~/.gitconfig", "file": "home_gitconfig", "resolution": "first_read_existing"},
+    "previous_values": [],
+    "include_block": {
+      "role": "git_include",
+      "path_display": "~/.gitconfig",
+      "before_sha256": "1fd9a83b5f3d15748c4ea4c87408fbe85e76da640c0f1790af206f8f4a6ed30b",
+      "after_sha256": "cabb46077159c16e9b70f50c6badb365aefc4d64d83ac2d8a395ad3d1732a673",
+      "diff": "+# heimdall:begin 7f3a\n+[include]\n+\tpath = ~/.ssh/heimdall/gitconfig\n+# heimdall:end 7f3a\n"
+    },
+    "effective_before": {"source": "default", "classification": "bundled_msys"},
+    "effective_after": {"source": "config", "scope": "global", "classification": "verified_client"}
+  },
+  "aliases": [
+    {
+      "alias": "build-box",
+      "kind": "managed",
+      "before": {"digest": "6c7b53e5ef977d7176865edf5d782d2924c58092b9530f83ce45bf51f1d51db9", "directives": []},
+      "after": {
+        "digest": "736eb37369d5feeb0d83fb3c051d2ccf047e937142a24c7f6cd730903dd6fd6d",
+        "directives": [
+          {"directive": "HostName", "values": ["build.example.net"], "certainty": "determined", "provenance": [{"path_display": "~/.ssh/heimdall/config", "line": 2}]}
+        ]
+      },
+      "changes": [
+        {
+          "directive": "HostName",
+          "before": {"directive": "HostName", "values": [], "certainty": "unset", "provenance": []},
+          "after": {"directive": "HostName", "values": ["build.example.net"], "certainty": "determined", "provenance": [{"path_display": "~/.ssh/heimdall/config", "line": 2}]}
+        }
+      ],
+      "inherited": [
+        {"directive": "ServerAliveInterval", "values": ["30"], "certainty": "determined", "provenance": [{"path_display": "~/.ssh/config", "line": 9}]}
+      ],
+      "identity_selection": {
+        "selection": "exclusive",
+        "entries": [
+          {
+            "kind": "identity_file",
+            "source": "managed",
+            "provenance": {"path_display": "~/.ssh/heimdall/config", "line": 7},
+            "certainty": "determined",
+            "fingerprint": "SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk",
+            "backing": "agent"
+          }
+        ],
+        "identities_only": "determined_yes"
+      }
+    }
+  ],
+  "consent": {
+    "decision_required": true,
+    "reasons": [
+      {"item": "build-box", "kind": "new_state"},
+      {"item": "git", "kind": "git_selection_changed"}
+    ]
+  },
+  "unaffected_names_checked": 12,
+  "findings": []
+}

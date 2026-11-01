@@ -1,0 +1,17 @@
+{
+  "generation": 4,
+  "items": [
+    {
+      "item": "ssh",
+      "outcome": "held",
+      "files": [
+        {"role": "user_ssh", "path_display": "~/.ssh/config", "state": "held"},
+        {"role": "managed_ssh", "path_display": "~/.ssh/heimdall/config", "state": "written_inactive"}
+      ]
+    },
+    {"item": "git", "outcome": "not_applied", "files": []}
+  ],
+  "remaining": [
+    {"kind": "quarantine", "path_display": "~/.ssh/heimdall/.quarantine"}
+  ]
+}

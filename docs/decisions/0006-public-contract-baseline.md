@@ -10,6 +10,10 @@ wave-1 escalations under the orchestrator's rulings. Every changed rule is marke
 **Revision 2.1 (2026-10-31, task M01-T00-review2-fix):** applies the round-2 design
 review (`tests/evidence/artifacts/review-m01-design/round2/review.md`, N01–N06) under
 the orchestrator's rulings (§13.4). Rules changed by it are marked **⟨r2.1⟩**.
+**Revision 3 (2026-11-01, task M02-W0-integrate):** the M02 wave-0 contract deltas of
+`docs/architecture/m02-plan.md` §5 (revision 5) and ADR-0007 §10, as implemented at wave
+0. Rules changed by it are marked **⟨rev3⟩**; §15 lists the deltas and the readings
+applied where the design was silent.
 **Affects:** R-AP-01…R-AP-08, R-RT-03, R-RT-06, R-SE-05, R-SE-06, R-AU-06.
 **Executable form:** `crates/contract` (types, code table, limits, schemas),
 `crates/domain::lifecycle` (state machines), `crates/ipc` (transport); `schemas/
@@ -342,6 +346,7 @@ its deadline.
 | SCHEMA_UNSUPPORTED | 2 | no | none | fix_request | baseline (spec §11.2) |
 | NOT_FOUND | 2 | no | none | fix_request | baseline |
 | INTERNAL_ERROR | 1 | no | none | report | baseline |
+| LAUNCH_FAILED | 127 (126 with reason `not_executable`) | no | none | fix_request | rev. 3 (ADR-0007 §8; `run` and `connect` only) |
 
 Placement decisions worth recording: `CAPABILITY_UNAVAILABLE` is exit 4 (a refusal
 that an unchanged retry cannot fix), not 5; `PROVIDER_LOCKED` is exit 3 and
@@ -363,7 +368,10 @@ denied/paused/cutoff · 5 unavailable/transient dependency · 6 conflict · 7 un
 external outcome. `ACCEPTED` exits 0 only with `--async`; after a synchronous
 bounded wait a still-pending operation exits 5 with `next.observe`. clap usage
 errors exit 2. `heimdall run` exits with the child's status after launch; pre-launch
-failures use this table and the structured side channel (spec §10.4; M02).
+failures use this table and the structured side channel (spec §10.4; M02). **⟨rev3⟩**
+`LAUNCH_FAILED` exits 127, or 126 when its reason is `not_executable`; it occurs only
+in `run` and `connect` (ADR-0007 §8). `contract::ExitCode` gains `NotExecutable` (126)
+and `LaunchFailed` (127), and `Code::exit_code_for_reason` applies the 126 rule.
 
 ## 7. Idempotency (spec §11.4; primitives-draft §5; `domain::idempotency`)
 
@@ -1506,3 +1514,74 @@ revision 2 adds `Denial::DeadlinePassed` for it, mapped to `CREDENTIAL_EXPIRED`
    ends.
 3. **Exit classes as baselined:** `CAPABILITY_UNAVAILABLE` exits 4 (the requested minimum
    cannot be met by this mechanism; not a transient dependency), `NOT_FOUND` exits 2.
+
+## 15. ⟨rev3⟩ Revision 3 (M02 wave 0)
+
+Revision 3 adds the contract that M02 needs (`docs/architecture/m02-plan.md` §5, revision 5;
+ADR-0007 §10). Schema major stays `"1"` (§9): every change is additive except the two marked
+**changed**. Every new enum is `#[non_exhaustive]` and `snake_case` on the wire. Wave 0 lands
+the types and the fail-closed landing only; no Setup or Catalog request is served yet.
+
+### 15.1 Deltas (m02-plan §5 item → where)
+
+| Item | Delta | Where |
+|---|---|---|
+| 1 | `IdentityId`, prefix `idn` | `contract::ids` |
+| 2 | `Request::Setup(SetupRequest)` (`preview`, `apply`, `rollback`, `repair`); `PreviewIntent` with `validate`; `PlanDigest`; `SetupPlan`, `SetupResult` and their parts; `ConflictKind`, `RepairResolution`; `kind()` `setup.preview` / `setup.apply` / `setup.rollback` / `setup.repair` | `contract::setup`, `contract::request` |
+| 3 | `Request::Catalog(CatalogRequest)`, eight actions, with `validate`; `EndpointRef`; `WithdrawDeclarationData`; `kind()` `catalog` | `contract::catalog`, `contract::provider` |
+| 4 | capability `setup/1`, **declared and not offered** (frozen fail-closed landing, ADR-0007 §12.5 item 7) | `contract::ipc::capability::SETUP_V1`; `ipc::session` |
+| 5 | **changed** `BindForm::Launch(LaunchBinding { executable, holder })` with `validate`; `argv` and `MAX_ARGV_BYTES` removed (Q8) | `contract::request` |
+| 6 | `RequiredCapabilities.unattended` (default `false`, omitted when `false`, so M01 hashes are unchanged) | `contract::request` |
+| 7 | `EnsureData.{credential_availability, provider}` | `contract::request` |
+| 8 | `ConsumerIntegration.{executables, overrides, pairs}` (default empty, omitted when empty) | `contract::request` |
+| 9 | provider vocabulary (`ProviderKind`, `ProviderAvailability`, `InteractionKind`, `EvidenceBasis`, `ProbeLevel`, `ProviderStatus`, `CredentialAvailability`, `ProviderInteractionRef`, `IdentitySelection`, `IdentitySelectionReport`) | `contract::provider` |
+| 10 | `NextAction.provider_interaction` | `contract::envelope` |
+| 11 | `DoctorReport`, `ProbeRecord`, `Finding` and the finding codes | `contract::doctor`; schema `doctor-report.schema.json` |
+| 12 | `RunRecord` and the pure reader `run_record::classify` (ADR-0007 §8) | `contract::run_record`; schema `run-record.schema.json` |
+| 13 | code `LAUNCH_FAILED` (§5 row 30; §6); `ExitCode::{NotExecutable, LaunchFailed}` | `contract::code`, `contract::exit` |
+| 14 | stable sub-reason `data.error.reason` (see 15.2 item 1) and its values | `contract::envelope::reason` |
+| 15 | `InspectSubject::{Identities, Projections}`; the app ports (`ProjectionWriter`, `StageSink`, `ProviderProbe`, `ProcessLiveness`), `PrepareRequest.pairs`, `PrepareOutcome.{availability, provider, integration}`, the adapter drop contract (documentation) | `contract::request`, `app::ports` |
+| 16 | hash inputs: `setup.*` = environment + `plan_digest`; `catalog` = action + canonical spec; bind launch = binding + `"launch"` + executable (holder excluded); bind materialize keeps the M01 input byte for byte | `app::operations` |
+| 17, 17a | domain types (decisions, operation kinds, approvals, setup and catalog intents, `StepContent`, `FileIdentity`, `LocalReceipt`, catalog records, `eligibility`, `fallback_clearance`, holders, `PreparedFacts`) | `heimdall_domain::{decision, operation, projection, catalog, holder, resource}` |
+| 18 | migration `0005_existing_access` (tables only, plus one index), `SCHEMA_VERSION` 5, the `Txn` methods, `Store::open_read_only` | `crates/store` |
+| 19 | config `[clients]` and `[setup] declaration_validity_days` | **not landed in wave 0** (see 15.3) |
+
+New public schemas: `setup-plan.schema.json`, `setup-result.schema.json`,
+`doctor-report.schema.json` and `run-record.schema.json` (the exporter's file-name
+convention; m02-plan §5 items 11 and 12 say `doctor-report.json` and `run-record.json`).
+The code golden (`tests/contracts/golden/code-table.golden.json`) and this ADR's §5 table both
+have 30 rows.
+
+### 15.2 Readings applied where the design is silent (pending orchestrator confirmation)
+
+1. **Sub-reason field (wave-0 E3).** m02-plan §5 item 14 and ADR-0007 §10 name
+   `ErrorData.reason`; the error fields live in `ErrorDetail`, so the field is
+   `ErrorDetail.reason: Option<String>`, wire `data.error.reason`, omitted when absent.
+2. **Operation-kind wire names (E4).** The new `OperationKind` variants serialize with the
+   dotted names `setup.apply`, `setup.rollback`, `setup.repair` (and `catalog`), so serde
+   equals `as_str` for every kind; a test asserts it.
+3. **Journaled-kind classifier (E5).** `Request::admission()` classifies every variant inside
+   the contract crate without a wildcard; the domain half of
+   `journaled_operation_kinds_match_their_request_kind` reads the shared golden
+   `tests/contracts/golden/journaled-kinds.golden.json`.
+4. **Held setup result.** A held operation's error envelope carries the `SetupResult` as
+   `ErrorData.setup` (wire `data.setup`, omitted when absent).
+5. **`credential_availability` is always written**; an M01 document without it reads as
+   `unknown`.
+6. **`runtime_lifecycle` per-operation report (E2).** At restart an open setup or catalog
+   operation is left untouched and reported as `{phase: unresolved, operation_id, kind,
+   state, reason: driver_unavailable}`. The event payload is free-form; no `EventType` is
+   added.
+7. **Cancel of a setup or catalog operation (E1)** is refused with `CAPABILITY_UNAVAILABLE`,
+   reason `driver_unavailable`, and writes nothing, until a later revision defines it.
+8. Shapes the design names without fixing (ClientObservation, BehaviorChange, OverrideSource,
+   LaunchClassification and others) are as implemented in `crates/contract` and exported in
+   `schemas/public-api`; they are part of this baseline, not frozen (§1).
+
+### 15.3 Not in wave 0
+
+* §5 item 19 (configuration): `[clients]` and `[setup] declaration_validity_days` are not
+  yet in `runtime::config` or `schemas/configuration`. They land with the unit that reads
+  them.
+* `Limits.adapter_call_timeout` (U0b row 24) is phase 2.
+* `setup/1` is offered only by the activation change set (m02-plan §2, wave 3).

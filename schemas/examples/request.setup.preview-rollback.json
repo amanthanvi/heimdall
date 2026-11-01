@@ -1,0 +1,5 @@
+{
+  "op": "setup",
+  "action": "preview",
+  "intent": {"kind": "rollback", "keep_key_files": false, "items": ["ssh", "git"]}
+}

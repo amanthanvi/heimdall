@@ -38,6 +38,32 @@ the public contract; `dependencies.md` holds every third-party choice.
                                   fake adapter, proptest strategies, canary assert)
 ```
 
+**M02 crates** (m02-plan U0; ADR-0007). Four crates join the workspace. They sit
+beside the layers above and depend inward only:
+
+```text
+   crates/heimdall (bin) ──► launch ──► localenv ──► app (ports), sshconf, domain, contract
+                         └─► adapters ─► localenv, app (ports), ipc, domain, contract
+   localenv ──► sshconf ──► domain, contract        (sshconf is pure: no I/O but its
+                                                      ConfigSource port, never executes)
+```
+
+* `crates/sshconf` (`heimdall-sshconf`): OpenSSH and Git configuration text (U1, U2).
+* `crates/localenv` (`heimdall-localenv`): discovery, the passive doctor, explicit
+  probes, Git observation (U3); the projection file transaction behind the
+  `ProjectionWriter` port and the projection `ResourceCleaner` (U4). Holds the third
+  `unsafe` module (§9).
+* `crates/adapters` (`heimdall-adapters`): the native-agent and 1Password
+  existing-access adapters behind `CredentialAdapter` and `ProviderProbe` (U6).
+* `crates/launch` (`heimdall-launch`): the process contract for `run`, `connect` and
+  the TUI handoff (U8).
+
+`app` never depends on these crates: it names them only through its ports, and the
+recovery and fingerprint types a held step carries live in
+`heimdall_domain::projection` (wave-0 verifier E8). The runtime wires the real
+implementations only in the activation change set (m02-plan §2, wave 3); until then
+no request, CLI command or restart reaches them.
+
 Dependencies point inward only (plan §7.1). `domain` and `contract` import no
 terminal, transport, storage or provider code. `app` knows adapters only through
 its own port traits. `ipc` does not know `app` (the runtime supplies a
@@ -62,6 +88,10 @@ M02 adapters are both known callers; no plugin framework exists.
 | `heimdall-ipc` | Control endpoint transport (Unix socket dir + `peer_cred`; Windows named pipe + DACL + client SID), length-prefixed JSON framing, hello negotiation, per-connection limits, `Dispatcher` trait, `ControlClient`, bounded SSH-agent framer for the signing endpoint with an exact allow-list and `Signer` trait | Authorization, operation logic, storage | contract, tokio (net/io), tokio-util codec, ssh-agent-lib (proto only), windows-sys (Windows) | `endpoint::*`, `frame::*`, `session::{negotiate, ControlConnection, ControlClient, Dispatcher}`, `signing::{classify, serve, Signer}`, `unix::*`/`windows::*` |
 | `heimdall-runtime` | `Config`/`Paths` (TOML + schema), `InstanceLock` (`File::try_lock`), `InstanceInfo`, `Service::{start, run}`, `Supervisor` (resource owners incl. the single cleanup executor with bounded retries, deadline scheduler, time guard), `launcher::ensure_running` (on-demand start), `telemetry::{init, redact}` | Authority semantics, operation logic, wire formats, rendering | app, ipc, store, domain, contract, tokio, toml, schemars, etcetera, tracing | as listed |
 | `heimdall` (bin) | clap command tree (spec §11.1), envelope rendering and exit mapping (`output`), `service run` entry, `tui` entry (M02-T05), `schema export|show` (implemented) | Any authorization or lifecycle implementation (plan §4.1 "Interfaces") | runtime, app, ipc, contract, clap | `heimdall` executable |
+| `heimdall-sshconf` (M02) | OpenSSH and Git configuration text: lexer, parser, directive table, include loader, static evaluator (`Undetermined` where it cannot know), relevant behaviour and its digest, identity selection, renderer, block editors, Git text scan, consent classification (m02-plan U1, U2) | Any I/O except its `ConfigSource` port, executing anything, private key files | domain, contract | `lex`, `parse`, `directive`, `include::{ConfigSource, ConfigSet, Roots}`, `limits`, `eval`, `relevant`, `render`, `edit`, `gitedit`, `consent` |
+| `heimdall-localenv` (M02) | Discovery (paths, clients, agents, known hosts), local queries, Git observation, the passive doctor and explicit probes (U3); the projection file transaction behind `ProjectionWriter`, the projection `ResourceCleaner`, public-key files (U4); the environment snapshot shared with `launch`; the third `unsafe` module (§9) | Authority decisions, store access, wire rendering, removing any name outside its quarantine | app (ports), sshconf, domain, contract, glob, rustix (Unix), windows-sys (Windows) | `env`, `paths`, `fs`, `clients`, `agents`, `known_hosts`, `local_query`, `git`, `doctor`, `probe::*`, `projection::{LocalProjection, replace, content, recovery, git, cleaner}`, `materialize`, `sys` |
+| `heimdall-adapters` (M02) | The native-agent and 1Password existing-access adapters (`CredentialAdapter` + `ProviderProbe`), passive detection, interaction states through the domain rule, consumer integration (U6) | Signing, adding, removing or locking keys; hardcoded 1Password paths (no pinned excerpt, `docs/sources/excerpts/notes.md`) | app (ports), localenv, ipc, domain, contract | `native_agent`, `onepassword`, `detect`, `state`, `integration` |
+| `heimdall-launch` (M02) | The process contract: program resolution without a shell, the environment delta, side-channel run records, Unix `exec`, Windows spawn-and-wait, TUI handoff, the pre-launch eligibility check (U8) | Sending or recording `argv`, job objects for the launched child, authorization | localenv, domain, contract, tokio | `resolve`, `env`, `meta`, `unix`/`windows`, `handoff`, `eligibility`, `MAX_ARGV_BYTES` |
 | `heimdall-testkit` (dev) | `VirtualClock`, `ScriptedFaults`, `FakeCredentialAdapter` with side-effect counters, proptest strategies, `assert_no_canary` | Shipping in a binary (dev-dependency only) | app, store, domain, contract, proptest | as listed |
 
 ## 3. Process model (spec §13.1, §13.2, P01)
@@ -242,7 +272,8 @@ integration,adversarial}` hold cross-crate tests as `m01-plan.md` assigns them.
 
 ## 9. `unsafe` inventory
 
-`unsafe_code = "deny"` at workspace level. Exactly two modules may opt in:
+`unsafe_code = "deny"` at workspace level. Exactly three modules may opt in (the
+third since M02, ADR-0007 §13):
 
 1. `crates/ipc/src/windows.rs` (`#![allow(unsafe_code)]`): `CreateNamedPipeW`
    security attributes (`create_with_security_attributes_raw`), SDDL conversion,
@@ -275,9 +306,29 @@ integration,adversarial}` hold cross-crate tests as `m01-plan.md` assigns them.
    S04 fallback test's descriptor. The module's own table lists each call with
    its invariant.
 
+3. `crates/localenv/src/sys.rs` (`#![allow(unsafe_code)]`; M02, m02-plan U0, U3, U4).
+   Wave 0 declares the module and its safe wrappers with no `unsafe` block yet; U3
+   and U4 write the bodies. The calls: the account home from the account database
+   (`getpwuid_r(getuid())`, never `$HOME`, ADR-0007 F19; Windows
+   `SHGetKnownFolderPath(FOLDERID_Profile)` with `CoTaskMemFree` exactly once); a
+   probe's process group (`killpg`, only a group this process created); kill-on-close
+   job objects without breakaway (`CreateJobObjectW`,
+   `SetInformationJobObject(KILL_ON_JOB_CLOSE)`, `AssignProcessToJobObject`,
+   `CloseHandle` once); `ReplaceFileW` with a backup name; handle identity
+   (`GetFileInformationByHandleEx(FileIdInfo)`); the adoption of `run --meta-fd`
+   (`fcntl(F_GETFD)`, `fstat`, `OwnedFd::from_raw_fd`, `FD_CLOEXEC`); and **the only
+   removal in the crate**, `QuarantineDir::remove_verified` (Unix `openat`/`fstat`
+   then `unlinkat` relative to the validated `.hm-quarantine` directory handle;
+   Windows `SetFileInformationByHandle(FileDispositionInfoEx)` on a handle whose
+   identity was checked), which removes an entry only when its identity and digest
+   equal the expected ones at removal (ADR-0007 §5.3). The atomic exchange and the
+   no-replace rename on Unix are **not** here: they go through rustix's safe
+   `fs::renameat_with` (m02-plan §6 P5; `dependencies.md`). The module's own table
+   lists each call with its invariant.
+
 Each call is wrapped in a safe function with its invariants documented; no `unsafe`
-leaves either module. Unix IPC needs none (tokio provides `peer_cred`; std provides
-file locks and permission bits).
+leaves any of these modules. Unix IPC needs none (tokio provides `peer_cred`; std
+provides file locks and permission bits).
 Dependencies' internal `unsafe` is not audited by this document (REPORT.md §8
 lesson); `cargo-deny`/`cargo auditable`/OSV scanning are M08 obligations
 (ADR-0002 §11).
@@ -287,8 +338,10 @@ lesson); `cargo-deny`/`cargo auditable`/OSV scanning are M08 obligations
 * Workspace lints: `unsafe_code = deny`, `missing_docs = warn`, `unused_must_use =
   deny`; clippy `all`, `unwrap_used`, `expect_used`, `dbg_macro`, `print_stdout`,
   `print_stderr`, `unimplemented` as warnings; CI runs clippy with `-D warnings`, so
-  they are errors in practice. `clippy::todo` is allowed only while the skeleton
-  exists (re-enable as `deny` when M01 closes). `clippy.toml` raises
+  they are errors in practice. `clippy::todo` is allowed only while a skeleton
+  exists: M01 left none, and the M02 skeleton (m02-plan U0) uses it only where no
+  request, CLI command, restart recovery or store method can reach (re-enable as
+  `deny` when M02 closes). `clippy.toml` raises
   `large-error-threshold` to 1024 for `OpError`.
 * One target dir, `./target` (gitignored); never `CARGO_TARGET_DIR` overrides
   (AGENTS.md). Toolchain pinned in `rust-toolchain.toml` (1.99.1, edition 2024,

@@ -8,7 +8,8 @@ use proptest::prelude::*;
 
 use heimdall_contract::ids::{
     AccountName, BindingId, DestinationId, DeviceId, EnvironmentId, EventId, GrantId, IdError,
-    MAX_ID_LEN, OperationId, PolicyId, ProfileId, RequestId, ResourceId, WorkId, WorkspaceId,
+    IdentityId, MAX_ID_LEN, OperationId, PolicyId, ProfileId, RequestId, ResourceId, WorkId,
+    WorkspaceId,
 };
 
 use crate::proptest_config;
@@ -30,6 +31,7 @@ fn prefixed() -> Vec<(&'static str, Parser)> {
         ("ws", |s| p(WorkspaceId::parse(s))),
         ("res", |s| p(ResourceId::parse(s))),
         ("evt", |s| p(EventId::parse(s))),
+        ("idn", |s| p(IdentityId::parse(s))),
     ]
 }
 

@@ -1,0 +1,10 @@
+{
+  "op": "catalog",
+  "action": "upsert_destination",
+  "destination": {
+    "id": "dest-2",
+    "alias": "legacy-box",
+    "definition": {"kind": "observed"}
+  },
+  "request_id": "req-0202"
+}

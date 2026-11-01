@@ -9,12 +9,16 @@
 //! becomes consent: the verdict applies exactly the recorded delta, nothing wider.
 
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{DecisionId, OperationId};
+use heimdall_contract::catalog::DeclaredInteraction;
+use heimdall_contract::ids::{DecisionId, IdentityId, OperationId};
+use heimdall_contract::provider::EndpointRef;
 use heimdall_contract::request::{PolicyAction, Verdict};
+use heimdall_contract::setup::PlanDigest;
 use serde::{Deserialize, Serialize};
 
 use crate::authority::AuthorityDelta;
 use crate::policy::AuthorityGeneration;
+use crate::projection::ProjectionSummary;
 use crate::time::BootId;
 
 /// What the owner is asked to decide.
@@ -39,6 +43,35 @@ pub enum DecisionKind {
         boot_id: BootId,
         /// Wall time observed by the runtime when the record was created.
         observed_wall: Timestamp,
+    },
+    /// ⟨M02⟩ Apply a projection change whose effect needs the owner (ADR-0007 §5.2;
+    /// Q1; m02-plan §5 item 17). Approval writes a `ProjectionApproval` into the
+    /// waiting operation's `SetupIntent`, only when `plan_digest` equals the
+    /// intent's; it carries no `AuthorityDelta`.
+    ApplyProjection {
+        /// The setup operation waiting in `awaiting_approval`.
+        operation: OperationId,
+        /// The plan the owner is shown and approves.
+        plan_digest: PlanDigest,
+        /// What the plan changes: the before, after and restore columns.
+        summary: ProjectionSummary,
+    },
+    /// ⟨M02⟩ Declare that an identity needs no interaction (ADR-0007 §7; QR1).
+    /// Approval copies these fields into the waiting catalog intent's
+    /// `DeclarationApproval`, from which alone the declaration is built.
+    DeclareInteraction {
+        /// The catalog operation waiting in `awaiting_approval`.
+        operation: OperationId,
+        /// The identity.
+        identity: IdentityId,
+        /// Its public-key fingerprint when the decision was created.
+        fingerprint: String,
+        /// The endpoint the declaration covers.
+        endpoint: EndpointRef,
+        /// The declared interaction.
+        interaction: DeclaredInteraction,
+        /// When the declaration will lapse (`expires_at`).
+        valid_until: Timestamp,
     },
 }
 
@@ -175,5 +208,88 @@ mod tests {
             complete(&pending, Verdict::Approve, AuthorityGeneration(3), late),
             Err(DecisionRefusal::Expired)
         );
+    }
+
+    fn round_trip(kind: &DecisionKind, golden: &str) {
+        assert_eq!(serde_json::to_string(kind).unwrap(), golden);
+        let back: DecisionKind = serde_json::from_str(golden).unwrap();
+        assert_eq!(&back, kind);
+        assert_eq!(serde_json::to_string(&back).unwrap(), golden);
+    }
+
+    /// m02-plan U0 `decision_kind_wire_forms`: the two M02 kinds.
+    #[test]
+    fn decision_kind_wire_forms() {
+        use crate::projection::{ItemId, ItemRestore, ProjectionSummary, Sha256Hex, SummaryIntent};
+        use heimdall_contract::provider::{EndpointKind, EndpointRef};
+
+        let digest = Sha256Hex::of(b"restore");
+        let apply = DecisionKind::ApplyProjection {
+            operation: OperationId::from_random_bytes([1; 16]),
+            plan_digest: PlanDigest::from_sha256([0xab; 32]),
+            summary: ProjectionSummary {
+                intent: SummaryIntent::Apply,
+                added_aliases: vec!["work".into()],
+                changed_aliases: Vec::new(),
+                removed_aliases: Vec::new(),
+                files: vec!["ssh/config".into(), "ssh/heimdall.conf".into()],
+                git: false,
+                restore: vec![ItemRestore {
+                    item: ItemId::alias("work"),
+                    digest: digest.clone(),
+                }],
+                diff_text: "+Host work\n".into(),
+            },
+        };
+        round_trip(
+            &apply,
+            &format!(
+                concat!(
+                    r#"{{"kind":"apply_projection","operation":"op_01010101010101010101010101010101","#,
+                    r#""plan_digest":"{pd}","summary":{{"intent":"apply","added_aliases":["work"],"#,
+                    r#""changed_aliases":[],"removed_aliases":[],"files":["ssh/config","ssh/heimdall.conf"],"#,
+                    r#""git":false,"restore":[{{"item":"alias:work","digest":"{d}"}}],"diff_text":"+Host work\n"}}}}"#
+                ),
+                pd = "ab".repeat(32),
+                d = digest
+            ),
+        );
+        let declare = DecisionKind::DeclareInteraction {
+            operation: OperationId::from_random_bytes([2; 16]),
+            identity: IdentityId::from_random_bytes([3; 16]),
+            fingerprint: "SHA256:fixturefingerprint".into(),
+            endpoint: EndpointRef {
+                kind: EndpointKind::UnixSocket,
+                locator: "/scratch/agent.sock".into(),
+            },
+            interaction: DeclaredInteraction::None,
+            valid_until: "2026-12-01T00:00:00Z".parse().unwrap(),
+        };
+        round_trip(
+            &declare,
+            concat!(
+                r#"{"kind":"declare_interaction","operation":"op_02020202020202020202020202020202","#,
+                r#""identity":"idn_03030303030303030303030303030303","fingerprint":"SHA256:fixturefingerprint","#,
+                r#""endpoint":{"kind":"unix_socket","locator":"/scratch/agent.sock"},"interaction":"none","#,
+                r#""valid_until":"2026-12-01T00:00:00Z"}"#
+            ),
+        );
+        // The M01 kinds keep their forms.
+        round_trip(
+            &DecisionKind::ConfirmTime {
+                boot_id: BootId("boot-a".into()),
+                observed_wall: "2026-10-02T00:00:00Z".parse().unwrap(),
+            },
+            r#"{"kind":"confirm_time","boot_id":"boot-a","observed_wall":"2026-10-02T00:00:00Z"}"#,
+        );
+        assert!(serde_json::from_str::<DecisionKind>(r#"{"kind":"local_approval"}"#).is_err());
+        assert!(apply_summary_bounded(&apply));
+    }
+
+    fn apply_summary_bounded(kind: &DecisionKind) -> bool {
+        match kind {
+            DecisionKind::ApplyProjection { summary, .. } => summary.within_bounds(),
+            _ => false,
+        }
     }
 }

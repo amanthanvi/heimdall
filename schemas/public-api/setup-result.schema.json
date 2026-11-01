@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SetupResult",
+  "description": "An apply, rollback or repair result (schema `setup-result`). A held operation's\nerror envelope (`OUTCOME_UNKNOWN`, reason `projection_held`) carries it in\n`data.setup`.",
+  "type": "object",
+  "properties": {
+    "generation": {
+      "description": "The projection generation.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "items": {
+      "description": "One outcome per item.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ItemOutcome"
+      }
+    },
+    "remaining": {
+      "description": "Artifacts left for the owner.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/RemainingArtifact"
+      }
+    }
+  },
+  "required": [
+    "generation"
+  ],
+  "$defs": {
+    "FileOutcome": {
+      "description": "One file of an item's outcome.",
+      "type": "object",
+      "properties": {
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Role.",
+          "$ref": "#/$defs/ProjectionFileRole"
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/FileOutcomeState"
+        }
+      },
+      "required": [
+        "role",
+        "path_display",
+        "state"
+      ]
+    },
+    "FileOutcomeState": {
+      "description": "A file's outcome.",
+      "oneOf": [
+        {
+          "description": "Written and active.",
+          "type": "string",
+          "const": "applied"
+        },
+        {
+          "description": "Not written.",
+          "type": "string",
+          "const": "not_applied"
+        },
+        {
+          "description": "Restored.",
+          "type": "string",
+          "const": "restored"
+        },
+        {
+          "description": "Written but not referenced (the item did not commit).",
+          "type": "string",
+          "const": "written_inactive"
+        },
+        {
+          "description": "Removed.",
+          "type": "string",
+          "const": "removed"
+        },
+        {
+          "description": "Kept as found (`keep_held`).",
+          "type": "string",
+          "const": "conflict_preserved"
+        },
+        {
+          "description": "Held for the owner.",
+          "type": "string",
+          "const": "held"
+        }
+      ]
+    },
+    "ItemOutcome": {
+      "description": "One item's outcome.",
+      "type": "object",
+      "properties": {
+        "files": {
+          "description": "Its files.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FileOutcome"
+          }
+        },
+        "item": {
+          "description": "The item.",
+          "$ref": "#/$defs/ProjectionItem"
+        },
+        "outcome": {
+          "description": "Its outcome.",
+          "$ref": "#/$defs/ItemOutcomeKind"
+        }
+      },
+      "required": [
+        "item",
+        "outcome"
+      ]
+    },
+    "ItemOutcomeKind": {
+      "description": "An item's outcome.",
+      "oneOf": [
+        {
+          "description": "Applied.",
+          "type": "string",
+          "const": "applied"
+        },
+        {
+          "description": "Not applied; nothing changed.",
+          "type": "string",
+          "const": "not_applied"
+        },
+        {
+          "description": "Applied, then restored after a failed check.",
+          "type": "string",
+          "const": "restored"
+        },
+        {
+          "description": "Closed by the owner with `keep_held`.",
+          "type": "string",
+          "const": "conflict_preserved"
+        },
+        {
+          "description": "Held for the owner (ADR-0007 §5.7 outcome H).",
+          "type": "string",
+          "const": "held"
+        }
+      ]
+    },
+    "ProjectionFileRole": {
+      "description": "The role of a file in a projection plan or result.",
+      "oneOf": [
+        {
+          "description": "The user's OpenSSH configuration (holds B).",
+          "type": "string",
+          "const": "user_ssh"
+        },
+        {
+          "description": "The managed OpenSSH file P.",
+          "type": "string",
+          "const": "managed_ssh"
+        },
+        {
+          "description": "A materialized public key file.",
+          "type": "string",
+          "const": "key_file"
+        },
+        {
+          "description": "The global Git file (holds B_git).",
+          "type": "string",
+          "const": "git_include"
+        },
+        {
+          "description": "The managed Git file P_git.",
+          "type": "string",
+          "const": "git_managed"
+        }
+      ]
+    },
+    "ProjectionItem": {
+      "description": "A projection item: the OpenSSH projection or the Git include (ADR-0007 §5.4).",
+      "oneOf": [
+        {
+          "description": "The OpenSSH include block B and the managed file P (with key files).",
+          "type": "string",
+          "const": "ssh"
+        },
+        {
+          "description": "The Git include block B_git and the managed file P_git.",
+          "type": "string",
+          "const": "git"
+        }
+      ]
+    },
+    "RemainingArtifact": {
+      "description": "An artifact left for the owner.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Kind.",
+          "$ref": "#/$defs/RemainingArtifactKind"
+        },
+        "path_display": {
+          "description": "Display path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "path_display"
+      ]
+    },
+    "RemainingArtifactKind": {
+      "description": "The kind of an artifact left for the owner.",
+      "oneOf": [
+        {
+          "description": "A backup copy.",
+          "type": "string",
+          "const": "backup"
+        },
+        {
+          "description": "A conflict file.",
+          "type": "string",
+          "const": "conflict_file"
+        },
+        {
+          "description": "A manual-mode block the owner inserted.",
+          "type": "string",
+          "const": "manual_block"
+        },
+        {
+          "description": "The Heimdall state store.",
+          "type": "string",
+          "const": "state_store"
+        },
+        {
+          "description": "A recovery record.",
+          "type": "string",
+          "const": "recovery_record"
+        },
+        {
+          "description": "The quarantine directory.",
+          "type": "string",
+          "const": "quarantine"
+        }
+      ]
+    }
+  }
+}

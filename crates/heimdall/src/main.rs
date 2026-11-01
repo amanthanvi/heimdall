@@ -7,12 +7,19 @@
 //! command goes through `heimdall_app::Operations`, locally in `service run` or
 //! over the authenticated control endpoint otherwise.
 
+mod catalog_cmd;
 mod cli;
 mod client;
+mod connect_cmd;
+mod doctor_cmd;
 mod output;
 mod prompt;
+mod run_cmd;
 mod service_cmd;
+mod setup_cmd;
 mod testcfg;
+mod tui;
+mod uninstall_cmd;
 
 use clap::Parser;
 

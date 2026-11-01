@@ -725,6 +725,9 @@ pub fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'s
         K::ApproveAuthority { .. } => "approve_authority",
         K::WidenPolicy { .. } => "widen_policy",
         K::ConfirmTime { .. } => "confirm_time",
+        // ⟨M02⟩ U0b row 2 (m02-plan §5 item 17).
+        K::ApplyProjection { .. } => "apply_projection",
+        K::DeclareInteraction { .. } => "declare_interaction",
     }
 }
 

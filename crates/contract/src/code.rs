@@ -105,6 +105,14 @@ pub enum Code {
     /// Unexpected internal failure; never used to hide a classified condition.
     InternalError,
 
+    // --- launch (exit 127, or 126 when not executable) ---------------------------------------
+    /// `run`/`connect` could not launch the program: not found, refused (batch path,
+    /// argument, non-Unicode path), current directory, not executable, exec error,
+    /// or the side-channel `launching` write failed (ADR-0007 §8; m02-plan §5
+    /// item 13). Exit 127, or 126 with reason `not_executable`
+    /// ([`Code::exit_code_for_reason`]).
+    LaunchFailed,
+
     /// A code this build does not know (emitted by a newer peer). Reader-side only:
     /// never emitted by this build, never success, exit 1 (ADR-0006 §9).
     Unknown(String),
@@ -141,6 +149,7 @@ const TABLE: &[(Code, &str)] = &[
     (Code::SchemaUnsupported, "SCHEMA_UNSUPPORTED"),
     (Code::NotFound, "NOT_FOUND"),
     (Code::InternalError, "INTERNAL_ERROR"),
+    (Code::LaunchFailed, "LAUNCH_FAILED"),
 ];
 
 /// Known codes in table order (no `Unknown`).
@@ -174,6 +183,7 @@ const ALL: &[Code] = &[
     Code::SchemaUnsupported,
     Code::NotFound,
     Code::InternalError,
+    Code::LaunchFailed,
 ];
 
 impl Code {
@@ -242,6 +252,20 @@ impl Code {
             Code::OutcomeUnknown => ExitCode::OutcomeUnknown,
             Code::UsageError | Code::SchemaUnsupported | Code::NotFound => ExitCode::Usage,
             Code::InternalError | Code::Unknown(_) => ExitCode::Internal,
+            Code::LaunchFailed => ExitCode::LaunchFailed,
+        }
+    }
+
+    /// The exit class with a stable sub-reason applied: `LAUNCH_FAILED` with
+    /// reason `not_executable` exits 126 (ADR-0007 §8); every other combination is
+    /// [`Self::exit_code`]. The `ACCEPTED` rule stays the CLI's.
+    #[must_use]
+    pub fn exit_code_for_reason(&self, reason: Option<&str>) -> ExitCode {
+        match (self, reason) {
+            (Code::LaunchFailed, Some(crate::envelope::reason::NOT_EXECUTABLE)) => {
+                ExitCode::NotExecutable
+            }
+            _ => self.exit_code(),
         }
     }
 
@@ -300,6 +324,7 @@ impl Code {
             Code::DecisionStale => "fix_request",
             Code::OutcomeUnknown => "reconcile",
             Code::UsageError | Code::SchemaUnsupported | Code::NotFound => "fix_request",
+            Code::LaunchFailed => "fix_request",
             Code::InternalError | Code::Unknown(_) => "report",
         }
     }

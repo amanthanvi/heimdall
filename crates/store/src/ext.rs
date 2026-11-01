@@ -18,26 +18,39 @@ use std::collections::BTreeSet;
 
 use heimdall_contract::event::Event;
 use heimdall_contract::ids::{
-    BindingId, CredentialInstanceId, DecisionId, EnvironmentId, GrantId, IssuanceId, OperationId,
-    ProfileId, WorkId,
+    BindingId, CredentialInstanceId, DecisionId, DestinationId, EnvironmentId, GrantId, IdentityId,
+    IssuanceId, OperationId, ProfileId, WorkId,
 };
 use heimdall_contract::request::Verdict;
 use heimdall_contract::{GrantState, OperationState, Timestamp};
 use heimdall_domain::binding::{BindingRecord, BindingState, ReleaseOutcome};
+use heimdall_domain::catalog::{
+    DeclarationEndReason, DeclarationState, DestinationRecord, IdentityRecord,
+    InteractionDeclaration, PreparedFacts,
+};
 use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionRefusal, DecisionState};
 use heimdall_domain::environment::EnvironmentRecord;
 use heimdall_domain::grant::{AuthorizationSource, DegradedReason, GrantOrigin, GrantReference};
+use heimdall_domain::holder::ProcessHolder;
+use heimdall_domain::idempotency::IdempotencyRecord;
 use heimdall_domain::idempotency::{ExpiredKeyMarker, IdempotencyKey, KeyHash};
 use heimdall_domain::issuance::{
     CredentialInstance, CredentialState, IssuanceEntry, IssuanceRefusal, IssuanceState,
 };
 use heimdall_domain::operation::{
-    AdapterIdentity, ApprovalBasis, CoveredBasis, EffectReceipt, OperationRecord, RecoveryIntent,
-    StageReceipt,
+    AdapterIdentity, ApprovalBasis, CoveredBasis, EffectReceipt, FilePhase, ItemPhase, LocalIntent,
+    LocalReceipt, OperationKind, OperationRecord, RecoveryIntent, STAGE_SETUP_ITEM, StageReceipt,
 };
 use heimdall_domain::policy::{AuthorityGeneration, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::{ProfileDefinition, ProfileSnapshot};
+use heimdall_domain::projection::{
+    ConsentRecord, ConsentedStates, FileIdentity, ItemCommit, ItemId, ProjectionLocator,
+    ProjectionRecord, projection_resource_id,
+};
+use heimdall_domain::resource::{
+    ManagedResource, OwnerRef, ResourceGeneration, ResourceKind, ResourceState,
+};
 use heimdall_domain::revocation::{CleanupIntent, PendingRemoteRevocation, Tombstone};
 use heimdall_domain::time::{AttendedTimeConfirmation, GrantAnchor, TimeAnchor};
 use rusqlite::OptionalExtension as _;
@@ -117,6 +130,25 @@ pub enum DecisionCompletion {
     },
 }
 
+/// ⟨M02⟩ Result of [`Txn::end_interaction_declaration`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndOutcome {
+    /// Whether a live declaration was ended by this call.
+    pub ended: bool,
+    /// The row's revision after the call (0 when the identity has no row).
+    pub revision: u64,
+}
+
+/// ⟨M02⟩ Result of [`Txn::insert_setup_operation`] (m02-plan §5 item 18; frozen).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SetupAdmitted {
+    /// The operation, its idempotency record and its intent were inserted.
+    Inserted,
+    /// Another open or unresolved setup operation of the environment blocks it;
+    /// nothing was written. The blockers, oldest first.
+    InProgress(Vec<OperationId>),
+}
+
 fn missing() -> StoreError {
     StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows)
 }
@@ -137,8 +169,23 @@ fn parse_binding_id(s: &str) -> Result<BindingId> {
 /// resolved intent exists its pinned authority (profile revision, scope, deadline,
 /// policy revision, generation) never changes and an assigned grant, binding or
 /// adapter is never reassigned (review F05: a retry never re-resolves).
+///
+/// ⟨M02⟩ U0b row 16: `local` is add-only as well. `None → Some` is allowed; once
+/// set, its variant and every field except `approval` never change, and `approval`
+/// goes `None → Some` once and is never replaced. A `local` and a `resolved` on the
+/// same intent are refused (also on a first write, [`Txn::set_recovery_intent`]).
 fn intent_update_allowed(old: &RecoveryIntent, new: &RecoveryIntent) -> bool {
-    if old.request != new.request {
+    if old.request != new.request || (new.local.is_some() && new.resolved.is_some()) {
+        return false;
+    }
+    let local_kept = match (&old.local, &new.local) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(a), Some(b)) => {
+            a.without_approval() == b.without_approval() && (!a.has_approval() || a == b)
+        }
+    };
+    if !local_kept {
         return false;
     }
     match (&old.resolved, &new.resolved) {
@@ -1260,11 +1307,27 @@ impl Txn<'_> {
     /// never change, and an assigned grant, binding, adapter, approval basis or
     /// covered basis (⟨r2.4⟩ ADR-0006 §13.7 item 2) is never replaced.
     /// Anything else is a [`StoreError::GenerationConflict`]. Key armor is refused.
+    ///
+    /// ⟨M02⟩ `local` is add-only too (U0b row 16). An intent carrying both `local`
+    /// and `resolved` is a [`StoreError::GenerationConflict`] on every write, the
+    /// first included (wave-0 verifier note N4). A `local` intent that fails
+    /// `LocalIntent::validate` (content binding, bounds, approval fit) is refused
+    /// before anything is written.
     pub fn set_recovery_intent(
         &mut self,
         operation: &OperationId,
         intent: &RecoveryIntent,
     ) -> Result<()> {
+        if intent.local.is_some() && intent.resolved.is_some() {
+            return Err(conflict(format!(
+                "recovery intent of {operation} carries both a local and a resolved intent"
+            )));
+        }
+        if let Some(local) = &intent.local
+            && local.validate().is_err()
+        {
+            return Err(codec::doc_error("the local intent is invalid"));
+        }
         if let Some(old) = self.recovery_intent(operation)?
             && !intent_update_allowed(&old, intent)
         {
@@ -1578,5 +1641,692 @@ impl Txn<'_> {
         let generation = self.authority_generation()?;
         let head = self.event_head(environment)?;
         Ok((generation, head))
+    }
+}
+
+// --- ⟨M02⟩ existing access (m02-plan §5 item 18; U0b rows 16, 20, 23) ----------------
+//
+// Schema: `migrations/0005_existing_access.sql`. The same conventions as above:
+// every method runs inside the caller's transaction (`BEGIN IMMEDIATE`), reads the
+// store's own rows only, and reads no clock.
+
+/// Whether `e` is a SQLite constraint violation (an alias or a fingerprint already
+/// taken by another row).
+fn unique_violation(e: &rusqlite::Error) -> bool {
+    matches!(
+        e.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::ConstraintViolation)
+    )
+}
+
+impl Txn<'_> {
+    // --- catalog: destinations and identities ----------------------------------------
+
+    /// Create or replace a destination by ID. Its alias is unique: an alias held by
+    /// another destination is a [`StoreError::GenerationConflict`] (the catalog
+    /// driver reports `alias_collision`). A revision lower than the stored one, or
+    /// the stored revision with other content, is a conflict too (a stale writer
+    /// never overwrites); the same content at the same revision is a no-op.
+    pub fn upsert_destination(&mut self, destination: &DestinationRecord) -> Result<()> {
+        if let Some(stored) = self.destination(&destination.id)? {
+            if stored.revision > destination.revision
+                || (stored.revision == destination.revision && stored != *destination)
+            {
+                return Err(conflict(format!(
+                    "destination {} revision {} is not newer than stored {}",
+                    destination.id, destination.revision, stored.revision
+                )));
+            }
+            if stored == *destination {
+                return Ok(());
+            }
+        }
+        self.tx
+            .execute(
+                "INSERT INTO destinations (id, alias, revision, record_json) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(id) DO UPDATE SET alias = excluded.alias,
+                     revision = excluded.revision, record_json = excluded.record_json",
+                rusqlite::params![
+                    destination.id.as_str(),
+                    destination.alias,
+                    codec::int(destination.revision)?,
+                    codec::doc(destination)?,
+                ],
+            )
+            .map_err(|e| {
+                if unique_violation(&e) {
+                    conflict("the destination alias is taken".to_owned())
+                } else {
+                    StoreError::Sqlite(e)
+                }
+            })?;
+        Ok(())
+    }
+
+    /// Remove a destination; returns whether one was removed.
+    pub fn remove_destination(&mut self, id: &DestinationId) -> Result<bool> {
+        let n = self
+            .tx
+            .execute("DELETE FROM destinations WHERE id = ?1", [id.as_str()])?;
+        Ok(n > 0)
+    }
+
+    /// One destination.
+    pub fn destination(&mut self, id: &DestinationId) -> Result<Option<DestinationRecord>> {
+        self.one_doc(
+            "SELECT record_json FROM destinations WHERE id = ?1",
+            [id.as_str()],
+        )
+    }
+
+    /// The destination holding `alias`, if any.
+    pub fn destination_by_alias(&mut self, alias: &str) -> Result<Option<DestinationRecord>> {
+        self.one_doc(
+            "SELECT record_json FROM destinations WHERE alias = ?1",
+            [alias],
+        )
+    }
+
+    /// Every destination, ordered by alias.
+    pub fn destinations(&mut self) -> Result<Vec<DestinationRecord>> {
+        self.docs(
+            "SELECT record_json FROM destinations ORDER BY alias, id",
+            [],
+        )
+    }
+
+    /// Create or replace an identity by ID. Its fingerprint is unique: a fingerprint
+    /// held by another identity is a [`StoreError::GenerationConflict`]. Revisions
+    /// as for [`Txn::upsert_destination`]. Key armor in the record is refused.
+    pub fn upsert_identity(&mut self, identity: &IdentityRecord) -> Result<()> {
+        if let Some(stored) = self.identity(&identity.id)? {
+            if stored.revision > identity.revision
+                || (stored.revision == identity.revision && stored != *identity)
+            {
+                return Err(conflict(format!(
+                    "identity {} revision {} is not newer than stored {}",
+                    identity.id, identity.revision, stored.revision
+                )));
+            }
+            if stored == *identity {
+                return Ok(());
+            }
+        }
+        self.tx
+            .execute(
+                "INSERT INTO identities (id, fingerprint, revision, record_json) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(id) DO UPDATE SET fingerprint = excluded.fingerprint,
+                     revision = excluded.revision, record_json = excluded.record_json",
+                rusqlite::params![
+                    identity.id.as_str(),
+                    identity.fingerprint,
+                    codec::int(identity.revision)?,
+                    codec::doc(identity)?,
+                ],
+            )
+            .map_err(|e| {
+                if unique_violation(&e) {
+                    conflict("the identity fingerprint is already adopted".to_owned())
+                } else {
+                    StoreError::Sqlite(e)
+                }
+            })?;
+        Ok(())
+    }
+
+    /// Remove an identity; returns whether one was removed. Its declaration row is
+    /// kept (rows are never deleted, so a revision is never reused).
+    pub fn remove_identity(&mut self, id: &IdentityId) -> Result<bool> {
+        let n = self
+            .tx
+            .execute("DELETE FROM identities WHERE id = ?1", [id.as_str()])?;
+        Ok(n > 0)
+    }
+
+    /// One identity.
+    pub fn identity(&mut self, id: &IdentityId) -> Result<Option<IdentityRecord>> {
+        self.one_doc(
+            "SELECT record_json FROM identities WHERE id = ?1",
+            [id.as_str()],
+        )
+    }
+
+    /// The identity with this public-key fingerprint, if adopted.
+    pub fn identity_by_fingerprint(&mut self, fingerprint: &str) -> Result<Option<IdentityRecord>> {
+        self.one_doc(
+            "SELECT record_json FROM identities WHERE fingerprint = ?1",
+            [fingerprint],
+        )
+    }
+
+    /// Every identity, ordered by ID.
+    pub fn identities(&mut self) -> Result<Vec<IdentityRecord>> {
+        self.docs("SELECT record_json FROM identities ORDER BY id", [])
+    }
+
+    // --- interaction declarations (ADR-0007 §7) ----------------------------------------
+
+    /// The declaration row of `identity`, whatever its state (expiry is computed by
+    /// the reader, `heimdall_domain::catalog::eligibility`).
+    pub fn interaction_declaration(
+        &mut self,
+        identity: &IdentityId,
+    ) -> Result<Option<InteractionDeclaration>> {
+        self.one_doc(
+            "SELECT record_json FROM interaction_declarations WHERE identity = ?1",
+            [identity.as_str()],
+        )
+    }
+
+    /// ⟨r3⟩ Write `declaration` as the row of `identity`, a compare-and-swap on
+    /// `expected_revision` (0 when no row exists yet). The new revision must be
+    /// exactly `expected_revision + 1` and the declaration `live`, so revisions grow
+    /// by one per write and are never reused. Any mismatch is a
+    /// [`StoreError::GenerationConflict`] and writes nothing.
+    pub fn put_interaction_declaration(
+        &mut self,
+        identity: &IdentityId,
+        expected_revision: u64,
+        declaration: &InteractionDeclaration,
+    ) -> Result<()> {
+        let stored = self
+            .interaction_declaration(identity)?
+            .map_or(0, |d| d.revision);
+        let next = expected_revision
+            .checked_add(1)
+            .ok_or_else(|| codec::doc_error("the declaration revision overflowed"))?;
+        if stored != expected_revision || declaration.revision != next {
+            return Err(conflict(format!(
+                "declaration of {identity} is at revision {stored}, not {expected_revision}"
+            )));
+        }
+        if declaration.state != DeclarationState::Live
+            || declaration.ended_at.is_some()
+            || declaration.end_reason.is_some()
+        {
+            return Err(codec::doc_error("a declaration is written live"));
+        }
+        self.tx.execute(
+            "INSERT INTO interaction_declarations (identity, revision, record_json)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(identity) DO UPDATE SET revision = excluded.revision,
+                 record_json = excluded.record_json",
+            rusqlite::params![
+                identity.as_str(),
+                codec::int(declaration.revision)?,
+                codec::doc(declaration)?
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// ⟨r3⟩ End the live declaration of `identity` (`WithdrawDeclaration`, a
+    /// recorded lapse). With `expected_revision` it is a compare-and-swap: a row at
+    /// another revision (a newer declaration) stays as it is and the result says
+    /// `ended: false`. A row that is not live, or no row, is not ended either. An
+    /// ended row moves to `withdrawn` (reason `owner_withdrawn`) or `lapsed`
+    /// (`listing_missing`, `endpoint_changed`) at the next revision, with `ended_at`.
+    pub fn end_interaction_declaration(
+        &mut self,
+        identity: &IdentityId,
+        expected_revision: Option<u64>,
+        reason: DeclarationEndReason,
+        at: Timestamp,
+    ) -> Result<EndOutcome> {
+        let Some(mut row) = self.interaction_declaration(identity)? else {
+            return Ok(EndOutcome {
+                ended: false,
+                revision: 0,
+            });
+        };
+        if row.state != DeclarationState::Live
+            || expected_revision.is_some_and(|r| r != row.revision)
+        {
+            return Ok(EndOutcome {
+                ended: false,
+                revision: row.revision,
+            });
+        }
+        let previous = row.revision;
+        row.revision = previous
+            .checked_add(1)
+            .ok_or_else(|| codec::doc_error("the declaration revision overflowed"))?;
+        row.state = match reason {
+            DeclarationEndReason::OwnerWithdrawn => DeclarationState::Withdrawn,
+            DeclarationEndReason::ListingMissing | DeclarationEndReason::EndpointChanged => {
+                DeclarationState::Lapsed
+            }
+        };
+        row.ended_at = Some(at);
+        row.end_reason = Some(reason);
+        let n = self.tx.execute(
+            "UPDATE interaction_declarations SET revision = ?2, record_json = ?3
+             WHERE identity = ?1 AND revision = ?4",
+            rusqlite::params![
+                identity.as_str(),
+                codec::int(row.revision)?,
+                codec::doc(&row)?,
+                codec::int(previous)?
+            ],
+        )?;
+        if n == 0 {
+            return Err(conflict(format!("declaration of {identity} moved")));
+        }
+        Ok(EndOutcome {
+            ended: true,
+            revision: row.revision,
+        })
+    }
+
+    // --- binding holders, prepared facts ------------------------------------------------
+
+    /// Record the process holding a launch binding (replacing an earlier holder).
+    /// The binding must exist (foreign key).
+    pub fn set_binding_holder(
+        &mut self,
+        binding: &BindingId,
+        holder: &ProcessHolder,
+    ) -> Result<()> {
+        if !heimdall_domain::holder::holder_is_valid(holder) {
+            return Err(codec::doc_error(
+                "a binding holder needs pid > 0 and a valid start token",
+            ));
+        }
+        self.tx.execute(
+            "INSERT INTO binding_holders (binding, holder_json) VALUES (?1, ?2)
+             ON CONFLICT(binding) DO UPDATE SET holder_json = excluded.holder_json",
+            rusqlite::params![binding.as_str(), codec::doc(holder)?],
+        )?;
+        Ok(())
+    }
+
+    /// The holder of one binding, if recorded.
+    pub fn binding_holder(&mut self, binding: &BindingId) -> Result<Option<ProcessHolder>> {
+        self.one_doc(
+            "SELECT holder_json FROM binding_holders WHERE binding = ?1",
+            [binding.as_str()],
+        )
+    }
+
+    /// Every recorded holder, ordered by binding ID.
+    pub fn binding_holders(&mut self) -> Result<Vec<(BindingId, ProcessHolder)>> {
+        let rows: Vec<(String, String)> = {
+            let mut stmt = self.tx.prepare_cached(
+                "SELECT binding, holder_json FROM binding_holders ORDER BY binding",
+            )?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        rows.into_iter()
+            .map(|(b, h)| Ok((parse_binding_id(&b)?, codec::parse_doc(&h)?)))
+            .collect()
+    }
+
+    /// ⟨r2⟩ Record what `prepare` observed for `grant` (history only; replaces an
+    /// earlier record). Written in the transaction of the `Confirmed` receipt (U0b
+    /// row 6). The grant must exist (foreign key).
+    pub fn set_grant_prepared_facts(
+        &mut self,
+        grant: &GrantId,
+        facts: &PreparedFacts,
+    ) -> Result<()> {
+        self.tx.execute(
+            "INSERT INTO grant_prepared_facts (grant_id, record_json) VALUES (?1, ?2)
+             ON CONFLICT(grant_id) DO UPDATE SET record_json = excluded.record_json",
+            rusqlite::params![grant.as_str(), codec::doc(facts)?],
+        )?;
+        Ok(())
+    }
+
+    /// ⟨r2⟩ The prepared facts of `grant`, if recorded.
+    pub fn grant_prepared_facts(&mut self, grant: &GrantId) -> Result<Option<PreparedFacts>> {
+        self.one_doc(
+            "SELECT record_json FROM grant_prepared_facts WHERE grant_id = ?1",
+            [grant.as_str()],
+        )
+    }
+
+    // --- projection consent, resources and records ------------------------------------
+
+    /// ⟨r2⟩ Merge `consent` into the environment's consent: each item it names
+    /// replaces that item's stored states; other items are kept.
+    pub fn set_projection_consent(
+        &mut self,
+        environment: &EnvironmentId,
+        consent: &ConsentRecord,
+    ) -> Result<()> {
+        for (item, states) in &consent.items {
+            self.tx.execute(
+                "INSERT INTO projection_consent (environment, item, record_json) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(environment, item) DO UPDATE SET record_json = excluded.record_json",
+                rusqlite::params![environment.as_str(), item.0, codec::doc(states)?],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// ⟨r2⟩ The environment's consent (empty when nothing was consented).
+    pub fn get_projection_consent(&mut self, environment: &EnvironmentId) -> Result<ConsentRecord> {
+        let rows: Vec<(String, String)> = {
+            let mut stmt = self.tx.prepare_cached(
+                "SELECT item, record_json FROM projection_consent WHERE environment = ?1
+                 ORDER BY item",
+            )?;
+            let rows = stmt.query_map([environment.as_str()], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let mut out = ConsentRecord::default();
+        for (item, json) in rows {
+            let states: ConsentedStates = codec::parse_doc(&json)?;
+            out.items.insert(ItemId(item), states);
+        }
+        Ok(out)
+    }
+
+    /// The `config_projection` resources owned by the environment's projection,
+    /// ordered by ID.
+    pub fn projection_resources(
+        &mut self,
+        environment: &EnvironmentId,
+    ) -> Result<Vec<ManagedResource>> {
+        let owner = codec::doc(&OwnerRef::Projection {
+            environment: environment.clone(),
+        })?;
+        self.docs(
+            "SELECT record_json FROM resources WHERE kind = ?1 AND owner_json = ?2 ORDER BY id",
+            rusqlite::params![codec::enum_str(&ResourceKind::ConfigProjection)?, owner],
+        )
+    }
+
+    /// Insert or update a projection resource, a compare-and-swap by generation and
+    /// identity (U0b row 20). The resource must be a `config_projection` owned by a
+    /// projection, and its locator a canonical `ProjectionLocator`.
+    ///
+    /// `expected = None` inserts and fails if the resource exists. `Some((g, id))`
+    /// updates only when the stored generation is `g` and the stored locator's file
+    /// identity is `id` (birth compared on both sides, never a wildcard), and the
+    /// new generation is not lower. Any mismatch is a
+    /// [`StoreError::GenerationConflict`] and leaves the row unchanged.
+    pub fn put_projection_resource(
+        &mut self,
+        resource: &ManagedResource,
+        expected: Option<(ResourceGeneration, &FileIdentity)>,
+    ) -> Result<()> {
+        if resource.kind != ResourceKind::ConfigProjection
+            || !matches!(resource.owner, OwnerRef::Projection { .. })
+        {
+            return Err(codec::doc_error(
+                "a projection resource is a config_projection owned by a projection",
+            ));
+        }
+        let locator: ProjectionLocator = codec::parse_doc(&resource.locator)?;
+        if locator.canonical().ok().as_deref() != Some(resource.locator.as_str()) {
+            return Err(codec::doc_error(
+                "a projection resource locator is canonical",
+            ));
+        }
+        match expected {
+            None => self.upsert_resource(resource, None),
+            Some((generation, identity)) => {
+                let Some(stored) = self.resource(&resource.id)? else {
+                    return Err(conflict(format!("resource {} does not exist", resource.id)));
+                };
+                let stored_locator: ProjectionLocator = codec::parse_doc(&stored.locator)?;
+                if stored.generation != generation || !stored_locator.identity.same_file(identity) {
+                    return Err(conflict(format!("resource {}", resource.id)));
+                }
+                self.upsert_resource(resource, Some(generation))
+            }
+        }
+    }
+
+    /// The environment's projection record, if an item was ever committed.
+    pub fn projection_record(
+        &mut self,
+        environment: &EnvironmentId,
+    ) -> Result<Option<ProjectionRecord>> {
+        self.one_doc(
+            "SELECT record_json FROM projection_records WHERE environment = ?1",
+            [environment.as_str()],
+        )
+    }
+
+    /// ⟨r3⟩ Commit one projection item (M2-R01; `StageSink::commit_item`): in the
+    /// caller's one transaction, write the item's `config_projection` resources at
+    /// the committed generation, the environment's projection record, the consented
+    /// states, and the `item.committed` receipt. Any refusal or error writes nothing
+    /// (the transaction rolls back).
+    ///
+    /// Checks: `receipt` is the `setup.item` receipt `item.committed{generation}` of
+    /// `commit.item` with a `Confirmed` effect; `operation` exists, is a setup
+    /// operation, and belongs to `commit.record.environment`; every resource's role
+    /// belongs to the item; the record carries the item at the committed generation;
+    /// and the generation is above both the stored record's and each stored
+    /// resource's (a compare-and-swap, so a stale writer never wins). Resources of
+    /// the item that the commit does not name are left as they are (the setup
+    /// driver and the cleaner own them).
+    pub fn commit_projection_item(
+        &mut self,
+        operation: &OperationId,
+        commit: &ItemCommit,
+        receipt: &StageReceipt,
+    ) -> Result<()> {
+        let committed = matches!(
+            &receipt.local,
+            Some(LocalReceipt::Item {
+                item,
+                phase: ItemPhase::Committed { generation },
+            }) if *item == commit.item && *generation == commit.generation
+        );
+        if !committed
+            || receipt.stage != STAGE_SETUP_ITEM
+            || !matches!(receipt.effect, EffectReceipt::Confirmed { .. })
+        {
+            return Err(codec::doc_error(
+                "commit_projection_item needs the item's item.committed receipt",
+            ));
+        }
+        let Some(op) = self.operation(operation)? else {
+            return Err(missing());
+        };
+        let environment = commit.record.environment.clone();
+        if !op.kind.is_setup() || op.environment != environment {
+            return Err(codec::doc_error(
+                "a projection item is committed by a setup operation of its environment",
+            ));
+        }
+        if commit
+            .resources
+            .iter()
+            .any(|l| l.role.item() != commit.item)
+            || commit
+                .record
+                .items
+                .get(&commit.item)
+                .is_none_or(|r| r.generation != commit.generation)
+        {
+            return Err(codec::doc_error("the commit does not describe its item"));
+        }
+        if let Some(stored) = self.projection_record(&environment)?
+            && stored
+                .items
+                .get(&commit.item)
+                .is_some_and(|r| r.generation >= commit.generation)
+        {
+            return Err(conflict(format!(
+                "projection item of {environment} is already at generation {} or later",
+                commit.generation
+            )));
+        }
+        let generation = ResourceGeneration(commit.generation);
+        for locator in &commit.resources {
+            let id = projection_resource_id(&environment, locator.role, &locator.path);
+            let canonical = locator
+                .canonical()
+                .map_err(|_| codec::doc_error("a projection locator cannot be canonicalized"))?;
+            let resource = ManagedResource {
+                id: id.clone(),
+                kind: ResourceKind::ConfigProjection,
+                owner: OwnerRef::Projection {
+                    environment: environment.clone(),
+                },
+                generation,
+                desired: ResourceState::Present,
+                observed: ResourceState::Present,
+                last_operation: Some(operation.clone()),
+                locator: canonical,
+                updated_at: receipt.recorded_at,
+            };
+            match self.resource(&id)? {
+                None => self.upsert_resource(&resource, None)?,
+                Some(stored) if stored.generation < generation => {
+                    self.upsert_resource(&resource, Some(stored.generation))?;
+                }
+                Some(_) => return Err(conflict(format!("resource {id}"))),
+            }
+        }
+        self.tx.execute(
+            "INSERT INTO projection_records (environment, record_json) VALUES (?1, ?2)
+             ON CONFLICT(environment) DO UPDATE SET record_json = excluded.record_json",
+            rusqlite::params![environment.as_str(), codec::doc(&commit.record)?],
+        )?;
+        self.set_projection_consent(&environment, &commit.consent)?;
+        self.append_stage_receipt(operation, receipt)
+    }
+
+    // --- setup admission (ADR-0007 §5.7 "One setup operation at a time") ----------------
+
+    /// ⟨r3⟩ The environment's open or unresolved setup operations (`queued`,
+    /// `running`, `awaiting_approval`, `outcome_unknown`), oldest first.
+    pub fn open_setup_operations(
+        &mut self,
+        environment: &EnvironmentId,
+    ) -> Result<Vec<OperationId>> {
+        // Kind names carry a dot, so they are bound; state names are plain.
+        let sql = format!(
+            "SELECT id FROM operations
+             WHERE environment = ?1 AND kind IN (?2, ?3, ?4) AND state IN ({})
+             ORDER BY created_at, id",
+            sql_in_list(&operation_states(|s| !s.is_settled()))?
+        );
+        let [a, r, p] = OperationKind::SETUP.map(OperationKind::as_str);
+        let ids: Vec<String> = {
+            let mut stmt = self.tx.prepare_cached(&sql)?;
+            let rows = stmt.query_map(rusqlite::params![environment.as_str(), a, r, p], |row| {
+                row.get(0)
+            })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        ids.iter()
+            .map(|s| {
+                OperationId::parse(s)
+                    .map_err(|_| codec::doc_error("stored operation id is malformed"))
+            })
+            .collect()
+    }
+
+    /// Whether `operation` is held: in `outcome_unknown`, with its last local
+    /// receipt `file.held`. A receipt this build cannot decode never shows a hold.
+    fn setup_operation_is_held(&mut self, operation: &OperationId) -> Result<bool> {
+        let Some(op) = self.operation(operation)? else {
+            return Ok(false);
+        };
+        if op.state != OperationState::OutcomeUnknown {
+            return Ok(false);
+        }
+        let raw: Vec<String> = {
+            let mut stmt = self.tx.prepare_cached(
+                "SELECT record_json FROM stage_receipts WHERE operation_id = ?1 ORDER BY ordinal",
+            )?;
+            let rows = stmt.query_map([operation.as_str()], |r| r.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let mut last_local = None;
+        for json in &raw {
+            let Ok(receipt) = codec::parse_doc::<StageReceipt>(json) else {
+                return Ok(false);
+            };
+            if receipt.local.is_some() {
+                last_local = receipt.local;
+            }
+        }
+        Ok(matches!(
+            last_local,
+            Some(LocalReceipt::File {
+                phase: FilePhase::Held { .. },
+                ..
+            })
+        ))
+    }
+
+    /// ⟨r4⟩ Admit a setup operation (m02-plan §5 item 18; frozen; ADR-0007 §5.7
+    /// "Admission is atomic"). Inside the caller's admission transaction, which runs
+    /// as `BEGIN IMMEDIATE`: read the environment's open or unresolved setup
+    /// operations, then either insert the operation, its idempotency record and its
+    /// recovery intent, or write nothing and return the blockers. Two admissions can
+    /// therefore never both see an empty set.
+    ///
+    /// The set must be empty, or exactly `{repair_target}` with that operation held
+    /// (`outcome_unknown`, last local receipt `file.held`): the repair of a held
+    /// operation by `retry_held`/`keep_held` naming it is the one exception.
+    ///
+    /// The caller classifies idempotency first (a replay never reaches this). The
+    /// record must be a setup operation that is not settled, and the intent must
+    /// carry a valid `LocalIntent::Setup` and no `resolved` intent; a `repair_target`
+    /// needs a `setup.repair` operation whose intent is a held repair naming that
+    /// target. A caller error is refused before the read and writes nothing.
+    pub fn insert_setup_operation(
+        &mut self,
+        op: &OperationRecord,
+        idem: &IdempotencyRecord,
+        intent: &RecoveryIntent,
+        repair_target: Option<&OperationId>,
+    ) -> Result<SetupAdmitted> {
+        if !op.kind.is_setup() || op.state.is_settled() {
+            return Err(codec::doc_error(
+                "insert_setup_operation admits an unsettled setup operation",
+            ));
+        }
+        if intent.resolved.is_some() {
+            return Err(conflict(format!(
+                "recovery intent of {} carries both a local and a resolved intent",
+                op.id
+            )));
+        }
+        let Some(LocalIntent::Setup(setup)) = &intent.local else {
+            return Err(codec::doc_error(
+                "a setup operation's intent is a setup intent",
+            ));
+        };
+        if setup.validate().is_err() {
+            return Err(codec::doc_error("the local intent is invalid"));
+        }
+        if let Some(target) = repair_target {
+            let names_target = match &setup.intent {
+                heimdall_contract::setup::PreviewIntent::Repair {
+                    resolution,
+                    operation,
+                    ..
+                } => resolution.is_held_resolution() && operation.as_ref() == Some(target),
+                _ => false,
+            };
+            if op.kind != OperationKind::SetupRepair || !names_target {
+                return Err(codec::doc_error(
+                    "a repair target goes only with a held repair that names it",
+                ));
+            }
+        }
+        let blockers = self.open_setup_operations(&op.environment)?;
+        let admitted = match (blockers.as_slice(), repair_target) {
+            ([], _) => true,
+            ([only], Some(target)) if only == target => self.setup_operation_is_held(target)?,
+            _ => false,
+        };
+        if !admitted {
+            return Ok(SetupAdmitted::InProgress(blockers));
+        }
+        self.insert_operation(op, idem)?;
+        self.set_recovery_intent(&op.id, intent)?;
+        Ok(SetupAdmitted::Inserted)
     }
 }

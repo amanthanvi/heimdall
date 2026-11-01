@@ -7,6 +7,9 @@
 //! tombstones and the authority generation, standing policies, profile and
 //! environment records, managed-resource generations, the event log with
 //! per-environment sequence numbers, time anchors, and schema migrations.
+//! ⟨M02⟩ Also the destination and identity catalog, interaction declarations,
+//! binding holders, prepared facts, projection consent and records, and atomic
+//! setup admission (`migrations/0005_existing_access.sql`; m02-plan §5 item 18).
 //!
 //! Must not own: private key material or plaintext secrets (references only,
 //! spec §13.3), retry loops, authorization decisions, or wire rendering.
@@ -31,11 +34,13 @@ use heimdall_domain::resource::{ManagedResource, ResourceGeneration};
 use heimdall_domain::revocation::Tombstone;
 use heimdall_domain::time::TimeAnchor;
 
+pub use migrations::SCHEMA_VERSION;
+
 mod codec;
 pub mod ext;
 pub mod migrations;
 
-pub use ext::{DecisionCompletion, StoredEvent, StoredEventPage};
+pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
 
 /// Store errors. Mapped to `STATE_UNAVAILABLE` by the application layer.
 #[derive(Debug, thiserror::Error)]
@@ -49,6 +54,15 @@ pub enum StoreError {
     /// The on-disk schema is newer than this build understands.
     #[error("state store schema {found} is newer than supported {supported}")]
     NewerSchema {
+        /// Found on disk.
+        found: u32,
+        /// Supported by this build.
+        supported: u32,
+    },
+    /// ⟨M02⟩ A read-only open found an older schema; it is reported, never
+    /// upgraded ([`Store::open_read_only`] never migrates).
+    #[error("state store schema {found} is older than {supported}; open it read-write to migrate")]
+    OlderSchema {
         /// Found on disk.
         found: u32,
         /// Supported by this build.
@@ -115,6 +129,9 @@ impl FaultHook for NoFaults {
 pub struct Store {
     conn: std::sync::Mutex<rusqlite::Connection>,
     faults: Arc<dyn FaultHook>,
+    /// Opened by [`Store::open_read_only`]: transactions are deferred and the
+    /// connection is `query_only`, so every write fails.
+    read_only: bool,
 }
 
 impl std::fmt::Debug for Store {
@@ -183,6 +200,14 @@ const REQUIRED_TABLES: &[&str] = &[
     "stage_receipts",
     "issuance_log",
     "credential_instances",
+    // schema version 5 (M02 existing access; m02-plan §5 item 18)
+    "destinations",
+    "identities",
+    "interaction_declarations",
+    "binding_holders",
+    "grant_prepared_facts",
+    "projection_consent",
+    "projection_records",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -236,7 +261,64 @@ impl Store {
         Ok(Self {
             conn: std::sync::Mutex::new(conn),
             faults,
+            read_only: false,
         })
+    }
+
+    /// ⟨M02⟩ Open an existing store without writing anything (m02-plan §5 item 18;
+    /// U0b row 20): doctor and the CLI's pre-launch check read the catalog and the
+    /// declarations this way, and never start the runtime.
+    ///
+    /// It never creates, migrates or repairs. A missing file is an error; a newer
+    /// schema is [`StoreError::NewerSchema`]; an older one (including an empty file)
+    /// is [`StoreError::OlderSchema`], reported and never upgraded; a damaged file
+    /// is [`StoreError::Corrupt`]. The connection is `query_only` and every
+    /// transaction is deferred, so a write through it fails.
+    pub fn open_read_only(path: &Path, faults: Arc<dyn FaultHook>) -> Result<Self> {
+        let conn = rusqlite::Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(codec::classify)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(codec::classify)?;
+        let current = migrations::check_version(&conn, migrations::MIGRATIONS)?;
+        if current < SCHEMA_VERSION {
+            return Err(StoreError::OlderSchema {
+                found: current,
+                supported: SCHEMA_VERSION,
+            });
+        }
+        integrity_check(&conn)?;
+        conn.pragma_update(None, "query_only", "ON")
+            .map_err(codec::classify)?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(codec::classify)?;
+        conn.pragma_update(None, "trusted_schema", "OFF")
+            .map_err(codec::classify)?;
+        verify_schema(&conn)?;
+        Ok(Self {
+            conn: std::sync::Mutex::new(conn),
+            faults,
+            read_only: true,
+        })
+    }
+
+    /// Test support (`tests/integration/store.rs`, migration coverage): open or
+    /// create the store at `path` migrated only up to `version` (1 ..=
+    /// [`SCHEMA_VERSION`]), as a build of that schema would leave it. Never used by
+    /// production code.
+    #[doc(hidden)]
+    pub fn open_at_schema_version(
+        path: &Path,
+        faults: Arc<dyn FaultHook>,
+        version: u32,
+    ) -> Result<Self> {
+        let n = usize::try_from(version)
+            .ok()
+            .filter(|n| (1..=migrations::MIGRATIONS.len()).contains(n))
+            .ok_or_else(|| codec::doc_error("no such schema version"))?;
+        Self::open_with_steps(path, faults, &migrations::MIGRATIONS[..n], false)
     }
 
     pub(crate) fn open_with_steps(
@@ -270,6 +352,7 @@ impl Store {
         Ok(Self {
             conn: std::sync::Mutex::new(conn),
             faults,
+            read_only: false,
         })
     }
 
@@ -286,8 +369,17 @@ impl Store {
     pub fn transaction<R>(&self, f: impl FnOnce(&mut Txn<'_>) -> Result<R>) -> Result<R> {
         fire(self.faults.as_ref(), FaultPoint::BeforeTransaction)?;
         let mut conn = self.lock();
+        // `BEGIN IMMEDIATE` takes the write lock at once, so a read and the insert
+        // it decides (for example `Txn::insert_setup_operation`) can never
+        // interleave with another connection's. A read-only store cannot take that
+        // lock and reads in a deferred transaction.
+        let behavior = if self.read_only {
+            rusqlite::TransactionBehavior::Deferred
+        } else {
+            rusqlite::TransactionBehavior::Immediate
+        };
         let tx = conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .transaction_with_behavior(behavior)
             .map_err(codec::classify)?;
         let mut txn = Txn { tx };
         let out = f(&mut txn).map_err(codec::reclassify)?;
@@ -502,7 +594,38 @@ fn caller_doc(key: &IdempotencyKey) -> Result<String> {
     codec::doc(&key.caller)
 }
 
+/// Test support: which raw JSON documents [`Txn::raw_documents`] returns.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawDocuments {
+    /// `stage_receipts.record_json`, keyed `<operation id>:<ordinal>`.
+    StageReceipts,
+    /// `recovery_intents.record_json`, keyed by operation ID.
+    RecoveryIntents,
+    /// `meta.value`, keyed by meta key.
+    Meta,
+}
+
 impl Txn<'_> {
+    /// Test support (migration coverage): the stored JSON text of a fixed set of
+    /// columns, exactly as on disk, in key order. Never used by production code.
+    #[doc(hidden)]
+    pub fn raw_documents(&mut self, which: RawDocuments) -> Result<Vec<(String, String)>> {
+        let sql = match which {
+            RawDocuments::StageReceipts => {
+                "SELECT operation_id || ':' || ordinal, record_json FROM stage_receipts
+                 ORDER BY operation_id, ordinal"
+            }
+            RawDocuments::RecoveryIntents => {
+                "SELECT operation_id, record_json FROM recovery_intents ORDER BY operation_id"
+            }
+            RawDocuments::Meta => "SELECT key, value FROM meta ORDER BY key",
+        };
+        let mut stmt = self.tx.prepare(sql)?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     pub(crate) fn meta(&self, key: &str) -> Result<Option<String>> {
         use rusqlite::OptionalExtension as _;
         Ok(self
@@ -1697,9 +1820,9 @@ mod tests {
 
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
         assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
-        // 0001 → 0002 → 0003 → 0004 in one open (0003: the approval basis column;
-        // 0004: the grant origin column).
-        assert_eq!(migrations::SCHEMA_VERSION, 4);
+        // 0001 → … → 0005 in one open (0003: the approval basis column; 0004: the
+        // grant origin column; 0005: the M02 tables, which add tables only).
+        assert_eq!(migrations::SCHEMA_VERSION, 5);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -1868,6 +1991,7 @@ mod tests {
                 approval,
                 covered: None,
             }),
+            local: None,
         }
     }
 
@@ -2256,7 +2380,7 @@ mod tests {
             .unwrap()
         };
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 4);
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         assert!(
             backup_path(&db, ".v3.backup").exists(),
             "v3 file backed up first"
@@ -2319,7 +2443,7 @@ mod tests {
         .unwrap();
         drop(s);
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 4);
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         assert!(
             !backup_path(&db, ".v3.backup.1").exists(),
             "no second migration"
@@ -2356,7 +2480,7 @@ mod tests {
         assert_eq!(column, 0, "no half-applied 0004 column");
         drop(c);
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
-        assert_eq!(s.schema_version().unwrap(), 4);
+        assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         s.transaction(|tx| {
             assert!(tx.grant_origin(&pinned)?.is_some());
             Ok(())
