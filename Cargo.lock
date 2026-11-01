@@ -692,8 +692,12 @@ dependencies = [
  "heimdall-app",
  "heimdall-contract",
  "heimdall-domain",
+ "heimdall-ipc",
  "heimdall-sshconf",
+ "heimdall-testkit",
+ "proptest",
  "rustix",
+ "tempfile",
  "thiserror",
  "windows-sys",
 ]

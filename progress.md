@@ -443,3 +443,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - Z03: StepDecision was in localenv.
   - Everything else was sound: the M01 preserve list, the fail-closed landing, migration 0005, the frozen data contracts, and the duplicate-skeleton tree.
   - I fixed Z01–Z03 myself in bd4215e2, with regression tests. Wave-1 units do not own those files.
+- **M02 wave 1** is committed as f704ce93, status implemented_unverified: U1 sshconf parse, U2 eval/render/edit/consent/gitedit, U7 testkit fixtures, U6 adapters and the bounded agent client, U8 core launch.
+  - The integrator ran check.sh four times, all exit 0. My own run also exited 0: 1064 passed, 0 failed, 4 ignored.
+  - I applied integrator finding B: the production binary takes testkit with default features off.
+  - ADR-0007 §12.15 records the rulings. Main items:
+    - raw command text in the behaviour digest;
+    - source role in the digest (a §5.2 defect);
+    - retired keywords ignored, as OpenSSH does;
+    - code-loading constructs listed;
+    - the §8 SIGPIPE text corrected.
+  - Items deferred to wave 3: the PairIntegration report field, clearance against the adopted fingerprint, the provider error mapping, reconcile after restart from PreparedFacts, serde_json for launch, and MAX_ARGV_BYTES.
+  - Wave-2 preparation (my commit): sys.rs split into sys/mod.rs (U3) and sys/quarantine.rs (U4a); the localenv→ipc edge, dev-dependencies and seven wave-2 test targets pre-registered as placeholders.
+- Next: an independent Codex review of wave 1 (worktree at the wave-2 base), and the wave-2 workflow in parallel.
+  - Wave-2 units: W2-U2r (sshconf follow-ups), W2-U3, W2-U4a (primitive), W2-U4b (recovery), W2-U4c (transaction), then an integrator.

@@ -15,6 +15,9 @@ heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
 heimdall-app = { workspace = true }
 heimdall-sshconf = { workspace = true }
+# U3 `probe::agent::list_identities` over U6's bounded agent client (ADR-0007
+# §12.15 item 6, E-U6-2).
+heimdall-ipc = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 # U1/U3: `Include` glob expansion in bytewise order (dependencies.md).
@@ -27,3 +30,44 @@ rustix = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
+
+[dev-dependencies]
+heimdall-testkit = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+
+# Test targets hosted here (convention, m01-plan.md §0): real Cargo `[[test]]` targets
+# whose sources live under the repository `tests/` tree. Owners per ADR-0007 §12.15
+# item 9 (wave 2).
+
+# W2-U3: passive doctor, the sshconf corpus against `ssh -G`, Git observation.
+[[test]]
+name = "integration_doctor"
+path = "../../tests/integration/doctor.rs"
+
+[[test]]
+name = "integration_sshconf_vs_ssh_g"
+path = "../../tests/integration/sshconf_vs_ssh_g.rs"
+
+[[test]]
+name = "integration_git_observe"
+path = "../../tests/integration/git_observe.rs"
+
+# W2-U4a: the replacement primitive, quarantine and materializer.
+[[test]]
+name = "integration_projection_replace"
+path = "../../tests/integration/projection_replace.rs"
+
+# W2-U4b: the pure recovery function and recovery state (M2-S01, M2-T04, M2-T05).
+[[test]]
+name = "model_projection_recovery"
+path = "../../tests/model/projection_recovery.rs"
+
+# W2-U4c: the projection transaction (A22 transaction half) and the Git projection.
+[[test]]
+name = "integration_projection"
+path = "../../tests/integration/projection.rs"
+
+[[test]]
+name = "integration_projection_git"
+path = "../../tests/integration/projection_git.rs"

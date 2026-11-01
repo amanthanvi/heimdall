@@ -2021,8 +2021,13 @@ Neither ever carries `argv`.
   pipe, socket or regular file; otherwise it is a `USAGE_ERROR` before `ensure`. Heimdall
   sets `FD_CLOEXEC` on it, so an exec closes it. EOF after `launching` is **not** proof of
   exec (residual above). If `execve` returns, Heimdall writes `prelaunch_failed`. A failure
-  of that write (for example `EPIPE` because the reader has closed; Rust ignores SIGPIPE,
-  so Heimdall does not die of it) leaves `launching` last.
+  of that write (for example `EPIPE` because the reader has closed) leaves `launching`
+  last. ⟨§12.15 item 8⟩ std's `CommandExt::exec` resets SIGPIPE to the default action and
+  clears the signal mask in the calling process before `execvp`, and nothing restores
+  them when the exec fails. So after a failed exec, Heimdall reinstalls a SIGPIPE
+  disposition that does not terminate the process before it writes `prelaunch_failed`.
+  If that cannot be done, the fd protocol writes nothing more and `launching` stays
+  last.
 * **`--meta-file <path>`** (all platforms). The file is created exclusively (`O_CREAT |
   O_EXCL | O_NOFOLLOW`, 0600, or an owner-only DACL); an existing path is a `USAGE_ERROR`
   before `ensure`. Each record is one write followed by fsync. On Unix the descriptor is
@@ -2987,6 +2992,135 @@ build, with 828 tests (M01's 735 plus 93 new).
    * `HEIMDALL_TEST_CLOCK_OFFSET_S`: U8;
    * the 1Password socket-path excerpts are blocked until a live source can be pinned.
      Until then, detection uses `SSH_AUTH_SOCK` and IdentityAgent only.
+
+### 12.15 Rulings on the wave-1 escalations (orchestrator, 2026-11-01)
+
+Sources: the five wave-1 unit reports and the integrator's report (workflow
+`wf_71536525-4b6`). Wave 1 landed in f704ce93. check.sh exits 0 with 1064 passed, 0
+failed and 4 ignored, run four times by the integrator and once by the orchestrator. Every
+reading below that a unit implemented fail-closed is accepted unless the item says
+otherwise. Items naming **W2-U2r** are a wave-2 unit owning `crates/sshconf/**` and its
+`tests/model/sshconf_*.rs` and `tests/adversarial/sshconf_hostile.rs`.
+
+1. **Manifests and the production graph.** The units' manifest and lock edits are adopted
+   (test targets, the sshconf dev-dependencies, testkit's `fixtures` feature; the lock
+   only gained edges). The integrator's finding B is fixed in f704ce93: the `heimdall`
+   binary takes `heimdall-testkit` with default features off and feature `app` only, so
+   the U7 process fixtures are not compiled into the production graph.
+2. **Command text is bound raw (U1; changes a frozen type).** `parse::Directive` gains
+   `raw: Option<String>`. For `ProxyCommand`, `LocalCommand`, `RemoteCommand` and
+   `KnownHostsCommand` it holds the rest of the line after the keyword and its separator,
+   as OpenSSH's readconf keeps it: quotes and a trailing comment included. For every
+   other keyword it is `None`. `relevant::behavior_digest` binds `raw` in place of `args`
+   for those four keywords, so a change of quoting alone (`$X` against `'$X'`) changes the
+   digest. Owner: W2-U2r. U3's `ssh -G` corpus test checks `raw` against the printed
+   value.
+3. **Source role (U2 gaps 1 and 2, U6 E-U6-1 and E-U6-5).** §5.2 requires each value's
+   provenance reduced to its source role. The wave-1 digest leaves the role out, which
+   is a defect against §5.2.
+   * (a) `eval::Value` gains a `role` with the four §5.2 roles (`managed`, `user`,
+     `system`, `default`). The managed role belongs to values read from the
+     Heimdall-owned include file P. The evaluator learns P's path through its `Roots`.
+     `behavior_digest` binds the role. Owner: W2-U2r.
+   * (b) `IdentityEntry.provenance` and `IdentityEntry.source` are filled from that role.
+     `identity_selection_with_spans` may remain as an additive API. Owner: W2-U2r.
+   * (c) `PairIntegration` gains `identity_selection_report:
+     Option<IdentitySelectionReport>` (serde default, skipped when `None`). The contract
+     schema is regenerated, and `prepared_pair` uses it. This completes §12.14 item 6.
+     Owner: U0b phase 2 (wave 3). Until then, a fallback is never cleared.
+   * (d) `heimdall_domain::catalog::fallback_clearance` takes the adopted identity's
+     fingerprint. A `Managed` entry is cleared only when its fingerprint equals it. U6's
+     `integration::strict_clearance` becomes the domain rule, so readiness, U6 and U8's
+     pre-launch check apply one rule. Owner: U0b phase 2.
+4. **Retired keywords and expansion sets (integrator E).**
+   * A retired keyword in `directive::OBSOLETE` is not invalid. The evaluator consults
+     `directive::obsolete()` and records the line as ignored, with no effect on any
+     value, as OpenSSH does. An `Unsupported` entry still produces a doctor note.
+     Owner: W2-U2r.
+   * Evidence obligation: U3's corpus test runs `retired.conf` through every client in
+     the matrix. A supported client that refuses it reopens this item for that client.
+   * `expands_env` and the token sets follow the pinned S01 text, not F7's shorter
+     quotation, since F7 quotes S01. U3's corpus test checks each S01-wider keyword on
+     every client in the matrix. A supported client that disagrees is a defect, fixed by
+     gating on client version.
+5. **Executing and code-loading constructs (U1, integrator J).** `XAuthLocation`,
+   `PKCS11Provider` and `SecurityKeyProvider` make ssh run or load code when used.
+   `relevant::executing_constructs` lists them when they may take effect; their value
+   class stays first-wins. Owner: W2-U2r.
+6. **Readings accepted as implemented:**
+   * U1: the lexer's fail-closed differences (`MalformedKeyword` cases); limits that count
+     every read; the root at depth 0; `Cycle` reported only by `walk`; the inert
+     `@CORPUS_DIR@` corpus.
+   * U2:
+     * exclusive selection requires a determined `IdentitiesOnly yes` (F9);
+     * the consent reason-kind order;
+     * a BOM file is invalid with `byte_order_mark`;
+     * opaque candidates for unreadable parts of the tree;
+     * `find_blocks` reports `intact` structurally;
+     * the additive render and edit APIs.
+   * The Host-pattern case rule per pass, `Match canonical`/`final`, `HostName` not being
+     set again in the final pass, and parse-only includes under a false section are
+     `[I]`. U3's `sshconf_vs_ssh_g` corpus settles each on every client in the matrix.
+   * U7:
+     * the guard's extra refusals;
+     * `FakeAgent::release_pending` semantics;
+     * `HM_FIXTURE_SSHD_AUTHORIZED_KEYS` and `HM_FIXTURE_SSHD_LOG` are the U11 harness
+       interface (this amends m02-plan §4);
+     * the fixture `Running` types are the handles themselves.
+   * The non-root sshd fixture runs the account's login shell for a session. Tests that
+     need only authentication use `-N` (no session channel), so no shell startup file
+     runs. A test that needs a session says so.
+   * U6:
+     * E-U6-2, the ipc-local `AgentLocator` and `ClientBounds`. The orchestrator adds
+       the `heimdall-localenv → heimdall-ipc` edge before wave 2. U3's
+       `probe::agent::list_identities` converts `EndpointLocator` to `AgentLocator`.
+     * E-U6-3 and E-U6-7.
+     * E-U6-8: the descriptor states the adapter's best case, and the achieved check
+       after prepare is binding.
+     * An empty listing reported as locked, with basis `inferred`.
+   * U8:
+     * E5's additive APIs (`with_ids`, `check_arguments`, debug-only test hooks);
+     * every E6 resolution and environment reading.
+7. **Wave-3 items (U0b phase 2, U5, U8 wiring):**
+   * E-U6-4: an existing-access prepare error maps with `OpError::from_adapter_for(&e,
+     "provider")`, reason `endpoint_absent`. `INTERACTION_REQUIRED` carries its reason
+     and `next.provider_interaction` from the pair eligibility the runtime computes.
+   * E-U6-6: after a restart, `reconcile` for an adapter with no external effect is
+     answered from the operation's `PreparedFacts`, not from instance memory.
+     Meanwhile `not_applied` fails closed.
+   * U8 E3: `heimdall-launch` gains `serde_json` and replaces the hand encoder; the
+     golden test stays.
+   * U8 E7: `MAX_ARGV_BYTES` is enforced by the wiring before `ensure`.
+8. **Process contract (U8 E1, E2, E4):**
+   * E2: §8's SIGPIPE sentence was wrong and is amended there. U8's fix, which
+     reinstalls a non-terminating disposition after a failed exec, is the rule.
+   * E1: `sys::adopt_inherited_fd` is assigned to W2-U3. It also clears an inherited
+     `O_NONBLOCK`.
+   * E4: W2-U3 adds `sys::create_owner_only_exclusive(path) -> File`:
+     * Unix: `O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`, 0600;
+     * Windows: `CREATE_NEW` with `FILE_FLAG_OPEN_REPARSE_POINT` and an owner-only DACL
+       through `SECURITY_ATTRIBUTES`;
+     * it is entered in the `sys` unsafe inventory;
+     * `--meta-file` uses it from wave 3.
+9. **Wave-2 ownership (amends m02-plan U3 and U4 owner paths).**
+   * The orchestrator splits `crates/localenv/src/sys.rs` before wave 2:
+     * `sys/mod.rs` (U3's bodies, `adopt_inherited_fd`, `create_owner_only_exclusive`);
+     * `sys/quarantine.rs` (U4's `replace_file`, `handle_identity`, `RemoveOutcome`,
+       `QuarantineDir`, re-exported by `sys`, so every public path is unchanged).
+     The orchestrator also pre-registers the wave-2 test targets and dev-dependencies
+     in `crates/localenv/Cargo.toml`.
+   * U4 is delivered by three units with disjoint files:
+     * **W2-U4a, primitive:** `sys/quarantine.rs`, `projection/replace.rs`,
+       `projection/content.rs`, `materialize.rs`; tests in
+       `tests/integration/projection_replace.rs`.
+     * **W2-U4b, recovery:** the bodies of `RecoveryState::build` and
+       `StepObservation::normalize` in `crates/domain/src/projection.rs` (those two
+       bodies only), and `projection/recovery.rs`; the pure recovery tests in
+       `tests/model/projection_recovery.rs`.
+     * **W2-U4c, transaction:** `projection/{mod,plan,apply,observe,cleaner,git}.rs`;
+       `tests/integration/projection.rs` and `tests/integration/projection_git.rs`,
+       including the filesystem-backed `recovery_generated_observations_preserve_every_entry`.
+     The plan's U4 test list is divided by these files.
 
 ## 13. Consequences
 
