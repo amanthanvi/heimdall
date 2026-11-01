@@ -695,10 +695,13 @@ dependencies = [
  "heimdall-ipc",
  "heimdall-sshconf",
  "heimdall-testkit",
+ "libc",
  "proptest",
  "rustix",
+ "sha2",
  "tempfile",
  "thiserror",
+ "tokio",
  "windows-sys",
 ]
 

@@ -22,11 +22,18 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 # U1/U3: `Include` glob expansion in bytewise order (dependencies.md).
 glob = { workspace = true }
+# Wave 2 (pre-registered by the orchestrator, ADR-0007 §12.15 item 9): U3's probes and
+# local queries (tokio `process`, `time`; dependencies.md tokio row), SHA-256 for
+# client binaries, configuration snapshots and projection content (U3, U4).
+tokio = { workspace = true }
+sha2 = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 # U4 `replace`: atomic exchange and no-replace renames through the reviewed safe
 # wrapper (m02-plan §6 P5; dependencies.md). sys.rs keeps the remaining FFI.
 rustix = { workspace = true }
+# Wave 2: `sys` FFI on Unix (`getpwuid_r`, `killpg`, `fcntl`; U3).
+libc = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
