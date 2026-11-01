@@ -6,22 +6,23 @@
     "R-AP-04",
     "R-RT-02"
   ],
-  "build_commit": "ca21d621b1e2448d1cb858bb6f04c46c7796872d",
-  "artifact_digest": "sha256:a8190bde9c8c95b2db00a31da502e77a0f87f6bed2d2d7e2dea08c7ba9ed0077 (sha256 of tests/evidence/artifacts/m01/exit-ca21d621/digests.txt, which lists the sha256 of every platform artifact file; per-binary sha256 values are in each remote platform's build.txt)",
+  "build_commit": "6230acf943711b90de03f9b49ffcbd6ac29e42e7",
+  "artifact_digest": "sha256:45c2a001529f0f18683d0e6b9145f29d4703ef77171741949dcb21dbeb9d159a (sha256 of tests/evidence/artifacts/m01/exit-6230acf9/digests.txt, which lists the sha256 of every platform artifact file; per-binary sha256 values are in each remote platform's build.txt)",
   "environment": {
-    "macos": "macOS 27.0.1 (26A434) arm64 (build host), rustc 1.99.1, aarch64-apple-darwin, tools/validation/check.sh on a clean checkout of ca21d621",
+    "macos": "macOS 27.0.1 (26A434) arm64 (build host), rustc 1.99.1, aarch64-apple-darwin, tools/validation/check.sh at HEAD 6230acf9 (no source, test, schema or record file modified; the only working-tree change was a concurrent progress.md status note)",
     "linux": "Linux 6.8.0-147-generic x86_64, Ubuntu glibc 2.39, 4 CPUs, util-linux script 2.39.3 (owner host <linuxhost>, label linux-a), binaries x86_64-unknown-linux-gnu cross-built on the macOS host with zig 0.17.0 (glibc floor 2.31), run under nice -n 10 in a fresh ~/hm-m01-u10-<random> scratch dir (removed; verified absent afterwards)",
     "windows": "Windows 11 (ver 10.0.26300.9711) x86_64, non-elevated user (Medium Mandatory Level), binaries x86_64-pc-windows-gnu cross-built on the macOS host with zig 0.17.0, run through WSL interop from %LOCALAPPDATA%\\hm-m00\\M01-U10-<random> with TEMP/TMP inside it (both run dirs removed; verified absent afterwards); %LOCALAPPDATA%\\heimdall absent before and after; heimdall-hmtest- pipes 0 before and after; leftover test processes 0",
-    "started_at_note": "macOS check.sh started 2026-11-01T09:28:37Z; run-linux.sh started 09:30:07Z; run-windows.sh started 09:30:09Z. All three ran the same commit ca21d621 (clean tree)."
+    "started_at_note": "macOS check.sh ran 2026-11-01T11:13:40Z-11:15:18Z and finished before the cross-builds; run-linux.sh started 11:15:30Z (finished 11:19:55Z); run-windows.sh started 11:15:32Z (finished 11:19:27Z). All three ran the same commit 6230acf9."
   },
   "provider_versions": [],
-  "started_at": "2026-11-01T09:28:37Z",
+  "started_at": "2026-11-01T11:13:40Z",
   "commands_or_harness": [
-    "macOS: bash tools/validation/check.sh -> exit 0 (fmt 0, clippy 0, clippy-windows 0, test 0, test-discovery 0, schema 0, native-harness-selftest 0, evidence-selftest 0); cargo test: 652 passed, 0 failed, 2 ignored (child-process re-exec entries fd_hygiene::detached_spawn_probe and u8b::launcher_child_service)",
-    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/exit-ca21d621/linux-a <linuxhost> -> exit 0 (22 test binaries plus the heimdall CLI for e2e_cli_m01 via HEIMDALL_E2E_BIN; every binary exit 0; 587 passed, 0 failed, 2 ignored (the same child-process entries); leftover test processes 0; canary scan 0)",
-    "Windows: HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m01/run-windows.sh tests/evidence/artifacts/m01/exit-ca21d621/windows-11 -> exit 0 (22 test binaries plus heimdall.exe for e2e_cli_m01 via HEIMDALL_E2E_BIN; every binary exit 0; 546 passed, 0 failed, 1 ignored (u8b::launcher_child_service child-process entry); heimdall_ipc-unit windows:: tests ran natively, incl. windows::tests::client_computer_name_capacity_counts_utf16_units; canary scan 0)",
+    "macOS: bash tools/validation/check.sh -> exit 0 (fmt 0, clippy 0, clippy-windows 0, test 0, test-discovery 0, schema 0, native-harness-selftest 0, evidence-selftest 0, evidence-records 0); cargo test: 686 passed, 0 failed, 2 ignored (child-process re-exec entries fd_hygiene::detached_spawn_probe and u8b::launcher_child_service)",
+    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/exit-6230acf9/linux-a <linuxhost> -> exit 0 (22 test binaries plus the heimdall CLI for e2e_cli_m01 via HEIMDALL_E2E_BIN; every binary exit 0; 621 passed, 0 failed, 2 ignored (the same child-process entries); leftover test processes 0; canary scan 0; no ~/hm-m01-u10-* scratch dir left on the host afterwards)",
+    "Windows: HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m01/run-windows.sh tests/evidence/artifacts/m01/exit-6230acf9/windows-11 -> exit 0 (22 test binaries plus heimdall.exe for e2e_cli_m01 via HEIMDALL_E2E_BIN; every binary exit 0; 580 passed, 0 failed, 1 ignored (u8b::launcher_child_service child-process entry); leftover test processes 0; heimdall-hmtest- pipes 0 before and after; canary scan 0; both run dirs verified absent afterwards)",
     "Second owner Linux host (<second linux host>): not attempted in this run (ssh refused by the owner's tailnet policy for the configured user; ADR-0006 §13.6 item 9)",
-    "python3 -I tests/native/m01/m01-evidence.py --config tests/native/m01/runs.json --write"
+    "python3 -I tests/native/m01/m01-evidence.py --config tests/native/m01/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
   ],
   "observed_result": {
     "indexed_tests": 30,
@@ -37,9 +38,9 @@
         "exit_codes": {
           "check.sh": 0
         },
-        "artifact_digest": "check.txt sha256:7c85fd06824abbd1ecde5c176b756572ddd846918bed8b60bbff5b824a410f86",
+        "artifact_digest": "check.txt sha256:976a6d293ded1dc41c3a150b8f55eb79cd35ba8a2805aa244644803600eaf3a8",
         "logs": [
-          "tests/evidence/artifacts/m01/exit-ca21d621/macos/check.txt"
+          "tests/evidence/artifacts/m01/exit-6230acf9/macos/check.txt"
         ]
       },
       {
@@ -57,9 +58,9 @@
           "every test binary": 0,
           "canary scan": 0
         },
-        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-ca21d621/linux-a/build.txt; tests.txt sha256:8c63cf0c1da8c88319672e9b0dc084a8c3540d5999c0480d983924a122fb15fd",
+        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-6230acf9/linux-a/build.txt; tests.txt sha256:cc4c83a4cad95c9d9b339befcd597e4f4c213a61a431c7889742c6fb6a302ec6",
         "logs": [
-          "tests/evidence/artifacts/m01/exit-ca21d621/linux-a/tests.txt"
+          "tests/evidence/artifacts/m01/exit-6230acf9/linux-a/tests.txt"
         ]
       },
       {
@@ -77,34 +78,34 @@
           "every test binary": 0,
           "canary scan": 0
         },
-        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-ca21d621/windows-11/build.txt; tests.txt sha256:bd34744063034c25d8f6420984cba3687da9b079dbd907e30bba790bfb680a06",
+        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-6230acf9/windows-11/build.txt; tests.txt sha256:3b17e6e02befc6fd3e76cf679015bc0bc918cd80f15e14cec382b913957ba449",
         "logs": [
-          "tests/evidence/artifacts/m01/exit-ca21d621/windows-11/tests.txt"
+          "tests/evidence/artifacts/m01/exit-6230acf9/windows-11/tests.txt"
         ]
       }
     ],
     "summary": "Duplicate concurrent requests coalesce to one operation and one fake effect; dropped caller and same-key retry converge; altered parameters conflict; purged keys are REQUEST_EXPIRED in the marker window; crashes before the effect, after the effect before the receipt, and after the receipt reconcile without a second effect, in-process (model_operations, new adapter over the same ledger) and process-crash (u10_process_crash_*: core in a child process killed by exact handle; e2e_cli_m01 service killed by exact PID on macOS); the resolved deadline never restarts."
   },
   "evidence_paths": [
-    "tests/evidence/artifacts/m01/exit-ca21d621/macos/",
-    "tests/evidence/artifacts/m01/exit-ca21d621/linux-a/",
-    "tests/evidence/artifacts/m01/exit-ca21d621/windows-11/",
-    "tests/evidence/artifacts/m01/exit-ca21d621/digests.txt",
+    "tests/evidence/artifacts/m01/exit-6230acf9/macos/",
+    "tests/evidence/artifacts/m01/exit-6230acf9/linux-a/",
+    "tests/evidence/artifacts/m01/exit-6230acf9/windows-11/",
+    "tests/evidence/artifacts/m01/exit-6230acf9/digests.txt",
     "tests/native/m01/run-linux.sh",
     "tests/native/m01/run-windows.sh",
     "tests/native/m01/m01-evidence.py",
     "tests/native/m01/runs.json",
     "tests/native/m01/case-index.json",
-    "tests/evidence/artifacts/m01/exit-ca21d621/case-summary.json"
+    "tests/evidence/artifacts/m01/exit-6230acf9/case-summary.json"
   ],
   "limitations": [
-    "The CLI process-crash variants (e2e_cli_m01 a06_* incl. the caller-killed case of gap G13) ran natively on macOS, Linux (linux-a) and Windows 11 at ca21d621.",
+    "The CLI process-crash variants (e2e_cli_m01 a06_* incl. the caller-killed case of gap G13) ran natively on macOS, Linux (linux-a) and Windows 11 at 6230acf9.",
     "In-process restarts are labelled in-process in the case index and do not close the process-crash claim; the process-crash rows are u10_process_crash_*, integration_store crash children and e2e_cli_m01 a06_* (all on macOS, Linux and Windows).",
-    "Status discipline (m01-plan E15): rows marked verified mean the indexed tests ran and passed on that platform in this run at ca21d621; this is not an independent review of the units.",
+    "Status discipline (m01-plan E15): rows marked verified mean the indexed tests ran and passed on that platform in this run at 6230acf9; this is not an independent review of the units.",
     "Linux and Windows binaries were cross-built on the macOS host with zig (glibc floor 2.31 / x86_64-windows-gnu) and executed natively on the hosts; proptest regression files (resolved at compile-time source paths) were not present on the remote hosts, so persisted regression seeds replayed only on macOS; default fixed seeds ran everywhere.",
     "The second owner Linux host (<second linux host>) was not run: the owner's Tailscale SSH policy refuses the configured user (ADR-0006 §13.6 item 9). Linux x86-64 evidence comes from one host (linux-a).",
     "contracts (platform-neutral schema/golden-file checks) and integration_runtime::config_schema_export_matches_checked_in_file read repository files at compile-time paths and ran on macOS only.",
-    "e2e_cli_m01 pseudo-terminal cases are cfg(unix) (script(1)) and ran on macOS and Linux only; e2e_cli_m01::service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable is Unix-only by design (platform_only macOS/Linux).",
+    "e2e_cli_m01 pseudo-terminal cases are cfg(unix) (script(1)) and ran on macOS and Linux only; the case index marks them, e2e_cli_m01::service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable and the three cfg(unix) integration_runtime permission/stale-record tests platform_only macOS/Linux (ADR-0006 §13.12 item 4); ConPTY tests and an explicit Windows state-directory ACL check are M04 items.",
     "Every fake effect, clock and store in these tests is a disposable fixture (FakeCredentialAdapter, VirtualClock/ScriptedTimeSync, in-memory or temp-dir SQLite, owner-only sockets/pipes in temp dirs); no provider, network service or real key was used.",
     "Redaction: the macOS check.txt had the build host's home path in six cargo 'Checking' lines, replaced with <home>; remote outputs were redacted by the runners (<linuxhost>, <user>, <home>, <winuser>, <winhost>, <winhome>, <wsluser>, <wslhome>, <wslhost>)."
   ],

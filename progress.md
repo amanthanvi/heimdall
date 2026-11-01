@@ -180,7 +180,11 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - U01: inspect combines every record covering a grant;
   - recovery cleanup never calls revoke for a grant that has a pending record;
   - time property: `sync: true` ⇒ drift 0 (trusted-sync assumption), a named limitation test, a fixed seed.
-- Running: task M01-rulings-13-15.
+- Committed as 6230acf9: §13.14 items 2–3, §13.15 items 1–5 and §13.16 (`remote_pending_reasons` is always an array). check.sh exit 0, 686 passed, 0 failed, 2 ignored; 86 records valid. Includes the round-5 review.
+- Running at 6230acf9, both at once:
+  - task M01-evidence-6230acf9: the final native evidence on macOS, devbox and Windows 11, and the records;
+  - Codex review round 6 of b933d3eb..6230acf9.
+- If both come back clean: write the M01 exit record, then plan M02.
 - Then: validate, commit, final native evidence and a small final review check, then the M01 exit record.
 - After that, at one commit and in parallel:
   - native evidence runs (devbox, the Windows PC) and regenerated m01 records;

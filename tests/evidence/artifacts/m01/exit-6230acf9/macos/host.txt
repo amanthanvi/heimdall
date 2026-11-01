@@ -1,0 +1,7 @@
+os=macOS 27.0.1 (26A434) arm64
+toolchain=rustc 1.99.1 (58cf8f9c3 2026-10-13); cargo 1.99.1 (5f94df478 2026-08-27); host aarch64-apple-darwin
+zig=0.17.0
+commit=6230acf943711b90de03f9b49ffcbd6ac29e42e7
+worktree=HEAD 6230acf9 at run start; the only modified file was progress.md (a concurrent orchestrator status note; no source, test, schema or record file differed from the commit); check.sh finished before any later working-tree edit
+check.sh started_at=2026-11-01T11:13:40Z
+check.sh exit 0
