@@ -137,5 +137,11 @@ run_step native-harness-selftest bash tools/validation/native-harness-selftest.s
 run_step evidence-selftest env PYTHONDONTWRITEBYTECODE=1 \
     python3 -I tests/native/m01/test_m01_evidence.py
 
+# Every evidence record validates against record.schema.json (plan §6.6).
+# minischema.validate returns its errors instead of raising, so the script checks
+# the returned list and self-checks that a bad record is rejected.
+run_step evidence-records env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I tools/validation/validate-records.py
+
 echo "== overall: exit ${status}"
 exit "${status}"

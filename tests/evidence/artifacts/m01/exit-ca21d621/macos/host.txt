@@ -1,0 +1,7 @@
+os=macOS 27.0.1 (26A434) arm64
+toolchain=rustc 1.99.1 (58cf8f9c3 2026-10-13); cargo 1.99.1 (5f94df478 2026-08-27); host aarch64-apple-darwin
+zig=0.17.0
+commit=ca21d621b1e2448d1cb858bb6f04c46c7796872d
+worktree=clean at run start (git status --porcelain empty; HEAD ca21d621); check.sh finished before any later working-tree edit
+check.sh started_at=2026-11-01T09:28:37Z
+check.sh exit 0

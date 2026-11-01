@@ -6,31 +6,30 @@
     "R-RT-02",
     "R-RT-04"
   ],
-  "build_commit": "f9ed3454 + uncommitted wave-2 and M01-wave2-gapfix changes (not reproducible from a commit; gap G14: rerun after the orchestrator commits)",
-  "artifact_digest": "sha256:1fdd362aeaea28bf68e3c57d89dbecb26d31908410522ebd0622f88a9e2b09dc (sha256 of tests/evidence/artifacts/m01/u10-native/digests.txt, which lists the sha256 of every artifact file; per-binary sha256 values are in each platform's build.txt); macOS gap-fix run: tests/evidence/artifacts/m01/gapfix/macos/check.txt sha256:6245c51e64cba75ff3ef6421b3c3bedf2da57ad1f9c0bc7fef9e385cfd05ebc2",
+  "build_commit": "ca21d621b1e2448d1cb858bb6f04c46c7796872d",
+  "artifact_digest": "sha256:a8190bde9c8c95b2db00a31da502e77a0f87f6bed2d2d7e2dea08c7ba9ed0077 (sha256 of tests/evidence/artifacts/m01/exit-ca21d621/digests.txt, which lists the sha256 of every platform artifact file; per-binary sha256 values are in each remote platform's build.txt)",
   "environment": {
-    "macos": "macOS 27.0.1 arm64 (build host), rustc 1.99.1, aarch64-apple-darwin, tools/validation/check.sh",
-    "linux": "Linux 6.8.0 x86_64, Ubuntu glibc 2.39, 4 CPUs (owner host <linuxhost>, label linux-a), binaries x86_64-unknown-linux-gnu built with zig 0.17.0, run under nice -n 10 in a fresh ~/hm-m01-u10-<random> scratch dir (removed)",
-    "windows": "Windows 11 (ver 10.0.26300.9711) x86_64, non-elevated user (Medium Mandatory Level), binaries x86_64-pc-windows-gnu built with zig 0.17.0, run through WSL interop from %LOCALAPPDATA%\\hm-m00\\M01-U10 with TEMP/TMP inside it (removed); %LOCALAPPDATA%\\heimdall absent before and after",
-    "started_at_note": "macOS rows: check.sh of the gap-fix build started 2026-11-01T04:29:40Z. Linux and Windows rows are from the earlier U10 runs (2026-11-01, before the gap fixes) and predate this build."
+    "macos": "macOS 27.0.1 (26A434) arm64 (build host), rustc 1.99.1, aarch64-apple-darwin, tools/validation/check.sh on a clean checkout of ca21d621",
+    "linux": "Linux 6.8.0-147-generic x86_64, Ubuntu glibc 2.39, 4 CPUs, util-linux script 2.39.3 (owner host <linuxhost>, label linux-a), binaries x86_64-unknown-linux-gnu cross-built on the macOS host with zig 0.17.0 (glibc floor 2.31), run under nice -n 10 in a fresh ~/hm-m01-u10-<random> scratch dir (removed; verified absent afterwards)",
+    "windows": "Windows 11 (ver 10.0.26300.9711) x86_64, non-elevated user (Medium Mandatory Level), binaries x86_64-pc-windows-gnu cross-built on the macOS host with zig 0.17.0, run through WSL interop from %LOCALAPPDATA%\\hm-m00\\M01-U10-<random> with TEMP/TMP inside it (both run dirs removed; verified absent afterwards); %LOCALAPPDATA%\\heimdall absent before and after; heimdall-hmtest- pipes 0 before and after; leftover test processes 0",
+    "started_at_note": "macOS check.sh started 2026-11-01T09:28:37Z; run-linux.sh started 09:30:07Z; run-windows.sh started 09:30:09Z. All three ran the same commit ca21d621 (clean tree)."
   },
   "provider_versions": [],
-  "started_at": "2026-11-01T04:29:40Z",
+  "started_at": "2026-11-01T09:28:37Z",
   "commands_or_harness": [
-    "macOS (gap-fix build): bash tools/validation/check.sh -> exit 0 (fmt 0, clippy 0, clippy-windows 0, test 0, test-discovery 0, schema 0); 513 passed, 0 failed, 1 ignored (the launcher child-process entry)",
-    "macOS (before the fixes): see tests/evidence/artifacts/m01/gapfix/macos/pre-fix.txt (each new case failing without its fix; exit 101)",
-    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/u10-native/linux-a <linuxhost> -> exit 0 (21 test binaries, every binary exit 0, canary scan 0)",
-    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/u10-native/linux-b <second linux host> -> exit 4 (ssh refused, exit 255; nothing built or copied)",
-    "Windows: HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m01/run-windows.sh tests/evidence/artifacts/m01/u10-native/windows-11 -> exit 0 (21 test binaries, every binary exit 0, canary scan 0)",
+    "macOS: bash tools/validation/check.sh -> exit 0 (fmt 0, clippy 0, clippy-windows 0, test 0, test-discovery 0, schema 0, native-harness-selftest 0, evidence-selftest 0); cargo test: 652 passed, 0 failed, 2 ignored (child-process re-exec entries fd_hygiene::detached_spawn_probe and u8b::launcher_child_service)",
+    "Linux: tests/native/m01/run-linux.sh tests/evidence/artifacts/m01/exit-ca21d621/linux-a <linuxhost> -> exit 0 (22 test binaries plus the heimdall CLI for e2e_cli_m01 via HEIMDALL_E2E_BIN; every binary exit 0; 587 passed, 0 failed, 2 ignored (the same child-process entries); leftover test processes 0; canary scan 0)",
+    "Windows: HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m01/run-windows.sh tests/evidence/artifacts/m01/exit-ca21d621/windows-11 -> exit 0 (22 test binaries plus heimdall.exe for e2e_cli_m01 via HEIMDALL_E2E_BIN; every binary exit 0; 546 passed, 0 failed, 1 ignored (u8b::launcher_child_service child-process entry); heimdall_ipc-unit windows:: tests ran natively, incl. windows::tests::client_computer_name_capacity_counts_utf16_units; canary scan 0)",
+    "Second owner Linux host (<second linux host>): not attempted in this run (ssh refused by the owner's tailnet policy for the configured user; ADR-0006 §13.6 item 9)",
     "python3 -I tests/native/m01/m01-evidence.py --config tests/native/m01/runs.json --write"
   ],
   "observed_result": {
-    "indexed_tests": 31,
+    "indexed_tests": 46,
     "rows": [
       {
         "platform": "macos-arm64",
         "status": "verified",
-        "passed": 31,
+        "passed": 46,
         "failed": [],
         "ignored": [],
         "not_run_on_this_platform": [],
@@ -38,96 +37,83 @@
         "exit_codes": {
           "check.sh": 0
         },
-        "artifact_digest": "check.txt sha256:6245c51e64cba75ff3ef6421b3c3bedf2da57ad1f9c0bc7fef9e385cfd05ebc2",
+        "artifact_digest": "check.txt sha256:7c85fd06824abbd1ecde5c176b756572ddd846918bed8b60bbff5b824a410f86",
         "logs": [
-          "tests/evidence/artifacts/m01/gapfix/macos/check.txt"
+          "tests/evidence/artifacts/m01/exit-ca21d621/macos/check.txt"
         ]
       },
       {
         "platform": "linux-x86_64 (linux-a)",
-        "status": "in_progress",
-        "passed": 25,
+        "status": "verified",
+        "passed": 46,
         "failed": [],
         "ignored": [],
+        "not_run_on_this_platform": [],
         "platform_neutral_run_elsewhere": [],
         "exit_codes": {
           "run-linux.sh": 0,
-          "every test binary": 0
+          "ssh uname -m": 0,
+          "cargo test --no-run (cross-build)": 0,
+          "every test binary": 0,
+          "canary scan": 0
         },
-        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/u10-native/linux-a/build.txt; tests.txt sha256:bcc3631d0dedb49e5e22c68f47c337567c04e9bb102f1c39c22b6ce5a025fe00",
+        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-ca21d621/linux-a/build.txt; tests.txt sha256:8c63cf0c1da8c88319672e9b0dc084a8c3540d5999c0480d983924a122fb15fd",
         "logs": [
-          "tests/evidence/artifacts/m01/u10-native/linux-a/tests.txt"
-        ],
-        "not_run_since_build": [
-          "model_operations::g03_cleanup_executor_deletes_generation_n_once",
-          "model_operations::g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary",
-          "model_operations::g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff",
-          "e2e_cli_m01::a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once",
-          "e2e_cli_m01::a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays",
-          "e2e_cli_m01::eight_concurrent_clients_start_exactly_one_runtime"
-        ],
-        "predates_build": "This row predates the M01-wave2-gapfix build: the binaries ran before the G01-G18 fixes (the former gap cases were #[ignore]d there; the new cases did not exist). Re-run tests/native/m01/run-linux.sh against the integrated commit (gap G14). The runner now also runs e2e_cli_m01 against the copied CLI (HEIMDALL_E2E_BIN; gap G09)."
+          "tests/evidence/artifacts/m01/exit-ca21d621/linux-a/tests.txt"
+        ]
       },
       {
         "platform": "windows-11-x86_64",
         "status": "in_progress",
-        "passed": 19,
+        "passed": 41,
         "failed": [],
         "ignored": [],
+        "not_run_on_this_platform": [
+          "integration_runtime::instance_stale_records_are_ignored"
+        ],
         "platform_neutral_run_elsewhere": [],
         "exit_codes": {
           "run-windows.sh": 0,
-          "every test binary": 0
+          "cargo test --no-run (cross-build)": 0,
+          "create scratch dirs": 0,
+          "every test binary": 0,
+          "canary scan": 0
         },
-        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/u10-native/windows-11/build.txt; tests.txt sha256:6d6ae25e534aa804c7f3d84640bd0d91c0c7bdb7286d4ee68856bc67579473ab",
+        "artifact_digest": "sha256 per binary in tests/evidence/artifacts/m01/exit-ca21d621/windows-11/build.txt; tests.txt sha256:bd34744063034c25d8f6420984cba3687da9b079dbd907e30bba790bfb680a06",
         "logs": [
-          "tests/evidence/artifacts/m01/u10-native/windows-11/tests.txt"
+          "tests/evidence/artifacts/m01/exit-ca21d621/windows-11/tests.txt"
         ],
-        "not_run_since_build": [
-          "integration_runtime::u8b::service_ignores_and_replaces_a_stale_instance_json",
-          "integration_runtime::instance_stale_records_are_ignored",
-          "integration_runtime::u8b::launcher_eight_concurrent_clients_start_exactly_one_child",
-          "model_operations::g03_cleanup_executor_deletes_generation_n_once",
-          "model_operations::g03_cleanup_of_generation_n_never_deletes_its_replacement_created_at_the_deletion_boundary",
-          "model_operations::g04_unavailable_cleanup_is_retried_by_the_single_supervisor_with_bounded_backoff",
-          "e2e_cli_m01::a06_service_killed_after_the_effect_while_ensure_waits_then_restart_reconciles_once",
-          "e2e_cli_m01::a06_service_killed_while_operation_wait_waits_then_the_new_socket_replays",
-          "e2e_cli_m01::eight_concurrent_clients_start_exactly_one_runtime"
+        "incomplete_run": [
+          "integration_runtime::instance_stale_records_are_ignored"
         ],
-        "predates_build": "This row predates the M01-wave2-gapfix build: the binaries ran before the G01-G18 fixes (the former gap cases were #[ignore]d there; the new cases did not exist). Re-run tests/native/m01/run-windows.sh against the integrated commit (gap G14). e2e_cli_m01, the cfg(unix) runtime cases and a Windows service stop remain harness/product gaps on Windows (G09), not a missing platform."
-      },
-      {
-        "platform": "windows-11-x86_64 (harness/product gap)",
-        "status": "in_progress",
-        "detail": "Gap G09: no native Windows test of the local runtime yet (e2e_cli_m01 needs script(1) and service stop; second-start AlreadyRunning, stale instance.json and launcher single child have cfg(unix) tests only), and service stop answers USAGE_ERROR on Windows (no exact-PID graceful stop or owner-channel shutdown in this build). The platform is available; this is not a platform block."
+        "harness_gap": "Tests listed under incomplete_run are #[cfg(unix)] and not compiled for x86_64-pc-windows-gnu: the e2e_cli_m01 pseudo-terminal cases (script(1)) and integration_runtime::{instance_insecure_files_are_refused, paths_tighten_existing_permissive_dirs_and_refuse_symlinks, instance_stale_records_are_ignored}. The case index does not mark them platform_only and no Windows equivalent exists (gap G09 remainder), so the row stays in_progress; whether they are Unix-only by design or need Windows equivalents is an open decision for the orchestrator, not a platform block."
       }
     ],
     "summary": "Single instance (second start AlreadyRunning, stale instance.json ignored, eight concurrent clients start one child), restart recovery reconciles Attempted receipts without preparing again, pause and environment identity survive in-process and process-crash restarts, store crash children at every transaction and migration point reopen to exactly the committed state, resource CAS never lets a stale writer win, repeated adapter unavailability gives one call per request and a stable code with no retry storm. N06 (a)/(b) now run through the production supervisor cleanup executor (Supervisor::cleanup_pass, ResourceCleaner port, CleanupHook at the deletion boundary): the replacement N+1 created between the decision and the delete survives and N is gone; Unavailable is retried only by that executor with Backoff spacing (0.5 s doubling), capped at 8 attempts, then SERVICE_UNAVAILABLE, with no operation, decision or prompt (in-process, fake cleaner)."
   },
   "evidence_paths": [
-    "tests/evidence/artifacts/m01/gapfix/macos/",
-    "tests/evidence/artifacts/m01/u10-native/macos/",
-    "tests/evidence/artifacts/m01/u10-native/linux-a/",
-    "tests/evidence/artifacts/m01/u10-native/linux-b/",
-    "tests/evidence/artifacts/m01/u10-native/windows-11/",
-    "tests/evidence/artifacts/m01/u10-native/digests.txt",
+    "tests/evidence/artifacts/m01/exit-ca21d621/macos/",
+    "tests/evidence/artifacts/m01/exit-ca21d621/linux-a/",
+    "tests/evidence/artifacts/m01/exit-ca21d621/windows-11/",
+    "tests/evidence/artifacts/m01/exit-ca21d621/digests.txt",
     "tests/native/m01/run-linux.sh",
     "tests/native/m01/run-windows.sh",
     "tests/native/m01/m01-evidence.py",
     "tests/native/m01/runs.json",
     "tests/native/m01/case-index.json",
-    "tests/evidence/artifacts/m01/u10-native/case-summary.json"
+    "tests/evidence/artifacts/m01/exit-ca21d621/case-summary.json"
   ],
   "limitations": [
     "Helper-process crashes and duplicate observers (A17 M02+) are not M01 claims.",
     "N06 executor cases are in-process with a fake ResourceCleaner (M01 ships no production cleaner; M02 adapters add them); a failed operation prepare is still reported once with a stable code and not retried automatically (u10_a17_repeated_unavailable_*: the operations path, a different reading, indexed but not counted toward N06).",
-    "Windows local-runtime variants and a Windows service stop are a harness/product gap (G09), recorded as an in_progress row, not as a platform block.",
-    "Status discipline (m01-plan E15): rows marked verified mean the indexed tests ran and passed on that platform in this run; there has been no independent review of the units (all stay implemented_unverified until review).",
+    "Windows: service stop over the named pipe, eight concurrent clients starting one runtime and the a06 kill/restart cases ran natively (e2e_cli_m01); integration_runtime::instance_stale_records_are_ignored is cfg(unix) with no Windows equivalent (G09 remainder), so the Windows row is in_progress, not blocked.",
+    "Status discipline (m01-plan E15): rows marked verified mean the indexed tests ran and passed on that platform in this run at ca21d621; this is not an independent review of the units.",
     "Linux and Windows binaries were cross-built on the macOS host with zig (glibc floor 2.31 / x86_64-windows-gnu) and executed natively on the hosts; proptest regression files (resolved at compile-time source paths) were not present on the remote hosts, so persisted regression seeds replayed only on macOS; default fixed seeds ran everywhere.",
-    "The second owner Linux host (labelled linux-b) refused ssh (tailnet policy denies the user; exit 255 before any build or copy), so Linux x86-64 evidence comes from one host (linux-a).",
-    "contracts (platform-neutral schema/golden-file checks) reads repository files at compile-time paths and ran on macOS only.",
+    "The second owner Linux host (<second linux host>) was not run: the owner's Tailscale SSH policy refuses the configured user (ADR-0006 §13.6 item 9). Linux x86-64 evidence comes from one host (linux-a).",
+    "contracts (platform-neutral schema/golden-file checks) and integration_runtime::config_schema_export_matches_checked_in_file read repository files at compile-time paths and ran on macOS only.",
+    "e2e_cli_m01 pseudo-terminal cases are cfg(unix) (script(1)) and ran on macOS and Linux only; e2e_cli_m01::service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable is Unix-only by design (platform_only macOS/Linux).",
     "Every fake effect, clock and store in these tests is a disposable fixture (FakeCredentialAdapter, VirtualClock/ScriptedTimeSync, in-memory or temp-dir SQLite, owner-only sockets/pipes in temp dirs); no provider, network service or real key was used.",
-    "The macOS rows ran the gap-fix build; the Linux and Windows rows ran the earlier U10 build of the same uncommitted tree (marked predates_build, status in_progress). None of the three is tied to a commit (gap G14)."
+    "Redaction: the macOS check.txt had the build host's home path in six cargo 'Checking' lines, replaced with <home>; remote outputs were redacted by the runners (<linuxhost>, <user>, <home>, <winuser>, <winhost>, <winhome>, <wsluser>, <wslhome>, <wslhost>)."
   ],
   "blocked_on": null
 }

@@ -132,7 +132,27 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - a missing mechanism makes the grant degraded instead of ending it;
   - revoke-sweep retries use bounded jittered backoff;
   - the case index covers r136–r139.
-- Running: workflow `wf_e4d70f86-2c6`, for §13.10 items 2, 3 and 5.
+- §13.10 items 2, 3 and 5 (workflow `wf_e4d70f86-2c6`) are committed as ca21d621, with the §13.11 confirmations. My check.sh run: exit 0, 652 passed, 0 failed, 2 ignored.
+- Running at ca21d621, both at once:
+  - task M01-evidence-ca21d621: macOS check.sh, Linux devbox via run-linux.sh, the Windows PC via run-windows.sh plus the windows-ipc harness, regenerated m01 records, a redaction scan;
+  - Codex code review round 4 of 01747a6b..ca21d621, writing to `review-m01-code/round4.md`.
+- Round 4 is done: fix first.
+  - S01, S02, S04 and S05 are fixed. S03 is partial.
+  - New, both reproduced with probes:
+    - T01 (major): a failed completion commit bypasses the remote-revocation retry cap.
+    - T02 (major): removing the original adapter falsely completes a pending remote revocation.
+  - Rulings in ADR-0006 §13.12 (not committed yet; the evidence run is building ca21d621 in the main checkout):
+    - T01: claim a round durably before calling the adapter.
+    - T02: track each obligation per adapter. A missing adapter leaves it pending and visible (adapter_unavailable).
+  - Fixer M01-review4-T01-T02 is running in its own worktree, from ca21d621.
+  - After it: apply its diff, validate, commit, re-run the native evidence at that commit, and run a round-5 check.
+- Native evidence at ca21d621 (`tests/evidence/artifacts/m01/exit-ca21d621/`):
+  - macOS 652 passed, 0 failed, 2 ignored (check.sh 0); Linux devbox 587/0/2; Windows 11 546/0/1. Every script, step and binary exited 0.
+  - The Windows-only B05 test ran natively.
+  - Records: A06 and A07 are verified. A08, A17-local, A19, A29-local and the exit claims are in_progress, because 8 Unix-only tests are absent on Windows (no failures).
+  - Ruled in §13.12 item 4: those 8 are marked platform_only; the Windows owner-only ACL check moves to M04.
+  - The validator (`minischema.validate`) returns errors and never raises, so the earlier one-line checks were vacuous.
+  - New check.sh step `evidence-records`, which self-checks. Re-check: 86 records, 0 invalid.
 - After that, at one commit and in parallel:
   - native evidence runs (devbox, the Windows PC) and regenerated m01 records;
   - a final Codex check of 01747a6b..HEAD.

@@ -1018,6 +1018,59 @@ Source: workflow `wf_e4d70f86-2c6`. All five readings are confirmed as implement
    an M02 task, needed for the spec §12.3 visibility claim. The `--json` output
    already carries them.
 
+### 13.12 ⟨r2.9⟩ Rulings on code review round 4 (orchestrator, 2026-11-01)
+
+Source: `tests/evidence/artifacts/review-m01-code/round4.md` (T01, T02).
+
+1. **T01: claim a round before calling an adapter.**
+   * A remote-revocation retry round is claimed durably, in its own committed
+     transaction, before any adapter is called: the attempt count is incremented and
+     `claimed_at` is recorded.
+   * A round that was claimed but never completed counts as attempted, whether the
+     process crashed or the completion transaction failed.
+   * The cap counts claimed rounds, so no sequence of failures yields more adapter
+     calls than the cap allows.
+   * The pending obligation stays until completion is confirmed.
+   * An authorized explicit revoke still re-arms the schedule (§13.11 item 4).
+2. **T02: obligations are tracked per adapter.**
+   * The pending record keeps the unresolved obligations per responsible adapter, by
+     its `AdapterIdentity` from the recovery intent and receipts.
+   * A retry calls the responsible adapter only. An obligation is cleared only when
+     that adapter confirms completion.
+   * If the responsible adapter is not configured, its obligation stays pending and
+     visible: `remote_pending` with reason `adapter_unavailable`. The round consumes
+     no attempt, because no call was made, but the schedule still backs off, so
+     nothing spins.
+   * When the adapter is configured again, rounds resume.
+   * A grant leaves `revoking` only when every obligation has cleared.
+   * Another adapter's answer, or an empty adapter list, never clears an obligation.
+3. **Evidence.** The native evidence run at ca21d621 stands as evidence for that
+   build. M01 exit evidence is regenerated at the commit that fixes T01 and T02.
+4. **Decisions from the ca21d621 evidence run** (task M01-evidence-ca21d621):
+   * **The hand-written A17-local Windows row is removed.** It claimed there was no
+     native Windows test. This run contradicts it: service stop over the control
+     endpoint, the single-child launcher and the A06 kill/restart tests passed
+     natively on Windows.
+   * **Eight `#[cfg(unix)]` tests are marked `platform_only` (macOS, Linux) in the
+     case index**, with a stated rationale. Five are pseudo-terminal e2e tests. On
+     Windows, the attendance and prompt order is covered by the CLI unit seams, and
+     ConPTY tests are an M04 item. Three test POSIX modes and symlinks:
+     `instance_insecure_files_are_refused`,
+     `paths_tighten_existing_permissive_dirs_and_refuse_symlinks` and
+     `instance_stale_records_are_ignored`. On Windows the state directory relies on
+     the per-user `%LOCALAPPDATA%` ACL.
+   * **M01 makes no Windows claim that the state directory is owner-only.** An
+     explicit Windows ACL check, with a native test, is an M04 item.
+   * **The rewritten limitation texts in `runs.json` are accepted.**
+5. **Record validation.** `minischema.validate` returns a list of errors and does not
+   raise, so earlier one-line validations could not fail. A new check.sh step,
+   `evidence-records` (`tools/validation/validate-records.py`), validates every
+   record in `tests/evidence/`, fails on any error, and self-checks that a bad record
+   is rejected.
+
+   Re-checked on 2026-11-01: 86 records, 0 invalid. No earlier claim of a valid record
+   turned out to be false.
+
 ## 14. ⟨rev2⟩ Change log and substrate added by revision 2
 
 ### 14.1 Recovery intent and stage receipts (review F05; ruling 5)
