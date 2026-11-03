@@ -487,3 +487,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - W2b-U4r: §12.17 items 1, 2, 4, 7 and the per-row recovery test;
     - W2b-U4t: §12.17 items 2, 3, 4, 5, 6, 8 and 9 — the §5.5 conflict rename, the Git parse check, consent waivers, repair previews, generated domain for GitLock and Removal, and a real process-abort crash test.
   - m02-plan U4: the symlink race test is renamed `…_is_held`.
+- Wave 2 is committed as 3e51f49b. My check.sh: exit 0, 1278 passed, 0 failed, 4 ignored.
+- Running (2026-11-03):
+  - workflow `wf_6f9a053c-b88`, wave 2b: W2b-fix, W2b-U4r and W2b-U4t in parallel, then an integrator that builds a done/partial/not_done table over §12.16 and §12.17. One retry per unit; integration is skipped if a unit fails.
+  - task M02-W2-code-review: Codex `codex-cpamc`, gpt-6.1-sol, reasoning effort high, worktree at 3e51f49b, read-only. This is the owed cross-model review, for wave 2.
+- M02 wave-2 code review (Codex `codex-cpamc`; `tests/evidence/artifacts/review-m02-code/wave2.md`): fix first, X01–X05. In the reviewer's worktree: 1278 passed, fmt 0, clippy 0.
+  - X01 (P1): fd adoption could double-own a descriptor.
+  - X02 (P1): a create rollback moved a concurrently edited file.
+  - X03 (P1): random markers made first-adoption previews irreproducible.
+  - X04 (P2): fresh Git apply ignored a lost K.
+  - X05 (P2): DNS outside the probe timeout.
+  - ADR-0007 §12.18 rules on all five.
+  - I fixed X01 (duplicate via F_DUPFD_CLOEXEC; still safe) and X05 (resolution bounded by the deadline) in the working tree. They are uncommitted until wave 2b integrates, and untested so far, because sshconf is mid-edit by W2b-fix and does not compile yet.
+  - X02–X04 go to wave 2c (`W2c-U4`) after wave 2b.

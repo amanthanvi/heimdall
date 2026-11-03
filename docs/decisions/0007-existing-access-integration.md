@@ -3315,6 +3315,70 @@ Item 2 runs across W2b-U4r and W2b-U4t, as that item describes.
     The three added dependencies (getrandom, serde_json, dev heimdall-store; all
     workspace-pinned) and W2-U2r's constructor edit in testkit `home.rs` are adopted.
 
+### 12.18 Rulings on the wave-2 code review (orchestrator, 2026-11-03)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave2.md` (Codex, independent, fix first;
+X01–X05). X01–X04 were reproduced by scratch probes; X05 is inferred from code. All five are
+accepted as defects.
+
+The orchestrator fixed X01 and X05 directly; no wave-2b unit owns those files. X02–X04 lie
+in files that the wave-2b units W2b-U4r and W2b-U4t edit concurrently. They are fixed in
+**wave 2c**, after wave 2b integrates, by one unit (`W2c-U4`) that owns the projection
+files and their tests. Each fix carries a regression test that fails without it.
+
+1. **X01: descriptor adoption duplicates, never takes.** `sys::adopt_inherited_fd` stays a
+   safe function, with no new `unsafe` outside `sys`.
+   * It returns an `OwnedFd` over `fcntl(F_DUPFD_CLOEXEC, 3)` of the named descriptor: a
+     new number that nothing else in the process refers to. So it never creates a second
+     owner, whoever owns the inherited number.
+   * The inherited number is neither closed nor taken; it is set close-on-exec.
+   * An inherited `O_NONBLOCK` is cleared on the shared open file description.
+   * Both descriptors close at exec, so §8's protocol is unchanged.
+   * The one-adoption guard stays.
+   * Regression (`sys::tests::adopt_inherited_fd_checks_type_and_mode_once_and_clears_nonblock`):
+     the reviewer's scenario. The adopted number differs from the caller's, and after the
+     adopted descriptor is dropped and an unrelated file is opened, writes through the
+     original owner still reach the pipe and the unrelated file stays empty.
+   * `SideChannel::from_fd` is unchanged.
+2. **X02: a create rollback never moves a changed active file.** Before moving an active
+   path source into the slot, a create's rollback, or a continued path-source settlement,
+   re-checks the entry's identity and target digest. A changed entry gives
+   `ActiveEntryModified`: it stays at its path and the item holds (C7a). This is the same
+   check §5.3 step 7 makes for a replace. Regression: the reviewer's scenario, an edit at
+   `BeforeRestoreCheck`, leaves the edited configuration at its path and holds the
+   operation. The crash-while-down C7a test stays. Owner: W2c-U4.
+3. **X03: markers are reproducible.**
+   * A first adoption's marker is derived, not drawn:
+     * the first 128 bits of SHA-256 over `heimdall.marker.v1`;
+     * the proposed generation;
+     * the target file's role;
+     * the canonical digest of the plan inputs: the spec, and the base digests of the
+       files the plan reads.
+   * The same inputs therefore give the same marker and plan digest, and §5.4 step 1's
+     recomputation reproduces an approved preview. Any change of input changes the
+     marker and the digest, as it must.
+   * Markers were never secrets. A user's copy of a block is the duplicate-marker case
+     either way.
+   * The same rule applies to the Git block.
+   * Regression: two unchanged first-adoption previews, for SSH and for Git, give equal
+     plan digests. Changing any one input changes the plan digest.
+   * Owner: W2c-U4.
+4. **X04: the live path observes K before B_git's commit point.**
+   * Before B_git's exchange, fresh apply observes the lock name and requires K's
+     recorded identity there. Otherwise it applies K3 or K4 exactly as recovery does: an
+     item whose commit step never exchanged aborts, and nothing is written to the global
+     Git file.
+   * Regressions, for both fresh apply and restart: K replaced by a foreign lock at
+     `AfterLockClaim`, and K removed at `AfterLockClaim`.
+   * Owner: W2c-U4.
+5. **X05: name resolution is inside the network level's bound.**
+   * A literal address needs no resolver.
+   * A name is resolved on a helper thread that the probe waits on only until its
+     deadline. The system resolver cannot be cancelled, so on a timeout that thread is
+     left to finish on its own; it holds nothing but the lookup.
+   * Regressions: `probe::network::tests::a_slow_resolver_is_bounded_by_the_deadline` and
+     `…::a_literal_address_needs_no_resolver_and_a_failed_lookup_is_unreachable`.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
