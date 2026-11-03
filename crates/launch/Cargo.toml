@@ -17,3 +17,11 @@ heimdall-localenv = { workspace = true }
 thiserror = { workspace = true }
 # U8 windows::spawn_and_wait: the console control guard (tokio ctrl_c/ctrl_break).
 tokio = { workspace = true }
+# ADR-0007 §12.15 item 7 (U8 E3): the run-record encoder (workspace-pinned).
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# The eligibility properties (m02-plan §0: proptest, ≥ 256 cases, fixed seed) and
+# their time arithmetic; both workspace-pinned.
+proptest = { workspace = true }
+jiff = { workspace = true }

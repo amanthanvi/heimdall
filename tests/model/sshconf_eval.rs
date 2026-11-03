@@ -35,8 +35,9 @@ use heimdall_sshconf::include::{
 };
 use heimdall_sshconf::limits::Limits;
 use heimdall_sshconf::relevant::{
-    Proxy, ProxyResolution, behavior_digest, behavior_state, diff, executing_constructs,
-    identity_selection, identity_selection_with_spans, relevant, unreadable_includes,
+    Proxy, ProxyResolution, behavior_digest, behavior_state, consent_behavior_state, diff,
+    executing_constructs, identity_selection, identity_selection_with_spans,
+    profiled_behavior_state, relevant, unreadable_includes,
 };
 use heimdall_sshconf::render::{
     AliasName, HostName, ManagedAlias, MarkerId, Newline, PathStyle, RenderError, RenderPath,
@@ -452,6 +453,104 @@ fn command_and_sessiontype_per_invocation() {
         undet(&run(Invocation::Exec(None)), KnownKeyword::User),
         Some(vec!["git-user".to_owned()])
     );
+}
+
+/// ADR-0007 §12.21 item 2: the consent profiles are `Shell`, `Exec(None)` and
+/// `Subsystem("sftp")`, in that order; each has its own name in the digest; and
+/// `consent_behavior_state` is `profiled_behavior_state` over the three evaluations,
+/// so a profile-only value, the order and an empty list all count.
+#[test]
+fn consent_profiles_are_shell_exec_unknown_and_sftp_in_digest_order() {
+    let profiles = Invocation::consent_profiles();
+    assert_eq!(
+        profiles,
+        [
+            Invocation::Shell,
+            Invocation::Exec(None),
+            Invocation::Subsystem("sftp".to_owned()),
+        ]
+    );
+    let names: Vec<String> = profiles.iter().map(Invocation::profile_name).collect();
+    assert_eq!(names, ["shell", "exec", "subsystem:sftp"]);
+    assert_eq!(
+        Invocation::Exec(Some("git-upload-pack 'r'".to_owned())).profile_name(),
+        "exec:git-upload-pack 'r'"
+    );
+    assert_ne!(
+        Invocation::Exec(Some(String::new())).profile_name(),
+        Invocation::Exec(None).profile_name()
+    );
+    // Exec(None): `Match command` is unknown, so the value behind it is a candidate.
+    let text = "Match command \"git-*\"\n    HostName git.example\n\
+                Match sessiontype subsystem\n    Port 2222\n";
+    let src = source().with_file(USER_CONFIG, text);
+    let per_profile: Vec<_> = profiles
+        .iter()
+        .map(|inv| {
+            let mut query = q("box");
+            query.invocation = inv.clone();
+            (inv.clone(), relevant(&eval_src(&src, &query)))
+        })
+        .collect();
+    let ev_exec = {
+        let mut query = q("box");
+        query.invocation = Invocation::Exec(None);
+        eval_src(&src, &query)
+    };
+    assert_eq!(
+        undet(&ev_exec, KnownKeyword::Hostname),
+        Some(vec!["git.example".to_owned()])
+    );
+    let combined = profiled_behavior_state(&per_profile);
+    assert!(!combined.determined, "Exec(None) is undetermined");
+    let mut set = ConfigSet::new();
+    assert_eq!(
+        consent_behavior_state(&mut set, &src, &user_roots(), &q("box"), &Limits::default()),
+        combined
+    );
+    // The query's own invocation does not matter: every profile is evaluated.
+    let mut sftp = q("box");
+    sftp.invocation = Invocation::Subsystem("sftp".to_owned());
+    let mut set = ConfigSet::new();
+    assert_eq!(
+        consent_behavior_state(&mut set, &src, &user_roots(), &sftp, &Limits::default()),
+        combined
+    );
+    // The order is bound.
+    let mut reversed = per_profile.clone();
+    reversed.reverse();
+    assert_ne!(profiled_behavior_state(&reversed).digest, combined.digest);
+    // Every profile is: without the subsystem-only Port, the state changes.
+    let plain = source().with_file(
+        USER_CONFIG,
+        "Match command \"git-*\"\n    HostName git.example\n",
+    );
+    let mut set = ConfigSet::new();
+    assert_ne!(
+        consent_behavior_state(
+            &mut set,
+            &plain,
+            &user_roots(),
+            &q("box"),
+            &Limits::default()
+        )
+        .digest,
+        combined.digest
+    );
+    // A determined tree is determined under every profile; nothing is, with no profile.
+    let det_src = source().with_file(USER_CONFIG, "Host *\n    User any\n");
+    let mut set = ConfigSet::new();
+    assert!(
+        consent_behavior_state(
+            &mut set,
+            &det_src,
+            &user_roots(),
+            &q("box"),
+            &Limits::default()
+        )
+        .determined
+    );
+    assert!(!profiled_behavior_state(&[]).determined);
 }
 
 #[test]

@@ -18,6 +18,8 @@ pub mod context;
 pub mod ensure;
 pub mod error;
 pub mod events;
+// ⟨M02⟩ U8: launch-binding holder release (`Operations::release_exited_holders`).
+pub mod holders;
 pub mod ids;
 pub mod operations;
 pub mod ports;

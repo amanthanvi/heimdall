@@ -38,11 +38,18 @@
 //!   operation, then calls `ProjectionWriter::apply` once with a [`StageSink`] that
 //!   writes each receipt in its own transaction. Once that receipt exists the driver
 //!   only ever calls `reconcile`, never a second `apply` (R-RT-05);
+//! * an operation in `awaiting_approval` whose decision passed its deadline expires
+//!   (ADR-0007 §12.22 item 9): `failed`, `CREDENTIAL_EXPIRED`, `next: new_work`, effect
+//!   `none`, through `crate::operations::expire_awaiting_local_in`, when the driver or
+//!   a replay finds it, at a `decide` of the expired record, or at the supervisor's
+//!   tick. No fresh decision is issued for it: a new request is new work;
 //! * it settles from the writer's item outcomes: all applied is `OK`; a held item is
 //!   `OUTCOME_UNKNOWN`, reason `projection_held`, effect `unknown`, next
 //!   `reconcile`, with the held repair options in the message and the `SetupResult`
-//!   in the envelope's `data.setup` (ADR-0007 §12.17 item 6); anything else is
-//!   `CONFIG_CONFLICT` with the conflict as its reason;
+//!   in the envelope's `data.setup` (ADR-0007 §12.17 item 6); when every item not
+//!   applied names `verified_client_unavailable`, `CAPABILITY_UNAVAILABLE` with that
+//!   reason (§12.22 item 3); anything else is `CONFIG_CONFLICT` with the conflict as
+//!   its reason;
 //! * files the outcome leaves to the cleaner (a committed item's target-absent steps,
 //!   and an uncommitted item's written-inactive files) get their `config_projection`
 //!   resource marked `desired: absent` in the settling transaction, so the
@@ -63,8 +70,8 @@
 //! is kept as an empty record (no files, no aliases) at the committed generation: a
 //! removed item that still holds the generation's high-water mark. Every reader here
 //! treats such a record as absent for consent ([`load_spec`] drops its stored
-//! consent, so a re-adoption always needs a decision). Escalated: the store would
-//! need to accept a removal and keep a generation mark elsewhere.
+//! consent, so a re-adoption always needs a decision). ADR-0007 §12.22 item 2
+//! ratified this reading: an empty record is "no item".
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
@@ -80,7 +87,6 @@ use heimdall_contract::setup::{
     ConflictKind, ConsentNeed, ConsentReasonKind, FileOutcome, FileOutcomeState, ItemOutcomeKind,
     PlanDigest, PreviewIntent, ProjectionFileRole, ProjectionItem, RemainingArtifact,
     RemainingArtifactKind, RepairResolution, SetupMode, SetupPlan, SetupRequest, SetupResult,
-    manual_reason,
 };
 use heimdall_contract::{Code, OperationState, Timestamp};
 use heimdall_domain::catalog::{DestinationDefinition, IdentityRecord};
@@ -106,8 +112,9 @@ use heimdall_store::{Store, StoreError, Txn};
 use crate::context::Caller;
 use crate::error::{Completed, OpError, OpResult};
 use crate::operations::{
-    LocalDriver, LocalEmit, Operations, SetupAdmission, local_approval_needed, local_op_to,
-    local_refuse_outcome, local_settle_failed, local_settle_succeeded,
+    LocalDriver, LocalEmit, Operations, SetupAdmission, local_approval_needed,
+    local_expire_awaiting, local_op_to, local_refuse_outcome, local_settle_failed,
+    local_settle_succeeded,
 };
 use crate::ports::{
     HeldStep, ItemOutcome, PreviewError, ProjectionWriter, ReconcileError, SinkError, StageSink,
@@ -363,25 +370,6 @@ fn setup_hash(
     .map_err(|_| internal("the request cannot be hashed"))
 }
 
-/// ADR-0007 §12.19 item 9: `include_target_glob` is its own manual reason. The writer
-/// reports it as an `unmanageable_file` finding with that reason; the finding is part
-/// of the plan digest, so listing the reason too changes nothing the digest binds.
-fn decorate(view: &mut SetupPlan) {
-    let glob = view.findings.iter().any(|f| {
-        f.code == manual_reason::UNMANAGEABLE_FILE
-            && f.reason.as_deref() == Some(manual_reason::INCLUDE_TARGET_GLOB)
-    });
-    if glob
-        && !view
-            .manual_reasons
-            .iter()
-            .any(|r| r == manual_reason::INCLUDE_TARGET_GLOB)
-    {
-        view.manual_reasons
-            .push(manual_reason::INCLUDE_TARGET_GLOB.to_owned());
-    }
-}
-
 /// Whether executing `plan` needs an owner decision (ADR-0007 §5.2): the plan's
 /// classification, any undetermined item (M2-R03, whatever the flag says), or any
 /// consent the intent would record (which only a decision may carry).
@@ -628,10 +616,11 @@ async fn plan_for(
     let spec = load_spec(ops).await?;
     let w = Arc::clone(writer);
     let i = intent.clone();
-    let mut plan = blocking(move || w.preview(&spec, &i))
+    // The writer lists `include_target_glob` as its own manual reason (ADR-0007 §12.22
+    // item 8), so the plan is used as previewed.
+    let plan = blocking(move || w.preview(&spec, &i))
         .await?
         .map_err(preview_error)?;
-    decorate(&mut plan.view);
     Ok(Planned {
         plan,
         repair_target: None,
@@ -1019,8 +1008,10 @@ impl Operations {
                 let now = self.local_narrowing_now().await;
                 let mut pending = pending_projection_decision(self, id, now).await?;
                 if pending.is_none() {
-                    // The decision expired or was withdrawn: the driver issues a fresh
-                    // one from a recomputed plan, or settles a stale plan failed.
+                    // No live decision. The driver expires the operation when its
+                    // decision passed its deadline (ADR-0007 §12.22 item 9), issues a
+                    // fresh one for a stale record from a recomputed plan, or settles a
+                    // stale plan failed; answer from the state it leaves.
                     if let Some(Err(e)) = self
                         .local_lead_bounded(id, LocalDriver::Setup, self.limits().max_wait)
                         .await
@@ -1237,8 +1228,12 @@ async fn prepare_and_apply(
     execute(ops, writer, &op.id, intent, &token).await
 }
 
-/// An `awaiting_approval` operation keeps a pending, unexpired decision: a fresh one
-/// when it expired, from a recomputed plan that must still reproduce the digest.
+/// An `awaiting_approval` operation keeps waiting while a pending, unexpired decision
+/// names it. When its decision passed its deadline it expires (ADR-0007 §12.22 item
+/// 9; `crate::operations::expire_awaiting_local_in`): a new request is new work. A
+/// record that left `pending` without a deadline passing (stale after a generation
+/// move) gets a fresh one, from a recomputed plan that must still reproduce the
+/// digest, as M01 does for a stale record.
 async fn ensure_decision(
     ops: &Operations,
     writer: &Arc<dyn ProjectionWriter>,
@@ -1252,6 +1247,9 @@ async fn ensure_decision(
     {
         return Ok(());
     }
+    if expire_awaiting(ops, &op.id, now).await? {
+        return Ok(());
+    }
     let planned = match plan_for(ops, writer, &intent.intent).await {
         Ok(p) => p,
         Err(e) if e.code == Code::InternalError => return Err(e),
@@ -1261,6 +1259,24 @@ async fn ensure_decision(
         return fail_unwritten(ops, &op.id, stale()).await;
     }
     create_decision(ops, &op.id, intent, &planned.plan).await
+}
+
+/// ADR-0007 §12.22 item 9: expire `id` when it waits on a decision that passed its
+/// deadline at `now` (one transaction). Returns whether it expired.
+async fn expire_awaiting(
+    ops: &Operations,
+    id: &OperationId,
+    now: Timestamp,
+) -> Result<bool, OpError> {
+    let id = id.clone();
+    let retention = ops.local_retention();
+    ops.local_write(move |tx, emit| {
+        let Some(mut op) = tx.operation(&id)? else {
+            return Ok(false);
+        };
+        local_expire_awaiting(tx, emit, &mut op, now, retention)
+    })
+    .await
 }
 
 /// Create the `ApplyProjection` record and move the operation to `awaiting_approval`
@@ -1623,12 +1639,47 @@ fn change_of(intent: &PreviewIntent, o: &ItemOutcome) -> &'static str {
     }
 }
 
-/// The first conflict an outcome names.
-fn conflict_reason(outcomes: &[ItemOutcome]) -> Option<ConflictKind> {
-    outcomes.iter().find_map(|o| match o {
-        ItemOutcome::NotApplied { reason, .. } | ItemOutcome::Restored { reason, .. } => *reason,
-        _ => None,
-    })
+/// The settled error of outcomes that are not all applied (and hold nothing).
+///
+/// ADR-0007 §12.22 item 3: a missing verified client cannot be fixed by retrying and
+/// is not a configuration conflict. When every item that was not applied names
+/// `ConflictKind::VerifiedClientUnavailable`, the error is `CAPABILITY_UNAVAILABLE`
+/// with reason `verified_client_unavailable`. Any other conflict stays
+/// `CONFIG_CONFLICT`, with the first reason other than `verified_client_unavailable`
+/// that an outcome names (none when no outcome names one): a configuration conflict
+/// needs the owner's review whatever else failed beside it.
+fn not_applied_error(outcomes: &[ItemOutcome]) -> OpError {
+    let unavailable = Some(ConflictKind::VerifiedClientUnavailable);
+    let reasons: Vec<Option<ConflictKind>> = outcomes
+        .iter()
+        .filter_map(|o| match o {
+            ItemOutcome::Applied { .. } => None,
+            ItemOutcome::NotApplied { reason, .. } | ItemOutcome::Restored { reason, .. } => {
+                Some(*reason)
+            }
+            ItemOutcome::ConflictPreserved { .. } | ItemOutcome::Held { .. } => Some(None),
+        })
+        .collect();
+    if !reasons.is_empty() && reasons.iter().all(|r| *r == unavailable) {
+        return OpError::new(
+            Code::CapabilityUnavailable,
+            "the projection change was not applied: a check it needs cannot run without a verified client (for Git, a verified git); make one available, then preview again",
+        )
+        .with_reason(reason::VERIFIED_CLIENT_UNAVAILABLE);
+    }
+    let mut e = OpError::new(
+        Code::ConfigConflict,
+        "the projection change was not applied: a file changed or a check failed; preview again",
+    );
+    if let Some(name) = reasons
+        .iter()
+        .flatten()
+        .find(|k| **k != ConflictKind::VerifiedClientUnavailable)
+        .and_then(wire_name)
+    {
+        e = e.with_reason(&name);
+    }
+    e
 }
 
 fn wire_name<T: serde::Serialize>(v: &T) -> Option<String> {
@@ -1659,7 +1710,9 @@ async fn settle(
         }
         let receipts = tx.stage_receipts(&id)?;
         let result = setup_result(&intent, &outcomes, &receipts, false);
-        let held = outcomes.iter().any(|o| matches!(o, ItemOutcome::Held { .. }));
+        let held = outcomes
+            .iter()
+            .any(|o| matches!(o, ItemOutcome::Held { .. }));
         if held {
             to_held(tx, emit, &mut op, &result, now)?;
         } else if outcomes
@@ -1676,19 +1729,11 @@ async fn settle(
                     ItemOutcome::Applied { .. } | ItemOutcome::ConflictPreserved { .. }
                 )
             });
-            let reason = conflict_reason(&outcomes);
-            let mut e = OpError::new(
-                Code::ConfigConflict,
-                "the projection change was not applied: a file changed or a check failed; preview again",
-            )
-            .with_effect(if applied {
+            let e = not_applied_error(&outcomes).with_effect(if applied {
                 EffectStatus::Partial
             } else {
                 EffectStatus::None
             });
-            if let Some(name) = reason.as_ref().and_then(wire_name) {
-                e = e.with_reason(&name);
-            }
             local_settle_failed(tx, emit, &mut op, &e, now, retention)?;
             op.result = Some(error_data(&e.with_operation(id.clone()), Some(&result)));
             tx.update_operation(&op)?;
@@ -2221,5 +2266,102 @@ impl StageSink for StoreSink {
             .map_err(|e| SinkError(format!("commit not durable: {e}")))?;
         self.wrote = true;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    fn not_applied(item: ProjectionItem, reason: Option<ConflictKind>) -> ItemOutcome {
+        ItemOutcome::NotApplied { item, reason }
+    }
+
+    /// ADR-0007 §12.22 item 3 (W3b-gaps): only outcomes whose every unapplied item
+    /// names `verified_client_unavailable` are `CAPABILITY_UNAVAILABLE` with that
+    /// reason; any other conflict beside it, with or without a reason, stays
+    /// `CONFIG_CONFLICT` and never carries `verified_client_unavailable`.
+    #[test]
+    fn verified_client_unavailable_alone_is_capability_unavailable() {
+        let vcu = Some(ConflictKind::VerifiedClientUnavailable);
+        let applied = ItemOutcome::Applied {
+            item: ProjectionItem::Ssh,
+            generation: 1,
+        };
+        let e = not_applied_error(&[applied.clone(), not_applied(ProjectionItem::Git, vcu)]);
+        assert_eq!(e.code, Code::CapabilityUnavailable);
+        assert_eq!(
+            e.reason.as_deref(),
+            Some(reason::VERIFIED_CLIENT_UNAVAILABLE)
+        );
+        let e = not_applied_error(&[ItemOutcome::Restored {
+            item: ProjectionItem::Git,
+            reason: vcu,
+        }]);
+        assert_eq!(e.code, Code::CapabilityUnavailable);
+
+        let cases: [(Vec<ItemOutcome>, Option<&str>); 6] = [
+            (
+                vec![
+                    ItemOutcome::Restored {
+                        item: ProjectionItem::Ssh,
+                        reason: None,
+                    },
+                    not_applied(ProjectionItem::Git, Some(ConflictKind::GitConfigLocked)),
+                ],
+                Some("git_config_locked"),
+            ),
+            (
+                vec![
+                    not_applied(ProjectionItem::Ssh, Some(ConflictKind::UserConfigChanged)),
+                    not_applied(ProjectionItem::Git, vcu),
+                ],
+                Some("user_config_changed"),
+            ),
+            (
+                vec![
+                    not_applied(ProjectionItem::Git, vcu),
+                    ItemOutcome::Restored {
+                        item: ProjectionItem::Ssh,
+                        reason: Some(ConflictKind::ConcurrentWriter),
+                    },
+                ],
+                Some("concurrent_writer"),
+            ),
+            (
+                vec![
+                    ItemOutcome::Restored {
+                        item: ProjectionItem::Ssh,
+                        reason: None,
+                    },
+                    not_applied(ProjectionItem::Git, vcu),
+                ],
+                None,
+            ),
+            (
+                vec![
+                    ItemOutcome::ConflictPreserved {
+                        item: ProjectionItem::Ssh,
+                    },
+                    not_applied(ProjectionItem::Git, vcu),
+                ],
+                None,
+            ),
+            (
+                vec![
+                    applied,
+                    not_applied(ProjectionItem::Git, Some(ConflictKind::GitConfigLocked)),
+                ],
+                Some("git_config_locked"),
+            ),
+        ];
+        for (outcomes, expected) in cases {
+            let e = not_applied_error(&outcomes);
+            assert_eq!(e.code, Code::ConfigConflict, "{outcomes:?}");
+            assert_eq!(e.reason.as_deref(), expected, "{outcomes:?}");
+        }
+        let e = not_applied_error(&[not_applied(ProjectionItem::Ssh, None)]);
+        assert_eq!((e.code, e.reason), (Code::ConfigConflict, None));
     }
 }

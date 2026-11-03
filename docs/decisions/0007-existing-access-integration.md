@@ -3686,7 +3686,88 @@ units edit concurrently, so they are fixed in **wave 3c** after wave 3b integrat
      interruptible.
 3. **Wave 3c** is one unit, `W3c-fix`, owning `crates/app/src/{setup,operations}.rs`,
    `crates/adapters/src/{integration,native_agent,onepassword}.rs`,
-   `crates/runtime/src/service.rs` and the matching tests.
+   `crates/runtime/src/service.rs` and the matching tests. ⟨§12.24⟩ It is now two units;
+   see §12.24 item 9.
+
+### 12.24 Rulings on the wave-3b escalations (orchestrator, 2026-11-03)
+
+Sources: the three wave-3b unit reports and the integrator's report (workflow
+`wf_4b438985-0b9`).
+* check.sh exited 0 on two consecutive runs, with 1480 passed and 0 failed. The integrator
+  fixed the pty test hang, a spawn-overlap test flake and a holder-release race
+  (`release_if_held_by`, in one transaction).
+* No `todo!()` remains, and the workspace lint `todo` is now `deny`.
+* `heimdall run` and `heimdall connect` work end to end through the real binary and
+  runtime against the loopback fixture sshd:
+  * 1 MiB plus every byte value round-trip;
+  * sshd accepts only the adopted key;
+  * the decoy agent is never contacted.
+
+1. **`connect` and observed aliases.** `inspect profiles` and `inspect destinations` list
+   the catalog: profiles, and destinations with their alias and definition (`managed`,
+   `observed`). They no longer answer `NOT_LISTED`. `connect` then accepts an observed
+   alias that the catalog lists, under the same pre-launch check. Owners: W3c-ops (the
+   listing in `operations.rs`) and W3c-run (`connect`'s use of it).
+2. **A replayed bind is re-checked.** Before writing `launching`, `run` and `connect`
+   confirm with one inspect that the binding is still `active`. A binding the holder pass
+   already released is refused with the replayed result's code, and never launched. Owner:
+   W3c-run.
+3. **Expiry of setup and catalog decisions (amends §12.22 item 9).** No operation state is
+   called `expired`. The operation settles `failed` with `CREDENTIAL_EXPIRED`, `next:
+   new_work`, effect `none`, consistent with ADR-0006 and M01's grant expiry. The
+   supervisor's `next_wake` includes the earliest pending decision deadline, so expiry is
+   not delayed up to `max_idle_sleep`. Owner of the wake: W3c-ops.
+4. **Pre-launch refusal provenance.** The contract's `ErrorDetail` gains an additive
+   `entries: Vec<ConfigProvenance>`, serde default and skipped when empty. The fallback
+   refusal fills it with the refused entries' file and line. Owners: W3c-ops (contract and
+   schema) and W3c-run (filling it). W3c-run builds against that exact field name and
+   type.
+5. **U8 readings (accepted):**
+   * `run` and `connect` send an interactive hello unless `--non-interactive` is given
+     without `--allow-provider-interaction`;
+   * `run` requires `--profile`;
+   * `--work-id` defaults to the request ID, so a retry replays the same ensure and bind;
+   * the pre-launch check also refuses when the alias's effective `IdentityAgent`, from
+     the fresh static pass, differs from the pair's endpoint or is undetermined.
+   * Residual, stated in §13: a holder with no start-time token reads as exited when the
+     same query succeeds for the runtime's own process. A permission failure on the
+     holder could therefore read as an exit. The holder is the same user's CLI process.
+6. **W3b-consent readings.**
+   * `Match command` makes a state undetermined where it can reach a relevant directive:
+     **accepted**.
+   * "A manual first adoption whose configuration does not activate P needs no decision"
+     is **rejected**. §5.2: a first adoption always needs a decision, manual mode
+     included, because the owner's own Include then activates P without another Heimdall
+     decision. Owner: W3c-run, in `projection/plan.rs`, with a regression.
+7. **Accepted as implemented:**
+   * `RemoveProfile` narrows. New work naming the profile is `NOT_FOUND`. Grants, bindings
+     and policies pinned to profile snapshots stay, as M01's snapshot pinning intends.
+   * The shared-file edits and the `Cargo.lock` edges listed by the integrator.
+   * The holder-release race fix.
+   * The spawn-guard test serialization.
+   * The probe's adaptation of `CatalogIdentity`. U9 may pass domain records instead.
+8. **Catalog `DeclareInteraction` with a stale decision.** It is reissued as the setup
+   driver does: a fresh pending record bound to the current fingerprint and endpoint.
+   Owner: W3c-ops.
+9. **Wave 3c, two units:**
+   * **W3c-ops:**
+     * §12.23 U01 and U02;
+     * items 1 (listing), 3 (wake), 4 (contract) and 8 above.
+     * Owns `crates/app/src/{setup,catalog,operations,error}.rs`,
+       `crates/adapters/src/{integration,native_agent,onepassword}.rs`,
+       `crates/runtime/src/{service,supervisor}.rs` (`next_wake` only), the contract's
+       `ErrorDetail`, their tests and the schemas.
+   * **W3c-run:**
+     * items 1 (`connect`), 2, 4 (fill) and 6 above;
+     * the U8 tests wave 3b did not write: `a27_scp_and_sftp_binary_with_unicode_and_spaced_paths`,
+       `a27_git_clone_and_push_over_ssh_with_binary_blob`,
+       `a11_confirm_constrained_native_key_refused_before_agent_contact`,
+       `a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact`
+       and `a11_interactive_connect_succeeds_after_provider_approval`.
+     * Owns `crates/heimdall/src/{run_cmd,connect_cmd}.rs`, `crates/launch/**`,
+       `crates/localenv/src/projection/plan.rs`, `tests/e2e/run_m02.rs` and the consent
+       tests in `tests/integration/projection.rs`.
+   * `tui_handoff_ctrl_z_stops_and_fg_resumes_as_one_job` stays with U10 (wave 4).
 
 ## 13. Consequences
 

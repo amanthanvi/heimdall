@@ -20,6 +20,10 @@ heimdall-domain = { workspace = true }
 heimdall-app = { workspace = true }
 heimdall-ipc = { workspace = true }
 heimdall-runtime = { workspace = true }
+# ⟨M02⟩ U8 `run`/`connect` (m02-plan U8): the process contract, and the local
+# environment for the static selection pass, Git resolution and client discovery.
+heimdall-launch = { workspace = true }
+heimdall-localenv = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -36,8 +40,24 @@ heimdall-testkit = { workspace = true, default-features = false, features = ["ap
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# M02-U8 `e2e_run_m02` (tests only): the U7 process fixtures (scratch home, fake agent).
+# Test builds only; the production graph keeps default features off (finding B).
+heimdall-testkit = { workspace = true, default-features = false, features = ["app", "fixtures"] }
+# The A11 cases seed a standing policy into the in-process runtime's store.
+heimdall-store = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+# M02-U8 `a27_ctrl_c_reaches_child_once` and `a27_resize_reaches_child`: a pty through
+# rustix's safe wrappers (workspace-pinned; dev-only features).
+rustix = { workspace = true, features = ["pty", "termios", "process", "stdio"] }
 
 # M01-U9 CLI end-to-end suite (A19/A06 CLI variants) through the real binary.
 [[test]]
 name = "e2e_cli_m01"
 path = "../../tests/e2e/cli_m01.rs"
+
+# M02-U8 `run`/`connect` end-to-end suite (m02-plan U8: A27, A11, R-RT-05, holders, Git
+# under `run`) through the real binary.
+[[test]]
+name = "e2e_run_m02"
+path = "../../tests/e2e/run_m02.rs"

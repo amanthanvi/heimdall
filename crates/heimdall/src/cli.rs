@@ -545,7 +545,7 @@ impl RequireArgs {
             || self.unattended
     }
 
-    fn to_request(&self) -> Result<RequiredCapabilities, Done> {
+    pub(crate) fn to_request(&self) -> Result<RequiredCapabilities, Done> {
         let mut out = RequiredCapabilities {
             unattended: self.unattended,
             ..RequiredCapabilities::default()
@@ -734,9 +734,9 @@ pub enum SchemaCommand {
 }
 
 /// A finished command: the envelope to print and the exit code.
-struct Done {
-    env: Envelope<serde_json::Value>,
-    exit: ExitCode,
+pub(crate) struct Done {
+    pub(crate) env: Envelope<serde_json::Value>,
+    pub(crate) exit: ExitCode,
 }
 
 impl Done {
@@ -893,7 +893,7 @@ fn pair(s: &str) -> Result<AccessPairRef, Done> {
     })
 }
 
-fn fresh_request_id() -> Result<RequestId, Done> {
+pub(crate) fn fresh_request_id() -> Result<RequestId, Done> {
     let a = heimdall_app::ids::random_u64();
     let b = heimdall_app::ids::random_u64();
     match (a, b) {
@@ -1157,7 +1157,7 @@ pub(crate) trait Prompter {
 }
 
 /// The terminal prompt ([`prompt::ask`]).
-struct TerminalPrompt;
+pub(crate) struct TerminalPrompt;
 
 impl Prompter for TerminalPrompt {
     async fn ask(&mut self, text: &str) -> Answer {
@@ -1186,7 +1186,7 @@ async fn attend_first<S: Session>(s: &mut S, ctx: &Ctx) -> Result<(), Done> {
 /// request, and on a pending decision the owner prompt, `Decide` on `yes`, then
 /// the same request again (same request ID: the runtime replays the approved
 /// operation).
-async fn ensure_flow<S: Session, P: Prompter>(
+pub(crate) async fn ensure_flow<S: Session, P: Prompter>(
     s: &mut S,
     p: &mut P,
     ctx: &Ctx,
@@ -1710,31 +1710,6 @@ mod tests {
         &["setup", "repair", "--operation", "op_x", "retry"],
         &["setup", "repair", "--operation", "op_x", "keep"],
         &["setup", "status"],
-        &["connect", "lab"],
-        &[
-            "connect",
-            "lab",
-            "--allow-provider-interaction",
-            "--meta-file",
-            "m.ndjson",
-        ],
-        &[
-            "run",
-            "--profile",
-            "p",
-            "--",
-            "tool",
-            "HEIMDALL_CANARY_ARGV",
-            "--json",
-        ],
-        &[
-            "run",
-            "--meta-fd",
-            "3",
-            "--require-unattended",
-            "--",
-            "tool",
-        ],
         &["doctor"],
         &[
             "doctor",
@@ -1784,6 +1759,9 @@ mod tests {
     ];
 
     /// `w0_m02_cli_commands_report_not_available_and_never_panic`, in-process form
+    /// (⟨M02⟩ wave 3b: `run` and `connect` are wired by U8 and leave this list; their
+    /// argument trees and their refusals before any runtime contact are checked by
+    /// `run_and_connect_parse_and_refuse_before_the_runtime`)
     /// (m02-plan U0b, §5 item 4; the binary-level form is hosted by a `heimdall`
     /// package target, wave-0 verify E6). Every M02 command parses, answers M01's
     /// "not available in this build" envelope with exit 2, and never contacts the
@@ -1807,8 +1785,6 @@ mod tests {
                     cli.command,
                     Some(
                         Command::Setup(_)
-                            | Command::Connect(_)
-                            | Command::Run(_)
                             | Command::Doctor(_)
                             | Command::Tui
                             | Command::Destination(_)
@@ -1830,6 +1806,76 @@ mod tests {
             std::fs::read_dir(scratch.path()).map(Iterator::count).ok(),
             Some(0),
             "nothing was created anywhere under the scratch directory"
+        );
+    }
+
+    /// ⟨M02⟩ U8 (wave 3b): `run` and `connect` keep their argument trees, and every
+    /// refusal that needs no runtime (an existing `--meta-file`, a descriptor that is
+    /// not open, a program that cannot run, a missing `--profile`, an option-like
+    /// alias) answers before any runtime contact: the Heimdall home is never created.
+    #[test]
+    fn run_and_connect_parse_and_refuse_before_the_runtime() {
+        let scratch = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let existing = scratch.path().join("existing.ndjson");
+        std::fs::write(&existing, b"owner bytes").unwrap_or_else(|e| panic!("write: {e}"));
+        let existing = existing.to_string_lossy().into_owned();
+        let missing = scratch
+            .path()
+            .join("no-such-program")
+            .to_string_lossy()
+            .into_owned();
+        let lines: Vec<(Vec<&str>, ExitCode)> = vec![
+            (
+                vec!["connect", "lab", "--meta-file", &existing],
+                ExitCode::Usage,
+            ),
+            (
+                vec![
+                    "run",
+                    "--meta-file",
+                    &existing,
+                    "--profile",
+                    "p",
+                    "--",
+                    "tool",
+                ],
+                ExitCode::Usage,
+            ),
+            (
+                vec!["run", "--meta-fd", "987", "--profile", "p", "--", "tool"],
+                ExitCode::Usage,
+            ),
+            (
+                vec!["run", "--profile", "p", "--", &missing],
+                ExitCode::LaunchFailed,
+            ),
+            (vec!["run", "--", "/bin/sh"], ExitCode::Usage),
+            (vec!["connect", "--", "-oProxyCommand=x"], ExitCode::Usage),
+        ];
+        for (i, line) in lines.iter().enumerate() {
+            let home = scratch.path().join(format!("home-{i}"));
+            let home_arg = home.to_string_lossy().into_owned();
+            let mut argv = vec![
+                "heimdall",
+                "--json",
+                "--non-interactive",
+                "--home",
+                &home_arg,
+            ];
+            argv.extend(line.0.iter().copied());
+            let cli = Cli::try_parse_from(&argv)
+                .unwrap_or_else(|e| panic!("{:?} must parse: {:?}", line.0, e.kind()));
+            assert!(matches!(
+                cli.command,
+                Some(Command::Run(_) | Command::Connect(_))
+            ));
+            assert_eq!(dispatch(cli), line.1, "{:?}", line.0);
+            assert!(!home.exists(), "{:?} reached for the runtime", line.0);
+        }
+        assert_eq!(
+            std::fs::read(scratch.path().join("existing.ndjson")).ok(),
+            Some(b"owner bytes".to_vec()),
+            "an existing --meta-file is never written"
         );
     }
 

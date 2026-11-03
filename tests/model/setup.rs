@@ -318,6 +318,7 @@ struct World {
     hook: Arc<Hook>,
     writer: Arc<Counting>,
     faults: Arc<dyn FaultHook>,
+    limits: Limits,
     ops: Operations,
 }
 
@@ -327,6 +328,10 @@ impl World {
     }
 
     async fn with_faults(faults: Arc<dyn FaultHook>) -> World {
+        World::with(faults, Limits::default()).await
+    }
+
+    async fn with(faults: Arc<dyn FaultHook>, limits: Limits) -> World {
         quiet_crashes();
         let home = ScratchHome::new();
         std::fs::create_dir_all(home.root.join("etc-ssh")).unwrap();
@@ -336,7 +341,7 @@ impl World {
         let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
         let hook = Arc::new(Hook::default());
         let writer = World::writer_of(&home, &store, &hook);
-        let ops = Operations::start(World::config_of(&store, &clock, &sync, &writer))
+        let ops = Operations::start(World::config_of(&store, &clock, &sync, &writer, limits))
             .await
             .unwrap();
         World {
@@ -347,6 +352,7 @@ impl World {
             hook,
             writer,
             faults,
+            limits,
             ops,
         }
     }
@@ -381,6 +387,7 @@ impl World {
         clock: &Arc<VirtualClock>,
         sync: &Arc<ScriptedTimeSync>,
         writer: &Arc<Counting>,
+        limits: Limits,
     ) -> OperationsConfig {
         let writer: Arc<dyn ProjectionWriter> = writer.clone();
         OperationsConfig {
@@ -391,7 +398,7 @@ impl World {
             environment: env_id(),
             adapters: Vec::new(),
             stage_hook: Arc::new(NoStageHook),
-            limits: Limits::default(),
+            limits,
             default_window: Duration::from_secs(12 * 3600),
             projection: Some(writer),
         }
@@ -406,6 +413,7 @@ impl World {
             &self.clock,
             &self.sync,
             &self.writer,
+            self.limits,
         ))
         .await
         .unwrap();
@@ -1865,6 +1873,7 @@ async fn include_target_glob_is_its_own_manual_reason() {
             &VirtualClock::at(t0()),
             &ScriptedTimeSync::new(SyncStatus::Synchronized),
             &World::writer_of(&home, &store, &Arc::new(Hook::default())),
+            Limits::default(),
         )
     })
     .await
@@ -2764,33 +2773,651 @@ async fn restart_reconciles_attempted_apply_never_reapplies_after_a_process_abor
     }
 }
 
-/// A pending `ApplyProjection` decision that expired is reissued on a replay (from a
-/// recomputed plan), so the waiting operation never blocks setup for good.
-#[tokio::test]
-async fn expired_projection_decision_is_reissued_on_replay() {
-    let w = World::new().await;
-    w.catalog_alpha().await;
+// --- W3b-gaps (ADR-0007 §12.22 items 3, 9 and 10) ------------------------------------------
+
+/// Preview an apply and submit it: the operation waits for the decision it created.
+async fn apply_waiting(w: &World, request: &str) -> (OperationId, String) {
     let plan = w
         .preview(PreviewIntent::Apply { include_git: false })
         .await
         .unwrap();
     let e = w
-        .effect(&attended(), "apply", &plan.plan_digest, "r-apply")
+        .effect(&attended(), "apply", &plan.plan_digest, request)
         .await
         .unwrap_err();
-    let first = e.next.decision_ref.clone().unwrap();
+    assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+    (
+        e.operation_id.clone().unwrap(),
+        e.next.decision_ref.clone().unwrap(),
+    )
+}
+
+/// The operation expired: `failed`, `CREDENTIAL_EXPIRED`, effect `none`, the expired
+/// decision named, and nothing written.
+fn assert_expired(w: &World, op: &OperationId, decision: &str) {
+    let rec = w.op(op);
+    assert_eq!(rec.state, OperationState::Failed, "{:?}", rec.result);
+    assert_eq!(rec.code, Some(Code::CredentialExpired));
+    assert_eq!(rec.effect_status, EffectStatus::None);
+    let error = &rec.result.as_ref().unwrap()["error"];
+    assert_eq!(error["next"]["action"], "new_work", "{error}");
+    assert_eq!(error["resource"]["kind"], "decision", "{error}");
+    assert_eq!(error["resource"]["id"], decision, "{error}");
+}
+
+/// ADR-0007 §12.22 item 9 (W3b-gaps): a setup operation in `awaiting_approval` whose
+/// decision passed its deadline expires, as ADR-0006's `DeadlineReached` does. The
+/// replay after the deadline answers `CREDENTIAL_EXPIRED` (`next: new_work`) and
+/// issues no fresh decision; nothing is written; the expired record cannot be
+/// approved; and the operation no longer blocks setup, so new work is a new request.
+/// Before the deadline the replay keeps answering `APPROVAL_REQUIRED`.
+#[tokio::test]
+async fn expired_projection_decision_expires_the_operation() {
+    let w = World::new().await;
+    w.catalog_alpha().await;
+    let (op, first) = apply_waiting(&w, "r-apply").await;
+    let before = w.tree();
+    let digest = w.intent(&op).plan_digest;
     w.clock
-        .advance(heimdall_domain::decision::DEFAULT_DECISION_LIFETIME + Duration::from_secs(1));
+        .advance(heimdall_domain::decision::DEFAULT_DECISION_LIFETIME - Duration::from_secs(1));
+    let still = w
+        .effect(&attended(), "apply", &digest, "r-apply")
+        .await
+        .unwrap_err();
+    assert_eq!(still.code, Code::ApprovalRequired, "{still:?}");
+    assert_eq!(still.next.decision_ref.as_deref(), Some(first.as_str()));
+    w.clock.advance(Duration::from_secs(2));
     let again = w
+        .effect(&attended(), "apply", &digest, "r-apply")
+        .await
+        .unwrap_err();
+    assert_eq!(again.code, Code::CredentialExpired, "{again:?}");
+    assert_eq!(again.next.action, "new_work");
+    assert_eq!(again.effect_status, EffectStatus::None);
+    assert_eq!(again.operation_id.as_ref(), Some(&op));
+    assert_expired(&w, &op, &first);
+    // No fresh decision: the only record naming the operation is the first one.
+    let records = projection_decisions(&w, &op);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].id.to_string(), first);
+    assert_eq!(w.tree(), before, "nothing was written");
+    assert_eq!(w.writer.applies.load(Ordering::SeqCst), 0);
+    // The expired record cannot be approved, and the operation stays expired.
+    let d = w.decide(&first, Verdict::Approve).await.unwrap_err();
+    assert_eq!(d.code, Code::DecisionStale, "{d:?}");
+    assert_expired(&w, &op, &first);
+    assert_eq!(w.tree(), before);
+    // It no longer blocks setup; the same request ID replays the expiry.
+    assert!(open_setups(&w).is_empty());
+    let replay = w
+        .effect(&attended(), "apply", &digest, "r-apply")
+        .await
+        .unwrap_err();
+    assert_eq!(replay.code, Code::CredentialExpired);
+    let (fresh, _) = apply_waiting(&w, "r-apply-new").await;
+    assert_ne!(fresh, op, "new work is a new operation");
+    w.events();
+}
+
+/// ADR-0007 §12.22 item 9: the expiry happens whoever finds the deadline passed: a
+/// `decide` of the expired record (in its transaction), the supervisor's tick (with
+/// nobody asking), and restart recovery. Before the deadline none of them moves it.
+#[tokio::test]
+async fn expired_projection_decision_expires_at_decide_tick_and_restart() {
+    for path in ["decide", "tick", "restart"] {
+        let mut w = World::new().await;
+        w.catalog_alpha().await;
+        let (op, decision) = apply_waiting(&w, "r-apply").await;
+        w.ops.tick().await.unwrap();
+        assert_eq!(
+            w.op(&op).state,
+            OperationState::AwaitingApproval,
+            "{path}: before the deadline"
+        );
+        w.clock
+            .advance(heimdall_domain::decision::DEFAULT_DECISION_LIFETIME + Duration::from_secs(1));
+        match path {
+            "decide" => {
+                let e = w.decide(&decision, Verdict::Deny).await.unwrap_err();
+                assert_eq!(e.code, Code::DecisionStale, "{e:?}");
+            }
+            "tick" => w.ops.tick().await.unwrap(),
+            _ => w.restart().await,
+        }
+        assert_expired(&w, &op, &decision);
+        assert_eq!(w.writer.applies.load(Ordering::SeqCst), 0, "{path}");
+        assert_eq!(
+            projection_decisions(&w, &op).len(),
+            1,
+            "{path}: no new record"
+        );
+        assert!(open_setups(&w).is_empty(), "{path}");
+    }
+}
+
+/// ADR-0007 §12.22 item 9 for the catalog: a `DeclareInteraction` operation whose
+/// decision passed its deadline expires, at a replay (which before this answered
+/// `ACCEPTED` for ever), at a `decide` and at the tick. No declaration is written.
+#[tokio::test]
+async fn expired_declaration_decision_expires_the_catalog_operation() {
+    for path in ["replay", "decide", "tick"] {
+        let w = World::new().await;
+        let identity = w.adopt("r-adopt").await;
+        let (decision, op) = declare_op(&w, &identity, "r-declare").await;
+        w.clock
+            .advance(heimdall_domain::decision::DEFAULT_DECISION_LIFETIME + Duration::from_secs(1));
+        match path {
+            "replay" => {
+                let e = w
+                    .catalog(
+                        &attended(),
+                        CatalogRequest::DeclareInteraction {
+                            identity: identity.clone(),
+                            interaction: DeclaredInteraction::None,
+                            request_id: rid("r-declare"),
+                        },
+                    )
+                    .await
+                    .unwrap_err();
+                assert_eq!(e.code, Code::CredentialExpired, "{e:?}");
+                assert_eq!(e.operation_id.as_ref(), Some(&op));
+            }
+            "decide" => {
+                let e = w.decide(&decision, Verdict::Approve).await.unwrap_err();
+                assert_eq!(e.code, Code::DecisionStale, "{e:?}");
+            }
+            _ => w.ops.tick().await.unwrap(),
+        }
+        assert_expired(&w, &op, &decision);
+        let row = w
+            .store
+            .transaction(|tx| tx.interaction_declaration(&identity))
+            .unwrap();
+        assert!(row.is_none(), "{path}: no declaration written");
+        w.events();
+    }
+}
+
+/// A writer that previews with one configuration and applies with another: the
+/// verified Git client the preview found is gone by the time the apply runs.
+struct Split {
+    preview: Arc<dyn ProjectionWriter>,
+    apply: Arc<dyn ProjectionWriter>,
+}
+
+impl ProjectionWriter for Split {
+    fn preview(
+        &self,
+        spec: &ProjectionSpec,
+        intent: &PreviewIntent,
+    ) -> Result<ProjectionPlan, PreviewError> {
+        self.preview.preview(spec, intent)
+    }
+    fn apply(
+        &self,
+        intent: &SetupIntent,
+        sink: &mut dyn StageSink,
+    ) -> Result<ProjectionReceipt, ReconcileError> {
+        self.apply.apply(intent, sink)
+    }
+    fn reconcile(
+        &self,
+        intent: &SetupIntent,
+        receipts: &[StageReceipt],
+        sink: &mut dyn StageSink,
+    ) -> Result<ProjectionReconcile, ReconcileError> {
+        self.apply.reconcile(intent, receipts, sink)
+    }
+    fn observe(&self, record: &ProjectionRecord, aliases: &[String]) -> Vec<AliasObservation> {
+        self.preview.observe(record, aliases)
+    }
+    fn observe_held(
+        &self,
+        intent: &SetupIntent,
+        receipts: &[StageReceipt],
+    ) -> Result<Vec<HeldStep>, ReconcileError> {
+        self.apply.observe_held(intent, receipts)
+    }
+}
+
+/// ADR-0007 §12.22 item 3 (W3b-gaps): when the Git item's parse check cannot run
+/// because no verified client is available at apply time, the setup driver settles
+/// `CAPABILITY_UNAVAILABLE` with reason `verified_client_unavailable` (effect
+/// `partial`: the SSH item applied), never `CONFIG_CONFLICT`. A replay reports the
+/// same, with the `SetupResult` listing the Git item `not_applied`.
+#[tokio::test]
+async fn verified_client_unavailable_at_apply_is_capability_unavailable() {
+    use heimdall_localenv::clients::{ClientCandidate, ClientInventory, ClientKind, ClientSource};
+    use heimdall_localenv::local_query::LocalQueries;
+    let mut w = World::new().await;
+    w.catalog_alpha().await;
+    let git = heimdall_testkit::home::find_program("git").expect("git is installed");
+    let system = w.home.root.join("gitconfig-system");
+    std::fs::write(&system, b"").unwrap();
+    std::fs::write(
+        w.home.git_home.join(".gitconfig"),
+        b"[user]\n\tname = Scratch\n",
+    )
+    .unwrap();
+    let mut config = World::projection_config(&w.home, &w.hook);
+    config.env = heimdall_localenv::env::Env::from_vars([
+        ("HOME", w.home.git_home.display().to_string()),
+        (
+            "XDG_CONFIG_HOME",
+            w.home.git_home.join(".config").display().to_string(),
+        ),
+        ("GIT_CONFIG_SYSTEM", system.display().to_string()),
+    ]);
+    config.queries = LocalQueries::Enabled;
+    let ssh = heimdall_testkit::home::find_program("ssh").expect("ssh is installed");
+    let candidate = |kind, path| ClientCandidate {
+        kind,
+        path,
+        source: ClientSource::Path,
+        version: None,
+        sha256: None,
+        selected: true,
+    };
+    config.clients = ClientInventory {
+        candidates: vec![
+            candidate(ClientKind::Git, git),
+            candidate(ClientKind::Ssh, ssh),
+        ],
+    };
+    config.test.git_item_any_default = true;
+    let mut gone = config.clone();
+    gone.queries = LocalQueries::Disabled;
+    let split: Arc<dyn ProjectionWriter> = Arc::new(Split {
+        preview: wire_projection(w.store.clone(), config).writer,
+        apply: wire_projection(w.store.clone(), gone).writer,
+    });
+    w.ops = Operations::start(OperationsConfig {
+        projection: Some(split),
+        ..World::config_of(&w.store, &w.clock, &w.sync, &w.writer, w.limits)
+    })
+    .await
+    .unwrap();
+    let plan = w
+        .preview(PreviewIntent::Apply { include_git: true })
+        .await
+        .unwrap();
+    let git_change = plan.git.clone().expect("the Git part is planned");
+    assert_eq!(
+        git_change.reason, None,
+        "applicable at preview: {git_change:?}"
+    );
+    let e = w
         .effect(&attended(), "apply", &plan.plan_digest, "r-apply")
         .await
         .unwrap_err();
-    assert_eq!(again.code, Code::ApprovalRequired, "{again:?}");
-    let fresh = again.next.decision_ref.clone().unwrap();
-    assert_ne!(fresh, first, "a fresh decision");
-    w.decide(&fresh, Verdict::Approve).await.unwrap();
+    assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+    let op = e.operation_id.clone().unwrap();
+    let decided = w
+        .decide(e.next.decision_ref.as_deref().unwrap(), Verdict::Approve)
+        .await;
+    assert!(decided.is_ok(), "{decided:?}");
+    let rec = w.op(&op);
+    assert_eq!(rec.state, OperationState::Failed, "{:?}", rec.result);
     assert_eq!(
-        w.op(&again.operation_id.unwrap()).state,
-        OperationState::Succeeded
+        rec.code,
+        Some(Code::CapabilityUnavailable),
+        "{:?}",
+        rec.result
+    );
+    assert_eq!(rec.effect_status, EffectStatus::Partial);
+    let replay = w
+        .ops
+        .setup(
+            &attended(),
+            SetupRequest::Apply {
+                plan_digest: plan.plan_digest.clone(),
+                request_id: rid("r-apply"),
+            },
+        )
+        .await;
+    let data = match replay {
+        Ok(c) => {
+            assert_eq!(c.code, Code::CapabilityUnavailable);
+            c.data
+        }
+        Err(e) => panic!("the failed envelope carries the setup result: {e:?}"),
+    };
+    assert_eq!(
+        data["error"]["reason"],
+        reason::VERIFIED_CLIENT_UNAVAILABLE,
+        "{data}"
+    );
+    assert_eq!(data["error"]["code"], "CAPABILITY_UNAVAILABLE", "{data}");
+    let items = data["setup"]["items"].as_array().unwrap();
+    let outcome = |item: &str| {
+        items
+            .iter()
+            .find(|i| i["item"] == item)
+            .map(|i| i["outcome"].clone())
+    };
+    assert_eq!(outcome("ssh"), Some(serde_json::json!("applied")), "{data}");
+    assert_eq!(
+        outcome("git"),
+        Some(serde_json::json!("not_applied")),
+        "{data}"
+    );
+    assert!(
+        std::fs::read_to_string(w.p())
+            .unwrap()
+            .contains("Host alpha")
+    );
+    assert_no_canary(&data.to_string());
+}
+
+/// ADR-0007 §12.22 item 10 (W3b-gaps): `RemoveProfile` works. It removes the
+/// definition only (narrowing, no decision): new work naming the profile is refused
+/// `NOT_FOUND`, every pinned snapshot stays, a replay returns the first result, a
+/// second removal reports nothing removed, and a later definition of the same ID
+/// continues after the highest pinned revision (never reusing one).
+#[tokio::test]
+async fn remove_profile_refuses_new_work_and_keeps_pinned_snapshots() {
+    use heimdall_contract::request::{
+        DeadlineIntent, EnsureRequest, RequiredCapabilities, WaitMode,
+    };
+    let w = World::new().await;
+    let profile = ProfileId::parse("work").unwrap();
+    let pair = |d: &str| AccessPairRef {
+        destination: DestinationId::parse(d).unwrap(),
+        account: AccountName::parse("fixture").unwrap(),
+    };
+    let upsert = |request: &str, pairs: Vec<AccessPairRef>| CatalogRequest::UpsertProfile {
+        profile: ProfileSpec {
+            id: profile.clone(),
+            pairs: pairs.into_iter().collect(),
+            label: None,
+        },
+        request_id: rid(request),
+    };
+    let remove = |request: &str| CatalogRequest::RemoveProfile {
+        id: profile.clone(),
+        request_id: rid(request),
+    };
+    w.catalog(&attended(), upsert("r-p1", vec![pair("dst-alpha")]))
+        .await
+        .unwrap();
+    w.catalog(
+        &attended(),
+        upsert("r-p2", vec![pair("dst-alpha"), pair("dst-beta")]),
+    )
+    .await
+    .unwrap();
+    let ensure = |request: &str| EnsureRequest {
+        profile: profile.clone(),
+        profile_revision: None,
+        scope: [pair("dst-alpha")].into_iter().collect(),
+        environment: None,
+        work_id: heimdall_contract::ids::WorkId::parse("w-profile").unwrap(),
+        until: Some(DeadlineIntent::Absolute("2026-11-03T10:00:00Z".to_owned())),
+        required_capabilities: RequiredCapabilities::default(),
+        request_id: rid(request),
+        interaction: InteractionMode::NonInteractive,
+        wait: WaitMode::Sync { timeout_ms: 2_000 },
+    };
+    let unknown_profile = |e: &OpError| {
+        e.code == Code::NotFound && e.resource.as_ref().is_some_and(|r| r.kind == "profile")
+    };
+    let before = w.ops.ensure(&unattended(), ensure("r-ensure-before")).await;
+    assert!(
+        !before.as_ref().is_err_and(unknown_profile),
+        "the profile resolves before its removal: {before:?}"
+    );
+    // Unattended: removal narrows and needs no decision.
+    let removed = w.catalog(&unattended(), remove("r-rm")).await.unwrap();
+    assert_eq!(removed["removed"], true, "{removed}");
+    assert_eq!(removed["profile_id"], "work");
+    assert!(w.decisions().is_empty());
+    let replay = w.catalog(&unattended(), remove("r-rm")).await.unwrap();
+    assert_eq!(replay, removed, "a replay returns the first result");
+    let again = w.catalog(&unattended(), remove("r-rm-2")).await.unwrap();
+    assert_eq!(again["removed"], false);
+    let (current, s1, s2) = w
+        .store
+        .transaction(|tx| {
+            Ok((
+                tx.profile(&profile)?,
+                tx.profile_snapshot(&profile, 1)?,
+                tx.profile_snapshot(&profile, 2)?,
+            ))
+        })
+        .unwrap();
+    assert!(current.is_none());
+    assert_eq!(s1.unwrap().scope.pairs.len(), 1, "revision 1 stays pinned");
+    assert_eq!(s2.unwrap().scope.pairs.len(), 2, "revision 2 stays pinned");
+    // New work naming the removed profile is refused.
+    let after = w
+        .ops
+        .ensure(&unattended(), ensure("r-ensure-after"))
+        .await
+        .unwrap_err();
+    assert!(unknown_profile(&after), "{after:?}");
+    // Defined again with revision 1's content: a new revision 3, revision 1 unchanged.
+    let r3 = w
+        .catalog(&attended(), upsert("r-p3", vec![pair("dst-alpha")]))
+        .await
+        .unwrap();
+    assert_eq!(r3["revision"], 3, "{r3}");
+    let s1 = w
+        .store
+        .transaction(|tx| tx.profile_snapshot(&profile, 1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(s1.scope.pairs.len(), 1);
+    w.events();
+}
+
+/// ADR-0007 §12.22 item 10 (W3b-gaps): the declaration's validity is
+/// `Limits::declaration_validity` (`[setup] declaration_validity_days`), not a fixed
+/// 30 days: the decision offers it, the approved declaration expires after it, and
+/// eligibility lapses then.
+#[tokio::test]
+async fn declaration_validity_follows_the_configured_days() {
+    use heimdall_contract::provider::InteractionKind;
+    let days = Duration::from_secs(3 * 24 * 3600);
+    let w = World::with(
+        Arc::new(NoFaults),
+        Limits {
+            declaration_validity: days,
+            ..Limits::default()
+        },
+    )
+    .await;
+    let identity = w.adopt("r-adopt").await;
+    let endpoint = w.agent_endpoint();
+    let (decision, _) = declare_op(&w, &identity, "r-declare").await;
+    let expected: Timestamp = "2026-11-06T09:00:00Z".parse().unwrap();
+    let record = w
+        .store
+        .transaction(|tx| tx.decision(&DecisionId::parse(&decision).unwrap()))
+        .unwrap()
+        .unwrap();
+    match &record.kind {
+        DecisionKind::DeclareInteraction { valid_until, .. } => {
+            assert_eq!(*valid_until, expected);
+        }
+        other => panic!("{other:?}"),
+    }
+    w.decide(&decision, Verdict::Approve).await.unwrap();
+    let declaration = w
+        .store
+        .transaction(|tx| tx.interaction_declaration(&identity))
+        .unwrap()
+        .unwrap();
+    assert_eq!(declaration.expires_at, expected);
+    assert_eq!(
+        eligibility_now(&w, &identity, &endpoint),
+        InteractionKind::None
+    );
+    w.clock.advance(days + Duration::from_secs(1));
+    assert_eq!(
+        eligibility_now(&w, &identity, &endpoint),
+        InteractionKind::Unknown,
+        "lapsed after the configured validity"
+    );
+}
+
+/// m02-plan U5 and ADR-0007 §12.22 item 10 (W3b-gaps): a stored receipt the writer
+/// cannot read (`ReconcileError::UnreadableReceipt`: a file receipt naming a step the
+/// intent does not have) leaves the setup operation unresolved and untouched, and it
+/// is reported in `runtime_lifecycle` (`phase: unresolved`, reason
+/// `unreadable_receipts`). Nothing is re-applied or settled, no file changes, and the
+/// operation still blocks setup. A crash inside the first apply (an in-process unwind)
+/// gives the receipts.
+#[tokio::test]
+async fn unreadable_receipt_leaves_setup_unresolved_and_reported() {
+    use heimdall_domain::operation::{FilePhase, LocalReceipt};
+    let mut w = World::new().await;
+    w.catalog_alpha().await;
+    let (op, decision) = apply_waiting(&w, "r-crash").await;
+    let intent = w.intent(&op);
+    let commit = intent.files.iter().position(|s| s.commit).unwrap();
+    w.hook.crash_at(
+        ReplacePoint::AfterExchange,
+        Some(u16::try_from(commit).unwrap()),
+    );
+    let _ = w.decide(&decision, Verdict::Approve).await;
+    assert_eq!(w.op(&op).state, OperationState::Running);
+    // A receipt naming a step the intent does not have (as from an incompatible
+    // build): copied from a real file receipt, its step moved out of range.
+    let mut bogus = w
+        .receipts(&op)
+        .into_iter()
+        .rev()
+        .find(|r| matches!(r.local, Some(LocalReceipt::File { .. })))
+        .unwrap();
+    bogus.local = Some(LocalReceipt::File {
+        step: 999,
+        phase: FilePhase::Exchanged,
+    });
+    w.store
+        .transaction(|tx| tx.append_stage_receipt(&op, &bogus))
+        .unwrap();
+    let receipts = w.receipts(&op).len();
+    let tree = w.tree();
+    let lifecycle_before = unresolved_reports(&w, &op).len();
+    w.restart().await;
+    assert_eq!(
+        w.writer.applies.load(Ordering::SeqCst),
+        0,
+        "never re-applied"
+    );
+    assert!(w.writer.reconciles.load(Ordering::SeqCst) >= 1);
+    let rec = w.op(&op);
+    assert_eq!(rec.state, OperationState::Running, "{:?}", rec.result);
+    assert_eq!(w.receipts(&op).len(), receipts, "nothing recorded");
+    assert_eq!(w.tree(), tree, "no file moved");
+    let reports = unresolved_reports(&w, &op);
+    assert_eq!(reports.len(), lifecycle_before + 1, "{reports:?}");
+    let last = reports.last().unwrap();
+    assert_eq!(last["reason"], "unreadable_receipts", "{last}");
+    assert_eq!(last["state"], "running");
+    assert_eq!(open_setups(&w), vec![op.clone()], "it still blocks setup");
+    // A replay reports it in progress, never as settled.
+    let e = w
+        .effect(&attended(), "apply", &intent.plan_digest, "r-crash")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::Accepted, "{e:?}");
+    assert_eq!(e.operation_id, Some(op));
+}
+
+/// The `runtime_lifecycle` reports that leave `op` unresolved.
+fn unresolved_reports(w: &World, op: &OperationId) -> Vec<serde_json::Value> {
+    w.events()
+        .into_iter()
+        .filter(|e| e.event.event_type == heimdall_contract::event::EventType::RuntimeLifecycle)
+        .map(|e| e.event.payload)
+        .filter(|p| p["phase"] == "unresolved" && p["operation_id"] == op.to_string())
+        .collect()
+}
+
+/// ADR-0007 §12.22 item 10 (W3b-gaps), m02-plan U5: `RemoveDestination` changes no
+/// file. The projection is stale (its record still names the alias) until the next
+/// `setup apply`, whose preview shows the removal and whose apply removes the alias.
+#[tokio::test]
+async fn remove_destination_marks_projection_stale_and_changes_no_file() {
+    let w = World::new().await;
+    let identity = w.catalog_alpha().await;
+    w.destination("r-dest-beta", "dst-beta", "beta", &identity)
+        .await;
+    let (op, _) = w.apply_approved("r-apply").await;
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+    let p = std::fs::read_to_string(w.p()).unwrap();
+    assert!(p.contains("Host alpha") && p.contains("Host beta"), "{p}");
+    let tree = w.tree();
+    let unchanged = w
+        .preview(PreviewIntent::Apply { include_git: false })
+        .await
+        .unwrap();
+    let removed = w
+        .catalog(
+            &unattended(),
+            CatalogRequest::RemoveDestination {
+                id: DestinationId::parse("dst-beta").unwrap(),
+                request_id: rid("r-rm-beta"),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(removed["removed"], true, "{removed}");
+    assert_eq!(removed["destination_id"], "dst-beta");
+    assert_eq!(w.tree(), tree, "no file changed");
+    assert!(w.decisions().is_empty(), "no decision");
+    let again = w
+        .catalog(
+            &unattended(),
+            CatalogRequest::RemoveDestination {
+                id: DestinationId::parse("dst-beta").unwrap(),
+                request_id: rid("r-rm-beta-2"),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(again["removed"], false);
+    // Stale: the projection record still names beta; the destination is gone.
+    let record = w.record().unwrap();
+    let ssh = record.items.get(&ProjectionItem::Ssh).unwrap();
+    assert!(ssh.aliases.iter().any(|a| a == "beta"), "{:?}", ssh.aliases);
+    assert!(
+        w.store
+            .transaction(|tx| tx.destination_by_alias("beta"))
+            .unwrap()
+            .is_none()
+    );
+    // The next apply's preview shows the removal.
+    let plan = w
+        .preview(PreviewIntent::Apply { include_git: false })
+        .await
+        .unwrap();
+    assert_ne!(plan.plan_digest, unchanged.plan_digest);
+    assert!(
+        plan.files
+            .iter()
+            .any(|f| f.before_sha256 != f.after_sha256 && f.diff.contains("beta")),
+        "{:?}",
+        plan.files
+    );
+    // Applying it removes the alias from P, and only then.
+    let e = w
+        .effect(&attended(), "apply", &plan.plan_digest, "r-apply-2")
+        .await;
+    if let Err(e) = &e {
+        assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+        w.decide(e.next.decision_ref.as_deref().unwrap(), Verdict::Approve)
+            .await
+            .unwrap();
+    }
+    let p = std::fs::read_to_string(w.p()).unwrap();
+    assert!(p.contains("Host alpha") && !p.contains("Host beta"), "{p}");
+    let record = w.record().unwrap();
+    let ssh = record.items.get(&ProjectionItem::Ssh).unwrap();
+    assert!(
+        !ssh.aliases.iter().any(|a| a == "beta"),
+        "{:?}",
+        ssh.aliases
     );
 }

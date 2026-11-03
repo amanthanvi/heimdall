@@ -4,6 +4,14 @@
 //! **determined** states are compared: an affected item whose current or after state is
 //! undetermined always needs a decision, reason `undetermined_state`, whatever the
 //! digests say.
+//!
+//! **Every invocation profile** (ADR-0007 §12.21 item 2). An alias's states are
+//! [`crate::relevant::consent_behavior_state`]s: its behaviour under `Shell`,
+//! `Exec(None)` and `Subsystem("sftp")`, digested with tag `heimdall.behavior.v3` over
+//! the ordered `(profile, per-profile digest)` pairs and determined only when every
+//! profile is. A value that only a remote command or SFTP obtains, or that is
+//! undetermined only there, therefore counts here. States of different tags are never
+//! compared.
 
 use heimdall_domain::projection::{BehaviorState, ItemId};
 

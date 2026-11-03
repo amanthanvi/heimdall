@@ -164,6 +164,20 @@ pub async fn connect_requiring(
     allow_start: bool,
     extra: &[&str],
 ) -> Result<Client, Box<Envelope<ErrorData>>> {
+    connect_as(ctx, allow_start, extra, ctx.interaction()).await
+}
+
+/// [`connect_requiring`] with an explicit hello interaction mode. `run` and `connect`
+/// declare `interactive` whenever the provider may interact (`--non-interactive`
+/// absent, or `--allow-provider-interaction`), so the runtime's no-interaction path
+/// is exactly ADR-0007 §7's; attendance still needs the terminal flow, which only an
+/// interactive TTY session sends (m02-plan U8).
+pub async fn connect_as(
+    ctx: &Ctx,
+    allow_start: bool,
+    extra: &[&str],
+    interaction: InteractionMode,
+) -> Result<Client, Box<Envelope<ErrorData>>> {
     let paths = ctx.paths()?;
     if allow_start {
         paths.ensure().map_err(|e| {
@@ -212,7 +226,7 @@ pub async fn connect_requiring(
             version: env!("CARGO_PKG_VERSION").to_owned(),
         },
         required,
-        ctx.interaction(),
+        interaction,
     )
     .await
     .map_err(|e| Box::new(transport_failure_envelope(&e, false)))?;

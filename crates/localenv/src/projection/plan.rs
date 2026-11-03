@@ -57,6 +57,22 @@
 //! (with a placeholder decision that `apply` replaces by the intent's approval), and
 //! the summary carries the restore column. The behaviour digests are part of the plan
 //! digest.
+//!
+//! **Wave 3b (W3b-consent; ADR-0007 §12.21, §12.22 items 2 and 8).**
+//!
+//! * *Manual mode still classifies consent* (V01). Whether the user file may be edited
+//!   and whether it activates P are separate facts. A manual plan reads the user
+//!   configuration through the read-only source, takes the affected aliases from
+//!   every P change and lets the evaluation say whether P is in effect; a
+//!   configuration it cannot read makes every affected state undetermined.
+//! * *Every invocation profile* (V02). Each state is the alias's behaviour under
+//!   `Shell`, `Exec(None)` and `Subsystem("sftp")`, digested with tag
+//!   `heimdall.behavior.v3`, determined only when every profile is.
+//! * *An empty item record is no item*, for SSH and Git alike: a rerender plans Git
+//!   only for a live Git record, and stored consent counts only for a live one.
+//! * *A managed alias without a key file* is refused (`PreviewError::Unavailable`),
+//!   and `include_target_glob` is listed as its own manual reason, besides
+//!   `unmanageable_file`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -76,17 +92,17 @@ use heimdall_contract::setup::{
     RepairResolution, SetupMode, SetupPlan, manual_reason,
 };
 use heimdall_domain::projection::{
-    Base, BehaviorState, ConsentRecord, ConsentedStates, FileRole, FileStep, ItemId, ItemRestore,
-    ManagedAliasSpec, ProjectionPlan, ProjectionSpec, ProjectionSummary, Rendered, Sha256Hex,
-    StepContent, StepContentView, SummaryIntent, Target, bounds,
+    Base, BehaviorState, ConsentRecord, ConsentedStates, FileRole, FileStep, ItemId, ItemRecord,
+    ItemRestore, ManagedAliasSpec, ProjectionPlan, ProjectionSpec, ProjectionSummary, Rendered,
+    Sha256Hex, StepContent, StepContentView, SummaryIntent, Target, bounds,
 };
 use heimdall_sshconf::consent;
 use heimdall_sshconf::edit::{self, BlockPosition, EditRefusal, FoundBlock, IncludeBlock};
-use heimdall_sshconf::eval::{Invocation, OpenSshVersion, Query, evaluate};
+use heimdall_sshconf::eval::{Invocation, OpenSshVersion, Query};
 use heimdall_sshconf::gitedit;
 use heimdall_sshconf::include::{ConfigSet, ConfigSource, Roots, SourceBytes, SourceError};
 use heimdall_sshconf::limits::Limits;
-use heimdall_sshconf::relevant::{behavior_state, relevant};
+use heimdall_sshconf::relevant::consent_behavior_state;
 use heimdall_sshconf::render::{
     self, AliasName, HostName, ManagedAlias, MarkerId, Newline, PathStyle, RenderPath,
 };
@@ -150,11 +166,9 @@ pub fn preview(
             ..
         } => {
             b.plan_ssh_apply()?;
-            let has_git = spec
-                .record
-                .as_ref()
-                .is_some_and(|r| r.items.contains_key(&ProjectionItem::Git));
-            if has_git {
+            // Only a Git item the record still manages is re-rendered: a rolled-back
+            // item is an empty record, which is no item (ADR-0007 §12.22 item 2).
+            if live_item(spec, ProjectionItem::Git).is_some() {
                 b.plan_git_apply()?;
             }
         }
@@ -213,6 +227,14 @@ struct Builder<'a> {
     ssh_all_affected: bool,
     /// A block repair: the aliases stay managed (P is unchanged).
     ssh_repair: bool,
+    /// The SSH plan is manual: it writes P and the key files and never plans the user
+    /// file. Whether the user configuration activates P is a separate fact, which the
+    /// evaluation establishes, so every P change is affected (ADR-0007 §12.21 item 1).
+    ssh_manual: bool,
+    /// The read-only source could not read the user configuration for a manual plan:
+    /// whether it activates P is unknown, so every affected state is undetermined
+    /// (ADR-0007 §12.21 item 1).
+    user_unreadable: bool,
     /// The `manual_mode` repair, with the conflict it resolves.
     manual_for: Option<ConflictKind>,
     /// The Git selection now and after the plan, when the plan changes it.
@@ -246,6 +268,8 @@ impl<'a> Builder<'a> {
             p_after: None,
             ssh_all_affected: false,
             ssh_repair: false,
+            ssh_manual: false,
+            user_unreadable: false,
             manual_for: None,
             git_selection: None,
             reads: BTreeMap::new(),
@@ -325,6 +349,14 @@ impl<'a> Builder<'a> {
         if self.spec.aliases.len() > bounds::KEY_FILES_MAX {
             return Err(PreviewError::TooLarge);
         }
+        // ADR-0007 §12.22 item 8: a managed alias always names its key file. An empty
+        // path is refused, never rendered as an empty `IdentityFile` (the runtime's
+        // writer fills it from the catalog before a preview).
+        if self.spec.aliases.iter().any(|a| a.key_file.is_empty()) {
+            return Err(PreviewError::Unavailable(
+                "a managed alias has no key file".to_owned(),
+            ));
+        }
         if self.managed_edited(FileRole::ManagedSsh, &p_path)? {
             self.conflict(ConflictKind::ManagedFileEdited, None);
             return Ok(());
@@ -361,11 +393,14 @@ impl<'a> Builder<'a> {
             // owner keeps at its top (ADR-0007 §5.3 step 9, §5.5).
             self.manual(&manual_for_conflict(conflict));
             self.manual_block_finding(&user, &p_path)?;
+            self.manual_consent(&user);
             self.steps.extend(manual_steps(key_steps, p_step));
             return Ok(());
         }
         let Some(user_bytes) = self.inspect_user_file(&user)? else {
-            // Manual mode: P and the key files only; the owner inserts B.
+            // Manual mode: P and the key files only; the owner inserts B. Whether the
+            // user configuration activates P is still evaluated (§12.21 item 1).
+            self.manual_consent(&user);
             self.steps.extend(manual_steps(key_steps, p_step));
             return Ok(());
         };
@@ -421,6 +456,7 @@ impl<'a> Builder<'a> {
             Ok(block) => block,
             Err(reason) => {
                 self.manual_unmanageable(reason);
+                self.ssh_manual = true;
                 self.steps.extend(manual_steps(key_steps, p_step));
                 return Ok(());
             }
@@ -436,6 +472,7 @@ impl<'a> Builder<'a> {
             Ok(plan) => {
                 if !self.accepts_encoding(plan.had_bom, plan.newline == Newline::CrLf) {
                     self.manual(manual_reason::UNSUPPORTED_ENCODING);
+                    self.ssh_manual = true;
                     self.steps.extend(manual_steps(key_steps, p_step));
                     return Ok(());
                 }
@@ -455,6 +492,7 @@ impl<'a> Builder<'a> {
             }
             Err(EditRefusal::UnsupportedEncoding) => {
                 self.manual(manual_reason::UNSUPPORTED_ENCODING);
+                self.ssh_manual = true;
                 self.steps.extend(manual_steps(key_steps, p_step));
             }
             Err(EditRefusal::DuplicateMarker) => {
@@ -516,11 +554,7 @@ impl<'a> Builder<'a> {
         if let Some(step) = self.removal_step(FileRole::ManagedSsh, &p_path)? {
             steps.push(step);
         }
-        let record = self
-            .spec
-            .record
-            .as_ref()
-            .and_then(|r| r.items.get(&ProjectionItem::Ssh));
+        let record = live_item(self.spec, ProjectionItem::Ssh);
         if !keep_key_files {
             let keys: Vec<String> = record
                 .map(|r| {
@@ -805,6 +839,32 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// ADR-0007 §12.21 item 1 (V01): whether the user file may be edited, and whether
+    /// it activates P, are separate facts. A manual plan does not plan the user file,
+    /// but it reads the user configuration through the read-only source, as ssh reads
+    /// it (a symlink followed) and exactly as for an editable file, and takes the
+    /// affected aliases from every P change. The evaluation then establishes whether
+    /// P is in effect. A configuration the source cannot read (an unreadable symlink
+    /// target, a directory, a bound exceeded) leaves that unknown: every affected
+    /// state is undetermined, so a decision is required. An absent one activates
+    /// nothing.
+    fn manual_consent(&mut self, user: &Path) {
+        self.ssh_manual = true;
+        let source = BoundedSource::new(
+            self.config.paths.clone(),
+            self.config.env.clone(),
+            Limits::default(),
+        );
+        match source.read(user) {
+            Ok(found) => self.user_now = Some(found.bytes),
+            Err(SourceError::NotFound) => self.user_now = None,
+            Err(_) => {
+                self.user_now = None;
+                self.user_unreadable = true;
+            }
+        }
+    }
+
     /// Whether the selected client loads the user file with B effective given its
     /// BOM and line endings (ADR-0007 §4 "Encodings"; U3's observation table). A file
     /// with neither is always accepted.
@@ -818,10 +878,10 @@ impl<'a> Builder<'a> {
             .is_some_and(|c| self.config.clients.accepts_encoding(c, bom, crlf))
     }
 
-    /// The recorded P of the SSH item, when its record names one.
+    /// The recorded digest of the file at `path` in `role`, when its item's record
+    /// names it (an empty record names nothing, ADR-0007 §12.22 item 2).
     fn recorded(&self, role: FileRole, path: &Path) -> Option<Sha256Hex> {
-        let record = self.spec.record.as_ref()?;
-        let item = record.items.get(&role.item())?;
+        let item = live_item(self.spec, role.item())?;
         item.files
             .iter()
             .find(|l| l.role == role && Path::new(&l.path) == path)
@@ -1123,9 +1183,14 @@ impl<'a> Builder<'a> {
 
     /// Manual mode because a file cannot be managed (`unmanageable_file`), with the
     /// reason as a finding (`unmanageable{<reason>}`, for example
-    /// `include_target_glob`).
+    /// `include_target_glob`). A reason the contract lists as a manual reason
+    /// (`include_target_glob`, ADR-0007 §12.19 item 9, §12.22 item 8) is also listed
+    /// as its own manual reason, besides `unmanageable_file`.
     fn manual_unmanageable(&mut self, reason: &str) {
         self.manual(manual_reason::UNMANAGEABLE_FILE);
+        if manual_reason::ALL.contains(&reason) {
+            self.manual(reason);
+        }
         self.findings.push(Finding {
             code: manual_reason::UNMANAGEABLE_FILE.to_owned(),
             severity: FindingSeverity::Problem,
@@ -1443,9 +1508,20 @@ impl<'a> Builder<'a> {
     // --- consent (ADR-0007 §5.2) -------------------------------------------------------
 
     /// The aliases the plan affects: those whose rendered section in effect changes
-    /// (added, changed or removed), or, for a rollback, every alias P renders. P is in
-    /// effect only through a Heimdall block in the user file.
+    /// (added, changed or removed), or, for a rollback, every alias P renders. For a
+    /// plan that edits the user file, P is in effect only through a Heimdall block in
+    /// it. A manual plan does not edit it, and whether the user configuration
+    /// activates P is the evaluation's to establish, so every P change is affected
+    /// (ADR-0007 §12.21 item 1).
     fn affected_aliases(&self) -> (BTreeMap<String, Vec<u8>>, BTreeMap<String, Vec<u8>>) {
+        if self.ssh_manual {
+            let now = self.p_now.as_deref().map(sections).unwrap_or_default();
+            let after = self
+                .p_after
+                .as_deref()
+                .map_or_else(|| now.clone(), sections);
+            return (now, after);
+        }
         let has_block = |u: Option<&[u8]>| u.is_some_and(|u| !edit::find_blocks(u).is_empty());
         let now = if has_block(self.user_now.as_deref()) {
             self.p_now.as_deref().map(sections).unwrap_or_default()
@@ -1470,10 +1546,14 @@ impl<'a> Builder<'a> {
     }
 
     /// ADR-0007 §5.2 through `sshconf::consent`: each affected item's behaviour now,
-    /// after the plan and on restore (its section removed now), statically and with
-    /// nothing executed, against the stored consent. A consented state counts only for
-    /// an item the projection record still manages (a first adoption, or an alias
-    /// added again after a rollback, always needs a decision).
+    /// after the plan and on restore (its section removed now: the user file without
+    /// its blocks and P absent), statically and with nothing executed, against the
+    /// stored consent. Each state covers every invocation profile (§12.21 item 2,
+    /// [`Builder::behavior`]). A consented state counts only for an item the
+    /// projection record still manages, never for an empty record (§12.22 item 2), so
+    /// a first adoption, or an alias added again after a rollback, always needs a
+    /// decision. When a manual plan could not read the user configuration, every
+    /// alias state is undetermined (§12.21 item 1).
     fn consent(&self) -> Decided {
         let (now, after) = self.affected_aliases();
         let affected: Vec<String> = now
@@ -1484,8 +1564,7 @@ impl<'a> Builder<'a> {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        let record = self.spec.record.as_ref();
-        let managed = |item: ProjectionItem| record.and_then(|r| r.items.get(&item));
+        let managed = |item: ProjectionItem| live_item(self.spec, item);
         let consented = |id: &ItemId| {
             self.spec
                 .consent
@@ -1515,6 +1594,9 @@ impl<'a> Builder<'a> {
             if let Some(b) = self.user_after.as_ref().or(self.user_now.as_ref()) {
                 restored.insert(user, Some(without_blocks(b)));
             }
+            // Its section removed: also when the user configuration names P another
+            // way (a hand-written Include, in manual mode).
+            restored.insert(self.config.managed_ssh_path(), None);
             let after_source = Overlay {
                 inner: &source,
                 files: &planned,
@@ -1524,11 +1606,16 @@ impl<'a> Builder<'a> {
                 files: &restored,
             };
             let ssh = managed(ProjectionItem::Ssh);
+            // Activation unknown (§12.21 item 1): no state of an alias is determined.
+            let known = |s: BehaviorState| BehaviorState {
+                determined: s.determined && !self.user_unreadable,
+                ..s
+            };
             for name in &affected {
                 let id = ItemId::alias(name);
-                let current = self.behavior(&source, name);
-                let after_state = self.behavior(&after_source, name);
-                let restore = self.behavior(&restore_source, name);
+                let current = known(self.behavior(&source, name));
+                let after_state = known(self.behavior(&after_source, name));
+                let restore = known(self.behavior(&restore_source, name));
                 out.digest_view.push(serde_json::json!([
                     id.0,
                     current.digest,
@@ -1608,8 +1695,11 @@ impl<'a> Builder<'a> {
         })
     }
 
-    /// One alias's relevant behaviour under `source`, evaluated statically (U2's
-    /// evaluator; nothing executes).
+    /// One alias's consent behaviour state under `source`, evaluated statically (U2's
+    /// evaluator; nothing executes) under every invocation profile, `Shell`,
+    /// `Exec(None)` and `Subsystem("sftp")`: the `heimdall.behavior.v3` digest over the
+    /// ordered per-profile digests, determined only when every profile is (ADR-0007
+    /// §12.21 item 2, `relevant::consent_behavior_state`).
     fn behavior(&self, source: &dyn ConfigSource, alias: &str) -> BehaviorState {
         let paths = &self.config.paths;
         let mut roots = Roots::new(
@@ -1634,12 +1724,11 @@ impl<'a> Builder<'a> {
                 .selected(ClientKind::Ssh)
                 .and_then(|c| c.version)
                 .unwrap_or(OpenSshVersion::MINIMUM),
+            // Replaced by each profile in turn.
             invocation: Invocation::Shell,
         };
-        let limits = Limits::default();
         let mut set = ConfigSet::new();
-        let evaluation = evaluate(&mut set, source, &roots, &query, &limits);
-        behavior_state(&relevant(&evaluation))
+        consent_behavior_state(&mut set, source, &roots, &query, &Limits::default())
     }
 
     // --- the plan ---------------------------------------------------------------------
@@ -1866,6 +1955,18 @@ fn without_blocks(bytes: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+/// The record of `item` when the projection record still manages it (ADR-0007 §12.22
+/// item 2). A rollback commits an **empty** `ItemRecord` (no files, no aliases) at its
+/// generation, so the generation stays monotonic; such a record is no item, for the
+/// SSH item and for Git alike: its files and consent are not read, and re-adoption
+/// needs a decision. Only the next generation still counts it ([`preview`]).
+fn live_item(spec: &ProjectionSpec, item: ProjectionItem) -> Option<&ItemRecord> {
+    spec.record
+        .as_ref()
+        .and_then(|r| r.items.get(&item))
+        .filter(|r| !(r.files.is_empty() && r.aliases.is_empty()))
 }
 
 /// Git's SSH selection as a behaviour state: the digest of its canonical form,
@@ -2182,5 +2283,76 @@ mod tests {
             b.derived_marker(FileRole::GitInclude).unwrap(),
             "the role is an input"
         );
+    }
+
+    /// ADR-0007 §12.22 item 2: stored consent for Git's selection counts only while the
+    /// record still manages the Git item. An empty Git record (a rolled-back item) is
+    /// no item, so a selection change needs a decision again; a live record lets the
+    /// same consent count.
+    #[test]
+    fn empty_git_record_is_absent_for_consent() {
+        use heimdall_contract::ids::OperationId;
+        use heimdall_domain::projection::{FileIdentity, ProjectionLocator, ProjectionRecord};
+        let (config, mut spec) = world();
+        let before = GitSshSelection {
+            source: GitSshSource::Default,
+            scope: None,
+            classification: GitSshClassification::BundledMsys,
+        };
+        let after = GitSshSelection {
+            source: GitSshSource::Config,
+            scope: Some(GitScope::Global),
+            classification: GitSshClassification::VerifiedClient,
+        };
+        spec.consent.items.insert(
+            ItemId::git_selection(),
+            ConsentedStates {
+                managed: selection_state(&after),
+                restore: selection_state(&before),
+                decision: DecisionId::from_random_bytes([1; 16]),
+            },
+        );
+        let record = |files: Vec<ProjectionLocator>| ProjectionRecord {
+            environment: EnvironmentId::from_random_bytes([3; 16]),
+            items: [(
+                ProjectionItem::Git,
+                ItemRecord {
+                    generation: 3,
+                    files,
+                    aliases: Vec::new(),
+                    operation: OperationId::from_random_bytes([2; 16]),
+                    committed_at: heimdall_contract::Timestamp::now(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let need = |spec: &ProjectionSpec| {
+            let mut b = Builder::new(&config, spec, 4);
+            b.git_selection = Some((before.clone(), after.clone()));
+            b.consent().need
+        };
+        spec.record = Some(record(vec![ProjectionLocator {
+            role: FileRole::GitManaged,
+            path: "/scratch/home/.config/heimdall/gitconfig".to_owned(),
+            identity: FileIdentity::Unix {
+                dev: 1,
+                ino: 2,
+                birth: None,
+            },
+            sha256: Sha256Hex::of(b"[core]\n"),
+        }]));
+        assert!(
+            !need(&spec).required,
+            "a live Git record: the consent counts"
+        );
+        spec.record = Some(record(Vec::new()));
+        let n = need(&spec);
+        assert!(n.required, "an empty Git record is no item");
+        assert_eq!(
+            n.reasons[0].kind,
+            consent::ConsentReasonKind::GitSelectionChanged
+        );
+        assert!(live_item(&spec, ProjectionItem::Git).is_none());
     }
 }

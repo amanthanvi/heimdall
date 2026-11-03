@@ -2704,6 +2704,393 @@ fn consent_undetermined_state_always_needs_a_decision() {
     );
 }
 
+// --- W3b-consent: manual mode classifies consent (ADR-0007 §12.21 item 1, V01) ----------
+
+/// Replace the user file by a symlink to a regular file holding `bytes`; returns the
+/// target. A symlinked user file is never edited (manual mode), but ssh reads it.
+fn symlink_user_config(fx: &Fx, bytes: &[u8]) -> PathBuf {
+    let real = fx.home.root.join("real-config");
+    std::fs::write(&real, bytes).unwrap();
+    std::fs::remove_file(fx.user()).unwrap();
+    std::os::unix::fs::symlink(&real, fx.user()).unwrap();
+    real
+}
+
+/// The spec of an update of `names` over the adoption `first`, with the record and the
+/// consent the adoption committed.
+fn update_spec(fx: &Fx, first: &SetupIntent, sink: &Sink, names: &[&str]) -> ProjectionSpec {
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.consent = consent_of(sink);
+    spec.aliases = first_aliases(first, fx, names);
+    spec
+}
+
+/// V01 reviewer reproducer (wave-2b/2c review; ADR-0007 §12.21 item 1): `work` adopted,
+/// the user configuration then replaced by a symlink to the same bytes (B included),
+/// then `work`'s HostName changed. The plan is manual (a symlink is never edited) and
+/// writes P, and B still activates P, so the change needs a decision. Before the fix
+/// the manual plan read no user bytes, classified no alias and needed none.
+#[test]
+fn v01_manual_mode_active_b_in_symlinked_user_config_changed_alias_needs_decision() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    use heimdall_domain::projection::ItemId;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (first, sink) = fx.adopt(&["work"]);
+    let with_b = std::fs::read(fx.user()).unwrap();
+    let real = symlink_user_config(&fx, &with_b);
+    // Nothing changed: P is not rewritten and no alias is affected.
+    let same = fx.preview(
+        &update_spec(&fx, &first, &sink, &["work"]),
+        &Fx::apply_intent(),
+    );
+    assert_eq!(same.view.mode, SetupMode::Manual);
+    assert!(same.files.is_empty(), "{:?}", same.files);
+    assert!(!same.view.consent.decision_required);
+    // The reviewer's change.
+    let mut spec = update_spec(&fx, &first, &sink, &["work"]);
+    spec.aliases[0].hostname = "moved.example.invalid".to_owned();
+    let plan = fx.preview(&spec, &Fx::apply_intent());
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert_eq!(
+        plan.view.manual_reasons,
+        vec!["unmanageable_file".to_owned()]
+    );
+    assert!(
+        plan.files
+            .iter()
+            .any(|s| s.role == FileRole::ManagedSsh && s.commit)
+    );
+    assert!(plan.files.iter().all(|s| s.role != FileRole::UserSsh));
+    assert!(plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::ExposesInherited)]
+    );
+    let work = &plan.consent.items[&ItemId::alias("work")];
+    assert!(work.managed.determined && work.restore.determined);
+    assert_eq!(
+        plan.summary.as_ref().unwrap().changed_aliases,
+        vec!["work".to_owned()]
+    );
+    // The preview read through the symlink and wrote nothing.
+    assert_eq!(std::fs::read(&real).unwrap(), with_b);
+    assert!(
+        std::fs::symlink_metadata(fx.user())
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
+/// V01, the other manual branch (the `manual_mode` repair): the user file is never
+/// planned, but its B activates P, so a changed alias needs a decision all the same.
+#[test]
+fn v01_manual_mode_repair_with_active_b_and_changed_alias_needs_decision() {
+    use heimdall_contract::setup::{ConsentReasonKind, RepairResolution};
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (first, sink) = fx.adopt(&["work"]);
+    let user_before = std::fs::read(fx.user()).unwrap();
+    let mut spec = update_spec(&fx, &first, &sink, &["work"]);
+    spec.aliases[0].hostname = "moved.example.invalid".to_owned();
+    let plan = fx.preview(
+        &spec,
+        &repair(ConflictKind::UnmanageableFile, RepairResolution::ManualMode),
+    );
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert!(plan.files.iter().all(|s| s.role != FileRole::UserSsh));
+    assert!(plan.files.iter().any(|s| s.role == FileRole::ManagedSsh));
+    assert!(plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::ExposesInherited)]
+    );
+    assert_eq!(std::fs::read(fx.user()).unwrap(), user_before);
+}
+
+/// V01: a user configuration the read-only source cannot read leaves P's activation
+/// unknown, so every affected state is undetermined and a decision is required
+/// (`undetermined_state`). The symlink's target is a directory (never a configuration
+/// file, for any account), and, when this account cannot read it, a mode-000 file
+/// holding B.
+#[test]
+fn v01_manual_mode_unreadable_symlink_target_makes_affected_states_undetermined() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    use heimdall_domain::projection::ItemId;
+    let fx = Fx::new();
+    let dir = fx.home.root.join("config-dir");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::remove_file(fx.user()).unwrap();
+    std::os::unix::fs::symlink(&dir, fx.user()).unwrap();
+    let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert!(plan.files.iter().any(|s| s.role == FileRole::ManagedSsh));
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::UndeterminedState)]
+    );
+    let work = &plan.consent.items[&ItemId::alias("work")];
+    assert!(!work.managed.determined && !work.restore.determined);
+
+    // An active B behind a target this account cannot read.
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (first, sink) = fx.adopt(&["work"]);
+    let with_b = std::fs::read(fx.user()).unwrap();
+    let real = symlink_user_config(&fx, &with_b);
+    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o000)).unwrap();
+    // As the other unreadable-file tests here, this runs as an ordinary account.
+    let readable = std::fs::read(&real).is_ok();
+    let mut spec = update_spec(&fx, &first, &sink, &["work"]);
+    spec.aliases[0].hostname = "moved.example.invalid".to_owned();
+    let plan = fx.preview(&spec, &Fx::apply_intent());
+    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(
+        !readable,
+        "precondition: this account cannot read a mode-000 file"
+    );
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::UndeterminedState)]
+    );
+    assert_eq!(std::fs::read(&real).unwrap(), with_b);
+}
+
+/// V01 reading (§5.2 applies): the evaluation establishes whether the user
+/// configuration activates P. A manual first adoption under a symlinked configuration
+/// without B changes no alias's behaviour, so its states are determined and equal and
+/// no decision is needed; the plan still writes P and the key file.
+#[test]
+fn v01_manual_mode_without_b_changes_no_behaviour_and_needs_no_decision() {
+    let fx = Fx::new();
+    symlink_user_config(&fx, USER_TEXT.as_bytes());
+    let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert!(plan.files.iter().any(|s| s.role == FileRole::ManagedSsh));
+    assert!(plan.files.iter().any(|s| s.role == FileRole::Key));
+    assert!(!plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    assert!(plan.consent.items.is_empty());
+    // The same configuration with B (written by the owner, as manual mode asks) makes
+    // the adoption need a decision.
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let probe = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
+    let with_b = probe
+        .files
+        .iter()
+        .find(|s| s.role == FileRole::UserSsh)
+        .map(|s| match s.content.view() {
+            heimdall_domain::projection::StepContentView::Splice { offset, insert, .. } => {
+                let mut b = USER_TEXT.as_bytes().to_vec();
+                let at = usize::try_from(offset).unwrap();
+                b.splice(at..at, insert.iter().copied());
+                b
+            }
+            other => panic!("{other:?}"),
+        })
+        .unwrap();
+    symlink_user_config(&fx, &with_b);
+    let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert!(plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    // So does the owner's own Include of P without Heimdall's markers: activation is
+    // the evaluation's to establish, not the presence of a block.
+    let fx = Fx::new();
+    let own = format!("Include \"{}\"\n{USER_TEXT}", fx.p().to_str().unwrap());
+    symlink_user_config(&fx, own.as_bytes());
+    let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert!(plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    assert_eq!(
+        reasons(&plan),
+        vec![(
+            "work".to_owned(),
+            heimdall_contract::setup::ConsentReasonKind::NewState
+        )]
+    );
+}
+
+// --- W3b-consent: every invocation profile (ADR-0007 §12.21 item 2, V02) ---------------
+
+/// The spec of a rollback after `sink`'s adoption, with its consent.
+fn rollback_spec(fx: &Fx, sink: &Sink) -> ProjectionSpec {
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.consent = consent_of(sink);
+    spec
+}
+
+/// V02 reviewer reproducer 1, through the writer: a `Match sessiontype exec` HostName
+/// changed after the adoption. The rollback would expose another destination to remote
+/// commands and Git over SSH, so it needs a decision; unchanged, it is still waived.
+#[test]
+fn v02_rollback_after_exec_only_hostname_change_needs_decision() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    use heimdall_domain::projection::ItemId;
+    let fx = Fx::new();
+    let text = format!("{USER_TEXT}Match sessiontype exec\n    HostName exec-a.example.invalid\n");
+    std::fs::write(fx.user(), &text).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    let spec = rollback_spec(&fx, &sink);
+    let recorded = &spec.consent.items[&ItemId::alias("work")];
+    assert!(recorded.managed.determined && recorded.restore.determined);
+    let plan = fx.preview(&spec, &Fx::rollback_intent());
+    assert!(plan.files.iter().any(|s| s.role == FileRole::UserSsh));
+    assert!(!plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    let now = std::fs::read_to_string(fx.user())
+        .unwrap()
+        .replace("exec-a.example.invalid", "exec-b.example.invalid");
+    std::fs::write(fx.user(), now).unwrap();
+    let plan = fx.preview(&spec, &Fx::rollback_intent());
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::ExposesInherited)]
+    );
+}
+
+/// V02 reviewer reproducer 2, through the writer: an environment-dependent
+/// `IdentityAgent` behind `Match sessiontype subsystem` added after the adoption. The
+/// restore state is undetermined for SFTP, so the rollback needs a decision.
+#[test]
+fn v02_rollback_after_subsystem_only_environment_agent_needs_decision() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    let spec = rollback_spec(&fx, &sink);
+    assert!(
+        !fx.preview(&spec, &Fx::rollback_intent())
+            .view
+            .consent
+            .decision_required
+    );
+    let mut text = std::fs::read_to_string(fx.user()).unwrap();
+    text.push_str("Match sessiontype subsystem\n    IdentityAgent ${HM_FIXTURE_AGENT}\n");
+    std::fs::write(fx.user(), &text).unwrap();
+    let plan = fx.preview(&spec, &Fx::rollback_intent());
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::UndeterminedState)]
+    );
+}
+
+/// ADR-0007 §12.21 item 2 through the writer: `Match command` is unknown under
+/// `Exec(None)`, so a `ProxyJump` behind it (P sets none) leaves the alias's recorded
+/// states undetermined, and a rollback needs a decision.
+#[test]
+fn v02_match_command_unknown_under_exec_leaves_the_states_undetermined() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    use heimdall_domain::projection::ItemId;
+    let fx = Fx::new();
+    let text =
+        format!("{USER_TEXT}Match command \"git-*\"\n    ProxyJump bastion.example.invalid\n");
+    std::fs::write(fx.user(), &text).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    let spec = rollback_spec(&fx, &sink);
+    let recorded = &spec.consent.items[&ItemId::alias("work")];
+    assert!(!recorded.managed.determined && !recorded.restore.determined);
+    let plan = fx.preview(&spec, &Fx::rollback_intent());
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::UndeterminedState)]
+    );
+}
+
+// --- W3b-consent: empty records and key files (ADR-0007 §12.22 items 2 and 8) -----------
+
+/// An empty item record (no files, no aliases), as a rollback commits it.
+fn empty_record(generation: u64) -> heimdall_domain::projection::ItemRecord {
+    heimdall_domain::projection::ItemRecord {
+        generation,
+        files: Vec::new(),
+        aliases: Vec::new(),
+        operation: OperationId::from_random_bytes([7; 16]),
+        committed_at: heimdall_contract::Timestamp::now(),
+    }
+}
+
+/// ADR-0007 §12.22 item 2: a rolled-back item is an empty record at its generation. The
+/// preview treats it as absent, Git included: a rerender plans no Git item for an
+/// empty Git record, stored consent does not count for an empty SSH record (re-adoption
+/// needs a decision), and the next generation still counts both.
+#[test]
+fn empty_item_records_are_absent_git_included() {
+    use heimdall_contract::setup::{ConsentReasonKind, RepairResolution};
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    // The consent a first adoption of `work` would record.
+    let first = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
+    assert!(!first.consent.items.is_empty());
+    let aliases = fx.spec(&["work"], None).aliases;
+    let spec_with = |ssh: heimdall_domain::projection::ItemRecord, with_git: bool| {
+        let mut items = BTreeMap::new();
+        items.insert(ProjectionItem::Ssh, ssh);
+        if with_git {
+            items.insert(ProjectionItem::Git, empty_record(3));
+        }
+        ProjectionSpec {
+            environment: fx.env.clone(),
+            aliases: aliases.clone(),
+            record: Some(ProjectionRecord {
+                environment: fx.env.clone(),
+                items,
+            }),
+            consent: first.consent.clone(),
+        }
+    };
+    // Rerender over an empty Git record: no Git item is planned.
+    let rerender = repair(ConflictKind::ManagedFileEdited, RepairResolution::Rerender);
+    let plan = fx.preview(&spec_with(empty_record(2), true), &rerender);
+    assert!(plan.view.git.is_none(), "{:?}", plan.view.git);
+    assert_eq!(plan.generation, 4, "empty records keep the generation");
+    // Re-adoption over an empty SSH record: the leftover consent does not count.
+    let plan = fx.preview(&spec_with(empty_record(2), false), &Fx::apply_intent());
+    assert_eq!(plan.generation, 3);
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::NewState)]
+    );
+    // Control: a live record naming `work` lets the same consent count.
+    let mut live = empty_record(2);
+    live.aliases = vec!["work".to_owned()];
+    let plan = fx.preview(&spec_with(live, false), &Fx::apply_intent());
+    assert!(!plan.view.consent.decision_required, "{:?}", reasons(&plan));
+}
+
+/// ADR-0007 §12.22 item 8: a managed alias with an empty `key_file` is refused as
+/// `PreviewError::Unavailable`, never rendered as an empty `IdentityFile`; nothing is
+/// written.
+#[test]
+fn empty_key_file_is_refused_unavailable() {
+    use heimdall_app::ports::PreviewError;
+    use heimdall_contract::setup::RepairResolution;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let tree = fx.tree();
+    let mut spec = fx.spec(&["work", "lab"], None);
+    spec.aliases[1].key_file = String::new();
+    for intent in [
+        Fx::apply_intent(),
+        repair(ConflictKind::ManagedFileEdited, RepairResolution::Rerender),
+        repair(ConflictKind::UnmanageableFile, RepairResolution::ManualMode),
+    ] {
+        match fx.writer().preview(&spec, &intent) {
+            Err(PreviewError::Unavailable(message)) => {
+                assert_eq!(message, "a managed alias has no key file", "{intent:?}");
+            }
+            other => panic!("{intent:?}: {other:?}"),
+        }
+    }
+    assert_eq!(fx.tree(), tree, "a refused preview writes nothing");
+}
+
 // --- markers, manual mode, encodings ----------------------------------------------------
 
 fn findings(plan: &ProjectionPlan) -> Vec<(String, Option<String>)> {
@@ -3234,7 +3621,8 @@ fn a22_include_block_names_p_by_absolute_path() {
 /// argument, so a P path holding `*`, `?`, `[` or `]` cannot be named literally. The
 /// plan is manual before any edit (`unmanageable_file`, with the finding reason
 /// `include_target_glob`): no user-file step, P and the key files written and
-/// committed, the user file untouched.
+/// committed, the user file untouched. ADR-0007 §12.22 item 8: the writer lists
+/// `include_target_glob` as its own manual reason, besides `unmanageable_file`.
 #[test]
 fn a22_include_target_with_glob_metacharacter_is_manual_mode() {
     for dir in ["cfg[x]", "cfg*", "cfg?"] {
@@ -3249,7 +3637,10 @@ fn a22_include_target_with_glob_metacharacter_is_manual_mode() {
         assert_eq!(plan.view.mode, SetupMode::Manual, "{dir}");
         assert_eq!(
             plan.view.manual_reasons,
-            vec!["unmanageable_file".to_owned()],
+            vec![
+                "unmanageable_file".to_owned(),
+                "include_target_glob".to_owned()
+            ],
             "{dir}"
         );
         assert!(

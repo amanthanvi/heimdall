@@ -746,6 +746,37 @@ impl Txn<'_> {
         )
     }
 
+    /// ⟨M02⟩ ADR-0007 §12.22 item 10: remove a profile's current definition; returns
+    /// whether one was removed.
+    ///
+    /// Only the definition goes. Its snapshots are immutable pins (a grant, binding or
+    /// operation resolved against a revision keeps reading exactly that revision, and
+    /// is never widened or re-resolved by the removal), so they are kept. New work that
+    /// names the profile finds no definition and is refused. A later
+    /// [`Txn::upsert_profile`] of the same ID must continue after
+    /// [`Txn::profile_latest_revision`], so a revision is never reused with other
+    /// content.
+    pub fn remove_profile(&mut self, id: &ProfileId) -> Result<bool> {
+        let n = self
+            .tx
+            .execute("DELETE FROM profiles WHERE id = ?1", [id.as_str()])?;
+        Ok(n > 0)
+    }
+
+    /// ⟨M02⟩ The highest revision ever pinned for a profile (its definition or any
+    /// snapshot, the definition removed or not); `None` when the profile never existed.
+    pub fn profile_latest_revision(&mut self, id: &ProfileId) -> Result<Option<u64>> {
+        let pinned: Option<i64> = self.tx.query_row(
+            "SELECT MAX(revision) FROM (
+                 SELECT revision FROM profiles WHERE id = ?1
+                 UNION ALL
+                 SELECT revision FROM profile_snapshots WHERE profile = ?1)",
+            [id.as_str()],
+            |r| r.get(0),
+        )?;
+        pinned.map(codec::uint).transpose()
+    }
+
     /// Pinned snapshot of a profile at a revision (immutable once written).
     pub fn profile_snapshot(
         &mut self,

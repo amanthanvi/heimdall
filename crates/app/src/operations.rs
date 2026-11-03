@@ -43,8 +43,12 @@
 //!   operation stays waiting; a same-key retry returns a fresh `decision_ref`
 //!   whose delta is recomputed against current policy (code review A06); the
 //!   grant reaching its deadline fails the waiting operation with
-//!   `CREDENTIAL_EXPIRED` (ADR-0006 §13.3). Equivalent waiting requests share one
-//!   record and one grant, each keeping its own operation (code review A07). An
+//!   `CREDENTIAL_EXPIRED` (ADR-0006 §13.3). ⟨M02⟩ A setup or catalog operation has no
+//!   grant: when its `ApplyProjection` or `DeclareInteraction` record passes its
+//!   deadline the operation itself expires the same way, with no fresh record
+//!   (ADR-0007 §12.22 item 9; `expire_awaiting_local_in`). Equivalent waiting
+//!   requests share one record and one grant, each keeping its own operation (code
+//!   review A07). An
 //!   approval is recorded as the intent's `ApprovalBasis` and re-validated before
 //!   preparation and activation.
 //!
@@ -250,6 +254,11 @@ pub struct Limits {
     /// is [`crate::ports::MIN_ADAPTER_CALL_TIMEOUT`] (1 s), which `Operations::start`
     /// does not enforce so that tests may use less (wave-0 verify E14).
     pub adapter_call_timeout: Duration,
+    /// ⟨M02⟩ ADR-0007 §12.22 item 10 (m02-plan §5 item 19; QR1): how long an approved
+    /// interaction declaration stays in force, from `[setup] declaration_validity_days`
+    /// (default [`crate::catalog::DECLARATION_VALIDITY`], 30 days; the configuration
+    /// accepts 1–90 days).
+    pub declaration_validity: Duration,
 }
 
 impl Default for Limits {
@@ -263,6 +272,7 @@ impl Default for Limits {
             event_retention: Duration::from_secs(7 * 24 * 60 * 60),
             decision_lifetime: heimdall_domain::decision::DEFAULT_DECISION_LIFETIME,
             adapter_call_timeout: crate::ports::DEFAULT_ADAPTER_CALL_TIMEOUT,
+            declaration_validity: crate::catalog::DECLARATION_VALIDITY,
         }
     }
 }
@@ -8402,6 +8412,29 @@ impl Operations {
         caller: &Caller,
         req: ReleaseRequest,
     ) -> OpResult<serde_json::Value> {
+        self.release_checked(caller, req, None).await
+    }
+
+    /// ⟨M02⟩ `release`, done only while the binding is active and its holder row still
+    /// names exactly `holder`, checked in the release's own transaction (m02-plan U8,
+    /// the holder pass). A binding whose holder was replaced, or that is no longer
+    /// active, is left alone: the answer then has `"outcome": null`. Nothing else
+    /// differs from [`release`](Self::release).
+    pub(crate) async fn release_if_held_by(
+        &self,
+        caller: &Caller,
+        req: ReleaseRequest,
+        holder: heimdall_domain::holder::ProcessHolder,
+    ) -> OpResult<serde_json::Value> {
+        self.release_checked(caller, req, Some(holder)).await
+    }
+
+    async fn release_checked(
+        &self,
+        caller: &Caller,
+        req: ReleaseRequest,
+        holder: Option<heimdall_domain::holder::ProcessHolder>,
+    ) -> OpResult<serde_json::Value> {
         let now = self.narrowing_now().await;
         let ctx = caller.context.clone();
         let bid = req.binding_id.clone();
@@ -8411,6 +8444,15 @@ impl Operations {
                     return Ok(Err(OpError::new(Code::NotFound, "unknown binding")
                         .with_resource("binding", None)));
                 };
+                if let Some(expected) = &holder
+                    && (binding.state != heimdall_domain::binding::BindingState::Active
+                        || tx.binding_holder(&bid)?.as_ref() != Some(expected))
+                {
+                    return Ok(Ok(serde_json::json!({
+                        "binding_id": bid,
+                        "outcome": null,
+                    })));
+                }
                 let outcome = tx.release_binding(&bid, &ctx, now)?;
                 let mut grant_state = None;
                 match outcome {
@@ -9174,6 +9216,15 @@ impl Operations {
                 }
                 // R7: the store does not compare expiry with any clock.
                 if now >= d.expires_at {
+                    // ⟨M02⟩ ADR-0007 §12.22 item 9: the setup or catalog operation
+                    // waiting on an expired record expires with it, in this
+                    // transaction ([`expire_awaiting_local_in`]).
+                    if let DecisionKind::ApplyProjection { operation, .. }
+                    | DecisionKind::DeclareInteraction { operation, .. } = &d.kind
+                        && let Some(mut op) = tx.operation(operation)?
+                    {
+                        expire_awaiting_local_in(tx, emit, &mut op, now, retention)?;
+                    }
                     return Ok(Err(stale(&DecisionRefusal::Expired)));
                 }
                 let waiting = match &d.kind {
@@ -9644,6 +9695,21 @@ impl Operations {
                 })
                 .await?;
             self.complete_withdrawals(ended).await;
+        }
+        // ⟨M02⟩ ADR-0007 §12.22 item 9: a setup or catalog operation still awaiting a
+        // decision that passed its deadline expires here even if nobody asks about it
+        // ([`expire_awaiting_local_in`]). Judged on time the gate accepted, as a
+        // grant's deadline is above: uncertain time expires nothing in this pass.
+        if let Some(s) = &safe {
+            let now = s.wall();
+            let retention = self.retention();
+            self.write(move |tx, emit| {
+                for mut op in tx.open_operations()? {
+                    expire_awaiting_local_in(tx, emit, &mut op, now, retention)?;
+                }
+                Ok(())
+            })
+            .await?;
         }
         // ⟨r2.6⟩ ADR-0006 §13.9 item 3: every pass completes any grant left in
         // `revoking` (idempotent; narrowing, so whatever the time status).
@@ -10371,6 +10437,73 @@ pub(crate) fn local_settle_failed(
     retention: Duration,
 ) -> heimdall_store::Result<()> {
     settle_failed(tx, emit.0, op, err, now, retention)
+}
+
+/// ⟨M02⟩ ADR-0007 §12.22 item 9 (W3b-gaps): an `awaiting_approval` setup or catalog
+/// operation whose decision passed its deadline expires, as ADR-0006's
+/// `DeadlineReached` does for a waiting grant (§4.2: `awaiting_approval → expired`; a
+/// new operation creates new work). M01 settles an operation waiting on an expired
+/// grant `failed` with `CREDENTIAL_EXPIRED` (`next: new_work`, [`Operations::tick`]'s
+/// `expire_grant`); the operation table has no `expired` state, so the same
+/// settlement is used here: the `awaiting_approval → failed` edge, `CREDENTIAL_EXPIRED`,
+/// effect `none` (nothing was written while it waited), the expired decision named
+/// as the resource. No fresh decision is issued: a new request is new work.
+///
+/// It applies only when at least one pending `ApplyProjection` or
+/// `DeclareInteraction` record names `op` and every such record has reached its
+/// `expires_at` at `now`. A record that is not pending (stale, withdrawn) is not a
+/// deadline, so it leaves the operation to its driver. Returns whether `op` expired.
+/// The record itself is left as it is: completion refuses it at its deadline
+/// (`DECISION_STALE`), and `inspect decisions` reports it `expired`, as for M01.
+fn expire_awaiting_local_in(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    op: &mut OperationRecord,
+    now: Timestamp,
+    retention: Duration,
+) -> heimdall_store::Result<bool> {
+    let local = op.kind.is_setup() || op.kind == OperationKind::Catalog;
+    if op.state != OperationState::AwaitingApproval || !local {
+        return Ok(false);
+    }
+    let mut expired = None;
+    for d in tx.pending_decisions()? {
+        let names_op = matches!(
+            &d.kind,
+            DecisionKind::ApplyProjection { operation, .. }
+                | DecisionKind::DeclareInteraction { operation, .. }
+                if *operation == op.id
+        );
+        if !names_op {
+            continue;
+        }
+        if now < d.expires_at {
+            return Ok(false);
+        }
+        expired = Some(d.id);
+    }
+    let Some(decision) = expired else {
+        return Ok(false);
+    };
+    let err = OpError::new(
+        Code::CredentialExpired,
+        "the owner's decision reached its deadline before it was made: the operation expired, and new work needs a new request",
+    )
+    .with_effect(EffectStatus::None)
+    .with_resource("decision", Some(decision.to_string()));
+    settle_failed(tx, emit, op, &err, now, retention)?;
+    Ok(true)
+}
+
+/// ⟨M02⟩ W3b-gaps: [`expire_awaiting_local_in`] for the local drivers.
+pub(crate) fn local_expire_awaiting(
+    tx: &mut Txn<'_>,
+    emit: &mut LocalEmit<'_>,
+    op: &mut OperationRecord,
+    now: Timestamp,
+    retention: Duration,
+) -> heimdall_store::Result<bool> {
+    expire_awaiting_local_in(tx, emit.0, op, now, retention)
 }
 
 /// ⟨M02⟩ U5: [`settle_succeeded`] for the local drivers.

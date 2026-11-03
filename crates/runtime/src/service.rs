@@ -37,6 +37,11 @@
 //! are registered after any configured adapter, reading their selection, catalog and
 //! client facts through [`RuntimeSources`] (the writer's `observe` over the stored
 //! projection record, the catalog, the declarations, the verified clients).
+//! `[setup] declaration_validity_days` becomes `Limits::declaration_validity`, the
+//! lifetime of each interaction declaration the owner approves from then on
+//! (ADR-0007 §12.22 item 10). [`Service::supervisor`] carries the projection cleaner,
+//! so a test's `cleanup_pass` deletes what a rollback handed over exactly as the
+//! running supervisor does.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -147,7 +152,8 @@ pub struct ServiceOptions {
     pub stage_hook: Arc<dyn StageHook>,
     /// Store fault hook (production: [`NoFaults`]).
     pub store_faults: Arc<dyn FaultHook>,
-    /// Application limits; `None` = defaults with the configured retention.
+    /// Application limits; `None` = defaults with the configured retention and
+    /// declaration validity.
     pub limits: Option<Limits>,
     /// Supervisor tunables.
     pub supervisor: SupervisorConfig,
@@ -378,6 +384,8 @@ impl Service {
         if options.limits.is_none() {
             limits.operation_retention = config.retention_operations()?;
             limits.event_retention = config.retention_events()?;
+            // ⟨M02⟩ ADR-0007 §12.22 item 10: `[setup] declaration_validity_days`.
+            limits.declaration_validity = config.declaration_validity()?;
         }
         // ⟨M02⟩ U5: the projection writer, its cleaner and the adapters.
         let wired = match options.projection {

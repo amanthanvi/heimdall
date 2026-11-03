@@ -139,10 +139,9 @@ dbg_macro = "warn"
 print_stdout = "warn"
 print_stderr = "warn"
 unimplemented = "warn"
-# The M02 skeleton (m02-plan U0) marks unit bodies that no request, CLI command,
-# restart recovery or store method can reach with todo!("M02-Uxx ..."); the
-# implementing unit removes it. M01 left none. Re-enable as "deny" when M02 closes.
-todo = "allow"
+# The M02 skeleton (m02-plan U0) marked unreachable unit bodies with
+# todo!("M02-Uxx ..."); wave 3b removed the last one, so the lint denies again.
+todo = "deny"
 
 [profile.release]
 opt-level = "z"

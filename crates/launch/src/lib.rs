@@ -7,15 +7,17 @@
 //! [`handoff`]. `argv` never crosses IPC and never appears in a record, error, event
 //! or log.
 //!
-//! **Status (m02-plan §2, wave 3a).** Signatures are fixed. U8 core has written
-//! [`resolve`], [`env`], [`meta`], `unix`, `windows` and [`handoff`].
+//! **Status (m02-plan §2, wave 3b).** Every body is written: U8 core wrote
+//! [`resolve`], [`env`], [`meta`], `unix`, `windows` and [`handoff`] in wave 1, and the
+//! U8 wiring of wave 3b wrote [`eligibility::check_noninteractive`] (the one domain
+//! clearance rule, ADR-0007 §12.15 item 3(d)), replaced the run-record encoder with
+//! `serde_json` (§12.15 item 7) and creates `--meta-file` through
+//! `heimdall_localenv::sys::create_owner_only_exclusive` (§12.15 item 8, E4).
 //! [`meta::SideChannel::from_fd`] adopts the inherited descriptor through
-//! `heimdall_localenv::sys::adopt_inherited_fd`, which is implemented (W2-U3; ADR-0007
-//! §12.18 item 1: it duplicates with `F_DUPFD_CLOEXEC` and never takes the inherited
-//! number). [`eligibility::check_noninteractive`] stays `todo!("M02-U8 …")` until the
-//! U8 wiring of wave 3b, and is not reachable: `heimdall run` and `heimdall connect`
-//! answer "not available in this build" until that wiring lands, and nothing else
-//! calls it.
+//! `heimdall_localenv::sys::adopt_inherited_fd`, which duplicates it with
+//! `F_DUPFD_CLOEXEC` and never takes the inherited number (§12.18 item 1); adoption
+//! is once per process (§12.17 item 10). `heimdall run` and `heimdall connect` drive
+//! these modules; `MAX_ARGV_BYTES` is enforced by that wiring before `ensure`.
 
 pub mod eligibility;
 pub mod env;

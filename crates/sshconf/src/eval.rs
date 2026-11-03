@@ -148,6 +148,40 @@ pub enum Invocation {
     Subsystem(String),
 }
 
+impl Invocation {
+    /// The invocation profiles a consent behaviour state covers (ADR-0007 §12.21 item
+    /// 2), in the order its digest binds them:
+    ///
+    /// 1. [`Invocation::Shell`], an interactive shell;
+    /// 2. `Exec(None)`, any remote command with the command unknown, which covers
+    ///    Git over SSH and SCP. `Match command` is unknown under it, so a value behind
+    ///    one is undetermined (fail closed);
+    /// 3. `Subsystem("sftp")`, SFTP.
+    ///
+    /// [`crate::relevant::consent_behavior_state`] evaluates a host under each.
+    #[must_use]
+    pub fn consent_profiles() -> [Invocation; 3] {
+        [
+            Invocation::Shell,
+            Invocation::Exec(None),
+            Invocation::Subsystem("sftp".to_owned()),
+        ]
+    }
+
+    /// The invocation's name as a behaviour state's digest binds it (ADR-0007 §12.21
+    /// item 2): `shell`; `exec` for a command that is not known; `exec:<command>` for
+    /// a known one; `subsystem:<name>`. Two different invocations never share a name.
+    #[must_use]
+    pub fn profile_name(&self) -> String {
+        match self {
+            Invocation::Shell => "shell".to_owned(),
+            Invocation::Exec(None) => "exec".to_owned(),
+            Invocation::Exec(Some(command)) => format!("exec:{command}"),
+            Invocation::Subsystem(name) => format!("subsystem:{name}"),
+        }
+    }
+}
+
 /// What is being evaluated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Query {

@@ -15,23 +15,21 @@
 //! the normative reader (`contract::run_record::classify`) never turns into a launch
 //! claim.
 //!
-//! **Encoding.** Each record is one JSON object and a `\n`, with exactly the field
-//! names, order and string escaping serde gives [`RunRecord`] (tag `type` first, then
-//! the fields in declaration order, `None` fields omitted, `consumer_overrides`
-//! always present). The encoder is written out here because this crate has no JSON
-//! dependency; `encoding_matches_the_committed_examples` holds it to the committed
-//! `schemas/examples/run-record.*.json`. A record this build cannot encode (a
-//! variant added later) is a write failure, so `launching` then aborts the launch.
+//! **Encoding** (ADR-0007 §12.15 item 7, U8 E3). Each record is
+//! `serde_json::to_vec(record)` and a `\n`: the tag `type` first, then the fields in
+//! declaration order, `None` fields omitted, `consumer_overrides` always present, one
+//! line (serde_json escapes every control character). The golden test
+//! `encoding_matches_the_committed_examples` holds the bytes to the committed
+//! `schemas/examples/run-record.*.json`. A record that cannot be encoded is a write
+//! failure, so `launching` then aborts the launch.
 
-use std::fmt::Write as _;
 use std::fs::File;
 use std::io::Write as _;
 use std::path::Path;
 
 use heimdall_contract::Code;
-use heimdall_contract::doctor::GitScope;
 use heimdall_contract::ids::{BindingId, OperationId};
-use heimdall_contract::request::{ConsumerKind, ConsumerOverride, OverrideSource};
+use heimdall_contract::request::ConsumerOverride;
 use heimdall_contract::run_record::RunRecord;
 use heimdall_contract::version::SchemaVersion;
 
@@ -98,38 +96,23 @@ impl SideChannel {
         }
     }
 
-    /// Create `--meta-file <path>` exclusively (`O_CREAT|O_EXCL|O_NOFOLLOW`, 0600, or an
-    /// owner-only DACL).
+    /// Create `--meta-file <path>` exclusively and owner-only, through
+    /// `heimdall_localenv::sys::create_owner_only_exclusive` (ADR-0007 §12.15 item 8,
+    /// E4):
+    /// * Unix: `O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC`, mode 0600 (the umask can
+    ///   only narrow it). An existing entry, a symbolic link included, is never followed
+    ///   or replaced.
+    /// * Windows: `CREATE_NEW` with `FILE_FLAG_OPEN_REPARSE_POINT` and a protected DACL
+    ///   granting the current user alone; the handle is not inheritable.
     ///
-    /// Unix: `O_CREAT|O_EXCL` with mode 0600 (the umask can only narrow it). With
-    /// both flags `open` fails on an existing final component, a symbolic link
-    /// included, so it never follows one (POSIX `open`, `[EEXIST]`); `O_NOFOLLOW`
-    /// adds nothing there. Windows: `CREATE_NEW` with `FILE_FLAG_OPEN_REPARSE_POINT`,
-    /// so a reparse point at the name is the existing entry, never followed. The file
-    /// keeps the DACL it inherits from its directory: an explicit owner-only DACL
-    /// needs a Win32 security call this crate has no dependency for (escalated in
-    /// the M02-W1-U8core report). The descriptor is close-on-exec (Unix) and not
-    /// inheritable (Windows), so the child never holds it.
+    /// The descriptor is close-on-exec (Unix) and not inheritable (Windows), so the
+    /// child never holds it.
     ///
     /// # Errors
     /// [`MetaError::Exists`] when the name exists; [`MetaError::Write`] when the file
     /// cannot be created for another reason.
     pub fn create_exclusive(path: &Path) -> Result<SideChannel, MetaError> {
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(0o600);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt as _;
-            /// `FILE_FLAG_OPEN_REPARSE_POINT` (winbase.h).
-            const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-            options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-        }
-        match options.open(path) {
+        match heimdall_localenv::sys::create_owner_only_exclusive(path) {
             Ok(file) => Ok(SideChannel::new(file, Protocol::File)),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(MetaError::Exists),
             Err(_) => Err(MetaError::Write),
@@ -174,6 +157,35 @@ impl SideChannel {
         })
     }
 
+    /// `prelaunch_failed` with `code`, `exit_code` and `reason`, naming this channel's
+    /// operation and binding: a Heimdall failure before launch (ADR-0006 §6 table; a
+    /// pre-launch eligibility refusal is `INTERACTION_REQUIRED`, exit 3).
+    ///
+    /// # Errors
+    /// [`MetaError::Write`].
+    pub fn write_prelaunch_failed(
+        &mut self,
+        code: Code,
+        exit_code: i32,
+        reason: Option<&str>,
+    ) -> Result<(), MetaError> {
+        let record = RunRecord::PrelaunchFailed {
+            schema_version: SchemaVersion::current(),
+            code,
+            exit_code,
+            reason: reason.map(str::to_owned),
+            operation_id: self.operation_id.clone(),
+            binding_id: self.binding_id.clone(),
+        };
+        self.write(&record)
+    }
+
+    /// Whether a write on this channel failed (nothing more is written).
+    #[must_use]
+    pub fn has_failed(&self) -> bool {
+        self.failed
+    }
+
     /// Whether this channel speaks the fd protocol.
     #[cfg(unix)]
     pub(crate) fn is_fd(&self) -> bool {
@@ -204,15 +216,7 @@ impl SideChannel {
         exit_code: i32,
         reason: &str,
     ) -> Result<(), MetaError> {
-        let record = RunRecord::PrelaunchFailed {
-            schema_version: SchemaVersion::current(),
-            code: Code::LaunchFailed,
-            exit_code,
-            reason: Some(reason.to_owned()),
-            operation_id: self.operation_id.clone(),
-            binding_id: self.binding_id.clone(),
-        };
-        self.write(&record)
+        self.write_prelaunch_failed(Code::LaunchFailed, exit_code, Some(reason))
     }
 
     /// Windows: `spawned` with the child's PID.
@@ -250,188 +254,12 @@ impl SideChannel {
     }
 }
 
-/// One record as its NDJSON line, or `None` for a variant this build cannot encode.
+/// One record as its NDJSON line (`serde_json`, then `\n`), or `None` when it cannot
+/// be encoded.
 pub(crate) fn encode_line(record: &RunRecord) -> Option<Vec<u8>> {
-    let mut o = Obj::new();
-    match record {
-        RunRecord::PrelaunchFailed {
-            schema_version,
-            code,
-            exit_code,
-            reason,
-            operation_id,
-            binding_id,
-        } => {
-            o.str("type", "prelaunch_failed");
-            o.str("schema_version", &schema_version.0);
-            o.str("code", code.as_str());
-            o.num("exit_code", exit_code);
-            if let Some(reason) = reason {
-                o.str("reason", reason);
-            }
-            ids(&mut o, operation_id.as_ref(), binding_id.as_ref());
-        }
-        RunRecord::Launching {
-            schema_version,
-            attempt,
-            executable,
-            operation_id,
-            binding_id,
-            pid,
-            consumer_overrides,
-        } => {
-            o.str("type", "launching");
-            o.str("schema_version", &schema_version.0);
-            o.num("attempt", attempt);
-            o.str("executable", executable);
-            ids(&mut o, operation_id.as_ref(), binding_id.as_ref());
-            o.num("pid", pid);
-            let mut items = Vec::with_capacity(consumer_overrides.len());
-            for item in consumer_overrides {
-                items.push(encode_override(item)?);
-            }
-            o.raw("consumer_overrides", &format!("[{}]", items.join(",")));
-        }
-        RunRecord::Spawned {
-            schema_version,
-            pid,
-        } => {
-            o.str("type", "spawned");
-            o.str("schema_version", &schema_version.0);
-            o.num("pid", pid);
-        }
-        RunRecord::Exited {
-            schema_version,
-            exit_code,
-        } => {
-            o.str("type", "exited");
-            o.str("schema_version", &schema_version.0);
-            o.num("exit_code", exit_code);
-        }
-        _ => return None,
-    }
-    let mut line = o.finish().into_bytes();
+    let mut line = serde_json::to_vec(record).ok()?;
     line.push(b'\n');
     Some(line)
-}
-
-fn ids(o: &mut Obj, operation_id: Option<&OperationId>, binding_id: Option<&BindingId>) {
-    if let Some(id) = operation_id {
-        o.str("operation_id", id.as_str());
-    }
-    if let Some(id) = binding_id {
-        o.str("binding_id", id.as_str());
-    }
-}
-
-/// `ConsumerOverride`; its `source` is tagged by `kind`, a newtype variant's struct
-/// fields inlined after the tag (serde's internally tagged form).
-fn encode_override(item: &ConsumerOverride) -> Option<String> {
-    let consumer = match item.consumer {
-        ConsumerKind::Ssh => "ssh",
-        ConsumerKind::Scp => "scp",
-        ConsumerKind::Sftp => "sftp",
-        ConsumerKind::Git => "git",
-        ConsumerKind::SshKeygen => "ssh_keygen",
-        _ => return None,
-    };
-    let mut source = Obj::new();
-    match &item.source {
-        OverrideSource::SshConfig(provenance) => {
-            source.str("kind", "ssh_config");
-            source.str("path_display", &provenance.path_display);
-            source.num("line", &provenance.line);
-        }
-        OverrideSource::GitScope { scope } => {
-            source.str("kind", "git_scope");
-            source.str("scope", git_scope(*scope)?);
-        }
-        OverrideSource::Environment => source.str("kind", "environment"),
-        _ => return None,
-    }
-    let mut o = Obj::new();
-    o.str("consumer", consumer);
-    o.str("setting", &item.setting);
-    o.raw("source", &source.finish());
-    Some(o.finish())
-}
-
-fn git_scope(scope: GitScope) -> Option<&'static str> {
-    Some(match scope {
-        GitScope::System => "system",
-        GitScope::Global => "global",
-        GitScope::Local => "local",
-        GitScope::Worktree => "worktree",
-        GitScope::Command => "command",
-        _ => return None,
-    })
-}
-
-/// A compact JSON object under construction.
-struct Obj {
-    out: String,
-    first: bool,
-}
-
-impl Obj {
-    fn new() -> Obj {
-        Obj {
-            out: String::from("{"),
-            first: true,
-        }
-    }
-
-    fn key(&mut self, key: &str) {
-        if !self.first {
-            self.out.push(',');
-        }
-        self.first = false;
-        push_json_string(&mut self.out, key);
-        self.out.push(':');
-    }
-
-    fn str(&mut self, key: &str, value: &str) {
-        self.key(key);
-        push_json_string(&mut self.out, value);
-    }
-
-    fn num(&mut self, key: &str, value: &impl std::fmt::Display) {
-        self.key(key);
-        let _ = write!(self.out, "{value}");
-    }
-
-    fn raw(&mut self, key: &str, json: &str) {
-        self.key(key);
-        self.out.push_str(json);
-    }
-
-    fn finish(mut self) -> String {
-        self.out.push('}');
-        self.out
-    }
-}
-
-/// A JSON string with serde_json's escaping: `"` and `\` escaped, the short forms
-/// `\b \t \n \f \r`, every other control character below U+0020 as `\u00xx`
-/// (lowercase hex), everything else verbatim.
-fn push_json_string(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\u{8}' => out.push_str("\\b"),
-            '\t' => out.push_str("\\t"),
-            '\n' => out.push_str("\\n"),
-            '\u{c}' => out.push_str("\\f"),
-            '\r' => out.push_str("\\r"),
-            c if u32::from(c) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", u32::from(c));
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
 }
 
 /// Scratch directories for this crate's tests: a fresh, owner-only directory under
@@ -490,7 +318,8 @@ pub(crate) mod scratch {
 mod tests {
     use super::scratch::Scratch;
     use super::*;
-    use heimdall_contract::doctor::ConfigProvenance;
+    use heimdall_contract::doctor::{ConfigProvenance, GitScope};
+    use heimdall_contract::request::{ConsumerKind, OverrideSource};
     use heimdall_contract::run_record::{LaunchClassification, RunPlatform, classify};
 
     fn op() -> OperationId {
@@ -610,7 +439,7 @@ mod tests {
 
     #[test]
     fn every_override_source_uses_the_tagged_form() {
-        let overrides = [
+        let overrides = vec![
             ConsumerOverride {
                 consumer: ConsumerKind::Ssh,
                 setting: "IdentityAgent".to_owned(),
@@ -632,21 +461,27 @@ mod tests {
                 },
             },
         ];
-        let encoded: Vec<String> = overrides
-            .iter()
-            .map(|o| encode_override(o).unwrap())
-            .collect();
+        let launching = RunRecord::Launching {
+            schema_version: SchemaVersion::current(),
+            attempt: 1,
+            executable: "/bin/sh".to_owned(),
+            operation_id: None,
+            binding_id: None,
+            pid: 7,
+            consumer_overrides: overrides,
+        };
         assert_eq!(
-            encoded,
-            [
-                "{\"consumer\":\"ssh\",\"setting\":\"IdentityAgent\",\"source\":\
-                 {\"kind\":\"ssh_config\",\"path_display\":\"~/.ssh/config\",\"line\":12}}",
-                "{\"consumer\":\"ssh_keygen\",\"setting\":\"SSH_AUTH_SOCK\",\"source\":\
-                 {\"kind\":\"environment\"}}",
-                "{\"consumer\":\"git\",\"setting\":\"core.sshCommand\",\"source\":\
-                 {\"kind\":\"git_scope\",\"scope\":\"command\"}}",
-            ]
+            line(&launching),
+            "{\"type\":\"launching\",\"schema_version\":\"1\",\"attempt\":1,\
+             \"executable\":\"/bin/sh\",\"pid\":7,\"consumer_overrides\":[\
+             {\"consumer\":\"ssh\",\"setting\":\"IdentityAgent\",\"source\":\
+             {\"kind\":\"ssh_config\",\"path_display\":\"~/.ssh/config\",\"line\":12}},\
+             {\"consumer\":\"ssh_keygen\",\"setting\":\"SSH_AUTH_SOCK\",\"source\":\
+             {\"kind\":\"environment\"}},\
+             {\"consumer\":\"git\",\"setting\":\"core.sshCommand\",\"source\":\
+             {\"kind\":\"git_scope\",\"scope\":\"command\"}}]}\n"
         );
+        // Every Git scope has its wire name inside the tagged source.
         for (scope, wire) in [
             (GitScope::System, "system"),
             (GitScope::Global, "global"),
@@ -654,25 +489,32 @@ mod tests {
             (GitScope::Worktree, "worktree"),
             (GitScope::Command, "command"),
         ] {
-            assert_eq!(git_scope(scope), Some(wire));
+            let record = RunRecord::Launching {
+                schema_version: SchemaVersion::current(),
+                attempt: 1,
+                executable: "/bin/sh".to_owned(),
+                operation_id: None,
+                binding_id: None,
+                pid: 7,
+                consumer_overrides: vec![ConsumerOverride {
+                    consumer: ConsumerKind::Git,
+                    setting: "core.sshCommand".to_owned(),
+                    source: OverrideSource::GitScope { scope },
+                }],
+            };
+            assert!(
+                line(&record).contains(&format!("\"scope\":\"{wire}\"")),
+                "{wire}"
+            );
         }
     }
 
     #[test]
-    fn strings_are_escaped_as_serde_json_does_and_stay_on_one_line() {
-        let mut out = String::new();
-        push_json_string(
-            &mut out,
-            "a\"b\\c\nd\re\tf\u{8}g\u{c}h\u{1}i\u{1f}j\u{7f}k\u{e9}",
-        );
-        assert_eq!(
-            out,
-            "\"a\\\"b\\\\c\\nd\\re\\tf\\bg\\fh\\u0001i\\u001fj\u{7f}k\u{e9}\""
-        );
+    fn strings_are_escaped_and_every_record_stays_on_one_line() {
         let launching = RunRecord::Launching {
             schema_version: SchemaVersion::current(),
             attempt: 1,
-            executable: "/odd\n\"path\"".to_owned(),
+            executable: "/odd\n\"path\"\r\t\u{1}\u{1f}\u{7f}\u{e9}\u{2028}".to_owned(),
             operation_id: None,
             binding_id: None,
             pid: 1,
@@ -681,7 +523,15 @@ mod tests {
         let text = line(&launching);
         assert_eq!(text.matches('\n').count(), 1);
         assert!(text.ends_with('\n'));
-        assert!(text.contains("\"executable\":\"/odd\\n\\\"path\\\"\""));
+        assert!(
+            text.contains(
+                "\"executable\":\"/odd\\n\\\"path\\\"\\r\\t\\u0001\\u001f\u{7f}\u{e9}\u{2028}\""
+            ),
+            "{text}"
+        );
+        // The line decodes back to the same record (the reader's side).
+        let back: RunRecord = serde_json::from_str(text.trim_end()).unwrap();
+        assert_eq!(back, launching);
     }
 
     #[test]
@@ -790,26 +640,65 @@ mod tests {
     fn records_written_by_the_channel_classify_as_the_reader_table_says() {
         let dir = Scratch::new();
         let path = dir.path().join("meta.ndjson");
-        let mut channel = SideChannel::create_exclusive(&path).unwrap();
+        let mut channel = SideChannel::create_exclusive(&path)
+            .unwrap()
+            .with_ids(Some(op()), None);
         channel.write_launching("/bin/true", &[]).unwrap();
-        // Reading back needs the contract's decoder; this crate has none, so the
-        // shape is checked through the lines' types and `classify` on equal values.
-        let only_launching = [RunRecord::Launching {
-            schema_version: SchemaVersion::current(),
-            attempt: 1,
-            executable: "/bin/true".to_owned(),
-            operation_id: None,
-            binding_id: None,
-            pid: std::process::id(),
-            consumer_overrides: Vec::new(),
-        }];
+        let read = |path: &Path| -> Vec<RunRecord> {
+            std::fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str(l).unwrap())
+                .collect()
+        };
+        let records = read(&path);
         assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            line(&only_launching[0])
+            records,
+            [RunRecord::Launching {
+                schema_version: SchemaVersion::current(),
+                attempt: 1,
+                executable: "/bin/true".to_owned(),
+                operation_id: Some(op()),
+                binding_id: None,
+                pid: std::process::id(),
+                consumer_overrides: Vec::new(),
+            }]
         );
         assert_eq!(
-            classify(&only_launching, RunPlatform::Unix),
+            classify(&records, RunPlatform::Unix),
             LaunchClassification::Indeterminate
+        );
+        // A Heimdall failure before launch: `prelaunch_failed` with its own code.
+        let other = dir.path().join("refused.ndjson");
+        let mut channel = SideChannel::create_exclusive(&other)
+            .unwrap()
+            .with_ids(Some(op()), Some(binding()));
+        channel
+            .write_prelaunch_failed(
+                Code::InteractionRequired,
+                3,
+                Some("fallback_identity_interaction"),
+            )
+            .unwrap();
+        assert!(!channel.has_failed());
+        let records = read(&other);
+        assert_eq!(
+            classify(&records, RunPlatform::Unix),
+            LaunchClassification::NotLaunched {
+                code: Some(Code::InteractionRequired),
+                reason: Some("fallback_identity_interaction".to_owned()),
+            }
+        );
+        assert_eq!(
+            records,
+            [RunRecord::PrelaunchFailed {
+                schema_version: SchemaVersion::current(),
+                code: Code::InteractionRequired,
+                exit_code: 3,
+                reason: Some("fallback_identity_interaction".to_owned()),
+                operation_id: Some(op()),
+                binding_id: Some(binding()),
+            }]
         );
     }
 }

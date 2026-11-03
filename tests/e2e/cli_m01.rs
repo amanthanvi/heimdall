@@ -1868,7 +1868,9 @@ fn usage_failures_keep_human_help_version_and_errors() {
 /// in this build" envelope (`USAGE_ERROR`, effect `none`), never panics, and never
 /// contacts the runtime: the Heimdall home it names is never created (an on-demand
 /// start or a client connection would create it). An argument canary built at run
-/// time never reaches any output.
+/// time never reaches any output. `run` and `connect` left this list when wave 3b
+/// wired them (m02-plan U8); `heimdall::cli::tests::
+/// run_and_connect_parse_and_refuse_before_the_runtime` and `e2e_run_m02` cover them.
 #[test]
 fn w0_m02_cli_commands_report_not_available_and_never_panic() {
     let argv_canary = format!("{}ARGV", heimdall_testkit::CANARY_PREFIX);
@@ -1882,24 +1884,6 @@ fn w0_m02_cli_commands_report_not_available_and_never_panic() {
         vec!["setup", "repair", "--operation", "op_x", "retry"],
         vec!["setup", "repair", "--operation", "op_x", "keep"],
         vec!["setup", "status"],
-        vec!["connect", "lab"],
-        vec![
-            "connect",
-            "lab",
-            "--allow-provider-interaction",
-            "--meta-file",
-            "m.ndjson",
-        ],
-        vec![
-            "run",
-            "--profile",
-            "p",
-            "--",
-            "tool",
-            &argv_canary,
-            "--json",
-        ],
-        vec!["run", "--require-unattended", "--", "tool"],
         vec!["doctor"],
         vec![
             "doctor",
@@ -1924,6 +1908,7 @@ fn w0_m02_cli_commands_report_not_available_and_never_panic() {
         vec!["destination", "add", "lab", "--observed"],
         vec!["destination", "list"],
         vec!["destination", "show", "lab"],
+        vec!["destination", "show", &argv_canary],
         vec!["destination", "remove", "lab"],
         vec!["identity", "list"],
         vec!["identity", "adopt", "--pub", "k.pub"],

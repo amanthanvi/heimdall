@@ -4,6 +4,13 @@
 //! Cargo test target `model_sshconf_consent` hosted by `heimdall-sshconf`. Behaviour
 //! states come from real static evaluations of in-memory trees (`MemSource`), so the
 //! tests cover the digest and the classification together. Nothing is executed.
+//!
+//! The states are consent's states (ADR-0007 §12.21 item 2): each alias evaluated under
+//! `Shell`, `Exec(None)` and `Subsystem("sftp")`, digest tag `heimdall.behavior.v3`.
+//! The `v02_*` tests are the wave-2b/2c review's reproducers (V02): a value that only an
+//! exec or a subsystem invocation obtains must count, and the single-invocation (shell)
+//! state, which the review showed equal, is computed beside them to show the case
+//! discriminates.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -17,7 +24,9 @@ use heimdall_sshconf::edit::{IncludeBlock, plan_insert};
 use heimdall_sshconf::eval::{Invocation, OpenSshVersion, Query, evaluate};
 use heimdall_sshconf::include::{ConfigSet, MemSource, Roots};
 use heimdall_sshconf::limits::Limits;
-use heimdall_sshconf::relevant::{behavior_state, relevant};
+use heimdall_sshconf::relevant::{
+    BEHAVIOR_STATE_TAG, behavior_digest, behavior_state, consent_behavior_state, relevant,
+};
 use heimdall_sshconf::render::{
     AliasName, HostName, ManagedAlias, MarkerId, Newline, PathStyle, RenderPath,
     render_include_block, render_managed,
@@ -32,13 +41,7 @@ fn state_of(user: &[u8], managed: Option<&[u8]>, host: &str) -> BehaviorState {
     state_in(user, managed, host, &[])
 }
 
-/// [`state_of`] in a runtime whose environment holds `env`.
-fn state_in(
-    user: &[u8],
-    managed: Option<&[u8]>,
-    host: &str,
-    env: &[(&str, &str)],
-) -> BehaviorState {
+fn source_of(user: &[u8], managed: Option<&[u8]>, env: &[(&str, &str)]) -> MemSource {
     let mut src = MemSource::new(HOME, USER_DIR, "/hm/etc/ssh").with_file(USER_CONFIG, user);
     for (k, v) in env {
         src = src.with_env(k, v);
@@ -46,7 +49,11 @@ fn state_in(
     if let Some(p) = managed {
         src = src.with_file(MANAGED, p);
     }
-    let query = Query {
+    src
+}
+
+fn query(host: &str, invocation: Invocation) -> Query {
+    Query {
         host: host.to_owned(),
         user: None,
         local_user: "fixture".to_owned(),
@@ -55,13 +62,53 @@ fn state_in(
             minor: 5,
             portable: Some(2),
         },
-        invocation: Invocation::Shell,
-    };
-    // P's path, so its values carry the managed role the digest binds (ADR-0007 §12.15
-    // item 3a), as in the real flow.
-    let roots = Roots::new(Some(PathBuf::from(USER_CONFIG)), None).with_managed(MANAGED);
+        invocation,
+    }
+}
+
+/// P's path, so its values carry the managed role the digest binds (ADR-0007 §12.15
+/// item 3a), as in the real flow.
+fn roots() -> Roots {
+    Roots::new(Some(PathBuf::from(USER_CONFIG)), None).with_managed(MANAGED)
+}
+
+/// [`state_of`] in a runtime whose environment holds `env`: consent's state, over every
+/// invocation profile (ADR-0007 §12.21 item 2).
+fn state_in(
+    user: &[u8],
+    managed: Option<&[u8]>,
+    host: &str,
+    env: &[(&str, &str)],
+) -> BehaviorState {
+    let src = source_of(user, managed, env);
     let mut set = ConfigSet::new();
-    let ev = evaluate(&mut set, &src, &roots, &query, &Limits::default());
+    consent_behavior_state(
+        &mut set,
+        &src,
+        &roots(),
+        &query(host, Invocation::Shell),
+        &Limits::default(),
+    )
+}
+
+/// The single-invocation state under `invocation` (tag `heimdall.behavior.v2`): what
+/// consent compared before ADR-0007 §12.21 item 2, with `Shell` for every state.
+fn single_state(
+    user: &[u8],
+    managed: Option<&[u8]>,
+    host: &str,
+    env: &[(&str, &str)],
+    invocation: Invocation,
+) -> BehaviorState {
+    let src = source_of(user, managed, env);
+    let mut set = ConfigSet::new();
+    let ev = evaluate(
+        &mut set,
+        &src,
+        &roots(),
+        &query(host, invocation),
+        &Limits::default(),
+    );
     behavior_state(&relevant(&ev))
 }
 
@@ -344,4 +391,203 @@ fn consent_default_agent_forms_are_one_consented_state() {
         }]);
         assert!(!need.required, "{need:?}");
     }
+}
+
+// --- V02: consent covers every invocation profile (ADR-0007 §12.21 item 2) -------------
+
+/// The length-prefixed field encoding of the digest input, restated independently.
+fn field(out: &mut Vec<u8>, s: &str) {
+    out.extend_from_slice(&u32::try_from(s.len()).unwrap().to_be_bytes());
+    out.extend_from_slice(s.as_bytes());
+}
+
+/// ADR-0007 §12.21 item 2: the state's digest is SHA-256 over the tag
+/// `heimdall.behavior.v3` and the ordered `(profile, per-profile digest)` pairs, and it
+/// is determined only when every profile is. Recomputed here from three independent
+/// single-invocation evaluations.
+#[test]
+fn v02_consent_state_digest_is_v3_over_the_ordered_profile_digests() {
+    assert_eq!(BEHAVIOR_STATE_TAG, "heimdall.behavior.v3");
+    let user = b"Host *\n    User fallback\nMatch sessiontype exec\n    HostName exec.example\n\
+                 Match sessiontype subsystem\n    Port 2222\n";
+    let state = state_of(user, None, "m1");
+    let profiles = [
+        ("shell", Invocation::Shell),
+        ("exec", Invocation::Exec(None)),
+        ("subsystem:sftp", Invocation::Subsystem("sftp".to_owned())),
+    ];
+    let mut input = Vec::new();
+    field(&mut input, "heimdall.behavior.v3");
+    field(&mut input, "3");
+    let mut all_determined = true;
+    let mut per_profile = Vec::new();
+    for (name, invocation) in profiles {
+        let src = source_of(user, None, &[]);
+        let mut set = ConfigSet::new();
+        let ev = evaluate(
+            &mut set,
+            &src,
+            &roots(),
+            &query("m1", invocation),
+            &Limits::default(),
+        );
+        let r = relevant(&ev);
+        let one = behavior_state(&r);
+        assert_eq!(one.digest, behavior_digest(&r));
+        field(&mut input, name);
+        field(&mut input, one.digest.as_str());
+        all_determined &= one.determined;
+        per_profile.push(one.digest);
+    }
+    assert_eq!(state.digest, Sha256Hex::of(&input));
+    assert_eq!(state.determined, all_determined);
+    assert!(state.determined);
+    // The three profiles see three different behaviours here, and the v3 state is none
+    // of them (another tag, another input).
+    assert_ne!(per_profile[0], per_profile[1]);
+    assert_ne!(per_profile[0], per_profile[2]);
+    assert!(!per_profile.contains(&state.digest));
+}
+
+/// V02 reviewer reproducer 1: a `Match sessiontype exec` `HostName` changed after the
+/// apply. A rollback would expose another destination to remote commands and Git over
+/// SSH, so it needs a decision (`exposes_inherited`). The shell-only states the review
+/// saw are equal, which is how the waiver was granted.
+#[test]
+fn v02_rollback_after_exec_only_hostname_change_needs_decision() {
+    let at_apply =
+        b"Host *\n    User fallback\nMatch sessiontype exec\n    HostName exec-a.example\n";
+    let now = b"Host *\n    User fallback\nMatch sessiontype exec\n    HostName exec-b.example\n";
+    let managed = state_of(&with_b(at_apply), Some(&managed_p()), "m1");
+    let restore_at_apply = state_of(at_apply, None, "m1");
+    assert!(managed.determined && restore_at_apply.determined);
+    // P's HostName wins under every profile while B is in place (first obtained, F1).
+    let current = state_of(&with_b(now), Some(&managed_p()), "m1");
+    assert_eq!(current, managed);
+    let after = state_of(now, None, "m1");
+    assert!(after.determined);
+    assert_ne!(after.digest, restore_at_apply.digest);
+    // The review's observation: under the shell alone nothing changed.
+    assert_eq!(
+        single_state(now, None, "m1", &[], Invocation::Shell),
+        single_state(at_apply, None, "m1", &[], Invocation::Shell)
+    );
+    let need = classify(&[ConsentItem {
+        item: alias_item(),
+        current,
+        after,
+        consented: Some(ConsentedStates {
+            managed,
+            restore: restore_at_apply,
+        }),
+    }]);
+    assert!(need.required, "{need:?}");
+    assert_eq!(need.reasons.len(), 1);
+    assert_eq!(need.reasons[0].kind, ConsentReasonKind::ExposesInherited);
+}
+
+/// V02 reviewer reproducer 2: an environment-dependent `IdentityAgent` behind `Match
+/// sessiontype subsystem` added after the apply. The restore state is undetermined for
+/// SFTP, so the rollback needs a decision (`undetermined_state`), although the shell-only
+/// state is determined and unchanged.
+#[test]
+fn v02_rollback_after_subsystem_only_environment_agent_needs_decision() {
+    let env = [("HM_AGENT", "/hm/run/agent-a.sock")];
+    let at_apply = b"Host *\n    User fallback\n";
+    let now =
+        b"Host *\n    User fallback\nMatch sessiontype subsystem\n    IdentityAgent ${HM_AGENT}\n";
+    let managed = state_in(&with_b(at_apply), Some(&managed_p()), "m1", &env);
+    let restore_at_apply = state_in(at_apply, None, "m1", &env);
+    assert!(managed.determined && restore_at_apply.determined);
+    let current = state_in(&with_b(now), Some(&managed_p()), "m1", &env);
+    assert_eq!(
+        current, managed,
+        "P's IdentityAgent wins while B is in place"
+    );
+    let after = state_in(now, None, "m1", &env);
+    assert!(!after.determined);
+    // The review's observation: the shell-only restore state is determined and equal.
+    let shell_now = single_state(now, None, "m1", &env, Invocation::Shell);
+    assert!(shell_now.determined);
+    assert_eq!(
+        shell_now,
+        single_state(at_apply, None, "m1", &env, Invocation::Shell)
+    );
+    assert!(
+        !single_state(
+            now,
+            None,
+            "m1",
+            &env,
+            Invocation::Subsystem("sftp".to_owned())
+        )
+        .determined
+    );
+    let need = classify(&[ConsentItem {
+        item: alias_item(),
+        current,
+        after,
+        consented: Some(ConsentedStates {
+            managed,
+            restore: restore_at_apply,
+        }),
+    }]);
+    assert!(need.required, "{need:?}");
+    assert_eq!(need.reasons.len(), 1);
+    assert_eq!(need.reasons[0].kind, ConsentReasonKind::UndeterminedState);
+}
+
+/// ADR-0007 §12.21 item 2: an unchanged configuration still waives, also when it has
+/// exec- and subsystem-only sections: the rollback yields exactly the consented restore
+/// state under every profile.
+#[test]
+fn v02_unchanged_configuration_with_profile_sections_still_waives() {
+    let user = b"Host *\n    User fallback\nMatch sessiontype exec\n    HostName exec-a.example\n\
+                 Match sessiontype subsystem\n    Port 2222\n";
+    let managed = state_of(&with_b(user), Some(&managed_p()), "m1");
+    let restore = state_of(user, None, "m1");
+    assert!(managed.determined && restore.determined);
+    let need = classify(&[ConsentItem {
+        item: alias_item(),
+        current: state_of(&with_b(user), Some(&managed_p()), "m1"),
+        after: state_of(user, None, "m1"),
+        consented: Some(ConsentedStates { managed, restore }),
+    }]);
+    assert!(!need.required, "{need:?}");
+}
+
+/// ADR-0007 §12.21 item 2: `Match command` is unknown under `Exec(None)` (the command
+/// of a remote invocation is not known), so a value behind it makes the state
+/// undetermined, which fails closed: even an equal, consented restore state needs a
+/// decision. Shell and SFTP decide the condition.
+#[test]
+fn v02_match_command_is_unknown_under_exec_none_so_the_state_is_undetermined() {
+    let user = b"Host *\n    User fallback\nMatch command \"git-upload-pack*\"\n    HostName git.example\n";
+    for (invocation, determined) in [
+        (Invocation::Shell, true),
+        (Invocation::Exec(None), false),
+        (Invocation::Subsystem("sftp".to_owned()), true),
+        (
+            Invocation::Exec(Some("git-upload-pack 'r'".to_owned())),
+            true,
+        ),
+    ] {
+        assert_eq!(
+            single_state(user, None, "m1", &[], invocation.clone()).determined,
+            determined,
+            "{invocation:?}"
+        );
+    }
+    let managed = state_of(&with_b(user), Some(&managed_p()), "m1");
+    assert!(managed.determined, "P's HostName wins behind B");
+    let restore = state_of(user, None, "m1");
+    assert!(!restore.determined);
+    let need = classify(&[ConsentItem {
+        item: alias_item(),
+        current: managed.clone(),
+        after: state_of(user, None, "m1"),
+        consented: Some(ConsentedStates { managed, restore }),
+    }]);
+    assert!(need.required);
+    assert_eq!(need.reasons[0].kind, ConsentReasonKind::UndeterminedState);
 }

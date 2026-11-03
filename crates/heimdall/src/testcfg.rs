@@ -14,6 +14,7 @@
 //! | `HEIMDALL_TEST_SLOW_PREPARE_MS` | Delay before every `prepare` (bounded waits end with `ACCEPTED`). |
 //! | `HEIMDALL_TEST_TIME_SYNC` | `synchronized`, `not_synchronized` or `unknown` (default `unknown`, the production stub's answer). |
 //! | `HEIMDALL_TEST_STAGE_FAIL` | One-shot pipeline fault through the production `StageHook`: `before:<stage>:<CODE>` or `after:<stage>:<CODE>`. |
+//! | `HEIMDALL_TEST_CLOCK_OFFSET_S` | ⟨M02⟩ m02-plan U8 (ADR-0007 §12.14 item 8): shifts the **wall** clock of the runtime and of `run`/`connect` by a signed number of seconds. The value is the number itself, or an absolute path of a file holding it, read at every clock reading, so a test can move the clock during a pause (write it with a rename; an unreadable or malformed file reads as 0). The continuous clock and the boot ID are not shifted. |
 //!
 //! When any of them is set the configuration also requires an explicit
 //! `HEIMDALL_HOME` (it never touches the per-user default directories), seeds a
@@ -30,9 +31,158 @@
 //! variables is set: a release runtime never silently ignores a request to run
 //! with a fake adapter, and never honours one.
 //!
+//! **⟨M02⟩ `run` and `connect`** (m02-plan U8). The CLI process reads these
+//! ([`launch_hooks`]); a release build refuses `run` and `connect` (exit 2) when one
+//! is set, and never honours them:
+//!
+//! | Variable | Meaning |
+//! |---|---|
+//! | `HEIMDALL_TEST_PRE_EXEC_PAUSE` | Absolute FIFO path: after `launching` is written, the CLI opens it for reading and blocks until a writer opens it (or the test stops the process by exact PID). |
+//! | `HEIMDALL_TEST_PRE_CHECK_PAUSE` | Absolute FIFO path: after `bind` and Git resolution, before the pre-launch eligibility check, the CLI opens it for reading and reads until the writer closes it (so the test's own open returns once the CLI is paused, and closing releases it). |
+//! | `HEIMDALL_TEST_FORCE_EXEC_FAILURE` | `1`: the exec (Unix) fails after `launching` (`heimdall_launch::unix::TestHooks`). |
+//! | `HEIMDALL_TEST_SSH_HOME` | Absolute scratch account home for the CLI's static selection pass (`SshPaths::with_test_override`, system directory `<home>/etc-ssh`), so a test never reads the account's real `~/.ssh` or `/etc/ssh`. |
+//! | `HEIMDALL_TEST_CLOCK_OFFSET_S` | As above: the CLI's wall clock for the pre-launch check. |
+//!
 //! The fake adapter's credential reference carries a synthetic
 //! `HEIMDALL_CANARY_*` value built at runtime; it must never reach an envelope,
 //! event or log line (the e2e suite scans every byte the binary prints).
+
+/// ⟨M02⟩ U8: FIFO opened after `launching`, before exec.
+pub const PRE_EXEC_PAUSE_ENV: &str = "HEIMDALL_TEST_PRE_EXEC_PAUSE";
+/// ⟨M02⟩ U8: FIFO opened after `bind` and Git resolution, before the check.
+pub const PRE_CHECK_PAUSE_ENV: &str = "HEIMDALL_TEST_PRE_CHECK_PAUSE";
+/// ⟨M02⟩ U8: make the exec fail after `launching`.
+pub const FORCE_EXEC_FAILURE_ENV: &str = "HEIMDALL_TEST_FORCE_EXEC_FAILURE";
+/// ⟨M02⟩ U8: scratch account home for the CLI's static selection pass.
+pub const SSH_HOME_ENV: &str = "HEIMDALL_TEST_SSH_HOME";
+
+/// ⟨M02⟩ Every variable `run` and `connect` read.
+pub const LAUNCH_ENV: [&str; 5] = [
+    PRE_EXEC_PAUSE_ENV,
+    PRE_CHECK_PAUSE_ENV,
+    FORCE_EXEC_FAILURE_ENV,
+    SSH_HOME_ENV,
+    CLOCK_OFFSET_ENV,
+];
+
+/// ⟨M02⟩ A wall-clock offset (module docs): fixed, or read from a file at every use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClockOffset {
+    /// A fixed number of seconds.
+    Fixed(i64),
+    /// An absolute file holding the number of seconds.
+    File(std::path::PathBuf),
+}
+
+impl ClockOffset {
+    /// Parse the variable's value: a signed integer, or an absolute path.
+    ///
+    /// # Errors
+    /// Anything else (a usage error of the test harness).
+    pub fn parse(value: &std::ffi::OsStr) -> Result<ClockOffset, String> {
+        if let Some(n) = value.to_str().and_then(|v| v.trim().parse::<i64>().ok()) {
+            return Ok(ClockOffset::Fixed(n));
+        }
+        let path = std::path::PathBuf::from(value);
+        if path.is_absolute() {
+            Ok(ClockOffset::File(path))
+        } else {
+            Err(format!(
+                "{CLOCK_OFFSET_ENV}: expected seconds or an absolute file path"
+            ))
+        }
+    }
+
+    /// The offset now, in seconds (an unreadable or malformed file reads as 0).
+    #[must_use]
+    pub fn seconds(&self) -> i64 {
+        match self {
+            ClockOffset::Fixed(n) => *n,
+            ClockOffset::File(path) => std::fs::read_to_string(path)
+                .ok()
+                .and_then(|t| t.trim().parse::<i64>().ok())
+                .unwrap_or(0),
+        }
+    }
+
+    /// `wall` shifted by the offset (saturating at the representable range).
+    #[must_use]
+    pub fn shift(&self, wall: heimdall_contract::Timestamp) -> heimdall_contract::Timestamp {
+        let secs = self.seconds();
+        let span = std::time::Duration::from_secs(secs.unsigned_abs());
+        if secs >= 0 {
+            wall.checked_add(span).unwrap_or(wall)
+        } else {
+            wall.checked_sub(span).unwrap_or(wall)
+        }
+    }
+}
+
+/// ⟨M02⟩ What `run` and `connect` take from the test configuration.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LaunchHooks {
+    /// [`PRE_EXEC_PAUSE_ENV`].
+    pub pre_exec_pause: Option<std::path::PathBuf>,
+    /// [`PRE_CHECK_PAUSE_ENV`].
+    pub pre_check_pause: Option<std::path::PathBuf>,
+    /// [`FORCE_EXEC_FAILURE_ENV`].
+    pub force_exec_failure: bool,
+    /// [`SSH_HOME_ENV`].
+    pub ssh_home: Option<std::path::PathBuf>,
+    /// [`CLOCK_OFFSET_ENV`].
+    pub clock_offset: Option<ClockOffset>,
+}
+
+impl LaunchHooks {
+    /// The CLI's wall clock (the production clock, shifted by the offset).
+    #[must_use]
+    pub fn now(&self) -> heimdall_contract::Timestamp {
+        let now = heimdall_contract::Timestamp::now();
+        self.clock_offset.as_ref().map_or(now, |o| o.shift(now))
+    }
+}
+
+/// ⟨M02⟩ The `run`/`connect` hooks from `env` (module docs). A build without the test
+/// configuration refuses any of them; a debug build parses them.
+///
+/// # Errors
+/// A refusal or a malformed value (usage errors, exit 2).
+pub fn launch_hooks(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<LaunchHooks, String> {
+    let any = LAUNCH_ENV.iter().any(|name| env(name).is_some());
+    if let Some(msg) = refusal(AVAILABLE, any) {
+        return Err(msg.to_owned());
+    }
+    if !any {
+        return Ok(LaunchHooks::default());
+    }
+    let absolute = |name: &str| -> Result<Option<std::path::PathBuf>, String> {
+        env(name)
+            .map(|v| {
+                let p = std::path::PathBuf::from(v);
+                if p.is_absolute() {
+                    Ok(p)
+                } else {
+                    Err(format!("{name} must be an absolute path"))
+                }
+            })
+            .transpose()
+    };
+    Ok(LaunchHooks {
+        pre_exec_pause: absolute(PRE_EXEC_PAUSE_ENV)?,
+        pre_check_pause: absolute(PRE_CHECK_PAUSE_ENV)?,
+        force_exec_failure: match env(FORCE_EXEC_FAILURE_ENV) {
+            None => false,
+            Some(v) if v == "1" => true,
+            Some(_) => return Err(format!("{FORCE_EXEC_FAILURE_ENV}: expected 1")),
+        },
+        ssh_home: absolute(SSH_HOME_ENV)?,
+        clock_offset: env(CLOCK_OFFSET_ENV)
+            .map(|v| ClockOffset::parse(&v))
+            .transpose()?,
+    })
+}
 
 /// Enables the configuration (fake adapter script).
 pub const ADAPTER_ENV: &str = "HEIMDALL_TEST_ADAPTER";
@@ -46,15 +196,18 @@ pub const SLOW_ENV: &str = "HEIMDALL_TEST_SLOW_PREPARE_MS";
 pub const SYNC_ENV: &str = "HEIMDALL_TEST_TIME_SYNC";
 /// One-shot pipeline stage fault.
 pub const STAGE_FAIL_ENV: &str = "HEIMDALL_TEST_STAGE_FAIL";
+/// ⟨M02⟩ U8: wall-clock offset of the runtime and the CLI (module docs).
+pub const CLOCK_OFFSET_ENV: &str = "HEIMDALL_TEST_CLOCK_OFFSET_S";
 
 /// Every variable of the test configuration.
-pub const ALL_ENV: [&str; 6] = [
+pub const ALL_ENV: [&str; 7] = [
     ADAPTER_ENV,
     LEDGER_ENV,
     HANG_ENV,
     SLOW_ENV,
     SYNC_ENV,
     STAGE_FAIL_ENV,
+    CLOCK_OFFSET_ENV,
 ];
 
 /// File (in the state directory) that records one line per `service run` start.
@@ -134,7 +287,27 @@ mod enabled {
         CANARY_PREFIX, FakeCredentialAdapter, FakeStep, ScriptedStageHook, ScriptedTimeSync,
     };
 
-    use super::{ADAPTER_ENV, HANG_ENV, LEDGER_ENV, SLOW_ENV, STAGE_FAIL_ENV, SYNC_ENV};
+    use super::{
+        ADAPTER_ENV, CLOCK_OFFSET_ENV, HANG_ENV, LEDGER_ENV, SLOW_ENV, STAGE_FAIL_ENV, SYNC_ENV,
+    };
+
+    /// ⟨M02⟩ U8: the production clock with its wall reading shifted.
+    struct OffsetClock {
+        inner: Arc<dyn heimdall_domain::time::Clock>,
+        offset: super::ClockOffset,
+    }
+
+    impl heimdall_domain::time::Clock for OffsetClock {
+        fn wall(&self) -> Timestamp {
+            self.offset.shift(self.inner.wall())
+        }
+        fn continuous(&self) -> Duration {
+            self.inner.continuous()
+        }
+        fn boot_id(&self) -> heimdall_domain::time::BootId {
+            self.inner.boot_id()
+        }
+    }
 
     /// What `service run` does after `Service::start_with` when the test
     /// configuration is active.
@@ -391,6 +564,13 @@ mod enabled {
         if let Some(v) = env(STAGE_FAIL_ENV) {
             options.stage_hook = stage_fail(&v.to_string_lossy())?;
         }
+        // ⟨M02⟩ U8: the runtime's wall clock, shifted (ADR-0007 §12.14 item 8).
+        if let Some(v) = env(CLOCK_OFFSET_ENV) {
+            options.clock = Arc::new(OffsetClock {
+                inner: Arc::clone(&options.clock),
+                offset: super::ClockOffset::parse(&v)?,
+            });
+        }
         // Windows: test runtimes' pipes are recognizable (`heimdall-hmtest-<random>`).
         options.endpoint_prefix = TEST_PIPE_PREFIX.to_owned();
         Ok(Some(TestSetup { _private: () }))
@@ -525,6 +705,58 @@ mod tests {
         assert!(home_refusal(true, false).is_some());
         assert!(home_refusal(true, true).is_none());
         assert!(home_refusal(false, false).is_none());
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn launch_hooks_parse_and_need_absolute_paths() {
+        let none = launch_hooks(&|_| None).unwrap();
+        assert_eq!(none, LaunchHooks::default());
+        let set = |pairs: &'static [(&'static str, &'static str)]| {
+            move |n: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == n)
+                    .map(|(_, v)| std::ffi::OsString::from(*v))
+            }
+        };
+        if AVAILABLE {
+            let h = launch_hooks(&set(&[
+                (PRE_EXEC_PAUSE_ENV, "/scratch/fifo"),
+                (FORCE_EXEC_FAILURE_ENV, "1"),
+                (CLOCK_OFFSET_ENV, "-90"),
+            ]))
+            .unwrap();
+            assert_eq!(
+                h.pre_exec_pause.as_deref(),
+                Some(std::path::Path::new("/scratch/fifo"))
+            );
+            assert!(h.force_exec_failure);
+            assert_eq!(h.clock_offset, Some(ClockOffset::Fixed(-90)));
+            assert!(launch_hooks(&set(&[(PRE_CHECK_PAUSE_ENV, "relative")])).is_err());
+            assert!(launch_hooks(&set(&[(FORCE_EXEC_FAILURE_ENV, "yes")])).is_err());
+            assert!(launch_hooks(&set(&[(CLOCK_OFFSET_ENV, "soon")])).is_err());
+        } else {
+            assert!(launch_hooks(&set(&[(SSH_HOME_ENV, "/scratch/home")])).is_err());
+        }
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn clock_offset_is_fixed_or_read_from_its_file_at_every_use() {
+        let at: heimdall_contract::Timestamp = "2026-11-03T12:00:00Z".parse().unwrap();
+        let fixed = ClockOffset::parse(std::ffi::OsStr::new("3600")).unwrap();
+        assert_eq!(fixed.shift(at), "2026-11-03T13:00:00Z".parse().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("offset");
+        let offset = ClockOffset::parse(file.as_os_str()).unwrap();
+        assert_eq!(offset.seconds(), 0, "a missing file reads as 0");
+        std::fs::write(&file, "86400\n").unwrap();
+        assert_eq!(offset.shift(at), "2026-11-04T12:00:00Z".parse().unwrap());
+        std::fs::write(&file, "-60").unwrap();
+        assert_eq!(offset.seconds(), -60, "re-read at every use");
+        std::fs::write(&file, "garbage").unwrap();
+        assert_eq!(offset.seconds(), 0);
     }
 
     /// Runs only under a release-profile test build (`cargo test --release`):

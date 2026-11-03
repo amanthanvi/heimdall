@@ -71,6 +71,38 @@ impl Default for RetentionConfig {
     }
 }
 
+/// Default of [`SetupConfig::declaration_validity_days`] (m02-plan §5 item 19; QR1).
+pub const DEFAULT_DECLARATION_VALIDITY_DAYS: u32 = 30;
+
+/// Accepted range of [`SetupConfig::declaration_validity_days`] (m02-plan §5 item 19).
+pub const DECLARATION_VALIDITY_DAYS: std::ops::RangeInclusive<u32> = 1..=90;
+
+fn default_declaration_validity_days() -> u32 {
+    DEFAULT_DECLARATION_VALIDITY_DAYS
+}
+
+/// ⟨M02⟩ Existing-access setup (m02-plan §5 item 19; ADR-0007 §12.22 item 10).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetupConfig {
+    /// How many days an owner's approved interaction declaration stays in force
+    /// (ADR-0007 §7, QR1): 1–90, default 30. It bounds the declaration the owner
+    /// approves from then on; it never extends one already approved, and it grants
+    /// nothing by itself (every declaration still needs the owner's attended
+    /// decision).
+    #[serde(default = "default_declaration_validity_days")]
+    #[schemars(range(min = 1, max = 90))]
+    pub declaration_validity_days: u32,
+}
+
+impl Default for SetupConfig {
+    fn default() -> Self {
+        Self {
+            declaration_validity_days: DEFAULT_DECLARATION_VALIDITY_DAYS,
+        }
+    }
+}
+
 /// Top-level configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -83,6 +115,9 @@ pub struct Config {
     /// Retention.
     #[serde(default)]
     pub retention: RetentionConfig,
+    /// ⟨M02⟩ Existing-access setup.
+    #[serde(default)]
+    pub setup: SetupConfig,
     /// Free-form, non-security metadata tolerated for forward compatibility
     /// (a TOML table, held as a generic JSON map so the schema can describe it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,6 +130,7 @@ impl Default for Config {
             schema_version: CONFIG_SCHEMA_VERSION,
             session: SessionConfig::default(),
             retention: RetentionConfig::default(),
+            setup: SetupConfig::default(),
             x: None,
         }
     }
@@ -118,6 +154,16 @@ pub enum ConfigError {
         field: &'static str,
         /// The offending value, redacted and truncated.
         value: String,
+    },
+    /// ⟨M02⟩ A number outside its accepted range (the value itself is not echoed).
+    #[error("{field} must be between {min} and {max}")]
+    OutOfRange {
+        /// Field.
+        field: &'static str,
+        /// Smallest accepted value.
+        min: u32,
+        /// Largest accepted value.
+        max: u32,
     },
     /// A security-sensitive or authority-widening key appeared anywhere in the
     /// file, including under `[x]` (spec §13.4: "Unknown security-sensitive keys
@@ -249,7 +295,22 @@ impl Config {
         if events.is_zero() {
             return Err(duration_error("retention.events", &self.retention.events));
         }
+        self.declaration_validity()?;
         Ok(())
+    }
+
+    /// ⟨M02⟩ `setup.declaration_validity_days` as a duration (whole days of 24 h),
+    /// checked against [`DECLARATION_VALIDITY_DAYS`] (ADR-0007 §12.22 item 10).
+    pub fn declaration_validity(&self) -> Result<Duration, ConfigError> {
+        let days = self.setup.declaration_validity_days;
+        if !DECLARATION_VALIDITY_DAYS.contains(&days) {
+            return Err(ConfigError::OutOfRange {
+                field: "setup.declaration_validity_days",
+                min: *DECLARATION_VALIDITY_DAYS.start(),
+                max: *DECLARATION_VALIDITY_DAYS.end(),
+            });
+        }
+        Ok(Duration::from_secs(u64::from(days) * 24 * 60 * 60))
     }
 
     /// Parsed `session.max_window`.
@@ -422,5 +483,72 @@ mod tests {
             c.retention_operations().unwrap(),
             Duration::from_secs(7 * 24 * 3600)
         );
+        assert_eq!(c.setup.declaration_validity_days, 30);
+        assert_eq!(
+            c.declaration_validity().unwrap(),
+            Duration::from_secs(30 * 24 * 3600)
+        );
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.22 item 10: `[setup] declaration_validity_days` is read,
+    /// defaults to 30, accepts 1–90 and refuses anything else (without echoing the
+    /// value) or any unknown key in the table.
+    #[test]
+    fn setup_declaration_validity_days_is_bounded() {
+        let c = Config::parse("schema_version = 1\n[setup]\n").unwrap();
+        assert_eq!(c.setup.declaration_validity_days, 30, "an empty table");
+        for days in [1u32, 7, 90] {
+            let c = Config::parse(&format!(
+                "schema_version = 1\n[setup]\ndeclaration_validity_days = {days}\n"
+            ))
+            .unwrap();
+            assert_eq!(
+                c.declaration_validity().unwrap(),
+                Duration::from_secs(u64::from(days) * 24 * 3600)
+            );
+        }
+        for days in ["0", "91", "4294967295"] {
+            let e = Config::parse(&format!(
+                "schema_version = 1\n[setup]\ndeclaration_validity_days = {days}\n"
+            ))
+            .unwrap_err();
+            assert!(
+                matches!(
+                    e,
+                    ConfigError::OutOfRange {
+                        field: "setup.declaration_validity_days",
+                        min: 1,
+                        max: 90
+                    }
+                ),
+                "{days}: {e}"
+            );
+            // Fixed text: the value itself is never echoed.
+            assert_eq!(
+                e.to_string(),
+                "setup.declaration_validity_days must be between 1 and 90"
+            );
+        }
+        for bad in [
+            "declaration_validity_days = -1",
+            "declaration_validity_days = \"30\"",
+            "declaration_validity_days = 4294967296",
+            "unknown_key = 1",
+        ] {
+            assert!(
+                matches!(
+                    Config::parse(&format!("schema_version = 1\n[setup]\n{bad}\n")),
+                    Err(ConfigError::Parse(_))
+                ),
+                "{bad}"
+            );
+        }
+        // A struct built in code is validated the same way.
+        let mut c = Config::default();
+        c.setup.declaration_validity_days = 0;
+        assert!(c.validate().is_err());
+        let schema = serde_json::to_value(Config::json_schema()).unwrap();
+        let text = schema.to_string();
+        assert!(text.contains("declaration_validity_days"), "{text}");
     }
 }

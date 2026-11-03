@@ -12122,6 +12122,112 @@ mod u0b_adapter_bound {
         }
     }
 
+    /// ADR-0007 §12.15 item 7 (E-U6-6) on the `continued_preparation` path, required
+    /// by §12.22 item 10 (W3b-gaps). A shared grant's creator is cancelled after
+    /// approval and its preparation continues for the requests attached to it
+    /// (ADR-0006 §13.8 item 5). After a restart, a fresh instance of an adapter with
+    /// no external effect has forgotten the integration it returned, so its
+    /// `reconcile` of the creator's token says `not_applied`: the attached request is
+    /// answered from the `PreparedFacts` recorded with the creator's confirmation, and
+    /// commits with that history and no new effect. An adapter with external effects
+    /// keeps the M01 answer: no facts, so the request stays running
+    /// (`SERVICE_UNAVAILABLE`) and nothing is prepared again.
+    #[tokio::test]
+    async fn u0b_continued_preparation_after_restart_answers_from_prepared_facts() {
+        for external in [false, true] {
+            let stop = Arc::new(StopBeforeProbe::default());
+            let mut fixture = descriptor();
+            fixture.external_side_effects = external;
+            let mut w = World::with(Setup {
+                hook: stop.clone(),
+                limits: bounded_limits(),
+                ..Setup::default()
+            })
+            .await;
+            let first =
+                FakeCredentialAdapter::new(fixture.clone(), vec![FakeStep::Prepare(outcome())]);
+            w.ops = Operations::start(OperationsConfig {
+                adapters: vec![first.clone() as Arc<dyn CredentialAdapter>],
+                ..w.config()
+            })
+            .await
+            .unwrap();
+            let mut ops = Vec::new();
+            let mut decision = None;
+            for i in 1..=3 {
+                w.clock.advance(Duration::from_secs(1));
+                let e = err(w.ops.ensure(&unattended(501), shared_req(i)).await);
+                let d = decision_ref(&e);
+                assert_eq!(decision.get_or_insert(d.clone()), &d, "one shared decision");
+                ops.push(e.operation_id.clone().unwrap());
+            }
+            stop.armed.store(true, Ordering::SeqCst);
+            ok(decide(&w, &attended(501), &decision.unwrap(), Verdict::Approve).await);
+            until("the creator's confirmed effect", || {
+                first.effect_count() == 1
+            })
+            .await;
+            let c = ok(w
+                .ops
+                .cancel(
+                    &unattended(501),
+                    CancelRequest {
+                        operation_id: ops[0].clone(),
+                    },
+                )
+                .await);
+            assert_eq!(c.data["may_have_external_effect"], true);
+            stop.armed.store(false, Ordering::SeqCst);
+            // The second waiter completes the creator's continued preparation.
+            let b = shared_settled(&w, 2)
+                .await
+                .unwrap_or_else(|e| panic!("external {external}: {e:?}"));
+            let gid = b.data.grant_id.clone();
+            assert_eq!(w.grant(&gid).state, GrantState::Active);
+            let stored = w
+                .store
+                .transaction(|tx| tx.grant_prepared_facts(&gid))
+                .unwrap()
+                .expect("facts recorded with the creator's confirmation");
+            assert_eq!(w.op(&ops[0]).state, OperationState::Cancelled);
+            assert_eq!(w.op(&ops[2]).state, OperationState::Running);
+            // Restart: a fresh adapter instance (same identity) with an empty memory.
+            let fresh = FakeCredentialAdapter::new(fixture, vec![FakeStep::Prepare(outcome())]);
+            w.ops = Operations::start(OperationsConfig {
+                adapters: vec![fresh.clone() as Arc<dyn CredentialAdapter>],
+                ..w.config()
+            })
+            .await
+            .unwrap();
+            if external {
+                let e = err(w.ops.ensure(&unattended(501), shared_req(3)).await);
+                assert_eq!(e.code, Code::ServiceUnavailable, "{}", e.message);
+                assert_eq!(w.op(&ops[2]).state, OperationState::Running, "fails closed");
+                assert_eq!(fresh.effect_count(), 0, "never prepared again");
+                assert_eq!(first.effect_count(), 1);
+                continue;
+            }
+            let c3 = shared_settled(&w, 3)
+                .await
+                .unwrap_or_else(|e| panic!("{e:?}"));
+            assert_eq!(c3.code, Code::AccessReady);
+            assert_eq!(c3.operation_id.as_ref(), Some(&ops[2]));
+            assert_eq!(c3.data.grant_id, gid, "attached to the creator's grant");
+            assert_eq!(fresh.effect_count(), 0, "no new effect");
+            assert_eq!(first.effect_count(), 1, "one effect in all");
+            // The history is the recorded one; nothing is claimed past the commit.
+            assert_eq!(c3.data.provider, stored.provider);
+            assert_eq!(c3.data.consumer.environment, stored.environment);
+            assert!(c3.data.usable_until <= w.clock.wall());
+            assert_eq!(
+                c3.data.refresh_dependency,
+                RefreshDependency::ProviderInteraction
+            );
+            assert_eq!(w.op(&ops[2]).state, OperationState::Succeeded);
+            w.events();
+        }
+    }
+
     /// `u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup`.
     /// `HangRevoke` in a round keeps the obligation and the claimed round counts;
     /// in a bounded cleanup call the answer is tracked as an obligation; in an

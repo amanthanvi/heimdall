@@ -139,12 +139,16 @@ impl Rig {
     }
 
     async fn start(&self, wiring: ProjectionWiring) -> Service {
+        self.start_configured(wiring, Config::default()).await
+    }
+
+    async fn start_configured(&self, wiring: ProjectionWiring, config: Config) -> Service {
         let mut o = ServiceOptions::with_clock(self.clock.clone(), self.sync.clone());
         o.projection = wiring;
         o.endpoint_prefix = "hmtest-".to_owned();
         Service::start_with(
             Paths::under(&self.home.root.join("rt")),
-            Config::default(),
+            config,
             o,
             CancellationToken::new(),
         )
@@ -1108,4 +1112,177 @@ async fn inspect_projections(s: &mut Session) -> Envelope<serde_json::Value> {
         preview: None,
     }))
     .await
+}
+
+/// ADR-0007 §12.22 item 10 (W3b-gaps): a supervisor-driven cleaner deletion after a
+/// rollback, through the real service. The rollback hands Heimdall's files to the
+/// cleaner (`desired: absent`) and moves none of them; the service's supervisor
+/// (`Service::supervisor`, the one `Service::run` builds, with the wired
+/// `ProjectionCleaner`) deletes each one by generation, identity and digest in its
+/// cleanup pass and records it `observed: absent`. The user file stays as the
+/// rollback restored it, and a second pass deletes nothing.
+#[tokio::test]
+async fn e2e_supervisor_cleaner_deletes_after_rollback_through_the_service() {
+    let rig = Rig::new();
+    std::fs::write(&rig.home.user_config, "Host other\n    User fixture\n").unwrap();
+    let original = std::fs::read(&rig.home.user_config).unwrap();
+    let service = rig.service().await;
+    let mut s = Session::setup_session(&service, InteractionMode::Interactive).await;
+    assert_eq!(s.client.attend().await.unwrap().code, Code::Ok);
+    let endpoint = EndpointRef {
+        kind: EndpointKind::UnixSocket,
+        locator: rig
+            .home
+            .root
+            .join("fixture-agent.sock")
+            .display()
+            .to_string(),
+    };
+    adopt_and_alias(&mut s, endpoint).await;
+    let plan = preview(&mut s, PreviewIntent::Apply { include_git: false }).await;
+    let env = s.request(apply(&plan.plan_digest, "r-apply")).await;
+    assert_eq!(env.code, Code::ApprovalRequired, "{:?}", env.data);
+    let decision = env.next.as_ref().unwrap().decision_ref.clone().unwrap();
+    let decided = s
+        .request(Request::Decide(DecideRequest {
+            decision_id: DecisionId::parse(&decision).unwrap(),
+            verdict: Verdict::Approve,
+        }))
+        .await;
+    assert_eq!(decided.code, Code::Ok, "{:?}", decided.data);
+    let applied = s.request(apply(&plan.plan_digest, "r-apply")).await;
+    assert_eq!(applied.code, Code::Ok, "{:?}", applied.data);
+    let p = rig.home.config_dir.join("ssh_config");
+    assert!(p.exists());
+
+    // Nothing to clean while the projection is wanted.
+    let supervisor = service.supervisor();
+    let idle = supervisor.cleanup_pass().await.unwrap();
+    assert!(idle.deleted.is_empty(), "{:?}", idle.deleted);
+    assert!(p.exists());
+
+    let back = preview(
+        &mut s,
+        PreviewIntent::Rollback {
+            keep_key_files: false,
+            items: [ProjectionItem::Ssh].into_iter().collect(),
+        },
+    )
+    .await;
+    let rolled = s
+        .request(Request::Setup(SetupRequest::Rollback {
+            plan_digest: back.plan_digest.clone(),
+            request_id: rid("r-rollback"),
+        }))
+        .await;
+    assert_eq!(rolled.code, Code::Ok, "{:?}", rolled.data);
+    assert_eq!(std::fs::read(&rig.home.user_config).unwrap(), original);
+    let handed = inspect_projections(&mut s).await.data["projections"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(!handed.is_empty());
+    assert!(
+        handed
+            .iter()
+            .all(|r| r["desired"] == "absent" && r["observed"] == "present"),
+        "the rollback moves nothing itself: {handed:?}"
+    );
+    let paths: Vec<std::path::PathBuf> = handed
+        .iter()
+        .map(|r| {
+            let locator: serde_json::Value =
+                serde_json::from_str(r["locator"].as_str().unwrap()).unwrap();
+            std::path::PathBuf::from(locator["path"].as_str().unwrap())
+        })
+        .collect();
+    assert!(paths.contains(&p), "{paths:?}");
+    assert!(paths.iter().all(|f| f.exists()), "{paths:?}");
+
+    // The supervisor's cleanup pass deletes every handed-over file.
+    let report = supervisor.cleanup_pass().await.unwrap();
+    assert_eq!(report.deleted.len(), handed.len(), "{:?}", report.deleted);
+    assert!(report.failed.is_empty(), "{:?}", report.failed);
+    assert!(report.retry_scheduled.is_empty());
+    for f in &paths {
+        assert!(!f.exists(), "{f:?} was not deleted");
+    }
+    let after = inspect_projections(&mut s).await.data["projections"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(
+        after
+            .iter()
+            .all(|r| r["desired"] == "absent" && r["observed"] == "absent"),
+        "{after:?}"
+    );
+    assert_eq!(std::fs::read(&rig.home.user_config).unwrap(), original);
+    // Idempotent: the next pass finds nothing to delete.
+    let again = supervisor.cleanup_pass().await.unwrap();
+    assert!(again.deleted.is_empty(), "{:?}", again.deleted);
+    assert!(again.failed.is_empty());
+}
+
+/// ADR-0007 §12.22 item 10 (W3b-gaps): `[setup] declaration_validity_days` is wired
+/// through the real service. A declaration requested through the dispatcher is
+/// offered, and approved, for the configured days; the default is 30.
+#[tokio::test]
+async fn e2e_declaration_validity_days_come_from_the_configuration() {
+    for (text, days) in [
+        (
+            "schema_version = 1\n[setup]\ndeclaration_validity_days = 3\n",
+            3_i64,
+        ),
+        ("schema_version = 1\n", 30),
+    ] {
+        let rig = Rig::new();
+        let config = Config::parse(text).unwrap();
+        let service = rig
+            .start_configured(ProjectionWiring::Config(Box::new(rig.projection())), config)
+            .await;
+        let mut s = Session::setup_session(&service, InteractionMode::Interactive).await;
+        assert_eq!(s.client.attend().await.unwrap().code, Code::Ok);
+        let endpoint = EndpointRef {
+            kind: EndpointKind::UnixSocket,
+            locator: rig.home.root.join("agent.sock").display().to_string(),
+        };
+        let identity = adopt_and_alias(&mut s, endpoint).await;
+        let env = s
+            .request(Request::Catalog(CatalogRequest::DeclareInteraction {
+                identity: identity.clone(),
+                interaction: heimdall_contract::catalog::DeclaredInteraction::None,
+                request_id: rid("r-declare"),
+            }))
+            .await;
+        assert_eq!(env.code, Code::ApprovalRequired, "{:?}", env.data);
+        let decision = env.next.as_ref().unwrap().decision_ref.clone().unwrap();
+        let expected = t0()
+            .checked_add(jiff::SignedDuration::from_hours(24 * days))
+            .unwrap();
+        let record = service
+            .store()
+            .transaction(|tx| tx.decision(&DecisionId::parse(&decision).unwrap()))
+            .unwrap()
+            .unwrap();
+        match &record.kind {
+            heimdall_domain::decision::DecisionKind::DeclareInteraction { valid_until, .. } => {
+                assert_eq!(*valid_until, expected, "{days} days")
+            }
+            other => panic!("{other:?}"),
+        }
+        let decided = s
+            .request(Request::Decide(DecideRequest {
+                decision_id: DecisionId::parse(&decision).unwrap(),
+                verdict: Verdict::Approve,
+            }))
+            .await;
+        assert_eq!(decided.code, Code::Ok, "{:?}", decided.data);
+        let declaration = service
+            .store()
+            .transaction(|tx| tx.interaction_declaration(&identity))
+            .unwrap()
+            .unwrap();
+        assert_eq!(declaration.expires_at, expected, "{days} days");
+    }
 }

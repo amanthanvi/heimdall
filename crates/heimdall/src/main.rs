@@ -12,6 +12,7 @@ mod cli;
 mod client;
 mod connect_cmd;
 mod doctor_cmd;
+mod launch_flow;
 mod output;
 mod prompt;
 mod run_cmd;

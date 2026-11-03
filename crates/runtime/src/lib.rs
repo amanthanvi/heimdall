@@ -23,6 +23,20 @@ pub mod service;
 pub mod supervisor;
 pub mod telemetry;
 
+/// Serializes this crate's unit tests that spawn a child with those that assert a
+/// lock's release. A spawned child holds duplicates of the test process's descriptors
+/// until its `exec` closes them, so a `service.lock` dropped by one test can still be
+/// held, briefly, by a child another test is spawning (observed: the instance-lock
+/// test failed in 8 of 30 runs alongside the holder-liveness test, and in 0 of 30
+/// without it).
+#[cfg(test)]
+pub(crate) fn spawn_guard() -> std::sync::MutexGuard<'static, ()> {
+    static GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    GUARD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 pub use config::{Config, Paths};
 pub use instance::InstanceLock;
 pub use service::Service;

@@ -559,3 +559,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - U01 (P1): cancelling a running held repair reports no effect while the repair continues.
   - U02 (P1): the adapter timeout cannot interrupt the real adapters' synchronous store and filesystem work.
   - ADR-0007 §12.23 rules on both. Wave 3c (`W3c-fix`) runs after wave 3b integrates.
+- **M02 wave 3b** (`wf_4b438985-0b9`): all 4 agents done.
+  - W3b-U8 handed back in_progress; the integrator finished it (pty hang fixed, mutation checks, scratch cleanup).
+  - W3b-consent and W3b-gaps: implemented_unverified.
+  - `run` and `connect` work end to end against the loopback fixture sshd: a 1 MiB plus 256-value round trip; the decoy agent is never contacted.
+  - No `todo!()` remains; the lint `todo` is now deny.
+  - Integrator check.sh: 2× exit 0, 1480 passed.
+  - ADR-0007 §12.24 rules on the escalations and defines wave 3c:
+    - W3c-ops: U01, U02, inspect listing, decision-deadline wake, `ErrorDetail.entries`, catalog stale reissue;
+    - W3c-run: connect with observed aliases, replayed-bind re-check, filling the entries, manual first adoption always needing a decision, and 5 missing A27/A11 tests.

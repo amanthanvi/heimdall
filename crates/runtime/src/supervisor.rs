@@ -84,6 +84,17 @@
 //!   high-water mark on `Safe`. There is no separate supervisor-private flag
 //!   (review F01): every admission, signature and issuance consults the same gate.
 //!
+//! * ⟨M02⟩ **Holder pass** (m02-plan U8; ADR-0007 §8 "Holder process", Q5 as
+//!   qualified): every [`SupervisorConfig::holder_interval`], jittered like every
+//!   supervisor-owned repetition (`interval * (0.5 + 0.5 * unit)`, ADR-0006 §13.6 item
+//!   4), [`Supervisor::holder_pass`] calls `Operations::release_exited_holders`, which
+//!   releases each active launch binding whose exact holder process (PID and start
+//!   time) is observed exited; it observes at most
+//!   `heimdall_app::holders::MAX_HOLDERS_PER_PASS` bindings per pass. Liveness is
+//!   [`PlatformLiveness`] (the M01 [`crate::platform::process_start_time`]) unless
+//!   [`Supervisor::with_liveness`] replaced it. `Unknown` never releases. A failed pass
+//!   is logged and the next one runs on schedule.
+//!
 //! **Wake-ups.** [`Supervisor::run`] runs the time guard at start and every
 //! `anchor_interval`, and a scheduler pass at start, at the next wake instant a
 //! pass returns (never later than `max_idle_sleep`), shortly after any committed
@@ -108,13 +119,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use heimdall_app::Operations;
-use heimdall_app::ports::{AdapterError, ResourceCleaner};
+use heimdall_app::ports::{AdapterError, ProcessLiveness, ResourceCleaner};
 use heimdall_app::reconcile::{
     Action, Backoff, CleanupHook, CleanupPoint, guard_cleanup, plan, should_retry,
 };
 use heimdall_contract::event::EventType;
-use heimdall_contract::ids::{GrantId, ResourceId};
+use heimdall_contract::ids::{BindingId, GrantId, ResourceId};
 use heimdall_contract::{Code, Timestamp};
+use heimdall_domain::holder::{HolderState, ProcessHolder};
 use heimdall_domain::resource::{
     CleanupDecision, ManagedResource, ResourceGeneration, ResourceState,
 };
@@ -139,7 +151,17 @@ pub struct SupervisorConfig {
     /// to `[MIN_RESUME_CHECK_INTERVAL, MAX_RESUME_CHECK_INTERVAL]` by
     /// [`Self::resume_bound`]; default 2 s.
     pub resume_check_interval: Duration,
+    /// ⟨M02⟩ m02-plan U8: the base interval of the holder pass (each wait is jittered
+    /// into `[interval / 2, interval]`); clamped to at least
+    /// [`MIN_HOLDER_INTERVAL`]. Default [`DEFAULT_HOLDER_INTERVAL`].
+    pub holder_interval: Duration,
 }
+
+/// ⟨M02⟩ Default base interval of the holder pass.
+pub const DEFAULT_HOLDER_INTERVAL: Duration = Duration::from_secs(5);
+
+/// ⟨M02⟩ Lower bound of [`SupervisorConfig::holder_interval`] (never a tight loop).
+pub const MIN_HOLDER_INTERVAL: Duration = Duration::from_millis(20);
 
 /// Upper bound of [`SupervisorConfig::resume_check_interval`]: a resume is
 /// detected within at most 5 s of awake time.
@@ -156,6 +178,7 @@ impl Default for SupervisorConfig {
             max_idle_sleep: Duration::from_secs(300),
             time_policy: TimePolicy::default(),
             resume_check_interval: Duration::from_secs(2),
+            holder_interval: DEFAULT_HOLDER_INTERVAL,
         }
     }
 }
@@ -225,6 +248,35 @@ pub fn retry_delay(backoff: &Backoff, attempt: u32, jitter: &dyn Jitter) -> Dura
     backoff.jittered(attempt, jitter.unit())
 }
 
+/// ⟨M02⟩ Holder liveness through the M01 [`crate::platform::process_start_time`] (Q5
+/// as qualified; ADR-0007 §8):
+/// * the start token of the process now at the holder's PID equals the holder's:
+///   `Alive`;
+/// * another token (the PID was reused): `Exited`, since that exact process is gone;
+/// * no token: `Exited` when the same query succeeds for this runtime's own process,
+///   so the platform query works here and the holder is gone or has exited (Linux
+///   and Windows report an exited, unreaped process as gone); otherwise `Unknown`,
+///   which never releases.
+///
+/// The holder is the same user as the runtime (the control endpoint is owner-only),
+/// so a query failing for permission is not expected; such a failure would read as
+/// an exit (a residual, reported).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PlatformLiveness;
+
+impl ProcessLiveness for PlatformLiveness {
+    fn state(&self, holder: &ProcessHolder) -> HolderState {
+        match crate::platform::process_start_time(holder.pid) {
+            Some(token) if token == holder.started_at => HolderState::Alive,
+            Some(_) => HolderState::Exited,
+            None if crate::platform::process_start_time(std::process::id()).is_some() => {
+                HolderState::Exited
+            }
+            None => HolderState::Unknown,
+        }
+    }
+}
+
 /// Runs the resource owners, the deadline scheduler and the time guard.
 pub struct Supervisor {
     operations: Operations,
@@ -233,6 +285,8 @@ pub struct Supervisor {
     cleanup: Option<tokio::sync::Mutex<CleanupExecutor>>,
     revocations: tokio::sync::Mutex<RevocationRetries>,
     jitter: Arc<dyn Jitter>,
+    /// ⟨M02⟩ U8: where the holder pass reads liveness.
+    liveness: Arc<dyn ProcessLiveness>,
 }
 
 /// ⟨r2.7⟩ The single owner of the repeated adapter `revoke()` rounds for pending
@@ -341,6 +395,7 @@ impl Supervisor {
                 due: HashMap::new(),
             }),
             jitter: Arc::new(RandomJitter),
+            liveness: Arc::new(PlatformLiveness),
         }
     }
 
@@ -366,6 +421,36 @@ impl Supervisor {
     pub fn with_jitter(mut self, jitter: Arc<dyn Jitter>) -> Self {
         self.jitter = jitter;
         self
+    }
+
+    /// ⟨M02⟩ Replace where the holder pass reads liveness (default
+    /// [`PlatformLiveness`]); tests inject a scripted one.
+    #[must_use]
+    pub fn with_liveness(mut self, liveness: Arc<dyn ProcessLiveness>) -> Self {
+        self.liveness = liveness;
+        self
+    }
+
+    /// ⟨M02⟩ One holder pass (m02-plan U8; module docs): release every active launch
+    /// binding whose exact holder process is observed exited. Returns the bindings
+    /// released.
+    ///
+    /// # Errors
+    /// The store cannot be read (`STATE_UNAVAILABLE`).
+    pub async fn holder_pass(&self) -> Result<Vec<BindingId>, heimdall_app::OpError> {
+        self.operations
+            .release_exited_holders(self.liveness.as_ref())
+            .await
+            .map(|done| done.data)
+    }
+
+    /// ⟨M02⟩ The jittered wait before the next holder pass: `[interval / 2,
+    /// interval]`, the interval clamped to at least [`MIN_HOLDER_INTERVAL`].
+    fn holder_wait(&self) -> Duration {
+        self.config
+            .holder_interval
+            .max(MIN_HOLDER_INTERVAL)
+            .mul_f64(0.5 + 0.5 * self.jitter.unit().clamp(0.0, 1.0))
     }
 
     /// Own resource cleanup through `cleaner` (needs [`Self::with_state`]):
@@ -401,12 +486,15 @@ impl Supervisor {
         let start = Instant::now();
         let mut next_guard = start;
         let mut next_pass = start;
+        // ⟨M02⟩ U8: the first holder pass runs at start (holders that exited while the
+        // runtime was down are released), then every jittered interval.
+        let mut next_holder = start;
         let mut last_safe: Option<bool> = None;
         let mut last_mono = start;
         let mut last_cont = self.state.as_ref().map(|(_, c)| c.continuous());
         let resume_bound = self.config.resume_bound();
         loop {
-            let mut wake = next_guard.min(next_pass);
+            let mut wake = next_guard.min(next_pass).min(next_holder);
             if self.state.is_some() {
                 // Bounded wait: re-check for a system sleep at least this often
                 // (review B04); such a wake costs one clock read.
@@ -456,6 +544,16 @@ impl Supervisor {
                         last_safe = Some(safe);
                     }
                     Err(e) => tracing::warn!(code = %e.code, "time guard pass failed"),
+                }
+            }
+            if now >= next_holder {
+                next_holder = now + self.holder_wait();
+                match self.holder_pass().await {
+                    Ok(released) if !released.is_empty() => {
+                        tracing::info!(count = released.len(), "holder pass released bindings");
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(code = %e.code, "holder pass failed"),
                 }
             }
             if now >= next_pass {
@@ -959,5 +1057,122 @@ where
             Code::InternalError,
             "supervisor task failed",
         )),
+    }
+}
+
+/// ⟨M02⟩ U8: the holder pass's liveness source and schedule.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod holder_tests {
+    use super::*;
+
+    fn holder_of(pid: u32) -> ProcessHolder {
+        ProcessHolder {
+            pid,
+            started_at: crate::platform::process_start_time(pid).unwrap(),
+        }
+    }
+
+    /// A running child is `Alive`; the same PID with another start token (a reused
+    /// PID) is `Exited`; once the child is reaped its holder is `Exited`.
+    #[test]
+    fn platform_liveness_reads_pid_and_start_time() {
+        let _serial = crate::spawn_guard();
+        let mut child = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" })
+            .args(if cfg!(windows) {
+                ["/d", "/c", "ping -n 30 127.0.0.1 >NUL"]
+            } else {
+                ["-c", "sleep 30", ""]
+            })
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let holder = holder_of(child.id());
+        assert_eq!(PlatformLiveness.state(&holder), HolderState::Alive);
+        let reused = ProcessHolder {
+            started_at: format!("{}-other", holder.started_at),
+            ..holder.clone()
+        };
+        assert_eq!(PlatformLiveness.state(&reused), HolderState::Exited);
+        // Stopped by its own handle (exact PID), then reaped.
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(PlatformLiveness.state(&holder), HolderState::Exited);
+        // This runtime's own process is alive.
+        assert_eq!(
+            PlatformLiveness.state(&holder_of(std::process::id())),
+            HolderState::Alive
+        );
+    }
+
+    async fn supervisor(interval: Duration, unit: f64) -> Supervisor {
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        let environment = heimdall_contract::ids::EnvironmentId::from_random_bytes([3; 16]);
+        store
+            .transaction(|tx| tx.init_self_environment(&environment))
+            .unwrap();
+        let clock = heimdall_testkit::VirtualClock::at("2026-11-03T09:00:00Z".parse().unwrap());
+        let operations = Operations::start(heimdall_app::OperationsConfig {
+            store,
+            clock,
+            time_sync: heimdall_testkit::ScriptedTimeSync::new(
+                heimdall_domain::time::SyncStatus::Synchronized,
+            ),
+            time_policy: TimePolicy::default(),
+            environment,
+            adapters: Vec::new(),
+            stage_hook: Arc::new(heimdall_app::ensure::NoStageHook),
+            limits: heimdall_app::operations::Limits::default(),
+            default_window: Duration::from_secs(3600),
+            projection: None,
+        })
+        .await
+        .unwrap();
+        Supervisor::new(
+            operations,
+            SupervisorConfig {
+                holder_interval: interval,
+                ..SupervisorConfig::default()
+            },
+        )
+        .with_jitter(Arc::new(FixedJitter(unit)))
+    }
+
+    /// Each wait is the interval with equal jitter, `[interval / 2, interval]`, and
+    /// never shorter than `MIN_HOLDER_INTERVAL / 2` (no tight loop).
+    #[tokio::test]
+    async fn holder_waits_are_jittered_and_bounded() {
+        assert_eq!(
+            SupervisorConfig::default().holder_interval,
+            DEFAULT_HOLDER_INTERVAL
+        );
+        let base = Duration::from_millis(400);
+        for (unit, expected) in [(0.0, 200), (1.0, 400), (0.5, 300), (7.0, 400), (-1.0, 200)] {
+            let sup = supervisor(base, unit).await;
+            assert_eq!(sup.holder_wait(), Duration::from_millis(expected), "{unit}");
+        }
+        let sup = supervisor(Duration::ZERO, 0.0).await;
+        assert_eq!(sup.holder_wait(), MIN_HOLDER_INTERVAL / 2);
+    }
+
+    /// The pass reads liveness through the injected source; with no held binding it
+    /// observes nothing and releases nothing.
+    #[tokio::test]
+    async fn holder_pass_uses_the_injected_liveness() {
+        struct Never(std::sync::atomic::AtomicUsize);
+        impl ProcessLiveness for Never {
+            fn state(&self, _holder: &ProcessHolder) -> HolderState {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                HolderState::Exited
+            }
+        }
+        let never = Arc::new(Never(std::sync::atomic::AtomicUsize::new(0)));
+        let sup = supervisor(DEFAULT_HOLDER_INTERVAL, 1.0)
+            .await
+            .with_liveness(never.clone());
+        assert!(sup.holder_pass().await.unwrap().is_empty());
+        assert_eq!(never.0.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 }

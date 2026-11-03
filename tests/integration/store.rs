@@ -1876,6 +1876,78 @@ fn profile_snapshot_is_immutable_at_a_revision() {
     assert_eq!(s.transaction(|tx| tx.profile(&id)).unwrap(), Some(v2));
 }
 
+/// ⟨M02⟩ ADR-0007 §12.22 item 10 (W3b-gaps): profile removal deletes the current
+/// definition only. Every pinned snapshot stays readable (a grant resolved against it
+/// keeps exactly that revision), a second removal reports nothing removed, and the
+/// highest revision ever pinned survives the removal, so a later definition of the
+/// same ID continues after it and never reuses a revision with other content.
+#[test]
+fn profile_removal_keeps_pinned_snapshots_and_the_revision_high_water_mark() {
+    let s = mem();
+    let id = ProfileId::parse("default").unwrap();
+    let other = ProfileId::parse("other").unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.profile_latest_revision(&id)).unwrap(),
+        None,
+        "never existed"
+    );
+    let v1 = profile_def(1, &[("h1", "u1")]);
+    let v2 = profile_def(2, &[("h1", "u1"), ("h2", "u1")]);
+    s.transaction(|tx| {
+        tx.upsert_profile(&v1)?;
+        tx.upsert_profile(&v2)
+    })
+    .unwrap();
+    assert_eq!(
+        s.transaction(|tx| tx.profile_latest_revision(&id)).unwrap(),
+        Some(2)
+    );
+    // Removing a profile that does not exist removes nothing, and touches no other.
+    assert!(!s.transaction(|tx| tx.remove_profile(&other)).unwrap());
+    assert!(s.transaction(|tx| tx.remove_profile(&id)).unwrap());
+    assert!(
+        !s.transaction(|tx| tx.remove_profile(&id)).unwrap(),
+        "already removed"
+    );
+    let (cur, s1, s2, latest) = s
+        .transaction(|tx| {
+            Ok((
+                tx.profile(&id)?,
+                tx.profile_snapshot(&id, 1)?,
+                tx.profile_snapshot(&id, 2)?,
+                tx.profile_latest_revision(&id)?,
+            ))
+        })
+        .unwrap();
+    assert_eq!(cur, None, "the definition is gone");
+    assert_eq!(s1, Some(v1.snapshot()), "pinned snapshots are kept");
+    assert_eq!(s2, Some(v2.snapshot()));
+    assert_eq!(latest, Some(2), "the high-water mark survives the removal");
+    // Re-creating revision 1 with other content would reuse a pinned revision: refused.
+    let reused = profile_def(1, &[("h9", "root")]);
+    assert!(matches!(
+        s.transaction(|tx| tx.upsert_profile(&reused)),
+        Err(StoreError::GenerationConflict(_))
+    ));
+    // A definition after the high-water mark is accepted, and its snapshot is new.
+    let v3 = profile_def(3, &[("h3", "u3")]);
+    s.transaction(|tx| tx.upsert_profile(&v3)).unwrap();
+    let (cur, s2) = s
+        .transaction(|tx| Ok((tx.profile(&id)?, tx.profile_snapshot(&id, 2)?)))
+        .unwrap();
+    assert_eq!(cur, Some(v3));
+    assert_eq!(s2, Some(v2.snapshot()), "an older pin is never rewritten");
+    // A failed transaction removes nothing.
+    let e = s
+        .transaction(|tx| {
+            tx.remove_profile(&id)?;
+            Err::<(), _>(StoreError::Corrupt("rolled back".into()))
+        })
+        .unwrap_err();
+    assert!(matches!(e, StoreError::Corrupt(_)));
+    assert!(s.transaction(|tx| tx.profile(&id)).unwrap().is_some());
+}
+
 #[test]
 fn environments_upsert_and_policies_for_matches_profile_and_environment() {
     let s = mem();

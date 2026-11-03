@@ -300,6 +300,7 @@ mod tests {
 
     #[test]
     fn second_acquire_fails_while_first_is_held() {
+        let _serial = crate::spawn_guard();
         let dir = tempfile::tempdir().unwrap();
         let first = InstanceLock::try_acquire(dir.path()).unwrap();
         assert!(matches!(

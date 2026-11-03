@@ -25,19 +25,31 @@
 //! * `RemoveIdentity` is refused while a managed destination names the identity;
 //! * `UpsertProfile` goes through `Txn::upsert_profile` and its snapshots: a changed
 //!   scope bumps the revision, so a grant pinned to the earlier snapshot is never
-//!   widened (R-AU-03);
-//! * `RemoveProfile` is refused: the store has no profile removal in M02
-//!   (escalated);
+//!   widened (R-AU-03). A profile defined again after a removal continues after the
+//!   highest revision ever pinned (`Txn::profile_latest_revision`), so no revision is
+//!   reused with other content;
+//! * `RemoveProfile` (ADR-0007 §12.22 item 10) narrows and needs no decision:
+//!   `Txn::remove_profile` deletes the current definition and keeps every pinned
+//!   snapshot. New work that names the profile is refused (`NOT_FOUND`, there is no
+//!   definition to resolve); a grant or binding already resolved keeps exactly its
+//!   pinned revision and is never widened. The result is `{ profile_id, removed }`;
 //! * `DeclareInteraction` always creates a `DeclareInteraction` decision (QR1),
 //!   completed only by an attended `Decide`. After approval U0b's `decide` copies the
 //!   record's fields into `CatalogIntent.approval`, and the driver builds the
 //!   `InteractionDeclaration` **only** from it, written with
 //!   `Txn::put_interaction_declaration` at revision + 1. If the identity's current
 //!   fingerprint or endpoint differs from the approval, it answers `DECISION_STALE`
-//!   and writes nothing (M2-R07);
+//!   and writes nothing (M2-R07). The approved declaration lasts
+//!   `Limits::declaration_validity` (`[setup] declaration_validity_days`, default 30);
 //! * `WithdrawDeclaration` narrows and needs no decision: `Txn::
 //!   end_interaction_declaration`, a compare-and-swap when `revision` is given (a
 //!   newer declaration stays live and the result says `withdrawn: false`).
+//!
+//! **Expiry** (ADR-0007 §12.22 item 9). A declaration waiting in `awaiting_approval`
+//! whose decision passed its deadline expires (`CREDENTIAL_EXPIRED`, `next:
+//! new_work`; `crate::operations::expire_awaiting_local_in`): when the driver or a
+//! replay finds it, at a `decide` of the expired record, or at the supervisor's tick.
+//! A new request is new work; no fresh decision is issued.
 
 use std::collections::BTreeSet;
 
@@ -45,7 +57,7 @@ use heimdall_contract::catalog::{
     CatalogRequest, DeclaredInteraction, DestinationDefinitionSpec, IdentitySourceSpec,
     WithdrawDeclarationData,
 };
-use heimdall_contract::envelope::{EffectStatus, ResourceRef, reason};
+use heimdall_contract::envelope::{EffectStatus, ResourceRef};
 use heimdall_contract::event::EventType;
 use heimdall_contract::ids::{DecisionId, IdentityId, OperationId};
 use heimdall_contract::request::{Capability, RequiredCapabilities};
@@ -67,13 +79,14 @@ use heimdall_store::Txn;
 use crate::context::Caller;
 use crate::error::{Completed, OpError, OpResult};
 use crate::operations::{
-    LocalDriver, LocalEmit, Operations, local_approval_needed, local_op_to, local_refuse_outcome,
-    local_settle_failed, local_settle_succeeded,
+    LocalDriver, LocalEmit, Operations, local_approval_needed, local_expire_awaiting, local_op_to,
+    local_refuse_outcome, local_settle_failed, local_settle_succeeded,
 };
 
-/// How long an approved interaction declaration stays in force: the default of
-/// `[setup] declaration_validity_days` (m02-plan §5 item 19; QR1), 30 days. The
-/// configuration key itself is not wired in this build (escalated).
+/// How long an approved interaction declaration stays in force by default: the
+/// default of `[setup] declaration_validity_days` (m02-plan §5 item 19; QR1), 30 days.
+/// The runtime wires the configured value into `Limits::declaration_validity`
+/// (ADR-0007 §12.22 item 10), which the driver reads.
 pub const DECLARATION_VALIDITY: std::time::Duration =
     std::time::Duration::from_secs(30 * 24 * 60 * 60);
 
@@ -372,11 +385,29 @@ impl Operations {
                 )
                 .with_resource("decision", Some(d.to_string()))
                 .with_operation(op.id.clone())),
-                None => Err(OpError::new(
-                    Code::Accepted,
-                    "the declaration awaits a fresh decision; observe it",
-                )
-                .with_operation(op.id.clone())),
+                None => {
+                    // ADR-0007 §12.22 item 9: no live decision. The driver expires the
+                    // operation when its decision passed its deadline; answer from
+                    // the state it leaves.
+                    if let Some(Err(e)) = self
+                        .local_lead_bounded(id, LocalDriver::Catalog, self.limits().max_wait)
+                        .await
+                    {
+                        return Err(e);
+                    }
+                    let id2 = id.clone();
+                    let state = self
+                        .local_write(move |tx, _| Ok(tx.operation(&id2)?.map(|o| o.state)))
+                        .await?;
+                    if state.is_some_and(|s| s != OperationState::AwaitingApproval) {
+                        return Box::pin(self.catalog_respond(id, caller)).await;
+                    }
+                    Err(OpError::new(
+                        Code::Accepted,
+                        "the declaration awaits a fresh decision; observe it",
+                    )
+                    .with_operation(op.id.clone()))
+                }
             },
             OperationState::Failed | OperationState::Cancelled | OperationState::OutcomeUnknown => {
                 let detail = op
@@ -422,13 +453,20 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
     let fresh = new_identity_id()?;
     let retention = ops.local_retention();
     let lifetime = ops.limits().decision_lifetime;
+    let validity = ops.limits().declaration_validity;
     let now = ops.local_narrowing_now().await;
     let id = id.clone();
     ops.local_write(move |tx, emit| {
         let Some(mut op) = tx.operation(&id)? else {
             return Ok(());
         };
-        if op.state.is_settled() || op.state == OperationState::AwaitingApproval {
+        if op.state == OperationState::AwaitingApproval {
+            // ADR-0007 §12.22 item 9: waiting past its decision's deadline expires it;
+            // otherwise it keeps waiting for the owner.
+            local_expire_awaiting(tx, emit, &mut op, now, retention)?;
+            return Ok(());
+        }
+        if op.state.is_settled() {
             return Ok(());
         }
         let Some(mut recovery) = tx.recovery_intent(&id)? else {
@@ -490,6 +528,7 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
             now,
             decision: &decision,
             lifetime,
+            validity,
             fresh,
         };
         match apply_action(tx, emit, &op, &intent, &ctx)? {
@@ -564,6 +603,8 @@ struct ActionCtx<'a> {
     now: Timestamp,
     decision: &'a DecisionId,
     lifetime: std::time::Duration,
+    /// How long an approved declaration lasts (`Limits::declaration_validity`).
+    validity: std::time::Duration,
     fresh: IdentityId,
 }
 
@@ -733,9 +774,15 @@ fn apply_action(
             let definition = match stored {
                 Some(s) if s.scope == scope && s.label == profile.label => s,
                 other => {
+                    // After the highest revision ever pinned, the stored definition's
+                    // or, once removed, its snapshots' (never a reused revision).
+                    let latest = match &other {
+                        Some(s) => s.revision,
+                        None => tx.profile_latest_revision(&profile.id)?.unwrap_or(0),
+                    };
                     let definition = ProfileDefinition {
                         id: profile.id.clone(),
-                        revision: other.map_or(1, |s| s.revision.saturating_add(1)),
+                        revision: latest.saturating_add(1),
                         scope,
                         label: profile.label.clone(),
                     };
@@ -748,13 +795,10 @@ fn apply_action(
                 "revision": definition.revision,
             }))
         }
-        CatalogAction::RemoveProfile { .. } => Step::Refused(Box::new(
-            OpError::new(
-                Code::CapabilityUnavailable,
-                "profile removal is not available in this build",
-            )
-            .with_reason(reason::DRIVER_UNAVAILABLE),
-        )),
+        CatalogAction::RemoveProfile { id } => {
+            let removed = tx.remove_profile(id)?;
+            Step::Done(serde_json::json!({ "profile_id": id, "removed": removed }))
+        }
         CatalogAction::DeclareInteraction {
             identity,
             interaction,
@@ -813,7 +857,7 @@ fn declare(
                 fingerprint: record.fingerprint.clone(),
                 endpoint,
                 interaction,
-                valid_until: plus(now, DECLARATION_VALIDITY),
+                valid_until: plus(now, ctx.validity),
             },
             generation: tx.authority_generation()?,
             created_at: now,

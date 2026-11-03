@@ -13,9 +13,11 @@ use heimdall_domain::projection::{BehaviorDigest, BehaviorState};
 
 use crate::directive::{KnownKeyword, keeps_raw};
 use crate::eval::{
-    Candidate, Evaluation, Resolved, SourceRole, Unresolved, UnresolvedReason, Value,
+    Candidate, Evaluation, Invocation, Query, Resolved, SourceRole, Unresolved, UnresolvedReason,
+    Value, evaluate,
 };
-use crate::include::{ConfigSource, SourceError};
+use crate::include::{ConfigSet, ConfigSource, Roots, SourceError};
+use crate::limits::Limits;
 use crate::parse::Span;
 
 /// Which proxy competes and wins (F10: `ProxyJump` and `ProxyCommand` compete; the
@@ -570,6 +572,10 @@ pub fn behavior_digest(behavior: &RelevantBehavior) -> BehaviorDigest {
 
 /// The digest and whether every directive is determined (M2-R03): no `Undetermined`
 /// value, no undetermined list entry, and a determined proxy.
+///
+/// This is one invocation's state. Consent compares the state across every invocation
+/// profile ([`consent_behavior_state`], ADR-0007 §12.21 item 2), which binds this
+/// digest per profile.
 #[must_use]
 pub fn behavior_state(behavior: &RelevantBehavior) -> BehaviorState {
     let determined = entries(behavior).iter().all(|(_, v, _)| match v {
@@ -581,6 +587,75 @@ pub fn behavior_state(behavior: &RelevantBehavior) -> BehaviorState {
         digest: behavior_digest(behavior),
         determined,
     }
+}
+
+// --- the consent behaviour state: every invocation profile (ADR-0007 §12.21 item 2) ----
+
+/// The tag of a profile-aware behaviour state's digest (ADR-0007 §12.21 item 2). A
+/// digest of this tag is never compared with one of the single-invocation tag
+/// `heimdall.behavior.v2` ([`behavior_digest`]); no consent of either tag was persisted
+/// before this one.
+pub const BEHAVIOR_STATE_TAG: &str = "heimdall.behavior.v3";
+
+/// The behaviour state of one item across invocation profiles (ADR-0007 §12.21 item 2),
+/// from its relevant behaviour under each profile, in the caller's order (consent uses
+/// [`Invocation::consent_profiles`]).
+///
+/// **Digest.** SHA-256 over the length-prefixed encoding (each field a 4-byte big-endian
+/// length, then its UTF-8 bytes) of: the tag [`BEHAVIOR_STATE_TAG`]; the number of
+/// profiles, in decimal; then, for each profile in order, its
+/// [`Invocation::profile_name`] and its per-profile digest ([`behavior_digest`], lower
+/// hex). So a value that only an exec or a subsystem invocation obtains changes the
+/// digest, and the profile is part of what is bound.
+///
+/// **Determined** only when every profile's behaviour is ([`behavior_state`]); an empty
+/// list is never determined (fail closed).
+#[must_use]
+pub fn profiled_behavior_state(per_profile: &[(Invocation, RelevantBehavior)]) -> BehaviorState {
+    let mut c = Canon(Vec::new());
+    c.str(BEHAVIOR_STATE_TAG);
+    c.str(&per_profile.len().to_string());
+    let mut determined = !per_profile.is_empty();
+    for (invocation, behavior) in per_profile {
+        let state = behavior_state(behavior);
+        c.str(&invocation.profile_name());
+        c.str(state.digest.as_str());
+        determined &= state.determined;
+    }
+    BehaviorState {
+        digest: BehaviorDigest::of(&c.0),
+        determined,
+    }
+}
+
+/// The consent behaviour state of `query.host` (ADR-0007 §5.2 as amended by §12.21
+/// item 2): `query` evaluated over the tree under each of
+/// [`Invocation::consent_profiles`] (its own `invocation` is replaced), each evaluation
+/// reduced by [`relevant`], combined by [`profiled_behavior_state`]. Static: nothing
+/// executes, and `Match command` is unknown under `Exec(None)`.
+///
+/// `set` caches the tree's parsed files across the three evaluations; it must belong to
+/// this `source`.
+#[must_use]
+pub fn consent_behavior_state(
+    set: &mut ConfigSet,
+    source: &dyn ConfigSource,
+    roots: &Roots,
+    query: &Query,
+    limits: &Limits,
+) -> BehaviorState {
+    let per_profile: Vec<(Invocation, RelevantBehavior)> = Invocation::consent_profiles()
+        .into_iter()
+        .map(|invocation| {
+            let q = Query {
+                invocation: invocation.clone(),
+                ..query.clone()
+            };
+            let evaluation = evaluate(set, source, roots, &q, limits);
+            (invocation, relevant(&evaluation))
+        })
+        .collect();
+    profiled_behavior_state(&per_profile)
 }
 
 // --- identity selection -----------------------------------------------------------------

@@ -27,6 +27,13 @@
         "strict_disconnect": false
       }
     },
+    "setup": {
+      "description": "⟨M02⟩ Existing-access setup.",
+      "$ref": "#/$defs/SetupConfig",
+      "default": {
+        "declaration_validity_days": 30
+      }
+    },
     "x": {
       "description": "Free-form, non-security metadata tolerated for forward compatibility\n(a TOML table, held as a generic JSON map so the schema can describe it).",
       "type": [
@@ -98,6 +105,21 @@
       "required": [
         "max_window"
       ]
+    },
+    "SetupConfig": {
+      "description": "⟨M02⟩ Existing-access setup (m02-plan §5 item 19; ADR-0007 §12.22 item 10).",
+      "type": "object",
+      "properties": {
+        "declaration_validity_days": {
+          "description": "How many days an owner's approved interaction declaration stays in force\n(ADR-0007 §7, QR1): 1–90, default 30. It bounds the declaration the owner\napproves from then on; it never extends one already approved, and it grants\nnothing by itself (every declaration still needs the owner's attended\ndecision).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "maximum": 90,
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
     }
   }
 }
