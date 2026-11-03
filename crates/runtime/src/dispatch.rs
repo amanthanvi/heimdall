@@ -202,10 +202,12 @@ impl OperationsDispatcher {
             Request::Policy(r) => render(ops.policy(&caller, r).await),
             Request::Decide(r) => render(ops.decide(&caller, r).await),
             Request::ConfirmTime(r) => render(ops.confirm_time(&caller, r).await),
-            // ⟨M02⟩ m02-plan U0b row 17: routed to the application's entry points,
-            // which answer `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) in wave 0
-            // before any admission (row 18; ADR-0007 §12.7 QR7). A session never
-            // gets here in wave 0: `setup/1` is not offered.
+            // ⟨M02⟩ m02-plan U0b row 17: routed to the application's entry points
+            // (U5's drivers since the activation change set). A session reaches
+            // these arms only after negotiating `setup/1` (row 19); a runtime without
+            // a projection writer answers every Setup request
+            // `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) before any admission
+            // (row 18). Neither request reaches the wildcard below.
             Request::Setup(r) => render(ops.setup(&caller, r).await),
             Request::Catalog(r) => render(ops.catalog(&caller, r).await),
             // A request kind this build does not know is never executed.

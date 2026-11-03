@@ -126,6 +126,10 @@ pub enum ConflictKind {
     GitConfigLocked,
     /// A setup operation is held for the owner (ADR-0007 §5.7 outcome H).
     ProjectionHeld,
+    /// ⟨ADR-0007 §12.20 item 2⟩ A check the transaction requires could not run: B_git's
+    /// Git parse check (§5.6 step 3) with local queries disabled or no verified Git
+    /// client (§12.19 item 8). The item aborts before its commit point.
+    VerifiedClientUnavailable,
 }
 
 /// How a repair resolves its conflict.
@@ -331,6 +335,12 @@ pub enum SetupMode {
 }
 
 /// Stable manual-mode reasons (also error reasons).
+///
+/// ⟨ADR-0007 §12.19 item 9⟩ Besides the four reasons of m02-plan §5 item 2, a
+/// `manual_mode` repair is manual because of its conflict, and its plan lists the
+/// conflict's wire name (`marker_edited`, `include_conditional`, …); and a P path
+/// that no literal `Include` can name is its own reason, `include_target_glob`
+/// (§12.16 item 3), reported besides `unmanageable_file`.
 pub mod manual_reason {
     /// A target file cannot be managed.
     pub const UNMANAGEABLE_FILE: &str = "unmanageable_file";
@@ -340,12 +350,43 @@ pub mod manual_reason {
     pub const UNSUPPORTED_ENCODING: &str = "unsupported_encoding";
     /// `GIT_CONFIG_GLOBAL` redirects the global Git file.
     pub const GIT_GLOBAL_REDIRECTED: &str = "git_global_redirected";
+    /// ⟨§12.19 item 9⟩ P's path holds a glob metacharacter, so no literal `Include`
+    /// can name it (§12.16 item 3).
+    pub const INCLUDE_TARGET_GLOB: &str = "include_target_glob";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `user_config_changed`.
+    pub const USER_CONFIG_CHANGED: &str = "user_config_changed";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `managed_file_edited`.
+    pub const MANAGED_FILE_EDITED: &str = "managed_file_edited";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `marker_edited`.
+    pub const MARKER_EDITED: &str = "marker_edited";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `marker_duplicated`.
+    pub const MARKER_DUPLICATED: &str = "marker_duplicated";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `include_conditional`.
+    pub const INCLUDE_CONDITIONAL: &str = "include_conditional";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `alias_collision`.
+    pub const ALIAS_COLLISION: &str = "alias_collision";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `concurrent_writer`.
+    pub const CONCURRENT_WRITER: &str = "concurrent_writer";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `git_config_locked`.
+    pub const GIT_CONFIG_LOCKED: &str = "git_config_locked";
+    /// ⟨§12.19 item 9⟩ `manual_mode` for `verified_client_unavailable`.
+    pub const VERIFIED_CLIENT_UNAVAILABLE: &str = "verified_client_unavailable";
     /// Every value.
     pub const ALL: &[&str] = &[
         UNMANAGEABLE_FILE,
         ATOMIC_EXCHANGE_UNSUPPORTED,
         UNSUPPORTED_ENCODING,
         GIT_GLOBAL_REDIRECTED,
+        INCLUDE_TARGET_GLOB,
+        USER_CONFIG_CHANGED,
+        MANAGED_FILE_EDITED,
+        MARKER_EDITED,
+        MARKER_DUPLICATED,
+        INCLUDE_CONDITIONAL,
+        ALIAS_COLLISION,
+        CONCURRENT_WRITER,
+        GIT_CONFIG_LOCKED,
+        VERIFIED_CLIENT_UNAVAILABLE,
     ];
 }
 

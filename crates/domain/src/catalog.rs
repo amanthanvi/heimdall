@@ -612,9 +612,15 @@ pub struct FallbackClearance {
 
 /// ⟨r3⟩ ADR-0007 §7's fallback clearance rule (M2-R05).
 ///
-/// The alternatives are every entry of `report` not sourced from Heimdall's managed
-/// projection (the adopted identity is not a fallback). An alternative is cleared
-/// only when **all** of these hold:
+/// ⟨M02⟩ ADR-0007 §12.15 item 3(d): the adopted identity is the entry sourced from
+/// Heimdall's managed projection **whose fingerprint equals `adopted_fingerprint`**
+/// (the pair's identity); it is not a fallback. Any other managed entry (a stale
+/// projection, a missing `.pub`, another key) is an alternative ssh may offer, and it
+/// is never cleared. So readiness, the adapters and the CLI's pre-launch check apply
+/// this one rule (it replaces the adapters' `strict_clearance`).
+///
+/// The alternatives are every other entry of `report`. An alternative that is not
+/// managed is cleared only when **all** of these hold:
 /// * the alias's `IdentitiesOnly` is a determined `yes`; without it every
 ///   alternative is uncleared and the result is never cleared, because the agent may
 ///   then offer keys that cannot be listed passively;
@@ -625,18 +631,26 @@ pub struct FallbackClearance {
 /// * that identity's fresh eligibility (`eligibility_of`) is `interaction: none`.
 ///
 /// So a file-backed entry, an `sk-` entry, an undetermined entry, a `.pub`-less entry
-/// and an undeclared or differently-located identity are never cleared. Pure.
+/// and an undeclared or differently-located identity are never cleared; nor is a
+/// managed entry that is not the adopted identity. An empty `adopted_fingerprint`
+/// names no entry. Pure.
 #[must_use]
 pub fn fallback_clearance(
     report: &IdentitySelectionReport,
     identities: &[IdentityRecord],
     eligibility_of: &dyn Fn(&IdentityId) -> PairEligibility,
     endpoint: &EndpointRef,
+    adopted_fingerprint: &str,
 ) -> FallbackClearance {
     let identities_only = report.identities_only == IdentitiesOnly::DeterminedYes;
     let mut uncleared = Vec::new();
     for (i, entry) in report.entries.iter().enumerate() {
         if entry.source == IdentityEntrySource::Managed {
+            let adopted = !adopted_fingerprint.is_empty()
+                && entry.fingerprint.as_deref() == Some(adopted_fingerprint);
+            if !adopted {
+                uncleared.push(i);
+            }
             continue;
         }
         let cleared = identities_only
@@ -904,9 +918,10 @@ mod tests {
             let record = catalog.iter().find(|r| r.id == *id).unwrap();
             eligibility(record, rows.get(id), &endpoint(a), now())
         };
+        const ADOPTED: &str = "SHA256:adopted";
         let managed = entry(
             IdentityEntrySource::Managed,
-            Some("SHA256:adopted"),
+            Some(ADOPTED),
             IdentityBacking::Agent,
         );
         let clear = |entries: Vec<IdentityEntry>, only: IdentitiesOnly| {
@@ -915,6 +930,7 @@ mod tests {
                 &catalog,
                 &eligibility_of,
                 &endpoint(a),
+                ADOPTED,
             )
         };
         // An agent-backed entry declared `none` at the same endpoint is cleared; the
@@ -1023,6 +1039,7 @@ mod tests {
             &moved_catalog,
             &moved_eligibility,
             &endpoint(a),
+            ADOPTED,
         );
         assert_eq!(r.uncleared, vec![0]);
         // Every alternative of an alias without a determined `IdentitiesOnly yes` is
@@ -1043,6 +1060,86 @@ mod tests {
                 }
             );
         }
+    }
+
+    /// ADR-0007 §12.15 item 3(d): a managed entry is the adopted identity only when
+    /// its fingerprint is the adopted one. Any other managed entry (another key, a
+    /// missing `.pub`) is an uncleared alternative, so the alias is never cleared
+    /// through it, whatever `IdentitiesOnly` says; an empty adopted fingerprint names
+    /// no entry.
+    #[test]
+    fn fallback_clearance_clears_a_managed_entry_only_with_the_adopted_fingerprint() {
+        let a = "/scratch/a.sock";
+        let later = t("2026-12-01T00:00:00Z");
+        let declared = native(1, a);
+        let catalog = vec![declared.clone()];
+        let rows: std::collections::BTreeMap<IdentityId, InteractionDeclaration> =
+            [(declared.id.clone(), declaration(&declared, a, later))]
+                .into_iter()
+                .collect();
+        let eligibility_of = |id: &IdentityId| {
+            let record = catalog.iter().find(|r| r.id == *id).unwrap();
+            eligibility(record, rows.get(id), &endpoint(a), now())
+        };
+        let adopted = "SHA256:adopted";
+        let managed =
+            |fp: Option<&str>| entry(IdentityEntrySource::Managed, fp, IdentityBacking::Agent);
+        let cleared_alt = entry(
+            IdentityEntrySource::User,
+            Some(&declared.fingerprint),
+            IdentityBacking::Agent,
+        );
+        let clear = |entries: Vec<IdentityEntry>, fp: &str| {
+            fallback_clearance(
+                &report(entries, IdentitiesOnly::DeterminedYes),
+                &catalog,
+                &eligibility_of,
+                &endpoint(a),
+                fp,
+            )
+        };
+        // The adopted key's own managed entry is not a fallback.
+        assert_eq!(
+            clear(vec![managed(Some(adopted)), cleared_alt.clone()], adopted),
+            FallbackClearance {
+                cleared: true,
+                uncleared: Vec::new()
+            }
+        );
+        // A managed entry naming another key, or no key, is uncleared, even when
+        // that key is a declared catalog identity at the same endpoint.
+        for other in [
+            managed(Some("SHA256:stale")),
+            managed(None),
+            managed(Some(&declared.fingerprint)),
+        ] {
+            assert_eq!(
+                clear(
+                    vec![managed(Some(adopted)), other.clone(), cleared_alt.clone()],
+                    adopted
+                ),
+                FallbackClearance {
+                    cleared: false,
+                    uncleared: vec![1]
+                },
+                "{other:?}"
+            );
+        }
+        // No adopted fingerprint: no managed entry is the adopted one.
+        assert_eq!(
+            clear(vec![managed(Some(adopted))], ""),
+            FallbackClearance {
+                cleared: false,
+                uncleared: vec![0]
+            }
+        );
+        assert_eq!(
+            clear(vec![managed(None)], ""),
+            FallbackClearance {
+                cleared: false,
+                uncleared: vec![0]
+            }
+        );
     }
 
     #[test]

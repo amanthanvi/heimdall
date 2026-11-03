@@ -480,6 +480,7 @@ fn config(
         stage_hook: hook.clone(),
         limits,
         default_window: 12 * HOUR,
+        projection: None,
     }
 }
 

@@ -279,13 +279,12 @@ impl<'a> Builder<'a> {
     ///    absent or its digest);
     /// 2. SHA-256 over the length-prefixed fields `heimdall.marker.v1`, the proposed
     ///    generation (decimal), the role's wire name and that digest (hex); its first
-    ///    128 bits are the derived value.
+    ///    **64** bits are the marker (ADR-0007 §12.20 item 3, which amends §12.18 item
+    ///    3's 128 bits), rendered in §2's frozen form `hm-<16 hex>` that `MarkerId`
+    ///    enforces.
     ///
-    /// The marker text keeps ADR-0007 §2's form `hm-<16 hex>`, which `MarkerId`
-    /// enforces: it shows the first 64 of the 128 derived bits, as the drawn marker
-    /// showed the first 64 of 128 random bits (escalated: a 128-bit marker text would
-    /// change §2's block form and `MarkerId`). Markers were never secrets; a user's copy
-    /// of a block is the duplicate-marker case either way.
+    /// Markers are not secrets; a user's copy of a block, or two equal markers, is the
+    /// duplicate-marker case (`marker_duplicated`).
     fn derived_marker(&self, role: FileRole) -> Result<MarkerId, PreviewError> {
         let unavailable = |what: &str| PreviewError::Unavailable(format!("marker: {what}"));
         let spec = serde_json::to_value(self.spec).map_err(|_| unavailable("spec"))?;
@@ -314,9 +313,9 @@ impl<'a> Builder<'a> {
             h.update(field);
         }
         let digest = h.finalize();
-        let derived = digest.get(..16).ok_or_else(|| unavailable("digest"))?;
+        let derived = digest.get(..8).ok_or_else(|| unavailable("digest"))?;
         let hex: String = derived.iter().map(|b| format!("{b:02x}")).collect();
-        MarkerId::parse(&format!("hm-{}", &hex[..16])).map_err(|e| unavailable(&e.to_string()))
+        MarkerId::parse(&format!("hm-{hex}")).map_err(|e| unavailable(&e.to_string()))
     }
 
     // --- the SSH item -------------------------------------------------------------------
@@ -2083,4 +2082,105 @@ fn truncate(mut s: String, max: usize) -> String {
         s.truncate(cut);
     }
     s
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use heimdall_contract::ids::EnvironmentId;
+
+    use super::*;
+    use crate::env::Platform;
+    use crate::paths::SshPaths;
+
+    fn world() -> (ProjectionConfig, ProjectionSpec) {
+        let paths = SshPaths::with_test_override(
+            PathBuf::from("/scratch/home"),
+            PathBuf::from("/scratch/etc-ssh"),
+        );
+        let config = ProjectionConfig::new(
+            paths,
+            Platform::current(),
+            PathBuf::from("/scratch/home/.config/heimdall"),
+        );
+        let spec = ProjectionSpec {
+            environment: EnvironmentId::from_random_bytes([3; 16]),
+            aliases: Vec::new(),
+            record: None,
+            consent: ConsentRecord::default(),
+        };
+        (config, spec)
+    }
+
+    /// The recipe of ADR-0007 §12.18 item 3 as amended by §12.20 item 3, restated
+    /// independently: the plan-input digest, then SHA-256 over the length-prefixed
+    /// fields, of which the marker is the first 64 bits in §2's form `hm-<16 hex>`.
+    fn recipe(
+        spec: &ProjectionSpec,
+        reads: &[(FileRole, &str, Base)],
+        generation: u64,
+        role: FileRole,
+    ) -> String {
+        let reads: Vec<serde_json::Value> = reads
+            .iter()
+            .map(|(r, path, base)| serde_json::json!([r, path, base]))
+            .collect();
+        let inputs = serde_json::json!({
+            "heimdall_marker_inputs": 1,
+            "spec": serde_json::to_value(spec).unwrap(),
+            "reads": reads,
+        });
+        let inputs = Sha256Hex::of(&heimdall_contract::canonical::canonical_json(&inputs).unwrap());
+        let generation = generation.to_string();
+        let mut h = Sha256::new();
+        for field in [
+            b"heimdall.marker.v1".as_slice(),
+            generation.as_bytes(),
+            role.as_str().as_bytes(),
+            inputs.as_str().as_bytes(),
+        ] {
+            h.update((field.len() as u64).to_be_bytes());
+            h.update(field);
+        }
+        let digest = h.finalize();
+        let first_64: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+        format!("hm-{first_64}")
+    }
+
+    /// ADR-0007 §12.20 item 3: the derived marker is the first 64 bits of the derived
+    /// digest, rendered as `hm-<16 hex>` (§2), for the SSH and the Git block; the same
+    /// inputs give the same marker, and another generation, role or read gives another.
+    #[test]
+    fn derived_marker_is_the_first_64_bits_as_rendered() {
+        let (config, spec) = world();
+        let user = (
+            FileRole::UserSsh,
+            "/scratch/home/.ssh/config",
+            Base::Present {
+                sha256: Sha256Hex::of(b"Host personal\n"),
+            },
+        );
+        for role in [FileRole::UserSsh, FileRole::GitInclude] {
+            let mut b = Builder::new(&config, &spec, 7);
+            b.note(user.0, Path::new(user.1), Some(b"Host personal\n"));
+            let marker = b.derived_marker(role).unwrap();
+            let want = recipe(&spec, std::slice::from_ref(&user), 7, role);
+            assert_eq!(marker.as_str(), want, "{role:?}");
+            assert_eq!(marker.as_str().len(), "hm-".len() + 16, "64 bits, 16 hex");
+            assert_eq!(b.derived_marker(role).unwrap(), marker, "reproducible");
+            let mut other_generation = Builder::new(&config, &spec, 8);
+            other_generation.note(user.0, Path::new(user.1), Some(b"Host personal\n"));
+            assert_ne!(other_generation.derived_marker(role).unwrap(), marker);
+            let mut other_read = Builder::new(&config, &spec, 7);
+            other_read.note(user.0, Path::new(user.1), Some(b"Host other\n"));
+            assert_ne!(other_read.derived_marker(role).unwrap(), marker);
+        }
+        let mut b = Builder::new(&config, &spec, 7);
+        b.note(user.0, Path::new(user.1), Some(b"Host personal\n"));
+        assert_ne!(
+            b.derived_marker(FileRole::UserSsh).unwrap(),
+            b.derived_marker(FileRole::GitInclude).unwrap(),
+            "the role is an input"
+        );
+    }
 }

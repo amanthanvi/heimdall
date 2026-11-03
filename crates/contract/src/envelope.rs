@@ -248,6 +248,13 @@ pub mod reason {
     pub const PROJECTION_HELD: &str = "projection_held";
     /// A plan exceeds the setup intent's content bounds.
     pub const PROJECTION_TOO_LARGE: &str = "projection_too_large";
+    /// ⟨ADR-0007 §12.17 item 11⟩ The Git item is not applicable: Git's default SSH is
+    /// not its bundled MSYS client (ADR-0007 §5.6), so the Git include would change
+    /// nothing Heimdall can verify.
+    pub const GIT_DEFAULT_NOT_BUNDLED_MSYS: &str = "git_default_not_bundled_msys";
+    /// ⟨ADR-0007 §12.17 item 11⟩ A check needs a verified client that is not
+    /// available (no verified Git client, or local queries disabled).
+    pub const VERIFIED_CLIENT_UNAVAILABLE: &str = "verified_client_unavailable";
 
     /// The reasons defined here, in documentation order. Together with the conflict
     /// kinds and the manual reasons they are every reason this build writes.
@@ -274,6 +281,8 @@ pub mod reason {
         SETUP_IN_PROGRESS,
         PROJECTION_HELD,
         PROJECTION_TOO_LARGE,
+        GIT_DEFAULT_NOT_BUNDLED_MSYS,
+        VERIFIED_CLIENT_UNAVAILABLE,
     ];
 }
 

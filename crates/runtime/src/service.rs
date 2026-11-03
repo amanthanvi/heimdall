@@ -22,25 +22,60 @@
 //! `MAX_SIGNING_CONNECTIONS` signing connections; an excess control connection is
 //! accepted, sent `Goodbye(BACKPRESSURE)` and closed; an excess signing
 //! connection is closed without reading.
+//!
+//! **⟨M02⟩ Existing-access wiring** (m02-plan U5; ADR-0007 §12.14 item 8, §12.17
+//! item 11). Before `Operations::start`, [`ServiceOptions::projection`] decides the
+//! managed projection: the account's real configuration in production
+//! ([`ProjectionWiring::Account`]: `SshPaths::resolve`, Heimdall's configuration
+//! directory, the captured environment, client discovery with local queries), an
+//! explicit `ProjectionConfig` in tests, or none. A wired projection gives
+//! `OperationsConfig.projection` a [`CatalogProjection`] (the `LocalProjection` with
+//! the catalog as its `PublicKeySource`, filling each managed alias's key file under
+//! the configuration directory, named by the key's fingerprint), and the supervisor
+//! a [`ProjectionCleaner`] for its cleanup executor. With
+//! [`ServiceOptions::existing_access`] the `native_agent` and `onepassword` adapters
+//! are registered after any configured adapter, reading their selection, catalog and
+//! client facts through [`RuntimeSources`] (the writer's `observe` over the stored
+//! projection record, the catalog, the declarations, the verified clients).
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use heimdall_adapters::integration::IntegrationSources;
+use heimdall_adapters::native_agent::NativeAgentAdapter;
+use heimdall_adapters::onepassword::OnePasswordAdapter;
 use heimdall_app::ensure::{NoStageHook, StageHook};
 use heimdall_app::operations::Limits;
-use heimdall_app::ports::CredentialAdapter;
+use heimdall_app::ports::{
+    CredentialAdapter, HeldStep, PreviewError, ProjectionReceipt, ProjectionReconcile,
+    ProjectionWriter, ReconcileError, ResourceCleaner, StageSink,
+};
+use heimdall_app::reconcile::{Backoff, NoCleanupHook};
 use heimdall_app::{Operations, OperationsConfig, TimeGate};
 use heimdall_contract::Code;
-use heimdall_contract::ids::EnvironmentId;
+use heimdall_contract::doctor::AliasObservation;
+use heimdall_contract::ids::{EnvironmentId, IdentityId};
 use heimdall_contract::ipc::{
     MAX_CONTROL_CONNECTIONS, MAX_HELLO_FRAME_BYTES, MAX_SIGNING_CONNECTIONS, PeerInfo,
     ServerMessage,
 };
+use heimdall_contract::provider::{EndpointKind as AgentEndpointKind, EndpointRef, EvidenceBasis};
+use heimdall_contract::request::{ConsumerExecutable, ConsumerKind};
+use heimdall_contract::setup::PreviewIntent;
+use heimdall_domain::catalog::{IdentityRecord, InteractionDeclaration};
+use heimdall_domain::operation::StageReceipt;
+use heimdall_domain::projection::{ProjectionPlan, ProjectionRecord, ProjectionSpec, SetupIntent};
 use heimdall_domain::time::{Clock, TimePolicy, TimeSync};
 use heimdall_ipc::endpoint::{ExpectedOwner, verify_peer};
 use heimdall_ipc::session::{ConnectionLimits, ControlConnection};
 use heimdall_ipc::signing::{NoIdentities, Signer};
 use heimdall_ipc::{EndpointKind, EndpointPaths, PeerIdentity};
+use heimdall_localenv::clients::{ClientInventory, ClientKind, ClientsConfig, resolve_clients};
+use heimdall_localenv::env::{Env, Platform};
+use heimdall_localenv::local_query::LocalQueries;
+use heimdall_localenv::paths::SshPaths;
+use heimdall_localenv::projection::cleaner::ProjectionCleaner;
+use heimdall_localenv::projection::{LocalProjection, ProjectionConfig, PublicKeySource};
 use heimdall_store::{FaultHook, NoFaults, Store};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
 use tokio::task::JoinSet;
@@ -126,6 +161,13 @@ pub struct ServiceOptions {
     /// characters of `[a-z0-9-]`; anything else fails the bind. Ignored on Unix.
     #[doc(hidden)]
     pub endpoint_prefix: String,
+    /// ⟨M02⟩ U5: the managed projection (module docs). Production:
+    /// [`ProjectionWiring::Account`]; [`ServiceOptions::with_clock`]:
+    /// [`ProjectionWiring::Disabled`].
+    pub projection: ProjectionWiring,
+    /// ⟨M02⟩ U5: register the existing-access adapters (`native_agent`,
+    /// `onepassword`) after [`Self::adapters`]. Production: `true`.
+    pub existing_access: bool,
 }
 
 impl std::fmt::Debug for ServiceOptions {
@@ -143,10 +185,11 @@ impl ServiceOptions {
     /// [`crate::platform::SystemTimeSync`], no adapters, no hooks.
     pub fn production() -> std::io::Result<Self> {
         let clock = crate::platform::SystemClock::try_new()?;
-        Ok(Self::with_clock(
-            Arc::new(clock),
-            Arc::new(crate::platform::SystemTimeSync),
-        ))
+        Ok(Self {
+            projection: ProjectionWiring::Account,
+            existing_access: true,
+            ..Self::with_clock(Arc::new(clock), Arc::new(crate::platform::SystemTimeSync))
+        })
     }
 
     /// Defaults around an explicit clock and sync source.
@@ -164,6 +207,8 @@ impl ServiceOptions {
             signer: Arc::new(NoIdentities),
             drain_timeout: Duration::from_secs(10),
             endpoint_prefix: String::new(),
+            projection: ProjectionWiring::Disabled,
+            existing_access: false,
         }
     }
 }
@@ -250,6 +295,8 @@ pub struct Service {
     supervisor: SupervisorConfig,
     signer: Arc<dyn Signer>,
     drain_timeout: Duration,
+    /// ⟨M02⟩ U5: the projection cleaner the supervisor's cleanup executor uses.
+    cleaner: Option<Arc<dyn ResourceCleaner>>,
     operations: Operations,
     shutdown: CancellationToken,
     _background: StopOnDrop,
@@ -332,18 +379,40 @@ impl Service {
             limits.operation_retention = config.retention_operations()?;
             limits.event_retention = config.retention_events()?;
         }
+        // ⟨M02⟩ U5: the projection writer, its cleaner and the adapters.
+        let wired = match options.projection {
+            ProjectionWiring::Disabled => None,
+            ProjectionWiring::Account => {
+                account_projection(&paths).map(|c| wire_projection(store.clone(), c))
+            }
+            ProjectionWiring::Config(c) => Some(wire_projection(store.clone(), *c)),
+        };
+        let mut adapters = options.adapters;
+        if options.existing_access {
+            adapters.extend(existing_access_adapters(
+                &store,
+                &environment,
+                wired.as_ref(),
+                &options.clock,
+            ));
+        }
         let operations = Operations::start(OperationsConfig {
             store: store.clone(),
             clock: options.clock.clone(),
             time_sync: options.time_sync.clone(),
             time_policy: options.time_policy,
             environment: environment.clone(),
-            adapters: options.adapters,
+            adapters,
             stage_hook: options.stage_hook,
             limits,
             default_window: config.max_window()?,
+            projection: wired.as_ref().map(|w| Arc::clone(&w.writer)),
         })
         .await?;
+        let cleaner: Option<Arc<dyn ResourceCleaner>> = wired.map(|w| {
+            let c: Arc<dyn ResourceCleaner> = w.cleaner;
+            c
+        });
         let background = StopOnDrop(shutdown.child_token());
         let relay = EventRelay::spawn(&operations, background.0.clone());
 
@@ -388,6 +457,7 @@ impl Service {
             supervisor: options.supervisor,
             signer: options.signer,
             drain_timeout: options.drain_timeout,
+            cleaner,
             operations,
             shutdown,
             _background: background,
@@ -412,6 +482,7 @@ impl Service {
             supervisor,
             signer,
             drain_timeout,
+            cleaner,
             operations,
             shutdown,
             _background,
@@ -433,7 +504,10 @@ impl Service {
             shutdown.clone(),
         ));
         tasks.spawn(serve_signing(signing, signer, owner, shutdown.clone()));
-        let sup = Supervisor::new(operations.clone(), supervisor).with_state(store, clock);
+        let sup = with_cleaner(
+            Supervisor::new(operations.clone(), supervisor).with_state(store, clock),
+            cleaner,
+        );
         tasks.spawn(sup.run(shutdown.clone()));
 
         shutdown.cancelled().await;
@@ -493,8 +567,11 @@ impl Service {
     /// own).
     #[must_use]
     pub fn supervisor(&self) -> Supervisor {
-        Supervisor::new(self.operations.clone(), self.supervisor)
-            .with_state(self.store.clone(), self.clock.clone())
+        with_cleaner(
+            Supervisor::new(self.operations.clone(), self.supervisor)
+                .with_state(self.store.clone(), self.clock.clone()),
+            self.cleaner.clone(),
+        )
     }
 
     /// The state store (tests inspect durable state through it).
@@ -718,4 +795,336 @@ async fn serve_signing<L: Accept>(
     .await;
     conns.abort_all();
     drop(listener);
+}
+
+// --- ⟨M02⟩ U5: existing-access wiring (module docs) ------------------------------------
+
+/// ⟨M02⟩ How the runtime wires the managed projection.
+pub enum ProjectionWiring {
+    /// No projection writer: every setup request answers `CAPABILITY_UNAVAILABLE`,
+    /// reason `driver_unavailable`, and no cleaner is registered.
+    Disabled,
+    /// The account's real configuration (production).
+    Account,
+    /// An explicit base configuration (tests: scratch paths, hooks, test switches).
+    /// The catalog becomes its `PublicKeySource` when it names none.
+    Config(Box<ProjectionConfig>),
+}
+
+impl std::fmt::Debug for ProjectionWiring {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ProjectionWiring::Disabled => "Disabled",
+            ProjectionWiring::Account => "Account",
+            ProjectionWiring::Config(_) => "Config",
+        })
+    }
+}
+
+/// ⟨M02⟩ A wired projection: the writer the operations use, its cleaner, and the
+/// configuration both were built from.
+pub struct WiredProjection {
+    /// `OperationsConfig.projection`.
+    pub writer: Arc<dyn ProjectionWriter>,
+    /// The supervisor's cleaner for `config_projection` resources.
+    pub cleaner: Arc<ProjectionCleaner>,
+    /// The configuration (with the catalog key source).
+    pub config: ProjectionConfig,
+}
+
+impl std::fmt::Debug for WiredProjection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WiredProjection")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
+}
+
+/// ⟨M02⟩ Wire `config` over `store` (ADR-0007 §12.17 item 11): the catalog is the
+/// `PublicKeySource` unless `config` names one, the writer is a
+/// [`CatalogProjection`], and the cleaner shares the configuration.
+#[must_use]
+pub fn wire_projection(store: Arc<Store>, mut config: ProjectionConfig) -> WiredProjection {
+    if config.keys.is_none() {
+        let keys: Arc<dyn PublicKeySource> = Arc::new(CatalogKeys {
+            store: Arc::clone(&store),
+        });
+        config.keys = Some(keys);
+    }
+    let writer: Arc<dyn ProjectionWriter> = Arc::new(CatalogProjection {
+        inner: LocalProjection::new(config.clone()),
+        store,
+    });
+    WiredProjection {
+        writer,
+        cleaner: Arc::new(ProjectionCleaner::new(config.clone())),
+        config,
+    }
+}
+
+/// The production projection configuration, or `None` (with a warning) when the
+/// account home cannot be resolved; setup then answers `driver_unavailable`.
+fn account_projection(paths: &Paths) -> Option<ProjectionConfig> {
+    let ssh = match SshPaths::resolve() {
+        Ok(p) => p,
+        Err(_) => {
+            tracing::warn!("the account home is unavailable; setup is not available");
+            return None;
+        }
+    };
+    let env = Env::capture();
+    let clients = resolve_clients(&env, &ssh, &ClientsConfig::default(), LocalQueries::Enabled);
+    let mut config = ProjectionConfig::new(ssh, Platform::current(), paths.config_dir.clone());
+    config.env = env;
+    config.clients = clients;
+    config.queries = LocalQueries::Enabled;
+    Some(config)
+}
+
+fn with_cleaner(sup: Supervisor, cleaner: Option<Arc<dyn ResourceCleaner>>) -> Supervisor {
+    match cleaner {
+        Some(c) => sup.with_cleaner(c, Arc::new(NoCleanupHook), Backoff::default()),
+        None => sup,
+    }
+}
+
+fn read<T>(
+    store: &Store,
+    f: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<T>,
+) -> Option<T> {
+    store.transaction(f).ok()
+}
+
+/// ⟨M02⟩ The catalog as the preview's `PublicKeySource`: an adopted identity's
+/// one-line public key (never private material).
+struct CatalogKeys {
+    store: Arc<Store>,
+}
+
+impl PublicKeySource for CatalogKeys {
+    fn public_key(&self, identity: &IdentityId) -> Option<String> {
+        read(&self.store, |tx| tx.identity(identity))
+            .flatten()
+            .map(|r| r.public_key)
+    }
+}
+
+/// ⟨M02⟩ The runtime's projection writer: the `LocalProjection` with each managed
+/// alias's key file resolved before a preview. The setup driver leaves `key_file`
+/// empty (the application does not know Heimdall's configuration directory); it is
+/// `<config_dir>/keys/<fingerprint name>.pub`
+/// (`heimdall_localenv::materialize::key_file_path`, ADR-0007 §12.19 item 8), from the
+/// catalog's fingerprint. Every other call is the inner writer's, unchanged.
+pub struct CatalogProjection {
+    inner: LocalProjection,
+    store: Arc<Store>,
+}
+
+impl std::fmt::Debug for CatalogProjection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CatalogProjection")
+            .field("inner", &self.inner)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ProjectionWriter for CatalogProjection {
+    fn preview(
+        &self,
+        spec: &ProjectionSpec,
+        intent: &PreviewIntent,
+    ) -> Result<ProjectionPlan, PreviewError> {
+        let mut spec = spec.clone();
+        for alias in &mut spec.aliases {
+            if !alias.key_file.is_empty() {
+                continue;
+            }
+            let fingerprint = read(&self.store, |tx| tx.identity(&alias.identity))
+                .flatten()
+                .map(|r| r.fingerprint)
+                .ok_or_else(|| {
+                    PreviewError::Unavailable(
+                        "a managed alias names an identity that is not adopted".to_owned(),
+                    )
+                })?;
+            let path = self
+                .inner
+                .config()
+                .config_dir
+                .join(heimdall_localenv::materialize::key_file_path(&fingerprint));
+            alias.key_file = path
+                .to_str()
+                .ok_or_else(|| {
+                    PreviewError::Unavailable("the key file path is not Unicode".to_owned())
+                })?
+                .to_owned();
+        }
+        self.inner.preview(&spec, intent)
+    }
+
+    fn apply(
+        &self,
+        intent: &SetupIntent,
+        sink: &mut dyn StageSink,
+    ) -> Result<ProjectionReceipt, ReconcileError> {
+        self.inner.apply(intent, sink)
+    }
+
+    fn reconcile(
+        &self,
+        intent: &SetupIntent,
+        receipts: &[StageReceipt],
+        sink: &mut dyn StageSink,
+    ) -> Result<ProjectionReconcile, ReconcileError> {
+        self.inner.reconcile(intent, receipts, sink)
+    }
+
+    fn observe(&self, record: &ProjectionRecord, aliases: &[String]) -> Vec<AliasObservation> {
+        self.inner.observe(record, aliases)
+    }
+
+    fn observe_held(
+        &self,
+        intent: &SetupIntent,
+        receipts: &[StageReceipt],
+    ) -> Result<Vec<HeldStep>, ReconcileError> {
+        self.inner.observe_held(intent, receipts)
+    }
+}
+
+/// ⟨M02⟩ What the existing-access adapters read (`IntegrationSources`, U6): the
+/// writer's static `observe` over the stored projection record, the catalog, the
+/// declaration rows and the verified client executables. Passive and bounded; a
+/// store failure claims nothing.
+pub struct RuntimeSources {
+    store: Arc<Store>,
+    environment: EnvironmentId,
+    writer: Option<Arc<dyn ProjectionWriter>>,
+    executables: Vec<ConsumerExecutable>,
+}
+
+impl RuntimeSources {
+    /// Sources over `store` for `environment`.
+    #[must_use]
+    pub fn new(
+        store: Arc<Store>,
+        environment: EnvironmentId,
+        writer: Option<Arc<dyn ProjectionWriter>>,
+        clients: &ClientInventory,
+    ) -> Self {
+        Self {
+            store,
+            environment,
+            writer,
+            executables: executables_of(clients),
+        }
+    }
+}
+
+impl std::fmt::Debug for RuntimeSources {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeSources")
+            .field("environment", &self.environment)
+            .finish_non_exhaustive()
+    }
+}
+
+impl IntegrationSources for RuntimeSources {
+    fn observe_aliases(&self, aliases: &[String]) -> Vec<AliasObservation> {
+        let Some(writer) = &self.writer else {
+            return Vec::new();
+        };
+        match read(&self.store, |tx| tx.projection_record(&self.environment)).flatten() {
+            Some(record) => writer.observe(&record, aliases),
+            None => Vec::new(),
+        }
+    }
+
+    fn catalog_identities(&self) -> Vec<IdentityRecord> {
+        read(&self.store, |tx| tx.identities()).unwrap_or_default()
+    }
+
+    fn declaration(&self, identity: &IdentityId) -> Option<InteractionDeclaration> {
+        read(&self.store, |tx| tx.interaction_declaration(identity)).flatten()
+    }
+
+    fn executables(&self) -> Vec<ConsumerExecutable> {
+        self.executables.clone()
+    }
+}
+
+/// The selected client of each kind, as a consumer executable (observed when its
+/// digest was read, inferred otherwise).
+fn executables_of(clients: &ClientInventory) -> Vec<ConsumerExecutable> {
+    let kinds = [
+        (ClientKind::Ssh, ConsumerKind::Ssh),
+        (ClientKind::Scp, ConsumerKind::Scp),
+        (ClientKind::Sftp, ConsumerKind::Sftp),
+        (ClientKind::Git, ConsumerKind::Git),
+        (ClientKind::SshKeygen, ConsumerKind::SshKeygen),
+    ];
+    kinds
+        .into_iter()
+        .filter_map(|(kind, consumer)| {
+            let c = clients.selected(kind)?;
+            Some(ConsumerExecutable {
+                consumer,
+                path: c.path.to_str()?.to_owned(),
+                version: c
+                    .version
+                    .as_ref()
+                    .map(heimdall_localenv::local_query::version_text),
+                sha256: c.sha256.clone(),
+                basis: if c.sha256.is_some() {
+                    EvidenceBasis::Observed
+                } else {
+                    EvidenceBasis::Inferred
+                },
+            })
+        })
+        .collect()
+}
+
+/// ⟨M02⟩ The existing-access adapters (m02-plan U5, U6): the native agent at the
+/// runtime's `SSH_AUTH_SOCK` (an identity naming its own endpoint uses that one) and
+/// 1Password (its endpoint from the catalog or configuration only; ADR-0007 §7).
+fn existing_access_adapters(
+    store: &Arc<Store>,
+    environment: &EnvironmentId,
+    wired: Option<&WiredProjection>,
+    clock: &Arc<dyn Clock>,
+) -> Vec<Arc<dyn CredentialAdapter>> {
+    let (env, clients) = match wired {
+        Some(w) => (w.config.env.clone(), w.config.clients.clone()),
+        None => (Env::capture(), ClientInventory::default()),
+    };
+    let sources: Arc<dyn IntegrationSources> = Arc::new(RuntimeSources::new(
+        Arc::clone(store),
+        environment.clone(),
+        wired.map(|w| Arc::clone(&w.writer)),
+        &clients,
+    ));
+    let endpoint = env
+        .get("SSH_AUTH_SOCK")
+        .and_then(|v| v.to_str())
+        .filter(|v| !v.is_empty())
+        .map(|locator| EndpointRef {
+            kind: if Platform::current().is_windows() {
+                AgentEndpointKind::NamedPipe
+            } else {
+                AgentEndpointKind::UnixSocket
+            },
+            locator: locator.to_owned(),
+        });
+    let native: Arc<dyn CredentialAdapter> = Arc::new(
+        NativeAgentAdapter::new("default".to_owned(), endpoint)
+            .with_sources(Arc::clone(&sources))
+            .with_clock(Arc::clone(clock)),
+    );
+    let onepassword: Arc<dyn CredentialAdapter> = Arc::new(
+        OnePasswordAdapter::new("default".to_owned(), None)
+            .with_sources(sources)
+            .with_clock(Arc::clone(clock)),
+    );
+    vec![native, onepassword]
 }

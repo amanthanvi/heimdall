@@ -7,9 +7,9 @@
 //! the adapters and the CLI apply one rule. A declaration counts only when it is
 //! `live`, its endpoint equals the current endpoint, and `expires_at > now`. A native
 //! key with no counting declaration is `unknown` (inferred), never `none` (M2-D05).
-//! `prepare` narrows the clearance further, never widens it
-//! (`crate::integration::strict_clearance`: a managed entry that is not the adopted
-//! key is an alternative; escalated for the domain rule).
+//! ⟨M02⟩ The domain clearance rule takes the adopted identity's fingerprint
+//! (ADR-0007 §12.15 item 3(d)): a managed entry that is not the adopted key is an
+//! uncleared alternative, in the one rule readiness, `prepare` and the CLI apply.
 //!
 //! **Provider states** ([`status_from_listing`]): only the explicit `agent` level
 //! observes `available` or `locked`. An empty listing, or an agent that refuses to
@@ -75,15 +75,26 @@ pub fn pair_eligibility(
 }
 
 /// Whether every fallback identity of a non-exclusive selection is cleared
-/// (ADR-0007 §7 clearance rule).
+/// (ADR-0007 §7 clearance rule): `heimdall_domain::catalog::fallback_clearance`,
+/// unchanged. ⟨M02⟩ ADR-0007 §12.15 item 3(d): a managed entry is the adopted
+/// identity only when its fingerprint is `adopted_fingerprint`; any other managed
+/// entry is an uncleared alternative (this replaces the former
+/// `integration::strict_clearance`).
 #[must_use]
 pub fn fallback_clearance(
     report: &IdentitySelectionReport,
     identities: &[IdentityRecord],
     eligibility: &dyn Fn(&IdentityId) -> PairEligibility,
     endpoint: &EndpointRef,
+    adopted_fingerprint: &str,
 ) -> FallbackClearance {
-    heimdall_domain::catalog::fallback_clearance(report, identities, eligibility, endpoint)
+    heimdall_domain::catalog::fallback_clearance(
+        report,
+        identities,
+        eligibility,
+        endpoint,
+        adopted_fingerprint,
+    )
 }
 
 /// A provider's documented interaction (ADR-0007 §7 table): 1Password asks for

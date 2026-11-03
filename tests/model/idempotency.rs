@@ -210,6 +210,7 @@ impl World {
             stage_hook: Arc::new(NoStageHook),
             limits: Limits::default(),
             default_window: 12 * HOUR,
+            projection: None,
         })
         .await
         .unwrap();

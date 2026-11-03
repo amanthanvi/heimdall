@@ -535,3 +535,18 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - V01 (high): manual mode skips consent for an active P;
     - V02 (high): consent is evaluated for the shell profile only.
   - ADR-0007 §12.21: fixed in wave 3b by `W3b-consent`, alongside `W3b-U8`.
+- **M02 wave 3a** (`wf_84d1745b-aed`), the activation change set: all 4 agents done.
+  - W3-U0b, U0b phase 2:
+    - decide and drive arms; `setup/1` offered;
+    - every adapter call bounded at 30 s;
+    - setup cancel;
+    - the full identity report; clearance against the adopted fingerprint;
+    - provider error mapping; reconcile from PreparedFacts.
+  - W3-U5: setup and catalog drivers, runtime wiring, held repairs, consent flow.
+  - W3-U4: K released without birth times; durable outcome reasons; `ConflictKind::VerifiedClientUnavailable`.
+  - Setup is active end to end through the real runtime: preview → APPROVAL_REQUIRED → approve → apply → inspect → rollback, byte for byte.
+  - check.sh: the integrator ran it three times and I ran it once, all exit 0, 1390 passed, 0 failed.
+  - ADR-0007 §12.22 rules on the escalations. Wave 3b is now three units:
+    - W3b-U8: U8 wiring;
+    - W3b-consent: §12.21 V01 and V02, plus §12.22 items 2 and 8;
+    - W3b-gaps: §12.22 items 3, 9 and 10.

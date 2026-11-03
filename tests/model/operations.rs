@@ -438,6 +438,7 @@ fn config_of(
         stage_hook: hook.clone(),
         limits,
         default_window: 12 * HOUR,
+        projection: None,
     }
 }
 
@@ -2430,6 +2431,7 @@ fn u10_crash_config(
         stage_hook: Arc::new(NoStageHook),
         limits: Limits::default(),
         default_window: 12 * HOUR,
+        projection: None,
     }
 }
 
@@ -9575,7 +9577,7 @@ mod r1319_props {
 mod m02_integration {
     use super::*;
     use heimdall_app::SetupAdmission;
-    use heimdall_app::ports::{PreparePair, PrepareRequest};
+    use heimdall_app::ports::{AdapterError, PreparePair, PrepareRequest};
     use heimdall_contract::canonical::RequestHash;
     use heimdall_contract::catalog::DeclaredInteraction;
     use heimdall_contract::ids::IdentityId;
@@ -9737,6 +9739,7 @@ mod m02_integration {
                 reason: None,
             },
             eligibility_checked_at: t0(),
+            identity_selection_report: None,
         }
     }
 
@@ -10432,8 +10435,8 @@ mod m02_integration {
 
     /// U0b rows 10 and 11, phase-1 form: one journaled operation of each M01 kind,
     /// left `queued` as a crash right after admission leaves it, is driven to its
-    /// result by restart recovery. (Each setup and catalog kind is covered by
-    /// `wave0_fail_closed`.)
+    /// result by restart recovery. (The setup and catalog kinds: the full form,
+    /// `u0b_phase2::u0b_restart_dispatches_every_operation_kind`.)
     #[tokio::test]
     async fn u0b_restart_dispatches_every_operation_kind() {
         let mut w = World::new().await;
@@ -11140,8 +11143,9 @@ mod m02_integration {
     /// interrupted withdrawal, a pending remote record whose round was claimed and
     /// never completed, and a cleanup intent whose operation is settled. After a
     /// restart: the setup operation stays unresolved with `driver_unavailable`
-    /// (phase 1), the withdrawal completes, the interrupted round is due at once,
-    /// and the cleanup intent's call is made and the intent removed.
+    /// (this runtime has no projection writer), the withdrawal completes, the
+    /// interrupted round is due at once, and the cleanup intent's call is made and
+    /// the intent removed.
     #[tokio::test]
     async fn u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery() {
         // A cleanup intent whose operation is settled: the commit refusal's
@@ -11251,44 +11255,2368 @@ mod m02_integration {
         assert_eq!(rec.claimed_at, None);
         assert_eq!(w.op(&setup).state, OperationState::Queued);
     }
+
+    /// A world with the catalog seeded (`declared` as in [`seed_catalog`]) whose
+    /// adapters are the M01 fake and a `native_agent` fake with `script`.
+    async fn native_script_world(
+        declared: bool,
+        script: Vec<FakeStep>,
+        hook: Arc<dyn StageHook>,
+    ) -> (World, Arc<FakeCredentialAdapter>) {
+        let mut w = World::with(Setup {
+            hook,
+            ..Setup::default()
+        })
+        .await;
+        seed_catalog(&w, declared);
+        let native = FakeCredentialAdapter::new(native_descriptor(), script);
+        w.ops = Operations::start(OperationsConfig {
+            adapters: vec![
+                w.fake.clone() as Arc<dyn CredentialAdapter>,
+                native.clone() as Arc<dyn CredentialAdapter>,
+            ],
+            ..w.config()
+        })
+        .await
+        .unwrap();
+        (w, native)
+    }
+
+    /// ADR-0007 §12.15 item 7 (E-U6-4). An existing-access adapter's `prepare` error
+    /// names the provider (`OpError::from_adapter_for(&e, "provider")`): an absent
+    /// endpoint is `SERVICE_UNAVAILABLE` with reason `endpoint_absent`;
+    /// `INTERACTION_REQUIRED` carries the reason and `next.provider_interaction` of
+    /// the pair eligibility the runtime computes (an undeclared native key:
+    /// `interaction_unknown`/`unknown`; every pair declared, so the adapter's refusal
+    /// was its fallback clearance: `fallback_identity_interaction`), never a
+    /// `decision_ref`; `PROVIDER_LOCKED` asks for `provider_unlock`. The M01 fake
+    /// keeps the M01 mapping.
+    #[tokio::test]
+    async fn u0b_existing_access_prepare_errors_name_the_provider() {
+        let script = vec![
+            FakeStep::Fail(AdapterError::Unavailable("agent socket absent".into())),
+            FakeStep::Fail(AdapterError::InteractionRequired(
+                InteractionRequirement::ProviderDialog,
+            )),
+            FakeStep::Fail(AdapterError::ProviderLocked),
+            FakeStep::Prepare(pairs_outcome()),
+        ];
+        let (w, native) = native_script_world(false, script, Arc::new(NoStageHook)).await;
+        let run = |rid: &str| {
+            let ops = w.ops.clone();
+            let req = ensure_req(rid, &format!("{rid}-w"), &both_pairs());
+            async move { ops.ensure(&unattended(501), req).await }
+        };
+        let absent = err(run("u0b-e4-1").await);
+        assert_eq!(absent.code, Code::ServiceUnavailable);
+        assert_eq!(absent.reason.as_deref(), Some("endpoint_absent"));
+        let resource = absent.resource.as_deref().unwrap();
+        assert_eq!(
+            (resource.kind.as_str(), resource.id.as_deref()),
+            ("provider", Some("native_agent"))
+        );
+        assert_eq!(absent.effect_status, EffectStatus::None);
+        let needs = err(run("u0b-e4-2").await);
+        assert_eq!(needs.code, Code::InteractionRequired);
+        assert_eq!(needs.reason.as_deref(), Some("interaction_unknown"));
+        assert_eq!(needs.next.action, "interact");
+        assert_eq!(needs.next.decision_ref, None, "never a decision_ref");
+        assert_eq!(
+            needs.next.provider_interaction,
+            Some(heimdall_contract::provider::ProviderInteractionRef {
+                provider: ProviderKind::NativeAgent,
+                kind: InteractionKind::Unknown,
+            })
+        );
+        assert_eq!(needs.resource.as_deref().unwrap().kind, "provider");
+        let env = serde_json::to_value(needs.clone().into_envelope()).unwrap();
+        assert_eq!(env["data"]["error"]["reason"], "interaction_unknown");
+        assert_eq!(
+            env["data"]["error"]["next"]["provider_interaction"]["provider"],
+            "native_agent"
+        );
+        let locked = err(run("u0b-e4-3").await);
+        assert_eq!(locked.code, Code::ProviderLocked);
+        assert_eq!(
+            locked.next.provider_interaction.map(|p| p.kind),
+            Some(InteractionKind::ProviderUnlock)
+        );
+        assert_eq!(native.effect_count(), 0);
+        // Every pair declared `none`: the refusal is the fallback clearance's.
+        let (w2, _native) = native_script_world(
+            true,
+            vec![FakeStep::Fail(AdapterError::InteractionRequired(
+                InteractionRequirement::ProviderDialog,
+            ))],
+            Arc::new(NoStageHook),
+        )
+        .await;
+        let fallback = err(w2
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("u0b-e4-4", "u0b-e4-4-w", &both_pairs()),
+            )
+            .await);
+        assert_eq!(fallback.code, Code::InteractionRequired);
+        assert_eq!(
+            fallback.reason.as_deref(),
+            Some("fallback_identity_interaction")
+        );
+        assert_eq!(
+            fallback.next.provider_interaction.map(|p| p.provider),
+            Some(ProviderKind::NativeAgent)
+        );
+        // The M01 fake (no catalog pair names it) keeps the M01 mapping.
+        let m01 = World::with(Setup {
+            script: vec![FakeStep::Fail(AdapterError::Unavailable("socket".into()))],
+            ..Setup::default()
+        })
+        .await;
+        let e = err(m01
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("u0b-e4-5", "u0b-e4-5-w", &[("h1", "deploy")]),
+            )
+            .await);
+        assert_eq!(e.code, Code::ServiceUnavailable);
+        assert_eq!(e.reason, None);
+        assert_eq!(e.resource.as_deref().unwrap().kind, "adapter");
+        w.events();
+    }
+
+    /// ADR-0007 §12.15 item 7 (E-U6-6). After a restart, an adapter with no
+    /// external effect has forgotten what it returned, so its `reconcile` of the
+    /// confirmed effect says `not_applied`. The runtime answers from the
+    /// `PreparedFacts` recorded with the `Confirmed` receipt instead: the operation
+    /// commits, with the same history, and no second `prepare` is made. An adapter
+    /// with external effects keeps the M01 answer (`not_applied` fails closed).
+    #[tokio::test]
+    async fn u0b_reconcile_after_restart_answers_from_prepared_facts() {
+        for external in [false, true] {
+            let hook: Arc<dyn StageHook> =
+                ScriptedStageHook::new([(EnsureStage::Commit, Code::ServiceUnavailable)], []);
+            let mut descriptor = native_descriptor();
+            descriptor.external_side_effects = external;
+            let mut w = World::with(Setup {
+                hook,
+                ..Setup::default()
+            })
+            .await;
+            seed_catalog(&w, true);
+            let first = FakeCredentialAdapter::new(
+                descriptor.clone(),
+                vec![FakeStep::Prepare(pairs_outcome())],
+            );
+            w.ops = Operations::start(OperationsConfig {
+                adapters: vec![first.clone() as Arc<dyn CredentialAdapter>],
+                ..w.config()
+            })
+            .await
+            .unwrap();
+            let req = ensure_req("u0b-e6", "u0b-e6-w", &both_pairs());
+            let stopped = err(w.ops.ensure(&unattended(501), req.clone()).await);
+            let op = stopped.operation_id.clone().unwrap();
+            let gid = r1313_grant_of(&w, &op);
+            let stored = w
+                .store
+                .transaction(|tx| tx.grant_prepared_facts(&gid))
+                .unwrap()
+                .expect("facts recorded with the confirmation");
+            // Restart: a fresh adapter instance with an empty memory.
+            let fresh =
+                FakeCredentialAdapter::new(descriptor, vec![FakeStep::Prepare(pairs_outcome())]);
+            w.ops = Operations::start(OperationsConfig {
+                adapters: vec![fresh.clone() as Arc<dyn CredentialAdapter>],
+                ..w.config()
+            })
+            .await
+            .unwrap();
+            let r = w.ops.ensure(&unattended(501), req).await;
+            assert_eq!(
+                fresh.effect_count(),
+                0,
+                "external {external}: never prepared again"
+            );
+            if external {
+                let e = err(r);
+                assert_eq!(e.code, Code::ServiceUnavailable, "{}", e.message);
+                assert_eq!(w.op(&op).state, OperationState::Failed);
+                continue;
+            }
+            let done = ok(r);
+            assert_eq!(done.code, Code::AccessReady);
+            assert_eq!(done.operation_id.as_ref(), Some(&op));
+            // The history is the recorded one; the fresh part is recomputed.
+            assert_eq!(done.data.provider, stored.provider);
+            assert_eq!(done.data.consumer.environment, stored.environment);
+            assert_eq!(done.data.consumer.pairs.len(), 2);
+            for (p, s) in done.data.consumer.pairs.iter().zip(&stored.pairs) {
+                assert_eq!(p.destination, s.destination);
+                assert_eq!(p.endpoint, s.endpoint);
+                assert_eq!(p.alias, s.alias);
+                assert_eq!(p.identity_selection, s.identity_selection.selection);
+                assert_eq!(p.interaction, InteractionKind::None, "declared, fresh");
+            }
+            // Conservative beyond the history: no claim past the commit's time.
+            assert!(done.data.usable_until <= w.clock.wall());
+            assert_eq!(
+                done.data.refresh_dependency,
+                RefreshDependency::ProviderInteraction
+            );
+            w.events();
+        }
+    }
+
+    /// ADR-0007 §12.15 item 3(c). A pair's full `identity_selection_report` crosses
+    /// the port and is what the runtime stores as the pair's history (entries,
+    /// `IdentitiesOnly`, `cleared` marks), and results report it back. A pair
+    /// without one, or whose report contradicts its verdict, keeps the verdict
+    /// alone (no entries, `IdentitiesOnly` undetermined), which never clears a
+    /// fallback.
+    #[tokio::test]
+    async fn u0b_prepared_facts_keep_the_full_identity_selection_report() {
+        use heimdall_contract::doctor::ConfigProvenance;
+        use heimdall_contract::provider::{
+            Certainty, IdentityBacking, IdentityEntry, IdentityEntryKind, IdentityEntrySource,
+        };
+        let report = IdentitySelectionReport {
+            selection: IdentitySelection::NotExclusive,
+            entries: vec![
+                IdentityEntry {
+                    kind: IdentityEntryKind::IdentityFile,
+                    source: IdentityEntrySource::Managed,
+                    provenance: Some(ConfigProvenance {
+                        path_display: "~/.config/heimdall/ssh/heimdall.conf".into(),
+                        line: 4,
+                    }),
+                    certainty: Certainty::Determined,
+                    fingerprint: Some(FINGERPRINT.into()),
+                    backing: IdentityBacking::Agent,
+                    cleared: None,
+                },
+                IdentityEntry {
+                    kind: IdentityEntryKind::IdentityFile,
+                    source: IdentityEntrySource::User,
+                    provenance: Some(ConfigProvenance {
+                        path_display: "~/.ssh/config".into(),
+                        line: 9,
+                    }),
+                    certainty: Certainty::Determined,
+                    fingerprint: None,
+                    backing: IdentityBacking::File,
+                    cleared: Some(false),
+                },
+            ],
+            identities_only: IdentitiesOnly::DeterminedYes,
+        };
+        let mut outcome = pairs_outcome();
+        // h1 carries the full report; h2 one that contradicts its verdict.
+        outcome.integration.pairs[0].identity_selection = IdentitySelection::NotExclusive;
+        outcome.integration.pairs[0].identity_selection_report = Some(report.clone());
+        outcome.integration.pairs[1].identity_selection_report = Some(report.clone());
+        let (w, _native) = native_script_world(
+            true,
+            vec![FakeStep::Prepare(outcome)],
+            Arc::new(NoStageHook),
+        )
+        .await;
+        let done = ok(w
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("u0b-3c", "u0b-3c-w", &both_pairs()),
+            )
+            .await);
+        let facts = w
+            .store
+            .transaction(|tx| tx.grant_prepared_facts(&done.data.grant_id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(facts.pairs[0].identity_selection, report, "the full report");
+        let verdict_only = IdentitySelectionReport {
+            selection: IdentitySelection::Exclusive,
+            entries: Vec::new(),
+            identities_only: IdentitiesOnly::Undetermined,
+        };
+        assert_eq!(
+            facts.pairs[1].identity_selection, verdict_only,
+            "contradicting"
+        );
+        // Reported back as history.
+        assert_eq!(
+            done.data.consumer.pairs[0]
+                .identity_selection_report
+                .as_ref(),
+            Some(&report)
+        );
+        assert_eq!(
+            done.data.consumer.pairs[1]
+                .identity_selection_report
+                .as_ref(),
+            Some(&verdict_only)
+        );
+        // An older document without the field decodes; `None` is not serialized.
+        let mut plain = serde_json::to_value(&done.data.consumer.pairs[0]).unwrap();
+        plain
+            .as_object_mut()
+            .unwrap()
+            .remove("identity_selection_report");
+        let back: PairIntegration = serde_json::from_value(plain).unwrap();
+        assert_eq!(back.identity_selection_report, None);
+        assert!(
+            !serde_json::to_string(&back)
+                .unwrap()
+                .contains("identity_selection_report")
+        );
+        w.events();
+    }
 }
 
 // =================================================================================
-// ⟨M02⟩ Wave-0 acceptance: the fail-closed landing (m02-plan §5 item 4, U0b)
+// ⟨M02⟩ U0b phase 2, row 24: every real adapter call is bounded (m02-plan U0b row
+// 24; M2-T06; ADR-0006 §13.20 item 3; ADR-0007 §7 "Every call is bounded", §12.13
+// QR17)
 // =================================================================================
 
-/// ⟨M02⟩ m02-plan U0b "wave-0 acceptance tests" (M2-R07; ADR-0007 §12.5 item 7,
-/// §12.7 QR7): `setup/1` is not offered; on a session every Setup and Catalog
-/// request is `SCHEMA_UNSUPPORTED` and never dispatched; every path that reaches
-/// dispatch answers `CAPABILITY_UNAVAILABLE`, reason `driver_unavailable`, effect
-/// `none`, writing nothing; open operations of the new kinds stay unresolved and
-/// untouched at restart; decisions of the new kinds are refused and stay pending.
-///
-/// The plan names `tests/e2e/wave0_fail_closed.rs` hosted by `heimdall-runtime`;
-/// that needs a `[[test]]` entry in a manifest this unit does not own, so the suite
-/// is a module of this target, which `heimdall-runtime` already hosts (escalated).
-/// The CLI case is in `tests/e2e/cli_m01.rs` (a `heimdall` package target, wave-0
-/// verify E6). Sessions run over an in-memory duplex stream, so the suite is the
-/// same on every platform.
-mod wave0_fail_closed {
+/// `adapter_call_timeout` is 200 ms (m02-plan U0b "Tests, phase 2"). The fake's hang
+/// steps (`testkit::FakeStep::{ApplyThenHang, HangBeforeEffect, HangReconcile,
+/// HangRevoke}`) wait until released; a hang released while its future is still
+/// awaited counts as work after the drop (`FakeCredentialAdapter::work_after_drop`),
+/// which a bounded runtime keeps at 0. Timing: every wait below is bounded by
+/// [`until`] (10 s); the bound itself is asserted only from below (a call is never
+/// answered before it), so a loaded host cannot make a case pass wrongly.
+mod u0b_adapter_bound {
+    use super::*;
+    use heimdall_app::operations::{ADAPTER_CALL_TIMED_OUT, bounded_adapter_call};
+    use heimdall_app::ports::{AdapterError, ReconcileOutcome};
+    use heimdall_domain::operation::{EffectReceipt, StageReceipt};
+    use heimdall_store::NoFaults;
+    use heimdall_testkit::FakeEvent;
+
+    pub(super) const BOUND: Duration = Duration::from_millis(200);
+
+    pub(super) fn bounded_limits() -> Limits {
+        Limits {
+            adapter_call_timeout: BOUND,
+            ..Limits::default()
+        }
+    }
+
+    pub(super) async fn bounded_world(script: Vec<FakeStep>, faults: Arc<dyn FaultHook>) -> World {
+        World::with(Setup {
+            script,
+            faults,
+            limits: bounded_limits(),
+            ..Setup::default()
+        })
+        .await
+    }
+
+    /// Poll `f` every 5 ms until it holds; fails after 10 s.
+    pub(super) async fn until(what: &str, f: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !f() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for {what}"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    fn receipts_of(w: &World, op: &OperationId) -> Vec<StageReceipt> {
+        w.store.transaction(|tx| tx.stage_receipts(op)).unwrap()
+    }
+
+    /// The last effect receipt (`NotAttempted` excluded).
+    fn last_effect(w: &World, op: &OperationId) -> Option<EffectReceipt> {
+        r1314_effects(w, op).pop()
+    }
+
+    fn async_req(rid: &str, work: &str) -> EnsureRequest {
+        EnsureRequest {
+            wait: WaitMode::Async,
+            ..ensure_req(rid, work, &[("h1", "deploy")])
+        }
+    }
+
+    /// Start an ensure whose preparation hangs, and return its operation once the
+    /// fake's hang was entered (the effect, for `ApplyThenHang`, already applied).
+    async fn hung_ensure(w: &World, rid: &str) -> OperationId {
+        let e = err(w
+            .ops
+            .ensure(&unattended(501), async_req(rid, &format!("{rid}-w")))
+            .await);
+        assert_eq!(e.code, Code::Accepted, "{}", e.message);
+        let op = e.operation_id.clone().unwrap();
+        until("the hang", || w.fake.hangs_entered() == 1).await;
+        op
+    }
+
+    fn intent_of(
+        w: &World,
+        op: &OperationId,
+    ) -> Option<heimdall_domain::revocation::CleanupIntent> {
+        let gid = r1313_grant_of(w, op);
+        w.store
+            .transaction(|tx| tx.cleanup_intent(&gid, op))
+            .unwrap()
+    }
+
+    fn revocations(w: &World) -> usize {
+        w.fake.revocations.lock().unwrap().len()
+    }
+
+    /// `u0b_prepare_timeout_after_effect_settles_uncertain_and_releases_marker`. The
+    /// operation is cancelled while `ApplyThenHang` runs, which writes a cleanup
+    /// intent with `in_flight`. A supervisor pass during the hang skips it, with no
+    /// `revoke`. After the bound, the receipts end in `Uncertain`, the preparing
+    /// marker is released, `settle_effect_in` ran in the receipt's transaction (the
+    /// intent re-recorded with `in_flight: false`, then processed by its origin: a
+    /// call after the effect, and the intent removed), and the adapter slot is free.
+    #[tokio::test]
+    async fn u0b_prepare_timeout_after_effect_settles_uncertain_and_releases_marker() {
+        let w = bounded_world(vec![FakeStep::ApplyThenHang(outcome())], Arc::new(NoFaults)).await;
+        let started = std::time::Instant::now();
+        let op = hung_ensure(&w, "u0b-pt").await;
+        assert_eq!(w.effects(), 1, "the effect applied before the hang");
+        assert_eq!(w.ops.preparing_operations(), vec![op.clone()]);
+        assert_eq!(
+            w.ops.available_adapter_slots(),
+            Limits::default().max_concurrent_adapter_calls - 1
+        );
+        let c = ok(w
+            .ops
+            .cancel(
+                &unattended(501),
+                CancelRequest {
+                    operation_id: op.clone(),
+                },
+            )
+            .await);
+        assert_eq!(c.data["may_have_external_effect"], true);
+        let intent = intent_of(&w, &op).expect("the cancellation's cleanup intent");
+        assert!(intent.in_flight, "written while the attempt is in flight");
+        // The cancellation's own origin processing calls now (it may precede the
+        // effect, so the intent is kept); a supervisor pass during the hang skips it.
+        let before_pass = revocations(&w);
+        r1310_supervisor(&w).revocation_pass().await.unwrap();
+        assert_eq!(
+            revocations(&w),
+            before_pass,
+            "the pass skipped the in-flight intent"
+        );
+        assert!(intent_of(&w, &op).is_some_and(|i| i.in_flight));
+        // The bound elapses.
+        until("the marker's release", || {
+            w.ops.preparing_operations().is_empty()
+        })
+        .await;
+        until("the origin processing", || intent_of(&w, &op).is_none()).await;
+        assert!(
+            started.elapsed() >= BOUND,
+            "never answered before the bound"
+        );
+        assert!(
+            matches!(last_effect(&w, &op), Some(EffectReceipt::Uncertain { .. })),
+            "{:?}",
+            r1314_effects(&w, &op)
+        );
+        assert_eq!(w.op(&op).state, OperationState::Cancelled);
+        assert_eq!(
+            w.ops.available_adapter_slots(),
+            Limits::default().max_concurrent_adapter_calls,
+            "the adapter slot is free"
+        );
+        assert_eq!(revocations(&w), before_pass + 1, "one call after the bound");
+        // The future was dropped at the bound: released now, it does no more work.
+        assert_eq!(w.fake.hangs_dropped(), 1);
+        w.fake.release_hangs();
+        tokio::task::yield_now().await;
+        assert_eq!(w.fake.work_after_drop(), 0);
+        assert_eq!(w.effects(), 1);
+        w.events();
+    }
+
+    /// A store fault hook that, once armed, lets `skip` transactions commit and then
+    /// fails the next `fail` ones at `BeforeCommit`.
+    struct FailNext {
+        skip: AtomicUsize,
+        fail: AtomicUsize,
+        armed: AtomicBool,
+        fired: AtomicUsize,
+    }
+
+    impl FailNext {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                skip: AtomicUsize::new(0),
+                fail: AtomicUsize::new(0),
+                armed: AtomicBool::new(false),
+                fired: AtomicUsize::new(0),
+            })
+        }
+        fn arm(&self, skip: usize, fail: usize) {
+            self.skip.store(skip, Ordering::SeqCst);
+            self.fail.store(fail, Ordering::SeqCst);
+            self.armed.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl FaultHook for FailNext {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point != FaultPoint::BeforeCommit || !self.armed.load(Ordering::SeqCst) {
+                return FaultAction::Continue;
+            }
+            if self
+                .skip
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                return FaultAction::Continue;
+            }
+            if self
+                .fail
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+            {
+                self.fired.fetch_add(1, Ordering::SeqCst);
+                return FaultAction::Fail;
+            }
+            self.armed.store(false, Ordering::SeqCst);
+            FaultAction::Continue
+        }
+    }
+
+    /// `u0b_timed_out_preparation_cleanup_processed_by_supervisor_without_restart`.
+    /// As above, but the origin processing fails (the store `FaultHook` fails its
+    /// transactions: the cleanup decision and the return path's read). The next
+    /// `revocation_pass`, in the same process and with no restart, makes the
+    /// `revoke` call and removes the intent; the call follows the effect in the
+    /// fake's journal. Variant: `mark_uncertain`'s own transaction fails too, so the
+    /// original `in_flight` intent is what remains; the pass processes it, because
+    /// the marker was released.
+    #[tokio::test]
+    async fn u0b_timed_out_preparation_cleanup_processed_by_supervisor_without_restart() {
+        // (skip, fail): mark_uncertain commits, then the origin's decision and the
+        // return path's read fail; or mark_uncertain fails as well.
+        for (skip, fail, uncertain) in [(1, 2, true), (0, 2, false)] {
+            let faults = FailNext::new();
+            let w = bounded_world(vec![FakeStep::ApplyThenHang(outcome())], faults.clone()).await;
+            let rid = format!("u0b-ts-{skip}");
+            let op = hung_ensure(&w, &rid).await;
+            ok(w.ops
+                .cancel(
+                    &unattended(501),
+                    CancelRequest {
+                        operation_id: op.clone(),
+                    },
+                )
+                .await);
+            let gid = r1313_grant_of(&w, &op);
+            faults.arm(skip, fail);
+            until("the marker's release", || {
+                w.ops.preparing_operations().is_empty()
+            })
+            .await;
+            until("the injected failures", || {
+                faults.fired.load(Ordering::SeqCst) == fail
+            })
+            .await;
+            // Let the drive finish its return path.
+            until("the slot", || {
+                w.ops.available_adapter_slots() == Limits::default().max_concurrent_adapter_calls
+            })
+            .await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let kept =
+                intent_of(&w, &op).expect("the origin processing failed: the intent is kept");
+            assert_eq!(
+                matches!(last_effect(&w, &op), Some(EffectReceipt::Uncertain { .. })),
+                uncertain,
+                "skip {skip}"
+            );
+            assert_eq!(
+                kept.in_flight, !uncertain,
+                "skip {skip}: the intent on record"
+            );
+            let calls_before = revocations(&w);
+            // The next pass of the supervisor, same process, no restart.
+            r1310_supervisor(&w).revocation_pass().await.unwrap();
+            assert_eq!(
+                revocations(&w),
+                calls_before + 1,
+                "skip {skip}: the pass made the call"
+            );
+            assert!(
+                intent_of(&w, &op).is_none(),
+                "skip {skip}: and removed the intent"
+            );
+            let journal = w.fake.journal();
+            let effect = journal
+                .iter()
+                .position(|e| matches!(e, FakeEvent::Effect(_)))
+                .unwrap();
+            assert!(
+                matches!(journal.last(), Some(FakeEvent::Revoke(g)) if *g == gid)
+                    && journal.len() - 1 > effect,
+                "skip {skip}: the call follows the effect: {journal:?}"
+            );
+            w.fake.release_hangs();
+            tokio::task::yield_now().await;
+            assert_eq!(w.fake.work_after_drop(), 0);
+        }
+    }
+
+    /// `u0b_prepare_timeout_while_running_is_outcome_unknown`. Without a
+    /// cancellation the operation moves to `outcome_unknown` (`OUTCOME_UNKNOWN`,
+    /// effect `unknown`); the marker and the slot are released; it stays unresolved
+    /// until `reconcile` settles it (the same request ID: one effect, no second
+    /// `prepare`).
+    #[tokio::test]
+    async fn u0b_prepare_timeout_while_running_is_outcome_unknown() {
+        let w = bounded_world(vec![FakeStep::ApplyThenHang(outcome())], Arc::new(NoFaults)).await;
+        let started = std::time::Instant::now();
+        let e = err(w
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("u0b-pr", "u0b-pr-w", &[("h1", "deploy")]),
+            )
+            .await);
+        assert!(started.elapsed() >= BOUND);
+        assert_eq!(e.code, Code::OutcomeUnknown, "{}", e.message);
+        assert_eq!(e.effect_status, EffectStatus::Unknown);
+        let op = e.operation_id.clone().unwrap();
+        assert_eq!(w.op(&op).state, OperationState::OutcomeUnknown);
+        assert!(w.ops.preparing_operations().is_empty());
+        assert_eq!(
+            w.ops.available_adapter_slots(),
+            Limits::default().max_concurrent_adapter_calls
+        );
+        assert!(matches!(
+            last_effect(&w, &op),
+            Some(EffectReceipt::Uncertain { .. })
+        ));
+        assert!(
+            intent_of(&w, &op).is_none(),
+            "nothing to clean up while unresolved"
+        );
+        // Still unresolved after a wait; the same request ID reconciles it.
+        tokio::time::sleep(BOUND).await;
+        assert_eq!(w.op(&op).state, OperationState::OutcomeUnknown);
+        let done = ok(w
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("u0b-pr", "u0b-pr-w", &[("h1", "deploy")]),
+            )
+            .await);
+        assert_eq!(done.code, Code::AccessReady);
+        assert_eq!(done.operation_id.as_ref(), Some(&op));
+        assert_eq!(w.effects(), 1, "reconciled, never prepared again");
+        assert_eq!(w.fake.hangs_entered(), 1);
+        w.fake.release_hangs();
+        tokio::task::yield_now().await;
+        assert_eq!(w.fake.work_after_drop(), 0);
+        w.events();
+    }
+
+    /// Pipeline hook (production `StageHook`): while armed, every drive stops
+    /// right before `Probe` (after `Reconcile` confirmed the effect).
+    #[derive(Default)]
+    struct StopBeforeProbe {
+        armed: AtomicBool,
+    }
+
+    impl StageHook for StopBeforeProbe {
+        fn before(&self, stage: EnsureStage) -> Result<(), Code> {
+            if stage == EnsureStage::Probe && self.armed.load(Ordering::SeqCst) {
+                return Err(Code::ServiceUnavailable);
+            }
+            Ok(())
+        }
+        fn after(&self, _stage: EnsureStage) -> Result<(), Code> {
+            Ok(())
+        }
+    }
+
+    fn shared_req(i: usize) -> EnsureRequest {
+        EnsureRequest {
+            until: Some(DeadlineIntent::Absolute(shift(t0(), 3600).to_string())),
+            wait: WaitMode::Sync { timeout_ms: 2_000 },
+            ..ensure_req(
+                &format!("u0b-rc-sh-{i}"),
+                "u0b-rc-sh-w",
+                &[("h1", "deploy"), ("h3", "deploy")],
+            )
+        }
+    }
+
+    /// Retry `i`'s shared request (same key) until its operation settles; bounded.
+    async fn shared_settled(w: &World, i: usize) -> OpResult<EnsureData> {
+        for _ in 0..200 {
+            let r = w.ops.ensure(&unattended(501), shared_req(i)).await;
+            match &r {
+                Err(e) if matches!(e.code, Code::Accepted | Code::ServiceUnavailable) => {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                _ => return r,
+            }
+        }
+        panic!("shared request {i} did not settle");
+    }
+
+    /// `u0b_reconcile_timeout_matches_each_call_sites_error_arm`. `HangReconcile`
+    /// at each of the four `reconcile` sites gives that site's existing `Err` arm,
+    /// and no slot or marker is kept:
+    /// * `stage_reconcile` (an earlier attempt): the attempt is marked `Uncertain`
+    ///   and the operation is `outcome_unknown`;
+    /// * `reconcile_unresolved`: the operation stays unresolved, no receipt added;
+    /// * `stage_commit` (no facts in this drive): `SERVICE_UNAVAILABLE` with effect
+    ///   `partial`, the operation still running;
+    /// * `continued_preparation`: no facts, so the attached request is answered as
+    ///   still in progress (`SERVICE_UNAVAILABLE`) and keeps running.
+    ///
+    /// Each recovers once the hang is gone, with one effect.
+    #[tokio::test]
+    async fn u0b_reconcile_timeout_matches_each_call_sites_error_arm() {
+        let free = Limits::default().max_concurrent_adapter_calls;
+        // 1. stage_reconcile: the confirmation's transaction fails after the
+        // effect, leaving `Attempted` as the last receipt of a running operation.
+        {
+            let faults = Armed::new(FaultPoint::BeforeCommit);
+            let w = bounded_world(vec![FakeStep::Prepare(outcome())], faults.clone()).await;
+            faults.arm_after_effect(w.fake.clone());
+            let req = ensure_req("u0b-rc-1", "u0b-rc-1-w", &[("h1", "deploy")]);
+            let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+            let op = e.operation_id.clone().unwrap();
+            assert!(matches!(
+                last_effect(&w, &op),
+                Some(EffectReceipt::Attempted { .. })
+            ));
+            w.fake.arm(FakeStep::HangReconcile);
+            let e = err(w.ops.ensure(&unattended(501), req).await);
+            assert_eq!(e.code, Code::OutcomeUnknown, "{}", e.message);
+            assert_eq!(w.op(&op).state, OperationState::OutcomeUnknown);
+            assert!(matches!(
+                last_effect(&w, &op),
+                Some(EffectReceipt::Uncertain { .. })
+            ));
+            assert_eq!(w.ops.available_adapter_slots(), free);
+            assert!(w.ops.preparing_operations().is_empty());
+            assert_eq!((w.fake.hangs_entered(), w.fake.hangs_dropped()), (1, 1));
+        }
+        // 2. reconcile_unresolved: an uncertain attempt, reconciled by a retry.
+        {
+            let w = bounded_world(
+                vec![FakeStep::ApplyButLoseReply(outcome())],
+                Arc::new(NoFaults),
+            )
+            .await;
+            let req = ensure_req("u0b-rc-2", "u0b-rc-2-w", &[("h1", "deploy")]);
+            let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+            assert_eq!(e.code, Code::OutcomeUnknown);
+            let op = e.operation_id.clone().unwrap();
+            let receipts = receipts_of(&w, &op).len();
+            w.fake.arm(FakeStep::HangReconcile);
+            let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+            assert_eq!(e.code, Code::OutcomeUnknown);
+            assert_eq!(
+                w.op(&op).state,
+                OperationState::OutcomeUnknown,
+                "stays unresolved"
+            );
+            assert_eq!(receipts_of(&w, &op).len(), receipts, "nothing recorded");
+            assert_eq!(w.ops.available_adapter_slots(), free);
+            assert_eq!(w.fake.hangs_dropped(), 1);
+            let done = ok(w.ops.ensure(&unattended(501), req).await);
+            assert_eq!(done.code, Code::AccessReady);
+            assert_eq!(w.effects(), 1);
+        }
+        // 3. stage_commit: the drive stops before `Commit` once; a retry is a new
+        // drive with no facts of its own, so it reconciles.
+        {
+            let mut w = World::with(Setup {
+                hook: ScriptedStageHook::new([(EnsureStage::Commit, Code::ServiceUnavailable)], []),
+                limits: bounded_limits(),
+                ..Setup::default()
+            })
+            .await;
+            let req = ensure_req("u0b-rc-3", "u0b-rc-3-w", &[("h1", "deploy")]);
+            let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+            let op = e.operation_id.clone().unwrap();
+            assert!(matches!(
+                last_effect(&w, &op),
+                Some(EffectReceipt::Confirmed { .. })
+            ));
+            w.fake.arm(FakeStep::HangReconcile);
+            let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+            assert_eq!(e.code, Code::ServiceUnavailable, "{}", e.message);
+            assert_eq!(e.effect_status, EffectStatus::Partial);
+            assert_eq!(w.op(&op).state, OperationState::Running);
+            assert_eq!(w.ops.available_adapter_slots(), free);
+            assert_eq!(w.fake.hangs_dropped(), 1);
+            // The same holds for the restart path.
+            w.fake.arm(FakeStep::HangReconcile);
+            w.restart().await;
+            assert_eq!(w.op(&op).state, OperationState::Running);
+            assert_eq!(w.fake.hangs_dropped(), 2);
+            let done = ok(w.ops.ensure(&unattended(501), req).await);
+            assert_eq!(done.code, Code::AccessReady);
+            assert_eq!(w.effects(), 1);
+        }
+        // 4. continued_preparation: a shared grant whose creator was cancelled after
+        // approval (ADR-0006 §13.8 item 5).
+        {
+            let stop = Arc::new(StopBeforeProbe::default());
+            let w = World::with(Setup {
+                hook: stop.clone(),
+                limits: bounded_limits(),
+                ..Setup::default()
+            })
+            .await;
+            let mut ops = Vec::new();
+            let mut decision = None;
+            for i in 1..=3 {
+                w.clock.advance(Duration::from_secs(1));
+                let e = err(w.ops.ensure(&unattended(501), shared_req(i)).await);
+                let d = decision_ref(&e);
+                assert_eq!(decision.get_or_insert(d.clone()), &d, "one shared decision");
+                ops.push(e.operation_id.clone().unwrap());
+            }
+            stop.armed.store(true, Ordering::SeqCst);
+            ok(decide(&w, &attended(501), &decision.unwrap(), Verdict::Approve).await);
+            until("the creator's confirmed effect", || w.effects() == 1).await;
+            let c = ok(w
+                .ops
+                .cancel(
+                    &unattended(501),
+                    CancelRequest {
+                        operation_id: ops[0].clone(),
+                    },
+                )
+                .await);
+            assert_eq!(c.data["may_have_external_effect"], true);
+            stop.armed.store(false, Ordering::SeqCst);
+            // The second waiter completes the shared preparation and attaches.
+            let b = shared_settled(&w, 2)
+                .await
+                .unwrap_or_else(|e| panic!("{e:?}"));
+            let gid = b.data.grant_id.clone();
+            assert_eq!(w.grant(&gid).state, GrantState::Active);
+            // The third reconciles the creator's token: hung, so no facts yet.
+            w.fake.arm(FakeStep::HangReconcile);
+            let e = err(w.ops.ensure(&unattended(501), shared_req(3)).await);
+            assert_eq!(e.code, Code::ServiceUnavailable, "{}", e.message);
+            assert_eq!(w.op(&ops[2]).state, OperationState::Running);
+            assert_eq!(w.fake.hangs_dropped(), 1);
+            assert_eq!(w.ops.available_adapter_slots(), free);
+            let c3 = shared_settled(&w, 3)
+                .await
+                .unwrap_or_else(|e| panic!("{e:?}"));
+            assert_eq!(c3.data.grant_id, gid);
+            assert_eq!(w.effects(), 1, "one effect");
+        }
+    }
+
+    /// `u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup`.
+    /// `HangRevoke` in a round keeps the obligation and the claimed round counts;
+    /// in a bounded cleanup call the answer is tracked as an obligation; in an
+    /// uncovered grant's immediate call the intent is removed (QR17: counted as
+    /// made). A supervisor pass is never blocked beyond the bound per call.
+    #[tokio::test]
+    async fn u0b_revoke_timeout_counts_as_unconfirmed_in_rounds_and_bounded_cleanup() {
+        // Rounds: the explicit revoke's first round, then a supervisor round.
+        let w = bounded_world(vec![FakeStep::Prepare(outcome())], Arc::new(NoFaults)).await;
+        let ready = ok(w
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("u0b-rv", "u0b-rv-w", &[("h1", "deploy")]),
+            )
+            .await)
+        .data;
+        w.fake.arm(FakeStep::HangRevoke);
+        let started = std::time::Instant::now();
+        let r = w
+            .ops
+            .revoke(
+                &unattended(501),
+                RevokeRequest {
+                    grant_id: ready.grant_id.clone(),
+                    request_id: RequestId::parse("u0b-rv-revoke").unwrap(),
+                },
+            )
+            .await;
+        assert!(started.elapsed() >= BOUND);
+        rendered(&r);
+        let rec = r1312_record(&w, &ready.grant_id).expect("the timed-out call is unconfirmed");
+        assert_eq!(rec.attempts, 1, "the claimed round counts");
+        assert_eq!(rec.obligations.len(), 1);
+        assert_eq!(w.grant(&ready.grant_id).state, GrantState::Revoking);
+        // A supervisor round whose call times out: the obligation stays, the round
+        // counts, and the pass ends after the call's bound (the hang never ends by
+        // itself; the upper limit only leaves room for a loaded host).
+        w.fake.arm(FakeStep::HangRevoke);
+        let sup = r1312_supervisor(&w, 8);
+        sup.revocation_pass().await.unwrap();
+        w.clock.advance_continuous_only(Duration::from_secs(60));
+        let started = std::time::Instant::now();
+        sup.revocation_pass().await.unwrap();
+        let took = started.elapsed();
+        assert!(
+            took >= BOUND && took < BOUND * 25,
+            "one bound per call: {took:?}"
+        );
+        let rec = r1312_record(&w, &ready.grant_id).expect("still pending");
+        assert_eq!(rec.attempts, 2);
+        assert_eq!(rec.obligations.len(), 1, "the obligation stays");
+        assert_eq!(w.fake.hangs_dropped(), 2);
+        // The next round confirms and clears it.
+        w.clock.advance_continuous_only(Duration::from_secs(60));
+        sup.revocation_pass().await.unwrap();
+        assert!(
+            r1312_record(&w, &ready.grant_id).is_none(),
+            "confirmed by a later round"
+        );
+        assert_eq!(w.grant(&ready.grant_id).state, GrantState::Revoked);
+
+        // A bounded cleanup call (ADR-0006 §13.18 item 4): a covering record already
+        // re-armed for this effect, with no obligation for the applying adapter.
+        let w = bounded_world(vec![FakeStep::Prepare(outcome())], Arc::new(NoFaults)).await;
+        let g = heimdall_contract::ids::GrantId::from_random_bytes([0x5a; 16]);
+        let op = OperationId::from_random_bytes([0x5b; 16]);
+        let applying = descriptor().identity;
+        let record: heimdall_domain::revocation::PendingRemoteRevocation =
+            serde_json::from_value(serde_json::json!({
+                "root": g,
+                "grants": [g],
+                "attempts": 1,
+                "last_attempt_at": t0(),
+                "stopped": true,
+                "rearmed_effects": [{
+                    "grant": g,
+                    "adapter": applying,
+                    "effect_token": "eff_u0b_bounded",
+                    "confirmed": true,
+                }],
+            }))
+            .unwrap();
+        let tombstone: heimdall_domain::revocation::Tombstone =
+            serde_json::from_value(serde_json::json!({
+                "grant": g,
+                "cascade": [],
+                "generation": 0,
+                "revoked_at": t0(),
+                "remote_pending": [],
+            }))
+            .unwrap();
+        w.store
+            .transaction(|tx| {
+                tx.insert_tombstone(&tombstone)?;
+                tx.set_remote_revocation(&record)?;
+                tx.record_cleanup_intent(&heimdall_domain::revocation::CleanupIntent {
+                    grant: g.clone(),
+                    operation: op.clone(),
+                    adapter: Some(applying.clone()),
+                    effect_token: "eff_u0b_bounded".into(),
+                    confirmed: true,
+                    in_flight: false,
+                    version: 0,
+                    recorded_at: t0(),
+                })
+            })
+            .unwrap();
+        w.fake.arm(FakeStep::HangRevoke);
+        let started = std::time::Instant::now();
+        w.ops.process_cleanup_intents().await.unwrap();
+        assert!(started.elapsed() >= BOUND);
+        let rec = r1312_record(&w, &g).unwrap();
+        let tracked = rec
+            .obligations
+            .iter()
+            .find(|o| o.adapter == applying)
+            .expect("the timed-out bounded call is tracked as an obligation");
+        assert!(!tracked.stopped);
+        assert!(!rec.stopped);
+        assert!(
+            w.store
+                .transaction(|tx| tx.cleanup_intent(&g, &op))
+                .unwrap()
+                .is_none(),
+            "an obligation owns it now"
+        );
+        assert_eq!(w.fake.hangs_dropped(), 1);
+
+        // An uncovered grant's immediate call times out: counted as made (QR17).
+        let w = bounded_world(vec![FakeStep::ApplyThenHang(outcome())], Arc::new(NoFaults)).await;
+        let op = hung_ensure(&w, "u0b-rv-imm").await;
+        // Both immediate calls hang: the cancellation's (the attempt in flight),
+        // and the one after the preparation's own bound.
+        w.fake.arm(FakeStep::HangRevoke);
+        w.fake.arm(FakeStep::HangRevoke);
+        ok(w.ops
+            .cancel(
+                &unattended(501),
+                CancelRequest {
+                    operation_id: op.clone(),
+                },
+            )
+            .await);
+        until("the marker's release", || {
+            w.ops.preparing_operations().is_empty()
+        })
+        .await;
+        until("the intent's removal", || intent_of(&w, &op).is_none()).await;
+        assert_eq!(w.fake.hangs_dropped(), 3, "the preparation and both calls");
+        assert!(
+            w.fake.revocations.lock().unwrap().is_empty(),
+            "no call answered"
+        );
+        w.fake.release_hangs();
+        tokio::task::yield_now().await;
+        assert_eq!(w.fake.work_after_drop(), 0);
+    }
+
+    /// `u0b_adapter_bound_covers_only_the_adapter_call`. One adapter slot. Two
+    /// preparations hang in turn, each until its bound; the last one to get the slot
+    /// waited for it for longer than one bound and is not timed out: it prepares and
+    /// succeeds. The third caller's own wait ends first with the bounded-wait answer
+    /// (`ACCEPTED`) while the work continues. Which of the second and third requests
+    /// gets the slot first is the scheduler's choice; the assertions hold for both.
+    #[tokio::test]
+    async fn u0b_adapter_bound_covers_only_the_adapter_call() {
+        let w = World::with(Setup {
+            script: vec![
+                FakeStep::ApplyThenHang(outcome()),
+                FakeStep::ApplyThenHang(outcome()),
+                FakeStep::Prepare(outcome()),
+            ],
+            limits: Limits {
+                max_concurrent_adapter_calls: 1,
+                ..bounded_limits()
+            },
+            ..Setup::default()
+        })
+        .await;
+        let a = err(w
+            .ops
+            .ensure(&unattended(501), async_req("u0b-sl-a", "u0b-sl-a-w"))
+            .await)
+        .operation_id
+        .unwrap();
+        until("the first hang", || w.fake.hangs_entered() == 1).await;
+        let b = err(w
+            .ops
+            .ensure(&unattended(501), async_req("u0b-sl-b", "u0b-sl-b-w"))
+            .await)
+        .operation_id
+        .unwrap();
+        let started = std::time::Instant::now();
+        let mut req = ensure_req("u0b-sl-c", "u0b-sl-c-w", &[("h1", "deploy")]);
+        req.wait = WaitMode::Sync { timeout_ms: 50 };
+        let waited = err(w.ops.ensure(&unattended(501), req.clone()).await);
+        assert_eq!(waited.code, Code::Accepted, "the caller's wait ended first");
+        let c = waited.operation_id.clone().unwrap();
+        assert!(!w.op(&c).state.is_settled(), "the work continues");
+        until("the last preparation", || {
+            [&b, &c]
+                .into_iter()
+                .any(|o| w.op(o).state == OperationState::Succeeded)
+        })
+        .await;
+        assert!(
+            started.elapsed() >= BOUND,
+            "it waited for the slot past one bound: {:?}",
+            started.elapsed()
+        );
+        let (last, hung) = if w.op(&c).state == OperationState::Succeeded {
+            (&c, &b)
+        } else {
+            (&b, &c)
+        };
+        assert!(
+            !r1314_effects(&w, last)
+                .iter()
+                .any(|e| matches!(e, EffectReceipt::Uncertain { .. })),
+            "the slot wait was never timed out"
+        );
+        until("the second hang's bound", || {
+            w.op(hung).state == OperationState::OutcomeUnknown
+        })
+        .await;
+        assert_eq!(w.op(&a).state, OperationState::OutcomeUnknown);
+        assert_eq!(w.fake.hangs_dropped(), 2);
+        let done = ok(w.ops.ensure(&unattended(501), req).await);
+        assert_eq!(done.code, Code::AccessReady);
+    }
+
+    /// `u0b_dropped_adapter_future_does_no_later_work`. After each timeout, the
+    /// fake's after-drop counter stays 0 once its hangs are released: an effect
+    /// applied before a hang is the only one, a hang before the effect applies none,
+    /// and the cleanup call follows the effect.
+    #[tokio::test]
+    async fn u0b_dropped_adapter_future_does_no_later_work() {
+        // A hang before any effect: the attempt is uncertain, and reconcile later
+        // establishes that nothing applied.
+        let w = bounded_world(
+            vec![FakeStep::HangBeforeEffect(outcome())],
+            Arc::new(NoFaults),
+        )
+        .await;
+        let req = ensure_req("u0b-dd-1", "u0b-dd-1-w", &[("h1", "deploy")]);
+        let e = err(w.ops.ensure(&unattended(501), req.clone()).await);
+        assert_eq!(e.code, Code::OutcomeUnknown);
+        w.fake.release_hangs();
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            w.fake.work_after_drop(),
+            0,
+            "the dropped future did nothing more"
+        );
+        assert_eq!(w.effects(), 0, "no effect after the drop");
+        let e = err(w.ops.ensure(&unattended(501), req).await);
+        assert_eq!(e.effect_status, EffectStatus::None, "{}", e.message);
+        // An effect before the hang, then a cancellation: one effect, and every
+        // cleanup call follows it.
+        let w = bounded_world(vec![FakeStep::ApplyThenHang(outcome())], Arc::new(NoFaults)).await;
+        let op = hung_ensure(&w, "u0b-dd-2").await;
+        ok(w.ops
+            .cancel(
+                &unattended(501),
+                CancelRequest {
+                    operation_id: op.clone(),
+                },
+            )
+            .await);
+        until("the intent's removal", || intent_of(&w, &op).is_none()).await;
+        w.fake.release_hangs();
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(w.fake.work_after_drop(), 0);
+        let journal = w.fake.journal();
+        assert!(
+            matches!(journal.first(), Some(FakeEvent::Effect(_))),
+            "{journal:?}"
+        );
+        assert_eq!(
+            journal
+                .iter()
+                .filter(|e| matches!(e, FakeEvent::Effect(_)))
+                .count(),
+            1,
+            "the only effect: {journal:?}"
+        );
+        assert!(
+            journal
+                .iter()
+                .skip(1)
+                .all(|e| matches!(e, FakeEvent::Revoke(_)))
+        );
+        assert!(journal.len() >= 2, "a cleanup call follows the effect");
+    }
+
+    /// The helper itself: the inner future is dropped at the bound and the answer
+    /// is `OutcomeUnknown` with fixed text; a timely answer passes through.
+    #[tokio::test]
+    async fn u0b_bounded_adapter_call_drops_the_call_at_the_bound() {
+        struct Dropped(Arc<AtomicBool>);
+        impl Drop for Dropped {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let dropped = Arc::new(AtomicBool::new(false));
+        let guard = Dropped(dropped.clone());
+        let started = std::time::Instant::now();
+        let answer: Result<(), AdapterError> = bounded_adapter_call(BOUND, async move {
+            let _guard = guard;
+            std::future::pending::<()>().await;
+            Ok(())
+        })
+        .await;
+        assert!(started.elapsed() >= BOUND);
+        assert_eq!(
+            answer,
+            Err(AdapterError::OutcomeUnknown(ADAPTER_CALL_TIMED_OUT.into()))
+        );
+        assert!(
+            dropped.load(Ordering::SeqCst),
+            "the call's future was dropped"
+        );
+        let fast: Result<ReconcileOutcome, AdapterError> =
+            bounded_adapter_call(BOUND, async { Ok(ReconcileOutcome::NotApplied) }).await;
+        assert_eq!(fast, Ok(ReconcileOutcome::NotApplied));
+        assert_eq!(
+            Limits::default().adapter_call_timeout,
+            heimdall_app::ports::DEFAULT_ADAPTER_CALL_TIMEOUT
+        );
+        assert_eq!(
+            Limits::default().adapter_call_timeout,
+            Duration::from_secs(30)
+        );
+    }
+
+    /// `u0b_every_adapter_call_is_bounded`: a source check over
+    /// `crates/app/src/operations.rs` outside `#[cfg(test)]`. Every `.prepare(`,
+    /// `.renew(`, `.reconcile(` and `.revoke(` call on an adapter is the argument of
+    /// a `bounded_adapter_call`, and there is at least one of each of the three the
+    /// runtime makes.
+    #[test]
+    fn u0b_every_adapter_call_is_bounded() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app/src/operations.rs");
+        let source = std::fs::read_to_string(path).unwrap();
+        let production = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production part");
+        let lines: Vec<&str> = production.lines().collect();
+        let mut found: BTreeMap<&str, usize> = BTreeMap::new();
+        for (n, line) in lines.iter().enumerate() {
+            let code = line.split("//").next().unwrap_or("");
+            for call in [".prepare(", ".renew(", ".reconcile(", ".revoke("] {
+                if !code.contains(call) {
+                    continue;
+                }
+                // The call and the bound are on one line, or the bound opens at
+                // most two lines before (a call spread over several lines, with
+                // the limit as the first argument).
+                let window = lines[n.saturating_sub(2)..=n].join("\n");
+                assert!(
+                    window.contains("bounded_adapter_call("),
+                    "line {}: `{}` is not inside bounded_adapter_call",
+                    n + 1,
+                    line.trim()
+                );
+                *found.entry(call).or_default() += 1;
+            }
+        }
+        for call in [".prepare(", ".reconcile(", ".revoke("] {
+            assert!(
+                found.get(call).copied().unwrap_or(0) > 0,
+                "{call} found: {found:?}"
+            );
+        }
+        assert_eq!(found.get(".reconcile(").copied(), Some(4), "{found:?}");
+        assert_eq!(found.get(".revoke(").copied(), Some(3), "{found:?}");
+        assert_eq!(found.get(".prepare(").copied(), Some(1), "{found:?}");
+    }
+}
+
+// =================================================================================
+// ⟨M02⟩ U0b phase 2: the activation change set (m02-plan U0b rows 1, 10, 18, 19, 23;
+// ADR-0007 §12.14 item 3 E1). The setup and catalog drivers are U5's; these tests
+// drive them through a counting `ProjectionWriter` fake and check what U0b decides:
+// the decision arms, the drive arms, the capability, the writer-less refusal, the
+// admission's single store call and the cancel rule.
+// =================================================================================
+
+mod u0b_phase2 {
     use super::m02_integration::{
-        apply_intent, idem_of, local_receipt, queued, seed_setup_operation, setup_intent,
-        unresolved_events,
+        apply_intent, endpoint, idem_of, identity_id, local_receipt, queued, setup_intent,
     };
     use super::*;
+    use heimdall_app::ports::{
+        HeldStep, PreviewError, ProjectionReceipt, ProjectionReconcile, ProjectionWriter,
+        ReconcileError, StageSink,
+    };
+    use heimdall_contract::catalog::DeclaredInteraction;
+    use heimdall_contract::doctor::AliasObservation;
     use heimdall_contract::ids::IdentityId;
     use heimdall_contract::ipc::{PeerInfo, PrincipalInfo, capability};
     use heimdall_contract::request::{InspectRequest, InspectSubject, Request};
-    use heimdall_contract::setup::PlanDigest;
-    use heimdall_domain::catalog::{CatalogAction, CatalogIntent};
+    use heimdall_contract::setup::{
+        ConflictKind, PlanDigest, PreviewIntent, RepairResolution, SetupPlan, SetupRequest,
+    };
+    use heimdall_domain::catalog::{CatalogAction, CatalogIntent, DeclarationState};
     use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
     use heimdall_domain::operation::{
-        LocalIntent, OperationKind, OperationRecord, RecoveryIntent, StageReceipt,
+        EffectReceipt, FilePhase, LocalIntent, LocalReceipt, OperationKind, RecoveryIntent,
+        StageReceipt,
     };
-    use heimdall_domain::projection::{ProjectionSummary, SummaryIntent};
+    use heimdall_domain::projection::{
+        ConsentRecord, ProjectionPlan, ProjectionRecord, ProjectionSpec, ProjectionSummary,
+        SetupIntent, SummaryIntent,
+    };
     use heimdall_ipc::session::{
-        ConnectionLimits, ControlClient, ControlConnection, Dispatcher, ServerRefusal, SessionInfo,
-        SubscriptionStart, server_capabilities, server_refusal,
+        ConnectionLimits, ControlClient, ControlConnection, server_capabilities,
+    };
+    use heimdall_runtime::dispatch::{EventRelay, OperationsDispatcher};
+    use tokio_util::sync::CancellationToken;
+
+    /// A projection writer that counts every call. `preview` returns a plan whose
+    /// digest is `digest` (the committed `setup-plan.apply.json` example, with that
+    /// digest and the requested intent), needing a decision when `decision` is set;
+    /// without a digest it refuses. `apply` records the intent it was given and
+    /// `reconcile` the intent it reconciles; both then stop with `Unavailable`, which
+    /// writes nothing, so the driver leaves no file and no receipt behind.
+    #[derive(Default)]
+    pub(super) struct CountingWriter {
+        pub(super) digest: std::sync::Mutex<Option<PlanDigest>>,
+        pub(super) decision: AtomicBool,
+        pub(super) previews: AtomicUsize,
+        pub(super) applies: std::sync::Mutex<Vec<SetupIntent>>,
+        pub(super) reconciles: std::sync::Mutex<Vec<SetupIntent>>,
+    }
+
+    impl CountingWriter {
+        pub(super) fn new(digest: Option<PlanDigest>, decision: bool) -> Arc<Self> {
+            let w = Self::default();
+            *w.digest.lock().unwrap() = digest;
+            w.decision.store(decision, Ordering::SeqCst);
+            Arc::new(w)
+        }
+        fn applies(&self) -> usize {
+            self.applies.lock().unwrap().len()
+        }
+        fn reconciles(&self) -> usize {
+            self.reconciles.lock().unwrap().len()
+        }
+    }
+
+    impl ProjectionWriter for CountingWriter {
+        fn preview(
+            &self,
+            _spec: &ProjectionSpec,
+            intent: &PreviewIntent,
+        ) -> Result<ProjectionPlan, PreviewError> {
+            self.previews.fetch_add(1, Ordering::SeqCst);
+            let Some(digest) = self.digest.lock().unwrap().clone() else {
+                return Err(PreviewError::Unavailable("counting writer".into()));
+            };
+            let mut view: SetupPlan =
+                serde_json::from_str(include_str!("../../schemas/examples/setup-plan.apply.json"))
+                    .unwrap();
+            view.plan_digest = digest;
+            view.intent = intent.clone();
+            view.consent.decision_required = self.decision.load(Ordering::SeqCst);
+            view.consent.reasons.clear();
+            let base = setup_intent(1, intent.clone());
+            Ok(ProjectionPlan {
+                view,
+                generation: base.generation,
+                consent: ConsentRecord::default(),
+                files: base.files,
+                summary: Some(summary()),
+            })
+        }
+
+        fn apply(
+            &self,
+            intent: &SetupIntent,
+            _sink: &mut dyn StageSink,
+        ) -> Result<ProjectionReceipt, ReconcileError> {
+            self.applies.lock().unwrap().push(intent.clone());
+            Err(ReconcileError::Unavailable("counting writer".into()))
+        }
+
+        fn reconcile(
+            &self,
+            intent: &SetupIntent,
+            _receipts: &[StageReceipt],
+            _sink: &mut dyn StageSink,
+        ) -> Result<ProjectionReconcile, ReconcileError> {
+            self.reconciles.lock().unwrap().push(intent.clone());
+            Err(ReconcileError::Unavailable("counting writer".into()))
+        }
+
+        fn observe(
+            &self,
+            _record: &ProjectionRecord,
+            _aliases: &[String],
+        ) -> Vec<AliasObservation> {
+            Vec::new()
+        }
+
+        fn observe_held(
+            &self,
+            _intent: &SetupIntent,
+            _receipts: &[StageReceipt],
+        ) -> Result<Vec<HeldStep>, ReconcileError> {
+            Ok(Vec::new())
+        }
+    }
+
+    fn summary() -> ProjectionSummary {
+        ProjectionSummary {
+            intent: SummaryIntent::Apply,
+            added_aliases: vec!["h1".into()],
+            changed_aliases: Vec::new(),
+            removed_aliases: Vec::new(),
+            files: vec!["/scratch/u0b/ssh/config".into()],
+            git: false,
+            restore: Vec::new(),
+            diff_text: "+Include heimdall.conf\n".into(),
+        }
+    }
+
+    /// Restart `w` with `writer` as its projection writer (the M01 fake stays).
+    pub(super) async fn with_writer(w: &mut World, writer: &Arc<CountingWriter>) {
+        w.ops = Operations::start(OperationsConfig {
+            projection: Some(writer.clone() as Arc<dyn ProjectionWriter>),
+            ..w.config()
+        })
+        .await
+        .unwrap();
+    }
+
+    /// An operation of `kind` in `state` with `local`, inserted through the store
+    /// (as admission leaves it, with no receipt).
+    fn seed_local(
+        w: &World,
+        n: u8,
+        kind: OperationKind,
+        state: OperationState,
+        local: LocalIntent,
+    ) -> OperationId {
+        let id = OperationId::from_random_bytes([n; 16]);
+        let rid = RequestId::parse(&format!("u0b-p2-{n}")).unwrap();
+        let mut op = queued(&id, kind, &rid, n);
+        op.state = state;
+        w.store
+            .transaction(|tx| {
+                tx.insert_operation(&op, &idem_of(&op))?;
+                tx.set_recovery_intent(
+                    &id,
+                    &RecoveryIntent {
+                        request: serde_json::json!({ "op": kind.as_str() }),
+                        resolved: None,
+                        local: Some(local),
+                    },
+                )
+            })
+            .unwrap();
+        id
+    }
+
+    fn insert_decision(w: &World, n: u8, kind: DecisionKind) -> DecisionId {
+        let id = DecisionId::from_random_bytes([n; 16]);
+        w.store
+            .transaction(|tx| {
+                let generation = tx.authority_generation()?;
+                tx.insert_decision(&DecisionRecord {
+                    id: id.clone(),
+                    kind,
+                    generation,
+                    created_at: t0(),
+                    expires_at: shift(t0(), 3600),
+                    state: DecisionState::Pending,
+                    decided_at: None,
+                })
+            })
+            .unwrap();
+        id
+    }
+
+    fn apply_projection(op: &OperationId, digest: &PlanDigest) -> DecisionKind {
+        DecisionKind::ApplyProjection {
+            operation: op.clone(),
+            plan_digest: digest.clone(),
+            summary: summary(),
+        }
+    }
+
+    fn declare_interaction(op: &OperationId, identity: &IdentityId) -> DecisionKind {
+        DecisionKind::DeclareInteraction {
+            operation: op.clone(),
+            identity: identity.clone(),
+            fingerprint: super::m02_integration::identity("/scratch/u0b/agent.sock", 1).fingerprint,
+            endpoint: endpoint("/scratch/u0b/agent.sock"),
+            interaction: DeclaredInteraction::None,
+            valid_until: shift(t0(), 30 * 86_400),
+        }
+    }
+
+    fn declare_intent(identity: &IdentityId) -> LocalIntent {
+        LocalIntent::Catalog(CatalogIntent {
+            action: CatalogAction::DeclareInteraction {
+                identity: identity.clone(),
+                interaction: DeclaredInteraction::None,
+            },
+            approval: None,
+        })
+    }
+
+    fn intent_of(w: &World, op: &OperationId) -> RecoveryIntent {
+        w.store
+            .transaction(|tx| tx.recovery_intent(op))
+            .unwrap()
+            .unwrap()
+    }
+
+    fn record(w: &World, d: &DecisionId) -> DecisionRecord {
+        w.store.transaction(|tx| tx.decision(d)).unwrap().unwrap()
+    }
+
+    /// A waiting setup operation with its pending `ApplyProjection` record.
+    fn waiting_setup(w: &World, n: u8) -> (OperationId, DecisionId, SetupIntent) {
+        let intent = setup_intent(u64::from(n), apply_intent());
+        let op = seed_local(
+            w,
+            n,
+            OperationKind::SetupApply,
+            OperationState::AwaitingApproval,
+            LocalIntent::Setup(intent.clone()),
+        );
+        let d = insert_decision(w, n + 1, apply_projection(&op, &intent.plan_digest));
+        (op, d, intent)
+    }
+
+    /// `u0b_apply_projection_decision_resumes_exact_waiting_operation`, with deny,
+    /// stale-generation, unattended-decide and `plan_digest`-mismatch variants
+    /// (m02-plan U0b row 1, phase 2). Approval writes `ProjectionApproval {
+    /// decision, plan_digest }` into exactly the waiting operation's `SetupIntent`,
+    /// moves it out of `awaiting_approval` and resumes it: the driver runs `apply`
+    /// once, with that approval (and nothing for another waiting operation). Deny
+    /// fails the operation, `CAPABILITY_UNAVAILABLE`, with no writer call. Each
+    /// refusal is `DECISION_STALE` or `INTERACTION_REQUIRED` with nothing applied.
+    #[tokio::test]
+    async fn u0b_apply_projection_decision_resumes_exact_waiting_operation() {
+        let mut w = World::new().await;
+        let (op, d, intent) = waiting_setup(&w, 0x31);
+        let (other, other_d, _) = waiting_setup(&w, 0x41);
+        let writer = CountingWriter::new(Some(intent.plan_digest.clone()), true);
+        with_writer(&mut w, &writer).await;
+        // Unattended: refused, nothing consumed.
+        let e = err(decide(&w, &unattended(501), &d, Verdict::Approve).await);
+        assert_eq!(e.code, Code::InteractionRequired);
+        assert_eq!(record(&w, &d).state, DecisionState::Pending);
+        // Approve.
+        let done = ok(decide(&w, &attended(501), &d, Verdict::Approve).await);
+        assert_eq!(done.data["state"], "approved");
+        assert_eq!(done.operation_id.as_ref(), Some(&op));
+        let Some(LocalIntent::Setup(stored)) = intent_of(&w, &op).local else {
+            panic!("setup intent");
+        };
+        let approval = stored.approval.clone().expect("the projection approval");
+        assert_eq!(approval.decision, d);
+        assert_eq!(approval.plan_digest, intent.plan_digest);
+        assert_eq!(stored.without_approval(), intent, "nothing else changed");
+        until_settled(&w, &op).await;
+        assert_eq!(writer.applies(), 1, "resumed and applied once");
+        assert_eq!(
+            writer.applies.lock().unwrap()[0].approval.as_ref(),
+            Some(&approval),
+            "the exact decided plan"
+        );
+        assert_eq!(writer.reconciles(), 0);
+        // The other waiting operation is untouched.
+        assert_eq!(w.op(&other).state, OperationState::AwaitingApproval);
+        assert_eq!(record(&w, &other_d).state, DecisionState::Pending);
+        let Some(LocalIntent::Setup(untouched)) = intent_of(&w, &other).local else {
+            panic!("setup intent");
+        };
+        assert_eq!(untouched.approval, None);
+        // Deny: failed, CAPABILITY_UNAVAILABLE, no writer call.
+        let applies = writer.applies();
+        let previews = writer.previews.load(Ordering::SeqCst);
+        ok(decide(&w, &attended(501), &other_d, Verdict::Deny).await);
+        let denied = w.op(&other);
+        assert_eq!(denied.state, OperationState::Failed);
+        assert_eq!(denied.code, Some(Code::CapabilityUnavailable));
+        assert_eq!(denied.effect_status, EffectStatus::None);
+        assert_eq!(record(&w, &other_d).state, DecisionState::Denied);
+        assert_eq!(writer.applies(), applies);
+        assert_eq!(writer.previews.load(Ordering::SeqCst), previews);
+        // Stale generation: the authority generation moved after issuance.
+        let (stale_op, stale_d, _) = waiting_setup(&w, 0x51);
+        r138_set_automatic_activation(&w, true);
+        let e = err(decide(&w, &attended(501), &stale_d, Verdict::Approve).await);
+        assert_eq!(e.code, Code::DecisionStale);
+        assert_eq!(w.op(&stale_op).state, OperationState::AwaitingApproval);
+        assert!(
+            matches!(intent_of(&w, &stale_op).local, Some(LocalIntent::Setup(i)) if i.approval.is_none())
+        );
+        // A plan-digest mismatch: DECISION_STALE, nothing applied or consumed.
+        let (mis_op, _, _) = waiting_setup(&w, 0x61);
+        let mismatch = insert_decision(
+            &w,
+            0x63,
+            apply_projection(&mis_op, &PlanDigest::from_sha256([0xee; 32])),
+        );
+        for verdict in [Verdict::Approve, Verdict::Deny] {
+            let e = err(decide(&w, &attended(501), &mismatch, verdict).await);
+            assert_eq!(e.code, Code::DecisionStale, "{verdict:?}");
+            assert_eq!(record(&w, &mismatch).state, DecisionState::Pending);
+            assert_eq!(w.op(&mis_op).state, OperationState::AwaitingApproval);
+            assert!(
+                matches!(intent_of(&w, &mis_op).local, Some(LocalIntent::Setup(i)) if i.approval.is_none())
+            );
+        }
+        assert_eq!(writer.applies(), 1);
+        w.events();
+    }
+
+    /// Wait (bounded) until `op` settles.
+    async fn until_settled(w: &World, op: &OperationId) {
+        super::u0b_adapter_bound::until("the operation's settlement", || {
+            w.op(op).state.is_settled()
+        })
+        .await;
+    }
+
+    /// `u0b_declare_interaction_decision_requires_attended_decide` (QR1), extended.
+    /// Only an attended `Decide` completes it. Approval copies the record's fields
+    /// into the waiting catalog intent's `DeclarationApproval`, and the catalog
+    /// driver stores a declaration equal to them. When the identity's endpoint
+    /// changed after the decision was created, the driver answers
+    /// `DECISION_STALE` and writes no declaration.
+    #[tokio::test]
+    async fn u0b_declare_interaction_decision_requires_attended_decide() {
+        let w = World::new().await;
+        super::m02_integration::seed_catalog(&w, false);
+        let op = seed_local(
+            &w,
+            0x71,
+            OperationKind::Catalog,
+            OperationState::AwaitingApproval,
+            declare_intent(&identity_id()),
+        );
+        let kind = declare_interaction(&op, &identity_id());
+        let d = insert_decision(&w, 0x72, kind.clone());
+        let e = err(decide(&w, &unattended(501), &d, Verdict::Approve).await);
+        assert_eq!(e.code, Code::InteractionRequired);
+        assert_eq!(record(&w, &d).state, DecisionState::Pending);
+        ok(decide(&w, &attended(501), &d, Verdict::Approve).await);
+        let Some(LocalIntent::Catalog(stored)) = intent_of(&w, &op).local else {
+            panic!("catalog intent");
+        };
+        let approval = stored.approval.expect("the declaration approval");
+        let DecisionKind::DeclareInteraction {
+            identity,
+            fingerprint,
+            endpoint: at,
+            interaction,
+            valid_until,
+            ..
+        } = kind
+        else {
+            unreachable!()
+        };
+        assert_eq!(approval.decision, d);
+        assert_eq!(
+            (
+                &approval.identity,
+                &approval.fingerprint,
+                &approval.endpoint,
+                approval.interaction,
+                approval.valid_until
+            ),
+            (&identity, &fingerprint, &at, interaction, valid_until),
+            "copied from the record"
+        );
+        until_settled(&w, &op).await;
+        let declared = w
+            .store
+            .transaction(|tx| tx.interaction_declaration(&identity))
+            .unwrap()
+            .expect("the declaration written from the approval");
+        assert_eq!(declared.state, DeclarationState::Live);
+        assert_eq!(declared.fingerprint, fingerprint);
+        assert_eq!(declared.endpoint, at);
+        assert_eq!(declared.expires_at, valid_until);
+        assert_eq!(declared.decision, d);
+        // The identity's endpoint changes after the decision was created.
+        let w = World::new().await;
+        super::m02_integration::seed_catalog(&w, false);
+        let op = seed_local(
+            &w,
+            0x75,
+            OperationKind::Catalog,
+            OperationState::AwaitingApproval,
+            declare_intent(&identity_id()),
+        );
+        let d = insert_decision(&w, 0x76, declare_interaction(&op, &identity_id()));
+        w.store
+            .transaction(|tx| {
+                tx.upsert_identity(&super::m02_integration::identity(
+                    "/scratch/u0b/moved.sock",
+                    2,
+                ))
+            })
+            .unwrap();
+        ok(decide(&w, &attended(501), &d, Verdict::Approve).await);
+        until_settled(&w, &op).await;
+        let settled = w.op(&op);
+        assert_eq!(settled.state, OperationState::Failed);
+        assert_eq!(settled.code, Some(Code::DecisionStale));
+        assert_eq!(
+            w.store
+                .transaction(|tx| tx.interaction_declaration(&identity_id()))
+                .unwrap(),
+            None,
+            "nothing written"
+        );
+        w.events();
+    }
+
+    /// `u0b_decision_kind_must_match_its_waiting_intent`: an `ApplyProjection`
+    /// record naming a catalog operation and a `DeclareInteraction` record naming a
+    /// setup operation are both `DECISION_STALE`, approve and deny alike; the
+    /// records stay pending and the operations untouched.
+    #[tokio::test]
+    async fn u0b_decision_kind_must_match_its_waiting_intent() {
+        let w = World::new().await;
+        let catalog_op = seed_local(
+            &w,
+            0x81,
+            OperationKind::Catalog,
+            OperationState::AwaitingApproval,
+            declare_intent(&identity_id()),
+        );
+        let setup = setup_intent(0x82, apply_intent());
+        let setup_op = seed_local(
+            &w,
+            0x82,
+            OperationKind::SetupApply,
+            OperationState::AwaitingApproval,
+            LocalIntent::Setup(setup.clone()),
+        );
+        let wrong = [
+            insert_decision(&w, 0x83, apply_projection(&catalog_op, &setup.plan_digest)),
+            insert_decision(&w, 0x84, declare_interaction(&setup_op, &identity_id())),
+        ];
+        let before = (intent_of(&w, &catalog_op), intent_of(&w, &setup_op));
+        for d in &wrong {
+            for verdict in [Verdict::Approve, Verdict::Deny] {
+                let e = err(decide(&w, &attended(501), d, verdict).await);
+                assert_eq!(e.code, Code::DecisionStale, "{d} {verdict:?}");
+                assert_eq!(record(&w, d).state, DecisionState::Pending);
+            }
+        }
+        assert_eq!(w.op(&catalog_op).state, OperationState::AwaitingApproval);
+        assert_eq!(w.op(&setup_op).state, OperationState::AwaitingApproval);
+        assert_eq!(
+            (intent_of(&w, &catalog_op), intent_of(&w, &setup_op)),
+            before
+        );
+    }
+
+    /// The idempotency key's `setup.attempt` receipt and a local receipt of a
+    /// running setup operation whose writer has started.
+    fn started(w: &World, op: &OperationId) {
+        w.store
+            .transaction(|tx| {
+                tx.append_stage_receipt(
+                    op,
+                    &StageReceipt {
+                        stage: heimdall_app::setup::STAGE_SETUP_ATTEMPT.into(),
+                        recorded_at: t0(),
+                        effect: EffectReceipt::Attempted {
+                            adapter: AdapterIdentity {
+                                mechanism: heimdall_app::setup::PROJECTION_MECHANISM.into(),
+                                instance: env_id().to_string(),
+                            },
+                            effect_token: "eff_u0b_setup".into(),
+                        },
+                        local: None,
+                    },
+                )?;
+                tx.append_stage_receipt(op, &local_receipt())
+            })
+            .unwrap();
+    }
+
+    /// `u0b_restart_dispatches_every_operation_kind`, full form (m02-plan U0b row
+    /// 10, phase 2). Setup operations of each kind whose writer had started, and a
+    /// catalog operation, are open when the runtime restarts with a projection
+    /// writer: each setup operation is reconciled through
+    /// `ProjectionWriter::reconcile` and `apply` is never called; the catalog
+    /// operation is driven by the catalog driver to a result. Without a writer the
+    /// setup operations stay unresolved and untouched (`driver_unavailable`). The
+    /// M01 kinds are the phase-1 test's (`m02_integration`).
+    #[tokio::test]
+    async fn u0b_restart_dispatches_every_operation_kind() {
+        let mut w = World::new().await;
+        let kinds = [
+            (OperationKind::SetupApply, apply_intent()),
+            (
+                OperationKind::SetupRollback,
+                PreviewIntent::Rollback {
+                    keep_key_files: false,
+                    items: [heimdall_contract::setup::ProjectionItem::Ssh]
+                        .into_iter()
+                        .collect(),
+                },
+            ),
+            (
+                OperationKind::SetupRepair,
+                PreviewIntent::Repair {
+                    conflict: ConflictKind::MarkerDuplicated,
+                    resolution: RepairResolution::RemoveDuplicateMarkers,
+                    operation: None,
+                },
+            ),
+        ];
+        let mut setups = Vec::new();
+        for (i, (kind, intent)) in kinds.into_iter().enumerate() {
+            let n = 0x91 + u8::try_from(i).unwrap();
+            let op = seed_local(
+                &w,
+                n,
+                kind,
+                OperationState::Running,
+                LocalIntent::Setup(setup_intent(u64::from(n), intent)),
+            );
+            started(&w, &op);
+            setups.push(op);
+        }
+        let catalog = seed_local(
+            &w,
+            0x9a,
+            OperationKind::Catalog,
+            OperationState::Queued,
+            LocalIntent::Catalog(CatalogIntent {
+                action: CatalogAction::RemoveIdentity {
+                    id: IdentityId::from_random_bytes([0x9b; 16]),
+                },
+                approval: None,
+            }),
+        );
+        // Without a writer: untouched.
+        let before: Vec<_> = setups
+            .iter()
+            .map(|id| {
+                (
+                    w.op(id),
+                    w.store.transaction(|tx| tx.stage_receipts(id)).unwrap(),
+                )
+            })
+            .collect();
+        w.restart().await;
+        let after: Vec<_> = setups
+            .iter()
+            .map(|id| {
+                (
+                    w.op(id),
+                    w.store.transaction(|tx| tx.stage_receipts(id)).unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            after, before,
+            "no writer: the setup operations are untouched"
+        );
+        for id in &setups {
+            let reported = super::m02_integration::unresolved_events(&w, id);
+            assert_eq!(reported.len(), 1, "{id}: reported once");
+            assert_eq!(reported[0]["reason"], "driver_unavailable");
+        }
+        // With one: reconcile each, never apply.
+        let writer = CountingWriter::new(None, false);
+        with_writer(&mut w, &writer).await;
+        assert_eq!(writer.applies(), 0, "never apply at restart");
+        let reconciled: BTreeSet<PlanDigest> = writer
+            .reconciles
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|i| i.plan_digest.clone())
+            .collect();
+        assert_eq!(
+            reconciled.len(),
+            setups.len(),
+            "each setup operation reconciled"
+        );
+        assert!(w.op(&catalog).state.is_settled(), "the catalog driver ran");
+        w.events();
+    }
+
+    /// `u0b_setup_1_offered_after_activation` (row 19, phase 2; retires
+    /// `w0_setup_1_is_not_offered`). `server_capabilities()` and `inspect
+    /// capabilities` list `setup/1` and agree; a hello that requires it is accepted;
+    /// a session that negotiated it dispatches a Setup request, and one that did not
+    /// is still answered `SCHEMA_UNSUPPORTED` without dispatch.
+    #[tokio::test]
+    async fn u0b_setup_1_offered_after_activation() {
+        assert!(server_capabilities().contains(capability::SETUP_V1));
+        let w = World::new().await;
+        let r = ok(w
+            .ops
+            .inspect(
+                &unattended(501),
+                InspectRequest {
+                    subject: InspectSubject::Capabilities,
+                    preview: None,
+                },
+            )
+            .await);
+        let listed: BTreeSet<String> = r.data["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.as_str().unwrap().to_owned())
+            .collect();
+        assert!(listed.contains(capability::SETUP_V1));
+        assert_eq!(listed, server_capabilities(), "the two lists agree");
+        let preview = Request::Setup(SetupRequest::Preview {
+            intent: apply_intent(),
+        });
+        // A hello that requires `setup/1` is accepted (the production client).
+        let (server, stream) = tokio::io::duplex(1 << 16);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let served = serve(&w, server, calls.clone());
+        let mut client = match ControlClient::handshake(
+            stream,
+            PeerInfo {
+                name: "heimdall-u0b-test".into(),
+                version: "0".into(),
+            },
+            [capability::SETUP_V1.to_owned()].into_iter().collect(),
+            InteractionMode::NonInteractive,
+        )
+        .await
+        {
+            Ok(c) => c,
+            Err(_) => panic!("a hello requiring setup/1 must be accepted"),
+        };
+        assert!(client.server().capabilities.contains(capability::SETUP_V1));
+        let env = client.request(preview.clone()).await.unwrap();
+        // Dispatched; this runtime has no projection writer.
+        assert_eq!(env.code, Code::CapabilityUnavailable);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        drop(client);
+        let _ = served.await;
+        // A hello that does not offer it: the gate answers, nothing is dispatched.
+        for offered in [false, true] {
+            let (server, stream) = tokio::io::duplex(1 << 16);
+            let calls = Arc::new(AtomicUsize::new(0));
+            let served = serve(&w, server, calls.clone());
+            let mut caps = super::wave0_fail_closed::without_setup();
+            if offered {
+                caps.insert(capability::SETUP_V1.to_owned());
+            }
+            let mut raw = super::wave0_fail_closed::RawClient::handshake(stream, caps)
+                .await
+                .unwrap_or_else(|e| panic!("hello refused: {:?}", e.code));
+            assert_eq!(raw.negotiated.contains(capability::SETUP_V1), offered);
+            let env = raw.request(preview.clone()).await;
+            let expected = if offered {
+                Code::CapabilityUnavailable
+            } else {
+                Code::SchemaUnsupported
+            };
+            assert_eq!(env.code, expected, "offered {offered}");
+            assert_eq!(calls.load(Ordering::SeqCst), usize::from(offered));
+            drop(raw);
+            let _ = served.await;
+        }
+    }
+
+    /// Serve one control connection over `server`, counting dispatched requests.
+    fn serve(
+        w: &World,
+        server: tokio::io::DuplexStream,
+        calls: Arc<AtomicUsize>,
+    ) -> tokio::task::JoinHandle<()> {
+        let relay = EventRelay::spawn(&w.ops, CancellationToken::new());
+        let dispatcher = CountingDispatcher {
+            inner: OperationsDispatcher::new(w.ops.clone(), relay, w.clock.clone()),
+            calls,
+        };
+        tokio::spawn(async move {
+            let _ = ControlConnection::new(server, ConnectionLimits::default())
+                .with_server_identity(
+                    env_id(),
+                    PeerInfo {
+                        name: "heimdall".into(),
+                        version: "test".into(),
+                    },
+                )
+                .serve(
+                    PrincipalInfo::OsUserUnix { uid: 501 },
+                    dispatcher,
+                    CancellationToken::new(),
+                )
+                .await;
+        })
+    }
+
+    #[derive(Clone)]
+    struct CountingDispatcher {
+        inner: OperationsDispatcher,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl heimdall_ipc::session::Dispatcher for CountingDispatcher {
+        fn dispatch<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            session: &'life1 heimdall_ipc::session::SessionInfo,
+            request: Request,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = heimdall_contract::Envelope<serde_json::Value>>
+                    + Send
+                    + 'async_trait,
+            >,
+        >
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.dispatch(session, request)
+        }
+
+        fn subscribe<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            session: &'life1 heimdall_ipc::session::SessionInfo,
+            filter: EventFilter,
+            from: Option<heimdall_contract::event::Cursor>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            heimdall_ipc::session::SubscriptionStart,
+                            Box<heimdall_contract::Envelope<heimdall_contract::ErrorData>>,
+                        >,
+                    > + Send
+                    + 'async_trait,
+            >,
+        >
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.inner.subscribe(session, filter, from)
+        }
+    }
+
+    /// Every Setup request of the committed examples.
+    fn setup_requests() -> Vec<Request> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("request.setup."))
+            .collect();
+        names.sort();
+        let requests: Vec<Request> = names
+            .iter()
+            .map(|n| serde_json::from_str(&std::fs::read_to_string(dir.join(n)).unwrap()).unwrap())
+            .collect();
+        let kinds: BTreeSet<&str> = requests.iter().map(Request::kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                "setup.apply",
+                "setup.preview",
+                "setup.repair",
+                "setup.rollback"
+            ]
+            .into_iter()
+            .collect()
+        );
+        requests
+    }
+
+    /// `u0b_setup_without_projection_writer_is_capability_unavailable`, the permanent
+    /// form of the dispatch-level wave-0 test (rows 17, 18). With no projection
+    /// writer, every Setup request, through `OperationsDispatcher::handle_as` and
+    /// `Operations::setup`, for every caller, is `CAPABILITY_UNAVAILABLE`, reason
+    /// `driver_unavailable`, effect `none`, never the dispatcher's wildcard; nothing
+    /// is admitted or written and no file is touched.
+    #[tokio::test]
+    async fn u0b_setup_without_projection_writer_is_capability_unavailable() {
+        let w = World::new().await;
+        let tree = tempfile::tempdir().unwrap();
+        std::fs::write(tree.path().join("config"), b"Host lab\n").unwrap();
+        let tree_before = std::fs::read(tree.path().join("config")).unwrap();
+        let requests = setup_requests();
+        let snapshot = |w: &World| {
+            w.store
+                .transaction(|tx| {
+                    Ok(serde_json::json!({
+                        "operations": tx.operation_counts()?,
+                        "decisions": tx.pending_decisions()?.len(),
+                        "intents": tx.raw_documents(heimdall_store::RawDocuments::RecoveryIntents)?,
+                        "receipts": tx.raw_documents(heimdall_store::RawDocuments::StageReceipts)?,
+                    }))
+                })
+                .unwrap()
+        };
+        let before = snapshot(&w);
+        let relay = EventRelay::spawn(&w.ops, CancellationToken::new());
+        let dispatcher = OperationsDispatcher::new(w.ops.clone(), relay, w.clock.clone());
+        for caller in [unattended(501), attended(501), limited(501)] {
+            // A caller without the owner role is refused for its role first (U5);
+            // the owner gets the writer-less refusal.
+            let owner = caller.context.is_owner();
+            for request in &requests {
+                let label = format!("{} ({:?})", request.kind(), caller.context.role);
+                let env =
+                    serde_json::to_value(dispatcher.handle_as(&caller, request.clone()).await)
+                        .unwrap();
+                assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{label}: {env}");
+                if owner {
+                    assert_eq!(
+                        env["data"]["error"]["reason"], "driver_unavailable",
+                        "{label}"
+                    );
+                }
+                assert_eq!(env["data"]["error"]["effect_status"], "none", "{label}");
+                assert!(env["operation_id"].is_null(), "{label}");
+                let Request::Setup(r) = request.clone() else {
+                    unreachable!()
+                };
+                let e = w.ops.setup(&caller, r).await.expect_err("refused");
+                assert_eq!(e.code, Code::CapabilityUnavailable, "{label}");
+                if owner {
+                    assert_eq!(e.reason.as_deref(), Some("driver_unavailable"), "{label}");
+                }
+                assert_eq!(e.operation_id, None, "{label}");
+            }
+        }
+        assert_eq!(snapshot(&w), before, "nothing admitted or written");
+        assert_eq!(w.ops.setup_insert_calls(), 0);
+        assert_eq!(
+            std::fs::read(tree.path().join("config")).unwrap(),
+            tree_before
+        );
+    }
+
+    /// `u0b_setup_admission_goes_through_insert_setup_operation` (row 23, phase 2).
+    /// Every effectful setup request calls `Txn::insert_setup_operation` exactly once
+    /// (counted at the admission call site). Replaying an admitted request's ID calls
+    /// it zero times and returns that same operation while it is open, so the request
+    /// is never refused because of itself. A refused request leaves no record, so
+    /// its retry is checked again and admitted once the blocker settled.
+    #[tokio::test]
+    async fn u0b_setup_admission_goes_through_insert_setup_operation() {
+        let mut w = World::new().await;
+        let digest = PlanDigest::from_sha256([0x5d; 32]);
+        let writer = CountingWriter::new(Some(digest.clone()), true);
+        with_writer(&mut w, &writer).await;
+        let caller = unattended(501);
+        let apply = |rid: &str| SetupRequest::Apply {
+            plan_digest: digest.clone(),
+            request_id: RequestId::parse(rid).unwrap(),
+        };
+        let open = |w: &World| {
+            w.store
+                .transaction(|tx| tx.open_setup_operations(&env_id()))
+                .unwrap()
+        };
+        // Admitted: one call; the operation waits for its decision.
+        let first = w.ops.setup(&caller, apply("u0b-ad-1")).await;
+        rendered(&first);
+        assert_eq!(w.ops.setup_insert_calls(), 1);
+        let blocker = open(&w);
+        assert_eq!(blocker.len(), 1, "one operation admitted");
+        let op1 = blocker[0].clone();
+        // A replay: zero calls, the same operation, never `setup_in_progress`.
+        for _ in 0..2 {
+            let replay = w.ops.setup(&caller, apply("u0b-ad-1")).await;
+            let v = rendered(&replay);
+            assert_eq!(
+                w.ops.setup_insert_calls(),
+                1,
+                "a replay never reaches the store call"
+            );
+            assert_ne!(v["data"]["error"]["reason"], "setup_in_progress", "{v}");
+            assert_eq!(v["operation_id"], serde_json::json!(op1));
+        }
+        // Another request: one call, refused naming the blocker, nothing written.
+        let counts = w.store.transaction(|tx| tx.operation_counts()).unwrap();
+        for (n, req) in [
+            (2, apply("u0b-ad-2")),
+            (
+                3,
+                SetupRequest::Rollback {
+                    plan_digest: digest.clone(),
+                    request_id: RequestId::parse("u0b-ad-3").unwrap(),
+                },
+            ),
+        ] {
+            let e = err(w.ops.setup(&caller, req).await);
+            assert_eq!(e.code, Code::ConfigConflict, "{}", e.message);
+            assert_eq!(e.reason.as_deref(), Some("setup_in_progress"));
+            assert_eq!(e.next.operation_id.as_ref(), Some(&op1));
+            assert_eq!(
+                w.ops.setup_insert_calls(),
+                n,
+                "exactly one call per request"
+            );
+        }
+        assert_eq!(
+            w.store.transaction(|tx| tx.operation_counts()).unwrap(),
+            counts
+        );
+        assert_eq!(open(&w), vec![op1.clone()]);
+        // The blocker settles (denied); the refused request's retry is checked again.
+        let d = w
+            .store
+            .transaction(|tx| tx.pending_decisions())
+            .unwrap()
+            .into_iter()
+            .find(|d| matches!(&d.kind, DecisionKind::ApplyProjection { operation, .. } if *operation == op1))
+            .expect("the decision");
+        ok(decide(&w, &attended(501), &d.id, Verdict::Deny).await);
+        assert_eq!(w.op(&op1).state, OperationState::Failed);
+        let retry = w.ops.setup(&caller, apply("u0b-ad-2")).await;
+        rendered(&retry);
+        assert_eq!(w.ops.setup_insert_calls(), 4);
+        let now_open = open(&w);
+        assert_eq!(now_open.len(), 1);
+        assert_ne!(now_open[0], op1);
+        assert_eq!(writer.applies(), 0);
+        w.events();
+    }
+
+    /// ADR-0007 §12.14 item 3 (E1), phase 2: a setup cancellation is honoured only
+    /// before the first commit point. Before the driver started (queued, or waiting
+    /// for its decision), it settles `cancelled` with effect `none`, withdraws the
+    /// pending decision and releases `setup_in_progress`. Once the driver started (its
+    /// `setup.attempt` receipt, or a commit step exchanged), the answer is
+    /// `OUTCOME_UNKNOWN` (effect `unknown`) with `next: reconcile` naming the
+    /// operation, and nothing is written. The same rule holds for a catalog
+    /// operation, and a settled operation's cancellation stays idempotent.
+    #[tokio::test]
+    async fn u0b_setup_cancel_only_before_the_first_commit_point() {
+        let w = World::new().await;
+        let cancel = |id: &OperationId| {
+            let ops = w.ops.clone();
+            let req = CancelRequest {
+                operation_id: id.clone(),
+            };
+            async move { ops.cancel(&unattended(501), req).await }
+        };
+        // Waiting for its decision.
+        let (waiting, d, _) = waiting_setup(&w, 0xa1);
+        let done = ok(cancel(&waiting).await);
+        assert_eq!(done.data["state"], "cancelled");
+        assert_eq!(done.data["may_have_external_effect"], false);
+        let op = w.op(&waiting);
+        assert_eq!(op.state, OperationState::Cancelled);
+        assert_eq!(op.effect_status, EffectStatus::None);
+        assert_eq!(record(&w, &d).state, DecisionState::Withdrawn);
+        assert!(
+            w.store
+                .transaction(|tx| tx.open_setup_operations(&env_id()))
+                .unwrap()
+                .is_empty(),
+            "setup_in_progress is released"
+        );
+        // Idempotent once settled.
+        let again = ok(cancel(&waiting).await);
+        assert_eq!(again.data["state"], "cancelled");
+        // Queued, nothing started.
+        let queued_op = seed_local(
+            &w,
+            0xa3,
+            OperationKind::SetupRollback,
+            OperationState::Queued,
+            LocalIntent::Setup(setup_intent(0xa3, apply_intent())),
+        );
+        assert_eq!(ok(cancel(&queued_op).await).data["state"], "cancelled");
+        // Started: past (or possibly past) the first commit point.
+        let snapshot = |id: &OperationId| {
+            (
+                w.op(id),
+                w.store.transaction(|tx| tx.stage_receipts(id)).unwrap(),
+                intent_of(&w, id),
+            )
+        };
+        let running = seed_local(
+            &w,
+            0xa5,
+            OperationKind::SetupApply,
+            OperationState::Running,
+            LocalIntent::Setup(setup_intent(0xa5, apply_intent())),
+        );
+        started(&w, &running);
+        let exchanged = seed_local(
+            &w,
+            0xa7,
+            OperationKind::SetupApply,
+            OperationState::Running,
+            LocalIntent::Setup(setup_intent(0xa7, apply_intent())),
+        );
+        started(&w, &exchanged);
+        w.store
+            .transaction(|tx| {
+                tx.append_stage_receipt(
+                    &exchanged,
+                    &StageReceipt {
+                        local: Some(LocalReceipt::File {
+                            step: 0,
+                            phase: FilePhase::Exchanged,
+                        }),
+                        ..local_receipt()
+                    },
+                )
+            })
+            .unwrap();
+        for id in [&running, &exchanged] {
+            let before = snapshot(id);
+            let e = err(cancel(id).await);
+            assert_eq!(e.code, Code::OutcomeUnknown, "{}", e.message);
+            assert_eq!(e.effect_status, EffectStatus::Unknown);
+            assert_eq!(e.next.action, "reconcile");
+            assert_eq!(e.next.operation_id.as_ref(), Some(id));
+            assert_eq!(snapshot(id), before, "nothing written");
+        }
+        // A catalog operation waiting for its declaration decision.
+        let catalog = seed_local(
+            &w,
+            0xa9,
+            OperationKind::Catalog,
+            OperationState::AwaitingApproval,
+            declare_intent(&identity_id()),
+        );
+        let cd = insert_decision(&w, 0xaa, declare_interaction(&catalog, &identity_id()));
+        assert_eq!(ok(cancel(&catalog).await).data["state"], "cancelled");
+        assert_eq!(record(&w, &cd).state, DecisionState::Withdrawn);
+        w.events();
+    }
+}
+
+// =================================================================================
+// ⟨M02⟩ Wave-0 acceptance: the fail-closed landing (m02-plan §5 item 4, U0b), after
+// the activation change set
+// =================================================================================
+
+/// ⟨M02⟩ m02-plan U0b "wave-0 acceptance tests" (M2-R07; ADR-0007 §12.5 item 7,
+/// §12.7 QR7), as phase 2 leaves them. The one that still holds stays here: a
+/// session that did not negotiate `setup/1` gets `SCHEMA_UNSUPPORTED` for every
+/// Setup and Catalog request, never dispatched. Phase 2 replaced the others (m02-plan
+/// U0b "Tests, phase 2"):
+/// * `w0_setup_1_is_not_offered` is retired by
+///   `u0b_phase2::u0b_setup_1_offered_after_activation`;
+/// * `w0_setup_and_catalog_at_dispatch_are_capability_unavailable` by
+///   `u0b_phase2::u0b_setup_without_projection_writer_is_capability_unavailable` (its
+///   permanent form; the catalog part by U5's end-to-end tests);
+/// * `w0_open_setup_and_catalog_operations_stay_unresolved_at_restart` by
+///   `u0b_phase2::u0b_restart_dispatches_every_operation_kind`
+///   (untouched without a writer, reconciled with one) and
+///   `u0b_phase2::u0b_setup_cancel_only_before_the_first_commit_point` (E1);
+/// * `w0_decide_on_projection_or_declaration_decision_is_refused_unconsumed` by the
+///   three phase-2 decision tests.
+///
+/// The plan names `tests/e2e/wave0_fail_closed.rs` hosted by `heimdall-runtime`;
+/// that needs a `[[test]]` entry in a manifest this unit does not own, so the suite
+/// is a module of this target, which `heimdall-runtime` already hosts (escalated in
+/// wave 0). The CLI case is in `tests/e2e/cli_m01.rs` (a `heimdall` package target,
+/// wave-0 verify E6). Sessions run over an in-memory duplex stream, so the suite is
+/// the same on every platform.
+mod wave0_fail_closed {
+    use super::*;
+    use heimdall_contract::ipc::{
+        ClientHello, ClientMessage, PeerInfo, PrincipalInfo, ServerMessage, capability,
+    };
+    use heimdall_contract::request::{InspectRequest, InspectSubject, Request};
+    use heimdall_domain::operation::OperationKind;
+    use heimdall_ipc::frame::{CONTROL_LIMIT, decode_frame, encode_frame};
+    use heimdall_ipc::session::{
+        ConnectionLimits, ControlConnection, Dispatcher, SessionInfo, SubscriptionStart,
+        server_capabilities,
     };
     use heimdall_runtime::dispatch::{EventRelay, OperationsDispatcher};
     use tokio_util::sync::CancellationToken;
@@ -11408,108 +13736,6 @@ mod wave0_fail_closed {
             .collect()
     }
 
-    /// A scratch tree standing in for the files a setup would touch (a user SSH
-    /// configuration and a global Git file), and its snapshot: every path with its
-    /// bytes, length and modification time.
-    fn scratch_tree() -> tempfile::TempDir {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join(".ssh")).unwrap();
-        std::fs::write(
-            dir.path().join(".ssh").join("config"),
-            b"Host lab\n  HostName lab.example.invalid\n",
-        )
-        .unwrap();
-        std::fs::write(dir.path().join(".gitconfig"), b"[core]\n").unwrap();
-        dir
-    }
-
-    fn snapshot(root: &std::path::Path) -> Vec<(String, Vec<u8>, std::time::SystemTime)> {
-        let mut out = Vec::new();
-        let mut stack = vec![root.to_path_buf()];
-        while let Some(dir) = stack.pop() {
-            for e in std::fs::read_dir(&dir).unwrap() {
-                let e = e.unwrap();
-                let meta = e.metadata().unwrap();
-                let path = e.path();
-                if meta.is_dir() {
-                    stack.push(path.clone());
-                    out.push((
-                        path.display().to_string(),
-                        Vec::new(),
-                        meta.modified().unwrap(),
-                    ));
-                } else {
-                    out.push((
-                        path.display().to_string(),
-                        std::fs::read(&path).unwrap(),
-                        meta.modified().unwrap(),
-                    ));
-                }
-            }
-        }
-        out.sort();
-        out
-    }
-
-    fn assert_driver_unavailable(env: &serde_json::Value, label: &str) {
-        assert_eq!(env["code"], "CAPABILITY_UNAVAILABLE", "{label}: {env}");
-        assert_eq!(
-            env["data"]["error"]["reason"], "driver_unavailable",
-            "{label}"
-        );
-        assert_eq!(env["data"]["error"]["effect_status"], "none", "{label}");
-        assert!(env["operation_id"].is_null(), "{label}: no operation");
-        assert_no_canary(&env.to_string());
-    }
-
-    /// `w0_setup_1_is_not_offered`: `server_capabilities()` and `inspect
-    /// capabilities` omit `setup/1`, and a hello that requires it is rejected with
-    /// `SCHEMA_UNSUPPORTED` (ADR-0006 §2.3).
-    #[tokio::test]
-    async fn w0_setup_1_is_not_offered() {
-        assert!(!server_capabilities().contains(capability::SETUP_V1));
-        let w = World::new().await;
-        let r = ok(w
-            .ops
-            .inspect(
-                &unattended(501),
-                InspectRequest {
-                    subject: InspectSubject::Capabilities,
-                    preview: None,
-                },
-            )
-            .await);
-        let listed: Vec<&str> = r.data["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|c| c.as_str().unwrap())
-            .collect();
-        assert!(!listed.contains(&capability::SETUP_V1), "{listed:?}");
-        let listed_set: BTreeSet<String> = listed.iter().map(|s| (*s).to_owned()).collect();
-        assert_eq!(listed_set, server_capabilities(), "the two lists agree");
-        let (server, client_stream) = tokio::io::duplex(1 << 16);
-        let served = serve(&w, server, counting(&w).0);
-        let refused = match ControlClient::handshake(
-            client_stream,
-            client_info(),
-            [capability::SETUP_V1.to_owned()].into_iter().collect(),
-            InteractionMode::NonInteractive,
-        )
-        .await
-        {
-            Ok(_) => panic!("a hello requiring setup/1 must be rejected"),
-            Err(e) => e,
-        };
-        match server_refusal(&refused) {
-            Some(ServerRefusal::Rejected(env)) => {
-                assert_eq!(env.code, Code::SchemaUnsupported);
-            }
-            other => panic!("expected a rejected hello, got {other:?}"),
-        }
-        let _ = served.await;
-    }
-
     fn client_info() -> PeerInfo {
         PeerInfo {
             name: "heimdall-u0b-test".into(),
@@ -11607,32 +13833,119 @@ mod wave0_fail_closed {
         })
     }
 
-    /// A real session (hello negotiated with the server's offer) over a duplex
-    /// stream, its dispatcher counting.
-    async fn session(
-        w: &World,
-    ) -> (
-        (tokio::task::JoinHandle<()>, Arc<AtomicUsize>),
-        ControlClient<tokio::io::DuplexStream>,
-    ) {
+    /// A control client whose hello offers exactly the capabilities it is given.
+    /// (The production `ControlClient` offers every capability the server serves,
+    /// `setup/1` included since the activation change set.) Frames are the
+    /// production codec's (`heimdall_ipc::frame`).
+    pub(super) struct RawClient {
+        stream: tokio::io::DuplexStream,
+        buf: Vec<u8>,
+        seq: u64,
+        /// The capabilities the server's hello negotiated.
+        pub(super) negotiated: BTreeSet<String>,
+    }
+
+    impl RawClient {
+        /// Send a hello offering `capabilities` and requiring none; `Err` is the
+        /// server's rejection.
+        pub(super) async fn handshake(
+            mut stream: tokio::io::DuplexStream,
+            capabilities: BTreeSet<String>,
+        ) -> Result<Self, Box<heimdall_contract::Envelope<heimdall_contract::ErrorData>>> {
+            use tokio::io::AsyncWriteExt;
+            let hello = ClientMessage::Hello(ClientHello {
+                protocol: heimdall_contract::PROTOCOL_VERSION,
+                schema_version: heimdall_contract::SchemaVersion::current(),
+                client: client_info(),
+                capabilities,
+                required: BTreeSet::new(),
+                interaction: InteractionMode::NonInteractive,
+            });
+            stream
+                .write_all(&encode_frame(&hello, CONTROL_LIMIT).unwrap())
+                .await
+                .unwrap();
+            let mut me = Self {
+                stream,
+                buf: Vec::new(),
+                seq: 0,
+                negotiated: BTreeSet::new(),
+            };
+            match me.next().await {
+                ServerMessage::Hello(h) => {
+                    me.negotiated = h.capabilities;
+                    Ok(me)
+                }
+                ServerMessage::Reject(env) => Err(Box::new(env)),
+                _ => panic!("unexpected first server frame"),
+            }
+        }
+
+        async fn next(&mut self) -> ServerMessage {
+            use tokio::io::AsyncReadExt;
+            loop {
+                if let Some((msg, used)) =
+                    decode_frame::<ServerMessage>(&self.buf, CONTROL_LIMIT).unwrap()
+                {
+                    self.buf.drain(..used);
+                    return msg;
+                }
+                let mut chunk = [0u8; 8192];
+                let n = self.stream.read(&mut chunk).await.unwrap();
+                assert!(n > 0, "the server closed the connection");
+                self.buf.extend_from_slice(&chunk[..n]);
+            }
+        }
+
+        /// Send `request` and return its response.
+        pub(super) async fn request(
+            &mut self,
+            request: Request,
+        ) -> heimdall_contract::Envelope<serde_json::Value> {
+            use tokio::io::AsyncWriteExt;
+            self.seq += 1;
+            let seq = self.seq;
+            let frame =
+                encode_frame(&ClientMessage::Request { seq, request }, CONTROL_LIMIT).unwrap();
+            self.stream.write_all(&frame).await.unwrap();
+            loop {
+                if let ServerMessage::Response {
+                    in_reply_to,
+                    envelope,
+                } = self.next().await
+                    && in_reply_to == seq
+                {
+                    return envelope;
+                }
+            }
+        }
+    }
+
+    /// Every capability the server serves except `setup/1`.
+    pub(super) fn without_setup() -> BTreeSet<String> {
+        let mut c = server_capabilities();
+        c.remove(capability::SETUP_V1);
+        c
+    }
+
+    /// A real session over a duplex stream whose hello did not offer `setup/1` (it
+    /// offers every other capability the server serves), its dispatcher counting.
+    async fn session(w: &World) -> ((tokio::task::JoinHandle<()>, Arc<AtomicUsize>), RawClient) {
         let (server, client_stream) = tokio::io::duplex(1 << 16);
         let (dispatcher, calls) = counting(w);
         let served = serve(w, server, dispatcher);
-        let client = ControlClient::handshake(
-            client_stream,
-            client_info(),
-            BTreeSet::new(),
-            InteractionMode::NonInteractive,
-        )
-        .await
-        .unwrap();
-        assert!(!client.server().capabilities.contains(capability::SETUP_V1));
+        let client = RawClient::handshake(client_stream, without_setup())
+            .await
+            .unwrap_or_else(|e| panic!("hello refused: {:?}", e.code));
+        assert!(!client.negotiated.contains(capability::SETUP_V1));
+        assert_eq!(client.negotiated, without_setup());
         ((served, calls), client)
     }
 
-    /// `w0_setup_and_catalog_on_a_session_are_never_dispatched`: over a real
-    /// session every Setup and Catalog request is answered `SCHEMA_UNSUPPORTED` by
-    /// the session gate. The dispatcher is never called, and nothing is written.
+    /// `w0_setup_and_catalog_on_a_session_are_never_dispatched`, as it holds after
+    /// activation: over a real session whose hello did not offer `setup/1`, every
+    /// Setup and Catalog request is answered `SCHEMA_UNSUPPORTED` by the session
+    /// gate. The dispatcher is never called, and nothing is written.
     #[tokio::test]
     async fn w0_setup_and_catalog_on_a_session_are_never_dispatched() {
         let w = World::new().await;
@@ -11641,7 +13954,7 @@ mod wave0_fail_closed {
         let before = rows(&w, &keys);
         let ((served, calls), mut client) = session(&w).await;
         for request in &requests {
-            let env = client.request(request.clone()).await.unwrap();
+            let env = client.request(request.clone()).await;
             let v = serde_json::to_value(&env).unwrap();
             assert_eq!(env.code, Code::SchemaUnsupported, "{}: {v}", request.kind());
             assert_no_canary(&v.to_string());
@@ -11653,301 +13966,11 @@ mod wave0_fail_closed {
                 subject: InspectSubject::Operations,
                 preview: None,
             }))
-            .await
-            .unwrap();
+            .await;
         assert_eq!(inspect.code, Code::Ok);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         drop(client);
         let _ = served.await;
         assert_eq!(rows(&w, &keys), before, "no row of any kind");
-    }
-
-    /// `w0_setup_and_catalog_at_dispatch_are_capability_unavailable`: through
-    /// `OperationsDispatcher::handle_as` and the `Operations` entry points, every
-    /// Setup and Catalog request is `CAPABILITY_UNAVAILABLE`, reason
-    /// `driver_unavailable`, effect `none` (so neither reaches the dispatcher's
-    /// wildcard, which answers `USAGE_ERROR`). No row is written and the scratch
-    /// tree is unchanged, for attended, unattended and limited callers alike.
-    #[tokio::test]
-    async fn w0_setup_and_catalog_at_dispatch_are_capability_unavailable() {
-        let w = World::new().await;
-        let tree = scratch_tree();
-        let tree_before = snapshot(tree.path());
-        let requests = new_requests();
-        let keys = keys_of(&requests);
-        let before = rows(&w, &keys);
-        let (dispatcher, calls) = counting(&w);
-        for caller in [unattended(501), attended(501), limited(501)] {
-            for request in &requests {
-                let label = format!("{} ({:?})", request.kind(), caller.context.role);
-                let env = dispatcher.inner.handle_as(&caller, request.clone()).await;
-                assert_driver_unavailable(&serde_json::to_value(&env).unwrap(), &label);
-                let direct = match request.clone() {
-                    Request::Setup(r) => w.ops.setup(&caller, r).await,
-                    Request::Catalog(r) => w.ops.catalog(&caller, r).await,
-                    _ => unreachable!("only Setup and Catalog requests"),
-                };
-                let e = direct.expect_err("refused");
-                assert_eq!(e.code, Code::CapabilityUnavailable, "{label}");
-                assert_eq!(e.reason.as_deref(), Some("driver_unavailable"), "{label}");
-                assert_eq!(e.effect_status, EffectStatus::None, "{label}");
-                assert_eq!(e.operation_id, None, "{label}");
-            }
-        }
-        assert_eq!(calls.load(Ordering::SeqCst), 0, "handle_as is not dispatch");
-        assert_eq!(rows(&w, &keys), before, "no row of any kind");
-        assert_eq!(snapshot(tree.path()), tree_before, "no file touched");
-    }
-
-    /// `w0_open_setup_and_catalog_operations_stay_unresolved_at_restart`: open
-    /// operations of each new kind, with receipts, keep their state and receipts
-    /// across restarts; no file is touched; each restart reports each one in a
-    /// `runtime_lifecycle` event with `driver_unavailable`; nothing panics. A
-    /// cancellation of one is refused and writes nothing (wave-0 verify E1).
-    #[tokio::test]
-    async fn w0_open_setup_and_catalog_operations_stay_unresolved_at_restart() {
-        let mut w = World::new().await;
-        let tree = scratch_tree();
-        let tree_before = snapshot(tree.path());
-        let mut seeded = vec![
-            seed_setup_operation(&w, 0x91, OperationKind::SetupApply),
-            seed_setup_operation(&w, 0x92, OperationKind::SetupRollback),
-            seed_setup_operation(&w, 0x93, OperationKind::SetupRepair),
-        ];
-        // An unresolved setup operation (`outcome_unknown`) and a running catalog one.
-        let unresolved = seed_setup_operation(&w, 0x94, OperationKind::SetupApply);
-        w.store
-            .transaction(|tx| {
-                let mut op = tx.operation(&unresolved)?.unwrap();
-                op.state = OperationState::Running;
-                tx.update_operation(&op)?;
-                op.state = OperationState::OutcomeUnknown;
-                op.effect_status = EffectStatus::Unknown;
-                tx.update_operation(&op)
-            })
-            .unwrap();
-        seeded.push(unresolved);
-        let catalog = OperationId::from_random_bytes([0x95; 16]);
-        let rid = RequestId::parse("u0b-w0-cat").unwrap();
-        let mut op = queued(&catalog, OperationKind::Catalog, &rid, 0x95);
-        op.state = OperationState::Running;
-        w.store
-            .transaction(|tx| {
-                tx.insert_operation(&op, &idem_of(&op))?;
-                tx.set_recovery_intent(
-                    &catalog,
-                    &RecoveryIntent {
-                        request: serde_json::json!({ "op": "catalog", "action": "remove_identity" }),
-                        resolved: None,
-                        local: Some(LocalIntent::Catalog(CatalogIntent {
-                            action: CatalogAction::RemoveIdentity {
-                                id: IdentityId::from_random_bytes([5; 16]),
-                            },
-                            approval: None,
-                        })),
-                    },
-                )?;
-                tx.append_stage_receipt(&catalog, &local_receipt())
-            })
-            .unwrap();
-        seeded.push(catalog);
-        let state =
-            |w: &World| -> Vec<(OperationRecord, Vec<StageReceipt>, Option<RecoveryIntent>)> {
-                seeded
-                    .iter()
-                    .map(|id| {
-                        w.store
-                            .transaction(|tx| {
-                                Ok((
-                                    tx.operation(id)?.unwrap(),
-                                    tx.stage_receipts(id)?,
-                                    tx.recovery_intent(id)?,
-                                ))
-                            })
-                            .unwrap()
-                    })
-                    .collect()
-            };
-        let before = state(&w);
-        for round in 1..=2 {
-            w.restart().await;
-            assert_eq!(
-                state(&w),
-                before,
-                "restart {round}: state, receipts, intents"
-            );
-            for id in &seeded {
-                let reported = unresolved_events(&w, id);
-                assert_eq!(reported.len(), round, "{id}: one report per restart");
-                assert!(reported.iter().all(|p| p["reason"] == "driver_unavailable"));
-                assert!(reported.iter().all(|p| p["phase"] == "unresolved"));
-            }
-        }
-        // `inspect operations` lists them, unresolved or open.
-        let listed = ok(w
-            .ops
-            .inspect(
-                &unattended(501),
-                InspectRequest {
-                    subject: InspectSubject::Operations,
-                    preview: None,
-                },
-            )
-            .await);
-        for id in &seeded {
-            assert!(listed.data.to_string().contains(id.as_str()), "{id} listed");
-        }
-        // A cancellation is refused and writes nothing (E1).
-        let refused = err(w
-            .ops
-            .cancel(
-                &unattended(501),
-                CancelRequest {
-                    operation_id: seeded[0].clone(),
-                },
-            )
-            .await);
-        assert_eq!(refused.code, Code::CapabilityUnavailable);
-        assert_eq!(refused.reason.as_deref(), Some("driver_unavailable"));
-        assert_eq!(state(&w), before);
-        assert_eq!(snapshot(tree.path()), tree_before, "no file touched");
-    }
-
-    /// Seed a pending decision record of `kind` waiting on an `awaiting_approval`
-    /// operation of `op_kind`.
-    fn seed_decision(
-        w: &World,
-        n: u8,
-        op_kind: OperationKind,
-        kind: impl FnOnce(OperationId) -> DecisionKind,
-    ) -> (heimdall_contract::ids::DecisionId, OperationId) {
-        let op_id = OperationId::from_random_bytes([n; 16]);
-        let rid = RequestId::parse(&format!("u0b-w0-dec-{n}")).unwrap();
-        let mut op = queued(&op_id, op_kind, &rid, n);
-        let local = if op_kind.is_setup() {
-            LocalIntent::Setup(setup_intent(u64::from(n), apply_intent()))
-        } else {
-            LocalIntent::Catalog(CatalogIntent {
-                action: CatalogAction::DeclareInteraction {
-                    identity: IdentityId::from_random_bytes([6; 16]),
-                    interaction: heimdall_contract::catalog::DeclaredInteraction::None,
-                },
-                approval: None,
-            })
-        };
-        let decision = heimdall_contract::ids::DecisionId::from_random_bytes([n + 1; 16]);
-        let record_kind = kind(op_id.clone());
-        w.store
-            .transaction(|tx| {
-                op.state = OperationState::AwaitingApproval;
-                tx.insert_operation(&op, &idem_of(&op))?;
-                tx.set_recovery_intent(
-                    &op_id,
-                    &RecoveryIntent {
-                        request: serde_json::json!({ "op": op_kind.as_str() }),
-                        resolved: None,
-                        local: Some(local),
-                    },
-                )?;
-                let generation = tx.authority_generation()?;
-                tx.insert_decision(&DecisionRecord {
-                    id: decision.clone(),
-                    kind: record_kind,
-                    generation,
-                    created_at: t0(),
-                    expires_at: shift(t0(), 3600),
-                    state: DecisionState::Pending,
-                    decided_at: None,
-                })
-            })
-            .unwrap();
-        (decision, op_id)
-    }
-
-    /// `w0_decide_on_projection_or_declaration_decision_is_refused_unconsumed`:
-    /// pending `ApplyProjection` and `DeclareInteraction` records, with an attended
-    /// owner, unexpired records and safe time. `Decide approve` and `Decide deny`
-    /// are each `CAPABILITY_UNAVAILABLE`; the records stay pending and their
-    /// operations untouched. `inspect decisions` shows both kinds.
-    #[tokio::test]
-    async fn w0_decide_on_projection_or_declaration_decision_is_refused_unconsumed() {
-        let w = World::new().await;
-        let (projection, setup_op) = seed_decision(&w, 0xa1, OperationKind::SetupApply, |op| {
-            DecisionKind::ApplyProjection {
-                operation: op,
-                plan_digest: PlanDigest::from_sha256([0xa1; 32]),
-                summary: ProjectionSummary {
-                    intent: SummaryIntent::Apply,
-                    added_aliases: vec!["h1".into()],
-                    changed_aliases: Vec::new(),
-                    removed_aliases: Vec::new(),
-                    files: vec!["/scratch/u0b/ssh/config".into()],
-                    git: false,
-                    restore: Vec::new(),
-                    diff_text: "+Include heimdall.conf\n".into(),
-                },
-            }
-        });
-        let (declaration, catalog_op) = seed_decision(&w, 0xb1, OperationKind::Catalog, |op| {
-            DecisionKind::DeclareInteraction {
-                operation: op,
-                identity: IdentityId::from_random_bytes([6; 16]),
-                fingerprint: "SHA256:u0bfixture".into(),
-                endpoint: super::m02_integration::endpoint("/scratch/u0b/agent.sock"),
-                interaction: heimdall_contract::catalog::DeclaredInteraction::None,
-                valid_until: shift(t0(), 30 * 86_400),
-            }
-        });
-        let ops_before = (w.op(&setup_op), w.op(&catalog_op));
-        let listed = ok(w
-            .ops
-            .inspect(
-                &attended(501),
-                InspectRequest {
-                    subject: InspectSubject::Decisions,
-                    preview: None,
-                },
-            )
-            .await);
-        let kinds: BTreeSet<String> = listed.data["decisions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|d| d["kind"].as_str().unwrap().to_owned())
-            .collect();
-        assert!(kinds.contains("apply_projection") && kinds.contains("declare_interaction"));
-        let (dispatcher, _) = counting(&w);
-        for d in [&projection, &declaration] {
-            for verdict in [Verdict::Approve, Verdict::Deny] {
-                let e = err(decide(&w, &attended(501), d, verdict).await);
-                assert_eq!(e.code, Code::CapabilityUnavailable, "{d} {verdict:?}");
-                assert_eq!(e.reason.as_deref(), Some("driver_unavailable"));
-                assert_eq!(e.effect_status, EffectStatus::None);
-                // The same through the dispatcher.
-                let env = dispatcher
-                    .inner
-                    .handle_as(
-                        &attended(501),
-                        Request::Decide(DecideRequest {
-                            decision_id: d.clone(),
-                            verdict,
-                        }),
-                    )
-                    .await;
-                assert_eq!(env.code, Code::CapabilityUnavailable);
-                let record = w.store.transaction(|tx| tx.decision(d)).unwrap().unwrap();
-                assert_eq!(record.state, DecisionState::Pending, "{d} stays pending");
-                assert_eq!(record.decided_at, None);
-            }
-        }
-        assert_eq!((w.op(&setup_op), w.op(&catalog_op)), ops_before);
-        assert_eq!(
-            w.store
-                .transaction(|tx| tx.pending_decisions())
-                .unwrap()
-                .len(),
-            2
-        );
-        w.events();
     }
 }

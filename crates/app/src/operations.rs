@@ -161,8 +161,8 @@ use heimdall_contract::ids::{
 };
 use heimdall_contract::provider::{
     CredentialAvailability, EndpointRef, EvidenceBasis, IdentitiesOnly, IdentitySelection,
-    IdentitySelectionReport, InteractionKind, NoninteractiveEligibility, ProviderStatus,
-    noninteractive_reason,
+    IdentitySelectionReport, InteractionKind, NoninteractiveEligibility, ProviderKind,
+    ProviderStatus, noninteractive_reason,
 };
 use heimdall_contract::request::{
     BindForm, BindRequest, CancelRequest, ConfirmTimeRequest, ConsumerIntegration, DeadlineIntent,
@@ -177,8 +177,8 @@ use heimdall_domain::authority::{
 };
 use heimdall_domain::binding::{BindingRecord, BindingState, ReleaseOutcome, may_act_on};
 use heimdall_domain::catalog::{
-    DestinationDefinition, IdentityRecord, InteractionDeclaration, PairEligibility, PreparedFacts,
-    PreparedPair,
+    CatalogAction, DeclarationApproval, DestinationDefinition, IdentityRecord,
+    InteractionDeclaration, PairEligibility, PreparedFacts, PreparedPair,
 };
 use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionRefusal, DecisionState};
 use heimdall_domain::environment::{
@@ -204,7 +204,7 @@ use heimdall_domain::operation::{
 use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::ProfileSnapshot;
-use heimdall_domain::projection::ProjectionSummary;
+use heimdall_domain::projection::{ProjectionApproval, ProjectionSummary};
 use heimdall_domain::revocation::{
     CleanupIntent, DEFAULT_ROUND_CAP, PendingRemoteRevocation, RearmedEffect, RemoteObligation,
     RemotePendingReason, RevocationCause, Tombstone,
@@ -243,6 +243,13 @@ pub struct Limits {
     pub event_retention: Duration,
     /// Lifetime of a pending decision record.
     pub decision_lifetime: Duration,
+    /// ⟨M02⟩ U0b row 24 (M2-T06; ADR-0006 §13.20 item 3; ADR-0007 §7 "Every call is
+    /// bounded"; P12): the bound on one `CredentialAdapter` call, applied to the
+    /// adapter future alone through [`bounded_adapter_call`]. Production default
+    /// [`crate::ports::DEFAULT_ADAPTER_CALL_TIMEOUT`] (30 s); the production minimum
+    /// is [`crate::ports::MIN_ADAPTER_CALL_TIMEOUT`] (1 s), which `Operations::start`
+    /// does not enforce so that tests may use less (wave-0 verify E14).
+    pub adapter_call_timeout: Duration,
 }
 
 impl Default for Limits {
@@ -255,7 +262,37 @@ impl Default for Limits {
             operation_retention: heimdall_domain::idempotency::DEFAULT_RETENTION,
             event_retention: Duration::from_secs(7 * 24 * 60 * 60),
             decision_lifetime: heimdall_domain::decision::DEFAULT_DECISION_LIFETIME,
+            adapter_call_timeout: crate::ports::DEFAULT_ADAPTER_CALL_TIMEOUT,
         }
+    }
+}
+
+/// ⟨M02⟩ The answer of an adapter call whose bound elapsed (U0b row 24). Fixed,
+/// nonsecret text.
+pub const ADAPTER_CALL_TIMED_OUT: &str = "adapter call timed out";
+
+/// ⟨M02⟩ U0b row 24 (M2-T06; ADR-0006 §13.20 item 3; ADR-0007 §7 "Every call is
+/// bounded"): await one `CredentialAdapter` call for at most `limit`.
+///
+/// It wraps **the adapter future alone**: callers acquire an adapter slot first
+/// and call this inside the slot, so neither the slot wait nor a caller's bounded
+/// wait is ever counted. When the bound elapses the future is **dropped** (the
+/// adapter's drop contract, `crate::ports::CredentialAdapter`) and the call answers
+/// `AdapterError::OutcomeUnknown(`[`ADAPTER_CALL_TIMED_OUT`]`)`. Each call site then
+/// runs its existing arm for that answer, unchanged; nothing here decides cleanup
+/// ownership.
+///
+/// # Errors
+/// The adapter's own error, or `OutcomeUnknown` when the bound elapsed.
+pub async fn bounded_adapter_call<T, F>(limit: Duration, call: F) -> Result<T, AdapterError>
+where
+    F: std::future::Future<Output = Result<T, AdapterError>>,
+{
+    match tokio::time::timeout(limit, call).await {
+        Ok(answer) => answer,
+        Err(_) => Err(AdapterError::OutcomeUnknown(
+            ADAPTER_CALL_TIMED_OUT.to_owned(),
+        )),
     }
 }
 
@@ -302,6 +339,10 @@ pub struct OperationsConfig {
     pub limits: Limits,
     /// Default maximum window for new work (spec P04).
     pub default_window: Duration,
+    /// ⟨M02⟩ U5 (m02-plan U5; ADR-0007 §12.14 item 8): the managed-projection
+    /// writer the setup driver uses. `None` keeps every `Request::Setup` at
+    /// `CAPABILITY_UNAVAILABLE`, reason `driver_unavailable` (m02-plan §5 item 4).
+    pub projection: Option<Arc<dyn crate::ports::ProjectionWriter>>,
 }
 
 impl std::fmt::Debug for OperationsConfig {
@@ -361,6 +402,10 @@ struct Inner {
     /// `prepare` returns). A cleanup intent written while its attempt may be in flight
     /// is left to that preparation's return path while it runs.
     preparing: Mutex<BTreeSet<OperationId>>,
+    /// ⟨M02⟩ U0b row 23, phase 2: how many times admission called
+    /// `Txn::insert_setup_operation` (whatever it answered); a test hook
+    /// ([`Operations::setup_insert_calls`]).
+    setup_inserts: Arc<AtomicUsize>,
 }
 
 /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: marks one operation's preparation as running in
@@ -1492,6 +1537,118 @@ fn end_orphaned_in(
     put_grant(tx, emit, &g, Some(&owner))?;
     let effect = may_have_external_effect(&tx.stage_receipts(&owner)?);
     Ok(effect.then_some(owner))
+}
+
+/// ⟨M02⟩ U0b row 1, phase 2 (§5 item 17): whether an `ApplyProjection` or
+/// `DeclareInteraction` record describes `op`'s stored local intent exactly.
+///
+/// * `ApplyProjection` needs a setup operation whose intent is `LocalIntent::Setup`
+///   with an equal `plan_digest` and no approval yet;
+/// * `DeclareInteraction` needs a catalog operation whose intent is
+///   `LocalIntent::Catalog` for a `DeclareInteraction` action on the same identity and
+///   interaction, with no approval yet.
+///
+/// Any other combination (a kind/intent mismatch, a differing digest or identity, an
+/// intent that also carries a resolved intent, an approval already set) does not
+/// fit, which `decide` answers `DECISION_STALE` with nothing applied.
+fn local_decision_fits(
+    kind: &DecisionKind,
+    op: &OperationRecord,
+    intent: Option<&RecoveryIntent>,
+) -> bool {
+    let Some(intent) = intent.filter(|i| i.resolved.is_none()) else {
+        return false;
+    };
+    match (kind, intent.local.as_ref()) {
+        (DecisionKind::ApplyProjection { plan_digest, .. }, Some(LocalIntent::Setup(setup))) => {
+            op.kind.is_setup() && setup.plan_digest == *plan_digest && setup.approval.is_none()
+        }
+        (
+            DecisionKind::DeclareInteraction {
+                identity,
+                interaction,
+                ..
+            },
+            Some(LocalIntent::Catalog(catalog)),
+        ) => {
+            op.kind == OperationKind::Catalog
+                && catalog.approval.is_none()
+                && catalog.action
+                    == CatalogAction::DeclareInteraction {
+                        identity: identity.clone(),
+                        interaction: *interaction,
+                    }
+        }
+        _ => false,
+    }
+}
+
+/// The result of a cancellation's transaction: the operation as it now stands and
+/// the cleanup intent to process after the commit, or the refusal.
+type Cancelled = Result<(OperationRecord, Option<CleanupIntent>), OpError>;
+
+/// ⟨M02⟩ ADR-0007 §12.14 item 3 (E1), phase 2: cancel an open setup or catalog
+/// operation (called inside `cancel`'s transaction, after the quiescent check).
+///
+/// ADR-0007 §5.4 honours a cancellation only **before the first commit point**.
+/// The reading applied here is the fail-closed one: a cancellation is honoured only
+/// while the operation's driver has **started nothing** (no receipt with an effect
+/// other than `not_attempted`, and no local receipt), so no file can have been
+/// written and nothing needs settling. It then settles `cancelled` with effect
+/// `none` and `may_have_external_effect: false`, withdraws any pending
+/// `ApplyProjection` or `DeclareInteraction` record naming it, and releases its key
+/// for retention, like any cancellation. A driver that takes the next step
+/// re-reads the state in its own transaction and finds the operation cancelled.
+///
+/// Once the driver has started, the commit point may have passed (§5.4: "after it,
+/// the driver finishes or restores"): the answer is `OUTCOME_UNKNOWN` (effect
+/// `unknown`) with `next: reconcile` naming the operation, and nothing is written.
+fn cancel_local_in(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    mut op: OperationRecord,
+    now: Timestamp,
+    retention: Duration,
+) -> heimdall_store::Result<Cancelled> {
+    let receipts = tx.stage_receipts(&op.id)?;
+    let started = receipts
+        .iter()
+        .any(|r| r.local.is_some() || r.effect != EffectReceipt::NotAttempted);
+    if started {
+        return Ok(Err(OpError::new(
+            Code::OutcomeUnknown,
+            "the operation's driver has started and may be past its first commit point; it finishes or restores, so reconcile it",
+        )
+        .with_resource("operation", Some(op.id.to_string()))
+        .with_operation(op.id.clone())));
+    }
+    for d in tx.pending_decisions()? {
+        let names_op = matches!(
+            &d.kind,
+            DecisionKind::ApplyProjection { operation, .. }
+                | DecisionKind::DeclareInteraction { operation, .. }
+                if *operation == op.id
+        );
+        if names_op {
+            let withdrawn = tx.withdraw_decision(&d.id)?;
+            emit.decision(tx, &withdrawn, Some(&op.id))?;
+        }
+    }
+    op_to(&mut op, OperationEvent::Cancel, now)?;
+    op.cancellation = Some(CancellationRecord {
+        requested_at: now,
+        may_have_external_effect: false,
+    });
+    let err = OpError::new(Code::OperationCancelled, "the operation was cancelled")
+        .with_effect(EffectStatus::None)
+        .with_operation(op.id.clone());
+    op.code = Some(Code::OperationCancelled);
+    op.effect_status = err.effect_status;
+    op.result = Some(serde_json::json!({ "error": err.detail() }));
+    tx.update_operation(&op)?;
+    tx.settle_idempotency(&op.key, retention_expiry(now, retention))?;
+    emit.op(tx, &op)?;
+    Ok(Ok((op, None)))
 }
 
 /// Pending `ApproveAuthority` records that name `op` as their waiting operation.
@@ -3131,6 +3288,74 @@ fn mixed_mechanisms() -> OpError {
     .with_resource("profile", None)
 }
 
+/// ⟨M02⟩ The `resource.kind` of an existing-access provider result (m02-plan §5
+/// item 15; ADR-0007 §7 "Results and codes").
+const PROVIDER_RESOURCE: &str = "provider";
+
+/// ⟨M02⟩ The provider an existing-access mechanism fronts (ADR-0007 §7): `native_agent`
+/// and `onepassword`; `None` for any other adapter (the M01 mapping applies).
+fn existing_access_provider(mechanism: &str) -> Option<ProviderKind> {
+    match mechanism {
+        heimdall_domain::catalog::MECHANISM_NATIVE_AGENT => Some(ProviderKind::NativeAgent),
+        heimdall_domain::catalog::MECHANISM_ONEPASSWORD => Some(ProviderKind::OnePassword),
+        _ => None,
+    }
+}
+
+/// ⟨M02⟩ `next: interact` with the provider's interaction, never a `decision_ref`
+/// (spec §5.5; ADR-0007 §7).
+fn provider_interaction_next(
+    code: Code,
+    provider: ProviderKind,
+    kind: InteractionKind,
+) -> NextAction {
+    NextAction {
+        provider_interaction: Some(heimdall_contract::provider::ProviderInteractionRef {
+            provider,
+            kind,
+        }),
+        ..NextAction::for_code(code)
+    }
+}
+
+/// ⟨M02⟩ ADR-0007 §12.15 item 7 (E-U6-4): the interaction and stable reason of an
+/// existing-access `INTERACTION_REQUIRED`, from the runtime's fresh eligibility of
+/// each pair, in the request's order. The first pair that is not eligible decides.
+/// Every pair eligible: the adapter refused for an uncleared fallback identity
+/// (`fallback_identity_interaction`). No pair: the provider's documented interaction
+/// (1Password `provider_approval`, otherwise `unknown`).
+fn interaction_refusal(
+    provider: ProviderKind,
+    pairs: &[PairEligibility],
+) -> (InteractionKind, &'static str) {
+    use heimdall_contract::envelope::reason;
+    let Some(first) = pairs.first() else {
+        return if provider == ProviderKind::OnePassword {
+            (
+                InteractionKind::ProviderApproval,
+                reason::PROVIDER_INTERACTION,
+            )
+        } else {
+            (InteractionKind::Unknown, reason::INTERACTION_UNKNOWN)
+        };
+    };
+    match pairs.iter().find(|p| !p.noninteractive.eligible) {
+        Some(p) => (
+            p.interaction,
+            match p.noninteractive.reason.as_deref() {
+                Some(noninteractive_reason::PROVIDER_INTERACTION) => reason::PROVIDER_INTERACTION,
+                Some(noninteractive_reason::FALLBACK_IDENTITY_INTERACTION) => {
+                    reason::FALLBACK_IDENTITY_INTERACTION
+                }
+                // `interaction_unknown`, and any reason a newer domain adds: the
+                // narrowing reading.
+                _ => reason::INTERACTION_UNKNOWN,
+            },
+        ),
+        None => (first.interaction, reason::FALLBACK_IDENTITY_INTERACTION),
+    }
+}
+
 // ---------------------------------------------------------------------------------
 // Work requests (ensure / delegate)
 // ---------------------------------------------------------------------------------
@@ -3905,7 +4130,16 @@ fn history_only(i: &ConsumerIntegration) -> ConsumerIntegration {
 }
 
 /// ⟨M02⟩ The history of one reported pair; its fresh fields are dropped.
+///
+/// ⟨M02⟩ ADR-0007 §12.15 item 3(c): the stored selection is the pair's full
+/// `identity_selection_report` (entries and `IdentitiesOnly`, completing §12.14 item
+/// 6). A pair without one, or whose report contradicts its verdict, keeps the
+/// verdict alone ([`selection_report`]), which never clears a fallback.
 fn prepared_pair(p: &PairIntegration) -> PreparedPair {
+    let identity_selection = match &p.identity_selection_report {
+        Some(report) if report.selection == p.identity_selection => report.clone(),
+        _ => selection_report(p.identity_selection),
+    };
     PreparedPair {
         destination: p.destination.clone(),
         account: p.account.clone(),
@@ -3913,14 +4147,14 @@ fn prepared_pair(p: &PairIntegration) -> PreparedPair {
         mechanism: p.mechanism.clone(),
         endpoint: p.endpoint.clone(),
         alias: p.alias.clone(),
-        identity_selection: selection_report(p.identity_selection),
+        identity_selection,
         selection_observed_at: p.selection_observed_at,
     }
 }
 
-/// ⟨M02⟩ A selection verdict as a report. The port carries the verdict only, so the
-/// stored report has no entries and an undetermined `IdentitiesOnly`, which never
-/// clears a fallback (ADR-0007 §7).
+/// ⟨M02⟩ A selection verdict as a report, for a pair that carries no full report:
+/// no entries and an undetermined `IdentitiesOnly`, which never clears a fallback
+/// (ADR-0007 §7).
 fn selection_report(selection: IdentitySelection) -> IdentitySelectionReport {
     IdentitySelectionReport {
         selection,
@@ -3950,6 +4184,8 @@ fn history_pair(p: PreparedPair, at: Timestamp) -> PairIntegration {
             reason: Some(noninteractive_reason::INTERACTION_UNKNOWN.to_owned()),
         },
         eligibility_checked_at: at,
+        // ⟨M02⟩ §12.15 item 3(c): history, reported as stored.
+        identity_selection_report: Some(p.identity_selection),
     }
 }
 
@@ -4301,6 +4537,7 @@ impl Operations {
             interrupted_rounds: Arc::new(Mutex::new(BTreeSet::new())),
             revocation_cap: AtomicU32::new(NO_CONFIGURED_CAP),
             preparing: Mutex::new(BTreeSet::new()),
+            setup_inserts: Arc::new(AtomicUsize::new(0)),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -4385,6 +4622,45 @@ impl Operations {
             .iter()
             .find(|a| &a.descriptor().identity == identity)
             .cloned()
+    }
+
+    /// ⟨M02⟩ U0b row 24: the bound in force for one adapter call.
+    fn adapter_limit(&self) -> Duration {
+        self.inner.config.limits.adapter_call_timeout
+    }
+
+    /// ⟨M02⟩ Test hook for U0b row 24: the operations whose preparation this
+    /// process is running (the preparing marker, ADR-0006 §13.19 item 2). Not part
+    /// of the supported API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn preparing_operations(&self) -> Vec<OperationId> {
+        self.inner
+            .preparing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// ⟨M02⟩ Test hook for U0b row 24: adapter slots free now
+    /// (`max_concurrent_adapter_calls` when no call is in progress). Not part of the
+    /// supported API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn available_adapter_slots(&self) -> usize {
+        self.inner.adapter_slots.available_permits()
+    }
+
+    /// ⟨M02⟩ Test hook for U0b row 23, phase 2
+    /// (`u0b_setup_admission_goes_through_insert_setup_operation`): how many times
+    /// admission called `Txn::insert_setup_operation` in this process, whatever it
+    /// answered. Not part of the supported API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn setup_insert_calls(&self) -> usize {
+        self.inner.setup_inserts.load(Ordering::SeqCst)
     }
 
     /// Run `f` in one store transaction on the blocking pool; announce the events
@@ -4687,13 +4963,21 @@ impl Operations {
             }
             OperationKind::Revoke => self.drive_revoke(id).await,
             OperationKind::Bind => self.drive_bind(id).await,
-            // ⟨M02⟩ U0b row 10, phase 1: no setup or catalog driver in this build.
-            // Nothing is touched or settled; the operation keeps its state and
-            // receipts for a build that has the driver.
+            // ⟨M02⟩ U0b row 10, phase 2: the setup and catalog drivers (U5). A
+            // runtime without a projection writer cannot reconcile a setup
+            // operation: it stays unresolved and untouched, reported with
+            // `driver_unavailable`, exactly as in phase 1 (the fail-closed landing,
+            // m02-plan §5 item 4), for a runtime that has one.
             OperationKind::SetupApply
             | OperationKind::SetupRollback
-            | OperationKind::SetupRepair
-            | OperationKind::Catalog => self.local_driver_unavailable(&st.op).await,
+            | OperationKind::SetupRepair => {
+                if self.inner.config.projection.is_some() {
+                    crate::setup::drive(self, id).await
+                } else {
+                    self.local_driver_unavailable(&st.op).await
+                }
+            }
+            OperationKind::Catalog => crate::catalog::drive(self, id).await,
             // Declared, never journaled (`Probe` reserved; U0's kind test): no row
             // of these kinds is ever admitted, so there is nothing to drive.
             OperationKind::Cancel
@@ -4710,11 +4994,12 @@ impl Operations {
         })
     }
 
-    /// ⟨M02⟩ U0b row 10, phase 1 (m02-plan §5 item 4; wave-0 verify E2 reading):
-    /// an operation of a setup or catalog kind found by a drive (restart recovery
-    /// included) stays unresolved and untouched: no file, no receipt, no state
-    /// change. One additive `runtime_lifecycle` event names it, with its kind and
-    /// reason `driver_unavailable`, so a build that has the driver can reconcile it.
+    /// ⟨M02⟩ U0b row 10 (m02-plan §5 item 4; wave-0 verify E2 reading): a setup
+    /// operation found by a drive (restart recovery included) in a runtime without
+    /// a projection writer (phase 2; in phase 1, every setup and catalog operation)
+    /// stays unresolved and untouched: no file, no receipt, no state change. One
+    /// additive `runtime_lifecycle` event names it, with its kind and reason
+    /// `driver_unavailable`, so a runtime that has the writer can reconcile it.
     /// Never fails the drive: the operation is simply left where it is.
     async fn local_driver_unavailable(&self, op: &OperationRecord) -> Result<(), OpError> {
         if op.state.is_settled() {
@@ -5223,12 +5508,69 @@ impl Operations {
         let adapter = self.adapter(Some(&identity))?;
         let outcome = {
             let _slot = self.inner.adapter_slots.acquire().await.ok()?;
-            adapter.reconcile(grant, &token).await
+            // ⟨M02⟩ U0b row 24: a timed-out call yields no facts, as any error.
+            bounded_adapter_call(self.adapter_limit(), adapter.reconcile(grant, &token)).await
         };
         match outcome {
             Ok(ReconcileOutcome::Applied(o)) => Some(o),
+            // ⟨M02⟩ ADR-0007 §12.15 item 7 (E-U6-6): an adapter with no external
+            // effect keeps its integrations in instance memory, which a restart
+            // empties. Its `not_applied` for a confirmed effect is answered from
+            // the facts recorded with that confirmation.
+            Ok(ReconcileOutcome::NotApplied) if !adapter.descriptor().external_side_effects => {
+                self.confirmed_from_prepared_facts(owner, grant).await
+            }
             _ => None,
         }
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.15 item 7 (E-U6-6): the outcome of `operation`'s confirmed
+    /// effect for `grant`, answered from the `PreparedFacts` its `Confirmed` receipt
+    /// recorded (U0b row 6), never from an adapter instance's memory. Only for an
+    /// adapter with no external effect: its "effect" is the integration it returned,
+    /// which those facts record. Conservative beyond the history: no claim past the
+    /// current time ([`Facts::conservative`]), the grant's recorded enforcement, a
+    /// provider-interaction refresh dependency, availability `unknown`. `None` when
+    /// no `Confirmed` receipt or no stored facts exist (the caller fails closed).
+    async fn confirmed_from_prepared_facts(
+        &self,
+        operation: &OperationId,
+        grant: &GrantId,
+    ) -> Option<PrepareOutcome> {
+        let (op, gid) = (operation.clone(), grant.clone());
+        let clock = self.clock();
+        self.write(move |tx, _| {
+            let credential_ref =
+                tx.stage_receipts(&op)?
+                    .into_iter()
+                    .rev()
+                    .find_map(|r| match r.effect {
+                        EffectReceipt::Confirmed { credential_ref, .. } => Some(credential_ref),
+                        _ => None,
+                    });
+            let (Some(credential_ref), Some(facts), Some(g)) = (
+                credential_ref,
+                tx.grant_prepared_facts(&gid)?,
+                tx.grant(&gid)?,
+            ) else {
+                return Ok(None);
+            };
+            let now = clock.wall();
+            let conservative = Facts::conservative(&g, Some(&facts), now);
+            Ok(Some(PrepareOutcome {
+                usable_until: conservative.usable_until,
+                offline_until: conservative.offline_until,
+                refresh_dependency: conservative.refresh_dependency,
+                enforcement: g.enforcement.clone(),
+                credential_ref,
+                availability: CredentialAvailability::Unknown,
+                provider: conservative.provider,
+                integration: conservative.integration,
+            }))
+        })
+        .await
+        .ok()
+        .flatten()
     }
 
     /// Code review A07: a request that joined another caller's equivalent decision
@@ -5485,7 +5827,9 @@ impl Operations {
                 .acquire()
                 .await
                 .map_err(|_| internal("adapter slots closed"))?;
-            adapter.reconcile(&grant, &token).await
+            // ⟨M02⟩ U0b row 24: a timed-out call leaves the operation unresolved,
+            // as any error does below.
+            bounded_adapter_call(self.adapter_limit(), adapter.reconcile(&grant, &token)).await
         };
         match outcome {
             Ok(ReconcileOutcome::Applied(o)) => {
@@ -5655,7 +5999,13 @@ impl Operations {
                     .acquire()
                     .await
                     .map_err(|_| internal("adapter slots closed"))?;
-                adapter.reconcile(&grant_id, effect_token).await
+                // ⟨M02⟩ U0b row 24: a timed-out call marks the attempt uncertain,
+                // as any error does below.
+                bounded_adapter_call(
+                    self.adapter_limit(),
+                    adapter.reconcile(&grant_id, effect_token),
+                )
+                .await
             };
             match outcome {
                 Ok(ReconcileOutcome::Applied(o)) => {
@@ -5832,8 +6182,12 @@ impl Operations {
             }
         };
         let interactive = interactive && spec.interactive;
-        let result = adapter
-            .prepare(PrepareRequest {
+        // ⟨M02⟩ U0b row 24: the bound covers `prepare` alone, inside the slot and the
+        // preparing marker; a timed-out call answers `OutcomeUnknown` and takes the
+        // `mark_uncertain` arm below, after both are released.
+        let result = bounded_adapter_call(
+            self.adapter_limit(),
+            adapter.prepare(PrepareRequest {
                 grant: &grant,
                 scope: &grant.scope,
                 required: &spec.required,
@@ -5841,8 +6195,9 @@ impl Operations {
                 effect_token: &token,
                 now,
                 pairs: &named,
-            })
-            .await;
+            }),
+        )
+        .await;
         drop(slot);
         drop(preparing);
         let flow = match result {
@@ -5851,7 +6206,8 @@ impl Operations {
                 self.mark_uncertain(&id, identity, token, &grant_id).await
             }
             Err(e) => {
-                self.fail_running(&id, OpError::from(e), Some(GrantEvent::PreparationFailed))
+                let error = self.prepare_error(&e, &identity, &named, now).await;
+                self.fail_running(&id, error, Some(GrantEvent::PreparationFailed))
                     .await
             }
         };
@@ -5924,6 +6280,76 @@ impl Operations {
         }
         local.prepared = Some(o);
         Ok(Flow::Continue)
+    }
+
+    /// The classified error of a failed `prepare` (not `OutcomeUnknown`, which
+    /// `mark_uncertain` handles).
+    ///
+    /// ⟨M02⟩ ADR-0007 §12.15 item 7 (E-U6-4): an existing-access adapter's error
+    /// (mechanism `native_agent` or `onepassword`) maps with
+    /// `OpError::from_adapter_for(&e, "provider")`, naming the provider:
+    /// * an absent endpoint (`Unavailable`) carries reason `endpoint_absent`;
+    /// * `INTERACTION_REQUIRED` carries its reason and `next.provider_interaction`
+    ///   from the pair eligibility **the runtime computes** in a fresh transaction
+    ///   (`heimdall_domain::catalog::eligibility` over the catalog identity and its
+    ///   live declaration row; ADR-0007 §7). The first pair that is not eligible
+    ///   decides; when the runtime finds every pair eligible, the adapter's refusal
+    ///   can only come from its fallback clearance, so the reason is
+    ///   `fallback_identity_interaction`; with no pair, the provider's documented
+    ///   interaction decides. Never a `decision_ref` (spec §5.5);
+    /// * `PROVIDER_LOCKED` carries `next.provider_interaction` `provider_unlock`.
+    ///
+    /// Any other adapter keeps the M01 mapping. Adapter text is never echoed.
+    async fn prepare_error(
+        &self,
+        e: &AdapterError,
+        adapter: &AdapterIdentity,
+        pairs: &[PreparePair],
+        now: Timestamp,
+    ) -> OpError {
+        let Some(provider) = existing_access_provider(&adapter.mechanism) else {
+            return OpError::from(e.clone());
+        };
+        let base = OpError::from_adapter_for(e, PROVIDER_RESOURCE)
+            .with_resource(PROVIDER_RESOURCE, Some(adapter.mechanism.clone()));
+        match e {
+            AdapterError::Unavailable(_) => {
+                base.with_reason(heimdall_contract::envelope::reason::ENDPOINT_ABSENT)
+            }
+            AdapterError::ProviderLocked => base.with_next(provider_interaction_next(
+                Code::ProviderLocked,
+                provider,
+                InteractionKind::ProviderUnlock,
+            )),
+            AdapterError::InteractionRequired(_) => {
+                let identities: Vec<IdentityRecord> =
+                    pairs.iter().map(|p| p.identity.clone()).collect();
+                let judged = self
+                    .write(move |tx, _| {
+                        let mut out = Vec::with_capacity(identities.len());
+                        for identity in &identities {
+                            out.push(fresh_eligibility(tx, identity, None, now)?.0);
+                        }
+                        Ok(out)
+                    })
+                    .await;
+                let (kind, reason) = match judged {
+                    Ok(eligibility) => interaction_refusal(provider, &eligibility),
+                    // Unreadable: the narrowing reading.
+                    Err(_) => (
+                        InteractionKind::Unknown,
+                        heimdall_contract::envelope::reason::INTERACTION_UNKNOWN,
+                    ),
+                };
+                base.with_reason(reason)
+                    .with_next(provider_interaction_next(
+                        Code::InteractionRequired,
+                        provider,
+                        kind,
+                    ))
+            }
+            _ => base,
+        }
     }
 
     /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: mark `operation`'s preparation as running in
@@ -6044,14 +6470,16 @@ impl Operations {
         };
         let grant = &intent.grant;
         let now = self.inner.config.clock.wall();
+        let limit = self.adapter_limit();
         let answers = match owner {
             EffectOwner::Bounded(adapters) => {
                 let mut answers: Vec<(AdapterIdentity, Option<bool>)> = Vec::new();
                 for a in adapters {
+                    // ⟨M02⟩ U0b row 24 (QR17): a timed-out bounded call is an
+                    // unconfirmed answer, tracked as an obligation below.
                     let answer = match self.adapter(Some(&a)) {
                         Some(adapter) => Some(
-                            adapter
-                                .revoke(grant, now)
+                            bounded_adapter_call(limit, adapter.revoke(grant, now))
                                 .await
                                 .is_ok_and(|o| o.remote_pending.is_empty()),
                         ),
@@ -6069,8 +6497,11 @@ impl Operations {
                 if !applying_configured {
                     return;
                 }
+                // ⟨M02⟩ U0b row 24 (QR17, M02 only): the immediate best-effort call
+                // for an uncovered grant counts as made when it times out, as an
+                // error does in M01; M02's adapters create no remote effect.
                 for a in &self.inner.config.adapters {
-                    let _ = a.revoke(grant, now).await;
+                    let _ = bounded_adapter_call(limit, a.revoke(grant, now)).await;
                 }
                 Vec::new()
             }
@@ -6252,10 +6683,27 @@ impl Operations {
                             .acquire()
                             .await
                             .map_err(|_| internal("adapter slots closed"))?;
-                        a.reconcile(&gid, &t).await
+                        // ⟨M02⟩ U0b row 24: a timed-out call is `SERVICE_UNAVAILABLE`
+                        // with effect `partial`, as any error below.
+                        bounded_adapter_call(self.adapter_limit(), a.reconcile(&gid, &t)).await
                     };
                     match r {
                         Ok(ReconcileOutcome::Applied(o)) => Some(Facts::from_outcome(&o)),
+                        // ⟨M02⟩ ADR-0007 §12.15 item 7 (E-U6-6): an adapter with no
+                        // external effect forgets its integrations at a restart; the
+                        // confirmed effect is answered from the facts its `Confirmed`
+                        // receipt recorded (U0b row 6), never from instance memory.
+                        Ok(ReconcileOutcome::NotApplied)
+                            if !a.descriptor().external_side_effects
+                                && self
+                                    .confirmed_from_prepared_facts(&id, &gid)
+                                    .await
+                                    .is_some() =>
+                        {
+                            // `Facts::conservative` over the stored facts, in the
+                            // commit's own transaction below.
+                            None
+                        }
                         Ok(ReconcileOutcome::NotApplied) => {
                             return self
                                 .fail_running(
@@ -6522,6 +6970,7 @@ impl Operations {
         let new_id = id.clone();
         let allow_new = self.inner.running.load(Ordering::SeqCst)
             < self.inner.config.limits.max_running_operations;
+        let inserts = Arc::clone(&self.inner.setup_inserts);
         let outcome = self
             .write(move |tx, emit| {
                 let record = tx.idempotency_record(&key)?;
@@ -6565,6 +7014,7 @@ impl Operations {
                             resolved: None,
                             local: Some(adm.intent),
                         };
+                        inserts.fetch_add(1, Ordering::SeqCst);
                         if let SetupAdmitted::InProgress(blocking) = tx.insert_setup_operation(
                             &op,
                             &idem,
@@ -6610,9 +7060,8 @@ impl Operations {
 
     /// Test hook for U0b row 23 (`u0b_admit_keeps_backpressure_order`): the
     /// admission step alone, with the caller's key, a precomputed hash and an
-    /// optional setup admission. Not part of the supported API, and reached by no
-    /// request: the setup and catalog entry points refuse before any admission in
-    /// wave 0 (row 18).
+    /// optional setup admission. Not part of the supported API; requests reach
+    /// admission through the setup and catalog entry points (U5).
     ///
     /// # Errors
     /// As [`Operations::admit`]: `BACKPRESSURE`, `CONFIG_CONFLICT`
@@ -6973,6 +7422,8 @@ impl Operations {
         let ctx = caller.context.clone();
         let environment = self.inner.config.environment.clone();
         let mut data = match req.subject {
+            // ⟨M02⟩ U0b row 19, phase 2: the same set as
+            // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
             InspectSubject::Capabilities => serde_json::json!({
                 "capabilities": [
                     heimdall_contract::ipc::capability::OPERATIONS_V1,
@@ -6980,6 +7431,7 @@ impl Operations {
                     heimdall_contract::ipc::capability::OWNER_POLICY_V1,
                     heimdall_contract::ipc::capability::SCHEMA_DISCOVERY_V1,
                     heimdall_contract::ipc::capability::SERVICE_CONTROL_V1,
+                    heimdall_contract::ipc::capability::SETUP_V1,
                 ],
                 "schemas": heimdall_contract::schema::public_schemas()
                     .iter()
@@ -7806,16 +8258,12 @@ impl Operations {
                 if op.state.is_quiescent() {
                     return Ok(Some(Ok((op, None))));
                 }
-                // ⟨M02⟩ Wave-0 verify E1 reading (m02-plan §5 item 4): an open
-                // operation of a setup or catalog kind stays untouched in phase 1,
-                // so cancelling it (which would also release `setup_in_progress`)
-                // is refused and writes nothing. ADR-0007 §5.4 honours a cancel only
-                // before the first commit point, which only the driver can judge.
+                // ⟨M02⟩ ADR-0007 §12.14 item 3 (E1), phase 2: a setup or catalog
+                // operation is cancelled only before its first commit point (§5.4);
+                // after it, the answer is `OUTCOME_UNKNOWN` with `next: reconcile`
+                // and nothing is written ([`cancel_local_in`]).
                 if op.kind.is_setup() || op.kind == OperationKind::Catalog {
-                    return Ok(Some(Err(OpError::driver_unavailable(
-                        "this operation's driver is not available in this build; it cannot be cancelled",
-                    )
-                    .with_resource("operation", Some(id.to_string())))));
+                    return cancel_local_in(tx, emit, op, now, retention).map(Some);
                 }
                 let receipts = tx.stage_receipts(&id)?;
                 let mut may_have = may_have_external_effect(&receipts);
@@ -8195,19 +8643,23 @@ impl Operations {
     /// adapters reported.
     async fn run_round(&self, round: &Round, now: Timestamp) -> RoundAnswers {
         let mut out = RoundAnswers::default();
+        let limit = self.adapter_limit();
         for call in &round.calls {
             let Some(adapter) = self.adapter(Some(&call.adapter)) else {
                 continue;
             };
-            let confirmed = match adapter.revoke(&call.grant, now).await {
-                Ok(o) => {
-                    if let Some(t) = o.latest_possible_credential_expiry {
-                        out.adapter_expiry = Some(out.adapter_expiry.map_or(t, |e| e.max(t)));
+            // ⟨M02⟩ U0b row 24 (QR17): a timed-out call is unconfirmed; the
+            // obligation stays and the claimed round counts.
+            let confirmed =
+                match bounded_adapter_call(limit, adapter.revoke(&call.grant, now)).await {
+                    Ok(o) => {
+                        if let Some(t) = o.latest_possible_credential_expiry {
+                            out.adapter_expiry = Some(out.adapter_expiry.map_or(t, |e| e.max(t)));
+                        }
+                        o.remote_pending.is_empty()
                     }
-                    o.remote_pending.is_empty()
-                }
-                Err(_) => false,
-            };
+                    Err(_) => false,
+                };
             out.answers
                 .push((call.grant.clone(), call.adapter.clone(), confirmed));
         }
@@ -8664,6 +9116,16 @@ impl Operations {
     /// request waits for them under ONE overall `Limits::max_wait`; when it is
     /// reached the durable decision result is returned (the work continues, every
     /// waiter's operation observable). Waiters never wait one after another.
+    ///
+    /// ⟨M02⟩ m02-plan U0b row 1, phase 2: an `ApplyProjection` or
+    /// `DeclareInteraction` record needs its operation in `awaiting_approval` and
+    /// must describe that operation's stored local intent exactly
+    /// ([`local_decision_fits`]); otherwise `DECISION_STALE` with nothing applied.
+    /// Approval writes the kind's own approval into the intent (a
+    /// `ProjectionApproval` with the record's `plan_digest`, or a
+    /// `DeclarationApproval` copied from the record's fields), moves the operation
+    /// to `running` and resumes it (the setup or catalog driver); denial fails it
+    /// `CAPABILITY_UNAVAILABLE`. No A06 delta check applies to these kinds.
     pub async fn decide(&self, caller: &Caller, req: DecideRequest) -> OpResult<serde_json::Value> {
         // The session layer refuses this before dispatch; the application is the
         // authority and checks again (R5).
@@ -8731,20 +9193,35 @@ impl Operations {
                     DecisionKind::ConfirmTime { .. } => {
                         return Ok(Err(stale(&DecisionRefusal::NotPending(d.state))));
                     }
-                    // ⟨M02⟩ U0b row 1, phase 1 (m02-plan §5 item 4): no driver for
-                    // these decisions in this build. Refused before anything is
-                    // written: the record stays pending and its operation untouched.
-                    DecisionKind::ApplyProjection { .. } => {
-                        return Ok(Err(OpError::driver_unavailable(
-                            "projection decisions are not available in this build",
-                        )
-                        .with_resource("decision", Some(did.to_string()))));
-                    }
-                    DecisionKind::DeclareInteraction { .. } => {
-                        return Ok(Err(OpError::driver_unavailable(
-                            "interaction declarations are not available in this build",
-                        )
-                        .with_resource("decision", Some(did.to_string()))));
+                    // ⟨M02⟩ U0b row 1, phase 2: the waiting operation must be
+                    // `awaiting_approval`, and the record must describe its stored
+                    // local intent exactly (kind, plan digest or identity and
+                    // interaction, approval not yet set). Anything else is
+                    // `DECISION_STALE` before anything is written: the record stays
+                    // pending and the operation untouched. No A06 delta check: these
+                    // kinds carry no `AuthorityDelta`; the generation check below is
+                    // unchanged.
+                    DecisionKind::ApplyProjection { operation, .. }
+                    | DecisionKind::DeclareInteraction { operation, .. } => {
+                        let op = match tx.operation(operation)? {
+                            Some(op) if op.state == OperationState::AwaitingApproval => op,
+                            _ => {
+                                return Ok(Err(OpError::new(
+                                    Code::DecisionStale,
+                                    "the operation is no longer awaiting this decision",
+                                )
+                                .with_resource("decision", Some(did.to_string()))));
+                            }
+                        };
+                        let intent = tx.recovery_intent(&op.id)?;
+                        if !local_decision_fits(&d.kind, &op, intent.as_ref()) {
+                            return Ok(Err(OpError::new(
+                                Code::DecisionStale,
+                                "the decision does not describe the waiting operation's intent; preview or request again",
+                            )
+                            .with_resource("decision", Some(did.to_string()))));
+                        }
+                        Some(op)
                     }
                 };
                 // The waiting grant (shared by every request that joined it).
@@ -8874,16 +9351,85 @@ impl Operations {
                             return Ok(Err(e));
                         }
                     }
-                    // ⟨M02⟩ U0b row 1: explicit, never absorbed by the fallback. The
-                    // `waiting` match refused these kinds before the record was
-                    // completed; should that ever change, this rolls the whole
-                    // transaction back, so the record stays pending (phase 1).
+                    // ⟨M02⟩ U0b row 1, phase 2 (§5 item 17): explicit arms, never
+                    // absorbed by the fallback. Approval writes the kind's own
+                    // approval into the waiting operation's local intent (add-only,
+                    // row 16), moves it to `approved` and resumes exactly it. The
+                    // `waiting` match checked the intent; a mismatch here rolls the
+                    // whole transaction back, so nothing is consumed.
+                    (DecisionKind::ApplyProjection { plan_digest, .. }, Verdict::Approve) => {
+                        for mut op in waiters {
+                            let mut intent = tx
+                                .recovery_intent(&op.id)?
+                                .ok_or_else(|| conflict("operation has no recovery intent"))?;
+                            let Some(LocalIntent::Setup(setup)) = intent.local.as_mut() else {
+                                return Err(conflict("the waiting operation has no setup intent"));
+                            };
+                            setup.approval = Some(ProjectionApproval {
+                                decision: record.id.clone(),
+                                plan_digest: plan_digest.clone(),
+                            });
+                            tx.set_recovery_intent(&op.id, &intent)?;
+                            op_to(&mut op, OperationEvent::Approved, now)?;
+                            tx.update_operation(&op)?;
+                            emit.op(tx, &op)?;
+                            resume.push(op.id.clone());
+                        }
+                    }
                     (
-                        DecisionKind::ApplyProjection { .. }
-                        | DecisionKind::DeclareInteraction { .. },
-                        _,
+                        DecisionKind::DeclareInteraction {
+                            identity,
+                            fingerprint,
+                            endpoint,
+                            interaction,
+                            valid_until,
+                            ..
+                        },
+                        Verdict::Approve,
                     ) => {
-                        return Err(conflict("no driver for this decision kind in this build"));
+                        for mut op in waiters {
+                            let mut intent = tx
+                                .recovery_intent(&op.id)?
+                                .ok_or_else(|| conflict("operation has no recovery intent"))?;
+                            let Some(LocalIntent::Catalog(catalog)) = intent.local.as_mut() else {
+                                return Err(conflict("the waiting operation has no catalog intent"));
+                            };
+                            // Copied from the record's fields; the catalog driver builds
+                            // the declaration from this alone (ADR-0007 §7).
+                            catalog.approval = Some(DeclarationApproval {
+                                decision: record.id.clone(),
+                                identity: identity.clone(),
+                                fingerprint: fingerprint.clone(),
+                                endpoint: endpoint.clone(),
+                                interaction: *interaction,
+                                valid_until: *valid_until,
+                            });
+                            tx.set_recovery_intent(&op.id, &intent)?;
+                            op_to(&mut op, OperationEvent::Approved, now)?;
+                            tx.update_operation(&op)?;
+                            emit.op(tx, &op)?;
+                            resume.push(op.id.clone());
+                        }
+                    }
+                    // Denial: the waiting operation fails; no file or catalog row is
+                    // touched.
+                    (DecisionKind::ApplyProjection { .. }, Verdict::Deny) => {
+                        let err = OpError::new(
+                            Code::CapabilityUnavailable,
+                            "the owner denied the projection change",
+                        );
+                        for mut op in waiters {
+                            settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                        }
+                    }
+                    (DecisionKind::DeclareInteraction { .. }, Verdict::Deny) => {
+                        let err = OpError::new(
+                            Code::CapabilityUnavailable,
+                            "the owner denied the declaration",
+                        );
+                        for mut op in waiters {
+                            settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                        }
                     }
                     (
                         DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
@@ -9758,6 +10304,223 @@ fn render_settled<T: serde::de::DeserializeOwned>(op: &OperationRecord) -> OpRes
             )
             .with_operation(op.id.clone()))
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// ⟨M02⟩ U5 seam: the operations' plumbing as the setup and catalog drivers
+// (`crate::setup`, `crate::catalog`) reach it. Thin crate-visible wrappers only; no
+// behaviour of its own. The drivers keep the M01 rules: one store transaction per
+// step with its events, the admission order of row 23, and one in-process driver per
+// operation (the same `flights` map `lead` uses, so a request, a decision's resume
+// and restart recovery never drive one operation twice at once).
+// ---------------------------------------------------------------------------------
+
+/// ⟨M02⟩ U5: the events of one local-driver transaction (wraps [`Emit`]).
+pub(crate) struct LocalEmit<'e>(&'e mut Emit);
+
+impl LocalEmit<'_> {
+    /// `operation_state_changed` for `op`.
+    pub(crate) fn op(
+        &mut self,
+        tx: &mut Txn<'_>,
+        op: &OperationRecord,
+    ) -> heimdall_store::Result<()> {
+        self.0.op(tx, op)
+    }
+
+    /// `decision` for `d`.
+    pub(crate) fn decision(
+        &mut self,
+        tx: &mut Txn<'_>,
+        d: &DecisionRecord,
+        op: Option<&OperationId>,
+    ) -> heimdall_store::Result<()> {
+        self.0.decision(tx, d, op)
+    }
+
+    /// Any event.
+    pub(crate) fn event(
+        &mut self,
+        tx: &mut Txn<'_>,
+        ty: EventType,
+        op: Option<OperationId>,
+        res: Option<ResourceRef>,
+        payload: serde_json::Value,
+    ) -> heimdall_store::Result<()> {
+        self.0.event(tx, ty, op, res, payload)
+    }
+}
+
+/// ⟨M02⟩ U5: which local driver a lead runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LocalDriver {
+    /// `crate::setup::drive`.
+    Setup,
+    /// `crate::catalog::drive`.
+    Catalog,
+}
+
+/// ⟨M02⟩ U5: [`settle_failed`] for the local drivers.
+pub(crate) fn local_settle_failed(
+    tx: &mut Txn<'_>,
+    emit: &mut LocalEmit<'_>,
+    op: &mut OperationRecord,
+    err: &OpError,
+    now: Timestamp,
+    retention: Duration,
+) -> heimdall_store::Result<()> {
+    settle_failed(tx, emit.0, op, err, now, retention)
+}
+
+/// ⟨M02⟩ U5: [`settle_succeeded`] for the local drivers.
+pub(crate) fn local_settle_succeeded(
+    tx: &mut Txn<'_>,
+    emit: &mut LocalEmit<'_>,
+    op: &mut OperationRecord,
+    code: Code,
+    data: serde_json::Value,
+    now: Timestamp,
+    retention: Duration,
+) -> heimdall_store::Result<()> {
+    settle_succeeded(tx, emit.0, op, code, data, now, retention)
+}
+
+/// ⟨M02⟩ U5: [`op_to`] for the local drivers.
+pub(crate) fn local_op_to(
+    op: &mut OperationRecord,
+    ev: OperationEvent,
+    now: Timestamp,
+) -> heimdall_store::Result<()> {
+    op_to(op, ev, now)
+}
+
+/// ⟨M02⟩ U5: [`approval_needed`] for the local drivers.
+pub(crate) fn local_approval_needed(attended: bool, decision_ref: &str, msg: &str) -> OpError {
+    approval_needed(attended, decision_ref, msg)
+}
+
+/// ⟨M02⟩ U5: [`Operations::refuse_outcome`] for the local drivers.
+pub(crate) fn local_refuse_outcome(outcome: &IdempotencyOutcome) -> Option<OpError> {
+    Operations::refuse_outcome(outcome)
+}
+
+impl Operations {
+    /// ⟨M02⟩ U5: the configured projection writer.
+    pub(crate) fn local_projection(&self) -> Option<Arc<dyn crate::ports::ProjectionWriter>> {
+        self.inner.config.projection.clone()
+    }
+
+    /// ⟨M02⟩ U5: the clock.
+    pub(crate) fn local_clock(&self) -> Arc<dyn Clock> {
+        self.clock()
+    }
+
+    /// ⟨M02⟩ U5: the store, for the `StageSink` the projection writer calls on the
+    /// blocking pool (one synchronous transaction per receipt; no events).
+    pub(crate) fn local_store(&self) -> Arc<Store> {
+        Arc::clone(&self.inner.config.store)
+    }
+
+    /// ⟨M02⟩ U5: the retention of settled operations.
+    pub(crate) fn local_retention(&self) -> Duration {
+        self.retention()
+    }
+
+    /// ⟨M02⟩ U5: `now` for narrowing actions.
+    pub(crate) async fn local_narrowing_now(&self) -> Timestamp {
+        self.narrowing_now().await
+    }
+
+    /// ⟨M02⟩ U5: one store transaction with its events ([`Operations::write`]).
+    pub(crate) async fn local_write<R, F>(&self, f: F) -> Result<R, OpError>
+    where
+        R: Send + 'static,
+        F: FnOnce(&mut Txn<'_>, &mut LocalEmit<'_>) -> heimdall_store::Result<R> + Send + 'static,
+    {
+        self.write(move |tx, emit| f(tx, &mut LocalEmit(emit)))
+            .await
+    }
+
+    /// ⟨M02⟩ U5: admission (row 23) with `pipeline: false` (local receipts only).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn local_admit(
+        &self,
+        key: IdempotencyKey,
+        hash: heimdall_contract::canonical::RequestHash,
+        kind: OperationKind,
+        effect_class: EffectClass,
+        request: serde_json::Value,
+        now: Timestamp,
+        exclusive: Option<SetupAdmission>,
+    ) -> Result<IdempotencyOutcome, OpError> {
+        self.admit(
+            key,
+            hash,
+            kind,
+            effect_class,
+            request,
+            now,
+            false,
+            exclusive,
+        )
+        .await
+    }
+
+    /// ⟨M02⟩ U5: lead `id` with `driver` in a spawned task (a caller's timeout never
+    /// stops the work) and wait at most `wait`; `None` when the wait ended first.
+    pub(crate) async fn local_lead_bounded(
+        &self,
+        id: &OperationId,
+        driver: LocalDriver,
+        wait: Duration,
+    ) -> Option<Result<(), OpError>> {
+        let me = self.clone();
+        let id = id.clone();
+        let task = tokio::spawn(async move { me.local_lead(&id, driver).await });
+        match tokio::time::timeout(wait, task).await {
+            Ok(Ok(r)) => Some(r),
+            Ok(Err(e)) => Some(Err(join_error(e))),
+            Err(_) => None,
+        }
+    }
+
+    /// ⟨M02⟩ U5: [`Operations::lead`] with the local driver called directly, under the
+    /// same per-operation flight and running count.
+    async fn local_lead(&self, id: &OperationId, driver: LocalDriver) -> Result<(), OpError> {
+        struct Running<'a>(&'a AtomicUsize);
+        impl Drop for Running<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        for _ in 0..3 {
+            match self.inner.flights.join_or_lead(id.clone()) {
+                Err(_) => {
+                    return Err(
+                        OpError::new(Code::Backpressure, "too many operations in flight")
+                            .with_retry_after(BACKPRESSURE_RETRY_MS),
+                    );
+                }
+                Ok(Flight::Lead(tx)) => {
+                    self.inner.running.fetch_add(1, Ordering::SeqCst);
+                    let guard = Running(&self.inner.running);
+                    let r = match driver {
+                        LocalDriver::Setup => crate::setup::drive(self, id).await,
+                        LocalDriver::Catalog => crate::catalog::drive(self, id).await,
+                    };
+                    drop(guard);
+                    let _ = tx.send(Some(r.clone()));
+                    self.inner.flights.finish(id);
+                    return r;
+                }
+                Ok(Flight::Follow(rx)) => match follow(rx).await {
+                    Ok(r) => return r,
+                    Err(_) => continue,
+                },
+            }
+        }
+        Err(internal("operation driver did not settle"))
     }
 }
 

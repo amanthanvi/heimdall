@@ -173,6 +173,7 @@ mod fake_adapter {
     use std::collections::{BTreeMap, VecDeque};
     use std::io::{BufRead, Write};
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
@@ -185,6 +186,15 @@ mod fake_adapter {
     use heimdall_contract::ids::GrantId;
 
     /// One scripted adapter response.
+    ///
+    /// ⟨M02⟩ U0b row 24 (M2-T06) adds the hang steps. A hung call waits until
+    /// [`FakeCredentialAdapter::release_hangs`]; a runtime that bounds the call drops
+    /// its future first, so a released hang that is still awaited (and therefore does
+    /// more work) is counted by [`FakeCredentialAdapter::work_after_drop`]. The two
+    /// prepare steps go in the `prepare` script; `HangReconcile` and `HangRevoke` are
+    /// armed for the next `reconcile` or `revoke` call with
+    /// [`FakeCredentialAdapter::arm`] (in the prepare script they are refused with
+    /// `Unavailable`).
     #[derive(Debug, Clone)]
     pub enum FakeStep {
         /// Succeed with these facts.
@@ -194,6 +204,93 @@ mod fake_adapter {
         /// Perform the effect but report `OutcomeUnknown` (lost acknowledgment);
         /// `reconcile` later answers `Applied`.
         ApplyButLoseReply(PrepareOutcome),
+        /// ⟨M02⟩ Apply the effect (recorded as for `Prepare`, so `reconcile` answers
+        /// `Applied`), then never return until released.
+        ApplyThenHang(PrepareOutcome),
+        /// ⟨M02⟩ Hang before any effect. Only a released hang that is still awaited
+        /// applies the effect, which is late work.
+        HangBeforeEffect(PrepareOutcome),
+        /// ⟨M02⟩ The next `reconcile` hangs, then answers as usual if released.
+        HangReconcile,
+        /// ⟨M02⟩ The next `revoke` hangs, then revokes as usual if released.
+        HangRevoke,
+    }
+
+    /// ⟨M02⟩ One entry of the fake's ordered journal (U0b row 24: "the call follows
+    /// the effect in the fake's ledger").
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum FakeEvent {
+        /// An effect was applied under this token.
+        Effect(String),
+        /// A `revoke` call for this grant returned.
+        Revoke(GrantId),
+    }
+
+    /// ⟨M02⟩ The release gate every hung call waits on, and its counters.
+    #[derive(Debug, Default)]
+    struct Hangs {
+        /// Released generations and the wakers of the hung calls.
+        state: Mutex<(u64, Vec<std::task::Waker>)>,
+        /// Hangs entered.
+        entered: AtomicUsize,
+        /// Hangs whose future was dropped before it was released.
+        dropped: AtomicUsize,
+        /// Work done by hangs that were released while their future was still awaited.
+        late: AtomicUsize,
+        /// Armed reconcile and revoke hangs.
+        reconcile: AtomicUsize,
+        revoke: AtomicUsize,
+    }
+
+    /// ⟨M02⟩ One hung call: pending until the gate's generation moves past the one it
+    /// started in. Counts itself dropped when dropped before that.
+    struct Hang<'a> {
+        hangs: &'a Hangs,
+        generation: u64,
+        done: bool,
+    }
+
+    impl std::future::Future for Hang<'_> {
+        type Output = ();
+
+        fn poll(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<()> {
+            let mut state = self.hangs.state.lock().unwrap();
+            if state.0 > self.generation {
+                drop(state);
+                self.done = true;
+                return std::task::Poll::Ready(());
+            }
+            state.1.push(cx.waker().clone());
+            std::task::Poll::Pending
+        }
+    }
+
+    impl Drop for Hang<'_> {
+        fn drop(&mut self) {
+            if !self.done {
+                self.hangs.dropped.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    impl Hangs {
+        fn hang(&self) -> Hang<'_> {
+            self.entered.fetch_add(1, Ordering::SeqCst);
+            Hang {
+                hangs: self,
+                generation: self.state.lock().unwrap().0,
+                done: false,
+            }
+        }
+
+        fn take(counter: &AtomicUsize) -> bool {
+            counter
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok()
+        }
     }
 
     /// Fake credential adapter with a response script and side-effect counters
@@ -220,6 +317,10 @@ mod fake_adapter {
         /// Revocations applied.
         pub revocations: Mutex<Vec<GrantId>>,
         ledger: Option<PathBuf>,
+        /// ⟨M02⟩ U0b row 24: hung calls and their counters.
+        hangs: Hangs,
+        /// ⟨M02⟩ Effects and revocations, in order.
+        journal: Mutex<Vec<FakeEvent>>,
     }
 
     /// One ledger line: the effect token and the outcome the effect produced.
@@ -318,7 +419,63 @@ mod fake_adapter {
                 effects: Mutex::new(BTreeMap::new()),
                 revocations: Mutex::new(Vec::new()),
                 ledger: None,
+                hangs: Hangs::default(),
+                journal: Mutex::new(Vec::new()),
             })
+        }
+
+        /// ⟨M02⟩ U0b row 24: arm a step for the next call. `HangReconcile` and
+        /// `HangRevoke` make the next `reconcile` or `revoke` hang (each arming
+        /// counts once); any other step goes to the front of the `prepare` script.
+        pub fn arm(&self, step: FakeStep) {
+            match step {
+                FakeStep::HangReconcile => {
+                    self.hangs.reconcile.fetch_add(1, Ordering::SeqCst);
+                }
+                FakeStep::HangRevoke => {
+                    self.hangs.revoke.fetch_add(1, Ordering::SeqCst);
+                }
+                other => self.script.lock().unwrap().push_front(other),
+            }
+        }
+
+        /// ⟨M02⟩ Release every call hung so far. A call still awaited then finishes
+        /// and its work is counted by [`Self::work_after_drop`].
+        pub fn release_hangs(&self) {
+            let wakers = {
+                let mut state = self.hangs.state.lock().unwrap();
+                state.0 += 1;
+                std::mem::take(&mut state.1)
+            };
+            for w in wakers {
+                w.wake();
+            }
+        }
+
+        /// ⟨M02⟩ Calls that entered a hang.
+        #[must_use]
+        pub fn hangs_entered(&self) -> usize {
+            self.hangs.entered.load(Ordering::SeqCst)
+        }
+
+        /// ⟨M02⟩ Hung calls whose future was dropped before being released.
+        #[must_use]
+        pub fn hangs_dropped(&self) -> usize {
+            self.hangs.dropped.load(Ordering::SeqCst)
+        }
+
+        /// ⟨M02⟩ Work done after a hang was released by a call whose future was
+        /// still awaited. A runtime that drops the future when its bound elapses
+        /// (U0b row 24) keeps this at 0.
+        #[must_use]
+        pub fn work_after_drop(&self) -> usize {
+            self.hangs.late.load(Ordering::SeqCst)
+        }
+
+        /// ⟨M02⟩ Effects and revocations, in order.
+        #[must_use]
+        pub fn journal(&self) -> Vec<FakeEvent> {
+            self.journal.lock().unwrap().clone()
         }
 
         /// New fake whose effects are recorded in the durable, append-only ledger
@@ -343,6 +500,8 @@ mod fake_adapter {
                 effects: Mutex::new(BTreeMap::new()),
                 revocations: Mutex::new(Vec::new()),
                 ledger: Some(path),
+                hangs: Hangs::default(),
+                journal: Mutex::new(Vec::new()),
             };
             adapter.refresh()?;
             Ok(Arc::new(adapter))
@@ -398,7 +557,18 @@ mod fake_adapter {
                 .lock()
                 .unwrap()
                 .insert(token.to_owned(), out.clone());
+            self.journal
+                .lock()
+                .unwrap()
+                .push(FakeEvent::Effect(token.to_owned()));
             Ok(())
+        }
+
+        /// ⟨M02⟩ Wait at the release gate; a hang that returns was released while
+        /// still awaited, so whatever its call does next is late work.
+        async fn hang(&self) {
+            self.hangs.hang().await;
+            self.hangs.late.fetch_add(1, Ordering::SeqCst);
         }
 
         fn refreshed(&self) -> Result<(), AdapterError> {
@@ -441,6 +611,19 @@ mod fake_adapter {
                     Err(AdapterError::OutcomeUnknown("reply lost".into()))
                 }
                 FakeStep::Fail(e) => Err(e),
+                FakeStep::ApplyThenHang(out) => {
+                    self.record(req.effect_token, &out)?;
+                    self.hang().await;
+                    Ok(out)
+                }
+                FakeStep::HangBeforeEffect(out) => {
+                    self.hang().await;
+                    self.record(req.effect_token, &out)?;
+                    Ok(out)
+                }
+                FakeStep::HangReconcile | FakeStep::HangRevoke => Err(AdapterError::Unavailable(
+                    "a reconcile or revoke hang is armed, not scripted".into(),
+                )),
             }
         }
 
@@ -453,6 +636,9 @@ mod fake_adapter {
             _grant: &GrantId,
             effect_token: &str,
         ) -> Result<ReconcileOutcome, AdapterError> {
+            if Hangs::take(&self.hangs.reconcile) {
+                self.hang().await;
+            }
             self.refreshed()?;
             Ok(match self.effects.lock().unwrap().get(effect_token) {
                 Some(out) => ReconcileOutcome::Applied(out.clone()),
@@ -465,7 +651,14 @@ mod fake_adapter {
             grant: &GrantId,
             _now: Timestamp,
         ) -> Result<RevokeOutcome, AdapterError> {
+            if Hangs::take(&self.hangs.revoke) {
+                self.hang().await;
+            }
             self.revocations.lock().unwrap().push(grant.clone());
+            self.journal
+                .lock()
+                .unwrap()
+                .push(FakeEvent::Revoke(grant.clone()));
             Ok(RevokeOutcome {
                 remote_pending: Vec::new(),
                 latest_possible_credential_expiry: None,
@@ -517,7 +710,7 @@ mod fake_adapter {
 }
 
 #[cfg(feature = "app")]
-pub use fake_adapter::{FakeCredentialAdapter, FakeStep, ScriptedStageHook};
+pub use fake_adapter::{FakeCredentialAdapter, FakeEvent, FakeStep, ScriptedStageHook};
 
 /// N06 (ADR-0006 §13.4): the durable effect ledger. The in-process cases build a
 /// second adapter instance in the same process (labelled **in-process**); the

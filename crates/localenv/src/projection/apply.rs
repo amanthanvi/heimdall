@@ -33,6 +33,13 @@
 //!   exchanged inactive step handed to the cleaner). No receipt records that
 //!   hand-over, so it is computed every round from the durable receipts and a fresh
 //!   observation, and a restart computes it again; K is always released last.
+//! * K in the run that claimed it (ADR-0007 §12.20 item 1). Within a run whose own
+//!   `claim_lock` succeeded, the lock name is classified by K's identity and holder
+//!   digest, the check [`Run::lock_held_by_k`] makes before B_git's exchange (§5.6:
+//!   within one run, identity and holder digest are checked at each step). So the run
+//!   keeps the lock by K2 and releases K, with or without a birth time. A restart, which
+//!   did not claim K, keeps the recovery classifier: on Unix without a birth time every
+//!   entry at the lock name is X there (QR15), and K4 leaves it for the owner.
 //! * Rows F0x and K0x are the classifier's (`replace::observe_step_at`, §12.17 item
 //!   2): an unrecorded entry of Heimdall's shape at a step's own staged name, before
 //!   any receipt of the step, is its S by digest.
@@ -40,9 +47,15 @@
 //!   item applied (or the intent has none). B_git's staged bytes must parse
 //!   (`git config --file <N_s> --no-includes --list`, a local query) before its
 //!   exchange; a failure aborts before the commit point (§5.6 step 3,
-//!   `unmanageable_file`), and so does a check that cannot run (§12.19 item 8: reason
-//!   `verified_client_unavailable`, which `ConflictKind` cannot carry yet, so the
-//!   outcome has no conflict reason).
+//!   `unmanageable_file`), and so does a check that cannot run (§12.19 item 8, §12.20
+//!   item 2(a): `verified_client_unavailable`).
+//! * Outcome reasons (ADR-0007 §12.20 item 2(b)). An abort the live path stops itself
+//!   keeps the reason of its stop. An abort that recovery decides carries the reason
+//!   its §5.7 row names ([`Run::abort_reason`]): `concurrent_writer` for F1a, F2g, C3,
+//!   C4 and K3; the base's (`user_config_changed` or `managed_file_edited`) for F2e,
+//!   F2j and a T0 precondition; `git_config_locked` for K0 and K1 with a foreign lock,
+//!   and for K4 (escalated reading). The reason is durable: `item.finished` records
+//!   it, and a restart reports the recorded one.
 //! * K before B_git's commit point (§12.18 item 4, X04). Immediately before B_git's
 //!   exchange, on fresh apply and on a restart's resume alike, the lock name must hold
 //!   K: the identity the lock step's `file.staged` recorded, with the holder digest.
@@ -335,20 +348,14 @@ enum Flow {
     /// The step stopped before anything active changed, or the engine must decide;
     /// the item's reason.
     Stop(ConflictKind),
-    /// The step stopped before anything active changed, and no conflict caused it:
-    /// B_git's parse check cannot run (ADR-0007 §12.19 item 8; see
-    /// [`PARSE_CHECK_UNAVAILABLE`]).
-    StopUnavailable,
 }
 
-/// ADR-0007 §12.19 item 8: when B_git's parse check cannot run (local queries
-/// disabled, no verified Git client, or the client cannot be started), the Git item
-/// aborts before its commit point with reason `verified_client_unavailable`, not
-/// `unmanageable_file`. `ItemOutcome::NotApplied.reason` is a `ConflictKind`, which has
-/// no such variant (a contract type), so the item's outcome carries no conflict
-/// reason (`None`) until the contract names it (escalated by W2c-U4). This is the one
-/// place to change then.
-const PARSE_CHECK_UNAVAILABLE: Option<ConflictKind> = None;
+/// ADR-0007 §12.19 item 8, §12.20 item 2(a): when B_git's parse check cannot run
+/// (local queries disabled, no verified Git client, or the client cannot be started),
+/// the Git item aborts before its commit point with reason
+/// `verified_client_unavailable`, not `unmanageable_file` (a check that ran and
+/// refused the bytes).
+const PARSE_CHECK_UNAVAILABLE: ConflictKind = ConflictKind::VerifiedClientUnavailable;
 
 /// What B_git's parse check established (ADR-0007 §5.6 step 3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,6 +404,11 @@ struct Run<'a> {
     quarantines: HashMap<PathBuf, Rc<Quarantine>>,
     reasons: BTreeMap<ProjectionItem, ConflictKind>,
     outcomes: BTreeMap<ProjectionItem, ItemOutcome>,
+    /// ADR-0007 §12.20 item 1: this run's own `claim_lock` succeeded, so the lock name
+    /// is classified by K's identity and holder digest ([`Run::k_in_this_run`]). A
+    /// restart starts `false` and keeps the recovery classifier until it claims K
+    /// itself.
+    claimed_k: bool,
 }
 
 impl<'a> Run<'a> {
@@ -434,6 +446,7 @@ impl<'a> Run<'a> {
             quarantines: HashMap::new(),
             reasons: BTreeMap::new(),
             outcomes: BTreeMap::new(),
+            claimed_k: false,
         })
     }
 
@@ -568,10 +581,21 @@ impl<'a> Run<'a> {
     fn finished(&self, item: ProjectionItem) -> Option<ItemFinish> {
         self.item_phases(item)
             .filter_map(|p| match p {
-                ItemPhase::Finished { outcome } => Some(*outcome),
+                ItemPhase::Finished { outcome, .. } => Some(*outcome),
                 _ => None,
             })
             .last()
+    }
+
+    /// The reason `item.finished` recorded (ADR-0007 §12.20 item 2(b)), if any.
+    fn finished_reason(&self, item: ProjectionItem) -> Option<ConflictKind> {
+        self.item_phases(item)
+            .filter_map(|p| match p {
+                ItemPhase::Finished { reason, .. } => Some(*reason),
+                _ => None,
+            })
+            .last()
+            .flatten()
     }
 
     fn committed_generation(&self, item: ProjectionItem) -> Option<u64> {
@@ -754,10 +778,12 @@ impl<'a> Run<'a> {
         if let Some(kind) = refusal {
             let mut out = Vec::new();
             for item in items {
+                self.reasons.insert(item, kind);
                 self.append_item(
                     item,
                     ItemPhase::Finished {
                         outcome: ItemFinish::NotApplied,
+                        reason: Some(kind),
                     },
                 )?;
                 out.push(ItemOutcome::NotApplied {
@@ -774,6 +800,7 @@ impl<'a> Run<'a> {
                     item,
                     ItemPhase::Finished {
                         outcome: ItemFinish::NotApplied,
+                        reason: None,
                     },
                 )?;
                 ItemOutcome::NotApplied { item, reason: None }
@@ -809,20 +836,9 @@ impl<'a> Run<'a> {
                     self.reasons.entry(item).or_insert(kind);
                     break;
                 }
-                Flow::StopUnavailable => {
-                    self.stop_unavailable(item);
-                    break;
-                }
             }
         }
         self.drive(item, false)
-    }
-
-    /// [`Flow::StopUnavailable`]: the item's reason is [`PARSE_CHECK_UNAVAILABLE`].
-    fn stop_unavailable(&mut self, item: ProjectionItem) {
-        if let Some(kind) = PARSE_CHECK_UNAVAILABLE {
-            self.reasons.entry(item).or_insert(kind);
-        }
     }
 
     /// Run step `i` forward from `from` through post-validation (§5.3 steps 2–6).
@@ -894,7 +910,7 @@ impl<'a> Run<'a> {
             match self.git_parse_check(&parent, &names.staged) {
                 ParseCheck::Parses => {}
                 ParseCheck::Refused => return Ok(Flow::Stop(ConflictKind::UnmanageableFile)),
-                ParseCheck::Unavailable => return Ok(Flow::StopUnavailable),
+                ParseCheck::Unavailable => return Ok(Flow::Stop(PARSE_CHECK_UNAVAILABLE)),
             }
         }
         if from != From::Validated {
@@ -1056,6 +1072,9 @@ impl<'a> Run<'a> {
         self.config.fire(ReplacePoint::BeforeLockClaim, i);
         match claim_lock(&dir, &holder, &lock_name) {
             Ok(_) => {
+                // ADR-0007 §12.20 item 1: from here on this run classifies the lock
+                // name by K's identity and holder digest.
+                self.claimed_k = true;
                 self.config.fire(ReplacePoint::AfterLockClaim, i);
                 Ok(Flow::Continue)
             }
@@ -1244,7 +1263,12 @@ impl<'a> Run<'a> {
             Ok(Some(dir)) => {
                 let record = self.record(i);
                 let settling = SettlingAt::from_receipts(i, &self.log);
-                replace::observe_step_at(&dir, step, &record, state, settling.as_ref())
+                let obs = replace::observe_step_at(&dir, step, &record, state, settling.as_ref());
+                if self.claimed_k && step.role == FileRole::GitLock {
+                    self.k_in_this_run(&dir, i, state, obs, settling.as_ref())
+                } else {
+                    obs
+                }
             }
             Ok(None) => StepObservation::normalize(
                 EntryObs::Absent,
@@ -1256,6 +1280,52 @@ impl<'a> Run<'a> {
             .unwrap_or_else(|_| unobservable(state, shape)),
             Err(_) => unobservable(state, shape),
         }
+    }
+
+    /// ADR-0007 §12.20 item 1: the `git_lock` step's observation in the run that
+    /// claimed K. The lock name is K when it holds K's recorded identity with the
+    /// holder digest, exactly as [`Run::lock_held_by_k`] checks before B_git's exchange
+    /// (§5.6: within one run, identity and holder digest are checked at each step;
+    /// K's identity cannot be reused while K exists, and a lock re-created on a freed
+    /// inode lacks K's random line). It is `Q` while K's release from the lock is open
+    /// (the settlement's source), `S` otherwise. Anything else keeps the recovery
+    /// classification `obs` (an `S′`, a foreign entry, nothing), so this only ever adds
+    /// the provable K that the classifier cannot see without a birth time (QR15); with
+    /// a birth time, or on Windows, both agree.
+    fn k_in_this_run(
+        &self,
+        dir: &DirHandle,
+        i: u16,
+        state: &RecoveryState,
+        obs: StepObservation,
+        settling: Option<&SettlingAt>,
+    ) -> StepObservation {
+        let step = self.step(i);
+        let (Some(identity), Some(sha256), Some((_, lock))) =
+            (self.staged_identity(i), staged_sha(step), split(&step.path))
+        else {
+            return obs;
+        };
+        let k = Expected { identity, sha256 };
+        let (which, expected) = match settling {
+            Some(s) if s.name == lock => (RecordedRole::Q, &s.expected),
+            _ => (RecordedRole::S, &k),
+        };
+        if replace::check_name(dir, &lock, expected) != NameState::Expected(ContentState::Unchanged)
+        {
+            return obs;
+        }
+        StepObservation::normalize(
+            EntryObs::Recorded {
+                which,
+                content: ContentState::Unchanged,
+            },
+            obs.aside(),
+            obs.slot(),
+            state,
+            StepShape::GitLock,
+        )
+        .unwrap_or(obs)
     }
 
     fn fingerprint(&mut self, i: u16, state: &RecoveryState) -> StepFingerprint {
@@ -1407,6 +1477,7 @@ impl<'a> Run<'a> {
         item: ProjectionItem,
         mut resume_allowed: bool,
     ) -> Result<ItemOutcome, ReconcileError> {
+        let mut abort_decided = false;
         for _ in 0..MAX_ITERATIONS {
             if let Some(finish) = self.finished(item) {
                 return Ok(self.outcome_of(item, finish));
@@ -1487,17 +1558,21 @@ impl<'a> Run<'a> {
                                 resume_allowed = false;
                                 continue;
                             }
-                            Some(Flow::StopUnavailable) => {
-                                self.stop_unavailable(item);
-                                resume_allowed = false;
-                                continue;
-                            }
                             // Nothing left to resume (an abort's settlement already
                             // completed): the item aborts.
                             None => {}
                         }
                     }
                     resume_allowed = false;
+                    // ADR-0007 §12.20 item 2(b): the abort's reason is read in the round
+                    // that decides it, before its own actions change any phase. A stop
+                    // of the live path (or of a resume) already set it and is kept.
+                    if !abort_decided {
+                        abort_decided = true;
+                        if let Some(kind) = self.abort_reason(item, &views)? {
+                            self.reasons.entry(item).or_insert(kind);
+                        }
+                    }
                     // T0 abort: settle Heimdall's own unexchanged staged entries, then
                     // release K last, then finish `not_applied`.
                     if self.abort_one(&views)? || self.release_k(&views, true)? {
@@ -1577,6 +1652,124 @@ impl<'a> Run<'a> {
             }
         }
         Ok(true)
+    }
+
+    /// ADR-0007 §12.20 item 2(b): the reason of an abort that recovery decides, in plan
+    /// order: the first step whose own row names one ([`Run::row_reason`]), or whose
+    /// T0 precondition (§5.4 step 3, [`Run::precheck`]) fails where its row would
+    /// resume. `None` for a Git item that waits for the SSH commit point (it never
+    /// ran, and the live path reports none either), and when no row names a reason
+    /// (F0z, F2k, C4b, K0z, an `S′` that cannot be continued).
+    fn abort_reason(
+        &mut self,
+        item: ProjectionItem,
+        views: &[View],
+    ) -> Result<Option<ConflictKind>, ReconcileError> {
+        if self.blocked_by_ssh(item) {
+            return Ok(None);
+        }
+        for v in views {
+            if let Some(kind) = self.row_reason(v) {
+                return Ok(Some(kind));
+            }
+            if matches!(
+                v.dec,
+                StepDecision::Forward(
+                    ForwardStep::Stage | ForwardStep::Revalidate | ForwardStep::ClaimLock
+                )
+            ) && let Err(kind) = self.precheck(v.step)?
+            {
+                return Ok(Some(kind));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The conflict reason the ADR-0007 §5.7 row of `v` names for an abort (§12.20
+    /// item 2(b)), for a step of an open item with no restore in its context (the rows
+    /// before the exchange run under T0):
+    ///
+    /// * `concurrent_writer`: F1a (`staged`, the aside ∅ or X), F2g (`validated`, path
+    ///   V or V′, aside ∅), C3 (`validated`, path X, aside S or S′), C4 (`validated`,
+    ///   path and aside ∅) and K3;
+    /// * the base's conflict (`user_config_changed` for the user file and the global
+    ///   Git file, `managed_file_edited` otherwise): F2e (path X) and F2j (path ∅), each
+    ///   with the aside S or S′, and F2a with a V′ at the path, which T0's revalidation
+    ///   refuses (a T0 precondition);
+    /// * `git_config_locked`: K0 (nothing staged, an entry at the lock) and K1 (K
+    ///   staged, a foreign lock: the claim fails), and K4.
+    ///
+    /// K3 and K4 are recording rows, so when the item aborts they are already on record:
+    /// they are read from K's receipts ([`Run::lock_conflict_reason`]).
+    fn row_reason(&self, v: &View) -> Option<ConflictKind> {
+        let state = v.state.as_ref()?;
+        if state.item != ItemState::Open || state.restore != RestoreCtx::NotDue {
+            return None;
+        }
+        let step = self.step(v.step);
+        let (p, a) = (v.obs.path(), v.obs.aside());
+        let absent = |e: EntryObs| e == EntryObs::Absent;
+        let foreign = |e: EntryObs| e == EntryObs::Foreign;
+        let is = |e: EntryObs, role: RecordedRole| matches!(e, EntryObs::Recorded { which, .. } if which == role);
+        let cw = ConflictKind::ConcurrentWriter;
+        let locked = ConflictKind::GitConfigLocked;
+        match (StepShape::of(step), &state.phase) {
+            (StepShape::Replace | StepShape::Create, Some(EffectivePhase::Staged { .. })) => {
+                (absent(a) || foreign(a)).then_some(cw) // F1a
+            }
+            (StepShape::Replace, Some(EffectivePhase::Validated { .. })) => {
+                let v_modified = p
+                    == EntryObs::Recorded {
+                        which: RecordedRole::V,
+                        content: ContentState::Modified,
+                    };
+                if is(p, RecordedRole::V) && absent(a) {
+                    Some(cw) // F2g
+                } else if (foreign(p) || absent(p) || v_modified) && is(a, RecordedRole::S) {
+                    Some(changed_kind(step)) // F2e, F2j; F2a with V′ (T0 precondition)
+                } else {
+                    None
+                }
+            }
+            (StepShape::Create, Some(EffectivePhase::Validated { .. })) => {
+                ((foreign(p) && is(a, RecordedRole::S)) || (absent(p) && absent(a))).then_some(cw) // C3, C4
+            }
+            (StepShape::GitLock, None) => (foreign(p) && absent(a)).then_some(locked), // K0
+            (StepShape::GitLock, Some(EffectivePhase::Staged { .. })) => {
+                (foreign(p) && is(a, RecordedRole::S)).then_some(locked) // K1
+            }
+            (StepShape::GitLock, Some(EffectivePhase::SettleConflict { .. })) => {
+                self.lock_conflict_reason(v.step)
+            }
+            _ => None,
+        }
+    }
+
+    /// K3 or K4 as recorded: K's `file.settle_conflict` directly after its
+    /// `file.staged`, with no settlement between them (a conflict of K's release
+    /// follows a `file.settling`). `{missing}` (K gone) and `{foreign}` naming K's
+    /// staged name (an X there, ADR-0007 §12.20 item 4) are K3, `concurrent_writer`;
+    /// `{foreign}` naming the lock name is K4, `git_config_locked` (the lock is held,
+    /// not provably by Heimdall).
+    fn lock_conflict_reason(&self, i: u16) -> Option<ConflictKind> {
+        let (_, lock) = split(&self.step(i).path)?;
+        let mut phases = self
+            .file_phases(i)
+            .filter(|p| !matches!(p, FilePhase::Held { .. }));
+        let (Some(FilePhase::Staged { .. }), Some(FilePhase::SettleConflict { found, kept }), None) =
+            (phases.next(), phases.next(), phases.next())
+        else {
+            return None;
+        };
+        match found {
+            SettleConflictFound::Foreign if kept.iter().any(|k| k.name == lock) => {
+                Some(ConflictKind::GitConfigLocked) // K4
+            }
+            SettleConflictFound::Missing | SettleConflictFound::Foreign => {
+                Some(ConflictKind::ConcurrentWriter) // K3
+            }
+            SettleConflictFound::Modified => None,
+        }
     }
 
     /// T0 resume: continue the first step that is not yet forward-complete.
@@ -1731,7 +1924,8 @@ impl<'a> Run<'a> {
 
     /// Write `item.finished{outcome}` once every step reached its end; otherwise
     /// nothing a row moves is left, yet the item is not at its end: no row lists the
-    /// combination, and the item is held (`unmatched`).
+    /// combination, and the item is held (`unmatched`). The receipt records the
+    /// outcome's reason (ADR-0007 §12.20 item 2(b)), which a restart reports.
     fn finish_at_end(
         &mut self,
         item: ProjectionItem,
@@ -1742,7 +1936,12 @@ impl<'a> Run<'a> {
             let target = Some((v.step, HoldReason::Unmatched));
             return self.hold(item, views, target).map(Some);
         }
-        self.append_item(item, ItemPhase::Finished { outcome })?;
+        let reason = match outcome {
+            ItemFinish::NotApplied => self.reasons.get(&item).copied(),
+            ItemFinish::Restored => self.restored_reason(item),
+            ItemFinish::Applied | ItemFinish::ConflictPreserved => None,
+        };
+        self.append_item(item, ItemPhase::Finished { outcome, reason })?;
         Ok(None)
     }
 
@@ -2323,8 +2522,13 @@ impl<'a> Run<'a> {
         Ok(ItemOutcome::Held { item, steps })
     }
 
+    /// The item's outcome. A reason recorded in `item.finished` is reported as it is,
+    /// so a restart reports what the run that finished the item did (ADR-0007 §12.20
+    /// item 2(b)); a receipt without one (stored before the field existed, or with no
+    /// reason) falls back to this run's reason, or for a restore to the reason its
+    /// receipts give.
     fn outcome_of(&self, item: ProjectionItem, finish: ItemFinish) -> ItemOutcome {
-        let reason = self.reasons.get(&item).copied();
+        let recorded = self.finished_reason(item);
         match finish {
             ItemFinish::Applied => ItemOutcome::Applied {
                 item,
@@ -2332,32 +2536,39 @@ impl<'a> Run<'a> {
                     .committed_generation(item)
                     .unwrap_or(self.intent.generation),
             },
-            ItemFinish::NotApplied => ItemOutcome::NotApplied { item, reason },
-            ItemFinish::Restored => {
-                let rolled = self.item_phases(item).find_map(|p| match p {
-                    ItemPhase::RollingBack { reason } => Some(*reason),
-                    _ => None,
-                });
-                let mismatch = self.steps_of(item).iter().any(|&i| {
-                    self.file_phases(i).any(|p| {
-                        matches!(
-                            p,
-                            FilePhase::PostValidated {
-                                verdict: PostVerdict::Mismatch,
-                                ..
-                            }
-                        )
-                    })
-                });
-                ItemOutcome::Restored {
-                    item,
-                    reason: rolled
-                        .or(reason)
-                        .or(mismatch.then_some(ConflictKind::ConcurrentWriter)),
-                }
-            }
+            ItemFinish::NotApplied => ItemOutcome::NotApplied {
+                item,
+                reason: recorded.or_else(|| self.reasons.get(&item).copied()),
+            },
+            ItemFinish::Restored => ItemOutcome::Restored {
+                item,
+                reason: recorded.or_else(|| self.restored_reason(item)),
+            },
             ItemFinish::ConflictPreserved => ItemOutcome::ConflictPreserved { item },
         }
+    }
+
+    /// Why the item was restored: the transaction check's (`item.rolling_back`), this
+    /// run's, or a recorded mismatch (`concurrent_writer`).
+    fn restored_reason(&self, item: ProjectionItem) -> Option<ConflictKind> {
+        let rolled = self.item_phases(item).find_map(|p| match p {
+            ItemPhase::RollingBack { reason } => Some(*reason),
+            _ => None,
+        });
+        let mismatch = self.steps_of(item).iter().any(|&i| {
+            self.file_phases(i).any(|p| {
+                matches!(
+                    p,
+                    FilePhase::PostValidated {
+                        verdict: PostVerdict::Mismatch,
+                        ..
+                    }
+                )
+            })
+        });
+        rolled
+            .or_else(|| self.reasons.get(&item).copied())
+            .or(mismatch.then_some(ConflictKind::ConcurrentWriter))
     }
 
     /// `observe_held` for one item: the steps a restart would hold, observed

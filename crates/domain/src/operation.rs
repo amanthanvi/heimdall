@@ -464,7 +464,8 @@ impl LocalReceipt {
             LocalReceipt::Item {
                 phase: ItemPhase::Committed { .. }
                     | ItemPhase::Finished {
-                        outcome: ItemFinish::Applied
+                        outcome: ItemFinish::Applied,
+                        ..
                     },
                 ..
             }
@@ -687,6 +688,13 @@ pub enum ItemPhase {
     Finished {
         /// The outcome.
         outcome: ItemFinish,
+        /// ⟨ADR-0007 §12.20 item 2⟩ Why, when a conflict caused a `not_applied` or
+        /// `restored` outcome: the reason the run reported (the live path's, or the
+        /// one the §5.7 row names when recovery decided the abort), so a restart
+        /// reports the same one. Serde default, omitted when absent: a stored receipt
+        /// without it decodes with `None` and re-encodes byte-identically.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<ConflictKind>,
     },
 }
 
@@ -915,14 +923,32 @@ mod tests {
             (
                 ItemPhase::Finished {
                     outcome: ItemFinish::Applied,
+                    reason: None,
                 },
                 r#"{"kind":"finished","outcome":"applied"}"#,
             ),
             (
                 ItemPhase::Finished {
                     outcome: ItemFinish::ConflictPreserved,
+                    reason: None,
                 },
                 r#"{"kind":"finished","outcome":"conflict_preserved"}"#,
+            ),
+            // ADR-0007 §12.20 item 2: the reason is optional, omitted when absent (the
+            // goldens above are the stored form of a receipt without one).
+            (
+                ItemPhase::Finished {
+                    outcome: ItemFinish::NotApplied,
+                    reason: Some(ConflictKind::ConcurrentWriter),
+                },
+                r#"{"kind":"finished","outcome":"not_applied","reason":"concurrent_writer"}"#,
+            ),
+            (
+                ItemPhase::Finished {
+                    outcome: ItemFinish::NotApplied,
+                    reason: Some(ConflictKind::VerifiedClientUnavailable),
+                },
+                r#"{"kind":"finished","outcome":"not_applied","reason":"verified_client_unavailable"}"#,
             ),
         ];
         for (phase, golden) in &item_cases {
@@ -958,6 +984,7 @@ mod tests {
                     item: ProjectionItem::Ssh,
                     phase: ItemPhase::Finished {
                         outcome: ItemFinish::Applied,
+                        reason: None,
                     },
                 },
                 true,
@@ -967,6 +994,7 @@ mod tests {
                     item: ProjectionItem::Ssh,
                     phase: ItemPhase::Finished {
                         outcome: ItemFinish::Restored,
+                        reason: Some(ConflictKind::ManagedFileEdited),
                     },
                 },
                 false,

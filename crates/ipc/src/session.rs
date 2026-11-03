@@ -98,11 +98,12 @@ use crate::frame::{FrameError, encode_frame};
 
 /// Capabilities this build serves.
 ///
-/// ⟨M02⟩ `setup/1` is deliberately **not** offered until the activation change set
-/// (m02-plan §5 item 4 and U0b row 19, phase 1; ADR-0007 §12.7 QR7): no session can
-/// negotiate it, a hello that requires it is rejected with `SCHEMA_UNSUPPORTED`,
-/// and the gate answers every Setup and Catalog request `SCHEMA_UNSUPPORTED`
-/// without dispatching it.
+/// ⟨M02⟩ m02-plan U0b row 19, phase 2 (the activation change set): `setup/1` is
+/// offered, so a session that negotiates it may send Setup and Catalog requests. A
+/// session that did not negotiate it is still answered `SCHEMA_UNSUPPORTED` by the
+/// gate, without dispatch. A runtime without a projection writer answers every
+/// Setup request `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) in the application.
+/// `Operations::inspect` lists the same set.
 #[must_use]
 pub fn server_capabilities() -> BTreeSet<String> {
     [
@@ -111,6 +112,7 @@ pub fn server_capabilities() -> BTreeSet<String> {
         capability::OWNER_POLICY_V1,
         capability::SCHEMA_DISCOVERY_V1,
         capability::SERVICE_CONTROL_V1,
+        capability::SETUP_V1,
     ]
     .into_iter()
     .map(str::to_owned)

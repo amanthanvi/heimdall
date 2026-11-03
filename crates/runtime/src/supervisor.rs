@@ -60,6 +60,13 @@
 //!   recoverable cleanup intents (`heimdall_domain::revocation::CleanupIntent`) that
 //!   operations settled with an applied credential effect left behind
 //!   (`Operations::process_cleanup_intents`), whatever the operation's state.
+//!   ⟨M02⟩ m02-plan U0b row 24 (ADR-0006 §13.20 item 3): every adapter call is
+//!   bounded (`Limits::adapter_call_timeout`), so a preparation that hangs after its
+//!   effect is answered `Uncertain` at the bound and its preparing marker released.
+//!   An intent written with `in_flight` while it hung is then no longer skipped, and
+//!   the next pass processes it in this same process, with no restart. Each call a
+//!   pass makes is bounded the same way, so no pass waits on an adapter for longer
+//!   than the bound per call.
 //! * **Caller operations are not retried here.** An operation whose adapter
 //!   `prepare` reports `Unavailable` is answered once with
 //!   `SERVICE_UNAVAILABLE` (exit 5) by the operations path and is not retried by

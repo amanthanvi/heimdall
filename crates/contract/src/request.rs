@@ -19,7 +19,7 @@ use crate::ids::{
 };
 use crate::provider::{
     CredentialAvailability, DeclarationRef, EndpointRef, EvidenceBasis, IdentitySelection,
-    InteractionKind, NoninteractiveEligibility, ProviderStatus,
+    IdentitySelectionReport, InteractionKind, NoninteractiveEligibility, ProviderStatus,
 };
 use crate::setup::SetupRequest;
 
@@ -512,6 +512,14 @@ pub struct PairIntegration {
     pub noninteractive: NoninteractiveEligibility,
     /// When the eligibility was computed.
     pub eligibility_checked_at: Timestamp,
+    /// ⟨M02⟩ The full static identity selection behind `identity_selection`: its
+    /// entries (each alternative's `cleared` filled by the one clearance rule) and
+    /// `IdentitiesOnly` (ADR-0007 §12.14 item 6, §12.15 item 3(c)). History, like the
+    /// verdict: the runtime stores it in the prepared facts. Serde default, omitted
+    /// when absent, so an older document decodes with `None`; a missing report never
+    /// clears a fallback (ADR-0007 §7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_selection_report: Option<IdentitySelectionReport>,
 }
 
 /// `bind` forms (primitives-draft §4.3).
@@ -796,8 +804,8 @@ pub enum Request {
     /// Graceful runtime stop (owner principal, control endpoint, any session;
     /// needs the negotiated `service-control/1` capability).
     Shutdown(ShutdownRequest),
-    /// Projection setup (M02; needs `setup/1`, which is not offered until the
-    /// activation change set).
+    /// Projection setup (M02; needs `setup/1`, offered since the activation change
+    /// set).
     Setup(SetupRequest),
     /// Catalog change (M02; needs `setup/1`).
     Catalog(CatalogRequest),

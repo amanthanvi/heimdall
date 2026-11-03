@@ -286,7 +286,10 @@ fn local(ev: Ev) -> LocalReceipt {
         },
         Fin(item, outcome) => LocalReceipt::Item {
             item,
-            phase: ItemPhase::Finished { outcome },
+            phase: ItemPhase::Finished {
+                outcome,
+                reason: None,
+            },
         },
     }
 }

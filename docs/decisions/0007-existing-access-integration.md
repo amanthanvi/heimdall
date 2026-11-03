@@ -3570,6 +3570,79 @@ unit `W3b-consent` that owns `crates/localenv/src/projection/plan.rs`,
    * `W3b-U8`, the m02-plan U8 wiring with the items §12.20 item 8 names;
    * `W3b-consent`, items 1 and 2 above.
 
+### 12.22 Rulings on the wave-3a escalations (orchestrator, 2026-11-03)
+
+Sources: the three wave-3a unit reports and the integrator's report (workflow
+`wf_84d1745b-aed`). check.sh exited 0 three times; the final runs passed 1390 tests, with 0
+failed. Setup is active: `setup/1` is offered. A scratch-home setup ran through the real
+runtime and projection writer:
+* preview;
+* attended `APPROVAL_REQUIRED`;
+* approve;
+* apply;
+* `inspect projections`;
+* a rollback that needed no decision and restored the user file byte for byte.
+
+1. **Setup cancel, stricter cut-off (ratified).** A setup or catalog cancel is honoured
+   only while the driver has written no receipt, effect or local. Otherwise the answer is
+   `OUTCOME_UNKNOWN` with `next: reconcile`. This amends §12.14 item 3 E1: releasing
+   `setup_in_progress` with staged files still unsettled would admit a second setup over
+   them.
+2. **A rolled-back item is an empty record (amends §12.19 item 9d).**
+   * The store's per-item generation check needs a monotonic generation, so a rollback
+     commits an **empty `ItemRecord` at its generation**, with consent dropped. An empty
+     record is "no item": re-adoption needs a decision.
+   * `plan.rs` treats an empty record, Git included, as absent. The rerender
+     `has_git` reading is corrected. Owner: W3b-consent.
+3. **`verified_client_unavailable` is `CAPABILITY_UNAVAILABLE`.** A missing verified client
+   cannot be fixed by retrying and is not a configuration conflict. The setup driver maps
+   `ConflictKind::VerifiedClientUnavailable` to `CAPABILITY_UNAVAILABLE` with that reason.
+   Every other conflict stays `CONFIG_CONFLICT`. Owner: W3b-gaps.
+4. **W3-U4's outcome-reason readings (ratified):**
+   * K4 in an abort reports `git_config_locked`;
+   * F2a with V′ counts as a T0 precondition and reports the base's conflict;
+   * the rows the §12.20 item 2 list does not name carry no reason.
+   * Residual: a crash between the abort decision and `item.finished` loses the reason,
+     and restart then reports none. The reason is diagnostic, never authority. The no-birth
+     residual is already in §13: K left at the lock after a crash is the owner's to remove.
+5. **Ownership deviations (ratified as integrated):**
+   * `item.finished`'s optional `reason` lives in `domain/src/operation.rs`;
+   * U5's crate-private `LocalDriver` seam and `OperationsConfig.projection` are in
+     `operations.rs`;
+   * test literals gained `None` fields;
+   * `heimdall-runtime` gained the `heimdall-localenv` and `heimdall-adapters` edges.
+6. **Test hooks.** The `#[doc(hidden)]` read-only hooks on `Operations`
+   (`setup_insert_calls`, `preparing_operations`, `available_adapter_slots`) are accepted for
+   M02. Before release (M09 hardening) they move behind a test-only feature, and the
+   release build must not expose them. Recorded in the release checklist.
+7. **Readings accepted:**
+   * E-U6-6 overrides only for adapters without external side effects;
+   * E-U6-4's `fallback_identity_interaction` attribution;
+   * `PROVIDER_LOCKED` uses `provider_unlock`;
+   * previewed intents live in a bounded in-process memory, so after a restart a non-held
+     repair needs a fresh preview, which fails closed;
+   * `OpError` keeps rendering a held error's `data.setup` through `Completed`, with the wire
+     form unchanged. A typed `OpError.setup` field is optional cleanup for U9.
+8. **The writer refuses an empty `key_file`.** `ManagedAliasSpec.key_file` empty is
+   `PreviewError::Unavailable`, never an empty `IdentityFile`. `include_target_glob` is
+   emitted by `plan.rs` directly as its own manual reason. Owner: W3b-consent.
+9. **Expired setup and catalog decisions follow M01.** An operation in `awaiting_approval`
+   whose decision passes its deadline moves to `expired`, as ADR-0006's `DeadlineReached`
+   transition does. A new operation is new work. Owner: W3b-gaps.
+10. **Gaps closed in wave 3b by `W3b-gaps`:**
+    * `RemoveProfile`: the store gains profile removal and the catalog action works (one
+      of U5's eight actions);
+    * `[setup] declaration_validity_days` is wired, with default 30;
+    * tests for E-U6-6's `continued_preparation` path, an unreadable receipt leaving the
+      operation unresolved and reported, and `RemoveDestination`;
+    * §12.17 item 10: the non-interactive authentication probe adopts the domain
+      `fallback_clearance` rule now that it exists, and refuses only a selection the rule
+      does not clear;
+    * a supervisor-driven cleaner deletion after rollback, through the real service.
+11. **Out of reach in-process:** the production `ProjectionWiring::Account` path (the real
+    account home, `Env::capture`, the `ssh -V` query) is untested by design. Its evidence is
+    U11's native run in a disposable account (m02-plan §7, owner input).
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

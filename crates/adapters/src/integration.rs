@@ -15,12 +15,11 @@
 //! * `pairs`: one per destination/account pair, with its endpoint, alias, fresh
 //!   interaction and eligibility, and the static selection verdict.
 //!
-//! **The full selection crosses the port** (ADR-0007 §12.14 item 6). [`Prepared`]
-//! carries each pair's whole `IdentitySelectionReport` (entries, `identities_only`,
-//! and each alternative's `cleared` from the domain clearance rule).
-//! `PairIntegration` in the frozen contract still carries only the verdict, so
-//! [`Prepared::prepared_pairs`] is where the full report is available until the
-//! integrator adds the field (escalated with this unit); a missing report clears
+//! **The full selection crosses the port** (ADR-0007 §12.14 item 6). Each pair's
+//! whole `IdentitySelectionReport` (entries, `identities_only`, and each
+//! alternative's `cleared` from the domain clearance rule) travels in
+//! `PairIntegration.identity_selection_report` (§12.15 item 3(c)), which the runtime
+//! stores in the prepared facts; [`Prepared`] carries it too. A missing report clears
 //! nothing.
 //!
 //! **No effect outlives the call.** The integration is a returned value; nothing is
@@ -28,6 +27,10 @@
 //! (a bounded in-memory record, keyed by grant and effect token): `applied` with the
 //! same outcome when it has one, else `not_applied`, which is true (nothing exists
 //! outside the runtime's own records, so a fresh `prepare` is safe); never `unknown`.
+//! A restart empties that record, so for a **confirmed** effect the runtime answers
+//! `not_applied` from the `PreparedFacts` it recorded with the confirmation, never
+//! from this memory (ADR-0007 §12.15 item 7, E-U6-6; the descriptor's
+//! `external_side_effects: false` is what allows it).
 //! `revoke` removes the record and reports no remote effect and no expiry: the key
 //! stays usable outside Heimdall, and the enforcement report already says so.
 
@@ -290,36 +293,10 @@ pub fn selection_for(
     report
 }
 
-/// The domain clearance, made strict about the managed entries: the domain rule
-/// takes every managed entry to be the adopted identity, so a managed entry whose
-/// fingerprint is not the adopted identity's (a stale projection, a missing `.pub`)
-/// is an alternative ssh may offer, and it is never cleared. Never clears more than
-/// the domain rule.
-#[must_use]
-pub fn strict_clearance(
-    report: &IdentitySelectionReport,
-    adopted_fingerprint: &str,
-    domain: FallbackClearance,
-) -> FallbackClearance {
-    let mut uncleared = domain.uncleared;
-    for (i, entry) in report.entries.iter().enumerate() {
-        if entry.source == IdentityEntrySource::Managed
-            && entry.fingerprint.as_deref() != Some(adopted_fingerprint)
-            && !uncleared.contains(&i)
-        {
-            uncleared.push(i);
-        }
-    }
-    uncleared.sort_unstable();
-    FallbackClearance {
-        cleared: domain.cleared && uncleared.is_empty(),
-        uncleared,
-    }
-}
-
 /// Fill `cleared` on every alternative from the clearance: each entry not from the
-/// managed projection, and each managed entry the clearance did not clear (see
-/// [`strict_clearance`]). The adopted identity's own managed entry stays unmarked.
+/// managed projection, and each managed entry the clearance did not clear (a managed
+/// entry that is not the adopted key, ADR-0007 §12.15 item 3(d)). The adopted
+/// identity's own managed entry stays unmarked.
 pub fn mark_cleared(report: &mut IdentitySelectionReport, clearance: &FallbackClearance) {
     for (i, entry) in report.entries.iter_mut().enumerate() {
         let uncleared = clearance.uncleared.contains(&i);
@@ -574,10 +551,14 @@ impl Core {
                         None => uncatalogued(),
                     }
                 };
-                let c = strict_clearance(
+                // ⟨M02⟩ ADR-0007 §12.15 item 3(d): the one domain rule, which takes
+                // the adopted identity's fingerprint.
+                let c = state::fallback_clearance(
                     &selection,
+                    catalog,
+                    &eligibility_of,
+                    &endpoint,
                     &p.identity.fingerprint,
-                    state::fallback_clearance(&selection, catalog, &eligibility_of, &endpoint),
                 );
                 mark_cleared(&mut selection, &c);
                 Some(c)
@@ -607,6 +588,9 @@ impl Core {
                 declaration: eligibility.declaration.clone(),
                 noninteractive: judged.noninteractive(),
                 eligibility_checked_at: now,
+                // ⟨M02⟩ ADR-0007 §12.15 item 3(c): the full selection crosses the
+                // port (§12.14 item 6), with each alternative's `cleared`.
+                identity_selection_report: Some(selection.clone()),
             };
             readiness.push(judged);
             details.push(PairDetail {

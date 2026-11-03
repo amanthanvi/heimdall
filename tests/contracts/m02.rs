@@ -565,6 +565,8 @@ fn error_reasons_are_stable_snake_case_and_complete() {
         ConflictKind::ConcurrentWriter,
         ConflictKind::GitConfigLocked,
         ConflictKind::ProjectionHeld,
+        // ADR-0007 §12.20 item 2(a).
+        ConflictKind::VerifiedClientUnavailable,
     ];
     for c in conflicts {
         let wire = serde_json::to_value(c).unwrap();
@@ -612,6 +614,11 @@ fn error_reasons_are_stable_snake_case_and_complete() {
         "git_config_unreadable",
         "setup_in_progress",
         "projection_too_large",
+        // ADR-0007 §12.17 item 11 (the Git item's reasons) and §12.19 item 9 (the
+        // manual reasons a `manual_mode` repair and a globbed P path give).
+        "git_default_not_bundled_msys",
+        "verified_client_unavailable",
+        "include_target_glob",
     ]
     .into_iter()
     .map(str::to_owned)

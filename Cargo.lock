@@ -713,10 +713,12 @@ name = "heimdall-runtime"
 version = "0.1.0-m01"
 dependencies = [
  "etcetera",
+ "heimdall-adapters",
  "heimdall-app",
  "heimdall-contract",
  "heimdall-domain",
  "heimdall-ipc",
+ "heimdall-localenv",
  "heimdall-store",
  "heimdall-testkit",
  "jiff",

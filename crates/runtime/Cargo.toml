@@ -16,6 +16,10 @@ heimdall-domain = { workspace = true }
 heimdall-store = { workspace = true }
 heimdall-app = { workspace = true }
 heimdall-ipc = { workspace = true }
+# ⟨M02⟩ U5 (m02-plan U5): `Service::start` wires the projection writer and its
+# cleaner (`heimdall-localenv`) and the existing-access adapters (`heimdall-adapters`).
+heimdall-localenv = { workspace = true }
+heimdall-adapters = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -62,3 +66,16 @@ path = "../../tests/model/operations.rs"
 [[test]]
 name = "model_events"
 path = "../../tests/model/events.rs"
+
+# M02-U5 setup and catalog drivers (m02-plan U5): decisions, consent, held
+# operations and their repairs, restart reconciliation, through the real Operations
+# and the runtime's projection writer over a scratch home.
+[[test]]
+name = "model_setup"
+path = "../../tests/model/setup.rs"
+
+# M02-U5 end to end through the real dispatcher, sessions and service (m02-plan U5,
+# M2-D08).
+[[test]]
+name = "e2e_setup_dispatch"
+path = "../../tests/e2e/setup_dispatch.rs"

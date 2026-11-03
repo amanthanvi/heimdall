@@ -11,16 +11,13 @@
 //! contact no agent, provider or network, and change nothing. Explicit probes are
 //! labelled levels recorded in a `ProbeRecord` (ADR-0007 §6).
 //!
-//! **Skeleton status (m02-plan U0, wave 0).** Every frozen type and signature exists
-//! here (the replacement primitive and quarantine, the materializer, the recovery
-//! function's results); the inputs that cross the `ProjectionWriter` port live in
-//! `heimdall_domain::projection` (wave-0 verifier E8). Unit bodies are
-//! `todo!("M02-U3 …")`/`todo!("M02-U4 …")`. None is reachable in this build: the
-//! runtime is given no `ProjectionWriter` (`OperationsConfig.projection` is `None`),
-//! no cleaner of this crate is registered, and the CLI's M02 handlers answer "not
-//! available in this build" without calling this crate (m02-plan "Skeleton rule").
-//! [`env`], [`paths::SshPaths::with_test_override`] and `projection::git::lock_holder`
-//! are complete.
+//! **Status (m02-plan §2, wave 3a).** The U3 and U4 bodies are implemented (waves 1–2c,
+//! with the wave-3a rulings of ADR-0007 §12.20 items 1–6); no `todo!()` remains in this
+//! crate. The inputs that cross the `ProjectionWriter` port live in
+//! `heimdall_domain::projection` (wave-0 verifier E8). This crate is the writer and the
+//! cleaner only: constructing its `projection::ProjectionConfig`, handing the runtime
+//! its `ProjectionWriter` (`OperationsConfig.projection`) and registering its cleaner
+//! are U5's runtime wiring, and the CLI handlers are U9's.
 //!
 //! **`unsafe`:** only [`sys`] may contain it (overview §9 item 3).
 

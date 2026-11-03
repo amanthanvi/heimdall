@@ -36,7 +36,7 @@ use heimdall_contract::ids::{AccountName, DestinationId, EnvironmentId, Identity
 use heimdall_contract::setup::{ConflictKind, GitApplicability, PreviewIntent, ProjectionItem};
 use heimdall_domain::operation::{
     AdapterIdentity, EffectReceipt, FilePhase, HoldReason, ItemFinish, ItemPhase, LocalReceipt,
-    SettleConflictFound, StageReceipt,
+    SettleConflictFound, SettleSource, SettledDisposition, StageReceipt,
 };
 use heimdall_domain::projection::{
     FileRole, FileStep, ItemCommit, ManagedAliasSpec, ProjectionPlan, ProjectionRecord,
@@ -336,12 +336,15 @@ fn kind_of(local: &LocalReceipt) -> String {
                 ItemPhase::RollingBack { .. } => "rolling_back",
                 ItemPhase::Finished {
                     outcome: ItemFinish::Applied,
+                    ..
                 } => "finished_applied",
                 ItemPhase::Finished {
                     outcome: ItemFinish::NotApplied,
+                    ..
                 } => "finished_not_applied",
                 ItemPhase::Finished {
                     outcome: ItemFinish::Restored,
+                    ..
                 } => "finished_restored",
                 ItemPhase::Finished { .. } => "finished_other",
             };
@@ -1184,15 +1187,15 @@ fn git_parse_check_failure_aborts_before_the_commit_point() {
     assert!(applied_git(&r.items), "{r:?}");
 }
 
-/// ADR-0007 §12.19 item 8: when B_git's parse check cannot run (local queries
-/// disabled, no verified Git client in the inventory, or a selected client that cannot
-/// be started), the Git item aborts before its commit point with reason
-/// `verified_client_unavailable`, never `unmanageable_file` (that is a check that ran
-/// and refused the bytes, `git_parse_check_failure_aborts_before_the_commit_point`).
-/// `ItemOutcome::NotApplied.reason` is a `ConflictKind`, which has no
-/// `verified_client_unavailable` yet (escalated), so the outcome carries no conflict
-/// reason. B_git is never exchanged, the global file is unchanged, K is released and
-/// nothing is left behind; the SSH item applies.
+/// ADR-0007 §12.19 item 8, §12.20 item 2(a): when B_git's parse check cannot run
+/// (local queries disabled, no verified Git client in the inventory, or a selected
+/// client that cannot be started), the Git item aborts before its commit point with
+/// reason `verified_client_unavailable` (`ConflictKind::VerifiedClientUnavailable`),
+/// never `unmanageable_file` (that is a check that ran and refused the bytes,
+/// `git_parse_check_failure_aborts_before_the_commit_point`). B_git is never exchanged,
+/// the global file is unchanged, K is released and nothing is left behind; the SSH
+/// item applies. The reason is recorded in `item.finished` (§12.20 item 2(b)), so a
+/// restart from the receipts reports the same reason and writes nothing.
 #[test]
 fn git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable() {
     for case in ["queries_disabled", "no_git_client", "client_cannot_start"] {
@@ -1225,8 +1228,11 @@ fn git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable() {
         let ItemOutcome::NotApplied { reason, .. } = &git else {
             panic!("{case}: {git:?} {kinds:?}");
         };
-        assert_ne!(*reason, Some(ConflictKind::UnmanageableFile), "{case}");
-        assert_eq!(*reason, None, "{case}: verified_client_unavailable");
+        assert_eq!(
+            *reason,
+            Some(ConflictKind::VerifiedClientUnavailable),
+            "{case}"
+        );
         assert!(applied_ssh(&r.items), "{case}: {r:?}");
         assert!(
             !kinds.contains(&format!("{b}:validated")),
@@ -1244,7 +1250,31 @@ fn git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable() {
             Some("git:finished_not_applied"),
             "{case}"
         );
+        assert_eq!(
+            finished_reason(&sink, ProjectionItem::Git),
+            Some(ConflictKind::VerifiedClientUnavailable),
+            "{case}: item.finished records the reason"
+        );
+        let written = sink.receipts().len();
+        let again = restart_with(fx.config(), &intent, &sink);
+        assert_eq!(again, r.items, "{case}: a restart reports the same reason");
+        assert_eq!(sink.receipts().len(), written, "{case}: and writes nothing");
     }
+}
+
+/// The reason the item's `item.finished` recorded (ADR-0007 §12.20 item 2(b)).
+fn finished_reason(sink: &Sink, item: ProjectionItem) -> Option<ConflictKind> {
+    sink.receipts()
+        .iter()
+        .filter_map(|r| match &r.local {
+            Some(LocalReceipt::Item {
+                item: i,
+                phase: ItemPhase::Finished { reason, .. },
+            }) if *i == item => Some(*reason),
+            _ => None,
+        })
+        .next_back()
+        .flatten()
 }
 
 fn applied_ssh(items: &[ItemOutcome]) -> bool {
@@ -1324,8 +1354,10 @@ fn git_check_failure_with_edited_p_git_is_held_and_keeps_k() {
 /// Every transition of ADR-0007 §5.6's replace, create and restore tables, crashed
 /// before and after its receipt, with and without a Unix birth time (the test-only
 /// identity source). After restart: the expected outcome, the global file's bytes,
-/// and no lock, N_s, N_d or N_k left, except that without a birth time a K at the
-/// lock is X and is left in place (K4).
+/// and no lock, N_s, N_d or N_k left, except that without a birth time a K that the
+/// crash left at the lock is X to the restart, which did not claim it, and is left in
+/// place (K4). A run that claimed K releases it (ADR-0007 §12.20 item 1): the first run
+/// when it is not crashed, and a restart that resumes from before the claim.
 #[test]
 fn git_name_transitions_crash_at_every_point_reconciles() {
     let points = |k: u16, b: u16, p: u16| -> Vec<(ReplacePoint, u16)> {
@@ -1397,6 +1429,11 @@ fn git_name_transitions_crash_at_every_point_reconciles() {
                     }
                     let sink = Sink::default();
                     let first = apply_or_crash(config, &intent, &sink);
+                    // K is at the lock when the first run crashed after its claim and
+                    // before K's move into the quarantine.
+                    let k_at_lock_at_crash = first.is_none()
+                        && hook.seen().contains(&(ReplacePoint::AfterLockClaim, k))
+                        && !hook.seen().contains(&(ReplacePoint::AfterSettleMove, k));
                     // The edit happens only when the crash comes after B_git's
                     // post-validation; earlier crashes restart without it.
                     let restore =
@@ -1448,7 +1485,10 @@ fn git_name_transitions_crash_at_every_point_reconciles() {
                         // once every other step is final); nothing else is asserted.
                     } else if birth {
                         assert!(!lock_left, "{label}");
-                    } else if lock_left {
+                    } else {
+                        assert_eq!(lock_left, k_at_lock_at_crash, "{label}");
+                    }
+                    if !birth && lock_left && !matches!(git, ItemOutcome::Held { .. }) {
                         // K4: the lock is never moved or removed without a birth time.
                         let bytes = std::fs::read(fx.lock()).unwrap();
                         assert_eq!(bytes, holder_bytes(&intent), "{label}");
@@ -1478,9 +1518,11 @@ fn git_name_transitions_crash_at_every_point_reconciles() {
     assert!(vectors >= 8 * 22, "{vectors}");
 }
 
+/// ADR-0007 §12.11 item 1, with and without a Unix birth time (§12.20 item 1: the run
+/// that claimed K keeps it by K's identity and holder digest, then releases it).
 #[test]
 fn git_lock_occupied_by_holder_until_settlement() {
-    for create in [false, true] {
+    for (create, birth) in [(false, true), (true, true), (false, false), (true, false)] {
         let fx = Fx::new();
         if create {
             std::fs::remove_file(fx.global()).unwrap();
@@ -1523,10 +1565,14 @@ fn git_lock_occupied_by_holder_until_settlement() {
                 st.2.push(format!("{point:?}: git wrote under Heimdall's lock"));
             }
         });
-        let r = apply_or_crash(fx.hooked(&hook), &intent, &Sink::default())
+        let mut config = fx.hooked(&hook);
+        if !birth {
+            config.test.identity = IdentitySource::WithoutBirth;
+        }
+        let r = apply_or_crash(config, &intent, &Sink::default())
             .unwrap()
             .unwrap();
-        assert!(applied_git(&r.items));
+        assert!(applied_git(&r.items), "create={create} birth={birth}");
         let st = held.lock().unwrap();
         assert!(st.1 >= 5, "points between claim and release: {}", st.1);
         assert!(st.2.is_empty(), "{:?}", st.2);
@@ -1733,11 +1779,28 @@ fn git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing() {
                 let ItemOutcome::NotApplied { reason, .. } = &git else {
                     panic!("{label}: {git:?} {kinds:?}");
                 };
-                if !(restart && at_claim) {
-                    // B_git's own check stopped it (a restart that observes the lost
-                    // lock at its next round aborts by K's rows alone, reason unset).
-                    assert_eq!(*reason, Some(ConflictKind::GitConfigLocked), "{label}");
-                }
+                // ADR-0007 §12.20 item 2(b): B_git's own check (the X04 abort) reports
+                // `git_config_locked`. A restart that observes the lost lock at its next
+                // round aborts by K's rows, with their reasons: K4 (a foreign lock)
+                // `git_config_locked`, K3 (K gone) `concurrent_writer`.
+                let want = if restart && at_claim && !foreign {
+                    ConflictKind::ConcurrentWriter
+                } else {
+                    ConflictKind::GitConfigLocked
+                };
+                assert_eq!(*reason, Some(want), "{label}");
+                assert_eq!(
+                    finished_reason(&sink, ProjectionItem::Git),
+                    Some(want),
+                    "{label}: recorded"
+                );
+                let written = sink.receipts().len();
+                assert_eq!(
+                    restart_with(fx.config(), &intent, &sink),
+                    out,
+                    "{label}: a restart reports the same outcomes and reasons"
+                );
+                assert_eq!(sink.receipts().len(), written, "{label}");
                 assert!(
                     !kinds.contains(&format!("{b}:exchanged")),
                     "{label}: {kinds:?}"
@@ -1788,9 +1851,9 @@ fn git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing() {
     }
     assert_eq!(vectors, 8);
     // Controls: undisturbed, the live check passes with and without a birth time, so
-    // B_git is exchanged and the item applies. (Without a birth time K's release goes
-    // through the recovery classifier, which sees every lock-name entry as X (QR15) and
-    // leaves the lock: existing behaviour, escalated by W2c-U4, not asserted here.)
+    // B_git is exchanged and the item applies, and K is released either way (ADR-0007
+    // §12.20 item 1: the run that claimed K classifies the lock name by K's identity
+    // and holder digest, `git_apply_releases_k_with_and_without_birth_time`).
     for birth in [true, false] {
         let fx = Fx::new();
         std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
@@ -1813,10 +1876,195 @@ fn git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing() {
             target_bytes_digest(step_ref(&intent, FileRole::GitInclude)),
             "birth={birth}"
         );
-        if birth {
-            assert!(!fx.lock().exists(), "K released");
+        assert!(!fx.lock().exists(), "birth={birth}: K released");
+    }
+}
+
+/// ADR-0007 §12.20 item 1 (blocks the M02 exit). Within the run that claimed K, K's
+/// release classifies the lock name by K's identity and holder digest, as the check
+/// before B_git's exchange does (§5.6), so a successful Git apply releases K with and
+/// without a birth time (the test-only identity source with `birth: None`), for an
+/// existing and for an absent global file: K's receipts are exactly `staged`,
+/// `settling{path}` naming the lock name and `settled{quarantined}`, with no
+/// `settle_conflict`; K is released after B_git's settlement and before
+/// `item.finished{applied}`; nothing is left; and Git can write its global file again
+/// (a lock left behind would make every later Git configuration write fail).
+#[test]
+fn git_apply_releases_k_with_and_without_birth_time() {
+    for create in [false, true] {
+        for birth in [true, false] {
+            let fx = Fx::new();
+            if create {
+                std::fs::remove_file(fx.global()).unwrap();
+            } else {
+                std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+            }
+            let intent = fx.plan().intent();
+            let k = step_of(&intent, FileRole::GitLock);
+            let b = step_of(&intent, FileRole::GitInclude);
+            let mut config = fx.config();
+            if !birth {
+                config.test.identity = IdentitySource::WithoutBirth;
+            }
+            let sink = Sink::default();
+            let r = LocalProjection::new(config)
+                .apply(&intent, &mut sink.clone())
+                .unwrap();
+            let kinds = sink.kinds();
+            let label = format!("create={create} birth={birth}: {kinds:?}");
+            assert!(applied_git(&r.items), "{label}: {r:?}");
+            assert_eq!(
+                Sha256Hex::of(&std::fs::read(fx.global()).unwrap()),
+                target_bytes_digest(step_ref(&intent, FileRole::GitInclude)),
+                "{label}"
+            );
+            assert!(!fx.lock().exists(), "{label}: K released");
+            let phases = sink.file_phases(k);
+            assert!(
+                matches!(
+                    phases.as_slice(),
+                    [
+                        FilePhase::Staged { .. },
+                        FilePhase::Settling {
+                            source: SettleSource::Path,
+                            name,
+                            ..
+                        },
+                        FilePhase::Settled {
+                            disposition: SettledDisposition::Quarantined
+                        },
+                    ] if name == ".gitconfig.lock"
+                ),
+                "{label}: {phases:?}"
+            );
+            let pos = |s: &str| kinds.iter().position(|x| x == s);
+            assert!(
+                pos(&format!("{k}:settling")) > pos(&format!("{b}:settled")),
+                "{label}: K released last"
+            );
+            assert_eq!(
+                kinds.last().map(String::as_str),
+                Some("git:finished_applied"),
+                "{label}"
+            );
+            assert!(leftovers(&fx).is_empty(), "{label}: {:?}", leftovers(&fx));
+            let o = fx.git(&["config", "--global", "user.x", "y"]);
+            assert!(o.status.success(), "{label}: Git's lock is free again");
         }
     }
+}
+
+/// ADR-0007 §12.20 item 1, the restart case: a restart did not claim K, so it keeps
+/// the recovery classifier. Without a birth time every entry at the lock name is X
+/// there (QR15): after a crash that leaves K at the lock (right after the claim,
+/// before B_git's commit, right before K's release), the restart records K4
+/// (`settle_conflict{foreign}` naming the lock) and leaves the lock with K's identity
+/// and bytes for the owner to remove; K's release is never attempted. With a birth
+/// time the same restart proves K and releases it. A restart that claims K itself (a
+/// crash before the claim) is a run that claimed K: it releases K without a birth time
+/// too. The SSH item applies in every case.
+#[test]
+fn git_restart_keeps_the_recovery_classifier_for_k() {
+    let probe = Fx::new();
+    std::fs::write(probe.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let probe_intent = probe.plan().intent();
+    let k = step_of(&probe_intent, FileRole::GitLock);
+    let b = step_of(&probe_intent, FileRole::GitInclude);
+    let mut vectors = 0;
+    for birth in [true, false] {
+        for (point, step, claimed) in [
+            (ReplacePoint::BeforeLockClaim, k, false),
+            (ReplacePoint::AfterLockClaim, k, true),
+            (ReplacePoint::BeforeCommit, b, true),
+            (ReplacePoint::BeforeLockRelease, k, true),
+        ] {
+            let fx = Fx::new();
+            std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+            let before = std::fs::read(fx.global()).unwrap();
+            let intent = fx.plan().intent();
+            let hook = Hook::new().crash(point, Some(step));
+            let mut config = fx.hooked(&hook);
+            let mut fresh = fx.config();
+            if !birth {
+                config.test.identity = IdentitySource::WithoutBirth;
+                fresh.test.identity = IdentitySource::WithoutBirth;
+            }
+            let sink = Sink::default();
+            let label = format!("birth={birth} {point:?}@{step}");
+            assert!(
+                apply_or_crash(config, &intent, &sink).is_none(),
+                "{label}: {:?}",
+                sink.kinds()
+            );
+            assert_eq!(fx.lock().exists(), claimed, "{label}: K at the lock");
+            let lock = claimed.then(|| {
+                (
+                    std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
+                    std::fs::read(fx.lock()).unwrap(),
+                )
+            });
+            let out = restart_with(fresh, &intent, &sink);
+            let kinds = sink.kinds();
+            let label = format!("{label}: {kinds:?}");
+            assert!(applied_ssh(&out), "{label}: {out:?}");
+            let k_phases = sink.file_phases(k);
+            let k4 = k_phases.iter().any(|p| {
+                matches!(
+                    p,
+                    FilePhase::SettleConflict {
+                        found: SettleConflictFound::Foreign,
+                        kept,
+                    } if kept.iter().any(|e| e.name == ".gitconfig.lock")
+                )
+            });
+            if claimed && !birth {
+                // K4 by the recovery classifier: the lock is never moved or removed.
+                assert!(k4, "{label}");
+                assert!(
+                    !k_phases
+                        .iter()
+                        .any(|p| matches!(p, FilePhase::Settling { .. })),
+                    "{label}: no release is attempted"
+                );
+                assert_eq!(
+                    lock.as_ref().map(|(_, bytes)| bytes.clone()),
+                    Some(holder_bytes(&intent)),
+                    "{label}"
+                );
+                assert_eq!(
+                    Some((
+                        std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
+                        std::fs::read(fx.lock()).unwrap(),
+                    )),
+                    lock,
+                    "{label}: K left with its identity and bytes"
+                );
+                let git = git_outcome(&out);
+                if point == ReplacePoint::AfterLockClaim {
+                    // B_git was never exchanged: the item aborts by K4's row.
+                    assert_eq!(
+                        git,
+                        ItemOutcome::NotApplied {
+                            item: ProjectionItem::Git,
+                            reason: Some(ConflictKind::GitConfigLocked)
+                        },
+                        "{label}"
+                    );
+                    assert_eq!(std::fs::read(fx.global()).unwrap(), before, "{label}");
+                } else {
+                    // B_git committed (or commits at T1): applied, the lock left.
+                    assert!(applied_git(&out), "{label}: {git:?}");
+                }
+            } else {
+                assert!(!k4, "{label}");
+                assert!(applied_git(&out), "{label}: {out:?}");
+                assert!(!fx.lock().exists(), "{label}: K released at restart");
+                assert!(leftovers(&fx).is_empty(), "{label}: {:?}", leftovers(&fx));
+            }
+            vectors += 1;
+        }
+    }
+    assert_eq!(vectors, 8);
 }
 
 mod lock_claim_order {

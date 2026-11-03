@@ -69,6 +69,21 @@
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
     },
+    "Certainty": {
+      "description": "Whether a statically evaluated value is decided.",
+      "oneOf": [
+        {
+          "description": "Decided statically.",
+          "type": "string",
+          "const": "determined"
+        },
+        {
+          "description": "Not decidable statically.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
     "Code": {
       "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
       "oneOf": [
@@ -694,6 +709,139 @@
       "description": "Grant ID (spec §4.1 \"Grant\").",
       "type": "string"
     },
+    "IdentitiesOnly": {
+      "description": "`IdentitiesOnly` as statically evaluated for the alias.",
+      "oneOf": [
+        {
+          "description": "Determined `yes`.",
+          "type": "string",
+          "const": "determined_yes"
+        },
+        {
+          "description": "Determined `no` (or unset).",
+          "type": "string",
+          "const": "determined_no"
+        },
+        {
+          "description": "Not decidable statically.",
+          "type": "string",
+          "const": "undetermined"
+        }
+      ]
+    },
+    "IdentityBacking": {
+      "description": "What backs an identity entry (ADR-0007 §7, F9): an agent when the private key\nfile is absent, a file when it is present (stat only; never opened).",
+      "oneOf": [
+        {
+          "description": "Private key file absent: used through the alias's agent.",
+          "type": "string",
+          "const": "agent"
+        },
+        {
+          "description": "Private key file present.",
+          "type": "string",
+          "const": "file"
+        },
+        {
+          "description": "Not established.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "IdentityEntry": {
+      "description": "One entry of an alias's identity list.",
+      "type": "object",
+      "properties": {
+        "backing": {
+          "description": "What backs it.",
+          "$ref": "#/$defs/IdentityBacking"
+        },
+        "certainty": {
+          "description": "Whether the entry is decided.",
+          "$ref": "#/$defs/Certainty"
+        },
+        "cleared": {
+          "description": "Whether a fallback clearance (ADR-0007 §7, M2-R05) cleared it; present only\nwhere a clearance was evaluated (readiness, the pre-launch check, doctor).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fingerprint": {
+          "description": "Public fingerprint (`SHA256:…`) read from the `.pub` file, when present.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "Entry kind.",
+          "$ref": "#/$defs/IdentityEntryKind"
+        },
+        "provenance": {
+          "description": "Directive location, when it comes from a file.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "description": "Where it comes from.",
+          "$ref": "#/$defs/IdentityEntrySource"
+        }
+      },
+      "required": [
+        "kind",
+        "source",
+        "certainty",
+        "backing"
+      ]
+    },
+    "IdentityEntryKind": {
+      "description": "The kind of an identity-list entry.",
+      "oneOf": [
+        {
+          "description": "An `IdentityFile` entry.",
+          "type": "string",
+          "const": "identity_file"
+        },
+        {
+          "description": "A `CertificateFile` entry.",
+          "type": "string",
+          "const": "certificate_file"
+        }
+      ]
+    },
+    "IdentityEntrySource": {
+      "description": "Where an identity-list entry comes from.",
+      "oneOf": [
+        {
+          "description": "The Heimdall-managed projection.",
+          "type": "string",
+          "const": "managed"
+        },
+        {
+          "description": "The user's configuration.",
+          "type": "string",
+          "const": "user"
+        },
+        {
+          "description": "The system configuration.",
+          "type": "string",
+          "const": "system"
+        },
+        {
+          "description": "ssh's default identity files.",
+          "type": "string",
+          "const": "default"
+        }
+      ]
+    },
     "IdentityId": {
       "description": "Adopted existing-access identity in the catalog (ADR-0007 §7; m02-plan §5\nitem 1). Runtime-generated at adoption; never derived from key material.",
       "type": "string"
@@ -716,6 +864,32 @@
           "type": "string",
           "const": "undetermined"
         }
+      ]
+    },
+    "IdentitySelectionReport": {
+      "description": "The static identity selection of an alias (ADR-0007 §3 item 3).",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "description": "Every entry ssh may try, in order.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/IdentityEntry"
+          }
+        },
+        "identities_only": {
+          "description": "`IdentitiesOnly` for the alias.",
+          "$ref": "#/$defs/IdentitiesOnly"
+        },
+        "selection": {
+          "description": "The verdict.",
+          "$ref": "#/$defs/IdentitySelection"
+        }
+      },
+      "required": [
+        "selection",
+        "identities_only"
       ]
     },
     "InteractionKind": {
@@ -1026,6 +1200,17 @@
         "identity_selection": {
           "description": "The recorded identity selection.",
           "$ref": "#/$defs/IdentitySelection"
+        },
+        "identity_selection_report": {
+          "description": "⟨M02⟩ The full static identity selection behind `identity_selection`: its\nentries (each alternative's `cleared` filled by the one clearance rule) and\n`IdentitiesOnly` (ADR-0007 §12.14 item 6, §12.15 item 3(c)). History, like the\nverdict: the runtime stores it in the prepared facts. Serde default, omitted\nwhen absent, so an older document decodes with `None`; a missing report never\nclears a fallback (ADR-0007 §7).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentitySelectionReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "interaction": {
           "description": "Fresh interaction.",

@@ -1776,7 +1776,7 @@ impl RecoveryState {
                                     seen.rolling_back = true;
                                 }
                             }
-                            ItemPhase::Finished { outcome } => {
+                            ItemPhase::Finished { outcome, .. } => {
                                 let consistent = match outcome {
                                     ItemFinish::Applied => seen.committed,
                                     ItemFinish::NotApplied => !seen.committed && !seen.rolling_back,

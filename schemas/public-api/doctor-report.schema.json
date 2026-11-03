@@ -528,6 +528,11 @@
           "description": "A setup operation is held for the owner (ADR-0007 §5.7 outcome H).",
           "type": "string",
           "const": "projection_held"
+        },
+        {
+          "description": "⟨ADR-0007 §12.20 item 2⟩ A check the transaction requires could not run: B_git's\nGit parse check (§5.6 step 3) with local queries disabled or no verified Git\nclient (§12.19 item 8). The item aborts before its commit point.",
+          "type": "string",
+          "const": "verified_client_unavailable"
         }
       ]
     },

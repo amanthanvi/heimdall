@@ -26,14 +26,16 @@
 //! 5. checks properties every correct table has: no entry is lost except by a
 //!    verified removal from the quarantine (a `file.settled` for that identity, or the
 //!    cleaner's locator identity and digest), no existing file's content changes, a
-//!    run that only holds moves nothing, and a second run writes and moves nothing.
+//!    run that only holds moves nothing, and a second run writes and moves nothing and
+//!    reports the same outcome, with the same reason (ADR-0007 §12.20 item 2(b): the
+//!    reason is recorded in `item.finished`).
 //!
 //! A row without a vector fails the test. Rows that only a state this filesystem
 //! cannot represent reaches are named in [`NOT_REPRESENTABLE`] with the reason, and
 //! the test prints them; the list is empty on Unix. T1h is reached on disk through
-//! its exchanged step's own hold (see its vector). Vectors marked `ESCALATED` pin the
-//! writer's current receipt or outcome where the ADR's row words it differently,
-//! pending a ruling.
+//! its exchanged step's own hold (see its vector). The wave-2c `ESCALATED` vectors
+//! were ruled on by ADR-0007 §12.20: items 2(b) (the abort reasons) and 4 (row K3's
+//! `{foreign}` for an X at K's staged name).
 //!
 //! Nothing outside the scratch root is read or written: the writer is configured with
 //! `SshPaths::with_test_override`; the specs have no aliases, so no key file and no
@@ -1049,7 +1051,10 @@ fn kind(local: &LocalReceipt) -> String {
             let k = match phase {
                 ItemPhase::Committed { .. } => "committed".to_owned(),
                 ItemPhase::RollingBack { .. } => "rolling_back".to_owned(),
-                ItemPhase::Finished { outcome } => format!("finished_{}", snake!(*outcome)),
+                ItemPhase::Finished { outcome, reason } => match reason {
+                    None => format!("finished_{}", snake!(*outcome)),
+                    Some(r) => format!("finished_{}:{}", snake!(*outcome), snake!(*r)),
+                },
             };
             format!("{i}:{k}")
         }
@@ -1399,7 +1404,13 @@ impl Bench<'_> {
     }
 
     fn finished(&mut self, outcome: ItemFinish) -> &mut Self {
-        self.rec_item(ItemPhase::Finished { outcome })
+        self.finished_with(outcome, None)
+    }
+
+    /// `item.finished` with the reason the run that finished the item recorded
+    /// (ADR-0007 §12.20 item 2(b)).
+    fn finished_with(&mut self, outcome: ItemFinish, reason: Option<ConflictKind>) -> &mut Self {
+        self.rec_item(ItemPhase::Finished { outcome, reason })
     }
 
     // Other writers: in-place edits keep the identity (S′, V′, Q′, K′); a rename-replace,
@@ -1644,8 +1655,10 @@ const SET: fn(SettleStep) -> StepDecision = StepDecision::Settle;
 
 /// The tail of a forward that commits and settles D (one replace step 0).
 const APPLIED_0: &str = "ssh:committed 0:settling:displaced 0:settled ssh:finished_applied";
-/// The tail of a file-level restore of step 0 that settles S.
-const RESTORED_0: &str = "0:restored 0:settling:staged 0:settled ssh:finished_restored";
+/// The tail of a file-level restore of step 0 that settles S; `item.finished` records
+/// the restore's reason (ADR-0007 §12.20 item 2(b)).
+const RESTORED_0: &str =
+    "0:restored 0:settling:staged 0:settled ssh:finished_restored:concurrent_writer";
 /// The Git item's forward from B_git's stage through K's release, last.
 const GIT_APPLIED: &str = "1:staged 1:validated 1:exchanged 1:post_validated git:committed 1:settling:displaced 1:settled 0:settling:path 0:settled git:finished_applied";
 
@@ -1724,8 +1737,26 @@ fn check_not_run(d: &Done<'_>) {
     );
 }
 
+/// The slot of step 0's last `file.settling`.
+fn settling_slot(d: &Done<'_>) -> String {
+    d.w.receipts()
+        .iter()
+        .filter_map(|r| match &r.local {
+            Some(LocalReceipt::File {
+                step: 0,
+                phase: FilePhase::Settling { slot, .. },
+            }) => Some(slot.clone()),
+            _ => None,
+        })
+        .next_back()
+        .expect("a file.settling of step 0")
+}
+
 /// F8d: the foreign entry found in the slot is out of the quarantine, at the source
-/// name (moved back) or, when that is occupied, at a conflict name beside it.
+/// name (moved back) or, when that is occupied, beside it as exactly
+/// `<name>.hm-conflict-<slot>` (ADR-0007 §12.20 item 6, §12.17 item 7: the
+/// primitive knows the slot, not the generation), and `file.settle_conflict{foreign}`
+/// names where it was kept.
 fn foreign_kept_beside(d: &Done<'_>, occupied: bool) {
     let foreign = |e: &Ent| e.bytes.starts_with(b"# another writer");
     let at: Vec<&String> = d
@@ -1741,14 +1772,67 @@ fn foreign_kept_beside(d: &Done<'_>, occupied: bool) {
         !at[0].contains(".hm-quarantine/"),
         "{at:?} left in the quarantine"
     );
-    if occupied {
-        assert!(
-            name.starts_with(&format!("{staged}.hm-conflict-")),
-            "{name}"
-        );
+    let want = if occupied {
+        format!("{staged}.hm-conflict-{}", settling_slot(d))
     } else {
-        assert_eq!(name, staged);
-    }
+        staged
+    };
+    assert_eq!(name, want);
+    let kept: Vec<String> =
+        d.w.receipts()
+            .iter()
+            .filter_map(|r| match &r.local {
+                Some(LocalReceipt::File {
+                    step: 0,
+                    phase:
+                        FilePhase::SettleConflict {
+                            found: SettleConflictFound::Foreign,
+                            kept,
+                        },
+                }) => Some(kept.iter().map(|k| k.name.clone())),
+                _ => None,
+            })
+            .flatten()
+            .collect();
+    assert_eq!(kept, vec![want], "settle_conflict{{foreign}} names it");
+}
+
+/// Row K3 as amended (ADR-0007 §12.20 item 4): an X at K's staged name with the lock
+/// name empty records `settle_conflict{foreign}` naming the staged name, and the entry
+/// is left there untouched.
+fn k3_foreign_left_at_staged_name(d: &Done<'_>) {
+    let staged = d.w.intent.files[0].staged_name.clone().unwrap();
+    let kept: Vec<String> =
+        d.w.receipts()
+            .iter()
+            .filter_map(|r| match &r.local {
+                Some(LocalReceipt::File {
+                    step: 0,
+                    phase: FilePhase::SettleConflict { found, kept },
+                }) => {
+                    assert_eq!(*found, SettleConflictFound::Foreign);
+                    Some(kept.iter().map(|k| k.name.clone()))
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+    assert_eq!(
+        kept,
+        vec![staged.clone()],
+        "the receipt names K's staged name"
+    );
+    let at: Vec<(&String, &Ent)> = d
+        .before
+        .iter()
+        .filter(|(n, _)| n.rsplit('/').next() == Some(staged.as_str()))
+        .collect();
+    assert_eq!(at.len(), 1, "an X at K's staged name before the run");
+    assert_eq!(
+        d.after.get(at[0].0),
+        Some(at[0].1),
+        "the X is left in place, untouched"
+    );
 }
 
 fn lock_untouched(d: &Done<'_>) {
@@ -1767,14 +1851,16 @@ fn file_vectors() -> Vec<Vector> {
     use FileRole::UserSsh as Us;
     use HoldReason as H;
     use Wk::{Create as Cr, Replace as Rp};
-    // ESCALATED (M02-W2c-rows): where recovery decides an abort from what it observes
-    // (rows F1a, F2e, F2g, F2j, C3, C4; T0 when a precondition fails), the outcome is
-    // `not_applied` with no conflict reason, although the rows name one
-    // (`concurrent_writer`, or `CONFIG_CONFLICT` `user_config_changed`). Only an abort
-    // the live path stops itself carries one (K0 with a foreign lock), and no receipt
-    // records it, so a restart reports none (the second run below ignores it). These
-    // vectors pin `reason: None` until that is ruled on.
+    // ADR-0007 §12.20 item 2(b): where recovery decides an abort from what it observes,
+    // the outcome carries the reason the row names, and `item.finished` records it
+    // (the receipt is spelled `finished_not_applied:<reason>`), so the second run
+    // reports the same one: `concurrent_writer` for F1a, F2g, C3 and C4;
+    // `user_config_changed` (the user file) for F2e, F2j and F2a with a V′ at the path
+    // (T0's revalidation refuses it). Rows that name none (F0z, F2k, C4b, an S′ that
+    // cannot be continued) keep `None`.
     let not_applied = Out::NotApplied(None);
+    let cw = Out::NotApplied(Some(ConflictKind::ConcurrentWriter));
+    let changed = Out::NotApplied(Some(ConflictKind::UserConfigChanged));
     let restored_cw = Out::Restored(Some(ConflictKind::ConcurrentWriter));
     let restored_rb = Out::Restored(Some(ConflictKind::ManagedFileEdited));
     vec![
@@ -1796,32 +1882,32 @@ fn file_vectors() -> Vec<Vector> {
         sv("F1", Rp, Us, |b| { b.stage().edit_aside(); }, [X, SM, A], ABT(AbortStep::SettleStaged),
             "0:settling:staged 0:settle_conflict:modified ssh:finished_not_applied", not_applied.clone()),
         sv("F1a", Rp, Us, |b| { b.stage().rm_aside(); }, [X, A, A], ABT(AbortStep::NothingToSettle),
-            "ssh:finished_not_applied", not_applied.clone()),
+            "ssh:finished_not_applied:concurrent_writer", cw.clone()),
         sv("F1a", Rp, Us, |b| { b.stage().replace_aside(); }, [X, X, A], ABT(AbortStep::NothingToSettle),
-            "ssh:finished_not_applied", not_applied.clone()),
+            "ssh:finished_not_applied:concurrent_writer", cw.clone()),
         sv("F2a", Rp, Us, |b| { b.stage().validated(); }, [V, S, A], FWD(ForwardStep::Revalidate),
             "0:exchanged 0:post_validated ssh:committed 0:settling:displaced 0:settled ssh:finished_applied",
             Out::Applied).check(user_has_block),
         sv("F2a", Rp, Us, |b| { b.stage().validated().edit_path(); }, [VM, S, A], ABT(AbortStep::SettleStaged),
-            "0:settling:staged 0:settled ssh:finished_not_applied", not_applied.clone()),
+            "0:settling:staged 0:settled ssh:finished_not_applied:user_config_changed", changed.clone()),
         sv("F2a", Rp, Us, |b| { b.stage().validated().edit_aside(); }, [V, SM, A], ABT(AbortStep::SettleStaged),
             "0:settling:staged 0:settle_conflict:modified ssh:finished_not_applied", not_applied.clone()),
         sv("F2b", Rp, Us, |b| { b.stage().validated().swap(); }, [S, V, A], FWD(ForwardStep::RecordExchanged),
             "0:exchanged 0:post_validated ssh:committed 0:settling:displaced 0:settled ssh:finished_applied",
             Out::Applied).check(user_has_block),
         sv("F2c", Rp, Us, |b| { b.stage().validated().swap().edit_aside(); }, [S, VM, A], RST(RestoreStep::RecordMismatch),
-            "0:exchanged 0:post_validated_mismatch 0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored",
+            "0:exchanged 0:post_validated_mismatch 0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored:concurrent_writer",
             restored_cw.clone()),
         sv("F2c", Rp, Us, |b| { b.stage().validated().swap().edit_path().replace_aside(); }, [SM, X, A], RST(RestoreStep::RecordMismatch),
             "0:exchanged 0:post_validated_mismatch 0:held:active_entry_modified",
             Out::Held(held_0(H::ActiveEntryModified))),
         held_vector("F2d", Rp, |b| { b.stage().validated().swap().rm_aside(); }, [S, A, A], H::DisplacedMissing),
         sv("F2e", Rp, Us, |b| { b.stage().validated().replace_path(); }, [X, S, A], ABT(AbortStep::SettleStaged),
-            "0:settling:staged 0:settled ssh:finished_not_applied", not_applied.clone()),
+            "0:settling:staged 0:settled ssh:finished_not_applied:user_config_changed", changed.clone()),
         sv("F2g", Rp, Us, |b| { b.stage().validated().rm_aside(); }, [V, A, A], ABT(AbortStep::NothingToSettle),
-            "ssh:finished_not_applied", not_applied.clone()).check(user_unchanged),
+            "ssh:finished_not_applied:concurrent_writer", cw.clone()).check(user_unchanged),
         sv("F2j", Rp, Us, |b| { b.stage().validated().rm_path(); }, [A, S, A], ABT(AbortStep::SettleStaged),
-            "0:settling:staged 0:settled ssh:finished_not_applied", not_applied.clone()),
+            "0:settling:staged 0:settled ssh:finished_not_applied:user_config_changed", changed),
         sv("F2k", Rp, Us, |b| { b.stage().validated().replace_aside(); }, [V, X, A], ABT(AbortStep::NothingToSettle),
             "ssh:finished_not_applied", not_applied.clone()).check(user_unchanged),
         held_vector("F2h", Rp, |b| { b.stage().validated().swap().replace_path(); }, [X, V, A], H::ActiveEntryReplaced),
@@ -1834,10 +1920,10 @@ fn file_vectors() -> Vec<Vector> {
             "0:post_validated ssh:committed 0:settling:displaced 0:settled ssh:finished_applied",
             Out::Applied).check(user_has_block),
         sv("F3a", Rp, Us, |b| { b.stage().validated().swap().exchanged().replace_aside(); }, [S, X, A], RST(RestoreStep::RecordMismatch),
-            "0:post_validated_mismatch 0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored",
+            "0:post_validated_mismatch 0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored:concurrent_writer",
             restored_cw.clone()),
         sv("F3a", Rp, Us, |b| { b.stage().validated().swap().exchanged().edit_aside(); }, [S, VM, A], RST(RestoreStep::RecordMismatch),
-            "0:post_validated_mismatch 0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored",
+            "0:post_validated_mismatch 0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored:concurrent_writer",
             restored_cw.clone()),
         held_vector("F3b", Rp, |b| { b.stage().validated().swap().exchanged().rm_aside(); }, [S, A, A], H::DisplacedMissing),
         held_vector("F3c", Rp, |b| { b.stage().validated().swap().exchanged().replace_path(); }, [X, V, A], H::ActiveEntryReplaced),
@@ -1858,12 +1944,12 @@ fn file_vectors() -> Vec<Vector> {
         sv("F4e", Rp, Us, |b| { b.forward().commit().replace_aside(); }, [S, X, A], SET(SettleStep::RecordConflict),
             "0:settle_conflict:foreign ssh:finished_applied", Out::Applied),
         sv("F5", Rp, Us, |b| { b.mismatch_foreign(); }, [S, D, A], RST(RestoreStep::Exchange),
-            "0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored", restored_cw.clone()),
+            "0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored:concurrent_writer", restored_cw.clone()),
         sv("F5", Rp, Us, |b| { b.stage().validated().swap().exchanged().edit_aside().post_mismatch(); }, [S, VM, A],
             RST(RestoreStep::Exchange),
-            "0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored", restored_cw.clone()),
+            "0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored:concurrent_writer", restored_cw.clone()),
         sv("F5", Rp, Us, |b| { b.forward().rolling_back(); }, [S, V, A], RST(RestoreStep::Exchange),
-            "0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored", restored_rb.clone())
+            "0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored:managed_file_edited", restored_rb.clone())
             .check(user_unchanged),
         sv("F5", Rp, Us, |b| { b.mismatch_foreign().restore_started(RestoreCause::FileMismatch); }, [S, D, A],
             RST(RestoreStep::Exchange), RESTORED_0, restored_cw.clone()),
@@ -1873,23 +1959,23 @@ fn file_vectors() -> Vec<Vector> {
             RST(RestoreStep::RecognizeRestored), RESTORED_0, restored_cw.clone()),
         sv("F5b", Rp, Us, |b| { b.mismatch_foreign().restore_started(RestoreCause::FileMismatch).swap().edit_aside(); },
             [D, SM, A], RST(RestoreStep::RecognizeRestored),
-            "0:restored 0:settling:staged 0:settle_conflict:modified ssh:finished_restored", restored_cw.clone()),
+            "0:restored 0:settling:staged 0:settle_conflict:modified ssh:finished_restored:concurrent_writer", restored_cw.clone()),
         sv("F5c", Rp, Us, |b| { b.mismatch_foreign().restore_started(RestoreCause::FileMismatch).swap().replace_path(); },
             [X, S, A], RST(RestoreStep::RecognizeRestored), RESTORED_0, restored_cw.clone()),
         held_vector("F5d", Rp, |b| { b.mismatch_foreign().restore_started(RestoreCause::FileMismatch).replace_path(); },
             [X, D, A], H::ThirdWriter),
         held_vector("F5d", Rp, |b| { b.mismatch_foreign().swap(); }, [D, S, A], H::ThirdWriter),
         sv("F6", Rp, Us, |b| { b.mismatch_foreign().restore_started(RestoreCause::FileMismatch).swap().restored(); },
-            [D, S, A], SET(SettleStep::Begin), "0:settling:staged 0:settled ssh:finished_restored", restored_cw.clone()),
+            [D, S, A], SET(SettleStep::Begin), "0:settling:staged 0:settled ssh:finished_restored:concurrent_writer", restored_cw.clone()),
         sv("F6", Rp, Us,
             |b| { b.mismatch_foreign().restore_started(RestoreCause::FileMismatch).swap().restored().replace_path().edit_aside(); },
-            [X, SM, A], SET(SettleStep::Begin), "0:settling:staged 0:settle_conflict:modified ssh:finished_restored",
+            [X, SM, A], SET(SettleStep::Begin), "0:settling:staged 0:settle_conflict:modified ssh:finished_restored:concurrent_writer",
             restored_cw.clone()),
         sv("F6a", Rp, Us, |b| { b.mismatch_foreign().restore_started(RestoreCause::FileMismatch).swap().restored().rm_aside(); },
-            [D, A, A], SET(SettleStep::RecordConflict), "0:settle_conflict:missing ssh:finished_restored", restored_cw.clone()),
+            [D, A, A], SET(SettleStep::RecordConflict), "0:settle_conflict:missing ssh:finished_restored:concurrent_writer", restored_cw.clone()),
         sv("F6a", Rp, Us,
             |b| { b.mismatch_foreign().restore_started(RestoreCause::FileMismatch).swap().restored().replace_aside(); },
-            [D, X, A], SET(SettleStep::RecordConflict), "0:settle_conflict:foreign ssh:finished_restored", restored_cw.clone()),
+            [D, X, A], SET(SettleStep::RecordConflict), "0:settle_conflict:foreign ssh:finished_restored:concurrent_writer", restored_cw.clone()),
         // --- the settlement block (D's settlement after a commit; a create's restore) ---
         sv("F8d", Rp, Us, |b| { b.settling_displaced().foreign_slot(); }, [S, Q, X], SET(SettleStep::PutBackForeign),
             "0:settle_conflict:foreign ssh:finished_applied", Out::Applied)
@@ -1907,7 +1993,7 @@ fn file_vectors() -> Vec<Vector> {
             "0:settle_conflict:modified ssh:finished_applied", Out::Applied),
         sv("F8a", Cr, Us,
             |b| { b.create_rolling_back().restore_started(RestoreCause::TransactionCheck).settling(SettleSource::Path); },
-            [Q, A, A], SET(SettleStep::Move), "0:settled 0:restored ssh:finished_restored", restored_rb.clone()),
+            [Q, A, A], SET(SettleStep::Move), "0:settled 0:restored ssh:finished_restored:managed_file_edited", restored_rb.clone()),
         held_vector("F8a", Cr,
             |b| { b.create_rolling_back().restore_started(RestoreCause::TransactionCheck).settling(SettleSource::Path).edit_path(); },
             [QM, A, A], H::ActiveEntryModified),
@@ -1923,7 +2009,7 @@ fn file_vectors() -> Vec<Vector> {
             "ssh:finished_applied", Out::Applied),
         sv("F9b", Cr, Us,
             |b| { b.create_rolling_back().restore_started(RestoreCause::TransactionCheck).settling(SettleSource::Path).move_to_slot().settled().drop_slot(); },
-            [A, A, A], RST(RestoreStep::RecognizeRestored), "0:restored ssh:finished_restored", restored_rb.clone()),
+            [A, A, A], RST(RestoreStep::RecognizeRestored), "0:restored ssh:finished_restored:managed_file_edited", restored_rb.clone()),
         sv("F9c", Rp, Us, |b| { b.settling_displaced().move_to_slot().settled().drop_slot().foreign_slot(); }, [S, A, X],
             SET(SettleStep::Done), "ssh:finished_applied", Out::Applied),
         sv("F9d", Rp, Us,
@@ -1942,9 +2028,9 @@ fn file_vectors() -> Vec<Vector> {
         sv("C2", Cr, Us, |b| { b.stage().validated().swap().edit_path(); }, [SM, A, A], FWD(ForwardStep::RecordExchanged),
             "0:exchanged 0:post_validated ssh:committed 0:settled_nothing_displaced ssh:finished_applied", Out::Applied),
         sv("C3", Cr, Us, |b| { b.stage().validated().foreign_path(); }, [X, S, A], ABT(AbortStep::SettleStaged),
-            "0:settling:staged 0:settled ssh:finished_not_applied", not_applied.clone()),
+            "0:settling:staged 0:settled ssh:finished_not_applied:concurrent_writer", cw.clone()),
         sv("C4", Cr, Us, |b| { b.stage().validated().rm_aside(); }, [A, A, A], ABT(AbortStep::NothingToSettle),
-            "ssh:finished_not_applied", not_applied.clone()),
+            "ssh:finished_not_applied:concurrent_writer", cw),
         sv("C4b", Cr, Us, |b| { b.stage().validated().replace_aside(); }, [A, X, A], ABT(AbortStep::NothingToSettle),
             "ssh:finished_not_applied", not_applied.clone()),
         held_vector("C4h", Cr, |b| { b.stage().validated().rm_aside().foreign_path(); }, [X, A, A], H::AmbiguousExchange),
@@ -1964,11 +2050,11 @@ fn file_vectors() -> Vec<Vector> {
         sv("C5b", Cr, Us, |b| { b.forward().commit().replace_path().foreign_aside(); }, [X, X, A],
             FWD(ForwardStep::NothingDisplaced), "0:settled_nothing_displaced ssh:finished_applied", Out::Applied),
         sv("C7", Cr, Us, |b| { b.create_rolling_back(); }, [S, A, A], RST(RestoreStep::CreateRollback),
-            "0:restore_started 0:settling:path 0:settled 0:restored ssh:finished_restored", restored_rb.clone())
+            "0:restore_started 0:settling:path 0:settled 0:restored ssh:finished_restored:managed_file_edited", restored_rb.clone())
             .check(|d| assert!(!d.w.home.user_config.exists(), "the created file is settled")),
         sv("C7", Cr, Us,
             |b| { b.create_rolling_back().restore_started(RestoreCause::TransactionCheck).foreign_aside(); },
-            [S, X, A], RST(RestoreStep::CreateRollback), "0:settling:path 0:settled 0:restored ssh:finished_restored",
+            [S, X, A], RST(RestoreStep::CreateRollback), "0:settling:path 0:settled 0:restored ssh:finished_restored:managed_file_edited",
             restored_rb.clone()),
         held_vector("C7a", Cr, |b| { b.create_rolling_back().edit_path(); }, [SM, A, A], H::ActiveEntryModified),
         held_vector("C7a", Cr, |b| { b.create_rolling_back().restore_started(RestoreCause::TransactionCheck).edit_path(); },
@@ -1987,7 +2073,7 @@ fn file_vectors() -> Vec<Vector> {
                     .restored()
                     .foreign_path();
             },
-            [X, A, A], SET(SettleStep::Done), "ssh:finished_restored", restored_rb.clone()),
+            [X, A, A], SET(SettleStep::Done), "ssh:finished_restored:managed_file_edited", restored_rb.clone()),
         sv("C8", Cr, Us,
             |b| {
                 b.create_rolling_back()
@@ -1999,7 +2085,7 @@ fn file_vectors() -> Vec<Vector> {
                     .restored()
                     .foreign_aside();
             },
-            [A, X, QM], SET(SettleStep::Done), "ssh:finished_restored", restored_rb),
+            [A, X, QM], SET(SettleStep::Done), "ssh:finished_restored:managed_file_edited", restored_rb),
     ]
 }
 
@@ -2009,9 +2095,12 @@ fn lock_vectors() -> Vec<Vector> {
     use FileRole::GitLock as Gl;
     use Wk::{Git, GitNoBirth};
     let locked = Out::NotApplied(Some(ConflictKind::GitConfigLocked));
-    // ESCALATED (M02-W2c-rows): an abort decided by recovery from what it observes
-    // (K1 with a foreign lock, K3) has no conflict reason in the outcome, although the
-    // rows name one (`git_config_locked`, `concurrent_writer`); see `file_vectors`.
+    // ADR-0007 §12.20 item 2(b): an abort decided by recovery carries its row's reason,
+    // recorded in `item.finished`: `git_config_locked` for K0 and K1 with a foreign
+    // lock, and for K4 (not provably Heimdall's lock: held); `concurrent_writer` for K3.
+    // An abort the live path stops itself (K0's failed claim, the check before
+    // B_git's exchange refusing a K′) keeps its stop's reason. See `file_vectors`.
+    let cw = Out::NotApplied(Some(ConflictKind::ConcurrentWriter));
     let not_applied = Out::NotApplied(None);
     vec![
         sv(
@@ -2033,7 +2122,7 @@ fn lock_vectors() -> Vec<Vector> {
             },
             [X, A, A],
             FWD(ForwardStep::Stage),
-            "0:staged 0:settling:staged 0:settled git:finished_not_applied",
+            "0:staged 0:settling:staged 0:settled git:finished_not_applied:git_config_locked",
             locked.clone(),
         )
         .check(lock_untouched),
@@ -2095,8 +2184,8 @@ fn lock_vectors() -> Vec<Vector> {
             },
             [X, S, A],
             ABT(AbortStep::SettleStaged),
-            "0:settling:staged 0:settled git:finished_not_applied",
-            not_applied.clone(),
+            "0:settling:staged 0:settled git:finished_not_applied:git_config_locked",
+            locked.clone(),
         )
         .check(lock_untouched),
         sv(
@@ -2136,10 +2225,11 @@ fn lock_vectors() -> Vec<Vector> {
             Out::Applied,
         ),
         // K′ at the lock: K2 keeps the lock, and B_git resumes; but the live path's
-        // check before B_git's exchange (ADR-0007 §12.18 item 4, X04, as W2c-U4 reads
-        // it: K's identity *and* holder digest) refuses a K′, so B_git is never
-        // exchanged, the item aborts, and K′ is released into the quarantine as a
-        // conflict artifact.
+        // check before B_git's exchange (ADR-0007 §12.18 item 4, X04, with row K2 as
+        // narrowed by §12.20 item 5: K's identity *and* an unchanged holder digest)
+        // refuses a K′, so B_git is never exchanged, the item aborts with
+        // `git_config_locked`, and K′ is released into the quarantine as a conflict
+        // artifact.
         sv(
             "K2",
             Git,
@@ -2149,7 +2239,7 @@ fn lock_vectors() -> Vec<Vector> {
             },
             [SM, X, A],
             FWD(ForwardStep::KeepLock),
-            "1:staged 1:validated 1:settling:staged 1:settled 0:settling:path 0:settle_conflict:modified git:finished_not_applied",
+            "1:staged 1:validated 1:settling:staged 1:settled 0:settling:path 0:settle_conflict:modified git:finished_not_applied:git_config_locked",
             locked.clone(),
         ),
         sv(
@@ -2189,13 +2279,12 @@ fn lock_vectors() -> Vec<Vector> {
             },
             [A, A, A],
             SET(SettleStep::RecordConflict),
-            "0:settle_conflict:missing git:finished_not_applied",
-            not_applied.clone(),
+            "0:settle_conflict:missing git:finished_not_applied:concurrent_writer",
+            cw.clone(),
         ),
-        // ESCALATED (M02-W2c-rows): ADR-0007 row K3 writes `settle_conflict{missing}`
-        // for an X at the staged name too ("K is gone"); the writer's
-        // `conflict_found` records `{foreign}` naming the staged name. This vector
-        // pins the writer's current receipt until that is ruled on.
+        // Row K3 as amended (ADR-0007 §12.20 item 4): an X at K's staged name, with the
+        // lock name empty, records `settle_conflict{foreign}` naming the staged name,
+        // and the entry is left in place and reported.
         sv(
             "K3",
             Git,
@@ -2205,9 +2294,10 @@ fn lock_vectors() -> Vec<Vector> {
             },
             [A, X, A],
             SET(SettleStep::RecordConflict),
-            "0:settle_conflict:foreign git:finished_not_applied",
-            not_applied.clone(),
-        ),
+            "0:settle_conflict:foreign git:finished_not_applied:concurrent_writer",
+            cw,
+        )
+        .check(k3_foreign_left_at_staged_name),
         sv(
             "K4",
             Git,
@@ -2217,8 +2307,8 @@ fn lock_vectors() -> Vec<Vector> {
             },
             [X, A, A],
             SET(SettleStep::RecordConflict),
-            "0:settle_conflict:foreign git:finished_not_applied",
-            not_applied.clone(),
+            "0:settle_conflict:foreign git:finished_not_applied:git_config_locked",
+            locked.clone(),
         )
         .check(lock_untouched),
         sv(
@@ -2234,8 +2324,8 @@ fn lock_vectors() -> Vec<Vector> {
             },
             [X, X, A],
             SET(SettleStep::RecordConflict),
-            "0:settle_conflict:foreign git:finished_not_applied",
-            not_applied.clone(),
+            "0:settle_conflict:foreign git:finished_not_applied:git_config_locked",
+            locked.clone(),
         )
         .check(lock_untouched),
         // K that is not provable: without a birth time, K at the lock name is X.
@@ -2248,8 +2338,8 @@ fn lock_vectors() -> Vec<Vector> {
             },
             [X, A, A],
             SET(SettleStep::RecordConflict),
-            "0:settle_conflict:foreign git:finished_not_applied",
-            not_applied.clone(),
+            "0:settle_conflict:foreign git:finished_not_applied:git_config_locked",
+            locked,
         )
         .check(lock_untouched),
         // K's release from the lock in the settlement block.
@@ -2296,16 +2386,19 @@ fn item_vectors() -> Vec<Vector> {
             "0:validated 0:exchanged 0:post_validated ssh:committed 0:settling:displaced 0:settled ssh:finished_applied",
             Out::Applied).check(user_has_block),
         // The precondition fails (the user file changed while the runtime was down):
-        // the item aborts and S is settled.
+        // the item aborts with the precondition's reason (ADR-0007 §12.20 item 2(b)),
+        // and S is settled.
         iv("T0", Rp, |b| { b.stage().edit_path(); }, ItemDecision::ResumeOrAbort,
-            "0:settling:staged 0:settled ssh:finished_not_applied", Out::NotApplied(None)),
+            "0:settling:staged 0:settled ssh:finished_not_applied:user_config_changed",
+            Out::NotApplied(Some(ConflictKind::UserConfigChanged))),
         iv("T0", Pu, |b| { b.on(FileRole::ManagedSsh).forward().on(FileRole::UserSsh).stage(); },
             ItemDecision::ResumeOrAbort,
             "1:validated 1:exchanged 1:post_validated ssh:committed 0:settled_nothing_displaced 1:settling:displaced 1:settled ssh:finished_applied",
             Out::Applied).check(user_has_block),
         // An exchanged inactive P is left for the cleaner when the item aborts.
         iv("T0", Pu, |b| { b.on(FileRole::ManagedSsh).forward().on(FileRole::UserSsh).stage().edit_path(); },
-            ItemDecision::ResumeOrAbort, "1:settling:staged 1:settled ssh:finished_not_applied", Out::NotApplied(None))
+            ItemDecision::ResumeOrAbort, "1:settling:staged 1:settled ssh:finished_not_applied:user_config_changed",
+            Out::NotApplied(Some(ConflictKind::UserConfigChanged)))
             .check(|d| assert!(d.w.home.config_dir.join("ssh_config").exists(), "P is left for the cleaner")),
         iv("T1", Rp, |b| { b.forward(); }, ItemDecision::TransactionCheck, APPLIED_0, Out::Applied).check(check_ran),
         iv("T1", Pu, |b| { b.on(FileRole::ManagedSsh).forward().on(FileRole::UserSsh).forward(); },
@@ -2331,7 +2424,7 @@ fn item_vectors() -> Vec<Vector> {
             "0:settled_nothing_displaced 1:settling:displaced 1:settled ssh:finished_applied", Out::Applied)
             .check(check_not_run),
         iv("T3", Rp, |b| { b.forward().rolling_back(); }, ItemDecision::FinishRestore,
-            "0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored",
+            "0:restore_started 0:restored 0:settling:staged 0:settled ssh:finished_restored:managed_file_edited",
             Out::Restored(Some(ConflictKind::ManagedFileEdited))).check(user_unchanged),
         iv("T3", Rp,
             |b| {
@@ -2344,10 +2437,10 @@ fn item_vectors() -> Vec<Vector> {
                     .settled()
                     .drop_slot();
             },
-            ItemDecision::FinishRestore, "ssh:finished_restored", Out::Restored(Some(ConflictKind::ConcurrentWriter))),
+            ItemDecision::FinishRestore, "ssh:finished_restored:concurrent_writer", Out::Restored(Some(ConflictKind::ConcurrentWriter))),
         iv("T3", Pu, |b| { b.on(FileRole::ManagedSsh).forward().on(FileRole::UserSsh).forward().rolling_back(); },
             ItemDecision::FinishRestore,
-            "0:restore_started 0:settling:path 0:settled 0:restored 1:restore_started 1:restored 1:settling:staged 1:settled ssh:finished_restored",
+            "0:restore_started 0:settling:path 0:settled 0:restored 1:restore_started 1:restored 1:settling:staged 1:settled ssh:finished_restored:managed_file_edited",
             Out::Restored(Some(ConflictKind::ManagedFileEdited)))
             .check(|d| { user_unchanged(d); assert!(!d.w.home.config_dir.join("ssh_config").exists()); }),
         iv("T4", Rp,
@@ -2356,6 +2449,31 @@ fn item_vectors() -> Vec<Vector> {
         iv("T4", Rp,
             |b| { b.stage().settling(SettleSource::Staged).move_to_slot().settled().drop_slot().finished(ItemFinish::NotApplied); },
             ItemDecision::Settle, "", Out::NotApplied(None)),
+        // A recorded reason is what a restart reports (ADR-0007 §12.20 item 2(b)).
+        iv("T4", Rp,
+            |b| {
+                b.stage()
+                    .settling(SettleSource::Staged)
+                    .move_to_slot()
+                    .settled()
+                    .drop_slot()
+                    .finished_with(ItemFinish::NotApplied, Some(ConflictKind::ConcurrentWriter));
+            },
+            ItemDecision::Settle, "", Out::NotApplied(Some(ConflictKind::ConcurrentWriter))),
+        iv("T4", Rp,
+            |b| {
+                b.forward()
+                    .rolling_back()
+                    .restore_started(RestoreCause::TransactionCheck)
+                    .swap()
+                    .restored()
+                    .settling(SettleSource::Staged)
+                    .move_to_slot()
+                    .settled()
+                    .drop_slot()
+                    .finished_with(ItemFinish::Restored, Some(ConflictKind::UserConfigChanged));
+            },
+            ItemDecision::Settle, "", Out::Restored(Some(ConflictKind::UserConfigChanged))),
         iv("TH", Rp, |b| { b.stage().validated().swap().rm_aside(); }, ItemDecision::Hold(H::DisplacedMissing),
             "0:held:displaced_missing", Out::Held(&[(0, H::DisplacedMissing)])),
         iv("TH", Rp, |b| { b.forward().commit().rolling_back(); }, ItemDecision::Hold(H::ContradictoryReceipts),
@@ -2576,19 +2694,11 @@ fn run_vector(v: &Vector) {
         "a second reconcile writes nothing"
     );
     assert_eq!(w.tree(), after, "a second reconcile moves nothing");
-    // The same outcome, except a `not_applied` reason: no receipt records it (an
-    // abort writes only `item.finished{not_applied}`), so a restart reports none.
-    let durable = |o: &ItemOutcome| match o {
-        ItemOutcome::NotApplied { item, .. } => ItemOutcome::NotApplied {
-            item: *item,
-            reason: None,
-        },
-        other => other.clone(),
-    };
+    // The same outcome, reason included: `item.finished` records the reason the first
+    // run reported, and the restart reports that one (ADR-0007 §12.20 item 2(b)).
     assert_eq!(
-        again.items.iter().map(durable).collect::<Vec<_>>(),
-        out.items.iter().map(durable).collect::<Vec<_>>(),
-        "a second reconcile gives the same outcome"
+        again.items, out.items,
+        "a second reconcile gives the same outcome and reason"
     );
     if let Some(check) = v.check {
         check(&Done {

@@ -7,13 +7,15 @@
 //! [`handoff`]. `argv` never crosses IPC and never appears in a record, error, event
 //! or log.
 //!
-//! **Status (m02-plan wave 1).** Signatures are fixed. U8 core has written
-//! [`resolve`], [`env`], [`meta`], `unix`, `windows` and [`handoff`];
-//! [`eligibility::check_noninteractive`] stays `todo!("M02-U8 …")` until wave 3, and
-//! [`meta::SideChannel::from_fd`] delegates to `heimdall_localenv::sys`'s
-//! `adopt_inherited_fd`, which is still `todo!()`. Neither is reachable: `heimdall run`
-//! and `heimdall connect` answer "not available in this build" until the wave-3
-//! wiring lands, and nothing else calls this crate.
+//! **Status (m02-plan §2, wave 3a).** Signatures are fixed. U8 core has written
+//! [`resolve`], [`env`], [`meta`], `unix`, `windows` and [`handoff`].
+//! [`meta::SideChannel::from_fd`] adopts the inherited descriptor through
+//! `heimdall_localenv::sys::adopt_inherited_fd`, which is implemented (W2-U3; ADR-0007
+//! §12.18 item 1: it duplicates with `F_DUPFD_CLOEXEC` and never takes the inherited
+//! number). [`eligibility::check_noninteractive`] stays `todo!("M02-U8 …")` until the
+//! U8 wiring of wave 3b, and is not reachable: `heimdall run` and `heimdall connect`
+//! answer "not available in this build" until that wiring lands, and nothing else
+//! calls it.
 
 pub mod eligibility;
 pub mod env;

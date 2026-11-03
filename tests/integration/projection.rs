@@ -587,12 +587,15 @@ fn kind_of(local: &LocalReceipt) -> String {
                 ItemPhase::RollingBack { .. } => "rolling_back",
                 ItemPhase::Finished {
                     outcome: ItemFinish::Applied,
+                    ..
                 } => "finished_applied",
                 ItemPhase::Finished {
                     outcome: ItemFinish::NotApplied,
+                    ..
                 } => "finished_not_applied",
                 ItemPhase::Finished {
                     outcome: ItemFinish::Restored,
+                    ..
                 } => "finished_restored",
                 ItemPhase::Finished { .. } => "finished_other",
             };
@@ -1285,15 +1288,14 @@ fn a22_first_adoption_crash_after_p_before_b_reconciles_forward_or_cleans() {
     assert!(apply_or_crash(fx.hooked(&hook), &intent, &sink).is_none());
     std::fs::write(fx.user(), format!("{USER_TEXT}Host down\n")).unwrap();
     let out = restart(&fx, &intent, &sink);
-    assert!(
-        matches!(
-            out.as_slice(),
-            [ItemOutcome::NotApplied {
-                item: ProjectionItem::Ssh,
-                ..
-            }]
-        ),
-        "{out:?} {:?}",
+    // A T0 precondition failed: the abort carries its reason (ADR-0007 §12.20 item 2).
+    assert_eq!(
+        out,
+        vec![ItemOutcome::NotApplied {
+            item: ProjectionItem::Ssh,
+            reason: Some(ConflictKind::UserConfigChanged)
+        }],
+        "{:?}",
         sink.kinds()
     );
     assert!(
@@ -1355,6 +1357,142 @@ fn a22_first_adoption_crash_after_p_before_b_reconciles_through_the_store_fault_
         .collect();
     assert!(kinds.contains(&"ssh:committed".to_owned()), "{kinds:?}");
     assert!(leftovers(&fx.tree()).is_empty());
+}
+
+/// ADR-0007 §12.20 item 2(b): when recovery itself decides an abort, the outcome
+/// carries the reason the §5.7 row names, and the reason is durable. A first
+/// adoption's first run crashes on the user step before B's exchange (after its
+/// `file.staged`, or after its `file.validated`), and the scratch tree changes while
+/// the runtime is down. The restart aborts by the row and reports the row's reason;
+/// its `item.finished{not_applied}` records that reason on the wire; and a second
+/// restart reads it there (T4), reports the same outcome and writes nothing. The
+/// user file is never written by Heimdall:
+/// * F1a (B's S removed after `staged`) and F2g (after `validated`):
+///   `concurrent_writer`;
+/// * F2e (the user file replaced by rename), F2j (removed) and F2a with a V′ (edited
+///   in place, which T0's revalidation refuses): `user_config_changed`;
+/// * with no user file, C3 (another writer creates one) and C4 (S removed):
+///   `concurrent_writer`.
+#[test]
+fn recovery_decided_abort_reason_is_recorded_and_survives_restart() {
+    use ConflictKind::{ConcurrentWriter as Cw, UserConfigChanged as Changed};
+    type Change = fn(&Path, &Path);
+    let validated = ReplacePoint::BeforeExchange;
+    let staged = ReplacePoint::BeforeReceipt("validated");
+    let cases: [(&str, bool, ReplacePoint, Change, ConflictKind); 7] = [
+        (
+            "F1a",
+            true,
+            staged,
+            |_, s| std::fs::remove_file(s).unwrap(),
+            Cw,
+        ),
+        (
+            "F2g",
+            true,
+            validated,
+            |_, s| std::fs::remove_file(s).unwrap(),
+            Cw,
+        ),
+        (
+            "F2e",
+            true,
+            validated,
+            |u, _| rename_replace(u, b"Host other\n"),
+            Changed,
+        ),
+        (
+            "F2j",
+            true,
+            validated,
+            |u, _| std::fs::remove_file(u).unwrap(),
+            Changed,
+        ),
+        (
+            "F2a",
+            true,
+            validated,
+            |u, _| write_in_place(u, b"Host edited\n"),
+            Changed,
+        ),
+        (
+            "C3",
+            false,
+            validated,
+            |u, _| write_mode(u, b"Host theirs\n", 0o600),
+            Cw,
+        ),
+        (
+            "C4",
+            false,
+            validated,
+            |_, s| std::fs::remove_file(s).unwrap(),
+            Cw,
+        ),
+    ];
+    for (row, user_present, point, change, want) in cases {
+        let fx = Fx::new();
+        if user_present {
+            std::fs::write(fx.user(), USER_TEXT).unwrap();
+        } else {
+            std::fs::remove_file(fx.user()).unwrap();
+        }
+        let intent = fx
+            .preview(&fx.spec(&["work"], None), &Fx::apply_intent())
+            .intent();
+        let u = step_of(&intent, FileRole::UserSsh);
+        let hook = Hook::new().crash(point, Some(u));
+        let sink = Sink::default();
+        assert!(
+            apply_or_crash(fx.hooked(&hook), &intent, &sink).is_none(),
+            "{row}"
+        );
+        let s = fx.ssh_dir().join(
+            step_ref(&intent, FileRole::UserSsh)
+                .staged_name
+                .clone()
+                .unwrap(),
+        );
+        assert!(s.exists(), "{row}: B's S at its staged name");
+        change(fx.user(), &s);
+        let user_now = std::fs::read(fx.user()).ok();
+        let want_out = vec![ItemOutcome::NotApplied {
+            item: ProjectionItem::Ssh,
+            reason: Some(want),
+        }];
+        let out = restart(&fx, &intent, &sink);
+        assert_eq!(out, want_out, "{row}: {:?}", sink.kinds());
+        let last = sink.receipts().last().and_then(|r| r.local.clone());
+        assert_eq!(
+            last,
+            Some(LocalReceipt::Item {
+                item: ProjectionItem::Ssh,
+                phase: ItemPhase::Finished {
+                    outcome: ItemFinish::NotApplied,
+                    reason: Some(want),
+                },
+            }),
+            "{row}: item.finished records the reason"
+        );
+        let wire = serde_json::to_value(last.unwrap()).unwrap();
+        assert_eq!(
+            wire["phase"]["reason"],
+            serde_json::to_value(want).unwrap(),
+            "{row}: on the wire"
+        );
+        assert_eq!(
+            std::fs::read(fx.user()).ok(),
+            user_now,
+            "{row}: the user file is not written"
+        );
+        let written = sink.receipts().len();
+        assert_eq!(
+            restart(&fx, &intent, &sink),
+            want_out,
+            "{row}: a second restart reports the recorded reason"
+        );
+        assert_eq!(sink.receipts().len(), written, "{row}: and writes nothing");
+    }
 }
 
 #[test]

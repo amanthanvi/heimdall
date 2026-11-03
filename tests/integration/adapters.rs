@@ -854,6 +854,109 @@ async fn prepare_marks_uncleared_fallback_entries() {
     assert_eq!(f.agent.contact_count(), 0);
 }
 
+/// ⟨M02⟩ ADR-0007 §12.15 items 3(c) and 3(d) (U0b phase 2). The pair the port
+/// reports carries the full selection (`PairIntegration.identity_selection_report`,
+/// with every `cleared` mark), and the one domain clearance rule, which takes the
+/// adopted identity's fingerprint, never clears a managed entry naming another key
+/// (a stale projection), even beside a cleared alternative.
+#[tokio::test]
+async fn prepare_reports_the_full_selection_and_never_clears_a_stale_managed_entry() {
+    let adopted = FixtureKey::generate();
+    let declared_alt = FixtureKey::generate();
+    let f = fake(AgentMode::Normal, vec![adopted.clone()]);
+    let a = native_identity(1, &adopted, &f.endpoint);
+    let c = native_identity(3, &declared_alt, &f.endpoint);
+    let report = |stale: bool| {
+        let mut entries = vec![entry(
+            IdentityEntrySource::Managed,
+            Some(a.fingerprint.clone()),
+            IdentityBacking::Agent,
+        )];
+        if stale {
+            entries.push(entry(
+                IdentityEntrySource::Managed,
+                Some("SHA256:u0bstaleprojectionAAAAAAAAAAAAAAAAAAAAAAAAAA".into()),
+                IdentityBacking::Agent,
+            ));
+        }
+        entries.push(entry(
+            IdentityEntrySource::User,
+            Some(c.fingerprint.clone()),
+            IdentityBacking::Agent,
+        ));
+        IdentitySelectionReport {
+            selection: IdentitySelection::NotExclusive,
+            entries,
+            identities_only: IdentitiesOnly::DeterminedYes,
+        }
+    };
+    let sources = |stale: bool| Sources {
+        observations: vec![observation("h1", report(stale))],
+        identities: vec![a.clone(), c.clone()],
+        declarations: BTreeMap::from([
+            (a.id.clone(), declaration(&a, &f.endpoint, at(1800))),
+            (c.id.clone(), declaration(&c, &f.endpoint, at(1800))),
+        ]),
+        ..Sources::default()
+    };
+    let pairs = [pair("h1", &a, Some("h1"))];
+    // Without the stale entry: cleared, and the port carries the marked report.
+    let adapter = native(&f.endpoint, sources(false));
+    let p = prepare_native(&adapter, &pairs, false, t0()).unwrap();
+    let d = &p.pairs[0];
+    assert!(d.pair.noninteractive.eligible);
+    assert_eq!(
+        d.pair.identity_selection_report.as_ref(),
+        Some(&d.selection)
+    );
+    let marks: Vec<_> = d.selection.entries.iter().map(|e| e.cleared).collect();
+    assert_eq!(marks, vec![None, Some(true)]);
+    let reported = &p.outcome.integration.pairs[0];
+    assert_eq!(
+        reported.identity_selection_report.as_ref(),
+        Some(&d.selection)
+    );
+    // With it: the stale managed entry is an uncleared alternative.
+    let adapter = native(&f.endpoint, sources(true));
+    let p = prepare_native(&adapter, &pairs, true, t0()).unwrap();
+    let d = &p.pairs[0];
+    let marks: Vec<_> = d.selection.entries.iter().map(|e| e.cleared).collect();
+    assert_eq!(marks, vec![None, Some(false), Some(true)]);
+    assert_eq!(d.clearance.as_ref().unwrap().uncleared, vec![1]);
+    assert!(!d.clearance.as_ref().unwrap().cleared);
+    assert_eq!(
+        d.pair.noninteractive.reason.as_deref(),
+        Some(reason::FALLBACK_IDENTITY_INTERACTION)
+    );
+    assert_eq!(
+        prepare_native(&adapter, &pairs, false, t0()),
+        Err(AdapterError::InteractionRequired(
+            InteractionRequirement::ProviderDialog
+        ))
+    );
+    // The rule itself: only the adopted fingerprint names the adopted entry.
+    let eligibility_of = |id: &IdentityId| {
+        let record = [&a, &c].into_iter().find(|r| r.id == *id).unwrap();
+        state::pair_eligibility(
+            record,
+            Some(&declaration(record, &f.endpoint, at(1800))),
+            &f.endpoint,
+            t0(),
+        )
+    };
+    let catalog = [a.clone(), c.clone()];
+    let by = |fp: &str| {
+        state::fallback_clearance(&report(false), &catalog, &eligibility_of, &f.endpoint, fp)
+    };
+    assert!(by(&a.fingerprint).cleared);
+    assert_eq!(
+        by(&c.fingerprint).uncleared,
+        vec![0],
+        "another key's managed entry"
+    );
+    assert_eq!(f.agent.contact_count(), 0);
+}
+
 #[tokio::test]
 async fn prepared_facts_from_outcome_drop_interaction_fields() {
     let key = FixtureKey::generate();
