@@ -3533,6 +3533,43 @@ Sources: the two wave-2c unit reports and the integrator's report (workflow
    items 7 and 8 (`serde_json`, `MAX_ARGV_BYTES`, `--meta-file` through
    `create_owner_only_exclusive`) and §12.17 item 10.
 
+### 12.21 Rulings on the wave-2b/2c code review (orchestrator, 2026-11-03)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave2bc.md` (Codex, independent, fix first).
+Y01–Y06 and X01–X05 are re-checked and closed. Two new findings, V01 and V02, were each
+reproduced with a scratch probe and are accepted as defects. They lie in
+`projection/plan.rs`, which W3-U4 owns during wave 3a, so they are fixed in **wave 3b** by a
+unit `W3b-consent` that owns `crates/localenv/src/projection/plan.rs`,
+`crates/sshconf/src/{relevant,consent}.rs` and their consent tests.
+
+1. **V01: manual mode still classifies consent.**
+   * Whether the user file may be edited, and whether it activates P, are separate facts.
+   * In manual mode, preview evaluates the readable user configuration through the
+     read-only source, exactly as for an editable one. It computes the affected aliases
+     from every P change, and the §5.2 classification applies.
+   * When activation or behaviour cannot be established, for example through an
+     unreadable symlink target, the affected states are undetermined and a decision is
+     required.
+   * Regression: an active B in a symlinked user configuration, with a changed alias,
+     requires a decision.
+2. **V02: consent covers every invocation profile.**
+   * A behaviour state is computed under each supported profile: `Shell`, `Exec(None)`
+     (any remote command, the command unknown; this covers Git-over-SSH and SCP) and
+     `Subsystem("sftp")`.
+   * The state's digest is SHA-256 over the tag `heimdall.behavior.v3` and the ordered
+     `(profile, per-profile digest)` pairs.
+   * It is determined only when every profile is determined.
+   * A condition on the command itself (`Match command`) is unknown under `Exec(None)`, so
+     such a state is undetermined, which fails closed.
+   * Digests of tag v2 are never compared with v3. No consent of either tag has been
+     persisted before this change ships.
+   * Regressions: the reviewer's two examples, an exec-only HostName change and a
+     subsystem-only `IdentityAgent ${VAR}`, each require a decision on rollback. An
+     unchanged configuration still waives.
+3. **Wave 3b** is therefore:
+   * `W3b-U8`, the m02-plan U8 wiring with the items §12.20 item 8 names;
+   * `W3b-consent`, items 1 and 2 above.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

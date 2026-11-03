@@ -525,3 +525,13 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - W3-U5: drivers and runtime wiring;
   - W3-U4: K release, durable outcome reasons, stale docs.
   - Wave 3b (U8 wiring) follows.
+- Wave 2c is committed as 88ac9850. My check.sh: exit 0, 1327 passed.
+- Running (2026-11-03):
+  - workflow `wf_84d1745b-aed`, wave 3a, the activation change set: W3-U0b, W3-U5 and W3-U4 in parallel, then one integrator. Base 88ac9850.
+  - task M02-W2bc-code-review: Codex `codex-cpamc`, worktree at 88ac9850, range 270a8b49..88ac9850. It also re-checks Y01–Y06 and X01–X05.
+- M02 wave-2b/2c code review (Codex; `tests/evidence/artifacts/review-m02-code/wave2bc.md`): fix first. In the reviewer's worktree: 1327 passed, fmt 0, clippy 0.
+  - Y01–Y06 and X01–X05 re-checked: all closed.
+  - New:
+    - V01 (high): manual mode skips consent for an active P;
+    - V02 (high): consent is evaluated for the shell profile only.
+  - ADR-0007 §12.21: fixed in wave 3b by `W3b-consent`, alongside `W3b-U8`.
