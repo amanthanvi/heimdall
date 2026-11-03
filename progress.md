@@ -550,3 +550,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - W3b-U8: U8 wiring;
     - W3b-consent: §12.21 V01 and V02, plus §12.22 items 2 and 8;
     - W3b-gaps: §12.22 items 3, 9 and 10.
+- Wave 3a is committed as 482c9e70. My check.sh: exit 0, 1390 passed.
+- Running (2026-11-03):
+  - workflow `wf_4b438985-0b9`, wave 3b: W3b-U8, W3b-consent and W3b-gaps in parallel, then an integrator. The integrator also flips the workspace lint `todo` to "deny" once no `todo!()` is left. Base 482c9e70.
+  - task M02-W3a-code-review: Codex `codex-cpamc`, worktree at 482c9e70.
+- After wave 3b: wave 4 (U9 CLI and U10 TUI), then wave 5 (U11 exit suite, native evidence on macOS, devbox and Windows, the compatibility matrix), then the M02 exit record.
+- M02 wave-3a code review (Codex; `tests/evidence/artifacts/review-m02-code/wave3a.md`): fix first.
+  - U01 (P1): cancelling a running held repair reports no effect while the repair continues.
+  - U02 (P1): the adapter timeout cannot interrupt the real adapters' synchronous store and filesystem work.
+  - ADR-0007 §12.23 rules on both. Wave 3c (`W3c-fix`) runs after wave 3b integrates.

@@ -3643,6 +3643,51 @@ runtime and projection writer:
     account home, `Env::capture`, the `ssh -V` query) is untested by design. Its evidence is
     U11's native run in a disposable account (m02-plan §7, owner input).
 
+### 12.23 Rulings on the wave-3a code review (orchestrator, 2026-11-03)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave3a.md` (Codex, independent, fix first).
+The two findings, U01 and U02, were each reproduced over production components and are
+accepted as defects. They lie in `setup.rs`, `operations.rs` and `service.rs`, which wave-3b
+units edit concurrently, so they are fixed in **wave 3c** after wave 3b integrates.
+
+1. **U01: a held repair records its attempt before any work.**
+   * `start_repair` moves the repair to `running` and records `setup.attempt` on the repair
+     operation in one transaction. The transaction proceeds only if the repair is still
+     runnable, and it runs before any reconcile or closure receipt is written against the
+     original held operation.
+   * A cancel after that point is `OUTCOME_UNKNOWN` with `next: reconcile`, under §12.22
+     item 1.
+   * The repair's `setup_in_progress` blocker stays until the repair settles, so a second
+     repair of the same held operation is refused for as long as the first runs.
+   * Regressions:
+     * the reviewer's probe: a cancel while the repair is paused before the writer is
+       refused, and the original operation completes with the repair recorded as such;
+     * a second repair admission while the first runs is refused.
+2. **U02: nothing that can block runs inside the adapter bound.**
+   * The inputs an adapter call needs are read before the bound, in the same operation
+     step:
+     * selections, catalog identities, declaration rows and executables (store reads);
+     * the projection observation (file reads).
+   * The adapter receives them as an in-memory `IntegrationSources` snapshot. Inside the
+     bound it does only its own passive work: evaluation over the snapshot and the endpoint
+     `stat`. That work does not wait on a lock or on I/O beyond one metadata call.
+   * A blocked store or a slow observation therefore delays the operation's own step, as any
+     store wait does, never the bounded call, and the bound's timeout keeps its meaning.
+   * No work is detached past the bound.
+   * The behavioural regression is the reviewer's two probes over the real adapter and
+     runtime sources:
+     * store contention, with the snapshot taken before the bound;
+     * a slow source callback, which can no longer run inside the bound.
+     Each probe either returns within the bound or reports `OutcomeUnknown` at it, with the
+     slot and marker released.
+   * The source-scan test stays, and gains a check that the runtime builds the snapshot
+     outside `bounded_adapter_call`.
+   * Residual, stated in the matrix: an endpoint `stat` on a hung network filesystem is not
+     interruptible.
+3. **Wave 3c** is one unit, `W3c-fix`, owning `crates/app/src/{setup,operations}.rs`,
+   `crates/adapters/src/{integration,native_agent,onepassword}.rs`,
+   `crates/runtime/src/service.rs` and the matching tests.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
