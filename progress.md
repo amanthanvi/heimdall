@@ -456,3 +456,21 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Wave-2 preparation (my commit): sys.rs split into sys/mod.rs (U3) and sys/quarantine.rs (U4a); the localenv→ipc edge, dev-dependencies and seven wave-2 test targets pre-registered as placeholders.
 - Next: an independent Codex review of wave 1 (worktree at the wave-2 base), and the wave-2 workflow in parallel.
   - Wave-2 units: W2-U2r (sshconf follow-ups), W2-U3, W2-U4a (primitive), W2-U4b (recovery), W2-U4c (transaction), then an integrator.
+- Running (2026-11-01):
+  - task M02-W1-code-review: the first run on provider `codex` failed at once on the account usage limit (until Nov 7). The retry on `codex-cpamc` also failed on its usage limit. Final attempt: provider `codex_20237520…` (ChatGPT - Personal 2), same model gpt-6.1-sol, reasoning effort high, worktree, read-only. That failed too (subscription sharing limit). All three Codex instances are out of quota until about Nov 7. The wave-1 review now runs as a fresh-context Claude Opus 5.5 reviewer (claude-cpamc, effort xhigh, worktree, read-only). It is labelled single-model. Owed: a cross-model Codex review of waves 1 and 2 together once a Codex quota resets;
+  - workflow `wf_51ee2673-42a`, M02 wave 2, failed: all 6 agents hit Claude 429 rate limits after 1.28M tokens. No unit finished and no file changed; the tree was checked clean at f06a687a. The Claude fallback wave-1 reviewer also hit the rate limit.
+  - Cleanup (2026-11-03): removed the failed agents' scratch dirs in /tmp, by exact name; deleted the 3.6G target/ in review worktree t3-25bc06c7. PID 5439 is the owner's own ssh-agent (since Oct 9) and was left alone.
+  - Relaunched (2026-11-03):
+    - wave 2 as workflow `wf_2a33ac4a-86c`: one retry per unit continuing its partial work; integration skipped when a unit fails, so a resume reruns only that unit; W2-U2r on Sonnet 5.5 to spread the model rate limit;
+    - wave-1 review on Codex `codex-cpamc` (retry 3).
+  - Dependabot: 4 open alerts (rustls, 1 moderate and 3 low), all in the archived M00 prototype lockfile `tests/evidence/artifacts/g02-r4/x5/rust-embed/Cargo.lock`. rustls is not in the production Cargo.lock. Record this in the M09 release record.
+- M02 wave-1 code review (Codex `codex-cpamc`, retry 3; `tests/evidence/artifacts/review-m02-code/wave1.md`): fix first, Y01–Y06.
+  - Y01 (high): environment references reuse consent.
+  - Y02 (high): the fixture guard checks the shell invocation only.
+  - Y03: a quoted Include target is still globbed.
+  - Y04: `Match sessiontype` ignores a `SessionType` directive.
+  - Y05: a Unix backslash is rewritten.
+  - Y06: a Unicode slice panic.
+  - Workspace checks passed in the reviewer's worktree: 1071 passed, fmt 0, clippy 0.
+  - ADR-0007 §12.16 rules on all six. They are fixed after wave 2 integrates, by one fixer `W2b-fix` (sshconf plus testkit home.rs), because W2-U2r owns sshconf during wave 2.
+

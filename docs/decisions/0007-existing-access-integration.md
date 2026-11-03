@@ -3122,6 +3122,61 @@ otherwise. Items naming **W2-U2r** are a wave-2 unit owning `crates/sshconf/**` 
        including the filesystem-backed `recovery_generated_observations_preserve_every_entry`.
      The plan's U4 test list is divided by these files.
 
+### 12.16 Rulings on the wave-1 code review (orchestrator, 2026-11-03)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave1.md` (Codex, independent, fix first;
+Y01–Y06). Each finding was reproduced by the reviewer with a compiled probe or `ssh -G`. All
+six are accepted as defects. Five lie in `crates/sshconf`, which W2-U2r edits during wave 2,
+so they are fixed after wave 2 integrates, by one fixer unit (`W2b-fix`, owning
+`crates/sshconf/**`, `crates/testkit/src/home.rs` and their tests). Each fix carries a
+regression test that fails without it.
+
+1. **Y01: environment references are not determined behaviour.** The runtime's environment
+   is not the environment of a later `ssh` invocation, so a value that reads a variable
+   cannot be known statically. This amends §5.2 and §6:
+   * a relevant directive whose effective value contains `${VAR}` is `Undetermined`, with
+     reason `environment_reference`, in `RelevantBehavior`, the behaviour state and the
+     identity selection;
+   * so is an `IdentityAgent` whose value begins with `$`, except `$SSH_AUTH_SOCK`;
+   * so consent is never reused across it (§5.2: prior consent covers determined states
+     only).
+   * The literal `IdentityAgent SSH_AUTH_SOCK`, `IdentityAgent $SSH_AUTH_SOCK` and an unset
+     `IdentityAgent` are the **default** agent. The default agent is determined, with role
+     `default`. The decision summary shows it as "the session's `SSH_AUTH_SOCK`". Its
+     endpoint is outside configuration; that residual is stated in §13.
+   * Binding the runtime's expanded value instead is rejected, because it would claim a
+     determination the runtime cannot make.
+2. **Y02: the fixture guard covers every invocation.** `ScratchHome::check_alias` evaluates
+   the alias under every `Invocation`: `Shell`, `Exec(None)`, `Exec(Some(_))` with a
+   sentinel command, and `Subsystem("sftp")`. It also evaluates under each value a
+   `SessionType` directive in the tree can give. It refuses when any one evaluation fails
+   the guard. The `client_command` API is unchanged. Regressions: an exec-only, a
+   subsystem-only and a `SessionType`-selected outside identity, and the same for
+   `IdentityAgent`, are each refused.
+3. **Y03: an Include target is literal or refused.** OpenSSH globs inside a quoted Include
+   argument, and escaping is not verified across the client matrix. A rendered Include
+   target is therefore refused when it contains `*`, `?`, `[` or `]`, in addition to the
+   §4 path rules. This amends §4's paths row for `Include`. The refusal is
+   `unmanageable{include_target_glob}`, which is manual mode, before any edit.
+   `IdentityFile` and `IdentityAgent` are not globbed, so they keep the §4 rules.
+   Regression: the reviewer's bracket case is refused, and a target without
+   metacharacters renders as before.
+4. **Y04: `Match sessiontype` reads the effective session type.**
+   * When a `SessionType` directive is already in force in the pass, that value is used;
+     otherwise the `Invocation` decides.
+   * When the in-force `SessionType` is itself undetermined, the condition is `Unknown`.
+   * U3's `sshconf_vs_ssh_g` corpus gains the reviewer's case and a `SessionType
+     subsystem` case.
+5. **Y05:** `RenderPath::home_relative` normalizes `\` only for the Windows style. On Unix,
+   a backslash is refused by the Unix rule and never rewritten.
+6. **Y06:** `strip_pipe_prefix` checks the character boundary before slicing. A proptest of
+   at least 256 arbitrary Unicode strings asserts that the public `RenderPath`
+   constructors never panic.
+7. **Wave-2 interaction.** W2-U2r's wave-2 changes add `raw` and the source role. They do
+   not overlap these findings in purpose, but they share `eval.rs`, `relevant.rs` and
+   `render.rs`, hence the fix after wave 2. Until then, no wave-2 test may rely on the
+   wave-1 behaviour these rulings change.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
@@ -3166,6 +3221,10 @@ otherwise. Items naming **W2-U2r** are a wave-2 unit owning `crates/sshconf/**` 
   `config_tree_changed` (§6). ⟨r5⟩ It also records Git's lock holder K, and that a lock
   left after a crash on a filesystem without birth time is the owner's to remove.
 * ⟨r5⟩ The runtime bounds every real adapter call (`Limits.adapter_call_timeout`, §7).
+* ⟨§12.16⟩ Residual, stated in the compatibility matrix: the **default** agent is the
+  `SSH_AUTH_SOCK` of whatever session runs `ssh`. Consent to a state that uses the default
+  agent covers "the session's agent", not a particular endpoint. An explicit variable
+  reference is undetermined, and so always needs a new decision (§12.16 item 1).
 
 ## 14. Reopen conditions
 
