@@ -75,6 +75,27 @@ pub fn lock_holder(generation: u64, nonce: [u8; 16]) -> Rendered {
 /// discarded unread; it is the user's configuration.
 #[must_use]
 pub fn parses(git: &Path, staged: &Path, env: &Env) -> bool {
+    parse_check(git, staged, env) == ParseCheck::Parses
+}
+
+/// Additive (W2c-U4; ADR-0007 §12.19 item 8): what [`parse_check`] established.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseCheck {
+    /// The query exited 0 within its bound.
+    Parses,
+    /// The query ran and did not: a non-zero exit, a signal or a timeout.
+    Refused,
+    /// The query could not run: the program could not be started, or its run could
+    /// not be contained or observed.
+    CannotRun,
+}
+
+/// Additive (W2c-U4): [`parses`], telling a check that could not run
+/// ([`ParseCheck::CannotRun`]: the caller's reason is `verified_client_unavailable`,
+/// ADR-0007 §12.19 item 8) from one that ran and refused the bytes. Either way the
+/// bytes are not shown to parse.
+#[must_use]
+pub fn parse_check(git: &Path, staged: &Path, env: &Env) -> ParseCheck {
     let root = if Platform::current().is_windows() {
         std::env::var_os("SystemDrive").map_or_else(
             || std::path::PathBuf::from(r"C:\"),
@@ -97,7 +118,11 @@ pub fn parses(git: &Path, staged: &Path, env: &Env) -> bool {
         timeout: LOCAL_QUERY_TIMEOUT,
         max_output: LOCAL_QUERY_OUTPUT_BYTES,
     }) else {
-        return false;
+        return ParseCheck::CannotRun;
     };
-    !out.timed_out && out.status.is_some_and(|s| s.success())
+    if !out.timed_out && out.status.is_some_and(|s| s.success()) {
+        ParseCheck::Parses
+    } else {
+        ParseCheck::Refused
+    }
 }

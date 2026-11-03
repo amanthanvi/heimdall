@@ -39,8 +39,20 @@
 //! * The Git item follows the SSH commit point: it runs only when the intent's SSH
 //!   item applied (or the intent has none). B_git's staged bytes must parse
 //!   (`git config --file <N_s> --no-includes --list`, a local query) before its
-//!   exchange; a failure, or no way to run the check, aborts before the commit point
-//!   (§5.6 step 3).
+//!   exchange; a failure aborts before the commit point (§5.6 step 3,
+//!   `unmanageable_file`), and so does a check that cannot run (§12.19 item 8: reason
+//!   `verified_client_unavailable`, which `ConflictKind` cannot carry yet, so the
+//!   outcome has no conflict reason).
+//! * K before B_git's commit point (§12.18 item 4, X04). Immediately before B_git's
+//!   exchange, on fresh apply and on a restart's resume alike, the lock name must hold
+//!   K: the identity the lock step's `file.staged` recorded, with the holder digest.
+//!   Otherwise B_git is never exchanged, nothing is written to the global Git file,
+//!   and the item aborts (`git_config_locked`) while the lock step's own rows (K3, K4)
+//!   record what the lock name holds, exactly as recovery does.
+//! * A create's restore moves its active file (§12.18 item 2, X02). Right before it
+//!   writes `file.restore_started` and again right before the settlement move, the path
+//!   must hold S with the target digest; an edit since the observation is held
+//!   (`active_entry_modified`, C7a, F8a) and the edited file stays at its path.
 //! * An item with no step to write (a rollback whose B is already gone) has its check
 //!   and `item.committed` as its commit point.
 //! * After a rollback's item committed, an edited managed file is renamed, with
@@ -90,7 +102,7 @@ use super::recovery::{
     StepDecision, StepState,
 };
 use super::replace::{
-    self, DirHandle, Expected, HookAt, Mode, PostValidation, Quarantine, RemoveVerified,
+    self, DirHandle, Expected, HookAt, Mode, NameState, PostValidation, Quarantine, RemoveVerified,
     ReplaceError, ReplaceRefusal, RestoreFailure, RestoreOutcome, SettleOutcome, SettlingAt,
     Staged, StepNames, StepRecord,
 };
@@ -323,6 +335,30 @@ enum Flow {
     /// The step stopped before anything active changed, or the engine must decide;
     /// the item's reason.
     Stop(ConflictKind),
+    /// The step stopped before anything active changed, and no conflict caused it:
+    /// B_git's parse check cannot run (ADR-0007 §12.19 item 8; see
+    /// [`PARSE_CHECK_UNAVAILABLE`]).
+    StopUnavailable,
+}
+
+/// ADR-0007 §12.19 item 8: when B_git's parse check cannot run (local queries
+/// disabled, no verified Git client, or the client cannot be started), the Git item
+/// aborts before its commit point with reason `verified_client_unavailable`, not
+/// `unmanageable_file`. `ItemOutcome::NotApplied.reason` is a `ConflictKind`, which has
+/// no such variant (a contract type), so the item's outcome carries no conflict
+/// reason (`None`) until the contract names it (escalated by W2c-U4). This is the one
+/// place to change then.
+const PARSE_CHECK_UNAVAILABLE: Option<ConflictKind> = None;
+
+/// What B_git's parse check established (ADR-0007 §5.6 step 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParseCheck {
+    /// `git config --file <N_s> --no-includes --list` exited 0 within its bound.
+    Parses,
+    /// It ran and did not: a refusal, a non-zero exit or a timeout.
+    Refused,
+    /// It could not run (§12.19 item 8).
+    Unavailable,
 }
 
 /// Where a forward step resumes.
@@ -773,9 +809,20 @@ impl<'a> Run<'a> {
                     self.reasons.entry(item).or_insert(kind);
                     break;
                 }
+                Flow::StopUnavailable => {
+                    self.stop_unavailable(item);
+                    break;
+                }
             }
         }
         self.drive(item, false)
+    }
+
+    /// [`Flow::StopUnavailable`]: the item's reason is [`PARSE_CHECK_UNAVAILABLE`].
+    fn stop_unavailable(&mut self, item: ProjectionItem) {
+        if let Some(kind) = PARSE_CHECK_UNAVAILABLE {
+            self.reasons.entry(item).or_insert(kind);
+        }
     }
 
     /// Run step `i` forward from `from` through post-validation (§5.3 steps 2–6).
@@ -841,9 +888,14 @@ impl<'a> Run<'a> {
             return Ok(Flow::Stop(refusal_kind(step, &r)));
         }
         // §5.6 step 3 (row 4 of the replace and create tables): B_git's new bytes
-        // must parse before its exchange; a failure aborts before the commit point.
-        if step.role == FileRole::GitInclude && !self.git_parses(&parent, &names.staged) {
-            return Ok(Flow::Stop(ConflictKind::UnmanageableFile));
+        // must parse before its exchange; a failure aborts before the commit point. A
+        // check that cannot run aborts too, with its own reason (§12.19 item 8).
+        if step.role == FileRole::GitInclude {
+            match self.git_parse_check(&parent, &names.staged) {
+                ParseCheck::Parses => {}
+                ParseCheck::Refused => return Ok(Flow::Stop(ConflictKind::UnmanageableFile)),
+                ParseCheck::Unavailable => return Ok(Flow::StopUnavailable),
+            }
         }
         if from != From::Validated {
             self.append_file(
@@ -863,6 +915,13 @@ impl<'a> Run<'a> {
         }
         // Step 5: the exchange (a no-replace create for an absent base).
         self.config.fire(ReplacePoint::BeforeExchange, i);
+        // ADR-0007 §12.18 item 4 (X04): B_git is exchanged only while K holds Git's
+        // lock. Fresh apply and a restart's resume both get here; otherwise the item
+        // aborts before its commit point, and the lock step's own rows (K3, K4, K2 for
+        // a K′) settle what the lock name holds, exactly as recovery does.
+        if step.role == FileRole::GitInclude && !self.lock_held_by_k() {
+            return Ok(Flow::Stop(ConflictKind::GitConfigLocked));
+        }
         let present = step.base != Base::Absent;
         let exchanged =
             match replace::exchange_at(&dir, &names, &staged, present.then_some(&validated)) {
@@ -910,17 +969,52 @@ impl<'a> Run<'a> {
     }
 
     /// ADR-0007 §5.6 step 3: `git config --file <N_s> --no-includes --list` exits 0
-    /// for B_git's staged bytes. Fail closed: with local queries off or no Git client
-    /// in the inventory the bytes are not shown to parse, so the item aborts.
-    fn git_parses(&self, parent: &Path, staged: &str) -> bool {
-        self.config.queries == LocalQueries::Enabled
-            && self
-                .config
-                .clients
-                .selected(ClientKind::Git)
-                .is_some_and(|g| {
-                    super::git::parses(&g.path, &parent.join(staged), &self.config.env)
-                })
+    /// for B_git's staged bytes. Fail closed: only [`ParseCheck::Parses`] lets B_git
+    /// reach its exchange. With local queries off, no verified (selected) Git client in
+    /// the inventory, or a client that cannot be started, the check cannot run
+    /// ([`ParseCheck::Unavailable`], §12.19 item 8); a check that ran and did not exit
+    /// 0 in its bound is [`ParseCheck::Refused`].
+    fn git_parse_check(&self, parent: &Path, staged: &str) -> ParseCheck {
+        if self.config.queries != LocalQueries::Enabled {
+            return ParseCheck::Unavailable;
+        }
+        let Some(git) = self.config.clients.selected(ClientKind::Git) else {
+            return ParseCheck::Unavailable;
+        };
+        match super::git::parse_check(&git.path, &parent.join(staged), &self.config.env) {
+            super::git::ParseCheck::Parses => ParseCheck::Parses,
+            super::git::ParseCheck::Refused => ParseCheck::Refused,
+            super::git::ParseCheck::CannotRun => ParseCheck::Unavailable,
+        }
+    }
+
+    /// ADR-0007 §12.18 item 4 (X04): whether the lock name holds K, by the identity the
+    /// `git_lock` step's `file.staged` recorded and K's holder digest. This is the live
+    /// path's check (§5.6 "Within one run … K's identity and holder digest are checked
+    /// at each step"), so it holds without a birth time too: within one run K's
+    /// identity cannot be reused while K exists, and a lock re-created on a freed inode
+    /// lacks K's random line. `false` when anything is missing (fail closed).
+    fn lock_held_by_k(&mut self) -> bool {
+        let Some(k) = self
+            .intent
+            .files
+            .iter()
+            .position(|s| s.role == FileRole::GitLock)
+            .map(step_index)
+        else {
+            return false;
+        };
+        let step = self.step(k);
+        let (Some(identity), Some(sha256), Some((parent, name))) =
+            (self.staged_identity(k), staged_sha(step), split(&step.path))
+        else {
+            return false;
+        };
+        let Ok(Some(dir)) = self.dir(&parent) else {
+            return false;
+        };
+        replace::check_name(&dir, &name, &Expected { identity, sha256 })
+            == NameState::Expected(ContentState::Unchanged)
     }
 
     /// The `git_lock` step: stage K, record it, then claim the lock (§5.6 steps 1–2).
@@ -1393,6 +1487,11 @@ impl<'a> Run<'a> {
                                 resume_allowed = false;
                                 continue;
                             }
+                            Some(Flow::StopUnavailable) => {
+                                self.stop_unavailable(item);
+                                resume_allowed = false;
+                                continue;
+                            }
                             // Nothing left to resume (an abort's settlement already
                             // completed): the item aborts.
                             None => {}
@@ -1528,8 +1627,9 @@ impl<'a> Run<'a> {
         ) else {
             return Ok(false);
         };
-        self.begin_settlement(i, SettleSource::Staged, name, Expected { identity, sha256 })?;
-        Ok(true)
+        let progress =
+            self.begin_settlement(i, SettleSource::Staged, name, Expected { identity, sha256 })?;
+        Ok(matches!(progress, Progress::Acted))
     }
 
     /// Release K when it is due (ADR-0007 §12.17 item 3). No receipt records a
@@ -1709,15 +1809,23 @@ impl<'a> Run<'a> {
             StepDecision::Restore(RestoreStep::CreateRollback) => {
                 let cause = restore_cause(&state);
                 self.config.fire(ReplacePoint::BeforeRestoreCheck, i);
-                if !matches!(state.phase, Some(EffectivePhase::RestoreStarted { .. })) {
-                    self.append_file(i, FilePhase::RestoreStarted { cause })?;
-                }
-                let (Some(identity), Some(sha256), Some((_, name))) =
+                let (Some(identity), Some(sha256), Some((parent, name))) =
                     (self.staged_identity(i), staged_sha(step), split(&step.path))
                 else {
                     return Ok(Progress::Held(HoldReason::Unmatched));
                 };
-                self.begin_settlement(i, SettleSource::Path, name, Expected { identity, sha256 })?;
+                let expected = Expected { identity, sha256 };
+                // ADR-0007 §12.18 item 2 (X02), §5.3 step 7, rows C7–C7b: before anything
+                // is written or moved, the path must still hold S with the target
+                // digest. An edit since the observation is held here (C7a), and the
+                // edited file stays at its path; nothing else of S is C7b.
+                if let Some(reason) = self.active_path_changed(&parent, &name, &expected) {
+                    return Ok(Progress::Held(reason));
+                }
+                if !matches!(state.phase, Some(EffectivePhase::RestoreStarted { .. })) {
+                    self.append_file(i, FilePhase::RestoreStarted { cause })?;
+                }
+                return self.begin_settlement(i, SettleSource::Path, name, expected);
             }
             StepDecision::Settle(SettleStep::Begin) => {
                 let Some((source, name, expected)) = self.settle_source(i, &state, &v.obs) else {
@@ -1726,9 +1834,9 @@ impl<'a> Run<'a> {
                 if step.role == FileRole::GitLock && source == SettleSource::Path {
                     self.config.fire(ReplacePoint::BeforeLockRelease, i);
                 }
-                self.begin_settlement(i, source, name, expected)?;
+                return self.begin_settlement(i, source, name, expected);
             }
-            StepDecision::Settle(SettleStep::Move) => self.settle_move(i)?,
+            StepDecision::Settle(SettleStep::Move) => return self.settle_move(i),
             StepDecision::Settle(SettleStep::RecordSettled) => {
                 self.append_file(
                     i,
@@ -1968,7 +2076,7 @@ impl<'a> Run<'a> {
         source: SettleSource,
         name: String,
         expected: Expected,
-    ) -> Result<(), ReconcileError> {
+    ) -> Result<Progress, ReconcileError> {
         let slot = random_hex()?;
         self.append_file(
             i,
@@ -1984,13 +2092,22 @@ impl<'a> Run<'a> {
     }
 
     /// F8a: move the recorded source into its slot and check it (§5.3 step 8.2–8.3).
-    fn settle_move(&mut self, i: u16) -> Result<(), ReconcileError> {
+    ///
+    /// ADR-0007 §12.18 item 2 (X02): a create's restore settles its **active** path
+    /// entry, so immediately before that move the path must still hold S with the
+    /// target digest, as row F8a requires. An S′ there (an edit since `file.settling`
+    /// or since the last observation) is not moved: it stays at its path and the next
+    /// observation holds it (`active_entry_modified`). Any other entry is left to
+    /// `settle_with`, which moves only the recorded identity (F8c, F8e). K's release
+    /// from the lock name is not a create's restore: a K′ there is moved and kept in
+    /// the quarantine (F8a, §5.3 step 8.4).
+    fn settle_move(&mut self, i: u16) -> Result<Progress, ReconcileError> {
         let step = self.step(i);
-        let Some((_, name, expected, slot)) = self.settling(i) else {
-            return Ok(());
+        let Some((source, name, expected, slot)) = self.settling(i) else {
+            return Ok(Progress::Acted);
         };
         let Some((parent, _)) = split(&step.path) else {
-            return Ok(());
+            return Ok(Progress::Acted);
         };
         let dir = self
             .dir(&parent)
@@ -1998,10 +2115,42 @@ impl<'a> Run<'a> {
             .ok_or_else(|| ReconcileError::Unavailable("directory missing".to_owned()))?;
         let quarantine = self.quarantine(&parent)?;
         self.config.fire(ReplacePoint::BeforeSettleMove, i);
+        if source == SettleSource::Path
+            && StepShape::of(step) == StepShape::Create
+            && replace::check_name(&dir, &name, &expected)
+                == NameState::Expected(ContentState::Modified)
+        {
+            // `file.settling` is on record: the next observation decides (F8a holds
+            // an S′ at the path with `active_entry_modified`).
+            return Ok(Progress::Acted);
+        }
         let outcome =
             replace::settle_with(&dir, &quarantine, &name, &expected, &slot, self.hook_at(i))
                 .map_err(|e| ReconcileError::Unavailable(e.to_string()))?;
-        self.settled_outcome(i, outcome, &expected)
+        self.settled_outcome(i, outcome, &expected)?;
+        Ok(Progress::Acted)
+    }
+
+    /// ADR-0007 §12.18 item 2 (X02): what a create's restore finds at its path right
+    /// before it writes or moves anything. `None` when the path holds S with the
+    /// target digest (row C7); otherwise the hold reason of C7a (S′:
+    /// `active_entry_modified`), C7b (no entry, or another one:
+    /// `active_entry_replaced`), or `unobservable`.
+    fn active_path_changed(
+        &mut self,
+        parent: &Path,
+        name: &str,
+        expected: &Expected,
+    ) -> Option<HoldReason> {
+        let Ok(Some(dir)) = self.dir(parent) else {
+            return Some(HoldReason::Unobservable);
+        };
+        match replace::check_name(&dir, name, expected) {
+            NameState::Expected(ContentState::Unchanged) => None,
+            NameState::Expected(ContentState::Modified) => Some(HoldReason::ActiveEntryModified),
+            NameState::Absent | NameState::Foreign => Some(HoldReason::ActiveEntryReplaced),
+            NameState::Unobservable => Some(HoldReason::Unobservable),
+        }
     }
 
     fn settled_outcome(

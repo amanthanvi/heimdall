@@ -512,3 +512,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
 - Next, wave 2c:
   - W2c-U4: §12.18 X02 (create rollback re-checks the active file), X03 (derived markers), X04 (observe K before B_git), and §12.19 item 8 (`verified_client_unavailable` for the Git parse check);
   - W2c-rows: the filesystem-backed `recovery_table_rows_each_have_a_test_vector` (placeholder target pre-registered).
+- Wave 2b is committed as 26f94dc8. My check.sh: exit 0, 1321 passed, 0 failed.
+- Running: workflow `wf_7ede658e-ecf`, wave 2c (W2c-U4 and W2c-rows in parallel, then an integrator). Base 26f94dc8.
+- After wave 2c: a Codex review of waves 2b and 2c (range 3e51f49b..HEAD), then wave 3. Wave 3 is the activation change set, U5 with U0b phase 2, followed by U8 wiring (m02-plan §2).
+- **M02 wave 2c** (`wf_7ede658e-ecf`): all 3 agents done.
+  - W2c-U4 completed §12.18 X02 (create rollback re-checks the active file), X03 (derived markers) and X04 (live K check before B_git).
+  - W2c-rows: the filesystem-backed `recovery_table_rows_each_have_a_test_vector` builds all 80 §5.7 rows on disk (132 + 11 vectors); the in-memory test is renamed `…_each_decide_as_their_row`.
+  - check.sh: the integrator ran it twice and I ran it once, all exit 0, 1327 passed, 0 failed.
+  - New high finding (integrator probe): without a birth time, a successful Git apply never releases K. Ruled in §12.20 item 1; it blocks the M02 exit.
+- ADR-0007 §12.20 rules on the wave-2c escalations and defines wave 3a:
+  - W3-U0b: U0b phase 2;
+  - W3-U5: drivers and runtime wiring;
+  - W3-U4: K release, durable outcome reasons, stale docs.
+  - Wave 3b (U8 wiring) follows.

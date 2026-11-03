@@ -14,8 +14,11 @@
 //! The generated domain is built from the type definitions and a restatement of the
 //! ADR's phase order, never from the row list; its assertions read the effects of a
 //! decision, never its name. The row list is checked in the other direction by
-//! `recovery_table_rows_each_have_a_test_vector` (W2b-U4r, ADR-0007 §12.17 item 8),
-//! which reads ADR-0007 §5.7's own tables: the row list must be the ADR's, every row
+//! `recovery_table_rows_each_decide_as_their_row` (W2b-U4r, ADR-0007 §12.17 item 8;
+//! renamed by §12.19 item 10, which gives m02-plan U4's name,
+//! `recovery_table_rows_each_have_a_test_vector`, to the filesystem-backed test in
+//! `tests/integration/projection_recovery_rows.rs`, which reads the same rows the same
+//! way), which reads ADR-0007 §5.7's own tables: the row list must be the ADR's, every row
 //! needs a vector, and each vector must be the first case its row's phase and symbol
 //! columns name, with a decision that agrees with the row's action. Properties use
 //! proptest with at least 256 cases, a fixed seed unless `PROPTEST_RNG_SEED` is set,
@@ -1158,7 +1161,7 @@ fn item_violations(steps: &[StepState], r: &ItemReceipts, d: ItemDecision) -> Ve
 // --- 1. the row list, in the other direction -----------------------------------------
 
 /// Every row ID of ADR-0007 §5.7 (G0–G3 and H0 are withdrawn), in the ADR's order.
-/// `recovery_table_rows_each_have_a_test_vector` checks it against the ADR's tables.
+/// `recovery_table_rows_each_decide_as_their_row` checks it against the ADR's tables.
 const ROW_IDS: &[&str] = &[
     "F0", "F0x", "F0z", "F1", "F1a", "F2a", "F2b", "F2c", "F2d", "F2e", "F2g", "F2j", "F2k", "F2h",
     "F2f", "F3", "F3a", "F3b", "F3c", "F4", "F4a", "F4c", "F4b", "F4d", "F4e", "F5", "F5a", "F5b",
@@ -2602,15 +2605,17 @@ fn adr_action_agrees(
     }
 }
 
-/// m02-plan U4 `recovery_table_rows_each_have_a_test_vector` (ADR-0007 §5.7 "m02-plan
-/// U4 test … keeps the other direction"; §12.17 item 8). In process: each vector's
+/// The in-memory half of m02-plan U4's row test (ADR-0007 §5.7 "m02-plan U4 test …
+/// keeps the other direction"; §12.17 item 8; named by §12.19 item 10, whose
+/// filesystem-backed `recovery_table_rows_each_have_a_test_vector` builds every row on
+/// disk and runs `reconcile`). In process: each vector's
 /// receipts go through `RecoveryState::build`, its observation through
 /// `StepObservation::normalize`, and `decide`/`decide_item` give the action. It fails
 /// when the row list is not the ADR's, a row has no vector, a vector is not its row's
 /// case (another row of the ADR's tables, tried in order, names it first), or the
 /// decision, its effects or its hold reason disagree with the row.
 #[test]
-fn recovery_table_rows_each_have_a_test_vector() {
+fn recovery_table_rows_each_decide_as_their_row() {
     // The row list is the ADR's: the same IDs in the same order, each once.
     let adr = adr_rows();
     let adr_ids: Vec<&str> = adr.iter().map(|r| r.id.as_str()).collect();

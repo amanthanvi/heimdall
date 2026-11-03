@@ -4,6 +4,14 @@
 //! names are random and fixed in the plan. A plan beyond the content bounds is
 //! refused (`PreviewError::TooLarge`, `projection_too_large`).
 //!
+//! **Reproducible digests** (ADR-0007 §12.18 item 3). The marker of a block a plan
+//! inserts (B, B_git) is derived from the proposed generation, the target file's role
+//! and the canonical digest of the plan inputs (the spec and the base of every file
+//! the preview read), never drawn. Staged names, displaced names and K's holder line
+//! are random but are not part of the plan digest. So two previews of unchanged inputs
+//! give the same plan digest, and §5.4 step 1's recomputation reproduces an approved
+//! preview; any change of input changes it.
+//!
 //! **What the preview builds** (ADR-0007 §5.4, §5.5, §5.6):
 //!
 //! * `apply`, first adoption (no block in the user file): the key files and P
@@ -209,6 +217,9 @@ struct Builder<'a> {
     manual_for: Option<ConflictKind>,
     /// The Git selection now and after the plan, when the plan changes it.
     git_selection: Option<(GitSshSelection, GitSshSelection)>,
+    /// ADR-0007 §12.18 item 3: every file the preview read so far, with the base it
+    /// found (absent, or the digest of its bytes). A derived marker binds them.
+    reads: BTreeMap<(FileRole, PathBuf), Base>,
 }
 
 impl<'a> Builder<'a> {
@@ -237,7 +248,75 @@ impl<'a> Builder<'a> {
             ssh_repair: false,
             manual_for: None,
             git_selection: None,
+            reads: BTreeMap::new(),
         }
+    }
+
+    // --- plan inputs (ADR-0007 §12.18 item 3) ---------------------------------------------
+
+    /// Read `path` ([`read_file`]) and note its base as a plan input.
+    fn read(&mut self, role: FileRole, path: &Path) -> Result<Option<Vec<u8>>, PreviewError> {
+        let bytes = read_file(path)?;
+        self.note(role, path, bytes.as_deref());
+        Ok(bytes)
+    }
+
+    /// Note that the plan read `path` (in `role`) and found `bytes` (`None`: absent).
+    fn note(&mut self, role: FileRole, path: &Path, bytes: Option<&[u8]>) {
+        let base = bytes.map_or(Base::Absent, |b| Base::Present {
+            sha256: Sha256Hex::of(b),
+        });
+        self.reads.insert((role, path.to_path_buf()), base);
+    }
+
+    /// The marker of a block this plan inserts into the file of `role` (ADR-0007
+    /// §12.18 item 3, X03). It is derived, never drawn, so the same inputs give the
+    /// same block, target digest and plan digest, and §5.4 step 1's recomputation
+    /// reproduces an approved preview:
+    ///
+    /// 1. the canonical digest of the plan inputs: SHA-256 over the canonical JSON of
+    ///    the spec and of the base of every file the preview has read (role, path, and
+    ///    absent or its digest);
+    /// 2. SHA-256 over the length-prefixed fields `heimdall.marker.v1`, the proposed
+    ///    generation (decimal), the role's wire name and that digest (hex); its first
+    ///    128 bits are the derived value.
+    ///
+    /// The marker text keeps ADR-0007 §2's form `hm-<16 hex>`, which `MarkerId`
+    /// enforces: it shows the first 64 of the 128 derived bits, as the drawn marker
+    /// showed the first 64 of 128 random bits (escalated: a 128-bit marker text would
+    /// change §2's block form and `MarkerId`). Markers were never secrets; a user's copy
+    /// of a block is the duplicate-marker case either way.
+    fn derived_marker(&self, role: FileRole) -> Result<MarkerId, PreviewError> {
+        let unavailable = |what: &str| PreviewError::Unavailable(format!("marker: {what}"));
+        let spec = serde_json::to_value(self.spec).map_err(|_| unavailable("spec"))?;
+        let reads: Vec<serde_json::Value> = self
+            .reads
+            .iter()
+            .map(|((r, path), base)| serde_json::json!([r, path.to_string_lossy(), base]))
+            .collect();
+        let inputs = serde_json::json!({
+            "heimdall_marker_inputs": 1,
+            "spec": spec,
+            "reads": reads,
+        });
+        let canonical = heimdall_contract::canonical::canonical_json(&inputs)
+            .map_err(|_| unavailable("inputs not canonical"))?;
+        let inputs = Sha256Hex::of(&canonical);
+        let generation = self.generation.to_string();
+        let mut h = Sha256::new();
+        for field in [
+            b"heimdall.marker.v1".as_slice(),
+            generation.as_bytes(),
+            role.as_str().as_bytes(),
+            inputs.as_str().as_bytes(),
+        ] {
+            h.update((field.len() as u64).to_be_bytes());
+            h.update(field);
+        }
+        let digest = h.finalize();
+        let derived = digest.get(..16).ok_or_else(|| unavailable("digest"))?;
+        let hex: String = derived.iter().map(|b| format!("{b:02x}")).collect();
+        MarkerId::parse(&format!("hm-{}", &hex[..16])).map_err(|e| unavailable(&e.to_string()))
     }
 
     // --- the SSH item -------------------------------------------------------------------
@@ -271,7 +350,7 @@ impl<'a> Builder<'a> {
         if p.bytes().len() > bounds::MANAGED_SSH_MAX {
             return Err(PreviewError::TooLarge);
         }
-        self.p_now = read_file(&p_path)?;
+        self.p_now = self.read(FileRole::ManagedSsh, &p_path)?;
         self.p_after = Some(p.bytes().to_vec());
         let p_step = self.whole_step(FileRole::ManagedSsh, &p_path, p)?;
         self.added = self.spec.aliases.iter().map(|a| a.alias.clone()).collect();
@@ -338,7 +417,7 @@ impl<'a> Builder<'a> {
         let newline = user_bytes
             .and_then(edit::detect_newline)
             .unwrap_or(Newline::Lf);
-        let marker = new_marker()?;
+        let marker = self.derived_marker(FileRole::UserSsh)?;
         let block = match self.include_block(&marker, p_path, newline)? {
             Ok(block) => block,
             Err(reason) => {
@@ -571,7 +650,8 @@ impl<'a> Builder<'a> {
         }
         let p_path = self.config.managed_ssh_path();
         let newline = block_newline(&bytes, only);
-        let marker = new_marker()?;
+        self.read(FileRole::ManagedSsh, &p_path)?;
+        let marker = self.derived_marker(FileRole::UserSsh)?;
         let block = match self.include_block(&marker, &p_path, newline)? {
             Ok(block) => block,
             Err(reason) => {
@@ -627,11 +707,12 @@ impl<'a> Builder<'a> {
     /// a finding (ADR-0007 §5.3 step 9: Heimdall prints the block and changes
     /// nothing there).
     fn manual_block_finding(&mut self, user: &Path, p_path: &Path) -> Result<(), PreviewError> {
-        let newline = read_file(user)?
+        let newline = self
+            .read(FileRole::UserSsh, user)?
             .as_deref()
             .and_then(edit::detect_newline)
             .unwrap_or(Newline::Lf);
-        let marker = new_marker()?;
+        let marker = self.derived_marker(FileRole::UserSsh)?;
         let message = match self.include_block(&marker, p_path, newline)? {
             Ok(block) => format!(
                 "keep exactly these lines at the top of {}:\n{}",
@@ -661,7 +742,19 @@ impl<'a> Builder<'a> {
 
     /// Read the user file and decide whether it can be edited automatically.
     /// `Ok(None)`: manual mode (the reason is recorded). `Ok(Some(None))`: absent.
+    /// What it found is noted as a plan input.
     fn inspect_user_file(&mut self, user: &Path) -> Result<Option<Option<Vec<u8>>>, PreviewError> {
+        let found = self.inspect_user_file_bytes(user)?;
+        if let Some(bytes) = &found {
+            self.note(FileRole::UserSsh, user, bytes.as_deref());
+        }
+        Ok(found)
+    }
+
+    fn inspect_user_file_bytes(
+        &mut self,
+        user: &Path,
+    ) -> Result<Option<Option<Vec<u8>>>, PreviewError> {
         let (Some(parent), Some(name)) = (user.parent(), user.file_name().and_then(|n| n.to_str()))
         else {
             self.manual(manual_reason::UNMANAGEABLE_FILE);
@@ -803,7 +896,7 @@ impl<'a> Builder<'a> {
         let p_git_path = self.config.managed_git_path();
         let p_git_step = self.whole_step(FileRole::GitManaged, &p_git_path, p_git)?;
         let global = file.path.clone();
-        let global_bytes = read_file(&global)?;
+        let global_bytes = self.read(FileRole::GitInclude, &global)?;
         let blocks = gitedit::find_blocks(global_bytes.as_deref().unwrap_or_default());
         let mut steps: Vec<FileStep> = Vec::new();
         let mut include_change = None;
@@ -814,7 +907,7 @@ impl<'a> Builder<'a> {
                     .as_deref()
                     .and_then(edit::detect_newline)
                     .unwrap_or(Newline::Lf);
-                let marker = new_marker()?;
+                let marker = self.derived_marker(FileRole::GitInclude)?;
                 let block = render::rendered_git_include_block(&marker, &target, newline)
                     .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?;
                 let plan = gitedit::plan_insert_top(
@@ -1117,7 +1210,7 @@ impl<'a> Builder<'a> {
         path: &Path,
         rendered: Rendered,
     ) -> Result<Option<FileStep>, PreviewError> {
-        let current = read_file(path)?;
+        let current = self.read(role, path)?;
         let target = rendered.sha256();
         if current.as_deref().map(Sha256Hex::of).as_ref() == Some(&target) {
             return Ok(None);
@@ -1898,12 +1991,6 @@ fn plan_digest(
     let canonical = heimdall_contract::canonical::canonical_json(&value)
         .map_err(|_| PreviewError::Unavailable("plan not canonical".to_owned()))?;
     Ok(PlanDigest::from_sha256(Sha256::digest(&canonical).into()))
-}
-
-fn new_marker() -> Result<MarkerId, PreviewError> {
-    let hex = random_hex().map_err(|_| PreviewError::Unavailable("no random source".to_owned()))?;
-    MarkerId::parse(&format!("hm-{}", &hex[..16]))
-        .map_err(|e| PreviewError::Unavailable(format!("marker: {e}")))
 }
 
 /// The 1-based line of byte `offset`.

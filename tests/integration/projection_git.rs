@@ -692,6 +692,60 @@ fn git_existing_core_sshcommand_in_system_or_global_makes_item_not_applicable() 
     }
 }
 
+/// ADR-0007 §12.18 item 3 (review X03), for the Git block: B_git's marker is derived
+/// like B's, so two previews of an unchanged first adoption with the Git item give the
+/// same plan digest and the same B_git (for an existing and an absent global file), and
+/// changing any one input changes the digest.
+#[test]
+fn git_first_adoption_previews_reproduce_their_plan_digest() {
+    for global_present in [true, false] {
+        let fx = Fx::new();
+        if global_present {
+            std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+        }
+        let spec = fx.spec(None);
+        let intent = PreviewIntent::Apply { include_git: true };
+        let preview = |spec: &ProjectionSpec| fx.writer().preview(spec, &intent).unwrap();
+        let (a, b) = (preview(&spec), preview(&spec));
+        let label = format!("global_present={global_present}");
+        let (ai, bi) = (a.intent(), b.intent());
+        let include = step_ref(&ai, FileRole::GitInclude);
+        assert!(include.commit, "{label}: B_git is inserted");
+        assert_eq!(a.view.plan_digest, b.view.plan_digest, "{label}");
+        assert_eq!(
+            include.target,
+            step_ref(&bi, FileRole::GitInclude).target,
+            "{label}: the same B_git"
+        );
+        let base = a.view.plan_digest.clone();
+        let mut other = spec.clone();
+        other.environment = EnvironmentId::from_random_bytes(random());
+        let changed = preview(&other);
+        assert_ne!(changed.view.plan_digest, base, "{label}: the spec");
+        assert_ne!(
+            step_ref(&changed.intent(), FileRole::GitInclude).target,
+            include.target,
+            "{label}: the spec changes B_git's marker"
+        );
+        let before = std::fs::read(fx.global()).ok();
+        std::fs::write(fx.global(), b"[user]\n\tname = Another\n").unwrap();
+        assert_ne!(
+            preview(&spec).view.plan_digest,
+            base,
+            "{label}: the global file"
+        );
+        match before {
+            Some(bytes) => std::fs::write(fx.global(), bytes).unwrap(),
+            None => std::fs::remove_file(fx.global()).unwrap(),
+        }
+        std::fs::create_dir_all(fx.home.config_dir.clone()).unwrap();
+        std::fs::write(fx.p_git(), b"# stray\n").unwrap();
+        assert_ne!(preview(&spec).view.plan_digest, base, "{label}: P_git");
+        std::fs::remove_file(fx.p_git()).unwrap();
+        assert_eq!(preview(&spec).view.plan_digest, base, "{label}: restored");
+    }
+}
+
 // --- apply, rollback, the lock ------------------------------------------------------------
 
 #[test]
@@ -1130,6 +1184,81 @@ fn git_parse_check_failure_aborts_before_the_commit_point() {
     assert!(applied_git(&r.items), "{r:?}");
 }
 
+/// ADR-0007 §12.19 item 8: when B_git's parse check cannot run (local queries
+/// disabled, no verified Git client in the inventory, or a selected client that cannot
+/// be started), the Git item aborts before its commit point with reason
+/// `verified_client_unavailable`, never `unmanageable_file` (that is a check that ran
+/// and refused the bytes, `git_parse_check_failure_aborts_before_the_commit_point`).
+/// `ItemOutcome::NotApplied.reason` is a `ConflictKind`, which has no
+/// `verified_client_unavailable` yet (escalated), so the outcome carries no conflict
+/// reason. B_git is never exchanged, the global file is unchanged, K is released and
+/// nothing is left behind; the SSH item applies.
+#[test]
+fn git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable() {
+    for case in ["queries_disabled", "no_git_client", "client_cannot_start"] {
+        let fx = Fx::new();
+        std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+        let before = std::fs::read(fx.global()).unwrap();
+        let intent = fx.plan().intent();
+        let b = step_of(&intent, FileRole::GitInclude);
+        let mut config = fx.config();
+        match case {
+            "queries_disabled" => config.queries = LocalQueries::Disabled,
+            "no_git_client" => config
+                .clients
+                .candidates
+                .retain(|c| c.kind != ClientKind::Git),
+            _ => {
+                for c in &mut config.clients.candidates {
+                    if c.kind == ClientKind::Git {
+                        c.path = fx.home.root.join("no-such-git");
+                    }
+                }
+            }
+        }
+        let sink = Sink::default();
+        let r = LocalProjection::new(config)
+            .apply(&intent, &mut sink.clone())
+            .unwrap();
+        let kinds = sink.kinds();
+        let git = git_outcome(&r.items);
+        let ItemOutcome::NotApplied { reason, .. } = &git else {
+            panic!("{case}: {git:?} {kinds:?}");
+        };
+        assert_ne!(*reason, Some(ConflictKind::UnmanageableFile), "{case}");
+        assert_eq!(*reason, None, "{case}: verified_client_unavailable");
+        assert!(applied_ssh(&r.items), "{case}: {r:?}");
+        assert!(
+            !kinds.contains(&format!("{b}:validated")),
+            "{case}: {kinds:?}"
+        );
+        assert!(
+            !kinds.contains(&format!("{b}:exchanged")),
+            "{case}: {kinds:?}"
+        );
+        assert_eq!(std::fs::read(fx.global()).unwrap(), before, "{case}");
+        assert!(!fx.lock().exists(), "{case}: K released");
+        assert!(leftovers(&fx).is_empty(), "{case}: {:?}", leftovers(&fx));
+        assert_eq!(
+            kinds.last().map(String::as_str),
+            Some("git:finished_not_applied"),
+            "{case}"
+        );
+    }
+}
+
+fn applied_ssh(items: &[ItemOutcome]) -> bool {
+    items.iter().any(|o| {
+        matches!(
+            o,
+            ItemOutcome::Applied {
+                item: ProjectionItem::Ssh,
+                ..
+            }
+        )
+    })
+}
+
 /// ADR-0007 §12.17 item 6, for the Git item: the Git item's check fails because
 /// P_git, still inactive, was edited in place after B_git's post-validation. B_git is
 /// restored, the edited P_git is held (C7a), and the held Git item keeps K at the lock
@@ -1542,6 +1671,150 @@ fn git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed() {
                 "{:?}",
                 sink.kinds()
             );
+        }
+    }
+}
+
+/// ADR-0007 §12.18 item 4 (review X04). Right after K claims Git's lock
+/// (`AfterLockClaim`), or right before B_git's exchange, another process replaces K
+/// with its own lock, or K is removed. Before B_git's exchange the live path observes
+/// the lock name and requires K's recorded identity and holder digest there; otherwise
+/// B_git is never exchanged, nothing is written to the global Git file, and the Git
+/// item aborts (`not_applied`) while K's own rows record what the lock name holds: K4
+/// (`settle_conflict{foreign}`, the foreign lock left untouched) or K3
+/// (`settle_conflict{missing}`). Both on fresh apply and on a restart that resumes
+/// from a crash before the claim. The controls: with nothing disturbed the item
+/// applies, with and without a birth time (the live check is K's identity and holder
+/// digest within one run, §5.6).
+#[test]
+fn git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing() {
+    let mut vectors = 0;
+    for restart in [false, true] {
+        for at_claim in [true, false] {
+            for foreign in [true, false] {
+                let fx = Fx::new();
+                std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+                let before = std::fs::read(fx.global()).unwrap();
+                let intent = fx.plan().intent();
+                let k = step_of(&intent, FileRole::GitLock);
+                let b = step_of(&intent, FileRole::GitInclude);
+                let (point, step) = if at_claim {
+                    (ReplacePoint::AfterLockClaim, k)
+                } else {
+                    (ReplacePoint::BeforeExchange, b)
+                };
+                let lock = fx.lock();
+                let disturb = move || {
+                    if foreign {
+                        write_lock(&lock, b"[user]\n\tname = Another writer\n");
+                    } else {
+                        std::fs::remove_file(&lock).unwrap();
+                    }
+                };
+                let label = format!("restart={restart} {point:?}@{step} foreign={foreign}");
+                let sink = Sink::default();
+                let watch = Hook::new().run(point, Some(step), disturb);
+                let out = if restart {
+                    let crash = Hook::new().crash(ReplacePoint::BeforeLockClaim, Some(k));
+                    assert!(
+                        apply_or_crash(fx.hooked(&crash), &intent, &sink).is_none(),
+                        "{label}"
+                    );
+                    restart_with(fx.hooked(&watch), &intent, &sink)
+                } else {
+                    apply_or_crash(fx.hooked(&watch), &intent, &sink)
+                        .unwrap()
+                        .unwrap()
+                        .items
+                };
+                let kinds = sink.kinds();
+                assert!(watch.seen().contains(&(point, step)), "{label}: {kinds:?}");
+                let git = git_outcome(&out);
+                let ItemOutcome::NotApplied { reason, .. } = &git else {
+                    panic!("{label}: {git:?} {kinds:?}");
+                };
+                if !(restart && at_claim) {
+                    // B_git's own check stopped it (a restart that observes the lost
+                    // lock at its next round aborts by K's rows alone, reason unset).
+                    assert_eq!(*reason, Some(ConflictKind::GitConfigLocked), "{label}");
+                }
+                assert!(
+                    !kinds.contains(&format!("{b}:exchanged")),
+                    "{label}: {kinds:?}"
+                );
+                assert_eq!(
+                    std::fs::read(fx.global()).unwrap(),
+                    before,
+                    "{label}: nothing written to the global Git file"
+                );
+                assert!(
+                    out.iter().any(|o| matches!(
+                        o,
+                        ItemOutcome::Applied {
+                            item: ProjectionItem::Ssh,
+                            ..
+                        }
+                    )),
+                    "{label}: {out:?}"
+                );
+                let found = sink.file_phases(k).into_iter().find_map(|p| match p {
+                    FilePhase::SettleConflict { found, .. } => Some(found),
+                    _ => None,
+                });
+                if foreign {
+                    assert_eq!(found, Some(SettleConflictFound::Foreign), "{label}");
+                    assert_eq!(
+                        std::fs::read(fx.lock()).unwrap(),
+                        b"[user]\n\tname = Another writer\n",
+                        "{label}: the foreign lock is never moved or removed"
+                    );
+                } else {
+                    assert_eq!(found, Some(SettleConflictFound::Missing), "{label}");
+                    assert!(!fx.lock().exists(), "{label}");
+                }
+                assert_eq!(
+                    kinds.last().map(String::as_str),
+                    Some("git:finished_not_applied"),
+                    "{label}"
+                );
+                let names: Vec<String> = leftovers(&fx)
+                    .into_iter()
+                    .filter(|n| !n.ends_with(".gitconfig.lock"))
+                    .collect();
+                assert!(names.is_empty(), "{label}: {names:?}");
+                vectors += 1;
+            }
+        }
+    }
+    assert_eq!(vectors, 8);
+    // Controls: undisturbed, the live check passes with and without a birth time, so
+    // B_git is exchanged and the item applies. (Without a birth time K's release goes
+    // through the recovery classifier, which sees every lock-name entry as X (QR15) and
+    // leaves the lock: existing behaviour, escalated by W2c-U4, not asserted here.)
+    for birth in [true, false] {
+        let fx = Fx::new();
+        std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+        let intent = fx.plan().intent();
+        let mut config = fx.config();
+        if !birth {
+            config.test.identity = IdentitySource::WithoutBirth;
+        }
+        let sink = Sink::default();
+        let r = LocalProjection::new(config)
+            .apply(&intent, &mut sink.clone())
+            .unwrap();
+        assert!(
+            applied_git(&r.items),
+            "birth={birth}: {r:?} {:?}",
+            sink.kinds()
+        );
+        assert_eq!(
+            Sha256Hex::of(&std::fs::read(fx.global()).unwrap()),
+            target_bytes_digest(step_ref(&intent, FileRole::GitInclude)),
+            "birth={birth}"
+        );
+        if birth {
+            assert!(!fx.lock().exists(), "K released");
         }
     }
 }

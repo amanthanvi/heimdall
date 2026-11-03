@@ -3460,6 +3460,79 @@ item 8 below. The orchestrator mutation-checked the §12.18 X01 and X05 regressi
     **W2c-rows**, a second wave-2c unit, which owns that file and
     `tests/model/projection_recovery.rs`.
 
+### 12.20 Rulings on the wave-2c escalations; wave 3a (orchestrator, 2026-11-03)
+
+Sources: the two wave-2c unit reports and the integrator's report (workflow
+`wf_7ede658e-ecf`). check.sh exited 0 twice, with 1327 tests passed and 0 failed.
+* §12.18 items 2–4 and §12.19 item 10 are done.
+* The filesystem-backed row test builds all 80 rows of §5.7: 132 step and item vectors and 11
+  cleaner vectors, and none was unbuildable on Unix.
+* §12.19 item 8, second bullet, is partial; item 2 below completes it.
+
+1. **High: K must be released without birth times.** The integrator confirmed this with a
+   probe, now removed. Without a birth time, a successful live Git apply never releases K:
+   the release goes through the recovery classifier, which treats every lock-name entry as
+   X, and records K4. Git's lock then stays, and every later Git configuration write
+   fails.
+   * Ruling: within a run that claimed K, K's release classifies the lock name by K's
+     identity and holder digest, as `Run::lock_held_by_k` already does (§5.6: within one
+     run, identity and holder digest are checked at each step).
+   * Restart still uses the recovery classifier.
+   * Regression: a successful Git apply releases K with and without a birth time.
+   * Owner: W3-U4. This item blocks the M02 exit.
+2. **Outcome reasons.**
+   * (a) The contract's `ConflictKind` gains `VerifiedClientUnavailable` (wire
+     `verified_client_unavailable`), and the parse-check abort reports it.
+   * (b) When recovery itself decides an abort, the outcome carries the reason the §5.7 row
+     names:
+     * `concurrent_writer` for F1a, F2g, C3, C4 and K3;
+     * `user_config_changed` or `managed_file_edited` for F2e, F2j and a T0 precondition;
+     * `git_config_locked` for K0 and K1 with a foreign lock.
+   * (b) continued: the reason is durable. The `item.finished` receipt gains an optional
+     `reason`, which is serde default and omitted when absent, so stored receipts stay
+     valid. Restart reports the same reason the live run did.
+   * The X04 abort reports `git_config_locked`.
+   * The row-test vectors' ESCALATED expectations are updated to these reasons.
+   * Owner: W3-U4, which may change only `ConflictKind` and the item receipt types in
+     `crates/contract/src/setup.rs`.
+3. **Marker width.** §12.18 item 3 is amended: the derived marker is the first **64** bits,
+   because the frozen block form is `hm-<16 hex>` (§2). Markers are not secrets, and
+   duplicates are `marker_duplicated`.
+4. **Row K3 is amended.** An X at K's staged name, with the lock name empty, records
+   `settle_conflict{foreign}`, naming the staged name. The entry is left in place and
+   reported, as in K0z and K2. With nothing at either name, the receipt stays `{missing}`.
+5. **Row K2 is narrowed (ratified).** B_git proceeds only while the lock name holds K with
+   an unchanged holder digest. A K′ at the lock aborts before B_git's exchange, with
+   `git_config_locked`. This is fail-closed (§5.6).
+6. **Row F8d is amended.** The kept entry is `<name>.hm-conflict-<slot>`, as §12.17 item 7
+   rules for the primitive.
+7. **T1h.** `decide_item`'s T1h branch stays as a defensive arm of the total function.
+   Through `reconcile` the case is reached as TH, by way of F4c's hold. The in-memory test
+   covers the branch.
+8. **Wave 3a.** The activation change set (m02-plan §2) plus the open items of §12.14–§12.20,
+   built by three units of disjoint files, then integrated as one change:
+   * **W3-U0b**, U0b phase 2 (m02-plan U0b, every phase-2 row and test). It also takes:
+     * §12.14 item 3 E1, the setup cancel row;
+     * §12.15 item 3(c), `PairIntegration.identity_selection_report`;
+     * §12.15 item 3(d), `fallback_clearance` against the adopted fingerprint;
+     * §12.15 item 7, E-U6-4 provider error mapping and E-U6-6 reconcile from
+       `PreparedFacts`.
+   * **W3-U5**, m02-plan U5 (the setup and catalog drivers, and runtime wiring). It also
+     takes:
+     * §12.14 item 8, `OperationsConfig.projection`;
+     * §12.17 item 6, which reports a held item as `OUTCOME_UNKNOWN` with the held repair
+       options;
+     * §12.17 item 11, constructing `ProjectionConfig` and adding the two reasons to the
+       contract's list;
+     * §12.19 item 9: the manual reasons, `include_target_glob`, the sink's consent check,
+       rollback commits, and the alias merge.
+   * **W3-U4**: items 1 and 2 above, and the stale skeleton text in `launch/src/lib.rs` and
+     `localenv/src/lib.rs`.
+
+   U8 wiring follows as **wave 3b**, after wave 3a integrates (m02-plan §2), with §12.15
+   items 7 and 8 (`serde_json`, `MAX_ARGV_BYTES`, `--meta-file` through
+   `create_owner_only_exclusive`) and §12.17 item 10.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

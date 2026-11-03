@@ -772,6 +772,97 @@ fn a22_render_is_deterministic_and_reapply_is_noop() {
     );
 }
 
+/// ADR-0007 §12.18 item 3 (review X03). A first adoption's marker is derived from the
+/// proposed generation, the role and the plan inputs, never drawn: two previews of an
+/// unchanged first adoption give the same plan digest (§5.4 step 1 recomputes it), for
+/// an existing and for an absent user file, and changing any one input changes it.
+#[test]
+fn a22_first_adoption_previews_reproduce_their_plan_digest() {
+    for user_present in [true, false] {
+        let fx = Fx::new();
+        if user_present {
+            std::fs::write(fx.user(), USER_TEXT).unwrap();
+        } else {
+            std::fs::remove_file(fx.user()).unwrap();
+        }
+        let spec = fx.spec(&["work", "lab"], None);
+        let digest = |spec: &ProjectionSpec| fx.preview(spec, &Fx::apply_intent()).view.plan_digest;
+        let a = fx.preview(&spec, &Fx::apply_intent());
+        let b = fx.preview(&spec, &Fx::apply_intent());
+        let (ai, bi) = (a.intent(), b.intent());
+        let user = step_ref(&ai, FileRole::UserSsh).clone();
+        assert!(user.commit, "a first adoption inserts B");
+        assert_eq!(
+            a.view.plan_digest, b.view.plan_digest,
+            "user_present={user_present}: unchanged inputs, same digest"
+        );
+        assert_eq!(
+            user.target,
+            step_ref(&bi, FileRole::UserSsh).target,
+            "the same block"
+        );
+        let base = a.view.plan_digest.clone();
+        let label = format!("user_present={user_present}");
+        // The spec alone (its environment changes nothing else in the plan).
+        let mut other = spec.clone();
+        other.environment = EnvironmentId::from_random_bytes(random());
+        assert_ne!(digest(&other), base, "{label}: environment");
+        // An alias of the spec.
+        let mut other = spec.clone();
+        other.aliases[0].hostname = "elsewhere.example.invalid".to_owned();
+        assert_ne!(digest(&other), base, "{label}: alias");
+        // The proposed generation (a record of an earlier generation).
+        let mut other = spec.clone();
+        other.record = Some(ProjectionRecord {
+            environment: fx.env.clone(),
+            items: [(
+                ProjectionItem::Ssh,
+                heimdall_domain::projection::ItemRecord {
+                    generation: 4,
+                    files: Vec::new(),
+                    aliases: Vec::new(),
+                    operation: OperationId::from_random_bytes([7; 16]),
+                    committed_at: heimdall_contract::Timestamp::now(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        });
+        let later = fx.preview(&other, &Fx::apply_intent());
+        assert_eq!(later.generation, 5);
+        assert_ne!(later.view.plan_digest, base, "{label}: generation");
+        assert_eq!(
+            digest(&other),
+            later.view.plan_digest,
+            "{label}: reproducible at another generation too"
+        );
+        assert_eq!(
+            digest(&spec),
+            base,
+            "{label}: the original inputs still agree"
+        );
+        // The base of each file the plan reads: the user file, P, a key file.
+        let user_before = std::fs::read(fx.user()).ok();
+        std::fs::write(fx.user(), format!("{USER_TEXT}Host more\n")).unwrap();
+        assert_ne!(digest(&spec), base, "{label}: the user file");
+        match &user_before {
+            Some(b) => std::fs::write(fx.user(), b).unwrap(),
+            None => std::fs::remove_file(fx.user()).unwrap(),
+        }
+        assert_eq!(digest(&spec), base, "{label}: restored inputs");
+        std::fs::create_dir_all(fx.home.config_dir.clone()).unwrap();
+        write_mode(&fx.p(), b"# stray\n", 0o600);
+        assert_ne!(digest(&spec), base, "{label}: P");
+        std::fs::remove_file(fx.p()).unwrap();
+        let key = PathBuf::from(&spec.aliases[1].key_file);
+        std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+        write_mode(&key, b"ssh-ed25519 AAAA stray\n", 0o644);
+        assert_ne!(digest(&spec), base, "{label}: a key file");
+        std::fs::remove_file(&key).unwrap();
+        assert_eq!(digest(&spec), base, "{label}: restored inputs");
+    }
+}
+
 #[test]
 fn a22_missing_user_config_created_0600_and_ssh_dir_0700() {
     let fx = Fx::new();
@@ -2126,6 +2217,152 @@ fn a22_create_undo_crash_after_restore_started_before_settling_reconciles() {
             );
         }
     }
+}
+
+/// ADR-0007 §12.18 item 2 (review X02), the reviewer's scenario. A first adoption
+/// creates the absent user file; the transaction check fails (P, still inactive, is
+/// edited after the user step's post-validation), so the created user file is rolled
+/// back. An editor appends a host to it at `BeforeRestoreCheck`. The rollback re-checks
+/// the path's identity and target digest before writing or moving anything: the edited
+/// file stays at its path, the step holds with `active_entry_modified` (C7a), nothing of
+/// it enters the quarantine, and a restart moves nothing.
+#[test]
+fn a22_create_rollback_never_moves_an_edit_made_at_restore_check() {
+    let fx = Fx::new();
+    std::fs::remove_file(fx.user()).unwrap();
+    let intent = fx
+        .preview(&fx.spec(&["work"], None), &Fx::apply_intent())
+        .intent();
+    let u = step_of(&intent, FileRole::UserSsh);
+    let user = fx.user().to_path_buf();
+    let hook = Hook::new()
+        .run(
+            ReplacePoint::AfterPostValidate,
+            Some(u),
+            appender(&fx.p(), "# the owner's edit of P\n"),
+        )
+        .run(
+            ReplacePoint::BeforeRestoreCheck,
+            Some(u),
+            appender(&user, "Host mine\n"),
+        );
+    let sink = Sink::default();
+    let r = apply_or_crash(fx.hooked(&hook), &intent, &sink)
+        .unwrap()
+        .unwrap();
+    let kinds = sink.kinds();
+    assert!(
+        hook.seen().contains(&(ReplacePoint::BeforeRestoreCheck, u)),
+        "{kinds:?}"
+    );
+    let [ItemOutcome::Held { steps, .. }] = r.items.as_slice() else {
+        panic!("{:?} {kinds:?}", r.items);
+    };
+    assert!(
+        steps
+            .iter()
+            .any(|s| s.step == u && s.reason == HoldReason::ActiveEntryModified),
+        "{steps:?} {kinds:?}"
+    );
+    let text = std::fs::read_to_string(&user).expect("the edited user file stays at its path");
+    assert!(text.ends_with("Host mine\n"), "{text}");
+    assert!(text.contains("# >>> heimdall managed include"));
+    for k in ["settling", "settled", "settle_conflict", "restored"] {
+        assert!(!kinds.contains(&format!("{u}:{k}")), "{k}: {kinds:?}");
+    }
+    assert!(
+        !kinds.iter().any(|k| k.starts_with("ssh:finished")),
+        "{kinds:?}"
+    );
+    let quarantined: Vec<String> = fx
+        .tree()
+        .into_iter()
+        .filter(|(name, e)| {
+            name.starts_with("ssh/.hm-quarantine/") && e.bytes.ends_with(b"Host mine\n")
+        })
+        .map(|(name, _)| name)
+        .collect();
+    assert!(quarantined.is_empty(), "{quarantined:?}");
+    let tree = fx.tree();
+    let again = restart(&fx, &intent, &sink);
+    assert!(
+        held_reasons(&again[0]).contains(&HoldReason::ActiveEntryModified),
+        "{again:?}"
+    );
+    assert_eq!(fx.tree(), tree, "a restart moves nothing");
+}
+
+/// ADR-0007 §12.18 item 2 (review X02), for a continued path-source settlement. The
+/// same rollback of a created user file crashes after its `file.settling{path}` and
+/// before the move. At restart the path still holds S unchanged (row F8a: move), and an
+/// editor appends to it at `BeforeSettleMove`, right before the move. The settlement
+/// re-checks identity and target digest before moving: the edited file stays at its
+/// path and the step holds with `active_entry_modified`, never kept in the quarantine.
+#[test]
+fn a22_continued_create_settlement_never_moves_an_edit_made_before_the_move() {
+    let fx = Fx::new();
+    std::fs::remove_file(fx.user()).unwrap();
+    let intent = fx
+        .preview(&fx.spec(&["work"], None), &Fx::apply_intent())
+        .intent();
+    let u = step_of(&intent, FileRole::UserSsh);
+    let user = fx.user().to_path_buf();
+    let hook = Hook::new()
+        .run(
+            ReplacePoint::AfterPostValidate,
+            Some(u),
+            appender(&fx.p(), "# the owner's edit of P\n"),
+        )
+        .crash(ReplacePoint::BeforeSettleMove, Some(u));
+    let sink = Sink::default();
+    assert!(
+        apply_or_crash(fx.hooked(&hook), &intent, &sink).is_none(),
+        "{:?}",
+        sink.kinds()
+    );
+    let kinds = sink.kinds();
+    assert_eq!(
+        kinds.last().map(String::as_str),
+        Some(format!("{u}:settling").as_str()),
+        "{kinds:?}"
+    );
+    assert!(user.exists(), "the crash fell before the move");
+    let restart_hook = Hook::new().run(
+        ReplacePoint::BeforeSettleMove,
+        Some(u),
+        appender(&user, "Host mine\n"),
+    );
+    let out = reconcile_or_crash(fx.hooked(&restart_hook), &intent, &sink)
+        .unwrap()
+        .unwrap();
+    let kinds = sink.kinds();
+    assert!(
+        restart_hook
+            .seen()
+            .contains(&(ReplacePoint::BeforeSettleMove, u)),
+        "{kinds:?}"
+    );
+    let ItemOutcome::Held { steps, .. } = &out[0] else {
+        panic!("{out:?} {kinds:?}");
+    };
+    assert!(
+        steps
+            .iter()
+            .any(|s| s.step == u && s.reason == HoldReason::ActiveEntryModified),
+        "{steps:?} {kinds:?}"
+    );
+    let text = std::fs::read_to_string(&user).expect("the edited user file stays at its path");
+    assert!(text.ends_with("Host mine\n"), "{text}");
+    for k in ["settled", "settle_conflict", "restored"] {
+        assert!(!kinds.contains(&format!("{u}:{k}")), "{k}: {kinds:?}");
+    }
+    let tree = fx.tree();
+    let again = restart(&fx, &intent, &sink);
+    assert!(
+        held_reasons(&again[0]).contains(&HoldReason::ActiveEntryModified),
+        "{again:?}"
+    );
+    assert_eq!(fx.tree(), tree, "a restart moves nothing");
 }
 
 #[test]
