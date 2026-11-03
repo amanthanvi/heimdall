@@ -607,18 +607,18 @@ impl Doctor<'_> {
     #[cfg(not(unix))]
     fn permissions(&mut self, _path: &Path, _display: &str, _origin: include::Origin) {}
 
+    /// ADR-0007 §12.17 item 9: reported exactly when an `Include`'s `~` (and a relative
+    /// user `Include`) would follow a `HOME` other than the account home, which makes
+    /// those includes undetermined (`crate::fs::include_home_for`).
     fn home_mismatch(&mut self) {
-        let Some(home) = self.ctx.env.get("HOME").map(PathBuf::from) else {
-            return;
-        };
-        if home.is_absolute() && home != self.ctx.paths.account_home {
+        if crate::fs::include_home_for(&self.ctx.env, &self.ctx.paths.account_home).is_none() {
             self.add(
                 finding::HOME_MISMATCH,
                 FindingSeverity::Warning,
                 subject("environment", Some("HOME")),
                 ProbeLevel::Static,
                 None,
-                "HOME differs from the account's home: ssh reads ~/.ssh/config and expands %d from the account's home, but an Include's ~ and a relative Include follow HOME",
+                "HOME differs from the account's home: ssh reads ~/.ssh/config and expands %d from the account's home, but an Include's ~ and a relative Include follow HOME, so those includes are undetermined",
                 "review_config",
                 None,
             );

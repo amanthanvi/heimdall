@@ -1006,6 +1006,17 @@ integrator flips the switch if the ruling differs.
     * `validate(&DirHandle, name, &Base) -> Result<Validated { identity, sha256, ⟨r4⟩ bytes }, ReplaceRefusal>`
       (⟨r4⟩ `bytes` is the base a splice is applied to);
     * `stage(&DirHandle, staged_name, ⟨r4⟩ &Materialized /* from content::materialize */, Mode) -> Result<Staged { identity, name }, ReplaceError>`;
+    * ⟨ADR-0007 §12.17 item 1⟩ The name-taking forms are the frozen API, and the
+      nameless `recheck`, `exchange`, `post_validate`, `restore` and `observe_step` below
+      are retired with their name-learning fallbacks; each contract below carries over to
+      its named form: `DirHandle::learn_step(&self, &FileStep)`, `recheck_at(&DirHandle,
+      name, &Validated)`, `exchange_at(&DirHandle, &StepNames, &Staged,
+      Option<&Validated>)`, `post_validate_at(&DirHandle, &StepNames, &Exchanged,
+      &Validated, &Staged)`, `restore_with(&DirHandle, &StepNames, at_path: &Expected,
+      aside: &FileIdentity, hook, before_exchange)`, `observe_step_at(&DirHandle,
+      &FileStep, &StepRecord, &RecoveryState, Option<&SettlingAt>)` (a settlement on
+      record whose slot is not given is `?` at the slot) and `rename_noreplace(&DirHandle,
+      from, to)`;
     * ⟨r3⟩ `recheck(&DirHandle, &Validated) -> Result<(), ReplaceRefusal>` (step 4);
     * `exchange(&DirHandle, &Staged, Option<&Validated>) -> Result<Exchanged { displaced_name }, ReplaceError>`;
     * `post_validate(&DirHandle, &Exchanged, &Validated, &Staged) -> PostValidation { Valid,

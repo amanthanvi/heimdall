@@ -946,6 +946,252 @@ fn git_crash_with_lock_holding_staged_or_displaced_reconciles() {
     }
 }
 
+/// ADR-0007 §12.17 item 3. In an abort or a restore no receipt records the hand-over
+/// of the Git item's other steps (B_git's S settled, P_git left to the cleaner), so K's
+/// release is computed every round from the durable receipts and a fresh observation.
+/// A crash after the hand-over and before K's release releases K at restart; a crash
+/// inside the hand-over never releases K before it completes. Two ways to end: an abort
+/// (the global file changes after B_git is staged, so B_git's recheck fails and its S
+/// is settled) and B_git's own file-level restore (an editor replaces the global file
+/// right before the exchange).
+#[test]
+fn git_release_of_k_after_hand_over_happens_at_restart_never_earlier() {
+    let mut vectors = 0;
+    for restore in [false, true] {
+        let probe = Fx::new();
+        std::fs::write(probe.global(), b"[user]\n\tname = Scratch\n").unwrap();
+        let probe_intent = probe.plan().intent();
+        let k = step_of(&probe_intent, FileRole::GitLock);
+        let b = step_of(&probe_intent, FileRole::GitInclude);
+        for (point, step) in [
+            // After the hand-over, before K's release.
+            (ReplacePoint::BeforeLockRelease, k),
+            (ReplacePoint::BeforeReceipt("settling"), k),
+            // Inside the hand-over: B_git's S is being settled.
+            (ReplacePoint::BeforeReceipt("settling"), b),
+            (ReplacePoint::AfterSettleMove, b),
+            (ReplacePoint::BeforeReceipt("settled"), b),
+            (ReplacePoint::BeforeQuarantineRemove, b),
+        ] {
+            let fx = Fx::new();
+            std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+            let intent = fx.plan().intent();
+            let global = fx.global();
+            let hook = if restore {
+                Hook::new().run(ReplacePoint::BeforeExchange, Some(b), move || {
+                    let tmp = global.with_extension("editor");
+                    std::fs::write(&tmp, b"[user]\n\tname = Editor\n").unwrap();
+                    std::fs::rename(&tmp, &global).unwrap();
+                })
+            } else {
+                Hook::new().run(ReplacePoint::AfterStage, Some(b), move || {
+                    let mut t = std::fs::read(&global).unwrap();
+                    t.extend_from_slice(b"[core]\n\tbare = false\n");
+                    std::fs::write(&global, t).unwrap();
+                })
+            };
+            let hook = hook.crash(point, Some(step));
+            let sink = Sink::default();
+            let label = format!("restore={restore} {point:?}@{step}");
+            assert!(
+                apply_or_crash(fx.hooked(&hook), &intent, &sink).is_none(),
+                "{label}: {:?}",
+                sink.kinds()
+            );
+            assert_eq!(
+                std::fs::read(fx.lock()).unwrap(),
+                holder_bytes(&intent),
+                "{label}: K still holds the lock after the crash"
+            );
+            // The restart checks, at K's release, that the hand-over is complete.
+            let staged_b = fx.global().with_file_name(
+                step_ref(&intent, FileRole::GitInclude)
+                    .staged_name
+                    .clone()
+                    .unwrap(),
+            );
+            let early = Arc::new(Mutex::new(Vec::<String>::new()));
+            let (e, s2) = (Arc::clone(&early), sink.clone());
+            let watch = Hook::new().run(ReplacePoint::BeforeLockRelease, Some(k), move || {
+                if staged_b.exists() {
+                    e.lock()
+                        .unwrap()
+                        .push("B_git's S is still at its staged name".into());
+                }
+                if !s2.kinds().contains(&format!("{b}:settled")) {
+                    e.lock().unwrap().push("no durable B_git settled".into());
+                }
+            });
+            let out = restart_with(fx.hooked(&watch), &intent, &sink);
+            let git = git_outcome(&out);
+            let kinds = sink.kinds();
+            if restore {
+                assert!(
+                    matches!(git, ItemOutcome::Restored { .. }),
+                    "{label}: {git:?} {kinds:?}"
+                );
+            } else {
+                assert!(
+                    matches!(git, ItemOutcome::NotApplied { .. }),
+                    "{label}: {git:?} {kinds:?}"
+                );
+            }
+            assert!(
+                early.lock().unwrap().is_empty(),
+                "{label}: {:?}",
+                early.lock().unwrap()
+            );
+            assert!(!fx.lock().exists(), "{label}: K released at restart");
+            let pos = |k: &str| kinds.iter().rposition(|x| x == k);
+            assert!(
+                pos(&format!("{k}:settling")) > pos(&format!("{b}:settled")),
+                "{label}: K released last {kinds:?}"
+            );
+            assert_eq!(
+                kinds.last().map(String::as_str),
+                Some(if restore {
+                    "git:finished_restored"
+                } else {
+                    "git:finished_not_applied"
+                }),
+                "{label}"
+            );
+            assert!(leftovers(&fx).is_empty(), "{label}: {:?}", leftovers(&fx));
+            vectors += 1;
+        }
+    }
+    assert_eq!(vectors, 12);
+}
+
+/// ADR-0007 §12.17 item 8, §5.6 step 3: `git config --file <N_s> --no-includes
+/// --list` runs before B_git's exchange, and a failure aborts before the commit point.
+/// Right after B_git's S is staged, another writer leaves bytes there that Git refuses
+/// to parse (an unclosed section header). The real Git refuses them, so the item
+/// aborts (`not_applied`, `unmanageable_file`): B_git is never exchanged, the global
+/// file is unchanged, the written-into S stays in the quarantine as a conflict artifact
+/// (it is not Heimdall's content any more), and K is released last.
+#[test]
+fn git_parse_check_failure_aborts_before_the_commit_point() {
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let before = std::fs::read(fx.global()).unwrap();
+    let intent = fx.plan().intent();
+    let b = step_of(&intent, FileRole::GitInclude);
+    let staged = fx.global().with_file_name(
+        step_ref(&intent, FileRole::GitInclude)
+            .staged_name
+            .clone()
+            .unwrap(),
+    );
+    let s = staged.clone();
+    let hook = Hook::new().run(ReplacePoint::AfterStage, Some(b), move || {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&s)
+            .unwrap();
+        std::io::Write::write_all(&mut f, b"[core\n\tbroken = \n").unwrap();
+    });
+    let sink = Sink::default();
+    let r = apply_or_crash(fx.hooked(&hook), &intent, &sink)
+        .unwrap()
+        .unwrap();
+    let kinds = sink.kinds();
+    assert_eq!(
+        git_outcome(&r.items),
+        ItemOutcome::NotApplied {
+            item: ProjectionItem::Git,
+            reason: Some(ConflictKind::UnmanageableFile)
+        },
+        "{kinds:?}"
+    );
+    assert!(!kinds.contains(&format!("{b}:validated")), "{kinds:?}");
+    assert!(!kinds.contains(&format!("{b}:exchanged")), "{kinds:?}");
+    assert_eq!(std::fs::read(fx.global()).unwrap(), before);
+    assert!(!fx.lock().exists(), "K released");
+    assert!(!staged.exists());
+    assert!(
+        sink.file_phases(b).iter().any(|p| matches!(
+            p,
+            FilePhase::SettleConflict {
+                found: SettleConflictFound::Modified,
+                ..
+            }
+        )),
+        "{kinds:?}"
+    );
+    // The same intent with the bytes untouched passes the check and applies.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let r = fx
+        .writer()
+        .apply(&fx.plan().intent(), &mut Sink::default())
+        .unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+}
+
+/// ADR-0007 §12.17 item 6, for the Git item: the Git item's check fails because
+/// P_git, still inactive, was edited in place after B_git's post-validation. B_git is
+/// restored, the edited P_git is held (C7a), and the held Git item keeps K at the lock
+/// (its release is due only once every other step reached its end, and a held step
+/// never does): the lock still holds K's line, a concurrent `git config --global`
+/// still fails, and a restart releases nothing.
+#[test]
+fn git_check_failure_with_edited_p_git_is_held_and_keeps_k() {
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let before = std::fs::read(fx.global()).unwrap();
+    let intent = fx.plan().intent();
+    let b = step_of(&intent, FileRole::GitInclude);
+    let pg = step_of(&intent, FileRole::GitManaged);
+    let path = fx.p_git();
+    let hook = Hook::new().run(ReplacePoint::AfterPostValidate, Some(b), move || {
+        let mut t = std::fs::read(&path).unwrap();
+        t.extend_from_slice(b"# the owner's edit\n");
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        std::io::Write::write_all(&mut f, &t).unwrap();
+    });
+    let sink = Sink::default();
+    let r = apply_or_crash(fx.hooked(&hook), &intent, &sink)
+        .unwrap()
+        .unwrap();
+    let kinds = sink.kinds();
+    let ItemOutcome::Held { steps, .. } = git_outcome(&r.items) else {
+        panic!("{:?} {kinds:?}", r.items);
+    };
+    assert_eq!(
+        steps.iter().map(|s| (s.step, s.reason)).collect::<Vec<_>>(),
+        vec![(pg, HoldReason::ActiveEntryModified)],
+        "{kinds:?}"
+    );
+    assert!(kinds.contains(&format!("{b}:restored")), "{kinds:?}");
+    assert_eq!(
+        std::fs::read(fx.global()).unwrap(),
+        before,
+        "B_git restored"
+    );
+    assert_eq!(
+        std::fs::read(fx.lock()).unwrap(),
+        holder_bytes(&intent),
+        "K keeps the lock: {kinds:?}"
+    );
+    let k = step_of(&intent, FileRole::GitLock);
+    assert!(!kinds.contains(&format!("{k}:settling")), "{kinds:?}");
+    let o = fx.git(&["config", "--global", "user.x", "y"]);
+    assert!(!o.status.success(), "Git's lock error while K is held");
+    let tree = fx.tree();
+    let again = restart_with(fx.config(), &intent, &sink);
+    assert!(
+        matches!(git_outcome(&again), ItemOutcome::Held { .. }),
+        "{again:?}"
+    );
+    assert_eq!(fx.tree(), tree, "a restart moves nothing");
+}
+
 /// Every transition of ADR-0007 §5.6's replace, create and restore tables, crashed
 /// before and after its receipt, with and without a Unix birth time (the test-only
 /// identity source). After restart: the expected outcome, the global file's bytes,
@@ -1403,6 +1649,55 @@ fn rollback_git(fx: &Fx, intent: &SetupIntent, sink: &Sink) -> ProjectionPlan {
             },
         )
         .unwrap()
+}
+
+/// ADR-0007 §5.2 for the Git item (§12.17 item 8): applying B_git changes Git's SSH
+/// selection (`git_selection_changed`), and the plan records the selection the owner
+/// approves and the one a rollback restores. Rolling back to exactly that restore state
+/// needs no decision; so does a rollback after the user set a value of their own, which
+/// already wins, so the selection does not change.
+#[test]
+fn git_consent_apply_decided_rollback_to_consented_state_waived() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    use heimdall_domain::projection::ItemId;
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let plan = fx.plan();
+    let git_reasons: Vec<ConsentReasonKind> = plan
+        .view
+        .consent
+        .reasons
+        .iter()
+        .filter(|r| r.item == "git")
+        .map(|r| r.kind)
+        .collect();
+    assert_eq!(git_reasons, vec![ConsentReasonKind::GitSelectionChanged]);
+    let git = plan.consent.items[&ItemId::git_selection()].clone();
+    assert!(git.managed.determined && git.restore.determined);
+    let intent = plan.intent();
+    let sink = Sink::default();
+    let r = fx.writer().apply(&intent, &mut sink.clone()).unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    let mut spec = fx.spec(Some(record_of(&fx, &intent, &sink)));
+    spec.consent = plan.consent.clone();
+    let rollback = PreviewIntent::Rollback {
+        keep_key_files: true,
+        items: [ProjectionItem::Git].into_iter().collect(),
+    };
+    let rb = fx.writer().preview(&spec, &rollback).unwrap();
+    assert!(rb.files.iter().any(|s| s.role == FileRole::GitInclude));
+    assert!(!rb.view.consent.decision_required, "{:?}", rb.view.consent);
+    // Without the stored consent the same rollback is a change the owner decides.
+    let mut bare = spec.clone();
+    bare.consent = heimdall_domain::projection::ConsentRecord::default();
+    let rb = fx.writer().preview(&bare, &rollback).unwrap();
+    assert!(rb.view.consent.decision_required);
+    // A value the user set later already wins: the rollback changes no selection.
+    let o = fx.git(&["config", "--global", "core.sshCommand", "ssh -v"]);
+    assert!(o.status.success());
+    let rb = fx.writer().preview(&bare, &rollback).unwrap();
+    assert!(rb.files.iter().any(|s| s.role == FileRole::GitInclude));
+    assert!(!rb.view.consent.decision_required, "{:?}", rb.view.consent);
 }
 
 #[test]

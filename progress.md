@@ -500,3 +500,15 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - ADR-0007 §12.18 rules on all five.
   - I fixed X01 (duplicate via F_DUPFD_CLOEXEC; still safe) and X05 (resolution bounded by the deadline) in the working tree. They are uncommitted until wave 2b integrates, and untested so far, because sshconf is mid-edit by W2b-fix and does not compile yet.
   - X02–X04 go to wave 2c (`W2c-U4`) after wave 2b.
+- **M02 wave 2b** (`wf_6f9a053c-b88`): all 4 agents done, with no API errors.
+  - Integrator check.sh: 3× exit 0, 1320 passed, 0 failed.
+  - Done: every §12.16 item (Y01–Y06) and §12.17 items 1–11.
+  - Partial:
+    - 8d: `MoveIncludeToTop` takes two operations; accepted in §12.19 item 7;
+    - the per-row recovery test runs in memory only; it goes to W2c-rows under §12.19 item 10.
+  - The integrator fixed a fail-open in `probe::snapshot` (non-UTF-8 HOME) and added a regression.
+  - X01 and X05 (mine): mutation-checked. Removing X01's duplicate makes the test process abort with an "IO Safety violation", the reviewer's defect. Removing X05's bound makes the slow-resolver test fail after 5 s.
+  - ADR-0007 §12.19 rules on the wave-2b escalations.
+- Next, wave 2c:
+  - W2c-U4: §12.18 X02 (create rollback re-checks the active file), X03 (derived markers), X04 (observe K before B_git), and §12.19 item 8 (`verified_client_unavailable` for the Git parse check);
+  - W2c-rows: the filesystem-backed `recovery_table_rows_each_have_a_test_vector` (placeholder target pre-registered).

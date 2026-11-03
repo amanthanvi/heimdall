@@ -164,6 +164,7 @@ impl Forward {
         );
         let validated = replace::validate(&handle, "config", &step.base).unwrap();
         let m = materialize(&step, validated.bytes.as_deref()).unwrap();
+        handle.learn_step(&step);
         let staged = replace::stage(
             &handle,
             step.staged_name.as_deref().unwrap(),
@@ -171,7 +172,7 @@ impl Forward {
             Mode::OwnerReadWrite,
         )
         .unwrap();
-        replace::recheck(&handle, &validated).unwrap();
+        replace::recheck_at(&handle, "config", &validated).unwrap();
         let expected_s = Expected {
             identity: staged.identity.clone(),
             sha256: m.sha256,
@@ -195,7 +196,41 @@ impl Forward {
     }
 
     fn exchange(&self) -> Exchanged {
-        replace::exchange(&self.handle, &self.staged, Some(&self.validated)).unwrap()
+        replace::exchange_at(
+            &self.handle,
+            &self.names(),
+            &self.staged,
+            Some(&self.validated),
+        )
+        .unwrap()
+    }
+
+    fn post_validate(&self, x: &Exchanged) -> PostValidation {
+        replace::post_validate_at(
+            &self.handle,
+            &self.names(),
+            x,
+            &self.validated,
+            &self.staged,
+        )
+    }
+
+    /// `restore_with` of the step's names in `handle`, with D expected as `aside` and
+    /// no receipt callback.
+    fn restore_in(&self, handle: &DirHandle, aside: &FileIdentity) -> RestoreOutcome {
+        replace::restore_with(
+            handle,
+            &self.names(),
+            &self.expected_s,
+            aside,
+            HookAt::NONE,
+            || Ok::<(), ()>(()),
+        )
+        .unwrap()
+    }
+
+    fn restore(&self, aside: &FileIdentity) -> RestoreOutcome {
+        self.restore_in(&self.handle, aside)
     }
 
     fn v(&self) -> FileIdentity {
@@ -581,10 +616,7 @@ fn exchange_supported_on_target_fs() {
     assert_eq!(read(f.path(), "config"), NEW);
     let displaced = x.displaced_name.clone().unwrap();
     assert_eq!(read(f.path(), &displaced), OLD);
-    assert_eq!(
-        replace::post_validate(&f.handle, &x, &f.validated, &f.staged),
-        PostValidation::Valid
-    );
+    assert_eq!(f.post_validate(&x), PostValidation::Valid);
     assert_eq!(
         replace::check_name(&f.handle, "config", &f.expected_s),
         NameState::Expected(ContentState::Unchanged)
@@ -754,13 +786,19 @@ fn validate_refuses_unmanageable_and_changed_bases() {
     // The valid base, then a boundary recheck after an in-place edit or a mode change.
     let v = replace::validate(&h, "target", &present).unwrap();
     assert_eq!(v.bytes.as_deref(), Some(OLD));
-    replace::recheck(&h, &v).unwrap();
+    replace::recheck_at(&h, "target", &v).unwrap();
     set_mode(&p.join("target"), 0o640);
-    assert_eq!(replace::recheck(&h, &v), Err(ReplaceRefusal::BaseChanged));
+    assert_eq!(
+        replace::recheck_at(&h, "target", &v),
+        Err(ReplaceRefusal::BaseChanged)
+    );
     set_mode(&p.join("target"), 0o600);
-    replace::recheck(&h, &v).unwrap();
+    replace::recheck_at(&h, "target", &v).unwrap();
     write_in_place(&p.join("target"), WRITER);
-    assert_eq!(replace::recheck(&h, &v), Err(ReplaceRefusal::BaseChanged));
+    assert_eq!(
+        replace::recheck_at(&h, "target", &v),
+        Err(ReplaceRefusal::BaseChanged)
+    );
     // Every file is where it was, with its bytes.
     assert_eq!(read(p, "target"), WRITER);
     assert_eq!(read(p, "hard2"), OLD);
@@ -812,6 +850,7 @@ fn stage_keeps_the_original_permission_bits() {
     let step = whole_step(FileRole::ManagedSsh, &p.join("config"), Some(OLD), NEW, 1);
     let v = replace::validate(&h, "config", &step.base).unwrap();
     let m = materialize(&step, v.bytes.as_deref()).unwrap();
+    h.learn_step(&step);
     let s = replace::stage(
         &h,
         step.staged_name.as_deref().unwrap(),
@@ -1167,18 +1206,13 @@ fn race_rename_replace_before_exchange_is_restored_never_overwritten() {
     };
     hook.at(ReplacePoint::BeforeExchange, 0);
     let x = f.exchange();
-    let PostValidation::Mismatch { observed: Some(w) } =
-        replace::post_validate(&f.handle, &x, &f.validated, &f.staged)
-    else {
+    let PostValidation::Mismatch { observed: Some(w) } = f.post_validate(&x) else {
         panic!("the displaced entry is the writer's, not V");
     };
     assert_ne!(w, f.v());
     let displaced = x.displaced_name.clone().unwrap();
     assert_eq!(read(f.path(), &displaced), WRITER);
-    assert_eq!(
-        replace::restore(&f.handle, &x, &f.expected_s, w.clone()),
-        RestoreOutcome::Restored
-    );
+    assert_eq!(f.restore(&w), RestoreOutcome::Restored);
     assert_eq!(read(f.path(), "config"), WRITER);
     #[cfg(unix)]
     assert!(is_at(&w, &f.path().join("config")));
@@ -1208,52 +1242,57 @@ fn race_in_place_write_before_exchange_is_restored() {
     let f = Forward::new();
     write_in_place(&f.path().join("config"), WRITER);
     let x = f.exchange();
-    let PostValidation::Mismatch { observed: Some(d) } =
-        replace::post_validate(&f.handle, &x, &f.validated, &f.staged)
-    else {
+    let PostValidation::Mismatch { observed: Some(d) } = f.post_validate(&x) else {
         panic!("V with other content is a mismatch");
     };
     assert_eq!(d, f.v());
-    assert_eq!(
-        replace::restore(&f.handle, &x, &f.expected_s, d),
-        RestoreOutcome::Restored
-    );
+    assert_eq!(f.restore(&d), RestoreOutcome::Restored);
     assert_eq!(read(f.path(), "config"), WRITER);
     assert_eq!(fs::read(f.staged_path()).unwrap(), NEW);
 }
 
-/// The symlink variant (Unix): a symlink substituted at the boundary comes back, and
-/// its target is untouched.
+/// The symlink variant (Unix), primitive level (ADR-0007 §12.17 item 5): a symlink
+/// substituted at the boundary is X whatever its identity (normalization rule 1), so
+/// the restore holds (`third_writer`) and nothing moves: S stays active, the symlink
+/// stays at the staged name, and its target is untouched.
 #[cfg(unix)]
 #[test]
-fn race_symlink_substitution_at_boundary_is_restored() {
+fn race_symlink_substitution_at_boundary_is_held() {
     let f = Forward::new();
     let p = f.path();
     write(p, "elsewhere", WRITER);
     std::os::unix::fs::symlink(p.join("elsewhere"), p.join("link.tmp")).unwrap();
     fs::rename(p.join("link.tmp"), p.join("config")).unwrap();
     let x = f.exchange();
-    let PostValidation::Mismatch { observed: Some(d) } =
-        replace::post_validate(&f.handle, &x, &f.validated, &f.staged)
-    else {
+    let PostValidation::Mismatch { observed: Some(d) } = f.post_validate(&x) else {
         panic!("a symlink is not V");
     };
-    assert_eq!(
-        replace::restore(&f.handle, &x, &f.expected_s, d),
-        RestoreOutcome::Restored
-    );
+    match f.restore(&d) {
+        RestoreOutcome::Held(HoldReason::ThirdWriter, obs) => {
+            assert_eq!(obs.aside(), EntryObs::Foreign, "a symlink is X");
+        }
+        other => panic!("expected third_writer, got {other:?}"),
+    }
+    assert_eq!(read(p, "config"), NEW);
     assert!(
-        fs::symlink_metadata(p.join("config"))
+        fs::symlink_metadata(f.staged_path())
             .unwrap()
             .file_type()
             .is_symlink()
     );
-    assert_eq!(
-        fs::read_link(p.join("config")).unwrap(),
-        p.join("elsewhere")
-    );
+    assert_eq!(fs::read_link(f.staged_path()).unwrap(), p.join("elsewhere"));
     assert_eq!(read(p, "elsewhere"), WRITER);
-    assert_eq!(fs::read(f.staged_path()).unwrap(), NEW);
+    // A hard link to D is X too: nothing moves.
+    let g = Forward::new();
+    let x = g.exchange();
+    assert_eq!(g.post_validate(&x), PostValidation::Valid);
+    fs::hard_link(g.staged_path(), g.path().join("extra")).unwrap();
+    assert!(matches!(
+        g.restore(&g.v()),
+        RestoreOutcome::Held(HoldReason::ThirdWriter, _)
+    ));
+    assert_eq!(read(g.path(), "config"), NEW);
+    assert_eq!(fs::read(g.staged_path()).unwrap(), OLD);
 }
 
 /// A create is a no-replace rename: a writer that creates the file first wins, and
@@ -1273,18 +1312,25 @@ fn create_is_no_replace_and_never_overwrites() {
         Mode::OwnerReadWrite,
     )
     .unwrap();
-    replace::recheck(&h, &v).unwrap();
+    let names = StepNames::of(&step).unwrap();
+    replace::recheck_at(&h, "config", &v).unwrap();
     write(p, "config", WRITER);
-    assert_eq!(replace::recheck(&h, &v), Err(ReplaceRefusal::BaseChanged));
-    assert_eq!(replace::exchange(&h, &s, None), Err(ReplaceError::Exists));
+    assert_eq!(
+        replace::recheck_at(&h, "config", &v),
+        Err(ReplaceRefusal::BaseChanged)
+    );
+    assert_eq!(
+        replace::exchange_at(&h, &names, &s, None),
+        Err(ReplaceError::Exists)
+    );
     assert_eq!(read(p, "config"), WRITER);
     assert_eq!(read(p, &s.name), NEW);
     // Without the writer the create succeeds and post-validates.
     fs::remove_file(p.join("config")).unwrap();
-    let x = replace::exchange(&h, &s, None).unwrap();
+    let x = replace::exchange_at(&h, &names, &s, None).unwrap();
     assert_eq!(x.displaced_name, None);
     assert_eq!(
-        replace::post_validate(&h, &x, &v, &s),
+        replace::post_validate_at(&h, &names, &x, &v, &s),
         PostValidation::Valid
     );
     assert_eq!(read(p, "config"), NEW);
@@ -1299,12 +1345,9 @@ fn restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing() {
     // The active S edited in place after a valid forward exchange.
     let f = Forward::new();
     let x = f.exchange();
-    assert_eq!(
-        replace::post_validate(&f.handle, &x, &f.validated, &f.staged),
-        PostValidation::Valid
-    );
+    assert_eq!(f.post_validate(&x), PostValidation::Valid);
     write_in_place(&f.path().join("config"), WRITER);
-    match replace::restore(&f.handle, &x, &f.expected_s, f.v()) {
+    match f.restore(&f.v()) {
         RestoreOutcome::Held(HoldReason::ActiveEntryModified, obs) => {
             assert_eq!(
                 obs.path(),
@@ -1320,20 +1363,20 @@ fn restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing() {
     assert_eq!(fs::read(f.staged_path()).unwrap(), OLD);
     // A third writer replaced the displaced entry.
     let g = Forward::new();
-    let x = g.exchange();
+    g.exchange();
     rename_replace(g.path(), &g.staged.name, b"third\n");
     assert!(matches!(
-        replace::restore(&g.handle, &x, &g.expected_s, g.v()),
+        g.restore(&g.v()),
         RestoreOutcome::Held(HoldReason::ThirdWriter, _)
     ));
     assert_eq!(read(g.path(), "config"), NEW);
     assert_eq!(fs::read(g.staged_path()).unwrap(), b"third\n");
     // A third writer replaced the active entry.
     let k = Forward::new();
-    let x = k.exchange();
+    k.exchange();
     rename_replace(k.path(), "config", b"third\n");
     assert!(matches!(
-        replace::restore(&k.handle, &x, &k.expected_s, k.v()),
+        k.restore(&k.v()),
         RestoreOutcome::Held(HoldReason::ThirdWriter, _)
     ));
     assert_eq!(read(k.path(), "config"), b"third\n");
@@ -1398,12 +1441,15 @@ fn edit_after_restore_check_is_kept_in_quarantine_never_deleted() {
     assert!(!q.rmdir_if_empty().unwrap());
 }
 
-/// The frozen `restore` names its target from what the handle has seen: a fresh
-/// handle that observed the step (recovery) restores; names it cannot resolve hold.
+/// ADR-0007 §12.17 item 1: `restore_with` acts on the names it is given, so a fresh
+/// handle in a recovering process, which never validated, staged or exchanged
+/// anything, restores from the step's names alone. Names whose displaced name holds
+/// nothing of the step hold (`third_writer`), and names without a displaced name (a
+/// create, restored by settlement instead) hold (`unmatched`); nothing moves.
 #[test]
-fn restore_after_observation_in_a_fresh_handle() {
+fn restore_with_names_in_a_fresh_handle() {
     let f = Forward::new();
-    let x = f.exchange();
+    f.exchange();
     let record = StepRecord {
         staged: Some(f.expected_s.clone()),
         validated: Some(Expected {
@@ -1422,7 +1468,7 @@ fn restore_after_observation_in_a_fresh_handle() {
         release_due: false,
     };
     let fresh = DirHandle::open(f.path()).unwrap();
-    let obs = replace::observe_step(&fresh, &f.step, &record, &state);
+    let obs = replace::observe_step_at(&fresh, &f.step, &record, &state, None);
     assert_eq!(
         obs.path(),
         EntryObs::Recorded {
@@ -1430,25 +1476,43 @@ fn restore_after_observation_in_a_fresh_handle() {
             content: ContentState::Unchanged
         }
     );
-    assert_eq!(
-        replace::restore(&fresh, &x, &f.expected_s, f.v()),
-        RestoreOutcome::Restored
-    );
+    let fresh = DirHandle::open(f.path()).unwrap();
+    assert_eq!(f.restore_in(&fresh, &f.v()), RestoreOutcome::Restored);
     assert_eq!(read(f.path(), "config"), OLD);
-    // A displaced name nothing names: held, nothing moved.
+    assert_eq!(fs::read(f.staged_path()).unwrap(), NEW);
+    // A displaced name that holds nothing of the step: held, nothing moved.
     let g = Forward::new();
-    let unknown = Exchanged {
-        displaced_name: Some("not-a-step-name".to_owned()),
-    };
+    g.exchange();
+    let mut names = g.names();
+    names.displaced = Some("not-a-step-name".to_owned());
+    let held = replace::restore_with(
+        &DirHandle::open(g.path()).unwrap(),
+        &names,
+        &g.expected_s,
+        &g.v(),
+        HookAt::NONE,
+        || Ok::<(), ()>(()),
+    );
     assert!(matches!(
-        replace::restore(
-            &DirHandle::open(g.path()).unwrap(),
-            &unknown,
-            &g.expected_s,
-            g.v()
-        ),
-        RestoreOutcome::Held(HoldReason::Unmatched, _)
+        held,
+        Ok(RestoreOutcome::Held(HoldReason::ThirdWriter, _))
     ));
+    // No displaced name: a create is never restored by an exchange.
+    names.displaced = None;
+    let held = replace::restore_with(
+        &DirHandle::open(g.path()).unwrap(),
+        &names,
+        &g.expected_s,
+        &g.v(),
+        HookAt::NONE,
+        || Ok::<(), ()>(()),
+    );
+    assert!(matches!(
+        held,
+        Ok(RestoreOutcome::Held(HoldReason::Unmatched, _))
+    ));
+    assert_eq!(read(g.path(), "config"), NEW);
+    assert_eq!(fs::read(g.staged_path()).unwrap(), OLD);
 }
 
 // --- observation (reconcile and held previews) -------------------------------------
@@ -1463,9 +1527,11 @@ fn state(phase: Option<EffectivePhase>) -> RecoveryState {
     }
 }
 
-/// `observe_step` gives each name one ADR-0007 §5.7 symbol through the normalizing
+/// `observe_step_at` gives each name one ADR-0007 §5.7 symbol through the normalizing
 /// constructor: S/S′ at the path, V at the aside, X for a hard link (rule 1), Q in the
-/// slot, `?` everywhere for a directory that is not the step's.
+/// slot it is given, `?` everywhere for a directory that is not the step's, and `?` at
+/// the slot when the state has a settlement whose slot the caller did not give
+/// (ADR-0007 §12.17 item 1: the quarantine is never searched for a slot).
 #[test]
 fn observe_step_classifies_each_name() {
     let f = Forward::new();
@@ -1487,26 +1553,26 @@ fn observe_step_classifies_each_name() {
         which: RecordedRole::V,
         content: ContentState::Unchanged,
     };
-    let obs = replace::observe_step(&f.handle, &f.step, &record, &st);
+    let obs = replace::observe_step_at(&f.handle, &f.step, &record, &st, None);
     assert_eq!(
         (obs.path(), obs.aside(), obs.slot()),
         (s(ContentState::Unchanged), v, EntryObs::Absent)
     );
     write_in_place(&f.path().join("config"), WRITER);
-    let obs = replace::observe_step(&f.handle, &f.step, &record, &st);
+    let obs = replace::observe_step_at(&f.handle, &f.step, &record, &st, None);
     assert_eq!(obs.path(), s(ContentState::Modified));
     // Rule 1: a hard link makes the entry X whatever its identity.
     #[cfg(unix)]
     {
         fs::hard_link(f.staged_path(), f.path().join("extra")).unwrap();
-        let obs = replace::observe_step(&f.handle, &f.step, &record, &st);
+        let obs = replace::observe_step_at(&f.handle, &f.step, &record, &st, None);
         assert_eq!(obs.aside(), EntryObs::Foreign);
         fs::remove_file(f.path().join("extra")).unwrap();
     }
     // A step whose directory is not this handle's: every name `?`.
     let mut elsewhere = f.step.clone();
     elsewhere.path = "/scratch/other/config".to_owned();
-    let obs = replace::observe_step(&f.handle, &elsewhere, &record, &st);
+    let obs = replace::observe_step_at(&f.handle, &elsewhere, &record, &st, None);
     assert_eq!(
         (obs.path(), obs.aside()),
         (EntryObs::Unobservable, EntryObs::Unobservable)
@@ -1546,24 +1612,33 @@ fn observe_step_classifies_each_name() {
         which: RecordedRole::Q,
         content: ContentState::Unchanged,
     };
-    let obs = replace::observe_step(&f.handle, &f.step, &record, &settling);
+    let at = replace::SettlingAt {
+        name: displaced.clone(),
+        slot: slot(7),
+        expected: qv.clone(),
+    };
+    let obs = replace::observe_step_at(&f.handle, &f.step, &record, &settling, Some(&at));
     assert_eq!((obs.aside(), obs.slot()), (EntryObs::Absent, q_unchanged));
     let settled = RecoveryState {
         phase: Some(EffectivePhase::Settled {
             disposition: SettledDisposition::Quarantined,
         }),
-        ..settling
+        ..settling.clone()
     };
-    let obs = replace::observe_step(&f.handle, &f.step, &record, &settled);
+    let obs = replace::observe_step_at(&f.handle, &f.step, &record, &settled, Some(&at));
     assert_eq!(obs.slot(), q_unchanged);
+    // A settlement whose slot is not given is `?` at the slot, never `∅` and never a
+    // search of the quarantine.
+    let obs = replace::observe_step_at(&f.handle, &f.step, &record, &settled, None);
+    assert_eq!(obs.slot(), EntryObs::Unobservable);
     // A quarantine that no longer validates makes the slot `?`, never `∅`.
     #[cfg(unix)]
     {
         let qdir = f.path().join(".hm-quarantine");
         set_mode(&qdir, 0o755);
-        let obs = replace::observe_step(&f.handle, &f.step, &record, &settled);
+        let obs = replace::observe_step_at(&f.handle, &f.step, &record, &settled, Some(&at));
         assert_eq!(obs.slot(), EntryObs::Unobservable);
-        let obs = replace::observe_step(&f.handle, &f.step, &record, &settling);
+        let obs = replace::observe_step_at(&f.handle, &f.step, &record, &settling, Some(&at));
         assert_eq!(obs.slot(), EntryObs::Unobservable);
         set_mode(&qdir, 0o700);
     }
@@ -1614,7 +1689,7 @@ fn lock_name_without_birth_time_is_foreign() {
         let st = state(Some(EffectivePhase::Staged {
             identity: k.identity.clone(),
         }));
-        let obs = replace::observe_step(&h, &step, &record, &st);
+        let obs = replace::observe_step_at(&h, &step, &record, &st, None);
         let has_birth = matches!(k.identity, FileIdentity::Unix { birth: Some(_), .. });
         if has_birth {
             assert_eq!(
@@ -1636,6 +1711,189 @@ fn lock_name_without_birth_time_is_foreign() {
         );
         assert_eq!(read(p, ".gitconfig.lock"), line);
     }
+}
+
+/// ADR-0007 §12.17 item 2: rows F0x and K0x have their one home in the classifier.
+/// For a step with no receipt, an entry at the step's own staged name that is a
+/// regular file owned by the user with one link is S by digest (S with the target
+/// digest, S′ otherwise); anything else there is X. It is never done at the path, so a
+/// lock holder's exact bytes at the lock name stay X; and once the step has a receipt
+/// an unrecorded entry at its staged name is X again.
+#[test]
+fn unrecorded_entry_at_staged_name_is_s_by_digest_never_at_lock_name() {
+    let s = |content| EntryObs::Recorded {
+        which: RecordedRole::S,
+        content,
+    };
+    let none = state(None);
+    let empty = StepRecord::default();
+    let d = scratch();
+    let p = d.path();
+    write(p, "config", OLD);
+    let h = DirHandle::open(p).unwrap();
+    let step = whole_step(FileRole::ManagedSsh, &p.join("config"), Some(OLD), NEW, 1);
+    let staged = step.staged_name.clone().unwrap();
+    let observe = |st: &RecoveryState, record: &StepRecord| {
+        replace::observe_step_at(&h, &step, record, st, None)
+    };
+    // F0: nothing at the staged name. The user's file at the path has no recorded
+    // identity before `file.validated`, so it is X.
+    let obs = observe(&none, &empty);
+    assert_eq!(
+        (obs.path(), obs.aside()),
+        (EntryObs::Foreign, EntryObs::Absent)
+    );
+    // F0x: the target bytes, a partial write, and content past 1 MiB.
+    write(p, &staged, NEW);
+    assert_eq!(observe(&none, &empty).aside(), s(ContentState::Unchanged));
+    write_in_place(&p.join(&staged), &NEW[..4]);
+    assert_eq!(observe(&none, &empty).aside(), s(ContentState::Modified));
+    write_in_place(&p.join(&staged), &vec![b'a'; READ_MAX + 1]);
+    assert_eq!(observe(&none, &empty).aside(), s(ContentState::Modified));
+    write_in_place(&p.join(&staged), NEW);
+    // Once `file.staged` recorded another identity, the entry at the name is X.
+    write(p, "elsewhere", WRITER);
+    let other_id = replace::validate(
+        &h,
+        "elsewhere",
+        &Base::Present {
+            sha256: sha(WRITER),
+        },
+    )
+    .unwrap()
+    .identity
+    .unwrap();
+    let recorded = StepRecord {
+        staged: Some(Expected {
+            identity: other_id.clone(),
+            sha256: sha(NEW),
+        }),
+        ..StepRecord::default()
+    };
+    let staged_state = state(Some(EffectivePhase::Staged { identity: other_id }));
+    assert_eq!(observe(&staged_state, &recorded).aside(), EntryObs::Foreign);
+    // F0z (Unix): not Heimdall's shape at the staged name is X whatever its bytes.
+    #[cfg(unix)]
+    {
+        fs::hard_link(p.join(&staged), p.join("second-link")).unwrap();
+        assert_eq!(observe(&none, &empty).aside(), EntryObs::Foreign);
+        fs::remove_file(p.join("second-link")).unwrap();
+        assert_eq!(observe(&none, &empty).aside(), s(ContentState::Unchanged));
+        fs::remove_file(p.join(&staged)).unwrap();
+        std::os::unix::fs::symlink(p.join("config"), p.join(&staged)).unwrap();
+        assert_eq!(observe(&none, &empty).aside(), EntryObs::Foreign);
+        fs::remove_file(p.join(&staged)).unwrap();
+        fs::create_dir(p.join(&staged)).unwrap();
+        assert_eq!(observe(&none, &empty).aside(), EntryObs::Foreign);
+        fs::remove_dir(p.join(&staged)).unwrap();
+    }
+    // A removal stages nothing: an entry at its staged name is X.
+    let mut removal = step.clone();
+    removal.target = Target::Absent;
+    removal.content = StepContent::absent();
+    write(p, &staged, NEW);
+    assert_eq!(
+        replace::observe_step_at(&h, &removal, &empty, &none, None).aside(),
+        EntryObs::Foreign
+    );
+    // Windows: only the staged name, never the displaced name, is F0x's.
+    #[cfg(windows)]
+    {
+        fs::remove_file(p.join(&staged)).unwrap();
+        let displaced = step.displaced_name.clone().unwrap();
+        write(p, &displaced, NEW);
+        assert_eq!(observe(&none, &empty).aside(), EntryObs::Foreign);
+        write(p, &staged, NEW);
+        assert_eq!(observe(&none, &empty).aside(), EntryObs::Foreign);
+    }
+
+    // K0x for the `git_lock` step: K's staged name, never the lock name.
+    let k = scratch();
+    let kp = k.path();
+    let hk = DirHandle::open(kp).unwrap();
+    let line = lock_holder_line(1, [0x2a; 16]);
+    let lock = FileStep {
+        role: FileRole::GitLock,
+        path: kp.join(".gitconfig.lock").to_string_lossy().into_owned(),
+        base: Base::Absent,
+        target: Target::Absent,
+        content: rendered(&line).into_lock_holder(),
+        commit: false,
+        staged_name: Some(staged_name("gitconfig.lock", 7)),
+        displaced_name: None,
+    };
+    let k_staged = lock.staged_name.clone().unwrap();
+    // The exact holder line at the lock name, with no receipt: X, never K.
+    write(kp, ".gitconfig.lock", &line);
+    let obs = replace::observe_step_at(&hk, &lock, &empty, &none, None);
+    assert_eq!(
+        (obs.path(), obs.aside()),
+        (EntryObs::Foreign, EntryObs::Absent)
+    );
+    // K at its staged name: K (S) with the holder digest, K′ otherwise.
+    write(kp, &k_staged, &line);
+    let obs = replace::observe_step_at(&hk, &lock, &empty, &none, None);
+    assert_eq!(
+        (obs.path(), obs.aside()),
+        (EntryObs::Foreign, s(ContentState::Unchanged))
+    );
+    write_in_place(
+        &kp.join(&k_staged),
+        b"heimdall setup lock, generation 1, x\n",
+    );
+    let obs = replace::observe_step_at(&hk, &lock, &empty, &none, None);
+    assert_eq!(obs.aside(), s(ContentState::Modified));
+    // The lock name alone, holder bytes included, is never classified as K.
+    fs::remove_file(kp.join(&k_staged)).unwrap();
+    let obs = replace::observe_step_at(&hk, &lock, &empty, &none, None);
+    assert_eq!(
+        (obs.path(), obs.aside()),
+        (EntryObs::Foreign, EntryObs::Absent)
+    );
+    assert_eq!(read(kp, ".gitconfig.lock"), line);
+}
+
+/// ADR-0007 §12.17 item 1: the name-learning fallbacks are retired. A staged name in
+/// the ADR's form (`.<name>.hm-<generation>-<32 hex>`) names nothing by itself: S takes
+/// the permission bits of the base validated at the target only when the transaction
+/// gave the step's names with `learn_step`; otherwise it gets the mode it was asked
+/// for. Nothing is inferred from the name.
+#[cfg(unix)]
+#[test]
+fn stage_names_its_target_only_through_learn_step() {
+    let d = scratch();
+    let p = d.path();
+    write(p, "config", OLD);
+    set_mode(&p.join("config"), 0o640);
+    let step = whole_step(FileRole::ManagedSsh, &p.join("config"), Some(OLD), NEW, 1);
+    let staged = step.staged_name.clone().unwrap();
+    assert!(
+        staged.starts_with(".config.hm-1-"),
+        "the ADR's form names config"
+    );
+    let m = materialize(&step, Some(OLD)).unwrap();
+    // Validated, not learned: the requested mode.
+    let h = DirHandle::open(p).unwrap();
+    replace::validate(&h, "config", &step.base).unwrap();
+    let s = replace::stage(&h, &staged, &m, Mode::OwnerReadWrite).unwrap();
+    assert_eq!(mode_of(&p.join(&s.name)), 0o600);
+    // Learned in a fresh handle: the original's bits.
+    let other = whole_step(FileRole::ManagedSsh, &p.join("config"), Some(OLD), NEW, 2);
+    let h = DirHandle::open(p).unwrap();
+    replace::validate(&h, "config", &other.base).unwrap();
+    h.learn_step(&other);
+    let s = replace::stage(
+        &h,
+        other.staged_name.as_deref().unwrap(),
+        &m,
+        Mode::OwnerReadWrite,
+    )
+    .unwrap();
+    assert_eq!(mode_of(&p.join(&s.name)), 0o640);
+    // Learned, but staged at a name the learned step does not have: the requested mode.
+    let s = replace::stage(&h, &staged_name("config", 3), &m, Mode::OwnerReadWrite).unwrap();
+    assert_eq!(mode_of(&p.join(&s.name)), 0o600);
+    assert_eq!(read(p, "config"), OLD);
 }
 
 /// `observe_fingerprint`: identity, type, owner, links, length, change time and a
@@ -1737,10 +1995,11 @@ fn private_key_files_never_opened() {
         Mode::PublicRead,
     )
     .unwrap();
-    replace::recheck(&h, &v).unwrap();
-    let x = replace::exchange(&h, &s, None).unwrap();
+    let names = StepNames::of(&step).unwrap();
+    replace::recheck_at(&h, &name, &v).unwrap();
+    let x = replace::exchange_at(&h, &names, &s, None).unwrap();
     assert_eq!(
-        replace::post_validate(&h, &x, &v, &s),
+        replace::post_validate_at(&h, &names, &x, &v, &s),
         PostValidation::Valid
     );
     let written = fs::read_to_string(keys.join(&name)).unwrap();
@@ -1862,10 +2121,7 @@ fn windows_replace_preserves_dacl() {
             .any(|l| l.contains("S-1-5-32-545") || l.contains("Users"))
     );
     let x = f.exchange();
-    assert_eq!(
-        replace::post_validate(&f.handle, &x, &f.validated, &f.staged),
-        PostValidation::Valid
-    );
+    assert_eq!(f.post_validate(&x), PostValidation::Valid);
     assert_eq!(read(f.path(), "config"), NEW);
     assert_eq!(acl(), before, "the replaced file's DACL is kept");
 }
@@ -1891,14 +2147,8 @@ fn windows_replace_retains_displaced_identity_without_race() {
         f.staged.identity
     );
     assert_eq!(read(f.path(), &displaced), OLD);
-    assert_eq!(
-        replace::post_validate(&f.handle, &x, &f.validated, &f.staged),
-        PostValidation::Valid
-    );
+    assert_eq!(f.post_validate(&x), PostValidation::Valid);
     drop((backup, active));
-    assert_eq!(
-        replace::restore(&f.handle, &x, &f.expected_s, f.v()),
-        RestoreOutcome::Restored
-    );
+    assert_eq!(f.restore(&f.v()), RestoreOutcome::Restored);
     assert_eq!(read(f.path(), "config"), OLD);
 }

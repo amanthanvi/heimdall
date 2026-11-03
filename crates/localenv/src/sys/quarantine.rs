@@ -672,68 +672,6 @@ pub(crate) mod fsentry {
             && !(cfg!(windows) && name.contains(['\\', ':']))
     }
 
-    /// The one entry of `dir` whose identity is `identity` (a regular file owned by
-    /// the user with one link); `None` when there is none, several, or the listing
-    /// fails. Used to find a settled entry's slot by Q's recorded identity.
-    pub(crate) fn find_by_identity(
-        dir: Dir<'_>,
-        identity: &FileIdentity,
-        source: IdentitySource,
-    ) -> Option<String> {
-        let mut found = None;
-        for name in list(dir)? {
-            if !is_component(&name) {
-                continue;
-            }
-            if let Ok(Some(m)) = lstat(dir, &name, source)
-                && m.is_heimdall_shape()
-                && m.identity.same_file(identity)
-            {
-                if found.is_some() {
-                    return None;
-                }
-                found = Some(name);
-            }
-        }
-        found
-    }
-
-    /// The names in `dir` (without `.` and `..`), at most 4096 of them.
-    #[cfg(unix)]
-    fn list(dir: Dir<'_>) -> Option<Vec<String>> {
-        let mut out = Vec::new();
-        let mut entries = rustix::fs::Dir::read_from(dir).ok()?;
-        for entry in entries.by_ref() {
-            let entry = entry.ok()?;
-            let Ok(name) = entry.file_name().to_str() else {
-                continue;
-            };
-            if name != "." && name != ".." {
-                out.push(name.to_owned());
-            }
-            if out.len() > 4096 {
-                return None;
-            }
-        }
-        Some(out)
-    }
-
-    /// The names in `dir`, at most 4096 of them.
-    #[cfg(windows)]
-    fn list(dir: Dir<'_>) -> Option<Vec<String>> {
-        let mut out = Vec::new();
-        for entry in std::fs::read_dir(dir).ok()? {
-            let name = entry.ok()?.file_name();
-            if let Some(name) = name.to_str() {
-                out.push(name.to_owned());
-            }
-            if out.len() > 4096 {
-                return None;
-            }
-        }
-        Some(out)
-    }
-
     /// Read the whole file from offset 0, at most [`CONTENT_MAX`] bytes; `None` when it
     /// is longer.
     pub(crate) fn read_bounded(file: &File) -> io::Result<Option<Vec<u8>>> {

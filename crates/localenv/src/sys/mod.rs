@@ -30,7 +30,7 @@
 //! | `quarantine::fsentry` | Windows | `GetSecurityInfo(SE_FILE_OBJECT)`, `ConvertSidToStringSidW`, `ConvertSecurityDescriptorToStringSecurityDescriptorW`, `ConvertStringSecurityDescriptorToSecurityDescriptorW`, `LocalFree` | each `LocalAlloc`ed result is freed exactly once, after the last pointer into it is used; W2-U4a |
 //! | `QuarantineDir::rmdir_if_empty` | Windows | `SetFileInformationByHandle` with a POSIX-semantics delete disposition | only on the quarantine directory's own pinned handle; cannot remove an entry (an empty-directory removal); W2-U4a |
 //! | [`QuarantineDir::remove_verified`] | all | Unix: `openat` + `fstat`, then `unlinkat` relative to the quarantine's directory handle; Windows: `SetFileInformationByHandle(FileDispositionInfoEx)` on a handle whose identity was checked | **the only removal in the crate**: a name inside the validated `.hm-quarantine` directory, whose identity and digest equal the expected ones at removal (ADR-0007 §5.3); W2-U4a |
-//! | [`adopt_inherited_fd`] | Unix | `fcntl(F_GETFD)`, `fstat`, `fcntl(F_GETFL)`, `OwnedFd::from_raw_fd`, `fcntl(F_SETFD, FD_CLOEXEC)`, `fcntl(F_SETFL, flags & !O_NONBLOCK)` | `run --meta-fd`: the descriptor is above 2, open, a pipe, socket or regular file opened for writing; at most one adoption per process (an atomic guard), so this function never creates two owners of one descriptor; close-on-exec and blocking after adoption (ADR-0007 §8, §12.15 item 8 E1; U8) |
+//! | [`adopt_inherited_fd`] | Unix | `fcntl(F_GETFD)`, `fstat`, `fcntl(F_GETFL)`, `fcntl(F_DUPFD_CLOEXEC)`, `OwnedFd::from_raw_fd` on the duplicate, `fcntl(F_SETFD, FD_CLOEXEC)`, `fcntl(F_SETFL, flags & !O_NONBLOCK)` | `run --meta-fd`: the descriptor is above 2, open, a pipe, socket or regular file opened for writing; the returned `OwnedFd` owns a fresh duplicate, never the inherited number, so no descriptor ever has two owners (X01, §12.18 item 1); at most one adoption per process; close-on-exec and blocking after adoption (ADR-0007 §8, §12.15 item 8 E1; U8) |
 //! | [`create_owner_only_exclusive`] | Unix | `open(O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_CLOEXEC, 0600)` through `std::fs::OpenOptions` (no `unsafe` needed) | never follows or replaces an existing entry (a symlink at the name is `EEXIST`); the mode can only be narrowed by the umask |
 //! | [`create_owner_only_exclusive`] | Windows | `OpenProcessToken`, `GetTokenInformation(TokenUser)`, `ConvertSidToStringSidW`, `ConvertStringSecurityDescriptorToSecurityDescriptorW` (`O:<user>D:P(A;;FA;;;<user>)`), `CreateFileW(CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT)` with that `SECURITY_ATTRIBUTES`, `LocalFree` | every `LocalAlloc`ed buffer freed exactly once after its last use; the descriptor outlives `CreateFileW`, which copies it; a reparse point at the name is the existing entry, never followed; the handle is not inheritable (ADR-0007 §12.15 item 8 E4) |
 #![allow(unsafe_code)]
@@ -260,11 +260,13 @@ impl JobObject {
 /// than fails with `EAGAIN` (the flag is on the open file description, which the parent
 /// shares).
 ///
-/// At most one descriptor is adopted per process (`run` has exactly one side channel);
-/// a second call is refused, so this safe function never creates a second owner of a
-/// descriptor it already adopted. The number must name a descriptor this process
-/// inherited and does not otherwise use: that is the caller's contract (`run` adopts it
-/// while parsing its arguments).
+/// The descriptor is **duplicated**, not taken (wave-2 review X01; ADR-0007 §12.18 item
+/// 1): the returned [`std::os::fd::OwnedFd`] owns a new descriptor (`F_DUPFD_CLOEXEC`,
+/// number 3 or above) that nothing else in the process refers to, so this safe function
+/// never creates a second owner of `raw`, whoever owns it. `raw` itself is neither closed
+/// nor taken; it is only made close-on-exec, so an exec closes every descriptor of the
+/// side channel (§8). At most one descriptor is adopted per process (`run` has exactly
+/// one side channel); a second call is refused.
 ///
 /// # Errors
 /// [`SysError`] when it is not open, is not a pipe, socket or regular file, is not
@@ -447,18 +449,25 @@ mod unix {
                 "refused: a descriptor was already adopted by this process",
             ));
         }
-        // SAFETY: `raw` is open (F_GETFD succeeded), above 2, and this process adopts
-        // at most one descriptor (the guard above), so this function creates no second
-        // owner; that no other part of the process already owns the number is the
-        // caller's contract (an inherited `--meta-fd`).
-        let owned = unsafe { OwnedFd::from_raw_fd(raw) };
-        // SAFETY: plain fcntl on the descriptor `owned` now owns; sets a flag only.
+        // SAFETY: F_DUPFD_CLOEXEC on an open integer descriptor (F_GETFD succeeded)
+        // creates a new close-on-exec descriptor numbered 3 or above and has no other
+        // effect; `raw` is neither closed nor taken.
+        let dup = unsafe { libc::fcntl(raw, libc::F_DUPFD_CLOEXEC, 3) };
+        if dup < 0 {
+            return Err(SysError::last_os("fcntl(F_DUPFD_CLOEXEC)"));
+        }
+        // SAFETY: `dup` was created by the call above and nothing else in the process
+        // refers to it, so `owned` is its only owner (X01: no second owner of `raw`).
+        let owned = unsafe { OwnedFd::from_raw_fd(dup) };
+        // SAFETY: F_SETFD on an open integer descriptor sets a flag only; `raw` is not
+        // closed or taken. The inherited number becomes close-on-exec as well (§8).
         if unsafe { libc::fcntl(raw, libc::F_SETFD, fd_flags | libc::FD_CLOEXEC) } != 0 {
             return Err(SysError::last_os("fcntl(F_SETFD)"));
         }
         if fl_flags & libc::O_NONBLOCK != 0 {
-            // SAFETY: as above; clears O_NONBLOCK on the owned descriptor.
-            if unsafe { libc::fcntl(raw, libc::F_SETFL, fl_flags & !libc::O_NONBLOCK) } != 0 {
+            // SAFETY: F_SETFL on the descriptor `owned` owns; O_NONBLOCK lives on the
+            // open file description, which `raw` shares, so both become blocking.
+            if unsafe { libc::fcntl(dup, libc::F_SETFL, fl_flags & !libc::O_NONBLOCK) } != 0 {
                 return Err(SysError::last_os("fcntl(F_SETFL)"));
             }
         }
@@ -851,16 +860,57 @@ mod tests {
         std::fs::write(&ro_path, b"").unwrap();
         let ro = std::fs::File::open(&ro_path).unwrap();
         assert!(super::adopt_inherited_fd(ro.as_raw_fd()).is_err());
-        // A non-blocking, inheritable pipe writer: adopted, made blocking and
-        // close-on-exec.
-        let (reader, writer) = std::io::pipe().unwrap();
-        let raw = writer.into_raw_fd();
+        // A non-blocking, inheritable pipe writer that another object in this process
+        // still owns (`writer`): adopted as a duplicate, made blocking and close-on-exec.
+        let (mut reader, mut writer) = std::io::pipe().unwrap();
+        let raw = writer.as_raw_fd();
         set_flags_for_test(raw);
         let owned = super::adopt_inherited_fd(raw).unwrap();
-        assert_eq!(owned.as_raw_fd(), raw);
-        let (fd_flags, fl_flags) = flags_for_test(raw);
-        assert_ne!(fd_flags & libc::FD_CLOEXEC, 0, "close-on-exec not set");
-        assert_eq!(fl_flags & libc::O_NONBLOCK, 0, "O_NONBLOCK not cleared");
+        // X01 (ADR-0007 §12.18 item 1): the adopted descriptor is a new one, so dropping
+        // it cannot close the number `writer` owns.
+        assert_ne!(
+            owned.as_raw_fd(),
+            raw,
+            "adoption took the caller's descriptor"
+        );
+        for fd in [raw, owned.as_raw_fd()] {
+            let (fd_flags, fl_flags) = flags_for_test(fd);
+            assert_ne!(
+                fd_flags & libc::FD_CLOEXEC,
+                0,
+                "close-on-exec not set on {fd}"
+            );
+            assert_eq!(
+                fl_flags & libc::O_NONBLOCK,
+                0,
+                "O_NONBLOCK not cleared on {fd}"
+            );
+        }
+        // The reviewer's scenario: drop the adopted descriptor, open an unrelated file
+        // (which may reuse a freed number), then write through the original owner. The
+        // bytes reach the pipe, never the unrelated file.
+        drop(owned);
+        let unrelated_path = dir.path().join("unrelated");
+        let unrelated = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&unrelated_path)
+            .unwrap();
+        {
+            use std::io::{Read, Write};
+            writer.write_all(b"meta").unwrap();
+            drop(writer);
+            let mut got = Vec::new();
+            reader.read_to_end(&mut got).unwrap();
+            assert_eq!(got, b"meta", "the original owner's writes went elsewhere");
+        }
+        drop(unrelated);
+        assert_eq!(
+            std::fs::metadata(&unrelated_path).unwrap().len(),
+            0,
+            "a write through the original owner reached an unrelated file"
+        );
         // A second adoption in this process is refused, whatever the descriptor.
         let other = std::fs::OpenOptions::new()
             .write(true)
@@ -869,8 +919,6 @@ mod tests {
             .open(dir.path().join("w"))
             .unwrap();
         assert!(super::adopt_inherited_fd(other.as_raw_fd()).is_err());
-        drop(owned);
-        drop(reader);
     }
 
     #[cfg(unix)]

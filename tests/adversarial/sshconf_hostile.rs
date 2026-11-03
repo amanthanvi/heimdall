@@ -22,6 +22,7 @@ use heimdall_sshconf::lex::split_args;
 use heimdall_sshconf::limits::Limits;
 use heimdall_sshconf::parse::{Line, ParseError, SourceId, parse_file};
 use heimdall_sshconf::relevant::{behavior_digest, executing_constructs, relevant};
+use heimdall_sshconf::render::{MarkerId, Newline, PathStyle, RenderPath, render_include_block};
 use proptest::prelude::*;
 use proptest::test_runner::{FileFailurePersistence, RngSeed};
 
@@ -766,5 +767,84 @@ proptest! {
         prop_assert!(rec.visits.iter().all(|v| v.depth <= 4));
         prop_assert_eq!(rec.visits.len(), rec.summary.visits);
         prop_assert!(src.reads() <= 20 * 6 + 1);
+    }
+}
+
+// --- the renderer's path constructors (ADR-0007 §12.16 item 6) ----------------------------
+
+/// Arbitrary Unicode, and text that starts with part of a pipe prefix, so the prefix
+/// length falls inside a multi-byte character as often as not.
+fn unicode_text() -> impl Strategy<Value = String> {
+    prop_oneof![
+        any::<String>(),
+        (
+            prop::sample::select(vec!["\\\\.\\pipe\\", "//./pipe/", "\\\\.\\PIPE\\"]),
+            0usize..10,
+            any::<String>(),
+        )
+            .prop_map(|(prefix, n, rest)| format!("{}{rest}", &prefix[..n.min(prefix.len())])),
+        "[a-zé€😀\\\\/.~:%$\"*?\\[\\] {}]{0,24}",
+    ]
+}
+
+proptest! {
+    #![proptest_config(config())]
+
+    /// Y06 (ADR-0007 §12.16 item 6): the public `RenderPath` constructors are total over
+    /// arbitrary Unicode: each returns a path or a refusal and never panics, and what
+    /// they accept keeps its rules (a pipe has no separator in its name; `absolute` is
+    /// never `~`; B never renders a `~` or glob target).
+    #[test]
+    fn render_path_constructors_never_panic_on_arbitrary_unicode(
+        text in unicode_text(),
+        home in unicode_text(),
+    ) {
+        let marker = MarkerId::parse("hm-0123456789abcdef").unwrap();
+        let outcome = std::panic::catch_unwind(|| {
+            let mut accepted = Vec::new();
+            if let Ok(p) = RenderPath::pipe(&text) {
+                let name = p.as_str().strip_prefix("//./pipe/").map(str::to_owned);
+                accepted.push(("pipe", p, name));
+            }
+            for (kind, p) in [
+                ("unix", RenderPath::unix(Path::new(&text))),
+                ("windows", RenderPath::windows(Path::new(&text))),
+                ("absolute_unix", RenderPath::absolute(Path::new(&text), PathStyle::Unix)),
+                ("absolute_windows", RenderPath::absolute(Path::new(&text), PathStyle::Windows)),
+                (
+                    "home_unix",
+                    RenderPath::home_relative(Path::new(&text), Path::new(&home), PathStyle::Unix),
+                ),
+                (
+                    "home_windows",
+                    RenderPath::home_relative(Path::new(&text), Path::new(&home), PathStyle::Windows),
+                ),
+            ] {
+                if let Ok(p) = p {
+                    accepted.push((kind, p, None));
+                }
+            }
+            let mut blocks = Vec::new();
+            for (kind, p, _) in &accepted {
+                blocks.push((*kind, p.as_str().to_owned(), render_include_block(&marker, p, Newline::Lf)));
+            }
+            (accepted, blocks)
+        });
+        prop_assert!(outcome.is_ok(), "a constructor panicked");
+        let (accepted, blocks) = outcome.unwrap();
+        for (kind, p, name) in &accepted {
+            if *kind == "pipe" {
+                let name = name.clone().unwrap_or_default();
+                prop_assert!(!name.is_empty() && !name.contains(['/', '\\']), "{:?}", p.as_str());
+            }
+            if kind.starts_with("absolute") {
+                prop_assert!(!p.as_str().starts_with('~'));
+            }
+        }
+        for (kind, text, block) in blocks {
+            if block.is_ok() {
+                prop_assert!(!text.starts_with('~') && !text.contains(['*', '?', '[', ']']), "{kind}");
+            }
+        }
     }
 }

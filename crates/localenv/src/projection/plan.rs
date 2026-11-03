@@ -17,21 +17,40 @@
 //! * `apply` with the Git item: P_git, then the lock holder K and the B_git splice
 //!   (the Git commit step) at the top of the first-read global file;
 //! * `rollback`: the splice that removes B (the commit step), then P and the key files
-//!   as target-absent steps for the cleaner; for Git, K, the B_git removal and P_git;
-//! * `repair rerender`: as `apply` over the recorded items.
+//!   as target-absent steps for the cleaner, each with its recorded digest as base (a
+//!   P whose content is no longer that is kept as `ssh_config.hm-conflict-<gen>` once
+//!   the rollback committed, §5.5); for Git, K, the B_git removal and P_git;
+//! * `repair rerender`: as `apply` over the recorded items;
+//! * `repair remove_duplicate_markers`: keep the first block that is Heimdall's exact B
+//!   before the first section, remove one other exact B (one splice per intent);
+//! * `repair move_include_to_top`: insert a fresh B at the top (one splice per intent);
+//!   the conditional block left behind is removed by `remove_duplicate_markers`;
+//! * `repair manual_mode`: P and the key files only, with the exact block shown.
+//!
+//! B names P by its **absolute** path, never `~`, so it loads P whatever `$HOME` is
+//! (ADR-0007 §12.17 item 9). A P path no literal Include can name (a glob
+//! metacharacter, §12.16 item 3) is manual mode before any edit.
 //!
 //! A file that fails the §5.3 step-1/2 checks (a symlink or reparse point, a hard
 //! link, a foreign owner, a quarantine that does not validate), and a user file with a
-//! BOM or CRLF on a client not known to accept it, make the plan manual: no user-file
-//! step, the reason listed. Conflicts (a duplicate or edited marker, a conditional
-//! block) are findings, and the plan then changes no file.
+//! BOM or CRLF on a client not known to accept it (`ClientInventory::accepts_encoding`),
+//! make the plan manual: no user-file step, the reason listed, P (or the last key
+//! file) committed. Conflicts (a duplicate or edited marker, a conditional block) are
+//! findings, and the plan then changes no file.
 //!
-//! **Consent** (fail-closed reading, escalated by W2-U4c): every plan that changes a
-//! file needs an owner decision; only a plan with no file change needs none. The
-//! per-item behaviour comparison of §5.2 that would waive some decisions is not
-//! computed here, so `consent` (the consented states recorded at commit) is empty and
-//! the plan's alias list is empty.
+//! **Consent** (ADR-0007 §5.2, §12.17 item 8). The affected items are the aliases whose
+//! rendered section in effect changes (every alias P renders, for a rollback or a block
+//! repair) and Git's SSH selection when B_git is added or removed. For each, the
+//! behaviour now, after the plan and on restore is evaluated statically (U2's
+//! evaluator over the planned bytes; nothing executes) and classified by
+//! `sshconf::consent` against the stored consent, which counts only for an item the
+//! projection record still manages. A plan that needs no decision gets none and records
+//! no consent; otherwise `ProjectionPlan.consent` holds the managed and restore states
+//! (with a placeholder decision that `apply` replaces by the intent's approval), and
+//! the summary carries the restore column. The behaviour digests are part of the plan
+//! digest.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use heimdall_app::ports::PreviewError;
@@ -41,6 +60,7 @@ use heimdall_contract::doctor::{
     finding,
 };
 use heimdall_contract::envelope::{NextAction, ResourceRef};
+use heimdall_contract::ids::DecisionId;
 use heimdall_contract::provider::{EndpointKind, ProbeLevel};
 use heimdall_contract::setup::{
     ConflictKind, ConsentNeed, ConsentReason, ConsentReasonKind, FileChange, GitApplicability,
@@ -48,12 +68,17 @@ use heimdall_contract::setup::{
     RepairResolution, SetupMode, SetupPlan, manual_reason,
 };
 use heimdall_domain::projection::{
-    Base, ConsentRecord, FileRole, FileStep, ManagedAliasSpec, ProjectionPlan, ProjectionSpec,
-    ProjectionSummary, Rendered, Sha256Hex, StepContent, StepContentView, SummaryIntent, Target,
-    bounds,
+    Base, BehaviorState, ConsentRecord, ConsentedStates, FileRole, FileStep, ItemId, ItemRestore,
+    ManagedAliasSpec, ProjectionPlan, ProjectionSpec, ProjectionSummary, Rendered, Sha256Hex,
+    StepContent, StepContentView, SummaryIntent, Target, bounds,
 };
+use heimdall_sshconf::consent;
 use heimdall_sshconf::edit::{self, BlockPosition, EditRefusal, FoundBlock, IncludeBlock};
+use heimdall_sshconf::eval::{Invocation, OpenSshVersion, Query, evaluate};
 use heimdall_sshconf::gitedit;
+use heimdall_sshconf::include::{ConfigSet, ConfigSource, Roots, SourceBytes, SourceError};
+use heimdall_sshconf::limits::Limits;
+use heimdall_sshconf::relevant::{behavior_state, relevant};
 use heimdall_sshconf::render::{
     self, AliasName, HostName, ManagedAlias, MarkerId, Newline, PathStyle, RenderPath,
 };
@@ -64,6 +89,7 @@ use super::apply::random_hex;
 use super::git::lock_holder;
 use super::replace::{self, DirHandle, Quarantine, ReplaceRefusal};
 use crate::clients::ClientKind;
+use crate::fs::BoundedSource;
 use crate::git::{DefaultGitSsh, observe_global};
 use crate::materialize::{PublicKeyLine, public_key_bytes};
 
@@ -124,6 +150,24 @@ pub fn preview(
                 b.plan_git_apply()?;
             }
         }
+        PreviewIntent::Repair {
+            resolution: RepairResolution::RemoveDuplicateMarkers,
+            ..
+        } => b.plan_remove_duplicate()?,
+        PreviewIntent::Repair {
+            resolution: RepairResolution::MoveIncludeToTop,
+            ..
+        } => b.plan_move_to_top()?,
+        PreviewIntent::Repair {
+            resolution: RepairResolution::ManualMode,
+            conflict,
+            ..
+        } => {
+            b.manual_for = Some(*conflict);
+            b.plan_ssh_apply()?;
+        }
+        // `retry_held` and `keep_held` are built by the setup driver from
+        // `observe_held` (ADR-0007 §5.7 "Repair path"), not rendered here.
         PreviewIntent::Repair { resolution, .. } => {
             return Err(PreviewError::Unavailable(format!(
                 "repair {resolution:?} is not previewed by this writer"
@@ -150,6 +194,21 @@ struct Builder<'a> {
     git: Option<GitConfigChange>,
     added: Vec<String>,
     removed: Vec<String>,
+    /// ADR-0007 §5.2 inputs: the user file as read, and its planned bytes when the
+    /// plan changes it.
+    user_now: Option<Vec<u8>>,
+    user_after: Option<Vec<u8>>,
+    /// P as it is and as planned (`None`: unchanged).
+    p_now: Option<Vec<u8>>,
+    p_after: Option<Vec<u8>>,
+    /// A rollback or a block repair: every alias P renders is affected.
+    ssh_all_affected: bool,
+    /// A block repair: the aliases stay managed (P is unchanged).
+    ssh_repair: bool,
+    /// The `manual_mode` repair, with the conflict it resolves.
+    manual_for: Option<ConflictKind>,
+    /// The Git selection now and after the plan, when the plan changes it.
+    git_selection: Option<(GitSshSelection, GitSshSelection)>,
 }
 
 impl<'a> Builder<'a> {
@@ -170,6 +229,14 @@ impl<'a> Builder<'a> {
             git: None,
             added: Vec::new(),
             removed: Vec::new(),
+            user_now: None,
+            user_after: None,
+            p_now: None,
+            p_after: None,
+            ssh_all_affected: false,
+            ssh_repair: false,
+            manual_for: None,
+            git_selection: None,
         }
     }
 
@@ -204,16 +271,27 @@ impl<'a> Builder<'a> {
         if p.bytes().len() > bounds::MANAGED_SSH_MAX {
             return Err(PreviewError::TooLarge);
         }
+        self.p_now = read_file(&p_path)?;
+        self.p_after = Some(p.bytes().to_vec());
         let p_step = self.whole_step(FileRole::ManagedSsh, &p_path, p)?;
         self.added = self.spec.aliases.iter().map(|a| a.alias.clone()).collect();
 
         let user = self.config.paths.user_config.clone();
+        if let Some(conflict) = self.manual_for {
+            // The `manual_mode` repair: P and the key files as an apply renders them;
+            // the user file is never planned, and the plan shows the exact block the
+            // owner keeps at its top (ADR-0007 §5.3 step 9, §5.5).
+            self.manual(&manual_for_conflict(conflict));
+            self.manual_block_finding(&user, &p_path)?;
+            self.steps.extend(manual_steps(key_steps, p_step));
+            return Ok(());
+        }
         let Some(user_bytes) = self.inspect_user_file(&user)? else {
             // Manual mode: P and the key files only; the owner inserts B.
-            self.steps.extend(key_steps);
-            self.steps.extend(p_step);
+            self.steps.extend(manual_steps(key_steps, p_step));
             return Ok(());
         };
+        self.user_now.clone_from(&user_bytes);
         let blocks = edit::find_blocks(user_bytes.as_deref().unwrap_or_default());
         match blocks.as_slice() {
             [] => {
@@ -257,12 +335,18 @@ impl<'a> Builder<'a> {
         key_steps: Vec<FileStep>,
         p_step: Option<FileStep>,
     ) -> Result<(), PreviewError> {
-        let p_render = self.render_path(p_path)?;
         let newline = user_bytes
             .and_then(edit::detect_newline)
             .unwrap_or(Newline::Lf);
         let marker = new_marker()?;
-        let block = render::rendered_include_block(&marker, &p_render, newline);
+        let block = match self.include_block(&marker, p_path, newline)? {
+            Ok(block) => block,
+            Err(reason) => {
+                self.manual_unmanageable(reason);
+                self.steps.extend(manual_steps(key_steps, p_step));
+                return Ok(());
+            }
+        };
         let plan = edit::plan_insert(
             user_bytes,
             &IncludeBlock {
@@ -274,11 +358,11 @@ impl<'a> Builder<'a> {
             Ok(plan) => {
                 if !self.accepts_encoding(plan.had_bom, plan.newline == Newline::CrLf) {
                     self.manual(manual_reason::UNSUPPORTED_ENCODING);
-                    self.steps.extend(key_steps);
-                    self.steps.extend(p_step);
+                    self.steps.extend(manual_steps(key_steps, p_step));
                     return Ok(());
                 }
                 let offset = u64::try_from(plan.offset).map_err(|_| PreviewError::TooLarge)?;
+                self.user_after = Some(plan.bytes.clone());
                 let step = self.splice_step(
                     FileRole::UserSsh,
                     user,
@@ -293,8 +377,7 @@ impl<'a> Builder<'a> {
             }
             Err(EditRefusal::UnsupportedEncoding) => {
                 self.manual(manual_reason::UNSUPPORTED_ENCODING);
-                self.steps.extend(key_steps);
-                self.steps.extend(p_step);
+                self.steps.extend(manual_steps(key_steps, p_step));
             }
             Err(EditRefusal::DuplicateMarker) => {
                 self.conflict(ConflictKind::MarkerDuplicated, None)
@@ -320,16 +403,22 @@ impl<'a> Builder<'a> {
             [] => {}
             [only] => {
                 let newline = block_newline(&bytes, only);
-                let p_render = self.render_path(&p_path)?;
-                let expected = render::render_include_block(&only.marker, &p_render, newline);
+                let expected = match self.include_block(&only.marker, &p_path, newline)? {
+                    Ok(block) => block.bytes().to_vec(),
+                    // No B Heimdall renders can name this P, so the block is not one.
+                    Err(_) => {
+                        self.conflict(ConflictKind::MarkerEdited, None);
+                        return Ok(());
+                    }
+                };
                 match edit::plan_remove(&bytes, &only.marker, &expected) {
-                    Ok(after) => steps.push(self.removal_splice(
-                        FileRole::UserSsh,
-                        &user,
-                        &bytes,
-                        &after,
-                        only,
-                    )?),
+                    Ok(after) => steps.push({
+                        self.user_now = Some(bytes.clone());
+                        self.user_after = Some(after.clone());
+                        self.p_now = read_file(&p_path)?;
+                        self.ssh_all_affected = true;
+                        self.removal_splice(FileRole::UserSsh, &user, &bytes, &after, only)?
+                    }),
                     Err(EditRefusal::MarkerEdited { lines }) => {
                         self.conflict(ConflictKind::MarkerEdited, Some(&lines));
                         return Ok(());
@@ -372,6 +461,201 @@ impl<'a> Builder<'a> {
         }
         self.removed = record.map(|r| r.aliases.clone()).unwrap_or_default();
         self.steps.extend(steps);
+        Ok(())
+    }
+
+    // --- block repairs (ADR-0007 §5.5) ----------------------------------------------------
+
+    /// The user file for a block repair, with its blocks. `None`: manual mode or no
+    /// user file (nothing to repair).
+    fn repair_input(&mut self) -> Result<Option<(PathBuf, Vec<u8>)>, PreviewError> {
+        let user = self.config.paths.user_config.clone();
+        let Some(Some(bytes)) = self.inspect_user_file(&user)? else {
+            return Ok(None);
+        };
+        Ok(Some((user, bytes)))
+    }
+
+    /// Whether `block` is exactly the B Heimdall renders for its marker and P (the only
+    /// block a repair may remove or move; anything else is `marker_edited`).
+    fn is_heimdalls(&self, bytes: &[u8], block: &FoundBlock) -> Result<bool, PreviewError> {
+        let p_path = self.config.managed_ssh_path();
+        let newline = block_newline(bytes, block);
+        Ok(match self.include_block(&block.marker, &p_path, newline)? {
+            Ok(rendered) => bytes.get(block.range.clone()) == Some(rendered.bytes()),
+            Err(_) => false,
+        })
+    }
+
+    /// Note the repair's inputs for §5.2: every managed alias is affected, and stays
+    /// managed.
+    fn repair_consent(&mut self, before: &[u8], after: &[u8]) -> Result<(), PreviewError> {
+        self.user_now = Some(before.to_vec());
+        self.user_after = Some(after.to_vec());
+        self.p_now = read_file(&self.config.managed_ssh_path())?;
+        self.ssh_all_affected = true;
+        self.ssh_repair = true;
+        Ok(())
+    }
+
+    /// `remove_duplicate_markers` (`marker_duplicated`): keep the first block that is
+    /// Heimdall's exact B before the first section, and remove one other block that is
+    /// also Heimdall's exact B (for its own marker), by one splice. An intent has one
+    /// step per file, so a file with more duplicates needs the repair again; the plan
+    /// says so. Nothing else is removed: an edited block is `marker_edited` with its
+    /// lines, and without a block to keep the plan changes nothing.
+    fn plan_remove_duplicate(&mut self) -> Result<(), PreviewError> {
+        let Some((user, bytes)) = self.repair_input()? else {
+            return Ok(());
+        };
+        let blocks = edit::find_blocks(&bytes);
+        if blocks.len() < 2 {
+            return Ok(());
+        }
+        let mut keep = None;
+        for (i, b) in blocks.iter().enumerate() {
+            if b.position == BlockPosition::BeforeFirstSection && self.is_heimdalls(&bytes, b)? {
+                keep = Some(i);
+                break;
+            }
+        }
+        let Some(keep) = keep else {
+            self.conflict(ConflictKind::MarkerDuplicated, None);
+            return Ok(());
+        };
+        let Some((_, dup)) = blocks.iter().enumerate().find(|(i, _)| *i != keep) else {
+            return Ok(());
+        };
+        if !self.is_heimdalls(&bytes, dup)? {
+            let line = line_of(&bytes, dup.range.start);
+            self.conflict(ConflictKind::MarkerEdited, Some(&[line]));
+            return Ok(());
+        }
+        let mut after = bytes.clone();
+        after.drain(dup.range.clone());
+        self.repair_consent(&bytes, &after)?;
+        let step = self.removal_splice(FileRole::UserSsh, &user, &bytes, &after, dup)?;
+        self.steps.push(step);
+        if blocks.len() > 2 {
+            self.conflict(ConflictKind::MarkerDuplicated, None);
+        }
+        Ok(())
+    }
+
+    /// `move_include_to_top` (`include_conditional`): the one block, Heimdall's exact
+    /// B, sits below a section or a top-level directive. Moving it is two edits of the
+    /// user file, and an intent has one step per file, so this repair inserts a fresh
+    /// B at the top (one splice, before the first directive, as a first adoption
+    /// places it) and leaves the conditional block, now redundant, for a following
+    /// `remove_duplicate_markers`, which keeps the top block. P is in effect for every
+    /// host from this repair on, and at no point is it out of effect. The plan reports
+    /// the remaining duplicate.
+    fn plan_move_to_top(&mut self) -> Result<(), PreviewError> {
+        let Some((user, bytes)) = self.repair_input()? else {
+            return Ok(());
+        };
+        let blocks = edit::find_blocks(&bytes);
+        let [only] = blocks.as_slice() else {
+            if blocks.len() > 1 {
+                self.conflict(ConflictKind::MarkerDuplicated, None);
+            }
+            return Ok(());
+        };
+        if only.position == BlockPosition::BeforeFirstSection {
+            return Ok(());
+        }
+        if !self.is_heimdalls(&bytes, only)? {
+            let line = line_of(&bytes, only.range.start);
+            self.conflict(ConflictKind::MarkerEdited, Some(&[line]));
+            return Ok(());
+        }
+        let p_path = self.config.managed_ssh_path();
+        let newline = block_newline(&bytes, only);
+        let marker = new_marker()?;
+        let block = match self.include_block(&marker, &p_path, newline)? {
+            Ok(block) => block,
+            Err(reason) => {
+                self.manual_unmanageable(reason);
+                return Ok(());
+            }
+        };
+        let mut without = bytes.clone();
+        without.drain(only.range.clone());
+        let plan = match edit::plan_insert(
+            Some(&without),
+            &IncludeBlock {
+                marker,
+                bytes: block.bytes().to_vec(),
+            },
+        ) {
+            Ok(plan) => plan,
+            Err(EditRefusal::UnsupportedEncoding) => {
+                self.manual(manual_reason::UNSUPPORTED_ENCODING);
+                return Ok(());
+            }
+            Err(_) => {
+                self.conflict(ConflictKind::MarkerEdited, None);
+                return Ok(());
+            }
+        };
+        // The conditional block lies below the first directive, so the top offset is
+        // the same in the file that still holds it.
+        if plan.offset > only.range.start
+            || !self.accepts_encoding(plan.had_bom, plan.newline == Newline::CrLf)
+        {
+            self.manual(manual_reason::UNSUPPORTED_ENCODING);
+            return Ok(());
+        }
+        let mut after = bytes.clone();
+        after.splice(plan.offset..plan.offset, block.bytes().iter().copied());
+        let offset = u64::try_from(plan.offset).map_err(|_| PreviewError::TooLarge)?;
+        self.repair_consent(&bytes, &after)?;
+        let step = self.splice_step(
+            FileRole::UserSsh,
+            &user,
+            Some(&bytes),
+            &after,
+            block.into_splice(offset, 0, None),
+            true,
+        )?;
+        self.steps.push(step);
+        self.conflict(ConflictKind::MarkerDuplicated, None);
+        Ok(())
+    }
+
+    /// The exact block the owner keeps at the top of the user file in manual mode, as
+    /// a finding (ADR-0007 §5.3 step 9: Heimdall prints the block and changes
+    /// nothing there).
+    fn manual_block_finding(&mut self, user: &Path, p_path: &Path) -> Result<(), PreviewError> {
+        let newline = read_file(user)?
+            .as_deref()
+            .and_then(edit::detect_newline)
+            .unwrap_or(Newline::Lf);
+        let marker = new_marker()?;
+        let message = match self.include_block(&marker, p_path, newline)? {
+            Ok(block) => format!(
+                "keep exactly these lines at the top of {}:\n{}",
+                self.display(user),
+                String::from_utf8_lossy(block.bytes())
+            ),
+            Err(reason) => {
+                self.manual_unmanageable(reason);
+                return Ok(());
+            }
+        };
+        self.findings.push(Finding {
+            code: "manual_mode".to_owned(),
+            severity: FindingSeverity::Info,
+            subject: ResourceRef {
+                kind: "projection".to_owned(),
+                id: None,
+            },
+            level: ProbeLevel::Static,
+            provenance: None,
+            message,
+            next: NextAction::for_code(Code::ConfigConflict),
+            reason: self.manual_for.map(manual_for_conflict),
+        });
         Ok(())
     }
 
@@ -573,6 +857,14 @@ impl<'a> Builder<'a> {
             .find(|c| c.role == ProjectionFileRole::GitManaged)
             .cloned();
         self.steps.extend(steps);
+        let after = GitSshSelection {
+            source: GitSshSource::Config,
+            scope: Some(GitScope::Global),
+            classification: GitSshClassification::VerifiedClient,
+        };
+        if include_change.is_some() {
+            self.git_selection = Some((before.clone(), after.clone()));
+        }
         self.git = Some(GitConfigChange {
             applicability: GitApplicability::Applicable,
             reason: None,
@@ -585,11 +877,7 @@ impl<'a> Builder<'a> {
             include_block: include_change,
             managed_file: managed_change,
             effective_before: before,
-            effective_after: GitSshSelection {
-                source: GitSshSource::Config,
-                scope: Some(GitScope::Global),
-                classification: GitSshClassification::VerifiedClient,
-            },
+            effective_after: after,
         });
         Ok(())
     }
@@ -597,6 +885,51 @@ impl<'a> Builder<'a> {
     fn plan_git_rollback(&mut self) -> Result<(), PreviewError> {
         let p_git_path = self.config.managed_git_path();
         let obs = observe_global(&self.config.env, &self.config.clients, self.config.queries);
+        // §5.2 for the Git item: with B_git in effect the selection is P_git's value;
+        // after the rollback it is a user value, when one remains (it already wins), or
+        // Git's default.
+        // P_git's own value, by its origin as the observation shows origins (the
+        // canonical path, `~` for Git's home).
+        let p_git_origin = crate::fs::canonical_path(&p_git_path).ok().map(|c| {
+            crate::git::git_home(&self.config.env).map_or_else(
+                || c.to_string_lossy().into_owned(),
+                |h| crate::paths::display_path(&h, &c),
+            )
+        });
+        let user_value = obs.values.iter().find(|v| {
+            let origin = v
+                .origin_display
+                .as_deref()
+                .map(|o| o.strip_prefix("file:").unwrap_or(o));
+            origin.is_none() || origin != p_git_origin.as_deref()
+        });
+        let default = GitSshSelection {
+            source: GitSshSource::Default,
+            scope: None,
+            classification: match obs.default_ssh {
+                DefaultGitSsh::BundledMsys(_) => GitSshClassification::BundledMsys,
+                DefaultGitSsh::PathSsh => GitSshClassification::Other,
+                DefaultGitSsh::Undetermined => GitSshClassification::Undetermined,
+            },
+        };
+        let selection = match user_value {
+            Some(v) => {
+                let user = GitSshSelection {
+                    source: GitSshSource::Config,
+                    scope: Some(v.scope),
+                    classification: GitSshClassification::Other,
+                };
+                (user.clone(), user)
+            }
+            None => (
+                GitSshSelection {
+                    source: GitSshSource::Config,
+                    scope: Some(GitScope::Global),
+                    classification: GitSshClassification::VerifiedClient,
+                },
+                default,
+            ),
+        };
         let Some(file) = obs.file else {
             return Ok(());
         };
@@ -615,6 +948,7 @@ impl<'a> Builder<'a> {
                     .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?;
                 match gitedit::plan_remove(&bytes, &only.marker, &expected) {
                     Ok(after) => {
+                        self.git_selection = Some(selection);
                         steps.push(self.lock_step(&global)?);
                         steps.push(self.removal_splice(
                             FileRole::GitInclude,
@@ -673,6 +1007,46 @@ impl<'a> Builder<'a> {
             PathStyle::Unix => RenderPath::unix(path),
         }
         .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))
+    }
+
+    /// B for `marker` naming P at `p_path` (ADR-0007 §12.17 item 9): the target is
+    /// always absolute, never `~`, so B loads P whatever `$HOME` is. `Ok(Err(reason))`
+    /// when no literal Include can name P (`include_target_glob`: OpenSSH globs inside
+    /// a quoted Include argument, §12.16 item 3), which is manual mode before any edit.
+    fn include_block(
+        &self,
+        marker: &MarkerId,
+        p_path: &Path,
+        newline: Newline,
+    ) -> Result<Result<Rendered, &'static str>, PreviewError> {
+        let refused = |e: render::RenderError| PreviewError::Unavailable(format!("render: {e}"));
+        let target = RenderPath::absolute(p_path, self.style).map_err(refused)?;
+        let block = render::rendered_include_block(marker, &target, newline);
+        match block {
+            Ok(block) => Ok(Ok(block)),
+            Err(render::RenderError::Unmanageable(reason)) => Ok(Err(reason)),
+            Err(e) => Err(refused(e)),
+        }
+    }
+
+    /// Manual mode because a file cannot be managed (`unmanageable_file`), with the
+    /// reason as a finding (`unmanageable{<reason>}`, for example
+    /// `include_target_glob`).
+    fn manual_unmanageable(&mut self, reason: &str) {
+        self.manual(manual_reason::UNMANAGEABLE_FILE);
+        self.findings.push(Finding {
+            code: manual_reason::UNMANAGEABLE_FILE.to_owned(),
+            severity: FindingSeverity::Problem,
+            subject: ResourceRef {
+                kind: "projection".to_owned(),
+                id: None,
+            },
+            level: ProbeLevel::Static,
+            provenance: None,
+            message: "the include block cannot be written for this path; add it by hand".to_owned(),
+            next: NextAction::for_code(Code::ConfigConflict),
+            reason: Some(reason.to_owned()),
+        });
     }
 
     // --- steps ------------------------------------------------------------------------
@@ -826,9 +1200,12 @@ impl<'a> Builder<'a> {
         block: &FoundBlock,
         p_path: &Path,
     ) -> Result<FileStep, PreviewError> {
-        let p_render = self.render_path(p_path)?;
         let newline = block_newline(bytes, block);
-        let rendered = render::rendered_include_block(&block.marker, &p_render, newline);
+        let Ok(rendered) = self.include_block(&block.marker, p_path, newline)? else {
+            return Err(PreviewError::Unavailable(
+                "the include block does not name this P".to_owned(),
+            ));
+        };
         let removed = bytes
             .get(block.range.clone())
             .ok_or_else(|| PreviewError::Unavailable("block range".to_owned()))?;
@@ -868,11 +1245,38 @@ impl<'a> Builder<'a> {
             return Ok(None);
         };
         self.change(role, path, Some(&current), None);
+        // The base is the recorded digest, what the cleaner may remove (§5.8). A managed
+        // file whose content is no longer that is kept as `<name>.hm-conflict-<gen>`
+        // once the rollback committed (§5.5; `apply::keep_edited_managed`).
+        let current_sha = Sha256Hex::of(&current);
+        let recorded = self.recorded(role, path);
+        if matches!(role, FileRole::ManagedSsh | FileRole::GitManaged)
+            && recorded.as_ref().is_some_and(|r| *r != current_sha)
+        {
+            let name = file_name(path)?;
+            self.findings.push(Finding {
+                code: finding::PROJECTION_EDITED.to_owned(),
+                severity: FindingSeverity::Problem,
+                subject: ResourceRef {
+                    kind: "projection".to_owned(),
+                    id: None,
+                },
+                level: ProbeLevel::Static,
+                provenance: None,
+                message: format!(
+                    "{} was edited after Heimdall wrote it; the rollback keeps it as {name}.hm-conflict-{}",
+                    self.display(path),
+                    self.generation
+                ),
+                next: NextAction::for_code(Code::ConfigConflict),
+                reason: Some(conflict_reason(ConflictKind::ManagedFileEdited).to_owned()),
+            });
+        }
         Ok(Some(FileStep {
             role,
             path: path_string(path)?,
             base: Base::Present {
-                sha256: Sha256Hex::of(&current),
+                sha256: recorded.unwrap_or(current_sha),
             },
             target: Target::Absent,
             content: StepContent::absent(),
@@ -944,6 +1348,208 @@ impl<'a> Builder<'a> {
         });
     }
 
+    // --- consent (ADR-0007 §5.2) -------------------------------------------------------
+
+    /// The aliases the plan affects: those whose rendered section in effect changes
+    /// (added, changed or removed), or, for a rollback, every alias P renders. P is in
+    /// effect only through a Heimdall block in the user file.
+    fn affected_aliases(&self) -> (BTreeMap<String, Vec<u8>>, BTreeMap<String, Vec<u8>>) {
+        let has_block = |u: Option<&[u8]>| u.is_some_and(|u| !edit::find_blocks(u).is_empty());
+        let now = if has_block(self.user_now.as_deref()) {
+            self.p_now.as_deref().map(sections).unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        };
+        if self.ssh_all_affected {
+            let after = if self.ssh_repair {
+                now.clone()
+            } else {
+                BTreeMap::new()
+            };
+            return (now, after);
+        }
+        let after_user = self.user_after.as_deref().or(self.user_now.as_deref());
+        let after = match &self.p_after {
+            Some(p) if has_block(after_user) => sections(p),
+            Some(_) => BTreeMap::new(),
+            None => now.clone(),
+        };
+        (now, after)
+    }
+
+    /// ADR-0007 §5.2 through `sshconf::consent`: each affected item's behaviour now,
+    /// after the plan and on restore (its section removed now), statically and with
+    /// nothing executed, against the stored consent. A consented state counts only for
+    /// an item the projection record still manages (a first adoption, or an alias
+    /// added again after a rollback, always needs a decision).
+    fn consent(&self) -> Decided {
+        let (now, after) = self.affected_aliases();
+        let affected: Vec<String> = now
+            .keys()
+            .chain(after.keys())
+            .filter(|n| self.ssh_all_affected || now.get(*n) != after.get(*n))
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let record = self.spec.record.as_ref();
+        let managed = |item: ProjectionItem| record.and_then(|r| r.items.get(&item));
+        let consented = |id: &ItemId| {
+            self.spec
+                .consent
+                .items
+                .get(id)
+                .map(|c| consent::ConsentedStates {
+                    managed: c.managed.clone(),
+                    restore: c.restore.clone(),
+                })
+        };
+        let mut out = Decided::default();
+        let mut items = Vec::new();
+        let mut kept: Vec<(ItemId, BehaviorState, BehaviorState)> = Vec::new();
+        if !affected.is_empty() {
+            let paths = &self.config.paths;
+            let source =
+                BoundedSource::new(paths.clone(), self.config.env.clone(), Limits::default());
+            let user = paths.user_config.clone();
+            let mut planned = BTreeMap::new();
+            if let Some(b) = &self.user_after {
+                planned.insert(user.clone(), Some(b.clone()));
+            }
+            if let Some(b) = &self.p_after {
+                planned.insert(self.config.managed_ssh_path(), Some(b.clone()));
+            }
+            let mut restored = BTreeMap::new();
+            if let Some(b) = self.user_after.as_ref().or(self.user_now.as_ref()) {
+                restored.insert(user, Some(without_blocks(b)));
+            }
+            let after_source = Overlay {
+                inner: &source,
+                files: &planned,
+            };
+            let restore_source = Overlay {
+                inner: &source,
+                files: &restored,
+            };
+            let ssh = managed(ProjectionItem::Ssh);
+            for name in &affected {
+                let id = ItemId::alias(name);
+                let current = self.behavior(&source, name);
+                let after_state = self.behavior(&after_source, name);
+                let restore = self.behavior(&restore_source, name);
+                out.digest_view.push(serde_json::json!([
+                    id.0,
+                    current.digest,
+                    current.determined,
+                    after_state.digest,
+                    after_state.determined,
+                    restore.digest,
+                    restore.determined,
+                ]));
+                if after.contains_key(name) {
+                    out.restore.push(ItemRestore {
+                        item: id.clone(),
+                        digest: restore.digest.clone(),
+                    });
+                    kept.push((id.clone(), after_state.clone(), restore.clone()));
+                    if now.contains_key(name) {
+                        out.changed.push(name.clone());
+                    } else {
+                        out.added.push(name.clone());
+                    }
+                } else {
+                    out.removed.push(name.clone());
+                }
+                items.push(consent::ConsentItem {
+                    item: consent::ConsentItemId(name.clone()),
+                    current,
+                    after: after_state,
+                    consented: ssh
+                        .filter(|r| r.aliases.contains(name))
+                        .and_then(|_| consented(&id)),
+                });
+            }
+        }
+        if let Some((before, after_selection)) = &self.git_selection {
+            let id = ItemId::git_selection();
+            let current = selection_state(before);
+            let after_state = selection_state(after_selection);
+            out.digest_view.push(serde_json::json!([
+                id.0,
+                current.digest,
+                current.determined,
+                after_state.digest,
+                after_state.determined,
+            ]));
+            if !self.git_selection_is_rollback() {
+                kept.push((id.clone(), after_state.clone(), current.clone()));
+            }
+            items.push(consent::ConsentItem {
+                item: consent::ConsentItemId(id.0.clone()),
+                current,
+                after: after_state,
+                consented: managed(ProjectionItem::Git).and_then(|_| consented(&id)),
+            });
+        }
+        out.need = consent::classify(&items);
+        // Placeholder decision: `apply` records the intent's approval in its place.
+        let decision = DecisionId::from_random_bytes([0; 16]);
+        for (id, managed_state, restore) in kept {
+            out.record.items.insert(
+                id,
+                ConsentedStates {
+                    managed: managed_state,
+                    restore,
+                    decision: decision.clone(),
+                },
+            );
+        }
+        out
+    }
+
+    /// Whether the planned Git selection change is a rollback (nothing is consented
+    /// to for an item that the plan removes).
+    fn git_selection_is_rollback(&self) -> bool {
+        self.steps.iter().any(|s| {
+            s.role == FileRole::GitInclude
+                && matches!(s.content.view(), StepContentView::Splice { remove_len, .. } if remove_len > 0)
+        })
+    }
+
+    /// One alias's relevant behaviour under `source`, evaluated statically (U2's
+    /// evaluator; nothing executes).
+    fn behavior(&self, source: &dyn ConfigSource, alias: &str) -> BehaviorState {
+        let paths = &self.config.paths;
+        let mut roots = Roots::new(
+            Some(paths.user_config.clone()),
+            Some(paths.system_config.clone()),
+        );
+        roots.managed = Some(self.config.managed_ssh_path());
+        let query = Query {
+            host: alias.to_owned(),
+            user: None,
+            local_user: self
+                .config
+                .env
+                .get("USER")
+                .or_else(|| self.config.env.get("USERNAME"))
+                .and_then(|v| v.to_str())
+                .unwrap_or_default()
+                .to_owned(),
+            client_version: self
+                .config
+                .clients
+                .selected(ClientKind::Ssh)
+                .and_then(|c| c.version)
+                .unwrap_or(OpenSshVersion::MINIMUM),
+            invocation: Invocation::Shell,
+        };
+        let limits = Limits::default();
+        let mut set = ConfigSet::new();
+        let evaluation = evaluate(&mut set, source, &roots, &query, &limits);
+        behavior_state(&relevant(&evaluation))
+    }
+
     // --- the plan ---------------------------------------------------------------------
 
     fn finish(self, intent: PreviewIntent) -> Result<ProjectionPlan, PreviewError> {
@@ -966,24 +1572,35 @@ impl<'a> Builder<'a> {
             .git
             .as_ref()
             .is_some_and(|g| g.applicability == GitApplicability::Applicable);
+        // ADR-0007 §5.2: the decision follows the behaviour of the affected items, not
+        // the files written (§12.17 item 8).
+        let decided = if writes {
+            self.consent()
+        } else {
+            Decided::default()
+        };
         let consent = ConsentNeed {
-            decision_required: writes,
-            reasons: if writes {
-                self.added
-                    .iter()
-                    .chain(&self.removed)
-                    .map(|a| ConsentReason {
-                        item: a.clone(),
-                        kind: ConsentReasonKind::NewState,
-                    })
-                    .chain(git_applicable.then(|| ConsentReason {
-                        item: "git".to_owned(),
-                        kind: ConsentReasonKind::GitSelectionChanged,
-                    }))
-                    .collect()
-            } else {
-                Vec::new()
-            },
+            decision_required: decided.need.required,
+            reasons: decided
+                .need
+                .reasons
+                .iter()
+                .map(|r| ConsentReason {
+                    item: r.item.0.clone(),
+                    kind: match r.kind {
+                        consent::ConsentReasonKind::NewState => ConsentReasonKind::NewState,
+                        consent::ConsentReasonKind::ExposesInherited => {
+                            ConsentReasonKind::ExposesInherited
+                        }
+                        consent::ConsentReasonKind::UndeterminedState => {
+                            ConsentReasonKind::UndeterminedState
+                        }
+                        consent::ConsentReasonKind::GitSelectionChanged => {
+                            ConsentReasonKind::GitSelectionChanged
+                        }
+                    },
+                })
+                .collect(),
         };
         let plan_digest = plan_digest(
             &intent,
@@ -992,11 +1609,14 @@ impl<'a> Builder<'a> {
             &self.manual,
             &self.steps,
             self.git.as_ref(),
-            &self.findings,
+            Reported {
+                findings: &self.findings,
+                behavior: &decided.digest_view,
+            },
         )?;
         let diff_text = bounded_diff(&self.changes);
         let rollback = matches!(intent, PreviewIntent::Rollback { .. });
-        let summary = writes.then(|| ProjectionSummary {
+        let summary = decided.need.required.then(|| ProjectionSummary {
             intent: match intent {
                 PreviewIntent::Rollback { .. } => SummaryIntent::Rollback,
                 PreviewIntent::Repair { .. } => SummaryIntent::Repair,
@@ -1005,17 +1625,21 @@ impl<'a> Builder<'a> {
             added_aliases: if rollback {
                 Vec::new()
             } else {
-                self.added.clone()
+                decided.added.clone()
             },
-            changed_aliases: Vec::new(),
-            removed_aliases: self.removed.clone(),
+            changed_aliases: decided.changed.clone(),
+            removed_aliases: if rollback {
+                self.removed.clone()
+            } else {
+                decided.removed.clone()
+            },
             files: self
                 .changes
                 .iter()
                 .map(|c| c.path_display.clone())
                 .collect(),
             git: git_applicable || self.steps.iter().any(|s| s.role == FileRole::GitInclude),
-            restore: Vec::new(),
+            restore: decided.restore.clone(),
             diff_text,
         });
         let view = SetupPlan {
@@ -1033,11 +1657,149 @@ impl<'a> Builder<'a> {
         Ok(ProjectionPlan {
             view,
             generation: self.generation,
-            consent: ConsentRecord::default(),
+            consent: if decided.need.required {
+                decided.record
+            } else {
+                ConsentRecord::default()
+            },
             files: self.steps,
             summary,
         })
     }
+}
+
+/// What the plan reports that its digest binds besides its steps: the findings and
+/// the §5.2 behaviour digests.
+struct Reported<'a> {
+    findings: &'a [Finding],
+    behavior: &'a [serde_json::Value],
+}
+
+/// ADR-0007 §5.2's result for a plan.
+#[derive(Default)]
+struct Decided {
+    need: consent::ConsentNeed,
+    /// The consented states `item.committed` records (when a decision is required).
+    record: ConsentRecord,
+    /// The restore column.
+    restore: Vec<ItemRestore>,
+    added: Vec<String>,
+    changed: Vec<String>,
+    removed: Vec<String>,
+    /// The behaviour digests the plan digest binds.
+    digest_view: Vec<serde_json::Value>,
+}
+
+/// A configuration source that reads the planned bytes of the files a plan changes
+/// (`Some`), or no file (`None`), and every other file as it is.
+struct Overlay<'a> {
+    inner: &'a BoundedSource,
+    files: &'a BTreeMap<PathBuf, Option<Vec<u8>>>,
+}
+
+impl ConfigSource for Overlay<'_> {
+    fn read(&self, path: &Path) -> Result<SourceBytes, SourceError> {
+        match self.files.get(path) {
+            Some(Some(bytes)) => Ok(SourceBytes {
+                canonical: path.to_path_buf(),
+                bytes: bytes.clone(),
+            }),
+            Some(None) => Err(SourceError::NotFound),
+            None => self.inner.read(path),
+        }
+    }
+
+    fn glob(&self, pattern: &Path) -> Result<Vec<PathBuf>, SourceError> {
+        let mut found = match self.inner.glob(pattern) {
+            Ok(found) => found,
+            Err(SourceError::NotFound) => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        found.retain(|p| !matches!(self.files.get(p), Some(None)));
+        if matches!(self.files.get(pattern), Some(Some(_))) && !found.iter().any(|p| p == pattern) {
+            found.push(pattern.to_path_buf());
+        }
+        Ok(found)
+    }
+
+    fn account_home(&self) -> &Path {
+        self.inner.account_home()
+    }
+
+    fn user_dir(&self) -> &Path {
+        self.inner.user_dir()
+    }
+
+    fn system_dir(&self) -> &Path {
+        self.inner.system_dir()
+    }
+
+    fn env(&self, name: &str) -> Option<String> {
+        self.inner.env(name)
+    }
+
+    fn include_home(&self) -> Option<&Path> {
+        self.inner.include_home()
+    }
+}
+
+/// Each `Host <name>` section of Heimdall's rendered P, by name, without the blank
+/// lines that separate sections.
+fn sections(p: &[u8]) -> BTreeMap<String, Vec<u8>> {
+    let mut out: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let mut current: Option<String> = None;
+    for line in p.split_inclusive(|b| *b == b'\n') {
+        if let Some(rest) = line.strip_prefix(b"Host ") {
+            let name = String::from_utf8_lossy(rest).trim().to_owned();
+            out.insert(name.clone(), line.to_vec());
+            current = Some(name);
+        } else if let Some(name) = &current
+            && !line.iter().all(u8::is_ascii_whitespace)
+            && let Some(section) = out.get_mut(name)
+        {
+            section.extend_from_slice(line);
+        }
+    }
+    out
+}
+
+/// `bytes` with every Heimdall block removed (the restore column's user file).
+fn without_blocks(bytes: &[u8]) -> Vec<u8> {
+    let mut out = bytes.to_vec();
+    let mut blocks = edit::find_blocks(bytes);
+    blocks.sort_by_key(|b| std::cmp::Reverse(b.range.start));
+    for b in blocks {
+        if b.range.end <= out.len() {
+            out.drain(b.range);
+        }
+    }
+    out
+}
+
+/// Git's SSH selection as a behaviour state: the digest of its canonical form,
+/// determined unless its classification is undetermined.
+fn selection_state(selection: &GitSshSelection) -> BehaviorState {
+    let canonical = serde_json::to_value(selection)
+        .ok()
+        .and_then(|v| heimdall_contract::canonical::canonical_json(&v).ok())
+        .unwrap_or_default();
+    BehaviorState {
+        digest: Sha256Hex::of(&canonical),
+        determined: selection.classification != GitSshClassification::Undetermined,
+    }
+}
+
+/// The steps of a manual-mode SSH plan: the key files and P, with P (or, when P is
+/// unchanged, the last key file) as the item's commit step, so `apply` commits the
+/// record the doctor verifies the owner's block against. The user file is never
+/// planned.
+fn manual_steps(key_steps: Vec<FileStep>, p_step: Option<FileStep>) -> Vec<FileStep> {
+    let mut steps = key_steps;
+    steps.extend(p_step);
+    if let Some(last) = steps.last_mut() {
+        last.commit = true;
+    }
+    steps
 }
 
 fn not_applicable(reason: &str, before: GitSshSelection) -> GitConfigChange {
@@ -1051,6 +1813,18 @@ fn not_applicable(reason: &str, before: GitSshSelection) -> GitConfigChange {
         effective_after: before.clone(),
         effective_before: before,
     }
+}
+
+/// The manual reason of a `manual_mode` repair: `unmanageable_file` for that conflict,
+/// otherwise the conflict's own wire name (`marker_edited`, `include_conditional`, …).
+fn manual_for_conflict(kind: ConflictKind) -> String {
+    if kind == ConflictKind::UnmanageableFile {
+        return manual_reason::UNMANAGEABLE_FILE.to_owned();
+    }
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| conflict_reason(kind).to_owned())
 }
 
 fn conflict_reason(kind: ConflictKind) -> &'static str {
@@ -1073,8 +1847,9 @@ fn plan_digest(
     manual: &[String],
     steps: &[FileStep],
     git: Option<&GitConfigChange>,
-    findings: &[Finding],
+    bound: Reported<'_>,
 ) -> Result<PlanDigest, PreviewError> {
+    let Reported { findings, behavior } = bound;
     let steps: Vec<serde_json::Value> = steps
         .iter()
         .map(|s| {
@@ -1118,6 +1893,7 @@ fn plan_digest(
         "steps": steps,
         "git": git,
         "findings": codes,
+        "behavior": behavior,
     });
     let canonical = heimdall_contract::canonical::canonical_json(&value)
         .map_err(|_| PreviewError::Unavailable("plan not canonical".to_owned()))?;
@@ -1128,6 +1904,14 @@ fn new_marker() -> Result<MarkerId, PreviewError> {
     let hex = random_hex().map_err(|_| PreviewError::Unavailable("no random source".to_owned()))?;
     MarkerId::parse(&format!("hm-{}", &hex[..16]))
         .map_err(|e| PreviewError::Unavailable(format!("marker: {e}")))
+}
+
+/// The 1-based line of byte `offset`.
+fn line_of(bytes: &[u8], offset: usize) -> u32 {
+    let n = bytes
+        .get(..offset)
+        .map_or(0, |b| b.iter().filter(|c| **c == b'\n').count());
+    u32::try_from(n + 1).unwrap_or(u32::MAX)
 }
 
 /// The line ending of the found block (from its first line).

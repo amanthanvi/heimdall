@@ -13,9 +13,13 @@
 //!   `Port`: command-line values win (F1) and would bypass the configuration under test.
 //! * [`ScratchHome::client_command`] applies the **default-identity guard** first. It
 //!   evaluates the alias statically with `heimdall-sshconf` (which executes nothing)
-//!   and refuses with [`FixtureUnsafe`] unless the alias's identity list certainly has
-//!   an entry and every entry is a scratch path. Otherwise ssh would add its default
-//!   identity files, which come from the account home (F19, F20): the owner's keys.
+//!   under every invocation the command may make (a shell, a remote command, Git's
+//!   remote command, the `sftp` subsystem) and every session type a `SessionType`
+//!   directive in the tree can give (ADR-0007 §12.16 item 2), and refuses with
+//!   [`FixtureUnsafe`] unless, in each evaluation, the alias's identity list certainly
+//!   has an entry and every entry is a scratch path. Otherwise ssh would add its
+//!   default identity files, which come from the account home (F19, F20): the owner's
+//!   keys.
 //!   The guard also refuses an `IdentityAgent` that names anything but `none`,
 //!   `SSH_AUTH_SOCK` (the decoy) or a fixture endpoint, so a client never reaches the
 //!   owner's agents (m02-plan §0).
@@ -24,7 +28,7 @@
 //! path outside the scratch root before touching the filesystem. Its account home is a
 //! sentinel outside scratch, so a `~` path is never a scratch path and never read.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs;
@@ -34,13 +38,14 @@ use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use heimdall_sshconf::directive::KnownKeyword;
+use heimdall_sshconf::directive::{Keyword, KnownKeyword};
 use heimdall_sshconf::eval::{
     Candidate, Evaluation, Invocation, OpenSshVersion, Query, Resolved, UnresolvedReason, Value,
     evaluate,
 };
 use heimdall_sshconf::include::{ConfigSet, ConfigSource, Roots, SourceBytes, SourceError};
 use heimdall_sshconf::limits::Limits;
+use heimdall_sshconf::parse::Line;
 
 use crate::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig};
 
@@ -675,8 +680,16 @@ impl ScratchHome {
 
     /// Run the default-identity guard for `alias` (see the module documentation).
     ///
+    /// The command this guards may run a remote command, a subsystem or Git, and the
+    /// caller appends what it runs after the guard, so the alias is evaluated under
+    /// **every** invocation ([`guard_invocations`]: `Shell`, `Exec(None)`,
+    /// `Exec(Some(<sentinel>))` and `Subsystem("sftp")`), and under each of those again
+    /// with each session type a `SessionType` directive in the tree can give forced
+    /// first (as `-o SessionType=…` or `-N` would). It refuses when any one evaluation
+    /// fails the guard (ADR-0007 §12.16 item 2).
+    ///
     /// # Errors
-    /// [`FixtureUnsafe`].
+    /// [`FixtureUnsafe`]: the first refusal, in that order.
     pub fn check_alias(&self, alias: &str) -> Result<(), FixtureUnsafe> {
         if alias.is_empty()
             || alias.starts_with('-')
@@ -694,16 +707,45 @@ impl ScratchHome {
         }
         let source = ScratchSource::new(scope.clone(), env);
         let roots = Roots::new(Some(self.user_config.clone()), None);
-        let query = Query {
+        let query = |invocation: Invocation| Query {
             host: alias.to_owned(),
             user: None,
             local_user: local_user_name(),
             client_version: client_version(),
-            invocation: Invocation::Shell,
+            invocation,
         };
-        let mut set = ConfigSet::new();
-        let evaluation = evaluate(&mut set, &source, &roots, &query, &Limits::default());
-        judge_evaluation(&evaluation, &scope)
+        let mut session_types = BTreeSet::new();
+        for invocation in guard_invocations() {
+            let mut set = ConfigSet::new();
+            let evaluation = evaluate(
+                &mut set,
+                &source,
+                &roots,
+                &query(invocation),
+                &Limits::default(),
+            );
+            judge_evaluation(&evaluation, &scope)?;
+            session_types.extend(session_types_in(&set, &evaluation));
+        }
+        for session_type in session_types {
+            let forced = ForcedSessionType {
+                inner: &source,
+                user_config: &self.user_config,
+                line: format!("SessionType {session_type}\n"),
+            };
+            for invocation in guard_invocations() {
+                let mut set = ConfigSet::new();
+                let evaluation = evaluate(
+                    &mut set,
+                    &forced,
+                    &roots,
+                    &query(invocation),
+                    &Limits::default(),
+                );
+                judge_evaluation(&evaluation, &scope)?;
+            }
+        }
+        Ok(())
     }
 
     /// The client command for `alias`, after the default-identity guard, with only the
@@ -774,6 +816,99 @@ impl ScratchHome {
 impl Default for ScratchHome {
     fn default() -> Self {
         ScratchHome::new()
+    }
+}
+
+/// The remote command the guard's `Exec(Some(_))` evaluation uses: a name no fixture
+/// configuration matches on purpose. `Exec(None)` covers every other command, since
+/// its `Match command` is undecided.
+pub const GUARD_EXEC_SENTINEL: &str = "hm-fixture-guard-sentinel-command";
+
+/// Every invocation [`ScratchHome::check_alias`] evaluates (ADR-0007 §12.16 item 2):
+/// a shell, a remote command that is not known, the sentinel remote command, and the
+/// `sftp` subsystem (sftp, scp's SFTP mode).
+#[must_use]
+pub fn guard_invocations() -> [Invocation; 4] {
+    [
+        Invocation::Shell,
+        Invocation::Exec(None),
+        Invocation::Exec(Some(GUARD_EXEC_SENTINEL.to_owned())),
+        Invocation::Subsystem("sftp".to_owned()),
+    ]
+}
+
+/// The session types the `SessionType` directives of every file `evaluation` read can
+/// give, lower-cased (`none`, `subsystem`, `default`). A value that is not a plain word
+/// is left out: ssh refuses such a line wherever it is, so no client runs with it.
+fn session_types_in(set: &ConfigSet, evaluation: &Evaluation) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for id in evaluation.files.keys() {
+        let Some(file) = set.file(*id) else { continue };
+        for line in &file.lines {
+            if let Line::Directive(d) = line
+                && d.keyword == Keyword::Known(KnownKeyword::SessionType)
+                && let Some(value) = d.args.first()
+                && !value.is_empty()
+                && value.bytes().all(|b| b.is_ascii_alphabetic())
+            {
+                out.insert(value.to_ascii_lowercase());
+            }
+        }
+    }
+    out
+}
+
+/// The guard's source with one `SessionType` line read first: the user configuration
+/// is served with `line` in front (after a byte-order mark, when it has one), so the
+/// value is in force before any configured one, as a command-line `-o SessionType=…`
+/// is (F1). Every other read goes to `inner` unchanged; nothing is written.
+struct ForcedSessionType<'a> {
+    inner: &'a ScratchSource,
+    user_config: &'a Path,
+    line: String,
+}
+
+impl ConfigSource for ForcedSessionType<'_> {
+    fn read(&self, path: &Path) -> Result<SourceBytes, SourceError> {
+        let mut got = self.inner.read(path)?;
+        if path == self.user_config {
+            const BOM: &[u8] = b"\xEF\xBB\xBF";
+            let (bom, rest) = if got.bytes.starts_with(BOM) {
+                got.bytes.split_at(BOM.len())
+            } else {
+                (&[][..], got.bytes.as_slice())
+            };
+            let mut bytes = Vec::with_capacity(got.bytes.len() + self.line.len());
+            bytes.extend_from_slice(bom);
+            bytes.extend_from_slice(self.line.as_bytes());
+            bytes.extend_from_slice(rest);
+            got.bytes = bytes;
+        }
+        Ok(got)
+    }
+
+    fn glob(&self, pattern: &Path) -> Result<Vec<PathBuf>, SourceError> {
+        self.inner.glob(pattern)
+    }
+
+    fn account_home(&self) -> &Path {
+        self.inner.account_home()
+    }
+
+    fn user_dir(&self) -> &Path {
+        self.inner.user_dir()
+    }
+
+    fn system_dir(&self) -> &Path {
+        self.inner.system_dir()
+    }
+
+    fn env(&self, name: &str) -> Option<String> {
+        self.inner.env(name)
+    }
+
+    fn include_home(&self) -> Option<&Path> {
+        self.inner.include_home()
     }
 }
 

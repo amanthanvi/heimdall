@@ -18,6 +18,15 @@
 //! ignored, not invalid (`Evaluation::ignored`); `relevant::executing_constructs` also
 //! lists `XAuthLocation`, `PKCS11Provider` and `SecurityKeyProvider`.
 //!
+//! **Wave 2b (W2b-fix, ADR-0007 §12.16, §12.17 item 9).** A value that reads the
+//! environment is undetermined (`eval::UnresolvedReason::EnvironmentReference`), and
+//! the default agent's three forms are one determined state of role `default`;
+//! `Match sessiontype` reads the `SessionType` in force; an Include's `~` follows
+//! `include::ConfigSource::include_home`; B's target is absolute and literal
+//! (`render::render_include_block` refuses `~` and glob metacharacters, the latter as
+//! `unmanageable{include_target_glob}`); `relevant::executing_constructs` lists every
+//! `XAuthLocation`, `none` included.
+//!
 //! **Status (m02-plan wave 1).** Every type and signature here was fixed by the
 //! integrator in wave 0; U1 and U2 have written every body, so no `todo!()` remains.
 //! No request, CLI command, restart recovery or store method calls into this crate

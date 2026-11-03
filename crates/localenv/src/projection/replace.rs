@@ -1,8 +1,16 @@
 //! The file replacement primitive and the quarantine (m02-plan U4; ADR-0007 §5.3).
 //!
-//! **Frozen in wave 0** (m02-plan U0): every type and signature in this module that
-//! existed in wave 0. Everything marked "Additive (W2-U4a)" below was added in wave 2
-//! without changing a frozen signature.
+//! **Frozen API** (m02-plan U0, as amended by ADR-0007 §12.17 item 1): the name-taking
+//! [`DirHandle::learn_step`], [`exchange_at`], [`observe_step_at`], [`restore_with`] and
+//! [`rename_noreplace`], beside the wave-0 types and the wave-0 functions that name
+//! what they act on ([`DirHandle::open`], [`Quarantine`], [`validate`], [`stage`],
+//! [`settle`], [`observe_fingerprint`]). Everything marked "Additive (W2-U4a)" below
+//! was added in wave 2. The wave-0 `recheck`, `exchange`, `post_validate`, `restore`
+//! and `observe_step`, which carried no target name and had to learn one, are retired
+//! with their name-learning fallbacks (§12.17 item 1); [`recheck_at`],
+//! [`exchange_at`], [`post_validate_at`], [`restore_with`] and [`observe_step_at`]
+//! replace them. This API is internal to `heimdall-localenv` and does not cross the
+//! `ProjectionWriter` port.
 //!
 //! The primitive never settles by itself: settlement and restore are separate calls the
 //! transaction makes (M2-R01), and every discard goes through the quarantine with the
@@ -10,28 +18,28 @@
 //! `sys::QuarantineDir::remove_verified`.
 //!
 //! Steps (ADR-0007 §5.3): open and validate the directory → [`validate`] the base →
-//! [`stage`] the materialized bytes at the random staged name → [`recheck`] at the
-//! boundary → [`exchange`] (atomic exchange; Windows `ReplaceFileW`; a create is a
-//! no-replace rename) → [`post_validate`] → commit (the item) → [`settle`] what was
-//! displaced, or [`restore`] and then settle.
+//! [`stage`] the materialized bytes at the random staged name → [`recheck_at`] at the
+//! boundary → [`exchange_at`] (atomic exchange; Windows `ReplaceFileW`; a create is a
+//! no-replace rename) → [`post_validate_at`] → commit (the item) → [`settle`] what was
+//! displaced, or [`restore_with`] and then settle.
 //!
 //! **Names.** Every name is resolved relative to the [`DirHandle`] (`openat`,
-//! `renameat_with`), so a substituted parent path is never followed. The frozen
-//! signatures of [`recheck`], [`exchange`], [`post_validate`] and [`restore`] carry no
-//! target name, so a handle remembers what it has seen, keyed so that it is never
-//! ambiguous: the name each validated base identity was read from ([`validate`]), and
-//! each step's target, staged and displaced names ([`observe_step`],
-//! [`DirHandle::learn_step`]). A staged or displaced name in the ADR's form
-//! (`.<name>.hm-<generation>-<32 hex>`, `.<name>.hm-displaced-<generation>`) also names
-//! its target. When these sources disagree, or name nothing, the call refuses and moves
-//! nothing. The `*_at`/`*_with` functions take the names explicitly ([`StepNames`]).
+//! `renameat_with`), so a substituted parent path is never followed. Every call that
+//! acts on a name is given it: a name argument, or the step's [`StepNames`] (from the
+//! intent's `FileStep`, [`StepNames::of`]). No name is inferred: not from an identity
+//! the handle validated, not from the ADR's name form (`.<name>.hm-<generation>-<32
+//! hex>`), and not from an earlier validation of an absent base. A handle remembers
+//! only the permission bits of each base validated through it ([`validate`], keyed by
+//! name and identity, for [`stage`] and [`recheck_at`]) and the step names a
+//! transaction gave it with [`DirHandle::learn_step`], which is how [`stage`] finds the
+//! target whose permission bits S takes (ADR-0007 §5.3 step 3).
 //!
-//! **Test hooks.** The frozen functions fire no [`ReplaceHook`] point: the transaction
-//! fires them around its calls. [`restore_with`], [`settle_with`] and
-//! [`Quarantine::remove_verified_with`] fire the three points that lie *inside* a call
-//! (`BeforeRestoreExchange` after the pre-restore content check, `AfterSettleMove`
-//! between the move and its check, `AfterSettleCheck` between the final check and the
-//! removal), for a transaction that wants exactly the windows m02-plan U4 names.
+//! **Test hooks.** The functions fire no [`ReplaceHook`] point, except the three points
+//! that lie *inside* a call, which [`restore_with`], [`settle_with`] and
+//! [`Quarantine::remove_verified_with`] fire (`BeforeRestoreExchange` after the
+//! pre-restore content check, `AfterSettleMove` between the move and its check,
+//! `AfterSettleCheck` between the final check and the removal). The transaction fires
+//! every other point around its calls.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -79,14 +87,13 @@ fn io_text(e: &std::io::Error) -> String {
         .map_or_else(|| format!("{:?}", e.kind()), |c| format!("os error {c}"))
 }
 
-/// What a handle has seen (see the module's "Names").
+/// What a handle remembers (see the module's "Names"). Nothing here names a target
+/// that the caller did not give.
 #[derive(Debug, Default)]
 struct Known {
-    /// Present bases: identity, name, permission bits.
+    /// Present bases validated through the handle: identity, name, permission bits.
     validated: Vec<(FileIdentity, String, u32)>,
-    /// The name of the last base validated as absent, if the last validation was one.
-    last_absent: Option<String>,
-    /// Steps: target, staged and displaced names.
+    /// Steps given with [`DirHandle::learn_step`]: target, staged and displaced names.
     steps: Vec<StepNames>,
 }
 
@@ -205,11 +212,13 @@ impl DirHandle {
         self.source
     }
 
-    /// Additive (W2-U4a): remember `step`'s target, staged and displaced names, so
-    /// the frozen [`exchange`], [`post_validate`] and [`restore`] can name its target
-    /// (see the module's "Names"). [`observe_step`] calls it; a transaction that calls
-    /// [`restore`] without observing first calls it itself. A step whose directory is
-    /// not this handle's is ignored.
+    /// Frozen (ADR-0007 §12.17 item 1): remember `step`'s names ([`StepNames::of`]: the
+    /// target, staged and displaced names), so that [`stage`] at the step's staged name
+    /// gives S the permission bits of the target validated through this handle (ADR-0007
+    /// §5.3 step 3). A transaction calls it before [`stage`]; [`observe_step_at`] calls
+    /// it too. Remembering a step forgets any earlier step that shares one of its
+    /// names. A step whose directory is not this handle's, or whose names are not
+    /// single components, is ignored. Every other call takes its names explicitly.
     pub fn learn_step(&self, step: &FileStep) {
         if let Ok(names) = StepNames::of(step)
             && self.contains(&step.path)
@@ -262,12 +271,8 @@ impl DirHandle {
             Some(id) => {
                 k.validated.retain(|(i, n, _)| i != id && n != name);
                 k.validated.push((id.clone(), name.to_owned(), perm));
-                k.last_absent = None;
             }
-            None => {
-                k.validated.retain(|(_, n, _)| n != name);
-                k.last_absent = Some(name.to_owned());
-            }
+            None => k.validated.retain(|(_, n, _)| n != name),
         }
     }
 
@@ -281,12 +286,13 @@ impl DirHandle {
         k.steps.push(names);
     }
 
-    fn validated_by_identity(&self, id: &FileIdentity) -> Option<(String, u32)> {
+    /// The permission bits of the base validated at `name` with identity `id`.
+    fn validated_perm_at(&self, name: &str, id: &FileIdentity) -> Option<u32> {
         self.known()
             .validated
             .iter()
-            .find(|(i, _, _)| i.same_file(id))
-            .map(|(_, n, p)| (n.clone(), *p))
+            .find(|(i, n, _)| n == name && i.same_file(id))
+            .map(|(_, _, p)| *p)
     }
 
     fn validated_perm(&self, name: &str) -> Option<u32> {
@@ -297,98 +303,14 @@ impl DirHandle {
             .map(|(_, _, p)| *p)
     }
 
-    fn step_by_aside(&self, aside: &str) -> Option<StepNames> {
-        let k = self.known();
-        let mut found = k
+    /// The target of the step [`DirHandle::learn_step`] gave with staged name `staged`.
+    fn learned_target(&self, staged: &str) -> Option<String> {
+        self.known()
             .steps
             .iter()
-            .filter(|s| s.staged == aside || s.displaced.as_deref() == Some(aside));
-        let first = found.next()?.clone();
-        found.all(|s| s.target == first.target).then_some(first)
+            .find(|s| s.staged == staged)
+            .map(|s| s.target.clone())
     }
-
-    /// Resolve the target of `aside` (a staged or displaced name), from the base
-    /// identity validated through this handle, the step names it has seen, the ADR
-    /// name form, and (for a create only) the last base validated as absent. Every
-    /// source that names a target must name the same one.
-    fn resolve(
-        &self,
-        aside: &str,
-        base: Option<&FileIdentity>,
-        create: bool,
-    ) -> Result<StepNames, ReplaceError> {
-        let mut targets: Vec<String> = Vec::new();
-        if let Some(id) = base
-            && let Some((name, _)) = self.validated_by_identity(id)
-        {
-            targets.push(name);
-        }
-        let learned = self.step_by_aside(aside);
-        if let Some(s) = &learned {
-            targets.push(s.target.clone());
-        }
-        let parsed = parse_aside(aside);
-        if let Some((t, _)) = &parsed {
-            targets.push(t.clone());
-        }
-        if targets.is_empty()
-            && create
-            && let Some(last) = self.known().last_absent.clone()
-        {
-            targets.push(last);
-        }
-        let Some(target) = targets.first().cloned() else {
-            return Err(ReplaceError::Io("target name unknown".into()));
-        };
-        if targets.iter().any(|t| *t != target) {
-            return Err(ReplaceError::Io("target name ambiguous".into()));
-        }
-        Ok(match learned {
-            Some(s) => s,
-            None => StepNames {
-                // From a staged name: the displaced name is the staged name on Unix
-                // and `.<name>.hm-displaced-<generation>` on Windows (ADR-0007 §5.7).
-                displaced: parsed.and_then(|(_, generation)| generation).map(|g| {
-                    if cfg!(windows) {
-                        displaced_name_for(&target, g)
-                    } else {
-                        aside.to_owned()
-                    }
-                }),
-                target,
-                staged: aside.to_owned(),
-            },
-        })
-    }
-}
-
-/// ADR-0007 §5.7: a staged name `.<name>.hm-<generation>-<32 lowercase hex>` or a
-/// Windows displaced name `.<name>.hm-displaced-<generation>` names its target.
-/// Returns the target and, for a staged name, the generation.
-fn parse_aside(aside: &str) -> Option<(String, Option<u64>)> {
-    let rest = aside.strip_prefix('.')?;
-    let (target, suffix) = rest.rsplit_once(".hm-")?;
-    if target.is_empty() || !fsentry::is_component(target) {
-        return None;
-    }
-    let is_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    if let Some(generation) = suffix.strip_prefix("displaced-") {
-        return is_digits(generation).then(|| (target.to_owned(), None));
-    }
-    let (generation, random) = suffix.split_once('-')?;
-    let hex = random.len() == 32
-        && random
-            .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    if !is_digits(generation) || !hex {
-        return None;
-    }
-    Some((target.to_owned(), generation.parse().ok()))
-}
-
-/// The Windows displaced name of `target` (ADR-0007 §5.7).
-fn displaced_name_for(target: &str, generation: u64) -> String {
-    format!(".{target}.hm-displaced-{generation}")
 }
 
 /// Additive (W2-U4a): the names one step uses, relative to its directory (ADR-0007
@@ -806,7 +728,8 @@ pub struct StepRecord {
     pub validated: Option<Expected>,
     /// D, the identity `post_validated{mismatch}` recorded.
     pub displaced_mismatch: Option<FileIdentity>,
-    /// Q, from the open `file.settling`.
+    /// Q, from the step's `file.settling` (kept after `file.settled` and
+    /// `file.settle_conflict`).
     pub settling: Option<Expected>,
 }
 
@@ -819,11 +742,7 @@ impl StepRecord {
     /// other steps' receipts are ignored.
     #[must_use]
     pub fn from_receipts(index: u16, step: &FileStep, receipts: &[StageReceipt]) -> StepRecord {
-        let target_sha = match (&step.target, step.content.view()) {
-            (Target::Present { sha256 }, _) => Some(sha256.clone()),
-            (Target::Absent, StepContentView::LockHolder { bytes }) => Some(Sha256Hex::of(bytes)),
-            (Target::Absent, _) => None,
-        };
+        let target_sha = staged_digest(step);
         let base_sha = match &step.base {
             Base::Present { sha256 } => Some(sha256.clone()),
             Base::Absent => None,
@@ -1027,13 +946,14 @@ pub fn validate(dir: &DirHandle, name: &str, base: &Base) -> Result<Validated, R
 /// Create S exclusively at `staged_name` with `bytes`, fsync'd.
 ///
 /// Unix: `openat(O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC)`, then `fchmod` to the
-/// original's permission bits when `staged_name` names a target this handle validated
-/// as present (ADR-0007 §5.3 step 3; `& 0o755`), else to `mode` (0600 or 0644), so the
-/// umask cannot narrow it. Windows: `CREATE_NEW` with an owner-only DACL. Then the
-/// bytes are written and `fsync`'d, and S's identity is read from the open file. A
-/// name that exists is [`ReplaceError::Exists`]; nothing is ever removed, so a write
-/// that fails half-way leaves the partial file at its random name for recovery (rows
-/// F0x, F1).
+/// original's permission bits when `staged_name` is the staged name of a step given
+/// with [`DirHandle::learn_step`] whose target this handle validated as present
+/// (ADR-0007 §5.3 step 3; `& 0o755`), else to `mode` (0600 or 0644), so the umask
+/// cannot narrow it. The staged name's form names nothing (ADR-0007 §12.17 item 1).
+/// Windows: `CREATE_NEW` with an owner-only DACL. Then the bytes are written and
+/// `fsync`'d, and S's identity is read from the open file. A name that exists is
+/// [`ReplaceError::Exists`]; nothing is ever removed, so a write that fails half-way
+/// leaves the partial file at its random name for recovery (rows F0x, F1).
 ///
 /// # Errors
 /// [`ReplaceError`].
@@ -1057,11 +977,8 @@ pub fn stage(
             "materialized bytes do not match their digest".into(),
         ));
     }
-    let target = dir
-        .step_by_aside(staged_name)
-        .map(|s| s.target)
-        .or_else(|| parse_aside(staged_name).map(|(t, _)| t));
-    let perm = target
+    let perm = dir
+        .learned_target(staged_name)
         .as_deref()
         .and_then(|t| dir.validated_perm(t))
         .map_or(mode.perm(), |p| (p & 0o755) | 0o600);
@@ -1091,37 +1008,13 @@ pub fn stage(
 
 // --- step 4: recheck ---------------------------------------------------------------
 
-/// Re-check the base at the boundary (step 4).
-///
-/// A present base is found by its identity among the bases validated through `dir`
-/// and re-checked by [`recheck_at`]. For an absent base, the name last validated as
-/// absent through `dir` must still be absent; the create itself is a no-replace rename
-/// that refuses an existing name, which is the atomic form of this check.
-///
-/// # Errors
-/// [`ReplaceRefusal`].
-pub fn recheck(dir: &DirHandle, validated: &Validated) -> Result<(), ReplaceRefusal> {
-    let name = match &validated.identity {
-        Some(id) => match dir.validated_by_identity(id) {
-            Some((name, _)) => name,
-            None => {
-                return Err(ReplaceRefusal::Unmanageable(Unmanageable::Io(
-                    "base not validated through this handle".into(),
-                )));
-            }
-        },
-        None => match dir.known().last_absent.clone() {
-            Some(name) => name,
-            None => return Ok(()),
-        },
-    };
-    recheck_at(dir, &name, validated)
-}
-
-/// Additive (W2-U4a): [`recheck`] of the named entry. The entry must still be V
-/// (same identity, type, owner, link count and mode) with the base digest, or still be
-/// absent; anything else is [`ReplaceRefusal::BaseChanged`]. This narrows the race
-/// window; it does not close it (ADR-0007 §5.3 step 4).
+/// Re-check the base at `name` at the boundary (ADR-0007 §5.3 step 4; it replaces the
+/// retired nameless `recheck`, §12.17 item 1). The entry must still be V (same
+/// identity, type, owner, link count and, when V was validated at `name` through this
+/// handle, mode) with the base digest, or still be absent; anything else is
+/// [`ReplaceRefusal::BaseChanged`]. This narrows the race window; it does not close
+/// it. For an absent base the create itself is a no-replace rename that refuses an
+/// existing name, which is the atomic form of this check.
 ///
 /// # Errors
 /// [`ReplaceRefusal`].
@@ -1151,8 +1044,8 @@ pub fn recheck_at(
         Err(e) => return Err(unmanageable(&e)),
     };
     let perm_same = dir
-        .validated_by_identity(id)
-        .is_none_or(|(_, perm)| perm == meta.perm);
+        .validated_perm_at(name, id)
+        .is_none_or(|perm| perm == meta.perm);
     if !meta.identity.same_file(id) || check_file_meta(&meta).is_err() || !perm_same {
         return Err(ReplaceRefusal::BaseChanged);
     }
@@ -1164,26 +1057,8 @@ pub fn recheck_at(
 
 // --- step 5: exchange --------------------------------------------------------------
 
-/// Exchange S with the path (or create it with no-replace when `validated` is
-/// `None`).
-///
-/// The target is resolved from what `dir` has seen (see the module's "Names"); an
-/// unknown or ambiguous target is [`ReplaceError::Io`] and nothing moves. Then
-/// [`exchange_at`].
-///
-/// # Errors
-/// [`ReplaceError`].
-pub fn exchange(
-    dir: &DirHandle,
-    staged: &Staged,
-    validated: Option<&Validated>,
-) -> Result<Exchanged, ReplaceError> {
-    let base = validated.and_then(|v| v.identity.as_ref());
-    let names = dir.resolve(&staged.name, base, base.is_none())?;
-    exchange_at(dir, &names, staged, validated)
-}
-
-/// Additive (W2-U4a): [`exchange`] with explicit names.
+/// Frozen (ADR-0007 §12.17 item 1): exchange S with the path named by `names`, or
+/// create the path with no-replace when `validated` is `None` or has no identity.
 ///
 /// S must still be at its staged name (identity, regular, owned, one link), else
 /// [`ReplaceError::Io`] and nothing moves. A replace (`validated` with an identity):
@@ -1258,36 +1133,19 @@ pub fn exchange_at(
             .map_err(map)?;
         None
     };
-    dir.remember_step(names.clone());
     Ok(Exchanged { displaced_name })
 }
 
 // --- step 6: post-validate ---------------------------------------------------------
 
-/// Check that the path is S and the displaced entry is V.
+/// Check that the path named by `names` is S and the displaced entry is V (ADR-0007
+/// §5.3 step 6; it replaces the retired nameless `post_validate`, §12.17 item 1).
 ///
-/// [`PostValidation::Mismatch`] with `observed: None` when the target is unknown, the
-/// path does not hold S, or nothing readable is at the displaced name (the table then
-/// decides from an observation: F3b, F3c, C6a); with `observed: Some(identity)` when the
-/// path is S and the displaced entry is another identity, or V with other content.
-#[must_use]
-pub fn post_validate(
-    dir: &DirHandle,
-    exchanged: &Exchanged,
-    validated: &Validated,
-    staged: &Staged,
-) -> PostValidation {
-    match dir.resolve(
-        &staged.name,
-        validated.identity.as_ref(),
-        validated.identity.is_none(),
-    ) {
-        Ok(names) => post_validate_at(dir, &names, exchanged, validated, staged),
-        Err(_) => PostValidation::Mismatch { observed: None },
-    }
-}
-
-/// Additive (W2-U4a): [`post_validate`] with explicit names.
+/// [`PostValidation::Mismatch`] with `observed: None` when the names are not single
+/// components, the path does not hold S, or nothing readable is at the displaced name
+/// (the table then decides from an observation: F3b, F3c, C6a); with `observed:
+/// Some(identity)` when the path is S and the displaced entry is another identity, not
+/// Heimdall's shape, or V with other content.
 #[must_use]
 pub fn post_validate_at(
     dir: &DirHandle,
@@ -1351,56 +1209,19 @@ pub enum RestoreFailure<E> {
     Io(String),
 }
 
-/// Exchange back: first check that the path holds S with the target digest
-/// (`at_path`), else hold and move nothing (QR13).
+/// Frozen (ADR-0007 §12.17 item 1): the restore of ADR-0007 §5.3 step 7 with the
+/// receipt written where the ADR puts it. It replaces the retired nameless `restore`.
 ///
-/// The target (and on Windows the staged name) is resolved from what `dir` has seen
-/// (see the module's "Names"). An unknown target is `Held(Unmatched)`; a failed
-/// exchange is `Held(Unobservable)`. Then [`restore_with`] with no callback.
-#[must_use]
-pub fn restore(
-    dir: &DirHandle,
-    exchanged: &Exchanged,
-    at_path: &Expected,
-    aside: FileIdentity,
-) -> RestoreOutcome {
-    let unknown = || {
-        RestoreOutcome::Held(
-            HoldReason::Unmatched,
-            restore_observation(EntryObs::Unobservable, EntryObs::Unobservable),
-        )
-    };
-    let Some(displaced) = exchanged.displaced_name.as_deref() else {
-        return unknown();
-    };
-    let Ok(mut names) = dir.resolve(displaced, Some(&aside), false) else {
-        return unknown();
-    };
-    // Windows restores S to its own staged name, which only the step's names give
-    // (the displaced name is `.<name>.hm-displaced-<generation>`).
-    if cfg!(windows) && names.staged == displaced {
-        return unknown();
-    }
-    names.displaced = Some(displaced.to_owned());
-    match restore_with(dir, &names, at_path, &aside, HookAt::NONE, || {
-        Ok::<(), std::convert::Infallible>(())
-    }) {
-        Ok(outcome) => outcome,
-        Err(_) => RestoreOutcome::Held(
-            HoldReason::Unobservable,
-            restore_observation(EntryObs::Unobservable, EntryObs::Unobservable),
-        ),
-    }
-}
-
-/// Additive (W2-U4a): the restore of ADR-0007 §5.3 step 7 with the receipt written
-/// where the ADR puts it.
-///
-/// 1. **Before anything moves:** the path must hold S (`at_path.identity`) with the
-///    target digest, and the displaced name D (`aside`, by identity alone, whatever it
-///    is). S with other content is
+/// 1. **Before anything moves:** the path (`names.target`) must hold S
+///    (`at_path.identity`) with the target digest, and the displaced name
+///    (`names.displaced`) must hold D (`aside`): that identity, with Heimdall's shape
+///    (a regular file owned by the user with one link), whatever its content. A
+///    symlink, a hard link or any other entry with D's identity is X (ADR-0007 §5.7
+///    normalization rule 1; §12.17 item 5). S with other content is
 ///    `Held(ActiveEntryModified)` (QR13, row F5a); anything else is
-///    `Held(ThirdWriter)` (row F5d). Nothing moves.
+///    `Held(ThirdWriter)` (row F5d). Nothing moves. Names without a displaced name
+///    are `Held(Unmatched)`: a create is restored by settling its path entry
+///    (§5.3 step 8), never by this call.
 /// 2. `before_exchange` runs (the transaction writes `file.restore_started`); an error
 ///    is [`RestoreFailure::BeforeExchange`] and nothing moves.
 /// 3. `BeforeRestoreExchange` fires, then the restore exchange: Unix the atomic
@@ -1520,13 +1341,14 @@ fn restore_symbols(
             }
         }
     };
-    // D is matched by identity alone: it goes back to the path whatever it holds (a
-    // symlink a writer substituted included; ADR-0007 §5.3 step 7).
+    // D goes back to the path whatever its content (ADR-0007 §5.3 step 7), but only
+    // with Heimdall's shape: a symlink, a hard link or a foreign owner is X whatever
+    // its identity (§5.7 normalization rule 1; §12.17 item 5).
     let aside_obs = match fsentry::lstat(dir.dir(), displaced, dir.source) {
         Ok(None) => EntryObs::Absent,
         Err(_) => EntryObs::Unobservable,
         Ok(Some(meta)) => {
-            if meta.identity.same_file(aside) {
+            if meta.is_heimdall_shape() && meta.identity.same_file(aside) {
                 EntryObs::Recorded {
                     which: RecordedRole::D,
                     content: ContentState::Unchanged,
@@ -1539,8 +1361,8 @@ fn restore_symbols(
     (path, aside_obs)
 }
 
-/// The observation a `Held` restore reports. `restore` has no recovery state, so the
-/// observation is normalized against the state a due restore after a recorded
+/// The observation a `Held` restore reports. [`restore_with`] has no recovery state,
+/// so the observation is normalized against the state a due restore after a recorded
 /// mismatch has (which admits D at the aside name).
 fn restore_observation(path: EntryObs, aside: EntryObs) -> StepObservation {
     let state = RecoveryState {
@@ -1779,18 +1601,28 @@ fn aside_names(step: &FileStep) -> Vec<String> {
 /// The ADR-0007 §5.7 classifier for one name: rule 1 (not Heimdall's shape → X),
 /// then rule 2's role precedence (Q only at the settlement's source and slot, S, D
 /// only when distinct from S and V, V only with a present base), each with its content
-/// part.
+/// part. Rows F0x and K0x have their one home here (ADR-0007 §12.17 item 2): before
+/// any receipt of the step no identity is recorded, so an entry with Heimdall's shape
+/// at the step's own random staged name is its S (K), classified by digest.
 struct Classifier<'a> {
     step: &'a FileStep,
     record: &'a StepRecord,
     settling: Option<&'a SettlingAt>,
+    /// Rows F0x/K0x: the target digest (the holder digest for `git_lock`) when the
+    /// step has no receipt (effective phase none, no recorded S); `None` otherwise, or
+    /// when the step has nothing to stage (a removal).
+    unrecorded: Option<Sha256Hex>,
 }
 
 impl Classifier<'_> {
+    /// Classify the entry `found` at one name. `q_eligible`: the name is the
+    /// settlement's source or slot. `staged_name`: the name is the step's own staged
+    /// name (never the path, so never the lock name).
     fn classify(
         &self,
         found: std::io::Result<Option<(EntryMeta, Option<std::fs::File>)>>,
         q_eligible: bool,
+        staged_name: bool,
     ) -> EntryObs {
         let (meta, file) = match found {
             Ok(None) => return EntryObs::Absent,
@@ -1835,59 +1667,52 @@ impl Classifier<'_> {
         {
             return recorded(RecordedRole::V, v);
         }
+        // Rows F0x/K0x: a crash between the exclusive create and `file.staged`. The
+        // evidence is the 128-bit random name fixed in the intent, never the content;
+        // the digest only tells S from S′ (settlement keeps an S′).
+        if staged_name && let Some(target) = &self.unrecorded {
+            return EntryObs::Recorded {
+                which: RecordedRole::S,
+                content: content_state(file.as_ref(), target),
+            };
+        }
         EntryObs::Foreign
     }
 }
 
-/// Observe a step's path, aside and slot for recovery (`reconcile` only).
-///
-/// [`observe_step_at`] with the settlement taken from the state (an open
-/// `file.settling`); once `file.settled` is the effective phase, the slot is found in
-/// the quarantine by Q's recorded identity. Pass the exact settlement with
-/// [`observe_step_at`] (from [`SettlingAt::from_receipts`]) when it is known.
-#[must_use]
-pub fn observe_step(
-    dir: &DirHandle,
-    step: &FileStep,
-    record: &StepRecord,
-    state: &RecoveryState,
-) -> StepObservation {
-    let settling = if state.settlement.is_some() {
-        SettlingAt::from_state(state).or_else(|| find_slot(dir, record))
-    } else {
-        None
-    };
-    observe_step_at(dir, step, record, state, settling.as_ref())
-}
-
-/// The slot holding Q's identity, when the quarantine has exactly one such entry. A
-/// quarantine that no longer validates gives a settlement whose slot cannot be named,
-/// which [`observe_step_at`] observes as `?`.
-fn find_slot(dir: &DirHandle, record: &StepRecord) -> Option<SettlingAt> {
-    let q = record.settling.as_ref()?;
-    let at = |slot: String| SettlingAt {
-        name: String::new(),
-        slot,
-        expected: q.clone(),
-    };
-    match Quarantine::open_existing(dir) {
-        Ok(None) => None,
-        Ok(Some(quarantine)) => {
-            fsentry::find_by_identity(quarantine.dir.dir(), &q.identity, dir.source).map(at)
-        }
-        Err(_) => Some(at(String::new())),
+/// The digest of the bytes a step stages: the target digest, or for the `git_lock`
+/// step the holder line's. `None` when the step stages nothing (a removal).
+fn staged_digest(step: &FileStep) -> Option<Sha256Hex> {
+    match (&step.target, step.content.view()) {
+        (Target::Present { sha256 }, _) => Some(sha256.clone()),
+        (Target::Absent, StepContentView::LockHolder { bytes }) => Some(Sha256Hex::of(bytes)),
+        (Target::Absent, _) => None,
     }
 }
 
-/// Additive (W2-U4a): [`observe_step`] with the step's settlement given explicitly.
+/// Frozen (ADR-0007 §12.17 item 1): observe a step's path, aside and slot for recovery
+/// (`reconcile` only). It replaces the retired `observe_step`, which searched the
+/// quarantine for a slot it was not given: the step's settlement (its source name and
+/// slot, [`SettlingAt::from_receipts`]) is passed explicitly. With none, the slot is
+/// `∅` when the state has no settlement and `?` when it has one (fail closed: the
+/// slot cannot be named, so it cannot be shown empty).
 ///
 /// Each name gets one symbol of ADR-0007 §5.7 (∅, S/S′, V/V′, D, Q/Q′, X, ?), and the
 /// result is built by `StepObservation::normalize`. A directory that no longer
-/// validates, or is not the step's, makes every name `?`. On Unix, when K's recorded
-/// identity has no birth time, every entry at the `git_lock` step's path (the lock
-/// name) is X (ADR-0007 §5.6, QR15). On Windows both aside names are observed, and
-/// both holding an entry is X. Moves nothing; it records the step's names in `dir`
-/// ([`DirHandle::learn_step`]).
+/// validates, or is not the step's, makes every name `?`.
+///
+/// * **Rows F0x and K0x** (§12.17 item 2). For a step with no receipt (effective
+///   phase none and no recorded S), an entry at the step's own staged name that is a
+///   regular file owned by the user with link count 1 is `Recorded { S, .. }` (K for
+///   the `git_lock` step): `Unchanged` when its content hashes to the target digest
+///   (the holder digest for K) within 1 MiB, `Modified` otherwise. Any other entry
+///   there is X (rows F0z, K0z). This is never done at the path, so never at the lock
+///   name, nor at a Windows displaced name.
+/// * On Unix, when K's recorded identity has no birth time, every entry at the
+///   `git_lock` step's path (the lock name) is X (ADR-0007 §5.6, QR15).
+/// * On Windows both aside names are observed, and both holding an entry is X.
+///
+/// Moves nothing; it records the step's names in `dir` ([`DirHandle::learn_step`]).
 #[must_use]
 pub fn observe_step_at(
     dir: &DirHandle,
@@ -1897,11 +1722,14 @@ pub fn observe_step_at(
     settling: Option<&SettlingAt>,
 ) -> StepObservation {
     let shape = StepShape::of(step);
+    // A settlement on record whose slot the caller did not give is `?` at the slot: the
+    // quarantine is never searched for it (the retired `observe_step` did).
+    let slot_on_record = settling.is_some() || state.settlement.is_some();
     let unobservable = || {
         normalized(
             EntryObs::Unobservable,
             EntryObs::Unobservable,
-            if settling.is_some() {
+            if slot_on_record {
                 EntryObs::Unobservable
             } else {
                 EntryObs::Absent
@@ -1925,6 +1753,9 @@ pub fn observe_step_at(
         step,
         record,
         settling,
+        unrecorded: (state.phase.is_none() && record.staged.is_none())
+            .then(|| staged_digest(step))
+            .flatten(),
     };
     let q_at = |name: &str| settling.is_some_and(|s| s.name == name);
     let lock_blind = cfg!(unix)
@@ -1943,12 +1774,20 @@ pub fn observe_step_at(
         c.classify(
             fsentry::inspect(dir.dir(), target, dir.source),
             q_at(target),
+            false,
         )
     };
+    let is_staged = |n: &str| step.staged_name.as_deref() == Some(n) && n != target;
     let mut asides = aside_names(step)
         .into_iter()
         .filter(|n| fsentry::is_component(n))
-        .map(|n| c.classify(fsentry::inspect(dir.dir(), &n, dir.source), q_at(&n)))
+        .map(|n| {
+            c.classify(
+                fsentry::inspect(dir.dir(), &n, dir.source),
+                q_at(&n),
+                is_staged(&n),
+            )
+        })
         .filter(|o| *o != EntryObs::Absent)
         .collect::<Vec<_>>();
     let aside = match asides.len() {
@@ -1958,12 +1797,17 @@ pub fn observe_step_at(
         _ => EntryObs::Foreign,
     };
     let slot = match settling {
+        None if slot_on_record => EntryObs::Unobservable,
         None => EntryObs::Absent,
         Some(s) if !fsentry::is_component(&s.slot) => EntryObs::Unobservable,
         Some(s) => match Quarantine::open_existing(dir) {
             Ok(None) => EntryObs::Absent,
             Err(_) => EntryObs::Unobservable,
-            Ok(Some(q)) => c.classify(fsentry::inspect(q.dir.dir(), &s.slot, q.dir.source()), true),
+            Ok(Some(q)) => c.classify(
+                fsentry::inspect(q.dir.dir(), &s.slot, q.dir.source()),
+                true,
+                false,
+            ),
         },
     };
     normalized(path, aside, slot, state, shape)
@@ -1971,8 +1815,10 @@ pub fn observe_step_at(
 
 /// Fingerprint a held step's names (`observe_held` only; M2-T03).
 ///
-/// [`observe_fingerprint_at`] with the slot of an open `file.settling` from the
-/// state.
+/// [`observe_fingerprint_at`] with the slot of the step's `file.settling` while that
+/// receipt is the effective phase. The state names no slot once `file.settled` or
+/// `file.settle_conflict` follows; pass the slot with [`observe_fingerprint_at`] then
+/// (from [`SettlingAt::from_receipts`]).
 #[must_use]
 pub fn observe_fingerprint(
     dir: &DirHandle,
@@ -2057,35 +1903,6 @@ fn fingerprint(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn adr_aside_names_name_their_target() {
-        let hex = "0123456789abcdef0123456789abcdef";
-        assert_eq!(
-            parse_aside(&format!(".config.hm-3-{hex}")),
-            Some(("config".to_owned(), Some(3)))
-        );
-        assert_eq!(
-            parse_aside(".config.hm-displaced-3"),
-            Some(("config".to_owned(), None))
-        );
-        assert_eq!(
-            parse_aside(&format!(".a.hm-b.hm-12-{hex}")),
-            Some(("a.hm-b".to_owned(), Some(12)))
-        );
-        for bad in [
-            "config",
-            ".config.hm-3-XYZ",
-            ".config.hm-x-0123456789abcdef0123456789abcdef",
-            ".config.hm-3-0123456789ABCDEF0123456789ABCDEF",
-            "..hm-3-0123456789abcdef0123456789abcdef",
-            ".config.hm-displaced-",
-            ".config.hm-displaced-x",
-        ] {
-            assert_eq!(parse_aside(bad), None, "{bad}");
-        }
-        assert_eq!(displaced_name_for("config", 4), ".config.hm-displaced-4");
-    }
 
     #[test]
     fn modes_map_to_their_permission_bits() {

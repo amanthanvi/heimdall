@@ -10,6 +10,12 @@
 //! `~/.ssh/<path>`) is expanded by `glob(3)` with `GLOB_TILDE`, which consults `$HOME`
 //! first. Under a `$HOME` other than the account's, those includes resolve under
 //! `$HOME`; the doctor reports `home_mismatch` for that case.
+//!
+//! ADR-0007 §12.17 item 9: `crate::fs::BoundedSource` therefore reports the account
+//! home as the include home only when the runtime's `HOME` is unset or names the
+//! account home (`crate::fs::include_home_for`); otherwise such an `Include` is
+//! undetermined (reason `environment_reference`), and B's own target is always an
+//! absolute path, so B loads P whatever `$HOME` is.
 
 use std::path::{Path, PathBuf};
 

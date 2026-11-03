@@ -35,7 +35,23 @@
 //!   an include path that cannot be expanded, a line that is not UTF-8) may set
 //!   anything. Every directive that may still be unset then gets an **opaque
 //!   candidate**: a [`Value`] with no arguments whose span is the unreadable point.
-//!   No real value has empty arguments (a directive without one is `invalid`).
+//!   No real value has empty arguments (a directive without one is `invalid`);
+//! * **environment references are not determined** (ADR-0007 §12.16 item 1, §12.17
+//!   item 9). The runtime's environment is not that of a later `ssh`, so a value that
+//!   reads a variable applies under an unknown condition with reason
+//!   [`UnresolvedReason::EnvironmentReference`], whatever the variable holds here: a
+//!   `${VAR}` in a directive that expands it, an `IdentityAgent` beginning with `$`
+//!   other than `$SSH_AUTH_SOCK`, and an `Include` whose path holds a `${VAR}` (its
+//!   matches are read under an unknown condition and an opaque point stands for any
+//!   other file). An `Include` whose `~` follows a `HOME` that is not the account
+//!   home ([`crate::include::ConfigSource::include_home`]) is not read at all: it is
+//!   opaque, reasons `EnvironmentReference` and `IncludeUnreadable`. `IdentityAgent
+//!   SSH_AUTH_SOCK`, `IdentityAgent $SSH_AUTH_SOCK` and an unset `IdentityAgent` are
+//!   the default agent, which stays determined;
+//! * `Match sessiontype` reads the `SessionType` in force in the pass when there is
+//!   one (`default` defers to the invocation), otherwise the invocation; an
+//!   undetermined `SessionType` makes it unknown (ADR-0007 §12.16 item 4). A subsystem
+//!   invocation's `-s` is read first, so no `SessionType` line takes effect for it.
 //!
 //! **Source role** (ADR-0007 §5.2, §12.15 item 3). Every [`Value`] carries the role of
 //! the file it was read from: [`SourceRole::Managed`] for P, the Heimdall-owned file
@@ -236,6 +252,33 @@ pub enum UnresolvedReason {
     EnvUnset(String),
     /// A `%` token whose value is not known statically.
     TokenUnavailable(char),
+    /// The value reads the environment, which is not the environment of a later `ssh`
+    /// (ADR-0007 §12.16 item 1, §12.17 item 9): a `${VAR}` in a directive that expands
+    /// it, an `IdentityAgent` whose value begins with `$` other than `$SSH_AUTH_SOCK`,
+    /// an `Include` whose path holds a `${VAR}`, or an `Include` whose `~` (or the
+    /// implicit `~/.ssh/` of a relative user `Include`) follows a `HOME` that is not the
+    /// account home. Stable name `environment_reference`.
+    EnvironmentReference,
+}
+
+impl UnresolvedReason {
+    /// A stable `snake_case` name for the reason (`environment_reference`,
+    /// `match_exec` …); [`UnresolvedReason::EnvUnset`] and
+    /// [`UnresolvedReason::TokenUnavailable`] name the kind only, never the variable
+    /// or the token.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            UnresolvedReason::MatchExec => "match_exec",
+            UnresolvedReason::MatchLocalNetwork => "match_localnetwork",
+            UnresolvedReason::Canonicalization => "canonicalization",
+            UnresolvedReason::IncludeUnreadable => "include_unreadable",
+            UnresolvedReason::BoundExceeded => "bound_exceeded",
+            UnresolvedReason::EnvUnset(_) => "env_unset",
+            UnresolvedReason::TokenUnavailable(_) => "token_unavailable",
+            UnresolvedReason::EnvironmentReference => "environment_reference",
+        }
+    }
 }
 
 /// An unresolved point with its location.
@@ -722,6 +765,11 @@ struct Frame {
     cur: Ctx,
     /// The source role of the file being read.
     role: SourceRole,
+    /// The condition the matches of this file's current `Include` argument are read
+    /// under, on top of the section's: unknown when the argument reads the environment
+    /// (ADR-0007 §12.16 item 1), so the runtime's file is only one of the files a
+    /// later `ssh` may read.
+    include_cond: Tri,
 }
 
 struct Walker<'a> {
@@ -766,7 +814,10 @@ impl IncludeVisitor for Walker<'_> {
             .entry(visit.source)
             .or_insert_with(|| visit.canonical.clone());
         let ctx = match self.frames.last() {
-            Some(parent) if visit.depth > 0 => parent.cur.clone(),
+            Some(parent) if visit.depth > 0 => Ctx {
+                cond: parent.cur.cond.and(parent.include_cond),
+                span: parent.cur.span,
+            },
             _ => Ctx {
                 cond: self.pass.ctx,
                 span: None,
@@ -776,6 +827,7 @@ impl IncludeVisitor for Walker<'_> {
             cur: ctx.clone(),
             ctx,
             role: visit.role,
+            include_cond: Tri::True,
         });
     }
 
@@ -788,18 +840,42 @@ impl IncludeVisitor for Walker<'_> {
     }
 
     fn include(&mut self, visit: &Visit, span: Span, arg: &IncludeArg) {
-        let Err(error) = &arg.matches else {
-            return;
-        };
         let cur = self.frames.last().map(|f| f.cur.clone());
         let (cond_span, cond) = cur.map_or((None, Tri::Unknown), |c| (c.span, c.cond));
+        // ADR-0007 §12.16 item 1: a path that reads a variable names the runtime's
+        // file, which a later ssh may not read. Its matches are read under an unknown
+        // condition, and another file may set anything (an opaque point).
+        let reads_env = !env_names(&arg.written).is_empty();
+        if let Some(f) = self.frames.last_mut() {
+            f.include_cond = if reads_env { Tri::Unknown } else { Tri::True };
+        }
+        if reads_env {
+            self.unresolve(UnresolvedReason::EnvironmentReference, span);
+        }
+        let error = match &arg.matches {
+            Ok(_) => {
+                if reads_env {
+                    self.opaque(span, cond_span, cond, visit.role);
+                }
+                return;
+            }
+            Err(error) => error,
+        };
         // Whether the file ssh would read could add values: an argument ssh expands
-        // fine (an unknown token, an unset variable) under a false condition is read
-        // "parse only" and adds none; an argument or glob ssh refuses fails the whole
-        // configuration, so nothing is known (fail closed).
+        // fine (an unknown token, an unset variable, a `~` under another HOME) under a
+        // false condition is read "parse only" and adds none; an argument or glob ssh
+        // refuses fails the whole configuration, so nothing is known (fail closed).
         let applies = match error {
             ArgError::EnvUnset(name) => {
                 self.unresolve(UnresolvedReason::EnvUnset(name.clone()), span);
+                self.unresolve(UnresolvedReason::IncludeUnreadable, span);
+                cond
+            }
+            ArgError::EnvironmentReference => {
+                // ADR-0007 §12.17 item 9: `~` follows a HOME that is not the account
+                // home, so which file ssh reads is not known; the tree is not fully
+                // readable for the probes either.
+                self.unresolve(UnresolvedReason::EnvironmentReference, span);
                 self.unresolve(UnresolvedReason::IncludeUnreadable, span);
                 cond
             }
@@ -1069,9 +1145,10 @@ impl Walker<'_> {
                         "command" => self
                             .command_poss()
                             .test(|c| match_pattern_list(c, arg, false) == 1, Tri::Unknown),
-                        "sessiontype" => {
-                            Tri::of(match_pattern_list(self.session_type(), arg, false) == 1)
-                        }
+                        "sessiontype" => match self.session_type() {
+                            Some(t) => Tri::of(match_pattern_list(t, arg, false) == 1),
+                            None => Tri::Unknown,
+                        },
                         "version" => Tri::of(match_pattern_list(&self.version(), arg, false) == 1),
                         "exec" => {
                             if result == Tri::False {
@@ -1130,11 +1207,27 @@ impl Walker<'_> {
         }
     }
 
-    fn session_type(&self) -> &'static str {
-        match self.query.invocation {
+    /// What `Match sessiontype` compares with (ADR-0007 §12.16 item 4): a `SessionType`
+    /// already in force in the pass decides (`none`, `subsystem`; `default` leaves it
+    /// to the invocation); otherwise the invocation does. `None`, so the condition is
+    /// unknown, when the in-force value is itself undetermined or not one ssh accepts.
+    /// (A subsystem invocation's `-s` comes first, so no `SessionType` is ever in force
+    /// for it; see `settable`.)
+    fn session_type(&self) -> Option<&'static str> {
+        let by_invocation = match self.query.invocation {
             Invocation::Shell => "shell",
             Invocation::Exec(_) => "exec",
             Invocation::Subsystem(_) => "subsystem",
+        };
+        match self.first.get(&KnownKeyword::SessionType) {
+            None | Some(Slot::Unset) => Some(by_invocation),
+            Some(Slot::Det(v)) => match v.args.first().map(|a| a.to_ascii_lowercase()) {
+                Some(a) if a == "none" => Some("none"),
+                Some(a) if a == "subsystem" => Some("subsystem"),
+                Some(a) if a == "default" => Some(by_invocation),
+                _ => None,
+            },
+            Some(Slot::Undet { .. }) => None,
         }
     }
 
@@ -1159,32 +1252,54 @@ impl Walker<'_> {
 
     // --- values -----------------------------------------------------------------------
 
-    /// `${VAR}` in a directive that expands it: an unset variable makes the setting
-    /// ignored (F7) in the environment ssh runs in, which may not be this one, so the
-    /// value applies under an unknown condition.
+    /// Whether the directive reads the environment (ADR-0007 §12.16 item 1): a
+    /// `${VAR}` in a directive that expands it, or an `IdentityAgent` whose value
+    /// begins with `$` other than `$SSH_AUTH_SOCK` (ssh then reads the socket from
+    /// that variable). The runtime's environment is not the environment of a later
+    /// ssh, so whether the variable is set here or not, the value is not determined:
+    /// it applies under an unknown condition, reason `EnvironmentReference` (an unset
+    /// variable, which makes ssh ignore the setting here, F7, is also `EnvUnset`). The
+    /// default agent's literal forms, `SSH_AUTH_SOCK` and `$SSH_AUTH_SOCK`, read no
+    /// configured variable and stay determined.
     fn env_check(&mut self, kw: KnownKeyword, d: &Directive) -> Tri {
-        if !expands_env(kw) {
-            return Tri::True;
-        }
         let mut t = Tri::True;
-        let unset: Vec<String> = d
-            .args
-            .iter()
-            .flat_map(|a| env_names(a))
-            .filter(|n| self.source.env(n).is_none())
-            .map(str::to_owned)
-            .collect();
-        for name in unset {
-            self.unresolve(UnresolvedReason::EnvUnset(name), d.span);
+        if expands_env(kw) {
+            let names: Vec<String> = d
+                .args
+                .iter()
+                .flat_map(|a| env_names(a))
+                .map(str::to_owned)
+                .collect();
+            if !names.is_empty() {
+                self.unresolve(UnresolvedReason::EnvironmentReference, d.span);
+                t = Tri::Unknown;
+            }
+            for name in names {
+                if self.source.env(&name).is_none() {
+                    self.unresolve(UnresolvedReason::EnvUnset(name), d.span);
+                }
+            }
+        }
+        if kw == KnownKeyword::IdentityAgent
+            && d.args
+                .first()
+                .is_some_and(|a| a.starts_with('$') && a != "$SSH_AUTH_SOCK")
+        {
+            self.unresolve(UnresolvedReason::EnvironmentReference, d.span);
             t = Tri::Unknown;
         }
         t
     }
 
-    /// Whether a value of `kw` can still be obtained in this pass.
+    /// Whether a value of `kw` can still be obtained in this pass. The command line is
+    /// read first (F1): `-l` sets `User`, and the `-s` of a subsystem invocation sets
+    /// the session type, so a `SessionType` line never takes effect then (observed
+    /// with `ssh -G -s` on OpenSSH_10.3p1).
     fn settable(&self, kw: KnownKeyword) -> bool {
         !(kw == KnownKeyword::User && self.query.user.is_some()
-            || kw == KnownKeyword::Hostname && self.pass.is_final)
+            || kw == KnownKeyword::Hostname && self.pass.is_final
+            || kw == KnownKeyword::SessionType
+                && matches!(self.query.invocation, Invocation::Subsystem(_)))
     }
 
     fn first_wins(&mut self, kw: KnownKeyword, d: &Directive, cur: &Ctx, role: SourceRole) {

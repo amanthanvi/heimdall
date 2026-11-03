@@ -77,6 +77,12 @@ path = "../../tests/integration/projection_replace.rs"
 name = "model_projection_recovery"
 path = "../../tests/model/projection_recovery.rs"
 
+# W2c-rows (ADR-0007 §12.19 item 10): every §5.7 row built on disk with its receipts,
+# reconciled, and checked for action, receipts written and outcome.
+[[test]]
+name = "integration_projection_recovery_rows"
+path = "../../tests/integration/projection_recovery_rows.rs"
+
 # W2-U4c: the projection transaction (A22 transaction half) and the Git projection.
 [[test]]
 name = "integration_projection"

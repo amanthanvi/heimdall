@@ -280,6 +280,58 @@ fn view(k: KnownKeyword, r: &Resolved) -> View {
     }
 }
 
+/// What the decision summary shows for the default agent (ADR-0007 §12.16 item 1). Its
+/// endpoint is outside configuration: whatever socket the session's `SSH_AUTH_SOCK`
+/// names when ssh runs (ADR-0007 §13).
+pub const DEFAULT_AGENT_DISPLAY: &str = "the session's SSH_AUTH_SOCK";
+
+/// Whether an `IdentityAgent` value is the default agent (ADR-0007 §12.16 item 1): the
+/// literal `SSH_AUTH_SOCK` or `$SSH_AUTH_SOCK` (ssh compares them case-sensitively).
+/// `${SSH_AUTH_SOCK}` is not: it is an environment reference, so undetermined.
+#[must_use]
+pub fn is_default_agent(value: &Value) -> bool {
+    matches!(value.args.as_slice(), [a] if a == "SSH_AUTH_SOCK" || a == "$SSH_AUTH_SOCK")
+}
+
+/// Whether a resolved `IdentityAgent` is certainly the default agent: unset, or a
+/// determined [`is_default_agent`] value. The default agent is determined, with role
+/// `default`, whichever of its three forms the configuration uses.
+#[must_use]
+pub fn agent_is_default(agent: &Resolved) -> bool {
+    match agent {
+        Resolved::Unset => true,
+        Resolved::Determined(v) => is_default_agent(v),
+        Resolved::Undetermined(_) => false,
+    }
+}
+
+/// The one canonical item of the default agent: role `default`, no file, so the three
+/// forms (and the file that writes one) compare and digest alike.
+fn default_agent_item() -> Item {
+    Item {
+        role: SourceRole::Default,
+        kind: Some("default_agent"),
+        content: Content::Args(Vec::new()),
+    }
+}
+
+/// `IdentityAgent`'s view: [`view`], with every default-agent form, unset included,
+/// as [`default_agent_item`] (ADR-0007 §12.16 item 1).
+fn agent_view(r: &Resolved) -> View {
+    let it = |v: &Value| {
+        if is_default_agent(v) {
+            default_agent_item()
+        } else {
+            item(KnownKeyword::IdentityAgent, v)
+        }
+    };
+    match r {
+        Resolved::Unset => View::Det(default_agent_item()),
+        Resolved::Determined(v) => View::Det(it(v)),
+        Resolved::Undetermined(vs) => View::Undet(vs.iter().map(it).collect()),
+    }
+}
+
 fn list_view(k: KnownKeyword, l: &[Candidate]) -> View {
     View::List(
         l.iter()
@@ -349,7 +401,11 @@ fn entries(b: &RelevantBehavior) -> Vec<(KnownKeyword, View, Resolved)> {
         r(KnownKeyword::Hostname, &b.hostname),
         r(KnownKeyword::Port, &b.port),
         r(KnownKeyword::User, &b.user),
-        r(KnownKeyword::IdentityAgent, &b.identity_agent),
+        (
+            KnownKeyword::IdentityAgent,
+            agent_view(&b.identity_agent),
+            b.identity_agent.clone(),
+        ),
         l(KnownKeyword::IdentityFile, &b.identity_files),
         r(KnownKeyword::IdentitiesOnly, &b.identities_only),
         l(KnownKeyword::CertificateFile, &b.certificate_files),
@@ -484,6 +540,14 @@ impl Canon {
 ///
 /// An undetermined state's condition contents never enter (M2-R03), which is why consent
 /// never reuses an undetermined state.
+///
+/// **Environment references and the default agent** (ADR-0007 §12.16 item 1). A value
+/// that reads the environment is undetermined in the evaluation (reason
+/// `environment_reference`), so it enters as written, never expanded, and its state is
+/// never determined: two runtimes whose variables differ give equal digests, and
+/// consent is never reused across them. `IdentityAgent SSH_AUTH_SOCK`, `IdentityAgent
+/// $SSH_AUTH_SOCK` and an unset `IdentityAgent` enter as one determined value of role
+/// `default` (the default agent), wherever they are written.
 #[must_use]
 pub fn behavior_digest(behavior: &RelevantBehavior) -> BehaviorDigest {
     let mut c = Canon(Vec::new());
@@ -565,7 +629,9 @@ pub fn identity_selection(
 ///
 /// An entry whose path cannot be expanded statically (a `%` token other than
 /// `%%`/`%d`, `~user`, a relative path, an opaque candidate) has no fingerprint and
-/// `unknown` backing.
+/// `unknown` backing. So has an entry whose path reads the environment (`${VAR}`):
+/// the runtime's value is not a later ssh's, so it is never expanded, and the entry is
+/// undetermined (ADR-0007 §12.16 item 1).
 ///
 /// **Backing and fingerprint.** For a path ending in `.pub`, the file is read as the
 /// public key and the backing is `agent` (ssh has no private key file for it, F9).
@@ -768,10 +834,14 @@ fn norm(p: &Path) -> String {
 }
 
 /// Expand an `IdentityFile` argument as far as is known without the query, with U1's
-/// [`crate::include::expand`]: `${VAR}`, `%%`, `%d`, then `~`/`~/`. `None` for anything
-/// else (another token, `~user`, a relative path, which ssh resolves against its
-/// working directory, an unset variable, an argument ssh refuses).
+/// [`crate::include::expand`]: `%%`, `%d`, then `~`/`~/`. `None` for anything else
+/// (a `${VAR}`, which is an environment reference, ADR-0007 §12.16 item 1; another
+/// token, `~user`, a relative path, which ssh resolves against its working directory,
+/// an argument ssh refuses).
 fn expand_identity_path(arg: &str, source: &dyn ConfigSource) -> Option<PathBuf> {
+    if arg.contains("${") {
+        return None;
+    }
     let out = crate::include::expand(arg, KnownKeyword::IdentityFile, source, &|_| None).ok()?;
     let home = source.account_home();
     if out == "~" {
@@ -902,18 +972,17 @@ fn base64_encode_unpadded(data: &[u8]) -> String {
 /// may run anything) is listed with its span. A `LocalCommand` is listed when
 /// `PermitLocalCommand` may be `yes`.
 ///
-/// `XAuthLocation` is listed whenever a non-`none` value may apply, with no condition on
-/// `ForwardX11`: ssh runs the program only when X11 forwarding is in use, and the
-/// command line (`-X`, `-Y`) can turn that on whatever the configuration says, which
-/// this crate does not model (the fail-closed reading). An unset directive is not
-/// listed: ssh's built-in default is not configuration.
+/// `XAuthLocation` is listed whenever it is set, `none` included (ADR-0007 §12.17 item
+/// 9): `ssh -G` on OpenSSH_10.3p1 printed `xauthlocation none`, so `none` is a program
+/// name there, not a switch. There is no condition on `ForwardX11`: ssh runs the
+/// program only when X11 forwarding is in use, and the command line (`-X`, `-Y`) can
+/// turn that on whatever the configuration says, which this crate does not model (the
+/// fail-closed reading). An unset directive is not listed: ssh's built-in default is
+/// not configuration.
 ///
-/// A `none` value is not listed for any of the three, as ADR-0007 §12.15 item 5 and the
-/// W2-U2r task say. For `PKCS11Provider` and `SecurityKeyProvider` that is what ssh does
-/// (`ssh -G` on OpenSSH_10.3p1 printed nothing for `none`). For `XAuthLocation` it is
-/// not: the same client printed `xauthlocation none`, so `none` is a program name there,
-/// not a switch. That is an open point for the orchestrator (escalated in the unit
-/// report); listing it would be the fail-closed reading.
+/// A `none` value of `PKCS11Provider` or `SecurityKeyProvider` is not listed, as
+/// ADR-0007 §12.15 item 5 says and ssh does (`ssh -G` on OpenSSH_10.3p1 printed nothing
+/// for `none`).
 #[must_use]
 pub fn executing_constructs(evaluation: &Evaluation) -> Vec<Span> {
     let mut spans = BTreeSet::new();
@@ -922,21 +991,22 @@ pub fn executing_constructs(evaluation: &Evaluation) -> Vec<Span> {
             spans.insert(u.span);
         }
     }
-    let runs = |k: KnownKeyword| -> Vec<Span> {
+    // `none_runs`: whether a `none` value names a program too (`XAuthLocation`).
+    let runs_with = |k: KnownKeyword, none_runs: bool| -> Vec<Span> {
+        let may_run = |v: &Value| none_runs || !is_none_value(v);
         match evaluation.values.get(&k) {
-            Some(Resolved::Determined(v)) if !is_none_value(v) => vec![v.span],
-            Some(Resolved::Undetermined(vs)) => vs
-                .iter()
-                .filter(|v| !is_none_value(v))
-                .map(|v| v.span)
-                .collect(),
+            Some(Resolved::Determined(v)) if may_run(v) => vec![v.span],
+            Some(Resolved::Undetermined(vs)) => {
+                vs.iter().filter(|v| may_run(v)).map(|v| v.span).collect()
+            }
             _ => Vec::new(),
         }
     };
+    let runs = |k: KnownKeyword| runs_with(k, false);
     spans.extend(runs(KnownKeyword::ProxyCommand));
     spans.extend(runs(KnownKeyword::KnownHostsCommand));
+    spans.extend(runs_with(KnownKeyword::XauthLocation, true));
     for code_loading in [
-        KnownKeyword::XauthLocation,
         KnownKeyword::Pkcs11Provider,
         KnownKeyword::SecurityKeyProvider,
     ] {
@@ -956,7 +1026,9 @@ pub fn executing_constructs(evaluation: &Evaluation) -> Vec<Span> {
 /// The unresolved points that make the tree not fully readable for the probes
 /// (`IncludeUnreadable`, `BoundExceeded`, a `TokenUnavailable` in an `Include`;
 /// ADR-0007 §6). The evaluator records `TokenUnavailable` only for `Include` paths,
-/// and records `IncludeUnreadable` as well for an `Include` whose `${VAR}` is unset.
+/// and records `IncludeUnreadable` as well for an `Include` whose `${VAR}` is unset and
+/// for an `Include` whose `~` follows a `HOME` that is not the account home (ADR-0007
+/// §12.17 item 9), so neither file is read.
 #[must_use]
 pub fn unreadable_includes(evaluation: &Evaluation) -> Vec<Unresolved> {
     evaluation

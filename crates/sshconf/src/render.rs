@@ -18,6 +18,14 @@
 //! the path text itself; the `%%` escaping is applied only where an OpenSSH directive
 //! is rendered, because Git gives `%` no meaning.
 //!
+//! **The include target** (B's `Include` argument) is stricter (ADR-0007 §12.16 item 3,
+//! §12.17 item 9): it is absolute, never `~` (OpenSSH expands an Include's `~` from
+//! `$HOME`, so B must load P whatever `$HOME` is), and literal. OpenSSH globs inside a
+//! quoted Include argument, so a target holding `*`, `?`, `[` or `]` is refused as
+//! [`RenderError::Unmanageable`] (`include_target_glob`), which is manual mode before
+//! any edit. `IdentityFile` and `IdentityAgent` are not globbed and keep the path rules
+//! above.
+//!
 //! **Provenance.** The `rendered_*` functions wrap the same bytes in the domain
 //! [`Rendered`] type, the only input a `StepContent` accepts. This file is one of the
 //! three places allowed to call `Rendered::from_renderer` (source-scanned by
@@ -238,6 +246,14 @@ impl RenderPath {
     /// A path written `~/…` when it is under `account_home` (ADR-0007 §4
     /// "home-relative paths"), otherwise absolute, under `style`'s rules.
     ///
+    /// Only the Windows style reads `\` as a separator and writes it `/`. On Unix a
+    /// backslash is a file-name character, so the remainder is kept as it is and the
+    /// Unix rule refuses it; a path is never rewritten into another one (ADR-0007
+    /// §12.16 item 5).
+    ///
+    /// Not for the include block's target, which is always absolute (ADR-0007 §12.17
+    /// item 9; [`RenderPath::absolute`], [`render_include_block`]).
+    ///
     /// # Errors
     /// [`RenderError::RefusedValue`] as for [`RenderPath::unix`] and
     /// [`RenderPath::windows`].
@@ -249,7 +265,10 @@ impl RenderPath {
         let candidate = match path.strip_prefix(account_home) {
             Ok(rest) if !account_home.as_os_str().is_empty() => {
                 let rest = rest.to_str().ok_or(RenderError::RefusedValue("path"))?;
-                let rest = rest.replace('\\', "/");
+                let rest = match style {
+                    PathStyle::Windows => rest.replace('\\', "/"),
+                    PathStyle::Unix => rest.to_owned(),
+                };
                 if rest.is_empty() {
                     "~".to_owned()
                 } else {
@@ -267,6 +286,24 @@ impl RenderPath {
             PathStyle::Unix => Self::unix(Path::new(&candidate)),
             PathStyle::Windows => Self::windows(Path::new(&candidate)),
         }
+    }
+
+    /// An absolute path under `style`'s rules: [`RenderPath::unix`] or
+    /// [`RenderPath::windows`], with a `~` path refused. The include block's target is
+    /// built this way, so B loads P whatever `$HOME` is (ADR-0007 §12.17 item 9).
+    ///
+    /// # Errors
+    /// [`RenderError::RefusedValue`] as for [`RenderPath::unix`] and
+    /// [`RenderPath::windows`], and for a path beginning with `~`.
+    pub fn absolute(path: &Path, style: PathStyle) -> Result<Self, RenderError> {
+        let rendered = match style {
+            PathStyle::Unix => Self::unix(path)?,
+            PathStyle::Windows => Self::windows(path)?,
+        };
+        if rendered.text.starts_with('~') {
+            return Err(RenderError::RefusedValue("path"));
+        }
+        Ok(rendered)
     }
 
     /// The text written (the path itself; OpenSSH directives escape `%` as `%%`).
@@ -304,10 +341,16 @@ impl RenderPath {
     }
 }
 
+/// `name` without a leading `\\.\pipe\` or `//./pipe/` (ASCII case aside). The prefix
+/// length is checked as a character boundary before slicing, so a name whose bytes at
+/// that offset fall inside a multi-byte character is compared, not split (ADR-0007
+/// §12.16 item 6).
 fn strip_pipe_prefix(name: &str) -> &str {
     for prefix in ["\\\\.\\pipe\\", "//./pipe/"] {
-        if name.len() >= prefix.len() && name[..prefix.len()].eq_ignore_ascii_case(prefix) {
-            return &name[prefix.len()..];
+        if let (Some(head), Some(rest)) = (name.get(..prefix.len()), name.get(prefix.len()..))
+            && head.eq_ignore_ascii_case(prefix)
+        {
+            return rest;
         }
     }
     name
@@ -401,7 +444,17 @@ pub enum RenderError {
     /// Two sections with the same alias.
     #[error("duplicate alias")]
     DuplicateAlias,
+    /// A target no rendering can name literally, so Heimdall cannot manage it: the
+    /// caller goes to manual mode before any edit (ADR-0007 §12.16 item 3). The reason
+    /// is a stable `snake_case` code: `include_target_glob` for an include target
+    /// holding `*`, `?`, `[` or `]`, which OpenSSH globs even inside quotes.
+    #[error("unmanageable: {0}")]
+    Unmanageable(&'static str),
 }
+
+/// The [`RenderError::Unmanageable`] reason of an include target that holds a glob
+/// metacharacter (ADR-0007 §12.16 item 3).
+pub const INCLUDE_TARGET_GLOB: &str = "include_target_glob";
 
 /// `User`: the contract `AccountName` token rule (which excludes `%`), and no leading
 /// `-`.
@@ -481,18 +534,46 @@ pub(crate) fn end_line(marker: &MarkerId) -> String {
     format!("{END_PREFIX}{})", marker.as_str())
 }
 
+/// Whether an include target may be written: an absolute file path (never `~`, never
+/// a pipe), and no glob metacharacter (ADR-0007 §12.16 item 3, §12.17 item 9).
+///
+/// # Errors
+/// [`RenderError::Unmanageable`] with [`INCLUDE_TARGET_GLOB`] for `*`, `?`, `[` or `]`
+/// (OpenSSH globs inside a quoted `Include` argument, and escaping is not verified
+/// across the client matrix); [`RenderError::RefusedValue`] (`include_target`) for a
+/// `~` path or a pipe: B's target is absolute, so B loads P whatever `$HOME` is.
+pub fn check_include_target(target: &RenderPath) -> Result<(), RenderError> {
+    if target.text.contains(['*', '?', '[', ']']) {
+        return Err(RenderError::Unmanageable(INCLUDE_TARGET_GLOB));
+    }
+    if !target.is_absolute_file() || target.text.starts_with('~') {
+        return Err(RenderError::RefusedValue("include_target"));
+    }
+    Ok(())
+}
+
 /// Render B, the marked `Include` block for the user file: three lines in the user
-/// file's line-ending style.
-#[must_use]
-pub fn render_include_block(marker: &MarkerId, target: &RenderPath, newline: Newline) -> Vec<u8> {
+/// file's line-ending style. The target is absolute and literal
+/// ([`check_include_target`]); build it with [`RenderPath::absolute`].
+///
+/// # Errors
+/// As [`check_include_target`]: [`RenderError::Unmanageable`] (`include_target_glob`)
+/// for a glob metacharacter, which is manual mode before any edit;
+/// [`RenderError::RefusedValue`] (`include_target`) for a `~` path or a pipe.
+pub fn render_include_block(
+    marker: &MarkerId,
+    target: &RenderPath,
+    newline: Newline,
+) -> Result<Vec<u8>, RenderError> {
+    check_include_target(target)?;
     let nl = newline.as_str();
-    format!(
+    Ok(format!(
         "{}{nl}Include {}{nl}{}{nl}",
         begin_line(marker),
         target.ssh_quoted(),
         end_line(marker)
     )
-    .into_bytes()
+    .into_bytes())
 }
 
 /// Git configuration double-quoting: `\` and `"` escaped (F22).
@@ -565,13 +646,15 @@ pub fn rendered_managed(
 }
 
 /// [`render_include_block`], wrapped as [`Rendered`] provenance.
-#[must_use]
+///
+/// # Errors
+/// As [`render_include_block`].
 pub fn rendered_include_block(
     marker: &MarkerId,
     target: &RenderPath,
     newline: Newline,
-) -> Rendered {
-    Rendered::from_renderer(render_include_block(marker, target, newline))
+) -> Result<Rendered, RenderError> {
+    render_include_block(marker, target, newline).map(Rendered::from_renderer)
 }
 
 /// [`render_git_managed`], wrapped as [`Rendered`] provenance.

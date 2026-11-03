@@ -104,6 +104,19 @@ impl Harness {
         user: Option<&str>,
         env: &[(&str, &str)],
     ) -> (i32, BTreeMap<String, Vec<String>>, String) {
+        self.ssh_g_invoked(file, alias, user, env, &Invocation::Shell)
+    }
+
+    /// [`Harness::ssh_g`] for an invocation: `-s <alias> <subsystem>` for a subsystem,
+    /// `<alias> <command>` for a remote command (`-G` runs neither).
+    fn ssh_g_invoked(
+        &self,
+        file: &Path,
+        alias: &str,
+        user: Option<&str>,
+        env: &[(&str, &str)],
+        invocation: &Invocation,
+    ) -> (i32, BTreeMap<String, Vec<String>>, String) {
         let mut cmd = Command::new(&self.ssh);
         cmd.env_clear()
             .envs(client_base_env())
@@ -133,7 +146,17 @@ impl Harness {
         if let Some(u) = user {
             cmd.arg("-l").arg(u);
         }
-        cmd.arg(alias);
+        match invocation {
+            Invocation::Shell | Invocation::Exec(None) => {
+                cmd.arg(alias);
+            }
+            Invocation::Exec(Some(command)) => {
+                cmd.arg(alias).arg(command);
+            }
+            Invocation::Subsystem(name) => {
+                cmd.arg("-s").arg(alias).arg(name);
+            }
+        }
         let out = cmd.output().unwrap();
         let mut map: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for line in String::from_utf8_lossy(&out.stdout).lines() {
@@ -155,6 +178,18 @@ impl Harness {
         user: Option<&str>,
         env: &[(&str, &str)],
     ) -> (Evaluation, RelevantBehavior) {
+        self.heimdall_invoked(file, alias, user, env, Invocation::Shell)
+    }
+
+    /// [`Harness::heimdall`] for an invocation.
+    fn heimdall_invoked(
+        &self,
+        file: &Path,
+        alias: &str,
+        user: Option<&str>,
+        env: &[(&str, &str)],
+        invocation: Invocation,
+    ) -> (Evaluation, RelevantBehavior) {
         let paths = SshPaths::with_test_override(self.root.join("home"), self.root.join("etc-ssh"));
         let mut vars: Vec<(OsString, OsString)> = client_base_env()
             .into_iter()
@@ -172,7 +207,7 @@ impl Harness {
             user: user.map(str::to_owned),
             local_user: self.local_user.clone(),
             client_version: self.version,
-            invocation: Invocation::Shell,
+            invocation,
         };
         let mut set = ConfigSet::new();
         let evaluation = evaluate(&mut set, &source, &roots, &query, &Limits::default());
@@ -358,8 +393,20 @@ fn compare_alias(
     alias: &str,
     user: Option<&str>,
 ) -> Vec<String> {
-    let (exit, printed, stderr) = h.ssh_g(file, alias, user, &[]);
-    let (evaluation, behavior) = h.heimdall(file, alias, user, &[]);
+    compare_alias_invoked(h, test, file, alias, user, &Invocation::Shell)
+}
+
+/// [`compare_alias`] for an invocation (both sides invoked the same way).
+fn compare_alias_invoked(
+    h: &Harness,
+    test: &str,
+    file: &Path,
+    alias: &str,
+    user: Option<&str>,
+    invocation: &Invocation,
+) -> Vec<String> {
+    let (exit, printed, stderr) = h.ssh_g_invoked(file, alias, user, &[], invocation);
+    let (evaluation, behavior) = h.heimdall_invoked(file, alias, user, &[], invocation.clone());
     let mut diffs = Vec::new();
     if exit != 0 {
         diffs.push(format!("ssh -G exited {exit}: {stderr}"));
@@ -678,7 +725,7 @@ fn bom_and_crlf_acceptance() {
     let b_effective = |user_bytes: &[u8], newline: Newline, name: &str| -> bool {
         let block = IncludeBlock {
             marker: marker.clone(),
-            bytes: render_include_block(&marker, &render_path(&p), newline),
+            bytes: render_include_block(&marker, &render_path(&p), newline).unwrap(),
         };
         let plan = plan_insert(Some(user_bytes), &block).unwrap();
         let file = h.root.join(name);
@@ -834,9 +881,24 @@ fn s01_env_expansion_keywords_match_the_client() {
     if expands_env(KnownKeyword::Include) != include_expanded {
         disagreements.push("Include".to_owned());
     }
-    // Heimdall's own Include expansion reaches the same file.
-    let (_, behavior) = h.heimdall(&file, "env-x", None, &env);
-    assert_eq!(first_arg(&behavior.port).as_deref(), Some("2950"));
+    // Heimdall's own Include expansion reaches the same file, as a candidate only: a
+    // path that reads a variable names the runtime's file, which a later ssh may not
+    // read, so the values it brings are undetermined (ADR-0007 §12.16 item 1).
+    let (evaluation, behavior) = h.heimdall(&file, "env-x", None, &env);
+    match &behavior.port {
+        Resolved::Undetermined(vs) => assert!(
+            vs.iter()
+                .any(|v| v.args.first().map(String::as_str) == Some("2950")),
+            "{vs:?}"
+        ),
+        other => panic!("an environment-dependent Include gave {other:?}"),
+    }
+    assert!(
+        evaluation
+            .unresolved
+            .iter()
+            .any(|u| u.reason == heimdall_sshconf::eval::UnresolvedReason::EnvironmentReference)
+    );
     assert!(
         disagreements.is_empty(),
         "{}: {disagreements:?}",
@@ -916,5 +978,233 @@ fn final_pass_case_canonical_and_parse_only_facts_match_ssh_g() {
         "disagreements on {}:\n{}",
         h.client(),
         all.join("\n").replace(&h.local_user, "<local>")
+    );
+}
+
+// --- W2b-fix: ADR-0007 §12.16 items 3 and 4, §12.17 item 9 ------------------------------------
+
+/// Y04 (ADR-0007 §12.16 item 4): `Match sessiontype` reads the `SessionType` in force.
+/// The reviewer's case (`SessionType none`, so the `none` section applies and the
+/// `shell` one does not) and a `SessionType subsystem` case, for a shell invocation;
+/// then both again under `-s`, where the command line's session type comes first and
+/// the `SessionType` lines take no effect. Each is compared with this client's `ssh -G`.
+#[test]
+fn sessiontype_in_force_matches_ssh_g() {
+    let h = Harness::new();
+    let reviewer = h.write(
+        "sessiontype_none.conf",
+        "SessionType none\nMatch sessiontype shell\n    HostName wrong.example\nMatch sessiontype none\n    Port 2202\n",
+    );
+    let subsystem = h.write(
+        "sessiontype_subsystem.conf",
+        "SessionType subsystem\nMatch sessiontype subsystem\n    Port 2203\nMatch sessiontype shell\n    Port 2204\n",
+    );
+    let sftp = Invocation::Subsystem("sftp".to_owned());
+    let cases: &[(&str, &Path, &Invocation, &str)] = &[
+        (
+            "sessiontype_none_shell",
+            &reviewer,
+            &Invocation::Shell,
+            "2202",
+        ),
+        (
+            "sessiontype_subsystem_shell",
+            &subsystem,
+            &Invocation::Shell,
+            "2203",
+        ),
+        ("sessiontype_none_dash_s", &reviewer, &sftp, "22"),
+        ("sessiontype_subsystem_dash_s", &subsystem, &sftp, "2203"),
+    ];
+    let mut all = Vec::new();
+    for (name, file, invocation, port) in cases {
+        let diffs = compare_alias_invoked(&h, name, file, "box", None, invocation);
+        all.extend(diffs.into_iter().map(|d| format!("{name}: {d}")));
+        // The evaluator's own answer, so a client that agreed by accident is noticed.
+        let (evaluation, behavior) =
+            h.heimdall_invoked(file, "box", None, &[], (*invocation).clone());
+        let got = first_arg(&behavior.port).unwrap_or_else(|| "22".to_owned());
+        if got != *port || !matches!(behavior.hostname, Resolved::Unset) {
+            all.push(format!(
+                "{name}: heimdall port {got} hostname {:?}",
+                behavior.hostname
+            ));
+        }
+        assert!(evaluation.invalid.is_empty(), "{name}");
+    }
+    let (_, printed, _) = h.ssh_g(&reviewer, "box", None, &[]);
+    h.record(
+        "sessiontype_in_force_matches_ssh_g",
+        "reviewer_case",
+        &[
+            (
+                "ssh_g_sessiontype",
+                printed
+                    .get("sessiontype")
+                    .map(|v| v.join(","))
+                    .unwrap_or_default(),
+            ),
+            (
+                "ssh_g_port",
+                printed.get("port").map(|v| v.join(",")).unwrap_or_default(),
+            ),
+        ],
+    );
+    assert!(
+        all.is_empty(),
+        "disagreements on {}:\n{}",
+        h.client(),
+        all.join("\n")
+    );
+}
+
+/// ADR-0007 §12.17 item 9: an Include's `~`, and a relative user Include, follow
+/// `$HOME`. With `HOME` the account home (the harness's scratch home) Heimdall and
+/// `ssh -G` read the same file. Under another `HOME` the client reads that home's file;
+/// Heimdall reports the Include undetermined (`environment_reference`) and never
+/// claims the account home's value.
+#[test]
+fn include_tilde_follows_home_and_is_undetermined_under_another_home() {
+    use heimdall_sshconf::eval::UnresolvedReason;
+    use heimdall_sshconf::relevant::unreadable_includes;
+    let h = Harness::new();
+    let other = h.root.join("other");
+    std::fs::create_dir_all(other.join(".ssh")).unwrap();
+    std::fs::write(
+        h.root.join("home/inc-t.conf"),
+        "Host tilde-x\n  Port 2971\n",
+    )
+    .unwrap();
+    std::fs::write(other.join("inc-t.conf"), "Host tilde-x\n  Port 2972\n").unwrap();
+    std::fs::write(
+        h.root.join("home/.ssh/rel-t.conf"),
+        "Host rel-x\n  Port 2973\n",
+    )
+    .unwrap();
+    std::fs::write(other.join(".ssh/rel-t.conf"), "Host rel-x\n  Port 2974\n").unwrap();
+    let file = h.write("tilde.conf", "Include ~/inc-t.conf\nInclude rel-t.conf\n");
+    let other_s = other.to_string_lossy().into_owned();
+    let mut problems = Vec::new();
+    for (alias, home_port, other_port) in [("tilde-x", "2971", "2972"), ("rel-x", "2973", "2974")] {
+        let (exit, printed, stderr) = h.ssh_g(&file, alias, None, &[]);
+        assert_eq!(exit, 0, "{stderr}");
+        let (ev, behavior) = h.heimdall(&file, alias, None, &[]);
+        let ssh_port = printed.get("port").map(|v| v.join(",")).unwrap_or_default();
+        if ssh_port != home_port || first_arg(&behavior.port).as_deref() != Some(home_port) {
+            problems.push(format!(
+                "{alias}: HOME = account home: ssh -G {ssh_port}, heimdall {:?}",
+                behavior.port
+            ));
+        }
+        if ev
+            .unresolved
+            .iter()
+            .any(|u| u.reason == UnresolvedReason::EnvironmentReference)
+        {
+            problems.push(format!(
+                "{alias}: environment_reference with HOME = account home"
+            ));
+        }
+        let env = [("HOME", other_s.as_str())];
+        let (exit, printed, _) = h.ssh_g(&file, alias, None, &env);
+        let ssh_other = printed.get("port").map(|v| v.join(",")).unwrap_or_default();
+        let (ev, behavior) = h.heimdall(&file, alias, None, &env);
+        let claimed = match &behavior.port {
+            Resolved::Determined(v) => v.args.first().cloned(),
+            _ => None,
+        };
+        h.record(
+            "include_tilde_follows_home_and_is_undetermined_under_another_home",
+            alias,
+            &[
+                ("ssh_g_exit_other_home", exit.to_string()),
+                ("ssh_g_port_other_home", ssh_other.clone()),
+                ("client_follows_home", (ssh_other == other_port).to_string()),
+                ("heimdall_port_determined", format!("{claimed:?}")),
+            ],
+        );
+        if claimed.is_some() {
+            problems.push(format!(
+                "{alias}: another HOME: heimdall claims port {claimed:?}"
+            ));
+        }
+        if !ev
+            .unresolved
+            .iter()
+            .any(|u| u.reason == UnresolvedReason::EnvironmentReference)
+            || unreadable_includes(&ev).is_empty()
+        {
+            problems.push(format!(
+                "{alias}: another HOME: not environment_reference / not unreadable"
+            ));
+        }
+    }
+    assert!(problems.is_empty(), "{}: {problems:?}", h.client());
+}
+
+/// Y03 (ADR-0007 §12.16 item 3), the reviewer's case against this client: P under
+/// `dir[1]` while `dir1` exists. A quoted Include written by hand shows what the client
+/// does with the brackets (recorded; the reviewer's 10.3p1 loaded `dir1`). The
+/// renderer refuses the target, `unmanageable{include_target_glob}`, so Heimdall never
+/// writes such a B.
+#[test]
+fn include_target_with_glob_metacharacters_is_refused_before_any_edit() {
+    use heimdall_sshconf::render::{PathStyle, RenderError};
+    let h = Harness::new();
+    for (dir, host) in [
+        ("dir[1]", "intended.example"),
+        ("dir1", "different.example"),
+    ] {
+        std::fs::create_dir_all(h.root.join(dir)).unwrap();
+        std::fs::write(
+            h.root.join(dir).join("managed.conf"),
+            format!("Host box\n  HostName {host}\n"),
+        )
+        .unwrap();
+    }
+    let target = h.root.join("dir[1]").join("managed.conf");
+    let written = render_path(&target);
+    let file = h.write(
+        "glob_user.conf",
+        &format!("Include \"{}\"\n", written.as_str()),
+    );
+    let (exit, printed, _) = h.ssh_g(&file, "box", None, &[]);
+    let loaded = printed
+        .get("hostname")
+        .map(|v| v.join(","))
+        .unwrap_or_default();
+    h.record(
+        "include_target_with_glob_metacharacters_is_refused_before_any_edit",
+        "box",
+        &[
+            ("ssh_g_exit", exit.to_string()),
+            ("ssh_g_hostname", loaded.clone()),
+            (
+                "client_globbed_quoted_include",
+                (loaded == "different.example").to_string(),
+            ),
+        ],
+    );
+    let style = if cfg!(windows) {
+        PathStyle::Windows
+    } else {
+        PathStyle::Unix
+    };
+    let marker = MarkerId::parse("hm-0123456789abcdef").unwrap();
+    let p = RenderPath::absolute(&target, style).unwrap();
+    assert_eq!(
+        render_include_block(&marker, &p, Newline::Lf),
+        Err(RenderError::Unmanageable("include_target_glob"))
+    );
+    // Control: the literal directory renders, and the client loads it through B.
+    let literal = RenderPath::absolute(&h.root.join("dir1").join("managed.conf"), style).unwrap();
+    let block = render_include_block(&marker, &literal, Newline::Lf).unwrap();
+    let user = h.root.join("glob_user_b.conf");
+    std::fs::write(&user, &block).unwrap();
+    let (exit, printed, stderr) = h.ssh_g(&user, "box", None, &[]);
+    assert_eq!(exit, 0, "{stderr}");
+    assert_eq!(
+        printed.get("hostname"),
+        Some(&vec!["different.example".to_owned()])
     );
 }

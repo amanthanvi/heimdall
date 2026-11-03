@@ -614,9 +614,10 @@ fn include_block(newline: Newline) -> IncludeBlock {
     let marker = MarkerId::parse(MARKER).unwrap();
     let bytes = render_include_block(
         &marker,
-        &RenderPath::unix(Path::new(MANAGED_REL)).unwrap(),
+        &RenderPath::absolute(Path::new(MANAGED), PathStyle::Unix).unwrap(),
         newline,
-    );
+    )
+    .unwrap();
     IncludeBlock { marker, bytes }
 }
 
@@ -1219,14 +1220,19 @@ fn listed_lines(ev: &Evaluation) -> Vec<u32> {
     executing_constructs(ev).iter().map(|s| s.line).collect()
 }
 
+/// ADR-0007 §12.15 item 5 and §12.17 item 9: the code-loading keywords are listed when
+/// they may take effect. A provider's `none` is not (ssh loads nothing); an
+/// `XAuthLocation` is listed whenever it is set, `none` included, because `ssh -G` on
+/// OpenSSH_10.3p1 prints `xauthlocation none`: `none` is a program name there.
 #[test]
-fn each_code_loading_keyword_is_listed_and_its_none_value_is_not() {
+fn each_code_loading_keyword_is_listed_and_only_a_provider_none_is_not() {
     for kw in [
         KnownKeyword::XauthLocation,
         KnownKeyword::Pkcs11Provider,
         KnownKeyword::SecurityKeyProvider,
     ] {
         let name = kw.as_str();
+        let none_runs = kw == KnownKeyword::XauthLocation;
         // Their value class stays first-wins.
         assert_eq!(class(kw), DirectiveClass::FirstWins);
         let ev = |text: &str| eval_user(text, "box");
@@ -1235,10 +1241,11 @@ fn each_code_loading_keyword_is_listed_and_its_none_value_is_not() {
         let listed = ev(&format!("Host box\n    {name} /hm/lib/x\n"));
         assert_eq!(listed_lines(&listed), [2], "{name}");
         assert_eq!(det1(&listed, kw).as_deref(), Some("/hm/lib/x"));
-        // `none`, in any case, is not.
+        // `none`, in any case: listed for XAuthLocation only.
         for none in ["none", "NONE", "None"] {
             let ev = ev(&format!("Host box\n    {name} {none}\n"));
-            assert!(executing_constructs(&ev).is_empty(), "{name} {none}");
+            let want: &[u32] = if none_runs { &[2] } else { &[] };
+            assert_eq!(listed_lines(&ev), want, "{name} {none}");
         }
         // Unset is not.
         assert!(executing_constructs(&ev("Host box\n    User u\n")).is_empty());
@@ -1246,7 +1253,8 @@ fn each_code_loading_keyword_is_listed_and_its_none_value_is_not() {
         let none_first = ev(&format!(
             "Host box\n    {name} none\nHost *\n    {name} /hm/lib/x\n"
         ));
-        assert!(executing_constructs(&none_first).is_empty(), "{name}");
+        let want: &[u32] = if none_runs { &[2] } else { &[] };
+        assert_eq!(listed_lines(&none_first), want, "{name}");
         let real_first = ev(&format!(
             "Host box\n    {name} /hm/lib/x\nHost *\n    {name} none\n"
         ));
@@ -1255,7 +1263,7 @@ fn each_code_loading_keyword_is_listed_and_its_none_value_is_not() {
         let nomatch = ev(&format!("Host nomatch\n    {name} /hm/lib/x\n"));
         assert!(executing_constructs(&nomatch).is_empty(), "{name}");
         // Behind a condition that cannot be decided statically it may take effect, and
-        // a `none` candidate may not.
+        // a provider's `none` candidate may not.
         let behind_exec = ev(&format!(
             "Match exec \"probe-code\"\n    {name} /hm/lib/x\nHost *\n    {name} none\n"
         ));
@@ -1264,15 +1272,17 @@ fn each_code_loading_keyword_is_listed_and_its_none_value_is_not() {
             Some(vec!["/hm/lib/x".to_owned(), "none".to_owned()]),
             "{name}"
         );
+        let want: &[u32] = if none_runs { &[1, 2, 4] } else { &[1, 2] };
         assert_eq!(
             listed_lines(&behind_exec),
-            [1, 2],
+            want,
             "{name}: the Match exec and its value"
         );
         let only_none_behind = ev(&format!("Match exec \"probe-code\"\n    {name} none\n"));
+        let want: &[u32] = if none_runs { &[1, 2] } else { &[1] };
         assert_eq!(
             listed_lines(&only_none_behind),
-            [1],
+            want,
             "{name}: only the Match exec"
         );
         // An unreadable part of the tree may set anything, so it is listed too.
@@ -1291,6 +1301,17 @@ fn each_code_loading_keyword_is_listed_and_its_none_value_is_not() {
         "box",
     );
     assert_eq!(listed_lines(&ev), [2, 3, 4, 5, 6]);
+}
+
+/// ADR-0007 §12.17 item 9 regression: `XAuthLocation none` is a program name, so it is
+/// listed (with no `ForwardX11` gate), while `PKCS11Provider none` is not.
+#[test]
+fn xauthlocation_none_is_listed_as_a_program() {
+    let ev = eval_user(
+        "Host box\n    ForwardX11 no\n    XAuthLocation none\n    PKCS11Provider none\n",
+        "box",
+    );
+    assert_eq!(listed_lines(&ev), [3]);
 }
 
 fn line_of(src: &MemSource, path: &str, needle: &str) -> u32 {
@@ -1524,7 +1545,8 @@ fn render_escapes_percent_and_writes_windows_forms() {
         &MarkerId::parse(MARKER).unwrap(),
         &RenderPath::windows(Path::new("C:\\hm\\fixture\\AppData\\heimdall\\ssh_config")).unwrap(),
         Newline::CrLf,
-    );
+    )
+    .unwrap();
     let block = String::from_utf8(block).unwrap();
     assert!(block.contains("Include \"C:/hm/fixture/AppData/heimdall/ssh_config\"\r\n"));
     assert_eq!(block.matches("\r\n").count(), 3);
@@ -1564,6 +1586,494 @@ fn render_git_values_are_shell_and_git_quoted() {
              # <<< heimdall managed include (id {MARKER})\n"
         )
     );
+}
+
+// --- W2b-fix: ADR-0007 §12.16 (Y01-Y06) and §12.17 item 9 ----------------------------------
+
+/// The `IdentityAgent` value of `ev`'s relevant behaviour as the digest sees it.
+fn agent_state(
+    text: &str,
+    env: &[(&str, &str)],
+) -> (Evaluation, heimdall_domain::projection::BehaviorState) {
+    let mut src = source().with_file(USER_CONFIG, text);
+    for (k, v) in env {
+        src = src.with_env(k, v);
+    }
+    let ev = eval_src(&src, &q("box"));
+    let state = behavior_state(&relevant(&ev));
+    (ev, state)
+}
+
+/// Y01 reviewer reproducer (ADR-0007 §12.16 item 1): the same `IdentityAgent ${VAR}`
+/// evaluated with two different values of the variable. The digests bind the text as
+/// written, so they are equal, which is why the state must not be determined: it is
+/// undetermined, reason `environment_reference`, and consent is never reused across it.
+#[test]
+fn y01_environment_reference_is_undetermined_whatever_the_runtime_value() {
+    let text = "Host box\n    IdentityAgent ${HM_AGENT}\n";
+    let (ev_a, a) = agent_state(text, &[("HM_AGENT", "/hm/run/agent-a.sock")]);
+    let (ev_b, b) = agent_state(text, &[("HM_AGENT", "/hm/run/agent-b.sock")]);
+    assert_eq!(
+        a.digest, b.digest,
+        "the reviewer's observation: equal digests"
+    );
+    assert!(
+        !a.determined && !b.determined,
+        "undetermined in both runtimes"
+    );
+    for ev in [&ev_a, &ev_b] {
+        assert!(has_reason(ev, &UnresolvedReason::EnvironmentReference));
+        assert_eq!(
+            undet(ev, KnownKeyword::IdentityAgent),
+            Some(vec!["${HM_AGENT}".to_owned()]),
+            "never the runtime's expansion"
+        );
+    }
+    // Unset here too: still an environment reference (and EnvUnset, F7).
+    let (ev, s) = agent_state(text, &[]);
+    assert!(!s.determined);
+    assert!(has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+    assert!(has_reason(
+        &ev,
+        &UnresolvedReason::EnvUnset("HM_AGENT".into())
+    ));
+    // Every relevant directive that expands `${VAR}` is undetermined the same way, in
+    // the evaluation and in the behaviour state.
+    for (line, kw) in [
+        ("IdentityFile /hm/k/${HM_V}.pub", KnownKeyword::IdentityFile),
+        (
+            "CertificateFile /hm/k/${HM_V}-cert.pub",
+            KnownKeyword::CertificateFile,
+        ),
+        ("ControlPath /hm/cp/${HM_V}", KnownKeyword::ControlPath),
+        (
+            "UserKnownHostsFile /hm/kh/${HM_V}",
+            KnownKeyword::UserKnownHostsFile,
+        ),
+        (
+            "KnownHostsCommand /hm/bin/kh ${HM_V}",
+            KnownKeyword::KnownHostsCommand,
+        ),
+        ("User u${HM_V}", KnownKeyword::User),
+    ] {
+        let (ev, s) = agent_state(&format!("Host box\n    {line}\n"), &[("HM_V", "set")]);
+        assert!(!s.determined, "{line}");
+        assert!(
+            has_reason(&ev, &UnresolvedReason::EnvironmentReference),
+            "{line}"
+        );
+        let certain = match class(kw) {
+            DirectiveClass::Accumulates => list(&ev, kw).iter().any(|(_, d)| *d),
+            _ => det(&ev, kw).is_some(),
+        };
+        assert!(!certain, "{line}: determined");
+    }
+    // A directive that does not expand variables keeps `${` as text and stays
+    // determined (HostName takes `%h` only).
+    let (ev, _) = agent_state("Host box\n    HostName h${X}.example\n", &[]);
+    assert!(!has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+}
+
+/// ADR-0007 §12.16 item 1: an `IdentityAgent` beginning with `$` reads that variable,
+/// except `$SSH_AUTH_SOCK`. `SSH_AUTH_SOCK`, `$SSH_AUTH_SOCK` and an unset
+/// `IdentityAgent` are the default agent: determined, role `default`, one digest.
+#[test]
+fn y01_identity_agent_forms_and_the_default_agent() {
+    use heimdall_sshconf::relevant::{agent_is_default, is_default_agent};
+    for undetermined in ["$HM_AGENT_SOCK", "${SSH_AUTH_SOCK}", "\"$HM_AGENT_SOCK\""] {
+        let (ev, s) = agent_state(
+            &format!("Host box\n    IdentityAgent {undetermined}\n"),
+            &[
+                ("HM_AGENT_SOCK", "/hm/run/a.sock"),
+                ("SSH_AUTH_SOCK", "/hm/run/d.sock"),
+            ],
+        );
+        assert!(!s.determined, "{undetermined}");
+        assert!(
+            has_reason(&ev, &UnresolvedReason::EnvironmentReference),
+            "{undetermined}"
+        );
+        assert!(!agent_is_default(&relevant(&ev).identity_agent));
+    }
+    let unset = agent_state("Host box\n    User u\n", &[]).1;
+    assert!(unset.determined);
+    for default in ["SSH_AUTH_SOCK", "$SSH_AUTH_SOCK", "\"SSH_AUTH_SOCK\""] {
+        let text = format!("Host box\n    User u\n    IdentityAgent {default}\n");
+        let (ev, s) = agent_state(&text, &[("SSH_AUTH_SOCK", "/hm/run/d.sock")]);
+        assert!(s.determined, "{default}");
+        assert!(!has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+        assert_eq!(
+            s.digest, unset.digest,
+            "{default}: the default agent, role default"
+        );
+        let b = relevant(&ev);
+        assert!(agent_is_default(&b.identity_agent));
+        let Resolved::Determined(v) = &b.identity_agent else {
+            panic!("{default}");
+        };
+        assert!(is_default_agent(v));
+        // A rollback between the forms changes nothing the owner consented to.
+        let before = relevant(&eval_user("Host box\n    User u\n", "box"));
+        assert!(diff(&before, &b).is_empty(), "{default}");
+    }
+    // The system file's default form is the same agent as the user's.
+    let src = source()
+        .with_file(USER_CONFIG, "Host box\n    User u\n")
+        .with_file(SYSTEM_CONFIG, "IdentityAgent SSH_AUTH_SOCK\n");
+    assert_eq!(
+        behavior_state(&relevant(&eval_src(&src, &q("box")))).digest,
+        unset.digest
+    );
+    // `none` and a path are not the default agent.
+    for other in ["none", "/hm/run/agent.sock"] {
+        let s = agent_state(
+            &format!("Host box\n    User u\n    IdentityAgent {other}\n"),
+            &[],
+        )
+        .1;
+        assert!(s.determined, "{other}");
+        assert_ne!(s.digest, unset.digest, "{other}");
+    }
+    // ssh compares `SSH_AUTH_SOCK` case-sensitively: another case is a relative path.
+    let s = agent_state(
+        "Host box\n    User u\n    IdentityAgent ssh_auth_sock\n",
+        &[],
+    )
+    .1;
+    assert_ne!(s.digest, unset.digest);
+}
+
+/// ADR-0007 §12.16 item 1 in the identity selection: an `IdentityFile` that reads a
+/// variable is undetermined, and the runtime's value is never expanded to fingerprint
+/// a key, even when the runtime's file is the adopted key.
+#[test]
+fn y01_identity_selection_never_expands_an_environment_reference() {
+    let src = adopted_tree(
+        b"Host m1\n    IdentityFile ${HM_KEYS}/m1.pub\n",
+        &[managed_alias("m1", "m1.example", None)],
+    )
+    .with_env("HM_KEYS", KEYS);
+    let ev = eval_src(&src, &q("m1"));
+    assert!(has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+    let report = identity_selection(&ev, &adopted_path("m1"), &src);
+    assert_eq!(
+        report.selection,
+        IdentitySelection::Undetermined,
+        "{report:?}"
+    );
+    let env_entry = report
+        .entries
+        .iter()
+        .find(|e| e.source == IdentityEntrySource::User)
+        .unwrap();
+    assert_eq!(env_entry.certainty, Certainty::Undetermined);
+    assert_eq!(env_entry.fingerprint, None);
+    assert_eq!(env_entry.backing, IdentityBacking::Unknown);
+}
+
+/// ADR-0007 §12.16 item 1 for an `Include` path that reads a variable: the runtime's
+/// file is read, but under an unknown condition, and an opaque point stands for any
+/// other file a later ssh may read. It is readable, so the probes are not declined.
+#[test]
+fn y01_include_with_an_environment_reference_is_undetermined() {
+    let src = source()
+        .with_env("HM_DIR", "/hm/home/.ssh/env")
+        .with_file(
+            USER_CONFIG,
+            "Include ${HM_DIR}/x.conf\nHost box\n    User after\n",
+        )
+        .with_file(
+            "/hm/home/.ssh/env/x.conf",
+            "Host box\n    Port 2201\n    IdentityFile /hm/k/x\n",
+        );
+    let ev = eval_src(&src, &q("box"));
+    assert!(has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+    let ports = undet(&ev, KnownKeyword::Port).expect("undetermined");
+    assert!(ports.contains(&"2201".to_owned()), "{ports:?}");
+    assert!(
+        list(&ev, KnownKeyword::IdentityFile)
+            .iter()
+            .all(|(_, d)| !*d)
+    );
+    assert!(!behavior_state(&relevant(&ev)).determined);
+    assert!(unreadable_includes(&ev).is_empty(), "{:?}", ev.unresolved);
+    // Control: the same tree with a literal path is determined.
+    let src = source()
+        .with_file(
+            USER_CONFIG,
+            "Include env/x.conf\nHost box\n    User after\n",
+        )
+        .with_file("/hm/home/.ssh/env/x.conf", "Host box\n    Port 2201\n");
+    let ev = eval_src(&src, &q("box"));
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2201"));
+}
+
+/// Y03 reviewer reproducer (ADR-0007 §12.16 item 3): P under `dir[1]` while `dir1`
+/// exists. OpenSSH globs the quoted target (`ssh -G` loaded `dir1`), so the renderer
+/// refuses the target, `unmanageable{include_target_glob}`, before any edit. A target
+/// without metacharacters renders as before.
+#[test]
+fn y03_include_target_with_glob_metacharacters_is_unmanageable() {
+    use heimdall_sshconf::render::{
+        INCLUDE_TARGET_GLOB, check_include_target, rendered_include_block,
+    };
+    let marker = MarkerId::parse(MARKER).unwrap();
+    for target in [
+        "/scratch/dir[1]/managed.conf",
+        "/scratch/dir]/managed.conf",
+        "/scratch/d*r/managed.conf",
+        "/scratch/d?r/managed.conf",
+    ] {
+        let p = RenderPath::absolute(Path::new(target), PathStyle::Unix).unwrap();
+        assert_eq!(
+            render_include_block(&marker, &p, Newline::Lf),
+            Err(RenderError::Unmanageable(INCLUDE_TARGET_GLOB)),
+            "{target}"
+        );
+        assert!(rendered_include_block(&marker, &p, Newline::Lf).is_err());
+        assert_eq!(
+            check_include_target(&p),
+            Err(RenderError::Unmanageable("include_target_glob"))
+        );
+    }
+    let w =
+        RenderPath::absolute(Path::new("C:\\hm\\d[1]\\ssh_config"), PathStyle::Windows).unwrap();
+    assert_eq!(
+        render_include_block(&marker, &w, Newline::CrLf),
+        Err(RenderError::Unmanageable(INCLUDE_TARGET_GLOB))
+    );
+    // IdentityFile and IdentityAgent are not globbed: they keep the §4 rules.
+    let mut a = managed_alias("box", "box.example", None);
+    a.identity_files = vec![RenderPath::unix(Path::new("/hm/k[1]/box.pub")).unwrap()];
+    a.identity_agent = Some(RenderPath::unix(Path::new("/hm/run/a[1].sock")).unwrap());
+    assert!(render_managed(&[a], PathStyle::Unix).is_ok());
+    // Control: an ordinary target renders exactly as before.
+    let p = RenderPath::absolute(Path::new("/scratch/dir1/managed.conf"), PathStyle::Unix).unwrap();
+    assert_eq!(
+        String::from_utf8(render_include_block(&marker, &p, Newline::Lf).unwrap()).unwrap(),
+        "# >>> heimdall managed include (id hm-0123456789abcdef); remove with `heimdall setup rollback`\n\
+         Include \"/scratch/dir1/managed.conf\"\n\
+         # <<< heimdall managed include (id hm-0123456789abcdef)\n"
+    );
+}
+
+/// ADR-0007 §12.17 item 9: B's target is never home-relative (an Include's `~` follows
+/// `$HOME`), nor a pipe: `render_include_block` refuses them, and
+/// `RenderPath::absolute` never builds one.
+#[test]
+fn include_block_target_is_never_home_relative() {
+    let marker = MarkerId::parse(MARKER).unwrap();
+    for target in [
+        RenderPath::unix(Path::new(MANAGED_REL)).unwrap(),
+        RenderPath::unix(Path::new("~")).unwrap(),
+        RenderPath::windows(Path::new("~/AppData/heimdall/ssh_config")).unwrap(),
+        RenderPath::home_relative(Path::new(MANAGED), Path::new(HOME), PathStyle::Unix).unwrap(),
+        RenderPath::pipe("openssh-ssh-agent").unwrap(),
+    ] {
+        assert_eq!(
+            render_include_block(&marker, &target, Newline::Lf),
+            Err(RenderError::RefusedValue("include_target")),
+            "{}",
+            target.as_str()
+        );
+    }
+    assert!(RenderPath::absolute(Path::new(MANAGED_REL), PathStyle::Unix).is_err());
+    assert!(RenderPath::absolute(Path::new("~/x"), PathStyle::Windows).is_err());
+    assert!(RenderPath::absolute(Path::new("relative/x"), PathStyle::Unix).is_err());
+    let p = RenderPath::absolute(Path::new(MANAGED), PathStyle::Unix).unwrap();
+    assert_eq!(p.as_str(), MANAGED);
+    let block = render_include_block(&marker, &p, Newline::Lf).unwrap();
+    assert!(
+        String::from_utf8(block)
+            .unwrap()
+            .contains(&format!("Include \"{MANAGED}\"\n"))
+    );
+}
+
+fn sessiontype_eval(text: &str, invocation: Invocation) -> Evaluation {
+    let mut query = q("box");
+    query.invocation = invocation;
+    eval_src(&source().with_file(USER_CONFIG, text), &query)
+}
+
+/// Y04 reviewer reproducer (ADR-0007 §12.16 item 4): with `SessionType none` in force,
+/// `Match sessiontype` reads `none`, not the shell invocation (`ssh -G` on
+/// OpenSSH_10.3p1: `hostname box`, `port 2202`).
+#[test]
+fn y04_match_sessiontype_reads_the_session_type_in_force() {
+    let reviewer = "SessionType none\nMatch sessiontype shell\n    HostName wrong.example\n\
+                    Match sessiontype none\n    Port 2202\n";
+    let ev = sessiontype_eval(reviewer, Invocation::Shell);
+    assert!(unset(&ev, KnownKeyword::Hostname), "{ev:?}");
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2202"));
+    assert!(ev.invalid.is_empty());
+    // SessionType subsystem in force, a shell invocation.
+    let subsystem = "SessionType subsystem\nMatch sessiontype subsystem\n    Port 2203\n\
+                     Match sessiontype shell\n    Port 2204\n";
+    let ev = sessiontype_eval(subsystem, Invocation::Shell);
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2203"));
+    // `default` leaves it to the invocation.
+    let default = "SessionType default\nMatch sessiontype exec\n    Port 2205\n";
+    let ev = sessiontype_eval(default, Invocation::Exec(Some("true".into())));
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2205"));
+    assert!(unset(
+        &sessiontype_eval(default, Invocation::Shell),
+        KnownKeyword::Port
+    ));
+    // Before the line is read, the invocation decides (first pass, reading order).
+    let late = "Match sessiontype shell\n    Port 2206\nSessionType none\n";
+    let ev = sessiontype_eval(late, Invocation::Shell);
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2206"));
+    // A subsystem invocation's `-s` comes first: no SessionType line takes effect
+    // (`ssh -G -s`: `sessiontype subsystem`, `port 22`).
+    let ev = sessiontype_eval(reviewer, Invocation::Subsystem("sftp".into()));
+    assert!(unset(&ev, KnownKeyword::SessionType));
+    assert!(unset(&ev, KnownKeyword::Port) && unset(&ev, KnownKeyword::Hostname));
+    // An undetermined SessionType makes the condition unknown.
+    let behind_exec = "Match exec \"probe-st\"\n    SessionType none\n\
+                       Match sessiontype shell\n    Port 2207\n";
+    let ev = sessiontype_eval(behind_exec, Invocation::Shell);
+    assert_eq!(
+        undet(&ev, KnownKeyword::Port),
+        Some(vec!["2207".to_owned()])
+    );
+    // A value ssh does not accept decides nothing.
+    let ev = sessiontype_eval(
+        "SessionType bogus\nMatch sessiontype shell\n    Port 2208\n",
+        Invocation::Shell,
+    );
+    assert_eq!(
+        undet(&ev, KnownKeyword::Port),
+        Some(vec!["2208".to_owned()])
+    );
+}
+
+/// Y05 reviewer reproducer (ADR-0007 §12.16 item 5): on Unix a backslash is a file
+/// name character, so `home_relative` refuses `/fixture/home/a\b` by the Unix rule and
+/// never returns `~/a/b`. The Windows style still normalizes separators.
+#[test]
+fn y05_home_relative_never_rewrites_a_unix_backslash() {
+    let home = Path::new("/fixture/home");
+    assert_eq!(
+        RenderPath::home_relative(Path::new("/fixture/home/a\\b"), home, PathStyle::Unix),
+        Err(RenderError::RefusedValue("path"))
+    );
+    assert_eq!(
+        RenderPath::unix(Path::new("/fixture/home/a\\b")),
+        Err(RenderError::RefusedValue("path"))
+    );
+    let ok =
+        RenderPath::home_relative(Path::new("/fixture/home/a/b"), home, PathStyle::Unix).unwrap();
+    assert_eq!(ok.as_str(), "~/a/b");
+    let w = RenderPath::home_relative(Path::new("/fixture/home/a\\b"), home, PathStyle::Windows)
+        .unwrap();
+    assert_eq!(w.as_str(), "~/a/b");
+}
+
+/// Y06 reviewer reproducer (ADR-0007 §12.16 item 6): the bytes at the prefix length
+/// of `aaaaaaaaé` fall inside `é`; the constructor compares instead of panicking.
+#[test]
+fn y06_pipe_name_with_a_multibyte_character_at_the_prefix_length_does_not_panic() {
+    let got = std::panic::catch_unwind(|| RenderPath::pipe("aaaaaaaaé"));
+    let pipe = got.expect("RenderPath::pipe panicked").unwrap();
+    assert_eq!(pipe.as_str(), "//./pipe/aaaaaaaaé");
+    for name in [
+        "\\\\.\\pipeé",
+        "//./pip\u{e9}x",
+        "\\\\.\\PIPE\\é",
+        "é",
+        "//./pipe/é",
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| RenderPath::pipe(name)).is_ok(),
+            "{name:?}"
+        );
+    }
+    assert_eq!(
+        RenderPath::pipe("\\\\.\\PIPE\\é").unwrap().as_str(),
+        "//./pipe/é"
+    );
+}
+
+/// ADR-0007 §12.17 item 9: an Include's `~`, and a relative user Include's implicit
+/// `~/.ssh/`, follow `$HOME`. With `HOME` unset or the account home they resolve under
+/// the account home; with any other `HOME` that Include is undetermined (reason
+/// `environment_reference`), the account home's file is not claimed, and the tree is
+/// not fully readable. `%d`, `IdentityFile` and the system tree are unaffected (F19).
+#[test]
+fn include_tilde_follows_home_only_when_home_is_the_account_home() {
+    use heimdall_sshconf::include::home_matches;
+    let tree = |home: Option<&str>| {
+        let mut src = source()
+            .with_file(
+                USER_CONFIG,
+                "Include ~/inc/t.conf\nInclude rel.conf\nHost box\n    IdentityFile ~/.ssh/k\n",
+            )
+            .with_file("/hm/home/inc/t.conf", "Host box\n    Port 2301\n")
+            .with_file(format!("{USER_DIR}/rel.conf"), "Host box\n    User rel\n")
+            .with_file(SYSTEM_CONFIG, "Include sys.conf\n")
+            .with_file(
+                format!("{SYSTEM_DIR}/sys.conf"),
+                "Host box\n    ForwardAgent no\n",
+            );
+        if let Some(h) = home {
+            src = src.with_env("HOME", h);
+        }
+        src
+    };
+    for home in [None, Some(HOME), Some("/hm/home/")] {
+        let ev = eval_src(&tree(home), &q("box"));
+        assert_eq!(
+            det1(&ev, KnownKeyword::Port).as_deref(),
+            Some("2301"),
+            "{home:?}"
+        );
+        assert_eq!(
+            det1(&ev, KnownKeyword::User).as_deref(),
+            Some("rel"),
+            "{home:?}"
+        );
+        assert!(
+            !has_reason(&ev, &UnresolvedReason::EnvironmentReference),
+            "{home:?}"
+        );
+    }
+    for home in ["/hm/other-home", "", "hm/home", "/hm/home/sub"] {
+        let ev = eval_src(&tree(Some(home)), &q("box"));
+        assert!(
+            has_reason(&ev, &UnresolvedReason::EnvironmentReference),
+            "{home:?}"
+        );
+        assert_eq!(
+            unreadable_includes(&ev).len(),
+            2,
+            "{home:?}: {:?}",
+            ev.unresolved
+        );
+        let ports = undet(&ev, KnownKeyword::Port).unwrap_or_default();
+        assert!(
+            !ports.contains(&"2301".to_owned()),
+            "{home:?}: the account home's file claimed"
+        );
+        assert!(det(&ev, KnownKeyword::User).is_none(), "{home:?}");
+        assert!(!behavior_state(&relevant(&ev)).determined, "{home:?}");
+        // The system tree's relative include has no `~`, so it is still read (its
+        // value is a candidate behind the opaque user includes).
+        assert!(
+            undet(&ev, KnownKeyword::ForwardAgent).is_some_and(|v| v.contains(&"no".to_owned())),
+            "{home:?}"
+        );
+        // IdentityFile's `~` is the account home (F19), whatever HOME is.
+        assert!(
+            list(&ev, KnownKeyword::IdentityFile)
+                .iter()
+                .any(|(a, _)| a == "~/.ssh/k")
+        );
+    }
+    assert!(home_matches(Path::new("/hm/home/"), Path::new(HOME)));
+    assert!(!home_matches(Path::new(""), Path::new(HOME)));
+    assert!(!home_matches(Path::new("hm/home"), Path::new(HOME)));
+    assert!(!home_matches(Path::new("/hm/home/."), Path::new("")));
 }
 
 // --- properties ---------------------------------------------------------------------------

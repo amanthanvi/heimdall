@@ -3379,6 +3379,87 @@ files and their tests. Each fix carries a regression test that fails without it.
    * Regressions: `probe::network::tests::a_slow_resolver_is_bounded_by_the_deadline` and
      `…::a_literal_address_needs_no_resolver_and_a_failed_lookup_is_unreachable`.
 
+### 12.19 Rulings on the wave-2b escalations (orchestrator, 2026-11-03)
+
+Sources: the three wave-2b unit reports and the integrator's report (workflow
+`wf_6f9a053c-b88`). The integrator's check.sh exited 0 three times; the final runs passed 1320
+tests, with 0 failed. Every item of §12.16 and §12.17 is done except the two partials of
+item 8 below. The orchestrator mutation-checked the §12.18 X01 and X05 regressions:
+* with X01's duplicate removed, the test process aborts with "IO Safety violation: owned
+  file descriptor already closed", which is the reviewer's defect;
+* with X05's bound removed, the slow-resolver test fails after 5 s.
+
+1. **Ratified (integrator):**
+   * `probe::snapshot`'s `Digesting` source passes `include_home` through. This closes a
+     fail-open under a non-UTF-8 `HOME`; regression
+     `include_tilde_under_a_non_utf8_home_is_an_environment_reference`.
+   * The m02-plan U4 note on the frozen name-taking replace API.
+2. **Include `~` with `HOME` unset** resolves through the account home, as `glob(3)`
+   `GLOB_TILDE` does when `HOME` is unset. A `HOME` that is set but differs from the account
+   home, or is empty or relative, is undetermined (§12.17 item 9).
+3. **An Include path holding `${VAR}`** is read under an unknown condition with an opaque
+   point (§12.16 item 1), not as unreadable. Probes are not declined for it alone.
+4. **Recorded, accepted:**
+   * a `Subsystem` invocation ignores `SessionType`, as observed with `ssh -G -s`;
+   * an invalid in-force `SessionType` gives `Unknown`;
+   * `check_alias` makes at most 16 evaluations;
+   * `home_mismatch` also fires for an empty or relative `HOME`;
+   * an unset `IdentityAgent` is the default-agent item, with digest tag
+     `heimdall.behavior.v2` (nothing persisted).
+5. **Frozen-interface record.** These are part of the frozen sshconf, localenv and testkit
+   surface:
+   * `render_include_block` and `rendered_include_block` return `Result<_, RenderError>`;
+   * the additive items `RenderError::Unmanageable`, `render::{INCLUDE_TARGET_GLOB,
+     check_include_target}`, `RenderPath::absolute`, `ConfigSource::include_home` (a
+     default method), `include::home_matches`, `ArgError::EnvironmentReference`,
+     `UnresolvedReason::{EnvironmentReference, as_str}`, `relevant::{is_default_agent,
+     agent_is_default, DEFAULT_AGENT_DISPLAY}`, `testkit::home::{guard_invocations,
+     GUARD_EXEC_SENTINEL}` and `localenv::fs::include_home_for`.
+6. **`decide_item` readings (W2b-U4r), accepted, all fail-closed:**
+   * T1h holds as `displaced_replaced`, with `ExchangedInconsistent` carrying no payload;
+   * `item.committed` with `CommitRestored` is `contradictory_receipts`;
+   * the slot is observed as `?` when a settlement is on record but no `SettlingAt` is
+     given;
+   * `restore_with` holds (`third_writer`) when D's identity is on a symlink, a hard link
+     or a foreign-owned entry.
+7. **Repairs that take more than one operation (item 8d), accepted.** An intent allows one
+   step per path, so `MoveIncludeToTop` inserts a fresh B at the top and reports
+   `marker_duplicated`. A second `remove_duplicate_markers` operation then drops the old
+   block, and P is never out of effect. `RemoveDuplicateMarkers` removes one duplicate per
+   operation. U9 and U10 present a repair as complete only when doctor reports none left,
+   and offer the next operation until then. Item 8d is done under this reading.
+8. **Item 8 readings (W2b-U4t), accepted:**
+   * §5.5's conflict rename is keyed on P's content digest and applies to P_git too
+     (`gitconfig.hm-conflict-<gen>`).
+   * When the Git parse check cannot run (local queries disabled, or no verified Git
+     client), the Git item aborts with reason `verified_client_unavailable` (§12.17 item 11),
+     not with `unmanageable_file`. Owner: W2c-U4.
+   * Consent's affected set is the aliases whose P section changes. Key files are named by
+     the key's fingerprint (`materialize::key_file_path`), so a different key changes the
+     section and needs a decision. A key file rewritten with the same key needs none.
+   * Stored consent counts only for items still in the record, so re-adoption after a
+     rollback always needs a decision.
+9. **For U5 (wave 3):**
+   * the manual reasons outside `manual_reason::ALL` (`marker_edited`,
+     `include_conditional`, and others) are added to the contract;
+   * `include_target_glob` is reported as its own manual reason;
+   * the sink refuses an `ItemCommit` whose consent `DecisionId` differs from
+     `intent.approval.decision`;
+   * a rollback commit removes the item;
+   * aliases are merged when P is unchanged.
+10. **The per-row recovery test (item 8, partial).** m02-plan U4 requires, for every §5.7
+    row:
+    * build the observed entries in a scratch directory together with the receipts;
+    * run `reconcile`;
+    * assert the action, the receipts written and the outcome.
+
+    The wave-2b test checks each row through `build`, `normalize` and `decide` in memory
+    only. That test is renamed `recovery_table_rows_each_decide_as_their_row` and kept.
+    The plan's name, `recovery_table_rows_each_have_a_test_vector`, goes to the
+    filesystem-backed test in `tests/integration/projection_recovery_rows.rs`. Owner:
+    **W2c-rows**, a second wave-2c unit, which owns that file and
+    `tests/model/projection_recovery.rs`.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

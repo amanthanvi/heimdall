@@ -13,8 +13,11 @@
 //! dropped), and the test restarts with a fresh `LocalProjection` over the receipts the
 //! sink made durable. The writer keeps no state between calls (M2-S05), so this is
 //! what a process restart sees; it is not an operating-system process abort, and the
-//! evidence records label it so. The store-backed variant uses the store's own
-//! `FaultHook` (`heimdall_testkit::ScriptedFaults`).
+//! evidence records label it so (an in-process unwind). The store-backed variant uses
+//! the store's own `FaultHook` (`heimdall_testkit::ScriptedFaults`). One test,
+//! `a22_first_adoption_commit_point_crash_as_a_process_abort_reconciles`, is a real
+//! **process abort**: a child process calls `std::process::abort` at the hook and dies
+//! by SIGABRT, and a fresh child process reconciles (ADR-0007 §12.17 item 8).
 #![cfg(unix)]
 #![allow(
     clippy::unwrap_used,
@@ -935,14 +938,13 @@ fn a22_race_in_place_write_after_final_check_is_restored() {
     );
 }
 
-/// m02-plan U4 names this case "is restored" (revision 2). ADR-0007 revision 5's
-/// normalization (§5.7 rule 1) makes an entry that is not a regular file X whatever its
-/// identity, so the displaced symlink is not a D that F5 may move back: the restore is
-/// held (`third_writer`, F5d) and nothing moves. The test asserts the binding table:
-/// the symlink is preserved intact, its target is untouched, and nothing is deleted.
-/// The name/expectation mismatch is escalated.
+/// ADR-0007 §12.17 item 5 (m02-plan U4, amended): normalization rule 1 (§5.7) makes an
+/// entry that is not a regular file X whatever its identity, so the displaced symlink
+/// is not a D that F5 may move back. F5d holds the operation (`third_writer`) and
+/// nothing moves: the symlink is preserved intact, its target is untouched, and
+/// nothing is deleted. Revision 5 named this test `…_is_restored`.
 #[test]
-fn a22_race_symlink_substitution_at_boundary_is_restored() {
+fn a22_race_symlink_substitution_at_boundary_is_held() {
     let fx = Fx::new();
     std::fs::write(fx.user(), USER_TEXT).unwrap();
     let intent = fx
@@ -1337,6 +1339,94 @@ fn a22_update_user_edit_after_p_exchange_restores_generation_n() {
         "{:?}",
         leftovers(&fx.tree())
     );
+}
+
+/// ADR-0007 §12.17 item 6: §5.7 governs a failed first-adoption check (§5.4's
+/// `CONFIG_CONFLICT` with effect `none` is superseded). P, still inactive, is edited in
+/// place after its exchange and before the user file's transaction check, so the
+/// check fails (`managed_file_edited`). The user file is restored (F5), the unchanged
+/// key files are rolled back (C7), the edited P is held (C7a,
+/// `active_entry_modified`), and the item is held: the operation is `OUTCOME_UNKNOWN`
+/// with the held repair options (`observe_held` lists P), not `restored`. A restart
+/// moves nothing.
+#[test]
+fn a22_first_adoption_check_failure_with_edited_inactive_p_is_held() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let user_ino = std::fs::symlink_metadata(fx.user()).unwrap().ino();
+    let intent = fx
+        .preview(&fx.spec(&["work", "lab"], None), &Fx::apply_intent())
+        .intent();
+    let u = step_of(&intent, FileRole::UserSsh);
+    let p = step_of(&intent, FileRole::ManagedSsh);
+    let hook = Hook::new().run(
+        ReplacePoint::AfterPostValidate,
+        Some(u),
+        appender(&fx.p(), "# the owner's edit\n"),
+    );
+    let sink = Sink::default();
+    let r = apply_or_crash(fx.hooked(&hook), &intent, &sink)
+        .unwrap()
+        .unwrap();
+    let kinds = sink.kinds();
+    let [ItemOutcome::Held { steps, .. }] = r.items.as_slice() else {
+        panic!("{:?} {kinds:?}", r.items);
+    };
+    assert_eq!(
+        steps.iter().map(|s| (s.step, s.reason)).collect::<Vec<_>>(),
+        vec![(p, HoldReason::ActiveEntryModified)],
+        "{kinds:?}"
+    );
+    assert!(
+        sink.receipts().iter().any(|r| matches!(
+            r.local,
+            Some(LocalReceipt::Item {
+                phase: ItemPhase::RollingBack {
+                    reason: ConflictKind::ManagedFileEdited
+                },
+                ..
+            })
+        )),
+        "{kinds:?}"
+    );
+    // The user file is restored, byte for byte and by identity.
+    assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), USER_TEXT);
+    assert_eq!(
+        std::fs::symlink_metadata(fx.user()).unwrap().ino(),
+        user_ino
+    );
+    assert!(kinds.contains(&format!("{u}:restored")), "{kinds:?}");
+    // The unchanged key files are rolled back; the edited P stays, with the edit.
+    for (i, s) in intent.files.iter().enumerate() {
+        if s.role == FileRole::Key {
+            assert!(!Path::new(&s.path).exists(), "{} rolled back", s.path);
+            assert!(kinds.contains(&format!("{i}:restored")), "{kinds:?}");
+        }
+    }
+    assert!(
+        std::fs::read_to_string(fx.p())
+            .unwrap()
+            .ends_with("# the owner's edit\n")
+    );
+    assert!(
+        !kinds
+            .iter()
+            .any(|k| k == "ssh:committed" || k.starts_with("ssh:finished"))
+    );
+    assert!(sink.commits().is_empty());
+    // The repair options are built from the held steps.
+    let held = fx.writer().observe_held(&intent, &sink.receipts()).unwrap();
+    assert_eq!(
+        held.iter().map(|h| (h.step, h.reason)).collect::<Vec<_>>(),
+        vec![(p, HoldReason::ActiveEntryModified)]
+    );
+    let tree = fx.tree();
+    let again = restart(&fx, &intent, &sink);
+    assert_eq!(
+        held_reasons(&again[0]),
+        vec![HoldReason::ActiveEntryModified]
+    );
+    assert_eq!(fx.tree(), tree, "a restart moves nothing");
 }
 
 #[test]
@@ -2085,6 +2175,160 @@ fn held_step_moves_nothing_and_reobserves_at_restart() {
     assert!(leftovers(&fx.tree()).is_empty());
 }
 
+// --- consent: decisions by effect (ADR-0007 §5.2; §12.17 item 8) ------------------------
+
+/// The consent the sink's commits recorded (what the store keeps per item).
+fn consent_of(sink: &Sink) -> heimdall_domain::projection::ConsentRecord {
+    let mut out = heimdall_domain::projection::ConsentRecord::default();
+    for c in sink.commits() {
+        out.items.extend(c.consent.items);
+    }
+    out
+}
+
+fn reasons(plan: &ProjectionPlan) -> Vec<(String, heimdall_contract::setup::ConsentReasonKind)> {
+    plan.view
+        .consent
+        .reasons
+        .iter()
+        .map(|r| (r.item.clone(), r.kind))
+        .collect()
+}
+
+#[test]
+fn consent_first_adoption_needs_a_decision_and_records_the_consented_states() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    use heimdall_domain::projection::ItemId;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let plan = fx.preview(&fx.spec(&["work", "lab"], None), &Fx::apply_intent());
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![
+            ("lab".to_owned(), ConsentReasonKind::NewState),
+            ("work".to_owned(), ConsentReasonKind::NewState)
+        ]
+    );
+    // The plan records, per alias, the approved managed state and the restore state
+    // the decision shows; the restore column is in the summary.
+    let work = &plan.consent.items[&ItemId::alias("work")];
+    assert!(work.managed.determined && work.restore.determined);
+    assert_ne!(work.managed.digest, work.restore.digest);
+    let summary = plan.summary.as_ref().unwrap();
+    assert_eq!(
+        summary.added_aliases,
+        vec!["lab".to_owned(), "work".to_owned()]
+    );
+    assert!(
+        summary
+            .restore
+            .iter()
+            .any(|r| r.item == ItemId::alias("work") && r.digest == work.restore.digest)
+    );
+    // `apply` records them under the approving decision.
+    let mut intent = plan.intent();
+    let decision = heimdall_contract::ids::DecisionId::from_random_bytes(random());
+    intent.approval = Some(heimdall_domain::projection::ProjectionApproval {
+        decision: decision.clone(),
+        plan_digest: intent.plan_digest.clone(),
+    });
+    let sink = Sink::default();
+    fx.writer().apply(&intent, &mut sink.clone()).unwrap();
+    let recorded = consent_of(&sink);
+    assert_eq!(recorded.items[&ItemId::alias("work")].decision, decision);
+    assert_eq!(recorded.items[&ItemId::alias("work")].managed, work.managed);
+}
+
+/// A plan that changes files but no alias's rendered section (a new public key in the
+/// same key file) affects no item, so §5.2 needs no decision, and the plan records no
+/// consent.
+#[test]
+fn consent_plan_affecting_no_item_needs_no_decision() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (first, sink) = fx.adopt(&["work"]);
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.consent = consent_of(&sink);
+    spec.aliases = first_aliases(&first, &fx, &["work"]);
+    // Another key for the same alias: only the key file's bytes change.
+    let id = &spec.aliases[0].identity;
+    fx.keys
+        .0
+        .lock()
+        .unwrap()
+        .insert(id.as_str().to_owned(), synthetic_public_key());
+    let plan = fx.preview(&spec, &Fx::apply_intent());
+    assert!(
+        plan.files.iter().any(|s| s.role == FileRole::Key),
+        "{:?}",
+        plan.files
+    );
+    assert!(!plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    assert!(plan.consent.items.is_empty());
+    assert!(plan.summary.is_none());
+}
+
+/// A rollback that yields exactly the restore state the owner was shown needs no
+/// decision; one that would expose a value the user's configuration gained after the
+/// decision needs one (`exposes_inherited`).
+#[test]
+fn consent_rollback_to_the_consented_restore_state_is_waived_else_decided() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.consent = consent_of(&sink);
+    assert!(!spec.consent.items.is_empty());
+    let plan = fx.preview(&spec, &Fx::rollback_intent());
+    assert!(plan.files.iter().any(|s| s.role == FileRole::UserSsh));
+    assert!(!plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    assert!(plan.consent.items.is_empty());
+    // The user later adds a wildcard HostName below B: P's value wins now, but the
+    // rollback would expose it.
+    let mut text = std::fs::read_to_string(fx.user()).unwrap();
+    text.push_str("Host *\n    HostName exposed.example.invalid\n");
+    std::fs::write(fx.user(), &text).unwrap();
+    let plan = fx.preview(&spec, &Fx::rollback_intent());
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::ExposesInherited)]
+    );
+    // Without stored consent the same rollback needs a decision too.
+    let mut bare = spec.clone();
+    bare.consent = heimdall_domain::projection::ConsentRecord::default();
+    assert!(
+        fx.preview(&bare, &Fx::rollback_intent())
+            .view
+            .consent
+            .decision_required
+    );
+}
+
+/// An affected item whose state is undetermined (a `Match exec` that may set a relevant
+/// directive) needs an attended decision whatever the digests say (§5.2, M2-R03).
+#[test]
+fn consent_undetermined_state_always_needs_a_decision() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    let fx = Fx::new();
+    let text =
+        format!("{USER_TEXT}Match exec \"test -n x\"\n    ProxyJump bastion.example.invalid\n");
+    std::fs::write(fx.user(), &text).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.consent = consent_of(&sink);
+    let recorded = &spec.consent.items[&heimdall_domain::projection::ItemId::alias("work")];
+    assert!(!recorded.managed.determined);
+    let plan = fx.preview(&spec, &Fx::rollback_intent());
+    assert!(plan.view.consent.decision_required);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::UndeterminedState)]
+    );
+}
+
 // --- markers, manual mode, encodings ----------------------------------------------------
 
 fn findings(plan: &ProjectionPlan) -> Vec<(String, Option<String>)> {
@@ -2142,18 +2386,109 @@ fn a22_edit_of_managed_file_is_never_overwritten() {
         p_bytes,
         "never overwritten"
     );
-    // At rollback, B is removed and the edited P is left to the owner (R1a): the
-    // cleaner removes nothing whose content changed.
-    let rb = rollback_plan(&fx, &sink).intent();
-    fx.writer().apply(&rb, &mut Sink::default()).unwrap();
+    // At rollback (§5.5, §12.17 item 8), B is removed and the edited P is not removed:
+    // it is renamed, with no-replace, to `ssh_config.hm-conflict-<gen>` and reported.
+    let rb_plan = rollback_plan(&fx, &sink);
+    assert!(
+        findings(&rb_plan).contains(&(
+            "projection_edited".to_owned(),
+            Some("managed_file_edited".to_owned())
+        )),
+        "{:?}",
+        findings(&rb_plan)
+    );
+    let rb = rb_plan.intent();
+    let r = fx.writer().apply(&rb, &mut Sink::default()).unwrap();
+    assert!(matches!(r.items[0], ItemOutcome::Applied { .. }), "{r:?}");
+    assert!(!fx.p().exists(), "P is no longer at its name");
+    let kept = fx
+        .home
+        .config_dir
+        .join(format!("ssh_config.hm-conflict-{}", rb.generation));
+    assert_eq!(std::fs::read(&kept).unwrap(), edited, "the edit survives");
     let locator = sink.record(&fx.env).items[&ProjectionItem::Ssh]
         .files
         .iter()
         .find(|l| l.role == FileRole::ManagedSsh)
         .cloned()
         .unwrap();
+    // The cleaner then finds P absent (R3) and removes nothing.
     block_on(fx.cleaner().delete(&resource(&fx.env, &locator, 1))).unwrap();
-    assert_eq!(std::fs::read(fx.p()).unwrap(), edited, "edited P kept");
+    assert_eq!(std::fs::read(&kept).unwrap(), edited);
+    assert!(!String::from_utf8_lossy(&std::fs::read(fx.user()).unwrap()).contains("heimdall"));
+}
+
+/// §5.5's rename, the other cases: an edit made between the rollback's preview and its
+/// apply is kept the same way; an occupied conflict name leaves the edited P where it
+/// is (no-replace), with the occupant intact; an unedited P is the cleaner's.
+#[test]
+fn a22_rollback_keeps_edited_p_under_conflict_name_never_over_another() {
+    for case in ["edited_after_preview", "name_occupied", "unedited"] {
+        let fx = Fx::new();
+        std::fs::write(fx.user(), USER_TEXT).unwrap();
+        let (_first, sink) = fx.adopt(&["work"]);
+        let original = std::fs::read(fx.p()).unwrap();
+        let rb = rollback_plan(&fx, &sink).intent();
+        let kept = fx
+            .home
+            .config_dir
+            .join(format!("ssh_config.hm-conflict-{}", rb.generation));
+        if case != "unedited" {
+            appender(&fx.p(), "# mine\n")();
+        }
+        if case == "name_occupied" {
+            std::fs::write(&kept, b"another file\n").unwrap();
+        }
+        let p_bytes = std::fs::read(fx.p()).unwrap();
+        let r = fx.writer().apply(&rb, &mut Sink::default()).unwrap();
+        assert!(
+            matches!(r.items[0], ItemOutcome::Applied { .. }),
+            "{case}: {r:?}"
+        );
+        match case {
+            "edited_after_preview" => {
+                assert!(!fx.p().exists(), "{case}");
+                assert_eq!(std::fs::read(&kept).unwrap(), p_bytes, "{case}");
+            }
+            "name_occupied" => {
+                assert_eq!(std::fs::read(fx.p()).unwrap(), p_bytes, "{case}: P stays");
+                assert_eq!(std::fs::read(&kept).unwrap(), b"another file\n", "{case}");
+            }
+            _ => {
+                assert_eq!(std::fs::read(fx.p()).unwrap(), original, "{case}");
+                assert!(!kept.exists(), "{case}");
+                let locator = sink.record(&fx.env).items[&ProjectionItem::Ssh]
+                    .files
+                    .iter()
+                    .find(|l| l.role == FileRole::ManagedSsh)
+                    .cloned()
+                    .unwrap();
+                block_on(fx.cleaner().delete(&resource(&fx.env, &locator, 1))).unwrap();
+                assert!(!fx.p().exists(), "{case}: the cleaner removed P");
+            }
+        }
+    }
+}
+
+/// A rollback whose user file no longer has B (the owner removed it by hand) plans
+/// only the files for the cleaner. Its item exchanges nothing; its check and
+/// `item.committed` are its commit point, and it ends `applied`, never held.
+#[test]
+fn a22_rollback_without_block_commits_and_hands_files_to_the_cleaner() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let rb = rollback_plan(&fx, &sink).intent();
+    assert!(rb.files.iter().all(|s| s.role != FileRole::UserSsh));
+    let rsink = Sink::default();
+    let r = fx.writer().apply(&rb, &mut rsink.clone()).unwrap();
+    assert!(
+        matches!(r.items[0], ItemOutcome::Applied { .. }),
+        "{r:?} {:?}",
+        rsink.kinds()
+    );
+    assert_eq!(rsink.kinds(), vec!["ssh:committed", "ssh:finished_applied"]);
 }
 
 #[test]
@@ -2257,6 +2592,205 @@ fn a22_duplicate_marker_refused() {
     assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), doubled);
 }
 
+fn repair(
+    conflict: ConflictKind,
+    resolution: heimdall_contract::setup::RepairResolution,
+) -> PreviewIntent {
+    PreviewIntent::Repair {
+        conflict,
+        resolution,
+        operation: None,
+    }
+}
+
+/// `remove_duplicate_markers` (ADR-0007 §5.5; §12.17 item 8): the first block that is
+/// Heimdall's exact B before the first section stays, one other exact B is removed by
+/// one splice, and nothing else changes. Removing a redundant include changes no
+/// alias's behaviour, so §5.2 needs no decision. An edited duplicate is never removed.
+#[test]
+fn a22_repair_remove_duplicate_markers_keeps_one_block() {
+    use heimdall_contract::setup::RepairResolution;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_intent, sink) = fx.adopt(&["work"]);
+    let adopted = std::fs::read_to_string(fx.user()).unwrap();
+    let start = adopted.find("# >>> heimdall").unwrap();
+    let end = adopted.find("# <<< heimdall").unwrap();
+    let end = end + adopted[end..].find('\n').unwrap() + 1;
+    let block = adopted[start..end].to_owned();
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.consent = consent_of(&sink);
+    let intent = repair(
+        ConflictKind::MarkerDuplicated,
+        RepairResolution::RemoveDuplicateMarkers,
+    );
+    // An edited duplicate is not Heimdall's: no removal, its line named.
+    let edited = format!("{adopted}{}", block.replace("Include \"", "Include  \""));
+    std::fs::write(fx.user(), &edited).unwrap();
+    let plan = fx.preview(&spec, &intent);
+    assert!(plan.files.is_empty());
+    assert_eq!(findings(&plan)[0].0, "marker_edited");
+    // An exact duplicate is removed.
+    let doubled = format!("{block}{adopted}");
+    std::fs::write(fx.user(), &doubled).unwrap();
+    let plan = fx.preview(&spec, &intent);
+    assert_eq!(
+        plan.files
+            .iter()
+            .map(|s| (s.role, s.commit))
+            .collect::<Vec<_>>(),
+        vec![(FileRole::UserSsh, true)]
+    );
+    assert!(!plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(matches!(r.items[0], ItemOutcome::Applied { .. }), "{r:?}");
+    // The first exact block at the top stays; the user's lines are untouched.
+    assert_eq!(
+        std::fs::read_to_string(fx.user()).unwrap(),
+        format!("{block}{USER_TEXT}")
+    );
+    assert!(
+        leftovers(&fx.tree()).is_empty(),
+        "{:?}",
+        leftovers(&fx.tree())
+    );
+}
+
+/// `move_include_to_top` (ADR-0007 §5.5; §12.17 item 8): a move is two edits of the
+/// user file and an intent has one step per file, so the repair inserts a fresh B at
+/// the top and reports the conditional block left behind, which
+/// `remove_duplicate_markers` then removes. P is never out of effect. Reaching the
+/// managed state the owner consented to needs no new decision.
+#[test]
+fn a22_repair_move_include_to_top_then_remove_the_conditional_block() {
+    use heimdall_contract::setup::RepairResolution;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_intent, sink) = fx.adopt(&["work"]);
+    let adopted = std::fs::read_to_string(fx.user()).unwrap();
+    let start = adopted.find("# >>> heimdall").unwrap();
+    let end = adopted.find("# <<< heimdall").unwrap();
+    let end = end + adopted[end..].find('\n').unwrap() + 1;
+    let block = &adopted[start..end];
+    let moved = format!("{}{}", adopted.replace(block, ""), block);
+    std::fs::write(fx.user(), &moved).unwrap();
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.consent = consent_of(&sink);
+    let plan = fx.preview(
+        &spec,
+        &repair(
+            ConflictKind::IncludeConditional,
+            RepairResolution::MoveIncludeToTop,
+        ),
+    );
+    assert_eq!(
+        plan.files
+            .iter()
+            .map(|s| (s.role, s.commit))
+            .collect::<Vec<_>>(),
+        vec![(FileRole::UserSsh, true)]
+    );
+    assert!(
+        findings(&plan)
+            .iter()
+            .any(|(c, _)| c == "marker_duplicated")
+    );
+    assert!(!plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    // Without the stored consent, P coming into effect for `work` is a new state.
+    let mut bare = spec.clone();
+    bare.consent = heimdall_domain::projection::ConsentRecord::default();
+    assert!(
+        fx.preview(
+            &bare,
+            &repair(
+                ConflictKind::IncludeConditional,
+                RepairResolution::MoveIncludeToTop
+            )
+        )
+        .view
+        .consent
+        .decision_required
+    );
+    fx.writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    let text = std::fs::read(fx.user()).unwrap();
+    let blocks = heimdall_sshconf::edit::find_blocks(&text);
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(
+        blocks[0].position,
+        heimdall_sshconf::edit::BlockPosition::BeforeFirstSection
+    );
+    let plan = fx.preview(
+        &spec,
+        &repair(
+            ConflictKind::MarkerDuplicated,
+            RepairResolution::RemoveDuplicateMarkers,
+        ),
+    );
+    fx.writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    let text = std::fs::read(fx.user()).unwrap();
+    let blocks = heimdall_sshconf::edit::find_blocks(&text);
+    assert_eq!(blocks.len(), 1);
+    assert!(blocks[0].intact);
+    assert_eq!(
+        blocks[0].position,
+        heimdall_sshconf::edit::BlockPosition::BeforeFirstSection
+    );
+    assert!(
+        String::from_utf8_lossy(&text)
+            .ends_with("Host personal\n    HostName personal.example.invalid\n    User me\n")
+    );
+}
+
+/// `manual_mode` (ADR-0007 §5.3 step 9, §5.5; §12.17 item 8): P and the key files are
+/// written and committed as an apply renders them, the user file is never planned or
+/// touched, and the plan shows the exact block (B naming P by its absolute path).
+#[test]
+fn a22_repair_manual_mode_writes_p_never_the_user_file() {
+    use heimdall_contract::setup::RepairResolution;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let ino = std::fs::symlink_metadata(fx.user()).unwrap().ino();
+    let plan = fx.preview(
+        &fx.spec(&["work"], None),
+        &repair(ConflictKind::UnmanageableFile, RepairResolution::ManualMode),
+    );
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert_eq!(
+        plan.view.manual_reasons,
+        vec!["unmanageable_file".to_owned()]
+    );
+    assert!(plan.files.iter().all(|s| s.role != FileRole::UserSsh));
+    let shown = plan
+        .view
+        .findings
+        .iter()
+        .find(|f| f.code == "manual_mode")
+        .unwrap();
+    let p = fx.p();
+    assert!(
+        shown
+            .message
+            .contains(&format!("Include \"{}\"", p.to_str().unwrap())),
+        "{}",
+        shown.message
+    );
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(matches!(r.items[0], ItemOutcome::Applied { .. }), "{r:?}");
+    assert!(p.exists());
+    assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), USER_TEXT);
+    assert_eq!(std::fs::symlink_metadata(fx.user()).unwrap().ino(), ino);
+}
+
 fn assert_manual(fx: &Fx, reason: &str) {
     let tree = fx.tree();
     let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
@@ -2268,14 +2802,107 @@ fn assert_manual(fx: &Fx, reason: &str) {
         .ok()
         .map(|m| (m.ino(), m.mode()));
     let bytes_before = std::fs::read(fx.user()).ok();
-    fx.writer()
-        .apply(&plan.intent(), &mut Sink::default())
+    // Manual mode writes P and the key files, and commits them (P is the commit step),
+    // so the doctor can verify the owner's block against the record.
+    let sink = Sink::default();
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut sink.clone())
         .unwrap();
+    assert!(
+        matches!(r.items.as_slice(), [ItemOutcome::Applied { .. }]),
+        "{r:?} {:?}",
+        sink.kinds()
+    );
+    assert!(fx.p().exists());
     let user_after = std::fs::symlink_metadata(fx.user())
         .ok()
         .map(|m| (m.ino(), m.mode()));
     assert_eq!(user_after, user_before, "the user file is unchanged");
     assert_eq!(std::fs::read(fx.user()).ok(), bytes_before);
+}
+
+/// ADR-0007 §12.17 item 9 (caller side): B's target is P's absolute path, never `~`,
+/// also when P lies under the account home, so B loads P whatever `$HOME` is. The
+/// rollback finds and removes exactly that block.
+#[test]
+fn a22_include_block_names_p_by_absolute_path() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let mut config = fx.config();
+    config.config_dir = fx.home.git_home.join(".config").join("heimdall");
+    let p = config.managed_ssh_path();
+    let writer = LocalProjection::new(config);
+    let plan = writer
+        .preview(&fx.spec(&["work"], None), &Fx::apply_intent())
+        .unwrap();
+    let sink = Sink::default();
+    let r = writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
+    assert!(matches!(r.items[0], ItemOutcome::Applied { .. }), "{r:?}");
+    let text = std::fs::read_to_string(fx.user()).unwrap();
+    let p_text = p.to_str().unwrap();
+    assert!(p_text.starts_with('/'));
+    assert!(text.contains(&format!("Include \"{p_text}\"\n")), "{text}");
+    assert!(!text.contains("Include \"~"), "{text}");
+    let rb = writer
+        .preview(
+            &fx.spec(&[], Some(sink.record(&fx.env))),
+            &Fx::rollback_intent(),
+        )
+        .unwrap();
+    assert!(rb.files.iter().any(|s| s.role == FileRole::UserSsh));
+    writer.apply(&rb.intent(), &mut Sink::default()).unwrap();
+    assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), USER_TEXT);
+}
+
+/// ADR-0007 §12.16 item 3 and §12.17 item 9: OpenSSH globs inside a quoted Include
+/// argument, so a P path holding `*`, `?`, `[` or `]` cannot be named literally. The
+/// plan is manual before any edit (`unmanageable_file`, with the finding reason
+/// `include_target_glob`): no user-file step, P and the key files written and
+/// committed, the user file untouched.
+#[test]
+fn a22_include_target_with_glob_metacharacter_is_manual_mode() {
+    for dir in ["cfg[x]", "cfg*", "cfg?"] {
+        let fx = Fx::new();
+        std::fs::write(fx.user(), USER_TEXT).unwrap();
+        let mut config = fx.config();
+        config.config_dir = fx.home.root.join(dir);
+        let writer = LocalProjection::new(config.clone());
+        let plan = writer
+            .preview(&fx.spec(&["work"], None), &Fx::apply_intent())
+            .unwrap();
+        assert_eq!(plan.view.mode, SetupMode::Manual, "{dir}");
+        assert_eq!(
+            plan.view.manual_reasons,
+            vec!["unmanageable_file".to_owned()],
+            "{dir}"
+        );
+        assert!(
+            findings(&plan).contains(&(
+                "unmanageable_file".to_owned(),
+                Some("include_target_glob".to_owned())
+            )),
+            "{dir}: {:?}",
+            findings(&plan)
+        );
+        assert!(
+            plan.files.iter().all(|s| s.role != FileRole::UserSsh),
+            "{dir}"
+        );
+        let ino = std::fs::symlink_metadata(fx.user()).unwrap().ino();
+        let r = writer.apply(&plan.intent(), &mut Sink::default()).unwrap();
+        assert!(
+            matches!(r.items[0], ItemOutcome::Applied { .. }),
+            "{dir}: {r:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(fx.user()).unwrap(),
+            USER_TEXT,
+            "{dir}"
+        );
+        assert_eq!(std::fs::symlink_metadata(fx.user()).unwrap().ino(), ino);
+        assert!(config.managed_ssh_path().exists(), "{dir}: P written");
+    }
 }
 
 #[test]
@@ -3314,6 +3941,18 @@ impl ProjectionWriter for Counting {
 
 const CHILD: &str = "HM_U4C_CHILD_DIR";
 
+/// A hook that ends the process with `std::process::abort` (SIGABRT) at one point of
+/// one step: a real process crash, with no unwinding and no destructor run.
+struct AbortAt(ReplacePoint, u16);
+
+impl ReplaceHook for AbortAt {
+    fn at(&self, point: ReplacePoint, step: u16) {
+        if point == self.0 && step == self.1 {
+            std::process::abort();
+        }
+    }
+}
+
 /// Run `mode` (`apply`, `reconcile`, `crash_exchanged:<step>`) in a child process: this
 /// test binary, re-executed for `child_process_writer_entry` only, with the scratch
 /// directory in the environment. Returns the child's exit status.
@@ -3353,6 +3992,16 @@ fn child_process_writer_entry() {
         let step: u16 = step.trim().parse().unwrap();
         let hook = Hook::new().crash(ReplacePoint::BeforeReceipt("exchanged"), Some(step));
         let h: Arc<dyn ReplaceHook> = hook;
+        config.hook = Some(h);
+    }
+    if let Some(rest) = mode.strip_prefix("abort:") {
+        let (kind, step) = rest.trim().split_once(':').unwrap();
+        let point = match kind {
+            "staged" => ReplacePoint::BeforeReceipt("staged"),
+            "commit" => ReplacePoint::BeforeCommit,
+            other => panic!("unknown abort point {other}"),
+        };
+        let h: Arc<dyn ReplaceHook> = Arc::new(AbortAt(point, step.parse().unwrap()));
         config.hook = Some(h);
     }
     let writer = Counting {
@@ -3531,6 +4180,64 @@ fn fresh_writer_creates_absent_ssh_config() {
     }
 }
 
+/// ADR-0007 §12.17 item 8: the commit-point crash runs once as a real process abort,
+/// besides the in-process unwinds of the other crash tests (which stay labelled as
+/// unwinds). The child process running `apply` calls `std::process::abort` at the
+/// hook, so it dies by SIGABRT with nothing unwound; a second, fresh child process
+/// reconciles from the durable receipts. Two points of the first adoption: after P and
+/// before B's `file.staged` (row F0x, the commit step's S unrecorded), and at the
+/// commit point after B's post-validation, before `item.committed` (row T1).
+#[test]
+fn a22_first_adoption_commit_point_crash_as_a_process_abort_reconciles() {
+    use std::os::unix::process::ExitStatusExt as _;
+    for kind in ["staged", "commit"] {
+        let fx = Fx::new();
+        std::fs::write(fx.user(), USER_TEXT).unwrap();
+        let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
+        let intent = round_trip(&plan.intent());
+        let u = step_of(&intent, FileRole::UserSsh);
+        let dir = fx.home.scratch().subdir("child").unwrap();
+        std::fs::write(
+            dir.join("intent.json"),
+            serde_json::to_string(&intent).unwrap(),
+        )
+        .unwrap();
+        let status = run_child(&fx, &dir, &format!("abort:{kind}:{u}"));
+        assert_eq!(
+            status.signal(),
+            Some(6),
+            "{kind}: a process abort (SIGABRT)"
+        );
+        assert!(
+            !dir.join("outcome").exists(),
+            "{kind}: the child died at the hook"
+        );
+        let rx = FileSink::read(&dir.join("receipts.jsonl"));
+        let kinds: Vec<String> = rx
+            .iter()
+            .filter_map(|r| r.local.as_ref())
+            .map(kind_of)
+            .collect();
+        assert!(
+            !kinds.contains(&"ssh:committed".to_owned()),
+            "{kind}: {kinds:?}"
+        );
+        assert!(run_child(&fx, &dir, "reconcile").success(), "{kind}");
+        let out = child_outcome(&dir);
+        assert!(out.starts_with("[Applied"), "{kind}: {out}");
+        assert!(out.contains("previews=0"), "{kind}: {out}");
+        let Target::Present { sha256 } = &step_ref(&intent, FileRole::UserSsh).target else {
+            unreachable!()
+        };
+        assert_eq!(&Sha256Hex::of(&std::fs::read(fx.user()).unwrap()), sha256);
+        assert!(
+            leftovers(&fx.tree()).is_empty(),
+            "{kind}: {:?}",
+            leftovers(&fx.tree())
+        );
+    }
+}
+
 // --- the generated domain on the filesystem (ADR-0007 §5.7 properties) ------------------
 
 mod generated {
@@ -3542,7 +4249,8 @@ mod generated {
 
     fn config() -> ProptestConfig {
         let mut c = ProptestConfig {
-            cases: 256,
+            // Three shapes are drawn uniformly: about 256 cases each.
+            cases: 768,
             failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
                 "proptest-regressions",
             ))),
@@ -3552,6 +4260,18 @@ mod generated {
             c.rng_seed = RngSeed::Fixed(0x5534_4347_454e_4f42);
         }
         c
+    }
+
+    /// The step shape a cell builds (ADR-0007 §12.17 item 8: the generated domain
+    /// covers the `git_lock` and removal shapes too).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Shape {
+        /// The user-file step (a replace, or a create with `create`).
+        User,
+        /// The `git_lock` step K, with B_git after it at its start.
+        GitLock,
+        /// The cleaner's removal of a locator (rows R1–R6).
+        Removal,
     }
 
     /// Where a recorded entity is placed, and whether its content changed.
@@ -3619,6 +4339,7 @@ mod generated {
 
     #[derive(Debug, Clone)]
     struct Cell {
+        shape: Shape,
         create: bool,
         history: H,
         s: (At, bool),
@@ -3645,7 +4366,13 @@ mod generated {
             Just(Filler::Dir),
             Just(Filler::Fifo),
         ];
+        let shape = prop_oneof![
+            Just(Shape::User),
+            Just(Shape::GitLock),
+            Just(Shape::Removal)
+        ];
         (
+            shape,
             any::<bool>(),
             0..HISTORIES.len(),
             (at.clone(), any::<bool>()),
@@ -3656,7 +4383,8 @@ mod generated {
             0usize..12,
         )
             .prop_map(
-                |(create, h, s, v, d, fill, unobservable, crash_after)| Cell {
+                |(shape, create, h, s, v, d, fill, unobservable, crash_after)| Cell {
+                    shape,
                     create,
                     history: HISTORIES[h],
                     s,
@@ -3676,6 +4404,10 @@ mod generated {
         root: PathBuf,
         intent: SetupIntent,
         receipts: Vec<StageReceipt>,
+        /// The intent's commit step.
+        commit: u16,
+        /// For the removal shape: the locator and generation the cleaner removes.
+        locator: Option<(ProjectionLocator, u64)>,
     }
 
     fn identity_of(path: &Path) -> FileIdentity {
@@ -3711,6 +4443,298 @@ mod generated {
     /// buildable observation (normalization would reject it: one identity at two
     /// names is impossible by construction here, so only shape rules remain).
     fn build(c: &Cell) -> Option<Built> {
+        match c.shape {
+            Shape::User => build_user(c),
+            Shape::GitLock => build_lock(c),
+            Shape::Removal => build_removal(c),
+        }
+    }
+
+    /// Fill each of `names` that no recorded entity holds with the cell's filler.
+    fn fill_names(c: &Cell, tmp: &Path, q: &Path, names: &[(At, PathBuf)], used: &[At]) {
+        for (i, (at, path)) in names.iter().enumerate() {
+            if used.contains(at) {
+                continue;
+            }
+            if *at == At::Slot && c.fill[i] != Filler::Empty && !q.exists() {
+                std::fs::create_dir(q).unwrap();
+                std::fs::set_permissions(q, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            match c.fill[i] {
+                Filler::Empty => {}
+                Filler::File => file(path, b"foreign\n"),
+                Filler::HardLink => {
+                    let other = tmp.join(format!("link-src-{i}"));
+                    file(&other, b"foreign linked\n");
+                    std::fs::hard_link(&other, path).unwrap();
+                }
+                Filler::Symlink => std::os::unix::fs::symlink("/scratch/elsewhere", path).unwrap(),
+                Filler::Dir => std::fs::create_dir(path).unwrap(),
+                Filler::Fifo => {
+                    let ok = std::process::Command::new("mkfifo")
+                        .arg(path)
+                        .status()
+                        .unwrap();
+                    assert!(ok.success());
+                }
+            }
+        }
+    }
+
+    /// Put `bytes` at `at` (one of `names`), or nowhere (created outside the scratch
+    /// directory, so its identity is recorded but no name holds it); in place-modified
+    /// when `modified`. `false` when the name is already taken.
+    /// A cell's scratch directory, its quarantine and its names.
+    struct Names<'a> {
+        tmp: &'a Path,
+        q: &'a Path,
+        at: &'a [(At, PathBuf)],
+    }
+
+    fn place_at(
+        n: &Names<'_>,
+        label: &str,
+        at: At,
+        bytes: &[u8],
+        modified: bool,
+        used: &mut Vec<At>,
+    ) -> Option<FileIdentity> {
+        let (tmp, q, names) = (n.tmp, n.q, n.at);
+        let Some((_, path)) = names.iter().find(|(a, _)| *a == at) else {
+            let elsewhere = tmp.join(label);
+            file(&elsewhere, bytes);
+            return Some(identity_of(&elsewhere));
+        };
+        if used.contains(&at) {
+            return None;
+        }
+        used.push(at);
+        if at == At::Slot && !q.exists() {
+            std::fs::create_dir(q).unwrap();
+            std::fs::set_permissions(q, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        file(path, bytes);
+        let id = identity_of(path);
+        if modified {
+            write_in_place(path, b"modified in place\n");
+        }
+        Some(id)
+    }
+
+    /// The `git_lock` step K (rows K0–K4 and its settlement), with B_git after it at
+    /// its start (no receipt, nothing at its names). The path is the lock name, the
+    /// aside K's random staged name. Histories: none, `staged`, a settlement from the
+    /// staged name or from the lock (open, or `settled`), and `settle_conflict`.
+    fn build_lock(c: &Cell) -> Option<Built> {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("git");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let q = root.join(".hm-quarantine");
+        let holder = heimdall_domain::projection::lock_holder_line(1, [7; 16]);
+        let k_staged = format!(".config.lock.hm-1-{}", "ef".repeat(16));
+        let marker = heimdall_sshconf::render::MarkerId::parse("hm-0123456789abcdef").unwrap();
+        let p_git =
+            heimdall_sshconf::render::RenderPath::unix(Path::new("/scratch/gitconfig")).unwrap();
+        let block = heimdall_sshconf::render::rendered_git_include_block(
+            &marker,
+            &p_git,
+            heimdall_sshconf::render::Newline::Lf,
+        )
+        .unwrap();
+        let k = FileStep {
+            role: FileRole::GitLock,
+            path: root.join("config.lock").to_str().unwrap().to_owned(),
+            base: Base::Absent,
+            target: Target::Absent,
+            content: heimdall_domain::projection::Rendered::from_renderer(holder.clone())
+                .into_lock_holder(),
+            commit: false,
+            staged_name: Some(k_staged.clone()),
+            displaced_name: None,
+        };
+        let b = FileStep {
+            role: FileRole::GitInclude,
+            path: root.join("config").to_str().unwrap().to_owned(),
+            base: Base::Absent,
+            target: Target::Present {
+                sha256: Sha256Hex::of(block.bytes()),
+            },
+            content: block.into_splice(0, 0, None),
+            commit: true,
+            staged_name: Some(format!(".config.hm-1-{}", "cd".repeat(16))),
+            displaced_name: None,
+        };
+        let intent = SetupIntent {
+            plan_digest: heimdall_contract::setup::PlanDigest::from_sha256([9; 32]),
+            intent: PreviewIntent::Apply { include_git: true },
+            generation: 1,
+            approval: None,
+            consent: heimdall_domain::projection::ConsentRecord::default(),
+            files: vec![k, b],
+        };
+        intent.validate().unwrap();
+        let slot = "cd".repeat(16);
+        let names = [
+            (At::Path, root.join("config.lock")),
+            (At::Aside, root.join(&k_staged)),
+            (At::Slot, q.join(&slot)),
+        ];
+        let mut used = Vec::new();
+        let k_id = place_at(
+            &Names {
+                tmp: tmp.path(),
+                q: &q,
+                at: &names,
+            },
+            "K",
+            c.s.0,
+            &holder,
+            c.s.1,
+            &mut used,
+        )?;
+        place_at(
+            &Names {
+                tmp: tmp.path(),
+                q: &q,
+                at: &names,
+            },
+            "D",
+            c.d,
+            b"another writer\n",
+            false,
+            &mut used,
+        )?;
+        fill_names(c, tmp.path(), &q, &names, &used);
+        let file_r = |phase: FilePhase| LocalReceipt::File { step: 0, phase };
+        let settling = |source: SettleSource, name: &str| {
+            file_r(FilePhase::Settling {
+                source,
+                name: name.to_owned(),
+                expected: k_id.clone(),
+                expected_sha256: Sha256Hex::of(&holder),
+                slot: slot.clone(),
+            })
+        };
+        let staged = file_r(FilePhase::Staged {
+            identity: k_id.clone(),
+        });
+        let settled = file_r(FilePhase::Settled {
+            disposition: SettledDisposition::Quarantined,
+        });
+        let r: Vec<LocalReceipt> = match (c.history as usize) % 7 {
+            0 => vec![],
+            1 => vec![staged],
+            2 => vec![staged, settling(SettleSource::Staged, &k_staged)],
+            3 => vec![staged, settling(SettleSource::Staged, &k_staged), settled],
+            4 => vec![staged, settling(SettleSource::Path, "config.lock")],
+            5 => vec![staged, settling(SettleSource::Path, "config.lock"), settled],
+            _ => vec![
+                staged,
+                file_r(FilePhase::SettleConflict {
+                    found: SettleConflictFound::Foreign,
+                    kept: Vec::new(),
+                }),
+            ],
+        };
+        Some(Built {
+            _dir: tmp,
+            root,
+            intent,
+            receipts: r.iter().map(durable).collect(),
+            commit: 1,
+            locator: None,
+        })
+    }
+
+    /// The cleaner's removal of P's locator L at generation 1 (rows R1–R6): L at the
+    /// path, in the locator's slot or nowhere, with its content or modified, and
+    /// foreign entries at the free names. The cleaner writes no receipt.
+    fn build_removal(c: &Cell) -> Option<Built> {
+        if c.s.0 == At::Aside || c.d == At::Aside {
+            return None;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("cfg");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let q = root.join(".hm-quarantine");
+        let bytes = b"# managed\nHost work\n".to_vec();
+        // L's identity first: the slot name is derived from the locator.
+        let staging = tmp.path().join("l");
+        file(&staging, &bytes);
+        let locator = ProjectionLocator {
+            role: FileRole::ManagedSsh,
+            path: root.join("ssh_config").to_str().unwrap().to_owned(),
+            identity: identity_of(&staging),
+            sha256: Sha256Hex::of(&bytes),
+        };
+        let slot = heimdall_localenv::projection::cleaner::slot_name(&locator, 1).unwrap();
+        let names = [
+            (At::Path, root.join("ssh_config")),
+            (At::Aside, tmp.path().join("no-aside")),
+            (At::Slot, q.join(&slot)),
+        ];
+        let mut used = vec![At::Aside];
+        if let Some((_, path)) = names.iter().find(|(a, _)| *a == c.s.0) {
+            used.push(c.s.0);
+            if c.s.0 == At::Slot {
+                std::fs::create_dir(&q).unwrap();
+                std::fs::set_permissions(&q, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            std::fs::rename(&staging, path).unwrap();
+            if c.s.1 {
+                write_in_place(path, b"modified in place\n");
+            }
+        }
+        place_at(
+            &Names {
+                tmp: tmp.path(),
+                q: &q,
+                at: &names,
+            },
+            "D",
+            c.d,
+            b"another writer\n",
+            false,
+            &mut used,
+        )?;
+        fill_names(c, tmp.path(), &q, &names, &used);
+        let intent = SetupIntent {
+            plan_digest: heimdall_contract::setup::PlanDigest::from_sha256([9; 32]),
+            intent: PreviewIntent::Rollback {
+                keep_key_files: true,
+                items: [ProjectionItem::Ssh].into_iter().collect(),
+            },
+            generation: 2,
+            approval: None,
+            consent: heimdall_domain::projection::ConsentRecord::default(),
+            files: vec![FileStep {
+                role: FileRole::ManagedSsh,
+                path: locator.path.clone(),
+                base: Base::Present {
+                    sha256: locator.sha256.clone(),
+                },
+                target: Target::Absent,
+                content: StepContent::absent(),
+                commit: false,
+                staged_name: None,
+                displaced_name: None,
+            }],
+        };
+        intent.validate().unwrap();
+        Some(Built {
+            _dir: tmp,
+            root,
+            intent,
+            receipts: Vec::new(),
+            commit: 0,
+            locator: Some((locator, 1)),
+        })
+    }
+
+    /// The user-file step (a replace, or a create).
+    fn build_user(c: &Cell) -> Option<Built> {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("ssh");
         std::fs::create_dir(&root).unwrap();
@@ -3723,7 +4747,8 @@ mod generated {
             &marker,
             &target_path,
             heimdall_sshconf::render::Newline::Lf,
-        );
+        )
+        .unwrap();
         let mut target = block.bytes().to_vec();
         if !c.create {
             target.extend_from_slice(BASE);
@@ -3968,6 +4993,8 @@ mod generated {
             root,
             intent,
             receipts: r.iter().map(durable).collect(),
+            commit: 0,
+            locator: None,
         })
     }
 
@@ -4059,6 +5086,21 @@ mod generated {
             let h: Arc<dyn ReplaceHook> = Arc::new(Counter(count, n));
             config.hook = Some(h);
         }
+        if let Some((locator, generation)) = &built.locator {
+            // The removal shape is the cleaner's: it writes no receipt, and its result
+            // is `Ok` (absent, or left with a finding) or a retryable error (R6, `?`).
+            return match std::panic::catch_unwind(AssertUnwindSafe(|| {
+                heimdall_localenv::projection::cleaner::delete_locator(
+                    &config,
+                    locator,
+                    *generation,
+                )
+            })) {
+                Ok(_) => Some(Ok(Vec::new())),
+                Err(p) if p.is::<Crash>() => None,
+                Err(p) => std::panic::resume_unwind(p),
+            };
+        }
         reconcile_or_crash(config, &built.intent, sink)
     }
 
@@ -4069,7 +5111,19 @@ mod generated {
         outcome: &[ItemOutcome],
     ) -> Result<(), TestCaseError> {
         let after = inventory(&built.root);
-        let allowed = removable(&sink.receipts());
+        let mut allowed = removable(&sink.receipts());
+        // The cleaner's ownership rule: the locator's identity and digest.
+        if let Some((
+            ProjectionLocator {
+                identity: FileIdentity::Unix { dev, ino, .. },
+                sha256,
+                ..
+            },
+            _,
+        )) = &built.locator
+        {
+            allowed.push(((*dev, *ino), sha256.clone()));
+        }
         // 2, 3: no loss; foreign and modified content preserved.
         for (id, bytes) in &before.0 {
             match after.0.get(id) {
@@ -4089,17 +5143,30 @@ mod generated {
         }
         // 7: outcomes match receipts.
         let kinds = sink.kinds();
+        let commit = built.commit;
         match outcome {
-            [ItemOutcome::Applied { .. }] => {
-                prop_assert!(kinds.contains(&"ssh:committed".to_owned()))
-            }
+            [ItemOutcome::Applied { .. }] => prop_assert!(
+                kinds.contains(&"ssh:committed".to_owned())
+                    || kinds.contains(&"git:committed".to_owned())
+            ),
             [ItemOutcome::NotApplied { .. }] => {
-                prop_assert!(!kinds.contains(&"0:exchanged".to_owned()), "{:?}", kinds);
+                prop_assert!(
+                    !kinds.contains(&format!("{commit}:exchanged")),
+                    "{:?}",
+                    kinds
+                );
             }
             [ItemOutcome::Restored { .. }] => {
-                prop_assert!(kinds.contains(&"0:restored".to_owned()), "{:?}", kinds);
+                prop_assert!(kinds.contains(&format!("{commit}:restored")), "{:?}", kinds);
             }
             _ => {}
+        }
+        if built.locator.is_some() {
+            prop_assert!(
+                kinds.is_empty(),
+                "the cleaner writes no receipt: {:?}",
+                kinds
+            );
         }
         Ok(())
     }
@@ -4134,7 +5201,11 @@ mod generated {
                 // 6 and 8 in the same (unobservable) world: nothing more is written.
                 let n = sink.receipts().len();
                 let again = run(&built, &sink, None).expect("no hook").unwrap_or_default();
-                prop_assert!(matches!(again.as_slice(), [ItemOutcome::Held { .. }]), "{:?}", again);
+                prop_assert!(
+                    built.locator.is_some() || matches!(again.as_slice(), [ItemOutcome::Held { .. }]),
+                    "{:?}",
+                    again
+                );
                 prop_assert_eq!(sink.receipts().len(), n, "{:?}", sink.kinds());
                 std::fs::set_permissions(&built.root, std::fs::Permissions::from_mode(0o700)).unwrap();
             }

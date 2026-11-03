@@ -1300,6 +1300,72 @@ fn home_resolution_matches_ssh_g() {
     );
 }
 
+/// ADR-0007 §12.17 item 9, end to end: an `Include ~/…` (and a relative Include)
+/// follows `$HOME`. Under a `HOME` that is not the account home, the doctor reports
+/// `home_mismatch` and the include is undetermined (`environment_reference`), so the
+/// tree is not fully readable and the explicit levels are declined even with
+/// authorization: the static pass never claims the account home's file. With `HOME`
+/// the account home, nothing is reported and the level is not declined for that.
+#[cfg(unix)]
+#[test]
+fn home_mismatch_makes_a_home_relative_include_not_fully_readable() {
+    let fx = Fx::new();
+    std::fs::write(
+        fx.home.git_home.join("hm-inc-home.conf"),
+        "Host hm-other\n  Port 2981\n",
+    )
+    .unwrap();
+    fx.config(&format!(
+        "Include ~/hm-inc-home.conf\n{}",
+        alias_block(9, &fx.path("id.pub"))
+    ));
+    let other = fx.path("other-home");
+    std::fs::create_dir_all(&other).unwrap();
+    let with_home = |home: Option<OsString>| {
+        let mut ctx = fx.ctx();
+        ctx.env = Env::from_vars(
+            fx.env()
+                .iter()
+                .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                .filter(|(k, _)| k != "HOME")
+                .chain(home.map(|h| (OsString::from("HOME"), h))),
+        );
+        ctx
+    };
+    let mismatch = |r: &DoctorReport| r.findings.iter().any(|f| f.code == finding::HOME_MISMATCH);
+    for home in [
+        other.clone().into_os_string(),
+        OsString::new(),
+        OsString::from("relative-home"),
+    ] {
+        let report = run(
+            &with_home(Some(home)),
+            &request(&[ProbeLevel::Evaluate], true, &[ALIAS]),
+        );
+        assert!(mismatch(&report), "home_mismatch not reported");
+        let r = probe_of(&report, ProbeLevel::Evaluate);
+        assert_eq!(r[0].outcome, ProbeOutcome::Declined);
+        assert_eq!(
+            r[0].decline_reason.as_deref(),
+            Some(decline_reason::CONFIG_NOT_FULLY_READABLE)
+        );
+    }
+    assert!(!fx.ssh_started(), "a declined level started ssh");
+    // HOME is the account home, or unset (glob(3) falls back to the account database).
+    for home in [Some(fx.home.git_home.clone().into_os_string()), None] {
+        let report = run(
+            &with_home(home),
+            &request(&[ProbeLevel::Evaluate], true, &[ALIAS]),
+        );
+        assert!(!mismatch(&report));
+        let r = probe_of(&report, ProbeLevel::Evaluate);
+        assert_ne!(
+            r[0].decline_reason.as_deref(),
+            Some(decline_reason::CONFIG_NOT_FULLY_READABLE)
+        );
+    }
+}
+
 #[test]
 fn doctor_reports_identity_selection_not_exclusive_with_remedy() {
     let fx = Fx::new();

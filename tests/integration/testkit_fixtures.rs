@@ -1045,6 +1045,123 @@ fn default_identity_guard_refuses_alias_without_scratch_identities() {
     assert_eq!(home.check_alias("a b"), Err(FixtureUnsafe::BadAlias));
 }
 
+/// Y02 (ADR-0007 §12.16 item 2): the guard evaluates the alias under every invocation
+/// (`Shell`, `Exec(None)`, `Exec(Some(sentinel))`, `Subsystem("sftp")`) and every
+/// session type a `SessionType` directive in the tree can give, and refuses when any
+/// evaluation fails. The first case is the reviewer's reproducer: a scratch identity
+/// for the shell and an outside identity behind `Match sessiontype exec`. A second
+/// scratch directory stands in for outside material; nothing outside scratch is read.
+#[test]
+fn default_identity_guard_covers_every_invocation_and_session_type() {
+    let home = ScratchHome::new();
+    let inside = home.ssh_dir.join("id_fixture.pub");
+    FixtureKey::generate().write_public(&inside).unwrap();
+    let inside = config_path(&inside);
+    let outside_dir = Scratch::new().unwrap();
+    let outside = config_path(&outside_dir.path().join("id_elsewhere"));
+    let outside_agent = config_path(&outside_dir.path().join("agent.sock"));
+    let identity = |index| Err(FixtureUnsafe::NonScratchIdentity { index });
+    let agent = Err(FixtureUnsafe::NonScratchAgent { index: 0 });
+    let cases: Vec<(&str, String, Result<(), FixtureUnsafe>)> = vec![
+        (
+            "exec-only identity (reviewer)",
+            format!("IdentityFile {inside}\nMatch sessiontype exec\n    IdentityFile {outside}\n"),
+            identity(1),
+        ),
+        (
+            "subsystem-only identity",
+            format!(
+                "IdentityFile {inside}\nMatch sessiontype subsystem\n    IdentityFile {outside}\n"
+            ),
+            identity(1),
+        ),
+        (
+            "Git remote command identity",
+            format!(
+                "IdentityFile {inside}\nMatch command \"git-upload-pack*\"\n    IdentityFile {outside}\n"
+            ),
+            identity(1),
+        ),
+        (
+            "identity selected by the SessionType in force",
+            format!(
+                "IdentityFile {inside}\nSessionType none\nMatch sessiontype none\n    IdentityFile {outside}\n"
+            ),
+            identity(1),
+        ),
+        (
+            "identity selected by a SessionType value the tree can give",
+            format!(
+                "Host other\n    SessionType none\nHost *\n    IdentityFile {inside}\nMatch sessiontype none\n    IdentityFile {outside}\n"
+            ),
+            identity(1),
+        ),
+        (
+            "exec-only agent",
+            format!(
+                "IdentityFile {inside}\nMatch sessiontype exec\n    IdentityAgent {outside_agent}\n"
+            ),
+            agent.clone(),
+        ),
+        (
+            "subsystem-only agent",
+            format!(
+                "IdentityFile {inside}\nMatch sessiontype subsystem\n    IdentityAgent {outside_agent}\n"
+            ),
+            agent.clone(),
+        ),
+        (
+            "Git remote command agent",
+            format!(
+                "IdentityFile {inside}\nMatch command \"git-*\"\n    IdentityAgent {outside_agent}\n"
+            ),
+            agent.clone(),
+        ),
+        (
+            "agent selected by the SessionType in force",
+            format!(
+                "IdentityFile {inside}\nSessionType none\nMatch sessiontype none\n    IdentityAgent {outside_agent}\n"
+            ),
+            agent.clone(),
+        ),
+        (
+            "agent selected by a SessionType value the tree can give",
+            format!(
+                "Host other\n    SessionType none\nHost *\n    IdentityFile {inside}\nMatch sessiontype none\n    IdentityAgent {outside_agent}\n"
+            ),
+            agent.clone(),
+        ),
+        (
+            "an agent read from a variable (ADR-0007 §12.16 item 1)",
+            format!("IdentityFile {inside}\nIdentityAgent $HM_FIXTURE_OTHER_AGENT\n"),
+            agent.clone(),
+        ),
+        (
+            "control: every invocation and session type stays in scratch",
+            format!(
+                "IdentityFile {inside}\nIdentityAgent SSH_AUTH_SOCK\nHost other\n    SessionType none\n\
+                 Match sessiontype exec,subsystem,none\n    IdentityFile {inside}\n"
+            ),
+            Ok(()),
+        ),
+    ];
+    // Messages name the case, not the text (it holds scratch paths).
+    for (name, text, want) in cases {
+        home.write_user_config(&text).unwrap();
+        assert_eq!(home.check_alias("fx"), want, "{name}");
+        for kind in ClientKind::ALL {
+            assert_eq!(
+                home.client_command(kind, "fx").err(),
+                want.clone().err(),
+                "{name}: {kind:?}"
+            );
+        }
+    }
+    // The invocations the guard covers.
+    let invocations = heimdall_testkit::home::guard_invocations();
+    assert_eq!(invocations.len(), 4);
+}
+
 // --- real logins through the FakeAgent ------------------------------------------------------
 
 #[cfg(unix)]

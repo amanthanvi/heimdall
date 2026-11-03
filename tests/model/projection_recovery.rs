@@ -14,9 +14,12 @@
 //! The generated domain is built from the type definitions and a restatement of the
 //! ADR's phase order, never from the row list; its assertions read the effects of a
 //! decision, never its name. The row list is checked in the other direction by
-//! `recovery_table_rows_each_have_a_test_vector`. Properties use proptest with at least
-//! 256 cases, a fixed seed unless `PROPTEST_RNG_SEED` is set, and failures persisted
-//! beside this file. The coverage reports are printed (`--nocapture` shows them).
+//! `recovery_table_rows_each_have_a_test_vector` (W2b-U4r, ADR-0007 §12.17 item 8),
+//! which reads ADR-0007 §5.7's own tables: the row list must be the ADR's, every row
+//! needs a vector, and each vector must be the first case its row's phase and symbol
+//! columns name, with a decision that agrees with the row's action. Properties use
+//! proptest with at least 256 cases, a fixed seed unless `PROPTEST_RNG_SEED` is set,
+//! and failures persisted beside this file. The coverage reports are printed (`--nocapture` shows them).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
 
@@ -1014,24 +1017,31 @@ const HOLD_REASONS: [HoldReason; 9] = [
     HoldReason::ContradictoryReceipts,
 ];
 
-const STEP_STATES: [StepState; 6] = [
-    StepState::Open,
-    StepState::CommitNeverExchanged,
-    StepState::ExchangedConsistent,
-    StepState::ExchangedInconsistent,
-    StepState::Final,
-    StepState::Held,
-];
+/// Every `StepState`: each unit class, and `Held` with every reason (ADR-0007 §12.17
+/// item 4).
+fn step_states() -> Vec<StepState> {
+    let mut all = vec![
+        StepState::Open,
+        StepState::CommitNeverExchanged,
+        StepState::CommitRestored,
+        StepState::ExchangedConsistent,
+        StepState::ExchangedInconsistent,
+        StepState::Final,
+    ];
+    all.extend(HOLD_REASONS.iter().map(|r| StepState::Held(*r)));
+    all
+}
 
 /// Every `decide_item` input: one to three step states × every item receipt combination.
 fn item_domain() -> Vec<(Vec<StepState>, ItemReceipts)> {
-    let mut lists: Vec<Vec<StepState>> = STEP_STATES.iter().map(|s| vec![*s]).collect();
+    let states = step_states();
+    let mut lists: Vec<Vec<StepState>> = states.iter().map(|s| vec![*s]).collect();
     for _ in 0..2 {
         let longer: Vec<Vec<StepState>> = lists
             .iter()
             .filter(|l| l.len() == lists.last().map_or(0, Vec::len))
             .flat_map(|l| {
-                STEP_STATES.iter().map(move |s| {
+                states.iter().map(move |s| {
                     let mut l = l.clone();
                     l.push(*s);
                     l
@@ -1060,29 +1070,44 @@ fn item_domain() -> Vec<(Vec<StepState>, ItemReceipts)> {
     out
 }
 
-/// The item properties `decision` breaks (property 7 and TH).
+/// The item properties `decision` breaks (property 7, TH, and ADR-0007 §12.17 item 4:
+/// a held item carries its held step's own reason, the commit step's file-level
+/// restore is T3, and `unmatched` is only the reason of a combination no row lists).
 fn item_violations(steps: &[StepState], r: &ItemReceipts, d: ItemDecision) -> Vec<&'static str> {
     let any = |s| steps.contains(&s);
+    let held = steps.iter().find_map(|s| match s {
+        StepState::Held(reason) => Some(*reason),
+        _ => None,
+    });
     let mut v = Vec::new();
     let quiet = !r.committed && r.rolling_back.is_none() && !r.finished;
+    let contradictory = r.committed && (r.rolling_back.is_some() || any(StepState::CommitRestored));
     match d {
         ItemDecision::FinishForward if !r.committed || r.rolling_back.is_some() => {
             v.push("applied only with item.committed");
         }
+        ItemDecision::FinishForward if any(StepState::CommitRestored) => {
+            v.push("applied never after the commit step's own restore");
+        }
         ItemDecision::FinishRestore
             if !(r.rolling_back.is_some() && !r.committed
-                || quiet && !steps.is_empty() && steps.iter().all(|s| *s == StepState::Final)) =>
+                || quiet && any(StepState::CommitRestored)) =>
         {
             v.push("restored only after a restore");
         }
-        ItemDecision::ResumeOrAbort if !quiet || !any(StepState::CommitNeverExchanged) => {
+        ItemDecision::ResumeOrAbort
+            if !quiet
+                || !any(StepState::CommitNeverExchanged)
+                || any(StepState::CommitRestored) =>
+        {
             v.push("not_applied only when the commit step was never exchanged");
         }
         ItemDecision::TransactionCheck
             if !quiet
-                || any(StepState::Held)
+                || held.is_some()
                 || any(StepState::ExchangedInconsistent)
                 || any(StepState::CommitNeverExchanged)
+                || any(StepState::CommitRestored)
                 || !any(StepState::ExchangedConsistent) =>
         {
             v.push("the check runs only at T1");
@@ -1096,15 +1121,44 @@ fn item_violations(steps: &[StepState], r: &ItemReceipts, d: ItemDecision) -> Ve
     {
         v.push("contradictory item receipts hold");
     }
-    if any(StepState::Held) && !r.finished && !matches!(d, ItemDecision::Hold(_)) {
-        v.push("a held step holds the item");
+    if !r.finished && !(r.committed && r.rolling_back.is_some()) {
+        if let Some(reason) = held {
+            if d != ItemDecision::Hold(reason) {
+                v.push("a held step holds the item with its own reason");
+            }
+        } else if r.committed
+            && any(StepState::CommitRestored)
+            && d != ItemDecision::Hold(HoldReason::ContradictoryReceipts)
+        {
+            v.push("item.committed with the commit step's own restore holds");
+        }
+    }
+    let listed = r.finished
+        || r.committed
+        || r.rolling_back.is_some()
+        || contradictory
+        || held.is_some()
+        || [
+            StepState::CommitRestored,
+            StepState::CommitNeverExchanged,
+            StepState::ExchangedConsistent,
+            StepState::ExchangedInconsistent,
+        ]
+        .into_iter()
+        .any(any);
+    if d == ItemDecision::Hold(HoldReason::Unmatched)
+        && listed
+        && held != Some(HoldReason::Unmatched)
+    {
+        v.push("unmatched only where no item row lists the combination");
     }
     v
 }
 
 // --- 1. the row list, in the other direction -----------------------------------------
 
-/// Every row ID of ADR-0007 §5.7 (G0–G3 and H0 are withdrawn).
+/// Every row ID of ADR-0007 §5.7 (G0–G3 and H0 are withdrawn), in the ADR's order.
+/// `recovery_table_rows_each_have_a_test_vector` checks it against the ADR's tables.
 const ROW_IDS: &[&str] = &[
     "F0", "F0x", "F0z", "F1", "F1a", "F2a", "F2b", "F2c", "F2d", "F2e", "F2g", "F2j", "F2k", "F2h",
     "F2f", "F3", "F3a", "F3b", "F3c", "F4", "F4a", "F4c", "F4b", "F4d", "F4e", "F5", "F5a", "F5b",
@@ -2128,9 +2182,11 @@ fn vectors() -> Vec<Vector> {
 }
 
 /// The item rows' vectors: (row, steps, receipts, decision).
+#[allow(clippy::too_many_lines)]
 fn item_vectors() -> Vec<(&'static str, Vec<StepState>, ItemReceipts, ItemDecision)> {
     use StepState::{
-        CommitNeverExchanged, ExchangedConsistent, ExchangedInconsistent, Final, Held, Open,
+        CommitNeverExchanged, CommitRestored, ExchangedConsistent, ExchangedInconsistent, Final,
+        Held, Open,
     };
     let none = ItemReceipts::default();
     let committed = ItemReceipts {
@@ -2170,11 +2226,14 @@ fn item_vectors() -> Vec<(&'static str, Vec<StepState>, ItemReceipts, ItemDecisi
             none,
             ItemDecision::TransactionCheck,
         ),
+        // T1h: the only inconsistency a step's own row does not hold is a displaced
+        // entry that is not the validated base (F2c, F3a before the mismatch is
+        // recorded), so the item's reason is F4c's.
         (
             "T1h",
             vec![ExchangedConsistent, ExchangedInconsistent],
             none,
-            ItemDecision::Hold(HoldReason::Unmatched),
+            ItemDecision::Hold(HoldReason::DisplacedReplaced),
         ),
         (
             "T2",
@@ -2194,7 +2253,20 @@ fn item_vectors() -> Vec<(&'static str, Vec<StepState>, ItemReceipts, ItemDecisi
             rolling_back,
             ItemDecision::FinishRestore,
         ),
-        ("T3", vec![Final, Final], none, ItemDecision::FinishRestore),
+        // T3, the commit step's own file-level restore (ADR-0007 §12.17 item 4): read
+        // from `CommitRestored`, while the inactive steps still finish and after.
+        (
+            "T3",
+            vec![Open, CommitRestored],
+            none,
+            ItemDecision::FinishRestore,
+        ),
+        (
+            "T3",
+            vec![Final, CommitRestored, Final],
+            none,
+            ItemDecision::FinishRestore,
+        ),
         (
             "T4",
             vec![Final, Final],
@@ -2205,18 +2277,35 @@ fn item_vectors() -> Vec<(&'static str, Vec<StepState>, ItemReceipts, ItemDecisi
             },
             ItemDecision::Settle,
         ),
-        ("T4", vec![Held, Open], finished, ItemDecision::Settle),
+        (
+            "T4",
+            vec![Held(HoldReason::ThirdWriter), Open],
+            finished,
+            ItemDecision::Settle,
+        ),
+        // TH: the held step's own reason (ADR-0007 §12.17 item 4), the first in plan
+        // order.
         (
             "TH",
-            vec![Open, Held],
+            vec![Open, Held(HoldReason::DisplacedMissing)],
             none,
-            ItemDecision::Hold(HoldReason::Unmatched),
+            ItemDecision::Hold(HoldReason::DisplacedMissing),
         ),
         (
             "TH",
-            vec![Held],
+            vec![Held(HoldReason::ActiveEntryModified)],
             committed,
-            ItemDecision::Hold(HoldReason::Unmatched),
+            ItemDecision::Hold(HoldReason::ActiveEntryModified),
+        ),
+        (
+            "TH",
+            vec![
+                Final,
+                Held(HoldReason::ThirdWriter),
+                Held(HoldReason::ActiveEntryReplaced),
+            ],
+            rolling_back,
+            ItemDecision::Hold(HoldReason::ThirdWriter),
         ),
         (
             "TH",
@@ -2228,11 +2317,312 @@ fn item_vectors() -> Vec<(&'static str, Vec<StepState>, ItemReceipts, ItemDecisi
             },
             ItemDecision::Hold(HoldReason::ContradictoryReceipts),
         ),
+        (
+            "TH",
+            vec![Final, CommitRestored],
+            committed,
+            ItemDecision::Hold(HoldReason::ContradictoryReceipts),
+        ),
     ]
 }
 
+// --- the ADR's own tables, read from ADR-0007 §5.7 -------------------------------------
+
+/// Which ADR-0007 §5.7 table a row is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdrTable {
+    Replace,
+    Settlement,
+    Create,
+    GitLock,
+    Removal,
+    Item,
+}
+
+/// One row of an ADR-0007 §5.7 recovery table: its ID and its cells by column header,
+/// with the revision markers (`⟨r4⟩`) removed.
+#[derive(Debug, Clone)]
+struct AdrRow {
+    id: String,
+    table: AdrTable,
+    cells: Vec<(String, String)>,
+}
+
+impl AdrRow {
+    fn cell(&self, header: &str) -> Option<&str> {
+        self.cells
+            .iter()
+            .find(|(h, _)| h == header)
+            .map(|(_, c)| c.as_str())
+    }
+
+    fn action(&self) -> &str {
+        self.cell("Action")
+            .or_else(|| self.cell("Recovery action"))
+            .unwrap_or_else(|| panic!("ADR row {} has no action column", self.id))
+    }
+}
+
+fn without_revision_markers(cell: &str) -> String {
+    let mut out = cell.to_owned();
+    while let Some(at) = out.find('⟨') {
+        let Some(len) = out[at..].find('⟩') else {
+            break;
+        };
+        out.replace_range(at..at + len + '⟩'.len_utf8(), "");
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Every row of the recovery tables of ADR-0007 §5.7, in document order, read from the
+/// ADR itself (repository data; only its tables are parsed). A table is a run of `|`
+/// lines whose header's first cell is `Row`; its table is named by the row ID's letter
+/// and, for F rows, by the third column (the settlement block's is `Source`).
+fn adr_rows() -> Vec<AdrRow> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/decisions/0007-existing-access-integration.md");
+    let text = std::fs::read_to_string(&path).expect("ADR-0007 is readable");
+    let start = text.find("\n### 5.7 ").expect("ADR-0007 has §5.7");
+    let end = start + text[start..].find("\n### 5.8 ").expect("ADR-0007 has §5.8");
+    let mut rows = Vec::new();
+    let mut header: Option<Vec<String>> = None;
+    for line in text[start..end].lines() {
+        let Some(body) = line.trim_end().strip_prefix('|') else {
+            header = None;
+            continue;
+        };
+        let body = body.strip_suffix('|').unwrap_or(body);
+        let cells: Vec<String> = body.split('|').map(without_revision_markers).collect();
+        let Some(h) = &header else {
+            header = Some(cells);
+            continue;
+        };
+        if h[0] != "Row" || cells.iter().all(|c| c.chars().all(|ch| ch == '-')) {
+            continue;
+        }
+        assert_eq!(cells.len(), h.len(), "ADR-0007 §5.7 row {:?}", cells[0]);
+        let id = cells[0].clone();
+        let table = match (id.chars().next(), h.get(2).map(String::as_str)) {
+            (Some('F'), Some("Path")) => AdrTable::Replace,
+            (Some('F'), Some("Source")) => AdrTable::Settlement,
+            (Some('C'), _) => AdrTable::Create,
+            (Some('K'), _) => AdrTable::GitLock,
+            (Some('R'), _) => AdrTable::Removal,
+            (Some('T'), _) => AdrTable::Item,
+            _ => panic!("ADR-0007 §5.7: unknown row {id:?} under {h:?}"),
+        };
+        rows.push(AdrRow {
+            id,
+            table,
+            cells: h.iter().cloned().zip(cells).collect(),
+        });
+    }
+    rows
+}
+
+/// Whether `st` is in the phase an ADR "Phase" cell names. Every phase form the tables
+/// use is listed; any other form fails the test, so a changed table is re-read here.
+fn adr_phase_matches(cell: &str, st: &RecoveryState) -> bool {
+    if cell.starts_with("restore due") {
+        return matches!(st.restore, RestoreCtx::Due(_) | RestoreCtx::Started(_));
+    }
+    if cell == "none" {
+        return st.phase.is_none();
+    }
+    let token = cell
+        .split('`')
+        .nth(1)
+        .unwrap_or_else(|| panic!("ADR phase cell {cell:?} names no phase"));
+    let phase = st.phase.as_ref();
+    let in_phase = match token {
+        "staged" => matches!(phase, Some(EffectivePhase::Staged { .. })),
+        "validated" => matches!(phase, Some(EffectivePhase::Validated { .. })),
+        "validated{absent}" => matches!(phase, Some(EffectivePhase::Validated { base: None })),
+        "exchanged" => matches!(phase, Some(EffectivePhase::Exchanged)),
+        "post_validated{valid}" => matches!(
+            phase,
+            Some(EffectivePhase::PostValidated {
+                verdict: PostVerdict::Valid,
+                ..
+            })
+        ),
+        "restore_started" => matches!(phase, Some(EffectivePhase::RestoreStarted { .. })),
+        "restored" => matches!(phase, Some(EffectivePhase::Restored)),
+        "settling" => matches!(phase, Some(EffectivePhase::Settling { .. })),
+        "settled" => matches!(phase, Some(EffectivePhase::Settled { .. })),
+        "settle_conflict" => matches!(phase, Some(EffectivePhase::SettleConflict { .. })),
+        other => panic!("unknown ADR phase {other:?} in {cell:?}"),
+    };
+    let item = if cell.ends_with("(open)") {
+        st.item == ItemState::Open
+    } else if cell.ends_with("(`item.committed`)") {
+        st.item == ItemState::Committed
+    } else {
+        true
+    };
+    in_phase && item
+}
+
+/// Whether `e` is one of the symbols an ADR cell lists. `*`, "any other" and an empty
+/// cell match every symbol but `?`; D after a forward exchange is V or V′ (the note
+/// under the replace table); K is S for the `git_lock` step, and the removal's L is the
+/// locator's entry, `Recorded { V | S }` (ADR-0007 §12.17 item 7). F0x/K0x's "a
+/// regular file owned by the user, link count 1" is S or S′ (the classifier's, §12.17
+/// item 2).
+fn adr_symbol_matches(cell: &str, e: EntryObs) -> bool {
+    if cell.is_empty() || cell == "*" || cell == "any other" {
+        return e != U;
+    }
+    if cell == "a regular file owned by the user, link count 1" {
+        return e == S || e == SM;
+    }
+    cell.split(',').any(|token| {
+        let token = token.split(" (").next().unwrap_or(token).trim();
+        let allowed: &[EntryObs] = match token {
+            "∅" => &[A],
+            "S" | "K" => &[S],
+            "S′" | "K′" => &[SM],
+            "V" => &[V],
+            "V′" => &[VM],
+            "D" => &[D, DM, V, VM],
+            "Q" => &[Q],
+            "Q′" => &[QM],
+            "X" => &[X],
+            "L" => &[V, S],
+            "L′" => &[VM, SM],
+            other => panic!("unknown ADR symbol {other:?} in {cell:?}"),
+        };
+        allowed.contains(&e)
+    })
+}
+
+/// The first ADR row that names `(shape, st, obs)`, trying the rows that apply to the
+/// step in document order, as `decide` does ("Within each phase's block the rows are
+/// tried in order"). A create step also uses F0–F1a ("Rows F0–F1a and the settlement
+/// block apply unchanged"); every step in a settlement uses the settlement block.
+fn adr_first_match<'r>(
+    rows: &'r [AdrRow],
+    shape: StepShape,
+    st: &RecoveryState,
+    obs: &StepObservation,
+) -> Option<&'r AdrRow> {
+    let settling = matches!(
+        st.phase,
+        Some(
+            EffectivePhase::Settling { .. }
+                | EffectivePhase::Settled { .. }
+                | EffectivePhase::SettleConflict { .. }
+        )
+    );
+    let source = match st.settlement.map(|c| c.source) {
+        Some(SettleSource::Path) => obs.path(),
+        _ => obs.aside(),
+    };
+    let tables: &[AdrTable] = match shape {
+        StepShape::Removal => &[AdrTable::Removal],
+        _ if settling => &[AdrTable::Settlement],
+        StepShape::Replace => &[AdrTable::Replace],
+        StepShape::Create => &[AdrTable::Replace, AdrTable::Create],
+        StepShape::GitLock => &[AdrTable::GitLock],
+    };
+    rows.iter()
+        .filter(|r| tables.contains(&r.table))
+        .filter(|r| {
+            shape != StepShape::Create
+                || r.table != AdrTable::Replace
+                || ["F0", "F0x", "F0z", "F1", "F1a"].contains(&r.id.as_str())
+        })
+        .find(|r| {
+            let phase = r.cell("Phase (item state)").or_else(|| r.cell("Phase"));
+            let columns: [(&str, EntryObs); 2] = match r.table {
+                AdrTable::Replace | AdrTable::Create => {
+                    [("Path", obs.path()), ("Aside", obs.aside())]
+                }
+                AdrTable::Settlement => [("Source", source), ("Slot", obs.slot())],
+                AdrTable::GitLock => [("Staged", obs.aside()), ("Lock", obs.path())],
+                AdrTable::Removal => [("Path", obs.path()), ("Slot", obs.slot())],
+                AdrTable::Item => unreachable!("item rows are not step rows"),
+            };
+            phase.is_none_or(|c| adr_phase_matches(c, st))
+                && columns.iter().all(|(h, e)| {
+                    adr_symbol_matches(r.cell(h).unwrap_or_else(|| panic!("{h}")), *e)
+                })
+        })
+}
+
+/// The `HoldReason` names an ADR action cell gives (`` `displaced_missing` `` …).
+fn adr_hold_reasons(action: &str) -> Vec<HoldReason> {
+    let snake = |r: HoldReason| match r {
+        HoldReason::ActiveEntryReplaced => "active_entry_replaced",
+        HoldReason::ActiveEntryModified => "active_entry_modified",
+        HoldReason::DisplacedMissing => "displaced_missing",
+        HoldReason::DisplacedReplaced => "displaced_replaced",
+        HoldReason::ThirdWriter => "third_writer",
+        HoldReason::AmbiguousExchange => "ambiguous_exchange",
+        HoldReason::Unobservable => "unobservable",
+        HoldReason::Unmatched => "unmatched",
+        HoldReason::ContradictoryReceipts => "contradictory_receipts",
+    };
+    HOLD_REASONS
+        .into_iter()
+        .filter(|r| action.contains(&format!("`{}`", snake(*r))))
+        .collect()
+}
+
+/// A hold whose row is not marked **H** or names no reason, with the ruling that reads
+/// it so: R6 (ADR-0007 §12.17 item 7: for the removal shape, `Hold` is R6's "nothing
+/// is moved", the cleaner retries) and T1h (no reason in the table; the residual
+/// inconsistency is a displaced entry that is not V, F4c's `displaced_replaced`; see
+/// `recovery::decide_item`).
+const HOLD_READINGS: &[(&str, HoldReason)] = &[
+    ("R6", HoldReason::ThirdWriter),
+    ("T1h", HoldReason::DisplacedReplaced),
+];
+
+/// Rows whose action is a hold in one case and a move in another: F8a holds a create
+/// restore whose source is Q′ and moves otherwise.
+const MIXED_ROWS: &[&str] = &["F8a"];
+
+/// Whether `want` agrees with `row`'s action: a hold only where the row is **H** with
+/// that reason (or a [`HOLD_READINGS`] entry, or for TH the held step's own reason),
+/// and anything else only where the row is not **H** (or is in [`MIXED_ROWS`]).
+fn adr_action_agrees(
+    row: &AdrRow,
+    hold: Option<HoldReason>,
+    held_step: Option<HoldReason>,
+) -> bool {
+    let action = row.action();
+    let marked = action.contains("**H**");
+    match hold {
+        None => !marked || MIXED_ROWS.contains(&row.id.as_str()),
+        Some(r) => {
+            HOLD_READINGS.contains(&(row.id.as_str(), r))
+                || (marked && (adr_hold_reasons(action).contains(&r) || held_step == Some(r)))
+        }
+    }
+}
+
+/// m02-plan U4 `recovery_table_rows_each_have_a_test_vector` (ADR-0007 §5.7 "m02-plan
+/// U4 test … keeps the other direction"; §12.17 item 8). In process: each vector's
+/// receipts go through `RecoveryState::build`, its observation through
+/// `StepObservation::normalize`, and `decide`/`decide_item` give the action. It fails
+/// when the row list is not the ADR's, a row has no vector, a vector is not its row's
+/// case (another row of the ADR's tables, tried in order, names it first), or the
+/// decision, its effects or its hold reason disagree with the row.
 #[test]
 fn recovery_table_rows_each_have_a_test_vector() {
+    // The row list is the ADR's: the same IDs in the same order, each once.
+    let adr = adr_rows();
+    let adr_ids: Vec<&str> = adr.iter().map(|r| r.id.as_str()).collect();
+    assert_eq!(
+        adr_ids, ROW_IDS,
+        "ROW_IDS differs from the rows of ADR-0007 §5.7's tables"
+    );
+    assert_eq!(
+        ROW_IDS.iter().collect::<HashSet<_>>().len(),
+        ROW_IDS.len(),
+        "a row ID twice"
+    );
     let vectors = vectors();
     let items = item_vectors();
     for id in ROW_IDS {
@@ -2240,14 +2630,37 @@ fn recovery_table_rows_each_have_a_test_vector() {
             + items.iter().filter(|(row, ..)| row == id).count();
         assert!(n > 0, "row {id} has no test vector");
     }
+    let row_of = |id: &str| adr.iter().find(|r| r.id == id);
     for v in &vectors {
-        assert!(ROW_IDS.contains(&v.row), "unknown row {}", v.row);
+        let row = row_of(v.row).unwrap_or_else(|| panic!("unknown row {}", v.row));
+        assert_ne!(row.table, AdrTable::Item, "{} is an item row", v.row);
         let state = build(v.shape, v.hist)
             .unwrap_or_else(|_| panic!("{}: history refused: {:?}", v.row, v.hist));
         let obs = observe(v.shape, &state, v.obs)
             .unwrap_or_else(|e| panic!("{}: observation impossible: {e:?}", v.row));
+        // The vector is its row's case: the first row of the ADR's tables, tried in
+        // order, that names its phase and symbols is its row.
+        let first = adr_first_match(&adr, v.shape, &state, &obs).map(|r| r.id.as_str());
+        assert_eq!(
+            first,
+            Some(v.row),
+            "vector {} {:?} {:?} is the ADR's row {first:?}",
+            v.row,
+            v.obs,
+            v.hist
+        );
         let got = decide(v.shape, &state, &obs);
         assert_eq!(got, v.want, "row {} {:?}", v.row, v.obs);
+        let hold = match got {
+            StepDecision::Hold(r) => Some(r),
+            _ => None,
+        };
+        assert!(
+            adr_action_agrees(row, hold, None),
+            "row {}: {got:?} disagrees with the ADR's action {:?}",
+            v.row,
+            row.action()
+        );
         let eff = effects(got, v.shape, &state);
         assert_eq!(fmt_effects(&eff), v.effects, "row {} effects", v.row);
         assert_eq!(
@@ -2257,10 +2670,24 @@ fn recovery_table_rows_each_have_a_test_vector() {
             v.row
         );
     }
-    for (row, steps, receipts, want) in &items {
-        assert!(ROW_IDS.contains(row), "unknown row {row}");
+    for (id, steps, receipts, want) in &items {
+        let row = row_of(id).unwrap_or_else(|| panic!("unknown row {id}"));
+        assert_eq!(row.table, AdrTable::Item, "{id} is not an item row");
         let got = decide_item(steps, receipts);
-        assert_eq!(got, *want, "row {row} {steps:?} {receipts:?}");
+        assert_eq!(got, *want, "row {id} {steps:?} {receipts:?}");
+        let held_step = steps.iter().find_map(|s| match s {
+            StepState::Held(r) => Some(*r),
+            _ => None,
+        });
+        let hold = match got {
+            ItemDecision::Hold(r) => Some(r),
+            _ => None,
+        };
+        assert!(
+            adr_action_agrees(row, hold, held_step),
+            "row {id}: {got:?} disagrees with the ADR's action {:?}",
+            row.action()
+        );
     }
 }
 
@@ -3025,7 +3452,8 @@ fn observation_normalization_precedence_and_impossible_combinations() {
 #[test]
 fn decide_item_vectors_t0_t1_t1h_t2_t3_t4_th() {
     use StepState::{
-        CommitNeverExchanged, ExchangedConsistent, ExchangedInconsistent, Final, Held, Open,
+        CommitNeverExchanged, CommitRestored, ExchangedConsistent, ExchangedInconsistent, Final,
+        Held, Open,
     };
     for (row, steps, receipts, want) in item_vectors() {
         assert_eq!(decide_item(&steps, &receipts), want, "{row}");
@@ -3051,7 +3479,7 @@ fn decide_item_vectors_t0_t1_t1h_t2_t3_t4_th() {
     // T1 needs every exchanged step consistent; T1h runs no check.
     assert_eq!(
         decide_item(&[ExchangedInconsistent, ExchangedConsistent], &none),
-        ItemDecision::Hold(HoldReason::Unmatched)
+        ItemDecision::Hold(HoldReason::DisplacedReplaced)
     );
     // T2 never restores, T3 never commits.
     assert_eq!(
@@ -3062,13 +3490,36 @@ fn decide_item_vectors_t0_t1_t1h_t2_t3_t4_th() {
         decide_item(&[ExchangedConsistent], &rolling),
         ItemDecision::FinishRestore
     );
-    // TH: a held step holds an open, committed or rolling-back item.
+    // TH: a held step holds an open, committed or rolling-back item, with its own
+    // reason, never the retired `unmatched` placeholder (ADR-0007 §12.17 item 4).
     for r in [none, committed, rolling] {
-        assert!(
-            matches!(decide_item(&[Final, Held], &r), ItemDecision::Hold(_)),
-            "{r:?}"
+        for reason in HOLD_REASONS {
+            assert_eq!(
+                decide_item(&[Final, Held(reason)], &r),
+                ItemDecision::Hold(reason),
+                "{r:?}"
+            );
+        }
+    }
+    // T3 from the commit step's own restore takes precedence over nothing that holds,
+    // and is T3 whatever the other steps are.
+    for other in [Open, Final, ExchangedConsistent, ExchangedInconsistent] {
+        assert_eq!(
+            decide_item(&[other, CommitRestored], &none),
+            ItemDecision::FinishRestore,
+            "{other:?}"
         );
     }
+    assert_eq!(
+        decide_item(&[CommitRestored, Held(HoldReason::ThirdWriter)], &none),
+        ItemDecision::Hold(HoldReason::ThirdWriter)
+    );
+    // Every step final with no item receipt and no commit-step class is no item row:
+    // the file-level T3 is read from `CommitRestored`, never inferred from `Final`.
+    assert_eq!(
+        decide_item(&[Final, Final], &none),
+        ItemDecision::Hold(HoldReason::Unmatched)
+    );
     // An item still in progress (a step's row continues) matches no item row.
     assert_eq!(
         decide_item(&[Open, Final], &none),

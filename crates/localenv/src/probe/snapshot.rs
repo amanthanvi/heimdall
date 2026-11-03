@@ -108,6 +108,12 @@ impl ConfigSource for Digesting<'_> {
     fn env(&self, name: &str) -> Option<String> {
         self.inner.env(name)
     }
+
+    /// The wrapped source's rule (ADR-0007 §12.17 item 9), never the trait default:
+    /// `BoundedSource` compares a `HOME` that is not UTF-8 too, which `env` cannot show.
+    fn include_home(&self) -> Option<&Path> {
+        self.inner.include_home()
+    }
 }
 
 fn has_glob_meta(s: &str) -> bool {
@@ -121,6 +127,7 @@ fn arg_reason(e: &ArgError) -> String {
         ArgError::Invalid(i) => i.as_str().to_owned(),
         ArgError::Glob(g) if g.is_bound() => "bound_exceeded".to_owned(),
         ArgError::Glob(_) => "glob_unreadable".to_owned(),
+        ArgError::EnvironmentReference => "environment_reference".to_owned(),
         _ => "unresolved".to_owned(),
     }
 }
@@ -293,6 +300,44 @@ mod tests {
         );
         let after = take(&denied, &roots(), &query(), &Limits::default());
         assert_eq!(compare(&before, &after)[0].change, TreeChange::Unreadable);
+    }
+
+    /// ADR-0007 §12.17 item 9 through the digesting wrapper: an `Include ~/…` under a
+    /// `HOME` that is not UTF-8 is undetermined, exactly as `BoundedSource` says, and
+    /// never resolved under the account home as if `HOME` were unset.
+    #[cfg(unix)]
+    #[test]
+    fn include_tilde_under_a_non_utf8_home_is_an_environment_reference() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        use crate::env::Env;
+        use crate::fs::BoundedSource;
+        use crate::paths::SshPaths;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        std::fs::write(home.join(".ssh/config"), "Include ~/inc.conf\n").unwrap();
+        std::fs::write(home.join("inc.conf"), "Host a\n  Port 2\n").unwrap();
+        let paths = SshPaths::with_test_override(home.clone(), dir.path().join("etc"));
+        let roots = Roots::new(Some(paths.user_config.clone()), None);
+        let expansion = |vars: Vec<(OsString, OsString)>| {
+            let source = BoundedSource::new(paths.clone(), Env::from_vars(vars), Limits::default());
+            let s = take(&source, &roots, &query(), &Limits::default());
+            s.includes.into_iter().map(|(_, e)| e).collect::<Vec<_>>()
+        };
+        assert!(matches!(
+            expansion(Vec::new()).as_slice(),
+            [IncludeExpansion::Resolved(_)]
+        ));
+        let raw = OsString::from_vec(b"/hm/\xff".to_vec());
+        assert_eq!(
+            expansion(vec![(OsString::from("HOME"), raw)]),
+            vec![IncludeExpansion::Unresolved(
+                "environment_reference".to_owned()
+            )]
+        );
     }
 
     #[test]

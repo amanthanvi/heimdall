@@ -844,6 +844,82 @@ fn unset_env_in_include_is_recorded_env_unset() {
     );
 }
 
+/// ADR-0007 §12.17 item 9: OpenSSH expands an Include's `~`, and the implicit `~/.ssh/`
+/// of a relative user Include, with `glob(3)` `GLOB_TILDE`, which reads `$HOME`. The
+/// source's include home decides: the account home when `HOME` is unset or names it,
+/// otherwise the argument is `EnvironmentReference` and nothing is globbed or read.
+/// An absolute path, `%d` and the system tree's relative paths are unaffected.
+#[test]
+fn include_tilde_and_relative_user_include_follow_the_include_home() {
+    for home in [None, Some(HOME), Some("/hm/home/")] {
+        let mut src = source();
+        if let Some(h) = home {
+            src = src.with_env("HOME", h);
+        }
+        assert_eq!(src.include_home(), Some(Path::new(HOME)), "{home:?}");
+        let arg = |a: &str, o: Origin| expand_include_arg(a, o, &src, &no_tokens);
+        assert_eq!(
+            arg("~/x.conf", Origin::User),
+            Ok(PathBuf::from("/hm/home/x.conf"))
+        );
+        assert_eq!(arg("~", Origin::User), Ok(PathBuf::from(HOME)));
+        assert_eq!(
+            arg("x.conf", Origin::User),
+            Ok(PathBuf::from("/hm/home/.ssh/x.conf"))
+        );
+    }
+    for other in ["/hm/elsewhere", "", "hm/home"] {
+        let src = source().with_env("HOME", other);
+        assert_eq!(src.include_home(), None, "{other:?}");
+        let arg = |a: &str, o: Origin| expand_include_arg(a, o, &src, &no_tokens);
+        assert_eq!(
+            arg("~/x.conf", Origin::User),
+            Err(ArgError::EnvironmentReference)
+        );
+        assert_eq!(arg("~", Origin::User), Err(ArgError::EnvironmentReference));
+        assert_eq!(
+            arg("x.conf", Origin::User),
+            Err(ArgError::EnvironmentReference)
+        );
+        assert_eq!(
+            arg("/hm/home/x.conf", Origin::User),
+            Ok(PathBuf::from("/hm/home/x.conf"))
+        );
+        assert_eq!(
+            arg("%d/x.conf", Origin::User),
+            Ok(PathBuf::from("/hm/home/x.conf"))
+        );
+        assert_eq!(
+            arg("x.conf", Origin::System),
+            Ok(PathBuf::from(format!("{SYSTEM_DIR}/x.conf")))
+        );
+        assert_eq!(
+            arg("~/x.conf", Origin::System),
+            Err(ArgError::Invalid(InvalidArg::TildeInSystemFile))
+        );
+        // The walk neither globs nor reads the account home's file.
+        let src = src
+            .with_file("/hm/home/.ssh/config", "Include ~/x.conf rel.conf\n")
+            .with_file("/hm/home/x.conf", "Port 1\n")
+            .with_file("/hm/home/.ssh/rel.conf", "Port 2\n");
+        let mut set = ConfigSet::new();
+        let rec = record(
+            &mut set,
+            &src,
+            &user_root("/hm/home/.ssh/config"),
+            &Limits::default(),
+            &no_tokens,
+        );
+        assert_eq!(rec.visits.len(), 1, "{other:?}");
+        assert!(
+            rec.includes
+                .iter()
+                .all(|i| i.arg.matches == Err(ArgError::EnvironmentReference))
+        );
+        assert_eq!(src.globs(), 0);
+    }
+}
+
 #[test]
 fn expansion_follows_openssh_rules() {
     let src = source().with_env("V", "%h${W}");

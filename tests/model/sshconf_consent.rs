@@ -29,7 +29,20 @@ const USER_CONFIG: &str = "/hm/home/.ssh/config";
 const MANAGED: &str = "/hm/home/.config/heimdall/ssh_config";
 
 fn state_of(user: &[u8], managed: Option<&[u8]>, host: &str) -> BehaviorState {
+    state_in(user, managed, host, &[])
+}
+
+/// [`state_of`] in a runtime whose environment holds `env`.
+fn state_in(
+    user: &[u8],
+    managed: Option<&[u8]>,
+    host: &str,
+    env: &[(&str, &str)],
+) -> BehaviorState {
     let mut src = MemSource::new(HOME, USER_DIR, "/hm/etc/ssh").with_file(USER_CONFIG, user);
+    for (k, v) in env {
+        src = src.with_env(k, v);
+    }
     if let Some(p) = managed {
         src = src.with_file(MANAGED, p);
     }
@@ -74,9 +87,10 @@ fn with_b(user: &[u8]) -> Vec<u8> {
     let marker = MarkerId::parse("hm-a1b2c3d4e5f60718").unwrap();
     let bytes = render_include_block(
         &marker,
-        &RenderPath::unix(Path::new("~/.config/heimdall/ssh_config")).unwrap(),
+        &RenderPath::unix(Path::new("/hm/home/.config/heimdall/ssh_config")).unwrap(),
         Newline::Lf,
-    );
+    )
+    .unwrap();
     plan_insert(Some(user), &IncludeBlock { marker, bytes })
         .unwrap()
         .bytes
@@ -271,4 +285,63 @@ fn consent_git_selection_change_is_its_own_reason() {
     }]);
     assert!(need.required);
     assert_eq!(need.reasons[0].kind, ConsentReasonKind::GitSelectionChanged);
+}
+
+/// Y01 reviewer scenario (ADR-0007 §12.16 item 1): the approved restore state holds
+/// `IdentityAgent ${HM_AGENT}` with the variable naming agent A. After the apply the
+/// variable names agent B. The restore digest is unchanged (the text is bound as
+/// written), so a determined state would reuse the consent for A; the state is
+/// undetermined, so the rollback needs a decision, reason `undetermined_state`.
+#[test]
+fn consent_rollback_after_environment_endpoint_change_needs_decision() {
+    let user = b"Host *\n    IdentityAgent ${HM_AGENT}\n";
+    let a = [("HM_AGENT", "/hm/run/agent-a.sock")];
+    let b = [("HM_AGENT", "/hm/run/agent-b.sock")];
+    let managed = state_in(&with_b(user), Some(&managed_p()), "m1", &a);
+    let restore_at_apply = state_in(user, None, "m1", &a);
+    let after = state_in(user, None, "m1", &b);
+    assert_eq!(
+        after.digest, restore_at_apply.digest,
+        "the reviewer's observation"
+    );
+    assert!(!after.determined && !restore_at_apply.determined);
+    let need = classify(&[ConsentItem {
+        item: alias_item(),
+        current: managed.clone(),
+        after,
+        consented: Some(ConsentedStates {
+            managed,
+            restore: restore_at_apply,
+        }),
+    }]);
+    assert!(need.required, "{need:?}");
+    assert_eq!(need.reasons.len(), 1);
+    assert_eq!(need.reasons[0].kind, ConsentReasonKind::UndeterminedState);
+}
+
+/// ADR-0007 §12.16 item 1: the default agent is determined, role `default`, in all
+/// three forms. A rollback whose restore state names it another way than the consented
+/// one (an unset `IdentityAgent` then, `IdentityAgent SSH_AUTH_SOCK` now) needs none.
+#[test]
+fn consent_default_agent_forms_are_one_consented_state() {
+    let then = b"Host *\n    User fallback\n";
+    let managed = state_of(&with_b(then), Some(&managed_p()), "m1");
+    let restore = state_of(then, None, "m1");
+    for now in [
+        &b"Host *\n    User fallback\n    IdentityAgent SSH_AUTH_SOCK\n"[..],
+        b"Host *\n    User fallback\n    IdentityAgent $SSH_AUTH_SOCK\n",
+    ] {
+        let after = state_in(now, None, "m1", &[("SSH_AUTH_SOCK", "/hm/run/d.sock")]);
+        assert!(after.determined);
+        let need = classify(&[ConsentItem {
+            item: alias_item(),
+            current: managed.clone(),
+            after,
+            consented: Some(ConsentedStates {
+                managed: managed.clone(),
+                restore: restore.clone(),
+            }),
+        }]);
+        assert!(!need.required, "{need:?}");
+    }
 }

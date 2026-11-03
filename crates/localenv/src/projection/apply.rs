@@ -26,14 +26,26 @@
 //! * The item rows (`decide_item`) choose between resuming forward and aborting (T0),
 //!   run the transaction check (T1), and finish the item (T2, T3, T4). T0 resumes the
 //!   Git item only under a lock the receipts prove (K1 or K2), never after K3 or K4.
-//! * Decisions no receipt records are the engine's (escalated by W2-U4c): an aborted
-//!   item's inactive files, and after the commit step's own file-level restore its
-//!   exchanged inactive files, are left to the cleaner and count as final for the
-//!   item; K is then released last by the writer, since `RecoveryState::release_due`
-//!   cannot see a hand-over to the cleaner. Rows F0x and K0x are applied here to an
-//!   unrecorded entry at the step's random staged name (see `unrecorded_staged`).
+//! * K's release (ADR-0007 §12.17 item 3). It is due when the receipts make it due
+//!   (`RecoveryState::build`: every other Git step final by its receipts), or when the
+//!   item rows decide the item's abort or restore and every other Git step reached its
+//!   end in the current observation (settled, nothing to settle, never staged, or an
+//!   exchanged inactive step handed to the cleaner). No receipt records that
+//!   hand-over, so it is computed every round from the durable receipts and a fresh
+//!   observation, and a restart computes it again; K is always released last.
+//! * Rows F0x and K0x are the classifier's (`replace::observe_step_at`, §12.17 item
+//!   2): an unrecorded entry of Heimdall's shape at a step's own staged name, before
+//!   any receipt of the step, is its S by digest.
 //! * The Git item follows the SSH commit point: it runs only when the intent's SSH
-//!   item applied (or the intent has none).
+//!   item applied (or the intent has none). B_git's staged bytes must parse
+//!   (`git config --file <N_s> --no-includes --list`, a local query) before its
+//!   exchange; a failure, or no way to run the check, aborts before the commit point
+//!   (§5.6 step 3).
+//! * An item with no step to write (a rollback whose B is already gone) has its check
+//!   and `item.committed` as its commit point.
+//! * After a rollback's item committed, an edited managed file is renamed, with
+//!   no-replace, to `<name>.hm-conflict-<generation>` instead of being left for the
+//!   cleaner (§5.5).
 //!
 //! **Steps that write nothing.** A step whose target is absent is the cleaner's
 //! (§5.8) and is skipped. A user-file step whose target equals its base is a
@@ -58,17 +70,17 @@ use heimdall_app::ports::{
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{EnvironmentId, OperationId};
-use heimdall_contract::setup::{ConflictKind, ProjectionItem};
+use heimdall_contract::setup::{ConflictKind, PreviewIntent, ProjectionItem};
 use heimdall_domain::operation::{
     EffectReceipt, FilePhase, HoldReason, ItemFinish, ItemPhase, LocalReceipt, ObservedEntry,
     ObservedName, ObservedNameRole, PostVerdict, PreservedEntry, RestoreCause, SettleConflictFound,
     SettleSource, SettledDisposition, StageReceipt,
 };
 use heimdall_domain::projection::{
-    Base, ConsentRecord, ContentState, EffectivePhase, EntryFileType, EntryFingerprint, EntryObs,
-    FileIdentity, FileRole, FileStep, FingerprintContent, ItemCommit, ItemRecord, ItemState,
-    ProjectionLocator, ProjectionRecord, RecordedRole, RecoveryState, RestoreCtx, SetupIntent,
-    Sha256Hex, StepContentView, StepFingerprint, StepObservation, StepShape, Target,
+    Base, ConsentRecord, ContentState, EffectivePhase, EntryFingerprint, EntryObs, FileIdentity,
+    FileRole, FileStep, ItemCommit, ItemRecord, ItemState, ProjectionLocator, ProjectionRecord,
+    RecordedRole, RecoveryState, RestoreCtx, SetupIntent, Sha256Hex, StepContentView,
+    StepFingerprint, StepObservation, StepShape, Target,
 };
 
 use super::content::{self, ContentError};
@@ -83,6 +95,8 @@ use super::replace::{
     Staged, StepNames, StepRecord,
 };
 use super::{ProjectionConfig, ReplacePoint};
+use crate::clients::ClientKind;
+use crate::local_query::LocalQueries;
 
 /// Iterations of one item's recovery loop before it is reported held (`unmatched`).
 /// Every iteration performs at most one action; a correct item needs a few per step.
@@ -826,6 +840,11 @@ impl<'a> Run<'a> {
         if let Err(r) = replace::recheck_at(&dir, &names.target, &validated) {
             return Ok(Flow::Stop(refusal_kind(step, &r)));
         }
+        // §5.6 step 3 (row 4 of the replace and create tables): B_git's new bytes
+        // must parse before its exchange; a failure aborts before the commit point.
+        if step.role == FileRole::GitInclude && !self.git_parses(&parent, &names.staged) {
+            return Ok(Flow::Stop(ConflictKind::UnmanageableFile));
+        }
         if from != From::Validated {
             self.append_file(
                 i,
@@ -888,6 +907,20 @@ impl<'a> Run<'a> {
         };
         self.config.fire(ReplacePoint::AfterPostValidate, i);
         Ok(flow)
+    }
+
+    /// ADR-0007 §5.6 step 3: `git config --file <N_s> --no-includes --list` exits 0
+    /// for B_git's staged bytes. Fail closed: with local queries off or no Git client
+    /// in the inventory the bytes are not shown to parse, so the item aborts.
+    fn git_parses(&self, parent: &Path, staged: &str) -> bool {
+        self.config.queries == LocalQueries::Enabled
+            && self
+                .config
+                .clients
+                .selected(ClientKind::Git)
+                .is_some_and(|g| {
+                    super::git::parses(&g.path, &parent.join(staged), &self.config.env)
+                })
     }
 
     /// The `git_lock` step: stage K, record it, then claim the lock (§5.6 steps 1–2).
@@ -1047,6 +1080,9 @@ impl<'a> Run<'a> {
         } else {
             Vec::new()
         };
+        // The consented states the plan computed (ADR-0007 §5.2), under the decision
+        // that approved this intent; the plan carries a placeholder decision.
+        let approved = self.intent.approval.as_ref().map(|a| a.decision.clone());
         let consent = ConsentRecord {
             items: self
                 .intent
@@ -1054,7 +1090,13 @@ impl<'a> Run<'a> {
                 .items
                 .iter()
                 .filter(|(id, _)| (item == ProjectionItem::Git) == (id.0 == "git"))
-                .map(|(k, v)| (k.clone(), v.clone()))
+                .map(|(k, v)| {
+                    let mut v = v.clone();
+                    if let Some(decision) = &approved {
+                        v.decision = decision.clone();
+                    }
+                    (k.clone(), v)
+                })
                 .collect(),
         };
         let now = Timestamp::now();
@@ -1152,10 +1194,7 @@ impl<'a> Run<'a> {
         let shape = StepShape::of(step);
         match RecoveryState::build(i, &self.log, &self.intent.files) {
             Ok(state) => {
-                let mut obs = self.observe(i, &state);
-                if state.phase.is_none() && obs.aside() == EntryObs::Foreign {
-                    obs = self.unrecorded_staged(i, &state, obs);
-                }
+                let obs = self.observe(i, &state);
                 let dec = recovery::decide(shape, &state, &obs);
                 View {
                     step: i,
@@ -1173,57 +1212,17 @@ impl<'a> Run<'a> {
         }
     }
 
-    /// The item rows' view of one step (`recovery::StepState`). For the commit step,
-    /// never exchanged takes precedence over final (an aborted commit step stays
-    /// `CommitNeverExchanged`); the T1 consistency classes apply only while the commit
-    /// step is at `post_validated{valid}` with no item receipt.
-    /// Rows F0x and K0x (ADR-0007 §5.7): before any receipt of the step, a regular
-    /// file owned by the user with one link at the step's 128-bit random staged name
-    /// is its S from a crash between the exclusive create and `file.staged`; the
-    /// evidence is the name, never the content (never the lock name). The classifier
-    /// has no recorded identity to call it S, so it reports X; the engine applies the
-    /// row: S when it has the target digest, S′ otherwise (which the table then
-    /// settles, keeping it if modified). Escalated by W2-U4c.
-    fn unrecorded_staged(
-        &mut self,
-        i: u16,
-        state: &RecoveryState,
-        obs: StepObservation,
-    ) -> StepObservation {
-        let step = self.step(i);
-        let fp = self.fingerprint(i, state);
-        let Some(EntryFingerprint::Present {
-            file_type: EntryFileType::Regular,
-            owned_by_user: true,
-            link_count: 1,
-            content,
-            ..
-        }) = fp.aside.first()
-        else {
-            return obs;
-        };
-        let unchanged = matches!(
-            (content, staged_sha(step)),
-            (FingerprintContent::Sha256 { sha256 }, Some(t)) if *sha256 == t
-        );
-        let aside = EntryObs::Recorded {
-            which: RecordedRole::S,
-            content: if unchanged {
-                ContentState::Unchanged
-            } else {
-                ContentState::Modified
-            },
-        };
-        StepObservation::normalize(obs.path(), aside, obs.slot(), state, StepShape::of(step))
-            .unwrap_or(obs)
-    }
-
-    fn step_state(&self, v: &View, commit_at_t1: bool, commit_restoring: bool) -> StepState {
-        if matches!(v.dec, StepDecision::Hold(_)) {
-            return StepState::Held;
+    /// The item rows' class of one step (ADR-0007 §12.17 item 4, in
+    /// `recovery::StepState`'s order): held by its own row with that row's reason;
+    /// for the commit step, never exchanged, then its own file-level restore
+    /// (`restore_started{file_mismatch}` through `restored` and the settlement after
+    /// it); then final, the T1 classes, or open.
+    fn step_state(&self, v: &View, commit_at_t1: bool) -> StepState {
+        if let StepDecision::Hold(reason) = v.dec {
+            return StepState::Held(reason);
         }
         let Some(state) = &v.state else {
-            return StepState::Held;
+            return StepState::Held(HoldReason::ContradictoryReceipts);
         };
         let step = self.step(v.step);
         let exchanged = self.was_exchanged(v.step)
@@ -1236,16 +1235,16 @@ impl<'a> Run<'a> {
         if step.commit && !exchanged {
             return StepState::CommitNeverExchanged;
         }
-        if v.dec == StepDecision::Settle(SettleStep::Done) {
-            return StepState::Final;
-        }
-        // After the commit step's file-level restore (row T3 without an item
-        // receipt), an exchanged inactive step waiting for the item is handed to the
-        // cleaner: final for the item.
-        if commit_restoring
-            && !step.commit
-            && v.dec == StepDecision::Forward(ForwardStep::TransactionCheck)
+        if step.commit
+            && matches!(
+                state.restore,
+                RestoreCtx::Started(RestoreCause::FileMismatch)
+                    | RestoreCtx::Done(RestoreCause::FileMismatch)
+            )
         {
+            return StepState::CommitRestored;
+        }
+        if v.dec == StepDecision::Settle(SettleStep::Done) {
             return StepState::Final;
         }
         if commit_at_t1
@@ -1275,22 +1274,6 @@ impl<'a> Run<'a> {
             };
         }
         StepState::Open
-    }
-
-    /// Whether the item's commit step is in its own file-level restore
-    /// (`post_validated{mismatch}`, cause `file_mismatch`).
-    fn commit_restoring(&self, views: &[View]) -> bool {
-        views.iter().any(|v| {
-            self.step(v.step).commit
-                && v.state.as_ref().is_some_and(|s| {
-                    matches!(
-                        s.restore,
-                        RestoreCtx::Due(RestoreCause::FileMismatch)
-                            | RestoreCtx::Started(RestoreCause::FileMismatch)
-                            | RestoreCtx::Done(RestoreCause::FileMismatch)
-                    )
-                })
-        })
     }
 
     /// Whether the item's commit step is at `post_validated{valid}` (row T1).
@@ -1357,40 +1340,24 @@ impl<'a> Run<'a> {
                 return self.hold(item, &views, None);
             }
             let at_t1 = self.commit_at_t1(&views);
-            let restoring = self.commit_restoring(&views);
-            let states: Vec<StepState> = views
-                .iter()
-                .map(|v| self.step_state(v, at_t1, restoring))
-                .collect();
+            let states: Vec<StepState> = views.iter().map(|v| self.step_state(v, at_t1)).collect();
             let rx = self.item_receipts(item);
-            // After the commit step's own file-level restore (T3 without an item
-            // receipt) the inactive files are the cleaner's, which no receipt records,
-            // so K's release is never due by receipts: release it last, as an abort
-            // does, once every other step is final.
-            if restoring
-                && !rx.committed
-                && rx.rolling_back.is_none()
-                && views.iter().zip(&states).any(|(v, _)| {
-                    self.step(v.step).role == FileRole::GitLock
-                        && matches!(
-                            v.dec,
-                            StepDecision::Forward(ForwardStep::KeepLock | ForwardStep::ClaimLock)
-                        )
-                })
-                && views.iter().zip(&states).all(|(v, s)| {
-                    *s == StepState::Final || self.step(v.step).role == FileRole::GitLock
-                })
-                && self.abort_one(&views)?
-            {
-                continue;
-            }
-            match recovery::decide_item(&states, &rx) {
+            // An item with no step to write (a rollback whose B is already gone, so
+            // only its files for the cleaner remain) exchanges nothing: its transaction
+            // check and `item.committed` are its commit point. The item rows have no row
+            // for an item without steps.
+            let decision = if views.is_empty() && !rx.committed && rx.rolling_back.is_none() {
+                ItemDecision::TransactionCheck
+            } else {
+                recovery::decide_item(&states, &rx)
+            };
+            match decision {
                 ItemDecision::Hold(reason) => {
                     let held: Vec<u16> = views
                         .iter()
                         .zip(&states)
                         .filter(|(_, s)| {
-                            matches!(s, StepState::ExchangedInconsistent | StepState::Held)
+                            matches!(s, StepState::ExchangedInconsistent | StepState::Held(_))
                         })
                         .map(|(v, _)| v.step)
                         .collect();
@@ -1432,58 +1399,37 @@ impl<'a> Run<'a> {
                         }
                     }
                     resume_allowed = false;
-                    if !self.abort_one(&views)? {
-                        self.append_item(
-                            item,
-                            ItemPhase::Finished {
-                                outcome: ItemFinish::NotApplied,
-                            },
-                        )?;
+                    // T0 abort: settle Heimdall's own unexchanged staged entries, then
+                    // release K last, then finish `not_applied`.
+                    if self.abort_one(&views)? || self.release_k(&views, true)? {
+                        continue;
+                    }
+                    if let Some(outcome) =
+                        self.finish_at_end(item, &views, ItemFinish::NotApplied)?
+                    {
+                        return Ok(outcome);
                     }
                 }
                 ItemDecision::FinishForward | ItemDecision::FinishRestore => {
-                    // K1 with the release due settles K from its staged name.
-                    if let Some(v) = views.iter().find(|v| {
-                        v.dec == StepDecision::Abort(AbortStep::SettleStaged)
-                            && !self.was_exchanged(v.step)
-                    }) {
-                        self.settle_staged(v.step)?;
+                    // T2 releases K when the receipts make it due (its K2 release is a
+                    // recording decision above; a K1 due by receipts settles from the
+                    // staged name here). T3 also releases it once every other step
+                    // reached its end in this observation (§12.17 item 3).
+                    let restore = !rx.committed;
+                    if self.release_k(&views, restore)? {
                         continue;
                     }
-                    let all_final = views
-                        .iter()
-                        .zip(&states)
-                        .all(|(v, s)| *s == StepState::Final || self.abort_final(v));
-                    // After the commit step's file-level restore, the inactive files are
-                    // the cleaner's, which no receipt records, so K's release is never
-                    // due by receipts: release it last, as an abort does.
-                    if !all_final
-                        && !rx.committed
-                        && views.iter().zip(&states).all(|(v, s)| {
-                            *s == StepState::Final
-                                || self.abort_final(v)
-                                || self.step(v.step).role == FileRole::GitLock
-                        })
-                        && self.abort_one(&views)?
-                    {
-                        continue;
-                    }
-                    if !all_final {
-                        // Nothing left that a row moves, yet not final: no row lists
-                        // this combination.
-                        let target = views
-                            .iter()
-                            .zip(&states)
-                            .find(|(_, s)| **s != StepState::Final)
-                            .map(|(v, _)| v.step);
-                        return self.hold(item, &views, target.map(|s| (s, HoldReason::Unmatched)));
+                    if rx.committed && views.iter().all(|v| self.at_end(v)) {
+                        self.keep_edited_managed(item);
                     }
                     let outcome = if rx.committed {
                         ItemFinish::Applied
                     } else {
                         ItemFinish::Restored
                     };
-                    self.append_item(item, ItemPhase::Finished { outcome })?;
+                    if let Some(outcome) = self.finish_at_end(item, &views, outcome)? {
+                        return Ok(outcome);
+                    }
                 }
             }
         }
@@ -1553,51 +1499,21 @@ impl<'a> Run<'a> {
         Ok(None)
     }
 
-    /// T0 abort: settle Heimdall's own unexchanged staged entries, then release K
-    /// last. Returns whether it acted; `false` means the item can be finished
-    /// `not_applied` (exchanged inactive files are left for the cleaner).
+    /// T0 abort, first part: settle Heimdall's own unexchanged staged entries (never
+    /// K's: [`Run::release_k`] releases it last). Returns whether it acted.
     fn abort_one(&mut self, views: &[View]) -> Result<bool, ReconcileError> {
-        let others: Vec<&View> = views
-            .iter()
-            .filter(|v| self.step(v.step).role != FileRole::GitLock)
-            .collect();
-        for v in others {
-            if matches!(
-                v.dec,
-                StepDecision::Abort(AbortStep::SettleStaged)
-                    | StepDecision::Forward(ForwardStep::Revalidate)
-            ) && !self.was_exchanged(v.step)
+        for v in views {
+            if self.step(v.step).role != FileRole::GitLock
+                && matches!(
+                    v.dec,
+                    StepDecision::Abort(AbortStep::SettleStaged)
+                        | StepDecision::Forward(ForwardStep::Revalidate)
+                )
+                && !self.was_exchanged(v.step)
                 && self.settle_staged(v.step)?
             {
                 return Ok(true);
             }
-        }
-        let locks: Vec<&View> = views
-            .iter()
-            .filter(|v| self.step(v.step).role == FileRole::GitLock)
-            .collect();
-        for v in locks {
-            let source = match v.dec {
-                StepDecision::Forward(ForwardStep::ClaimLock)
-                | StepDecision::Abort(AbortStep::SettleStaged) => SettleSource::Staged,
-                StepDecision::Forward(ForwardStep::KeepLock) => SettleSource::Path,
-                _ => continue,
-            };
-            let step = self.step(v.step);
-            let (Some(identity), Some(sha256)) = (self.staged_identity(v.step), staged_sha(step))
-            else {
-                continue;
-            };
-            let name = match source {
-                SettleSource::Path => split(&step.path).map(|(_, n)| n),
-                _ => step.staged_name.clone(),
-            };
-            let Some(name) = name else { continue };
-            if source == SettleSource::Path {
-                self.config.fire(ReplacePoint::BeforeLockRelease, v.step);
-            }
-            self.begin_settlement(v.step, source, name, Expected { identity, sha256 })?;
-            return Ok(true);
         }
         Ok(false)
     }
@@ -1616,16 +1532,118 @@ impl<'a> Run<'a> {
         Ok(true)
     }
 
-    /// A step a finished restore or forward leaves to the cleaner: an exchanged
-    /// inactive step waiting for the item (its row is the item's), or one never
-    /// staged.
-    fn abort_final(&self, v: &View) -> bool {
-        !self.step(v.step).commit
-            && matches!(
-                v.dec,
-                StepDecision::Forward(ForwardStep::TransactionCheck | ForwardStep::Stage)
-                    | StepDecision::Abort(AbortStep::NothingToSettle)
-            )
+    /// Release K when it is due (ADR-0007 §12.17 item 3). No receipt records a
+    /// hand-over, so this is computed every round from the durable receipts and this
+    /// round's observation, and a restart computes it again: K's release is due when
+    /// `RecoveryState::build` says so (every other Git step final by its receipts),
+    /// or, with `ending` (the item rows decided the item's abort or its restore), when
+    /// every other step of the item reached its end in `views`
+    /// ([`Run::at_end`]). K's own row then decides with the release due: K1 settles K
+    /// from its staged name, K2 settles it from the lock. Returns whether it acted.
+    fn release_k(&mut self, views: &[View], ending: bool) -> Result<bool, ReconcileError> {
+        let Some(k) = views
+            .iter()
+            .find(|v| self.step(v.step).role == FileRole::GitLock)
+        else {
+            return Ok(false);
+        };
+        let Some(state) = k.state.as_ref() else {
+            return Ok(false);
+        };
+        let others_ended = views
+            .iter()
+            .filter(|v| v.step != k.step)
+            .all(|v| self.at_end(v));
+        if !(state.release_due || (ending && others_ended)) {
+            return Ok(false);
+        }
+        let mut due = state.clone();
+        due.release_due = true;
+        let dec = recovery::decide(StepShape::GitLock, &due, &k.obs);
+        match dec {
+            StepDecision::Abort(AbortStep::SettleStaged) => self.settle_staged(k.step),
+            StepDecision::Settle(SettleStep::Begin) => {
+                let view = View {
+                    step: k.step,
+                    state: Some(due),
+                    obs: k.obs,
+                    dec,
+                };
+                Ok(matches!(self.act(&view)?, Progress::Acted))
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Whether step `v` reached its end for the item (ADR-0007 §5.7 "The recovery
+    /// state", `release_due`): its rows have nothing left to do (settled,
+    /// `settle_conflict`, a create's `restored`), nothing to settle, never staged, or,
+    /// for an exchanged step other than the commit step that waits for the item, handed
+    /// to the cleaner (an abort, or the commit step's own file-level restore).
+    fn at_end(&self, v: &View) -> bool {
+        match v.dec {
+            StepDecision::Settle(SettleStep::Done)
+            | StepDecision::Abort(AbortStep::NothingToSettle) => true,
+            StepDecision::Forward(ForwardStep::Stage) => {
+                v.state.as_ref().is_some_and(|s| s.phase.is_none())
+            }
+            StepDecision::Forward(ForwardStep::TransactionCheck) => !self.step(v.step).commit,
+            _ => false,
+        }
+    }
+
+    /// ADR-0007 §5.5: once a rollback's item committed (B is out of the user file), a
+    /// managed file (P, P_git) whose content is no longer the recorded one is not left
+    /// for the cleaner: it is renamed, with no-replace, to
+    /// `<name>.hm-conflict-<generation>` (the rollback's generation, which the plan
+    /// fixed), so the owner's edit survives and the next adoption does not displace
+    /// it. The removal step's base is the recorded digest (the preview sets it from the
+    /// projection record). A file with that content is the cleaner's (§5.8); a missing
+    /// file, an entry that is not Heimdall's shape (a symlink, a hard link, another
+    /// owner) and an occupied conflict name are left where they are. Nothing is
+    /// deleted, and a restart repeats this without effect.
+    fn keep_edited_managed(&mut self, item: ProjectionItem) {
+        if !matches!(self.intent.intent, PreviewIntent::Rollback { .. }) {
+            return;
+        }
+        let generation = self.intent.generation;
+        for step in &self.intent.files {
+            if step.role.item() != item
+                || !matches!(step.role, FileRole::ManagedSsh | FileRole::GitManaged)
+                || StepShape::of(step) != StepShape::Removal
+                || std::fs::symlink_metadata(&step.path).is_err()
+            {
+                continue;
+            }
+            let Some((parent, name)) = split(&step.path) else {
+                continue;
+            };
+            let Ok(Some(dir)) = self.dir(&parent) else {
+                continue;
+            };
+            if replace::validate(&dir, &name, &step.base) == Err(ReplaceRefusal::BaseChanged) {
+                let conflict = format!("{name}.hm-conflict-{generation}");
+                // `Exists` (the name is taken) or a vanished file: left as it is.
+                let _kept_in_place = replace::rename_noreplace(&dir, &name, &conflict);
+            }
+        }
+    }
+
+    /// Write `item.finished{outcome}` once every step reached its end; otherwise
+    /// nothing a row moves is left, yet the item is not at its end: no row lists the
+    /// combination, and the item is held (`unmatched`).
+    fn finish_at_end(
+        &mut self,
+        item: ProjectionItem,
+        views: &[View],
+        outcome: ItemFinish,
+    ) -> Result<Option<ItemOutcome>, ReconcileError> {
+        if let Some(v) = views.iter().find(|v| !self.at_end(v)) {
+            let target = Some((v.step, HoldReason::Unmatched));
+            return self.hold(item, views, target).map(Some);
+        }
+        self.append_item(item, ItemPhase::Finished { outcome })?;
+        Ok(None)
     }
 
     /// Carry out one step decision.
@@ -2209,11 +2227,7 @@ impl<'a> Run<'a> {
             .collect();
         if held.is_empty() {
             let at_t1 = self.commit_at_t1(&views);
-            let restoring = self.commit_restoring(&views);
-            let states: Vec<StepState> = views
-                .iter()
-                .map(|v| self.step_state(v, at_t1, restoring))
-                .collect();
+            let states: Vec<StepState> = views.iter().map(|v| self.step_state(v, at_t1)).collect();
             if let ItemDecision::Hold(r) = recovery::decide_item(&states, &self.item_receipts(item))
             {
                 let target = views

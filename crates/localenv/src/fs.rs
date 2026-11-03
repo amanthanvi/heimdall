@@ -79,6 +79,27 @@ impl ConfigSource for BoundedSource {
             .and_then(|v| v.to_str())
             .map(str::to_owned)
     }
+
+    /// The trait's rule (ADR-0007 §12.17 item 9) over the raw `HOME`, so a value that
+    /// is not UTF-8, which `env` cannot show, is still compared and never taken for an
+    /// unset `HOME` (fail closed).
+    fn include_home(&self) -> Option<&Path> {
+        include_home_for(&self.env, &self.paths.account_home)
+    }
+}
+
+/// The home an `Include`'s `~` and a relative user `Include` resolve under for this
+/// environment (ADR-0007 §12.17 item 9; `ConfigSource::include_home`): the account home
+/// when `HOME` is unset (`glob(3)` falls back to the account database) or names it,
+/// `None` when `HOME` is anything else. `None` makes those includes undetermined, and
+/// the doctor reports `home_mismatch`.
+#[must_use]
+pub fn include_home_for<'a>(env: &Env, account_home: &'a Path) -> Option<&'a Path> {
+    match env.get("HOME") {
+        None => Some(account_home),
+        Some(value) => heimdall_sshconf::include::home_matches(Path::new(value), account_home)
+            .then_some(account_home),
+    }
 }
 
 /// An I/O error as a [`SourceError`]: its kind only, never the path.
@@ -311,6 +332,36 @@ mod tests {
                 .is_empty()
         );
         assert!(glob_bounded(Path::new("relative/*.conf"), 16).is_err());
+    }
+
+    /// ADR-0007 §12.17 item 9: the include home is the account home only when `HOME`
+    /// is unset or names it. A `HOME` that is not UTF-8 is compared too, never taken
+    /// for an unset one (the trait's default reads `env`, which cannot show it).
+    #[test]
+    fn include_home_follows_the_home_rule_over_the_raw_value() {
+        use std::ffi::OsString;
+        let paths =
+            SshPaths::with_test_override(PathBuf::from("/hm/home"), PathBuf::from("/hm/etc"));
+        let home = |value: Option<OsString>| {
+            let vars: Vec<(OsString, OsString)> = value
+                .map(|v| (OsString::from("HOME"), v))
+                .into_iter()
+                .collect();
+            let source = BoundedSource::new(paths.clone(), Env::from_vars(vars), Limits::default());
+            source.include_home().map(Path::to_path_buf)
+        };
+        let account = Some(PathBuf::from("/hm/home"));
+        assert_eq!(home(None), account);
+        assert_eq!(home(Some("/hm/home".into())), account);
+        assert_eq!(home(Some("/hm/home/".into())), account);
+        for other in ["/hm/other", "", "hm/home", "/hm/home/x"] {
+            assert_eq!(home(Some(other.into())), None, "{other:?}");
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            assert_eq!(home(Some(OsString::from_vec(b"/hm/\xff".to_vec()))), None);
+        }
     }
 
     #[test]

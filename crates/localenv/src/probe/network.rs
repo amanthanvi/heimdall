@@ -10,7 +10,7 @@
 //! undetermined).
 
 use std::io::Read;
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
 use heimdall_contract::Timestamp;
@@ -68,12 +68,53 @@ enum BannerError {
     NoBanner,
 }
 
+/// Resolve `host` within `deadline` (wave-2 review X05; ADR-0007 §12.18 item 5): name
+/// resolution is part of the network level's bound, like connect and the banner read.
+///
+/// A literal address needs no resolver. A name is resolved on a helper thread that the
+/// probe waits for only until `deadline`; the system resolver cannot be cancelled, so on
+/// a timeout the thread is left to finish on its own. It owns nothing but the lookup and
+/// exits when the resolver returns.
+fn resolve_within<F>(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+    resolve: F,
+) -> Result<SocketAddr, BannerError>
+where
+    F: FnOnce(String, u16) -> std::io::Result<Option<SocketAddr>> + Send + 'static,
+{
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(SocketAddr::new(ip, port));
+    }
+    let budget = deadline.saturating_duration_since(Instant::now());
+    if budget.is_zero() {
+        return Err(BannerError::Timeout);
+    }
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let name = host.to_owned();
+    std::thread::Builder::new()
+        .name("hm-probe-resolve".to_owned())
+        .spawn(move || {
+            let _ = tx.send(resolve(name, port));
+        })
+        .map_err(|_| BannerError::Unreachable)?;
+    match rx.recv_timeout(budget) {
+        Ok(Ok(Some(addr))) => Ok(addr),
+        Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err(BannerError::Unreachable)
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(BannerError::Timeout),
+    }
+}
+
+/// The system resolver: the first address for `host:port`.
+fn system_resolve(host: String, port: u16) -> std::io::Result<Option<SocketAddr>> {
+    Ok((host.as_str(), port).to_socket_addrs()?.next())
+}
+
 fn read_banner(host: &str, port: u16, deadline: Instant) -> Result<String, BannerError> {
-    let addr = (host, port)
-        .to_socket_addrs()
-        .map_err(|_| BannerError::Unreachable)?
-        .next()
-        .ok_or(BannerError::Unreachable)?;
+    let addr = resolve_within(host, port, deadline, system_resolve)?;
     let left = |d: Instant| d.saturating_duration_since(Instant::now());
     let budget = left(deadline);
     if budget.is_zero() {
@@ -171,5 +212,42 @@ mod tests {
         assert_eq!(r, Err(BannerError::Timeout));
         assert!(started.elapsed() < Duration::from_secs(3));
         drop(held.join());
+    }
+
+    /// X05 (ADR-0007 §12.18 item 5): a resolver slower than the deadline cannot hold the
+    /// probe past it. The stand-in resolver sleeps far beyond the 200 ms budget.
+    #[test]
+    fn a_slow_resolver_is_bounded_by_the_deadline() {
+        let started = Instant::now();
+        let r = resolve_within(
+            "slow.invalid",
+            22,
+            started + Duration::from_millis(200),
+            |_, _| {
+                std::thread::sleep(Duration::from_secs(5));
+                Ok(None)
+            },
+        );
+        assert_eq!(r, Err(BannerError::Timeout));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the probe waited for the resolver"
+        );
+    }
+
+    #[test]
+    fn a_literal_address_needs_no_resolver_and_a_failed_lookup_is_unreachable() {
+        let far = Instant::now() + NETWORK_TIMEOUT;
+        let lit = resolve_within("::1", 22, far, |_, _| panic!("resolver called")).unwrap();
+        assert_eq!(
+            lit,
+            SocketAddr::new(IpAddr::from([0u16, 0, 0, 0, 0, 0, 0, 1]), 22)
+        );
+        let none = resolve_within("none.invalid", 22, far, |_, _| Ok(None));
+        assert_eq!(none, Err(BannerError::Unreachable));
+        let err = resolve_within("err.invalid", 22, far, |_, _| {
+            Err(std::io::Error::other("lookup failed"))
+        });
+        assert_eq!(err, Err(BannerError::Unreachable));
     }
 }

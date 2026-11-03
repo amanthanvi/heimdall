@@ -1484,7 +1484,11 @@ pub enum RestoreCtx {
     Done(RestoreCause),
 }
 
-/// An open settlement.
+/// A step's settlement: what its one `file.settling` receipt recorded (ADR-0007 §5.7
+/// "The recovery state"). It names the slot that recovery observes, from that receipt
+/// until the slot is empty: through `file.settled` (rows F9–F9c), `file.settle_conflict`
+/// (F9d) and, for a create's restore, `file.restored` (C8). It is not "open" in the
+/// sense of an unfinished settlement; ADR-0007 §12.17 item 7.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SettleCtx {
     /// The name `file.settling` recorded as its source.
@@ -1516,7 +1520,12 @@ pub struct RecoveryState {
     pub phase: Option<EffectivePhase>,
     /// The restore context.
     pub restore: RestoreCtx,
-    /// The open settlement, if any.
+    /// The step's settlement (ADR-0007 §12.17 item 7): `Some` from its `file.settling`
+    /// on, and it stays `Some` after `file.settled`, `file.settle_conflict` and (for a
+    /// create's restore) `file.restored`, so the slot is observed until it is empty
+    /// (rows F9–F9d, C8). No later receipt clears it. `None` means no `file.settling`
+    /// is on record, and then nothing may be in a slot
+    /// ([`Impossible::SlotWithoutSettlement`]).
     pub settlement: Option<SettleCtx>,
     /// The item state.
     pub item: ItemState,
@@ -1540,8 +1549,9 @@ impl RecoveryState {
     /// design names `build(step, receipts)`, but the per-shape phase order and
     /// `release_due` (which steps belong to the Git item, which are removals) do not
     /// follow from a step index and receipts, so the builder also takes the intent's
-    /// `files`. Body: U4 (unreachable from any request, restart or CLI path in wave
-    /// 0; only U4's `reconcile` calls it).
+    /// `files`. Body: M02-W2-U4b. Callers: `heimdall-localenv`'s `reconcile` and
+    /// `observe_held` (through `LocalProjection`, the `ProjectionWriter` port), once per
+    /// step and round, from the operation's durable receipts.
     pub fn build(
         step: u16,
         receipts: &[StageReceipt],
@@ -1966,7 +1976,7 @@ pub enum Impossible {
     /// One recorded identity at two names.
     #[error("one recorded identity at two names")]
     RecordedAtTwoNames,
-    /// Q at a name other than the open settlement's source or slot.
+    /// Q at a name other than the settlement's source or slot.
     #[error("Q outside the settlement's source and slot")]
     QuarantineOutsideSettlement,
     /// D without a recorded mismatch.
@@ -1998,8 +2008,10 @@ impl StepObservation {
     /// and rejects impossible combinations. The role precedence (Q at the
     /// settlement's source and slot, then S, then D only when distinct from S and V,
     /// then V only with a present base) is applied by the classifier that produces
-    /// each [`EntryObs`] (`observe_step`). Body: U4 (unreachable from any request,
-    /// restart or CLI path in wave 0).
+    /// each [`EntryObs`] (`heimdall-localenv`'s `replace::observe_step_at`, which is
+    /// also the one home of rows F0x and K0x; ADR-0007 §12.17 items 1 and 2). Body:
+    /// M02-W2-U4b. Callers: that classifier, `reconcile` (for a directory it cannot
+    /// observe) and the generated recovery tests.
     pub fn normalize(
         path: EntryObs,
         aside: EntryObs,
@@ -2011,7 +2023,7 @@ impl StepObservation {
         // are checked in the ADR's order and the first that fails names the cell:
         //
         // 1. One recorded identity at two names. Same-role symbols are one identity.
-        //    So are Q and the role whose entry the open settlement moves: S for a
+        //    So are Q and the role whose entry the settlement moves: S for a
         //    `staged` or `path` source (an abort, a restore's settlement, a create's
         //    restore, K's release), V for a `displaced` source (D after a valid
         //    post-validation is V). For the removal shape S and V both name the

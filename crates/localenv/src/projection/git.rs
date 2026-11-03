@@ -7,9 +7,13 @@
 //! `settle` from the lock name with `Expected { identity: K, sha256: holder digest }`.
 //! An entry at the lock name counts as Heimdall's only by K's identity (rows K0–K4).
 
+use std::path::Path;
+
 use heimdall_domain::projection::{Rendered, lock_holder_line};
 
 use super::replace::{DirHandle, Staged, rename_noreplace};
+use crate::env::{Env, Platform};
+use crate::local_query::{LOCAL_QUERY_OUTPUT_BYTES, LOCAL_QUERY_TIMEOUT, Spec, run_contained};
 
 /// The lock is held: by Git, another writer, or an entry that is not provably K.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -60,4 +64,40 @@ pub fn claim_lock(
 #[must_use]
 pub fn lock_holder(generation: u64, nonce: [u8; 16]) -> Rendered {
     Rendered::from_renderer(lock_holder_line(generation, nonce))
+}
+
+/// ADR-0007 §5.6 step 3: whether B_git's staged bytes parse as Git configuration,
+/// `git config --file <staged> --no-includes --list`, a local query (bounded at 2 s,
+/// no shell, stdin null, the environment snapshot `env` only, the filesystem root as
+/// working directory, so no repository's configuration is read). Only exit 0 within
+/// the bound is a pass: a failure, a timeout or a tool that cannot start is `false`
+/// (fail closed), and the caller aborts before the commit point. The output is
+/// discarded unread; it is the user's configuration.
+#[must_use]
+pub fn parses(git: &Path, staged: &Path, env: &Env) -> bool {
+    let root = if Platform::current().is_windows() {
+        std::env::var_os("SystemDrive").map_or_else(
+            || std::path::PathBuf::from(r"C:\"),
+            |d| std::path::PathBuf::from(format!("{}\\", d.to_string_lossy())),
+        )
+    } else {
+        std::path::PathBuf::from("/")
+    };
+    let Ok(out) = run_contained(&Spec {
+        program: git,
+        args: vec![
+            "config".into(),
+            "--file".into(),
+            staged.as_os_str().to_owned(),
+            "--no-includes".into(),
+            "--list".into(),
+        ],
+        env: Some(env),
+        cwd: Some(&root),
+        timeout: LOCAL_QUERY_TIMEOUT,
+        max_output: LOCAL_QUERY_OUTPUT_BYTES,
+    }) else {
+        return false;
+    };
+    !out.timed_out && out.status.is_some_and(|s| s.success())
 }

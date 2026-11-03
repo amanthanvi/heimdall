@@ -23,12 +23,17 @@
 //!   (`/etc/ssh`) when it belongs to the system tree ([`Origin`]). The tree is that of
 //!   the root the walk started from: a `-F` file is a user file, so its relative
 //!   includes resolve under `~/.ssh` too, not beside it `[I]`;
-//! * `~` and `~/…` are the account home ([`ConfigSource::account_home`], F19), in user
-//!   files only; `~` in a system file is refused `[I]`; `~user` needs the account
-//!   database and is [`ArgError::TokenUnavailable`] with `'~'`. **`[I]` to settle in
-//!   U3:** OpenSSH leaves `~` to `glob(3)` with `GLOB_TILDE`, which on BSD and glibc
-//!   tries `$HOME` before the account database, so under a `HOME` other than the
-//!   account's an Include's `~` may differ from F19's;
+//! * `~` and `~/…` are the home [`ConfigSource::include_home`] reports, in user files
+//!   only; `~` in a system file is refused `[I]`; `~user` needs the account database
+//!   and is [`ArgError::TokenUnavailable`] with `'~'`. OpenSSH leaves an Include's `~`,
+//!   and the implicit `~/.ssh/` it puts in front of a relative user Include, to
+//!   `glob(3)` with `GLOB_TILDE`, which reads `$HOME` before the account database
+//!   (observed on 10.3p1, ADR-0007 §12.17 item 9). F19 still holds for `%d`,
+//!   `IdentityFile` and the other paths. So such an Include is resolved under the
+//!   account home only when the runtime's `HOME` is that home (or unset, so `glob(3)`
+//!   falls back to the account database); otherwise it is
+//!   [`ArgError::EnvironmentReference`]: its resolution is undetermined, because the
+//!   `HOME` of a later `ssh` is not known;
 //! * the anchored pattern is expanded by [`ConfigSource::glob`]; the matches are
 //!   sorted bytewise here whatever the source returned (F3 "lexical order", ADR-0007
 //!   §6) and bounded by `Limits::glob_results`; no match is not an error (OpenSSH skips
@@ -111,6 +116,37 @@ pub trait ConfigSource {
     fn system_dir(&self) -> &Path;
     /// An environment variable, for `${VAR}` expansion (F7). `None` when unset.
     fn env(&self, name: &str) -> Option<String>;
+
+    /// The home an `Include`'s `~` and a relative user `Include`'s implicit `~/.ssh/`
+    /// resolve under (ADR-0007 §12.17 item 9): OpenSSH expands both with `glob(3)`
+    /// `GLOB_TILDE`, which reads `$HOME` first. `None` makes such an `Include`
+    /// undetermined ([`ArgError::EnvironmentReference`]).
+    ///
+    /// The default is the account home when the runtime's `HOME` is unset (`glob(3)`
+    /// then falls back to the account database) or names the account home exactly
+    /// (component-wise; ASCII case aside on Windows), and `None` when `HOME` is set to
+    /// anything else, the empty string and a relative path included. A source whose
+    /// `env` cannot show every value (one that is not UTF-8) overrides this to compare
+    /// the raw value, so such a `HOME` is never taken for an unset one
+    /// (`heimdall_localenv::fs::BoundedSource` does).
+    fn include_home(&self) -> Option<&Path> {
+        let home = self.account_home();
+        match self.env("HOME") {
+            None => Some(home),
+            Some(value) => home_matches(Path::new(&value), home).then_some(home),
+        }
+    }
+}
+
+/// Whether a `HOME` value names the account home: non-empty and equal component-wise
+/// (ASCII-case-insensitively on Windows), so a relative value never matches an absolute
+/// home. A trailing separator does not matter; anything else does (ADR-0007 §12.17
+/// item 9, fail closed).
+#[must_use]
+pub fn home_matches(value: &Path, account_home: &Path) -> bool {
+    !value.as_os_str().is_empty()
+        && !account_home.as_os_str().is_empty()
+        && same_path(value, account_home)
 }
 
 /// The user and system configuration files an evaluation starts from, and the file the
@@ -459,6 +495,12 @@ pub enum ArgError {
     /// The pattern's glob failed or exceeded `Limits::glob_results`.
     #[error("include glob failed: {0}")]
     Glob(IncludeError),
+    /// The argument's `~`, or the implicit `~/.ssh/` of a relative user `Include`,
+    /// follows `$HOME`, and [`ConfigSource::include_home`] is `None` (the runtime's
+    /// `HOME` is not the account home): the resolution is undetermined (ADR-0007
+    /// §12.17 item 9; reason `environment_reference`).
+    #[error("include depends on HOME")]
+    EnvironmentReference,
 }
 
 /// Expand `${VAR}` (when [`directive::expands_env`]) and the `%` tokens of
@@ -562,6 +604,11 @@ fn is_absolute(path: &str) -> bool {
 /// Expand one `Include` argument into the absolute pattern to glob (module
 /// documentation: tokens and `${VAR}` first, then `~`, then the relative anchor).
 ///
+/// `~` and the relative anchor of a user file (OpenSSH writes it `~/.ssh/<arg>`) need
+/// [`ConfigSource::include_home`]; when it is `None` the argument is
+/// [`ArgError::EnvironmentReference`] (ADR-0007 §12.17 item 9). With it, a relative
+/// user argument resolves under [`ConfigSource::user_dir`] as before.
+///
 /// # Errors
 /// [`ArgError`] (never [`ArgError::Glob`]).
 pub fn expand_include_arg(
@@ -582,7 +629,9 @@ pub fn expand_include_arg(
             return Err(ArgError::TokenUnavailable('~'));
         }
         let tail = after.trim_start_matches(is_separator);
-        let home = source.account_home();
+        let home = source
+            .include_home()
+            .ok_or(ArgError::EnvironmentReference)?;
         return Ok(if tail.is_empty() {
             home.to_path_buf()
         } else {
@@ -593,7 +642,12 @@ pub fn expand_include_arg(
         return Ok(PathBuf::from(expanded));
     }
     let base = match origin {
-        Origin::User => source.user_dir(),
+        Origin::User => {
+            source
+                .include_home()
+                .ok_or(ArgError::EnvironmentReference)?;
+            source.user_dir()
+        }
         Origin::System => source.system_dir(),
     };
     Ok(base.join(expanded))

@@ -21,11 +21,13 @@
 //!   every move is decided from an observation taken after the last receipt. For
 //!   example F8b writes `file.settled` and F9 then removes; F2c records the mismatch
 //!   and F5 then restores.
-//! * **F0x and K0x.** Before any receipt no identity is recorded, so the classifier
+//! * **F0x and K0x** (ADR-0007 §12.17 item 2). Before any receipt no identity is
+//!   recorded, so the classifier (`replace::observe_step_at`, the rows' one home)
 //!   names an entry at the step's random staged name that has Heimdall's shape (a
 //!   regular file owned by the user, link count 1) `Recorded { S, .. }`, with its
-//!   content compared against the target digest. Every other entry there is
-//!   `Foreign` (F0z, K0z). The evidence is the name, never the content.
+//!   content compared against the target digest (K's holder digest). Every other
+//!   entry there is `Foreign` (F0z, K0z), and it never does so at the path, so never
+//!   at the lock name. The evidence is the name, never the content.
 //! * **The removal shape.** The locator's entry L is `Recorded { V, .. }`: a removal's
 //!   base is present and its digest is the locator's, so L is the validated base and
 //!   L′ is V′. `Recorded { S, .. }` is accepted as L too. A removal has no aside
@@ -585,7 +587,15 @@ fn settlement(shape: StepShape, state: &RecoveryState, p: Sym, a: Sym, s: Sym) -
 /// A step's state as the item rows see it.
 ///
 /// The caller (`apply::reconcile`) drives each step by its own rows first and asks
-/// [`decide_item`] once no step's row can continue without the item.
+/// [`decide_item`] once no step's row can continue without the item. The classes are
+/// tried in this order, and the first that applies names the step:
+///
+/// 1. [`StepState::Held`]: its own row holds it ([`decide`] returned `Hold(reason)`, or
+///    its receipts are contradictory), with that reason;
+/// 2. the commit step only: [`StepState::CommitNeverExchanged`], then
+///    [`StepState::CommitRestored`]; both take precedence over `Final`;
+/// 3. [`StepState::Final`], [`StepState::ExchangedConsistent`],
+///    [`StepState::ExchangedInconsistent`] and [`StepState::Open`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StepState {
     /// Its row continues it, or it waits for the item without being exchanged (K2
@@ -594,15 +604,29 @@ pub enum StepState {
     /// It is the commit step and was never exchanged (T0). This takes precedence over
     /// `Final` for the commit step: an aborted commit step stays this.
     CommitNeverExchanged,
+    /// ⟨ADR-0007 §12.17 item 4⟩ The commit step after its own file-level restore: from
+    /// `file.restore_started{file_mismatch}` through `file.restored` and the
+    /// settlement that follows it (its restore context is `started(file_mismatch)` or
+    /// `done(file_mismatch)`). Row T3 reads it. It takes precedence over `Final`: the
+    /// item's outcome is `restored` because of it, so it stays this once the commit
+    /// step's own rows are final, and the caller writes `item.finished{restored}` when
+    /// every step's own row is final.
+    CommitRestored,
     /// Exchanged; observes path S or S′ and, for a replace step, aside V (T1). Used
     /// only while the commit step is at `post_validated{valid}` with no item receipt.
     ExchangedConsistent,
-    /// Exchanged; observes anything else (T1h). As `ExchangedConsistent`, only at T1.
+    /// Exchanged and not held by its own row, yet it observes anything other than T1's
+    /// path S or S′ with, for a replace step, aside V (T1h). As `ExchangedConsistent`,
+    /// only at T1. A step whose own row holds it is [`StepState::Held`] instead, so the
+    /// only observation left here is the path S or S′ with the aside V′ or X before
+    /// the mismatch is recorded (rows F2c, F3a): D is not the validated base.
     ExchangedInconsistent,
     /// Final for the step.
     Final,
-    /// Held (TH).
-    Held,
+    /// ⟨ADR-0007 §12.17 item 4⟩ Held by its own row (TH), with the reason that row
+    /// gives (`Hold(reason)` from [`decide`], or `contradictory_receipts` when the
+    /// step's receipts do not build).
+    Held(HoldReason),
 }
 
 /// The item's own receipts.
@@ -641,22 +665,28 @@ pub enum ItemDecision {
 ///    `Hold(ContradictoryReceipts)`;
 /// 2. T4: `item.finished` → `Settle` (the recorded outcome stands, also after
 ///    `keep_held` left steps where they were);
-/// 3. TH: a step is held → `Hold`;
-/// 4. T2: `item.committed` → `FinishForward`;
-/// 5. T3: `item.rolling_back` → `FinishRestore`;
-/// 6. T0: the commit step was never exchanged → `ResumeOrAbort`;
-/// 7. T1h: an exchanged step is inconsistent → `Hold`;
-/// 8. T1: exchanged steps are consistent → `TransactionCheck`;
-/// 9. T3, the commit step's file-level restore: no item receipt and every step final.
-///    The commit step is then exchanged (it is not `CommitNeverExchanged`) and final
-///    with no item receipt, which only its own restore after
-///    `post_validated{mismatch}` gives → `FinishRestore`;
-/// 10. anything else → `Hold(Unmatched)`.
+/// 3. TH: a step is held → `Hold` with the first held step's own reason, in plan
+///    order (ADR-0007 §12.17 item 4);
+/// 4. TH: `item.committed` with the commit step's own file-level restore on record
+///    (`CommitRestored`): the receipts contradict each other, because T2 never
+///    restores → `Hold(ContradictoryReceipts)`;
+/// 5. T2: `item.committed` → `FinishForward`;
+/// 6. T3: `item.rolling_back` → `FinishRestore`;
+/// 7. T3: the commit step's own file-level restore (`CommitRestored`) →
+///    `FinishRestore`;
+/// 8. T0: the commit step was never exchanged → `ResumeOrAbort`;
+/// 9. T1h: an exchanged step is inconsistent → `Hold(DisplacedReplaced)`: the only
+///    inconsistency a step's own row does not hold is a displaced entry that is not
+///    the validated base (see [`StepState::ExchangedInconsistent`]; row F4c's
+///    reason);
+/// 10. T1: exchanged steps are consistent → `TransactionCheck`;
+/// 11. anything else → `Hold(Unmatched)`: no item row lists the combination (for
+///     example every step final with no item receipt and no commit-step class,
+///     which no history gives).
 ///
-/// A held item reports each held step with its own reason (`HeldStep`). The item rows
-/// add a reason of their own only for contradictory receipts; for a held or
-/// inconsistent step, whose reason [`StepState`] does not carry, the item's reason is
-/// `Unmatched`: no forward, restore or abort row of the item matches.
+/// A held item reports each held step with its own reason (`HeldStep`); the item's
+/// own reason is the first held step's, so `Unmatched` is only ever the reason of a
+/// combination that no row lists (ADR-0007 §5.7 "Reasons").
 #[must_use]
 pub fn decide_item(steps: &[StepState], receipts: &ItemReceipts) -> ItemDecision {
     let any = |s: StepState| steps.contains(&s);
@@ -666,26 +696,29 @@ pub fn decide_item(steps: &[StepState], receipts: &ItemReceipts) -> ItemDecision
     if receipts.finished {
         return ItemDecision::Settle; // T4
     }
-    if any(StepState::Held) {
-        return ItemDecision::Hold(HoldReason::Unmatched); // TH
+    if let Some(reason) = steps.iter().find_map(|s| match s {
+        StepState::Held(reason) => Some(*reason),
+        _ => None,
+    }) {
+        return ItemDecision::Hold(reason); // TH
+    }
+    if receipts.committed && any(StepState::CommitRestored) {
+        return ItemDecision::Hold(HoldReason::ContradictoryReceipts); // TH
     }
     if receipts.committed {
         return ItemDecision::FinishForward; // T2
     }
-    if receipts.rolling_back.is_some() {
+    if receipts.rolling_back.is_some() || any(StepState::CommitRestored) {
         return ItemDecision::FinishRestore; // T3
     }
     if any(StepState::CommitNeverExchanged) {
         return ItemDecision::ResumeOrAbort; // T0
     }
     if any(StepState::ExchangedInconsistent) {
-        return ItemDecision::Hold(HoldReason::Unmatched); // T1h
+        return ItemDecision::Hold(HoldReason::DisplacedReplaced); // T1h
     }
     if any(StepState::ExchangedConsistent) {
         return ItemDecision::TransactionCheck; // T1
-    }
-    if !steps.is_empty() && steps.iter().all(|s| *s == StepState::Final) {
-        return ItemDecision::FinishRestore; // T3, file-level
     }
     ItemDecision::Hold(HoldReason::Unmatched)
 }

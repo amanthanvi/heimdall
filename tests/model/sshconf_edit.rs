@@ -46,9 +46,10 @@ fn ssh_block(nl: Newline) -> IncludeBlock {
         marker: marker(),
         bytes: render_include_block(
             &marker(),
-            &RenderPath::unix(Path::new("~/.config/heimdall/ssh_config")).unwrap(),
+            &RenderPath::unix(Path::new("/hm/home/.config/heimdall/ssh_config")).unwrap(),
             nl,
-        ),
+        )
+        .unwrap(),
     }
 }
 
@@ -171,7 +172,7 @@ fn an_edited_marker_block_is_marker_edited_with_its_lines() {
     let x = b"# top\nHost a\n";
     let mut edited = plan_insert(Some(x), &block).unwrap().bytes;
     let text = String::from_utf8(edited.clone()).unwrap();
-    let text = text.replace("Include \"~/.config", "Include \"~/.other");
+    let text = text.replace("Include \"/hm/home/.config", "Include \"/hm/home/.other");
     edited = text.into_bytes();
     // `find_blocks` knows no expected path: a block Heimdall could have rendered is
     // structurally intact. The removal against the recorded bytes catches the edit.
