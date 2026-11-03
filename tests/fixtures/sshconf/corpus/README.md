@@ -35,7 +35,7 @@ Roots (pass to `-F`) are the top-level `*.conf` files; `include/**` is only incl
 | `retired.conf` | obsolete spellings outside the pinned manual (`directive::ALIASES` Inferred, `directive::OBSOLETE`), `[I]` until a client loads the file | `retired` |
 | `bom.conf` | a UTF-8 BOM before line 1 (ADR-0007 §4): upstream OpenSSH does not skip it | `bom-check` |
 | `crlf.conf` | CRLF line endings (ADR-0007 §4) | `crlf-check` |
-| `lexer.conf` | argument splitting (`crate::lex`): `#` inside a token, quotes, one `=` skipped, escapes, and `RemoteCommand` taken as the raw rest of the line | `lex-hash`, `lex-quote`, `lex-equals`, `lex-escape`, `lex-unknown-escape`, `lex-command` |
+| `lexer.conf` | argument splitting (`crate::lex`): `#` inside a token, quotes, one `=` skipped, escapes, and `RemoteCommand` taken as the raw rest of the line (`Directive::raw`, ADR-0007 §12.15 item 2: quotes, escapes and a trailing comment kept; every `=` and blank after the keyword skipped). `RemoteCommand` is the only command keyword the corpus uses, because it runs on a server and never here; the ruling binds the other three the same way, so their raw text is checked in `model_sshconf_parse` against hand-written lines, and `[I]` until a client's `ssh -G` shows the same for them | `lex-hash`, `lex-quote`, `lex-equals`, `lex-escape`, `lex-unknown-escape`, `lex-command`, `lex-command-bare`, `lex-command-equals`, `lex-command-escapes` |
 
 The expected values are whatever `ssh -G` prints on each client; this table only says what
 each file is meant to discriminate.

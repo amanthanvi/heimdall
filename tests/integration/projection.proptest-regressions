@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f0aa14f3dc1a1c936f68ed871bc823a76fd2df6803d65a6c86462c87800bf496 # shrinks to c = Cell { create: false, history: None, s: (Aside, false), v: (Nowhere, false), d: Nowhere, fill: [Empty, Empty, Empty], unobservable: true, crash_after: 0 }
+cc fd8cea988ba6f4e82e950381d732c8348ed60f759788e18d5f7fbdfbab63e5f8 # shrinks to c = Cell { create: false, history: MismatchRestoredSettling, s: (Aside, false), v: (Nowhere, false), d: Nowhere, fill: [Empty, Empty, Symlink], unobservable: false, crash_after: 0 }
+cc 6feea30ecc2d666bd3149d26b613ddb01dc76030b862b559c2d42d0ea1d88fc8 # shrinks to c = Cell { create: false, history: Mismatch, s: (Nowhere, false), v: (Nowhere, false), d: Nowhere, fill: [Empty, Empty, Empty], unobservable: true, crash_after: 0 }
+cc a41fc8e3a7b364ecfb951f0333a7f77936885559360491ee5917724de0d17444 # shrinks to c = Cell { create: false, history: None, s: (Aside, false), v: (Nowhere, false), d: Slot, fill: [Empty, Empty, Empty], unobservable: true, crash_after: 0 }

@@ -19,6 +19,14 @@
 //!    only itself); `\` followed by `'`, `"`, `\`, or (outside quotes) a space yields
 //!    that character, and any other `\` is kept as is; an unterminated quote is
 //!    refused ([`LexError::UnterminatedQuote`]).
+//! 6. Besides the arguments, the split keeps the **raw** rest of the line: the bytes
+//!    after the keyword and its separator, with any further leading whitespace and `=`
+//!    removed, and quotes, escapes and a trailing comment untouched. OpenSSH's
+//!    `parse_command` stores exactly that text for `ProxyCommand`, `LocalCommand`,
+//!    `RemoteCommand` and `KnownHostsCommand` and hands it to a shell, so a change of
+//!    quoting alone (`$X` against `'$X'`) is a different command even where the split
+//!    arguments are equal (ADR-0007 §12.15 item 2). `crate::parse` keeps it for those
+//!    four keywords only.
 //!
 //! **Deliberate fail-closed differences.** OpenSSH's `strdelim` also accepts a quoted
 //! keyword (`"Host" a`), a quote inside or right after the keyword, and an `=` before
@@ -50,6 +58,8 @@ pub enum LexError {
 const KEYWORD_SPACE: &[u8] = b" \t\r\n";
 /// Trailing bytes OpenSSH strips (`WHITESPACE "\f"`).
 const TRAILING_SPACE: &[u8] = b" \t\r\n\x0c";
+/// What `parse_command` skips before the command text (`WHITESPACE "="`).
+const RAW_SKIP: &[u8] = b" \t\r\n=";
 
 /// One line, split into bytes (the parser converts and checks UTF-8 afterwards).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +74,11 @@ pub(crate) enum Split {
         keyword: Vec<u8>,
         /// The arguments, in order.
         args: Vec<Vec<u8>>,
+        /// The rest of the line after the keyword and its separator, exactly as
+        /// OpenSSH's `parse_command` keeps it for `ProxyCommand` and the other command
+        /// keywords: quotes, escapes and a trailing comment included, leading
+        /// whitespace and `=` removed (ADR-0007 §12.15 item 2).
+        raw: Vec<u8>,
     },
 }
 
@@ -112,7 +127,11 @@ pub(crate) fn split_line(line: &[u8]) -> Result<Split, LexError> {
         return Err(LexError::MalformedKeyword);
     }
     let args = argv_split(rest)?;
-    Ok(Split::Directive { keyword, args })
+    // OpenSSH's `parse_command` then skips `WHITESPACE "="` once more before it copies
+    // the text, so `ProxyCommand = = cmd` keeps `cmd`.
+    let start = skip(rest, 0, RAW_SKIP);
+    let raw = rest.get(start..).unwrap_or_default().to_vec();
+    Ok(Split::Directive { keyword, args, raw })
 }
 
 fn skip(line: &[u8], mut i: usize, set: &[u8]) -> usize {
@@ -184,7 +203,7 @@ fn argv_split(s: &[u8]) -> Result<Vec<Vec<u8>>, LexError> {
 pub fn split_args(line: &str) -> Result<Vec<String>, LexError> {
     match split_line(line.as_bytes())? {
         Split::Blank | Split::Comment => Ok(Vec::new()),
-        Split::Directive { keyword, args } => Ok(std::iter::once(keyword)
+        Split::Directive { keyword, args, .. } => Ok(std::iter::once(keyword)
             .chain(args)
             // Valid UTF-8 split only at ASCII bytes, with only ASCII bytes removed, is
             // valid UTF-8: the lossy conversion never replaces anything here.
@@ -248,6 +267,31 @@ mod tests {
         assert_eq!(split_args("=Host a"), Err(LexError::MalformedKeyword));
         assert_eq!(split_args("  = Host a"), Err(LexError::MalformedKeyword));
         assert_eq!(split_args("Host\"a\""), Err(LexError::MalformedKeyword));
+    }
+
+    fn raw_of(line: &str) -> String {
+        match split_line(line.as_bytes()).unwrap_or_else(|e| panic!("{line:?}: {e}")) {
+            Split::Directive { raw, .. } => String::from_utf8(raw).unwrap_or_default(),
+            other => panic!("{line:?}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn raw_is_the_rest_of_the_line_as_parse_command_keeps_it() {
+        // Quotes, escapes and a trailing comment stay; the split arguments lose them.
+        assert_eq!(raw_of("ProxyCommand nc '%h' %p"), "nc '%h' %p");
+        assert_eq!(raw_of("ProxyCommand nc %h #why"), "nc %h #why");
+        assert_eq!(raw_of("ProxyCommand \"a b\" c\\ d"), "\"a b\" c\\ d");
+        // The separator and every `=` or blank after it are skipped (parse_command's
+        // strspn over WHITESPACE "="), never a quote.
+        assert_eq!(raw_of("ProxyCommand=nc"), "nc");
+        assert_eq!(raw_of("ProxyCommand = nc"), "nc");
+        assert_eq!(raw_of("ProxyCommand = = nc"), "nc");
+        assert_eq!(raw_of("ProxyCommand \"nc\""), "\"nc\"");
+        // Trailing blanks and form feeds are stripped first, as for every line.
+        assert_eq!(raw_of("ProxyCommand nc \t\u{c}"), "nc");
+        // `=` after the first word of the command is command text.
+        assert_eq!(raw_of("LocalCommand a=b"), "a=b");
     }
 
     #[test]

@@ -4,14 +4,17 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use heimdall_contract::doctor::ConfigProvenance;
 use heimdall_contract::provider::{
     Certainty, IdentitiesOnly, IdentityBacking, IdentityEntry, IdentityEntryKind,
     IdentityEntrySource, IdentitySelection, IdentitySelectionReport,
 };
 use heimdall_domain::projection::{BehaviorDigest, BehaviorState};
 
-use crate::directive::KnownKeyword;
-use crate::eval::{Candidate, Evaluation, Resolved, Unresolved, UnresolvedReason, Value};
+use crate::directive::{KnownKeyword, keeps_raw};
+use crate::eval::{
+    Candidate, Evaluation, Resolved, SourceRole, Unresolved, UnresolvedReason, Value,
+};
 use crate::include::{ConfigSource, SourceError};
 use crate::parse::Span;
 
@@ -77,6 +80,9 @@ pub struct RelevantBehavior {
     pub permit_local_command: Resolved,
     /// `LocalCommand`.
     pub local_command: Resolved,
+    /// `RemoteCommand` (runs on the server; its text is bound raw like the local
+    /// commands, ADR-0007 §12.15 item 2).
+    pub remote_command: Resolved,
     /// `KnownHostsCommand`.
     pub known_hosts_command: Resolved,
     /// `AddKeysToAgent`.
@@ -133,6 +139,7 @@ pub fn relevant(evaluation: &Evaluation) -> RelevantBehavior {
         canonicalize_hostname: get(KnownKeyword::CanonicalizeHostname),
         permit_local_command: get(KnownKeyword::PermitLocalCommand),
         local_command: get(KnownKeyword::LocalCommand),
+        remote_command: get(KnownKeyword::RemoteCommand),
         known_hosts_command: get(KnownKeyword::KnownHostsCommand),
         add_keys_to_agent: get(KnownKeyword::AddKeysToAgent),
         pkcs11_provider: get(KnownKeyword::Pkcs11Provider),
@@ -140,9 +147,17 @@ pub fn relevant(evaluation: &Evaluation) -> RelevantBehavior {
     }
 }
 
-/// `none` (case-insensitive) as the only argument.
+/// Whether ssh clears the option for this value: `none` (case-insensitive) as the whole
+/// value. For `ProxyCommand`, `LocalCommand`, `RemoteCommand` and `KnownHostsCommand` the
+/// value is the raw text, so `none # why` and `"none"` are commands, not `none`
+/// (S01: "The command string extends to the end of the line"; ssh -G on OpenSSH_10.3p1
+/// printed both back, and printed nothing for a bare `none`). For every other keyword
+/// it is the only argument.
 fn is_none_value(v: &Value) -> bool {
-    v.args.len() == 1 && v.args[0].eq_ignore_ascii_case("none")
+    match &v.raw {
+        Some(raw) => raw.eq_ignore_ascii_case("none"),
+        None => v.args.len() == 1 && v.args[0].eq_ignore_ascii_case("none"),
+    }
 }
 
 fn proxy_value(jump: bool, v: &Value) -> Proxy {
@@ -190,35 +205,92 @@ fn proxy_of(jump: &Resolved, command: &Resolved) -> ProxyResolution {
 
 // --- canonical views: what a digest and a diff compare ---------------------------------
 
-/// A directive's state without provenance: what it would make ssh do.
+/// What one value is for a digest and a diff: its source role and its content. The file
+/// and line never enter, so a line moved within a role or a comment is no change; a value
+/// moved from one role to another is (ADR-0007 §5.2, §12.15 item 3).
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum View {
-    Unset,
-    Det(Vec<String>),
-    Undet(Vec<Vec<String>>),
-    /// An accumulated list: each entry's certainty and arguments.
-    List(Vec<(bool, Vec<String>)>),
+struct Item {
+    role: SourceRole,
+    /// Which proxy it is, for the shared proxy view.
+    kind: Option<&'static str>,
+    content: Content,
 }
 
-fn view(r: &Resolved) -> View {
-    match r {
-        Resolved::Unset => View::Unset,
-        Resolved::Determined(v) => View::Det(v.args.clone()),
-        Resolved::Undetermined(vs) => View::Undet(vs.iter().map(|v| v.args.clone()).collect()),
+/// The text of a value: its split arguments, or, for the four command keywords, the raw
+/// text ssh stores and hands to a shell (ADR-0007 §12.15 item 2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Content {
+    Args(Vec<String>),
+    Raw(String),
+}
+
+/// The content of `v` as a value of `k`: the raw text where the keyword keeps one and the
+/// value has it, otherwise the arguments (an opaque candidate has none).
+fn content(k: KnownKeyword, v: &Value) -> Content {
+    match &v.raw {
+        Some(raw) if keeps_raw(k) => Content::Raw(raw.clone()),
+        _ => Content::Args(v.args.clone()),
     }
 }
 
-fn list_view(l: &[Candidate]) -> View {
+fn item(k: KnownKeyword, v: &Value) -> Item {
+    Item {
+        role: v.role,
+        kind: None,
+        content: content(k, v),
+    }
+}
+
+fn proxy_item(p: &Proxy) -> Item {
+    match p {
+        Proxy::None => Item {
+            role: SourceRole::Default,
+            kind: Some("none"),
+            content: Content::Args(Vec::new()),
+        },
+        Proxy::Jump(v) => Item {
+            role: v.role,
+            kind: Some("jump"),
+            content: content(KnownKeyword::ProxyJump, v),
+        },
+        Proxy::Command(v) => Item {
+            role: v.role,
+            kind: Some("command"),
+            content: content(KnownKeyword::ProxyCommand, v),
+        },
+    }
+}
+
+/// A directive's state without its file and line: what it would make ssh do, and which
+/// role says so.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum View {
+    Unset,
+    Det(Item),
+    Undet(Vec<Item>),
+    /// An accumulated list: each entry's certainty and value.
+    List(Vec<(bool, Item)>),
+}
+
+fn view(k: KnownKeyword, r: &Resolved) -> View {
+    match r {
+        Resolved::Unset => View::Unset,
+        Resolved::Determined(v) => View::Det(item(k, v)),
+        Resolved::Undetermined(vs) => View::Undet(vs.iter().map(|v| item(k, v)).collect()),
+    }
+}
+
+fn list_view(k: KnownKeyword, l: &[Candidate]) -> View {
     View::List(
         l.iter()
-            .map(|c| (c.determined, c.value.args.clone()))
+            .map(|c| (c.determined, item(k, &c.value)))
             .collect(),
     )
 }
 
 /// The list as one `Resolved`, for a [`BehaviorChange`]: `Unset` when empty, one
 /// `Determined` value holding every entry's arguments in order when every entry is
-/// determined, otherwise `Undetermined` with each entry.
+/// determined (with the first entry's role), otherwise `Undetermined` with each entry.
 fn list_resolved(l: &[Candidate]) -> Resolved {
     match l.first() {
         None => Resolved::Unset,
@@ -226,6 +298,8 @@ fn list_resolved(l: &[Candidate]) -> Resolved {
             args: l.iter().flat_map(|c| c.value.args.clone()).collect(),
             span: first.value.span,
             condition: None,
+            role: first.value.role,
+            raw: None,
         }),
         Some(_) => Resolved::Undetermined(l.iter().map(|c| c.value.clone()).collect()),
     }
@@ -263,36 +337,14 @@ fn proxy_split(p: &ProxyResolution) -> (Resolved, Resolved) {
 
 /// Every relevant directive with its view and its `Resolved`, in a fixed order.
 fn entries(b: &RelevantBehavior) -> Vec<(KnownKeyword, View, Resolved)> {
-    let r = |k: KnownKeyword, x: &Resolved| (k, view(x), x.clone());
-    let l = |k: KnownKeyword, x: &[Candidate]| (k, list_view(x), list_resolved(x));
+    let r = |k: KnownKeyword, x: &Resolved| (k, view(k, x), x.clone());
+    let l = |k: KnownKeyword, x: &[Candidate]| (k, list_view(k, x), list_resolved(x));
     let (jump, command) = proxy_split(&b.proxy);
-    let proxy_view = |p: &ProxyResolution| match p {
+    let pv = match &b.proxy {
         ProxyResolution::Determined(Proxy::None) => View::Unset,
-        ProxyResolution::Determined(Proxy::Jump(v)) => View::Det(
-            std::iter::once("jump".to_owned())
-                .chain(v.args.iter().cloned())
-                .collect(),
-        ),
-        ProxyResolution::Determined(Proxy::Command(v)) => View::Det(
-            std::iter::once("command".to_owned())
-                .chain(v.args.iter().cloned())
-                .collect(),
-        ),
-        ProxyResolution::Undetermined(ps) => View::Undet(
-            ps.iter()
-                .map(|p| match p {
-                    Proxy::None => vec!["none".to_owned()],
-                    Proxy::Jump(v) => std::iter::once("jump".to_owned())
-                        .chain(v.args.iter().cloned())
-                        .collect(),
-                    Proxy::Command(v) => std::iter::once("command".to_owned())
-                        .chain(v.args.iter().cloned())
-                        .collect(),
-                })
-                .collect(),
-        ),
+        ProxyResolution::Determined(p) => View::Det(proxy_item(p)),
+        ProxyResolution::Undetermined(ps) => View::Undet(ps.iter().map(proxy_item).collect()),
     };
-    let pv = proxy_view(&b.proxy);
     vec![
         r(KnownKeyword::Hostname, &b.hostname),
         r(KnownKeyword::Port, &b.port),
@@ -320,6 +372,7 @@ fn entries(b: &RelevantBehavior) -> Vec<(KnownKeyword, View, Resolved)> {
         r(KnownKeyword::CanonicalizeHostname, &b.canonicalize_hostname),
         r(KnownKeyword::PermitLocalCommand, &b.permit_local_command),
         r(KnownKeyword::LocalCommand, &b.local_command),
+        r(KnownKeyword::RemoteCommand, &b.remote_command),
         r(KnownKeyword::KnownHostsCommand, &b.known_hosts_command),
         r(KnownKeyword::AddKeysToAgent, &b.add_keys_to_agent),
         r(KnownKeyword::Pkcs11Provider, &b.pkcs11_provider),
@@ -327,18 +380,19 @@ fn entries(b: &RelevantBehavior) -> Vec<(KnownKeyword, View, Resolved)> {
     ]
 }
 
-/// The relevant directives whose state differs. States are compared without
-/// provenance (a moved line or a comment is no change), as the digest compares them.
-/// `IdentityFile` and `CertificateFile` lists are reported as one `Resolved` each
-/// (every entry's arguments in order, or `Undetermined` with each entry), and the
-/// proxy as `ProxyJump` and `ProxyCommand`.
+/// The relevant directives whose state differs. States are compared as the digest
+/// compares them: by role and content, never by file or line (a moved line or a comment
+/// is no change; a value moved to another source role, or a command whose quoting
+/// changed, is one). `IdentityFile` and `CertificateFile` lists are reported as one
+/// `Resolved` each (every entry's arguments in order, or `Undetermined` with each
+/// entry), and the proxy as `ProxyJump` and `ProxyCommand`.
 #[must_use]
 pub fn diff(before: &RelevantBehavior, after: &RelevantBehavior) -> Vec<BehaviorChange> {
     let mut out = Vec::new();
     for ((k, vb, rb), (_, va, ra)) in entries(before).into_iter().zip(entries(after)) {
         let differs = match k {
             // The proxy view is shared by both keywords; compare each side's own part.
-            KnownKeyword::ProxyJump | KnownKeyword::ProxyCommand => view(&rb) != view(&ra),
+            KnownKeyword::ProxyJump | KnownKeyword::ProxyCommand => view(k, &rb) != view(k, &ra),
             _ => vb != va,
         };
         if differs {
@@ -369,26 +423,43 @@ impl Canon {
         }
     }
 
+    /// One value: its role, its proxy kind (empty when it has none), then either its
+    /// arguments or, for a command keyword, its raw text, each under its own tag.
+    fn item(&mut self, i: &Item) {
+        self.str(i.role.as_str());
+        self.str(i.kind.unwrap_or(""));
+        match &i.content {
+            Content::Args(a) => {
+                self.str("args");
+                self.args(a);
+            }
+            Content::Raw(raw) => {
+                self.str("raw");
+                self.str(raw);
+            }
+        }
+    }
+
     fn view(&mut self, v: &View) {
         match v {
             View::Unset => self.str("unset"),
-            View::Det(a) => {
+            View::Det(i) => {
                 self.str("determined");
-                self.args(a);
+                self.item(i);
             }
             View::Undet(cands) => {
                 self.str("undetermined");
                 self.str(&cands.len().to_string());
-                for a in cands {
-                    self.args(a);
+                for i in cands {
+                    self.item(i);
                 }
             }
             View::List(items) => {
                 self.str("list");
                 self.str(&items.len().to_string());
-                for (det, a) in items {
+                for (det, i) in items {
                     self.str(if *det { "determined" } else { "undetermined" });
-                    self.args(a);
+                    self.item(i);
                 }
             }
         }
@@ -397,21 +468,26 @@ impl Canon {
 
 /// The behaviour's digest (ADR-0007 §5.2): SHA-256 over a canonical, length-prefixed
 /// encoding of every relevant directive in a fixed order. Each directive enters with
-/// its state (`unset`, `determined`, `undetermined`, or a list), its arguments as
-/// written, and for an undetermined one every candidate in evaluation order; a list
-/// entry enters with its certainty. File, line and condition provenance never enter,
-/// so a moved line or a comment does not change the digest, and a value does.
+/// its state (`unset`, `determined`, `undetermined`, or a list) and, for every value, its
+/// **source role** (`managed`, `user`, `system`, `default`), its arguments as written and,
+/// for an undetermined one, every candidate in evaluation order; a list entry enters
+/// with its certainty. File, line and condition provenance never enter, so a line moved
+/// within its role or a comment does not change the digest, while a value does, and so
+/// does moving a value to another role (ADR-0007 §12.15 item 3).
 ///
-/// **Provenance is reduced further than to the source role.** `Span` carries a
-/// `SourceId` and no role, and this function receives only the behaviour, so the
-/// role (`managed`, `user`, `system`, `default`) cannot enter. Equal digests still
-/// mean equal values for every relevant directive (escalated in the unit report).
-/// An undetermined state's condition contents never enter either (M2-R03), which is
-/// why consent never reuses an undetermined state.
+/// **Command text is bound raw** (ADR-0007 §12.15 item 2). For `ProxyCommand`,
+/// `LocalCommand`, `RemoteCommand` and `KnownHostsCommand` the digest binds the
+/// directive's raw text ([`crate::parse::Directive::raw`]) in place of its split
+/// arguments, so a change of quoting alone (`$X` against `'$X'`), which changes what
+/// the shell runs, changes the digest. A value with no raw text (an opaque candidate)
+/// enters with its arguments.
+///
+/// An undetermined state's condition contents never enter (M2-R03), which is why consent
+/// never reuses an undetermined state.
 #[must_use]
 pub fn behavior_digest(behavior: &RelevantBehavior) -> BehaviorDigest {
     let mut c = Canon(Vec::new());
-    c.str("heimdall.behavior.v1");
+    c.str("heimdall.behavior.v2");
     let all = entries(behavior);
     for (k, v, _) in &all {
         // The proxy view appears under both keywords; write it once.
@@ -470,16 +546,26 @@ pub fn identity_selection(
 }
 
 /// [`identity_selection`], with each entry's directive span (`None` for a default
-/// identity), aligned with `report.entries`, so a caller that can name the files
-/// (`SourceId` → path) can fill `IdentityEntry.provenance`, which this crate cannot.
+/// identity), aligned with `report.entries` (additive: the report itself now carries
+/// each entry's `provenance`).
 ///
 /// **Entries**, in order: every `IdentityFile` entry except `none`; when no entry is
 /// certain to apply, the default identities that exist (`Default`, undetermined when
 /// some undetermined entry may apply instead); then every `CertificateFile` entry.
-/// An entry whose expanded path equals `adopted` is `Managed`; any other is `User`
-/// (system entries cannot be told apart, see [`behavior_digest`]). An entry whose path
-/// cannot be expanded statically (a `%` token other than `%%`/`%d`, `~user`, a relative
-/// path, an opaque candidate) has no fingerprint and `unknown` backing.
+///
+/// **Source and provenance** (ADR-0007 §12.15 item 3b). An entry read from a file has
+/// the `source` of that value's role ([`Value::role`]): `Managed` for P
+/// ([`crate::include::Roots::managed`]), `User` or `System` for the file's tree;
+/// a default identity is `Default`. `provenance` is the directive's file and line: the
+/// file's canonical path as [`Evaluation::files`] recorded it, shown with `~` for the
+/// account home and `/` separators, and the line; `None` for a default identity and for
+/// a span the evaluation has no file for. Whether an entry is the adopted key is a
+/// separate question, answered by its path (below): an entry that names the adopted
+/// path but was read from the user's file is `User`, not `Managed`.
+///
+/// An entry whose path cannot be expanded statically (a `%` token other than
+/// `%%`/`%d`, `~user`, a relative path, an opaque candidate) has no fingerprint and
+/// `unknown` backing.
 ///
 /// **Backing and fingerprint.** For a path ending in `.pub`, the file is read as the
 /// public key and the backing is `agent` (ssh has no private key file for it, F9).
@@ -506,6 +592,18 @@ pub fn identity_selection_with_spans(
     let adopted_norm = norm(adopted);
     let mut entries = Vec::new();
     let mut spans = Vec::new();
+    // Whether each entry is the adopted key, by its expanded path (parallel to
+    // `entries`; independent of the entry's source role).
+    let mut adopted_flags = Vec::new();
+    let provenance = |span: Span| -> Option<ConfigProvenance> {
+        evaluation
+            .files
+            .get(&span.source)
+            .map(|path| ConfigProvenance {
+                path_display: display_path(path, source.account_home()),
+                line: span.line,
+            })
+    };
     let ids = evaluation
         .accumulated
         .get(&KnownKeyword::IdentityFile)
@@ -523,17 +621,14 @@ pub fn identity_selection_with_spans(
             .map_or((None, IdentityBacking::Unknown), |p| key_facts(p, source));
         entries.push(IdentityEntry {
             kind: IdentityEntryKind::IdentityFile,
-            source: if managed {
-                IdentityEntrySource::Managed
-            } else {
-                IdentityEntrySource::User
-            },
-            provenance: None,
+            source: entry_source(c.value.role),
+            provenance: provenance(c.value.span),
             certainty: certainty(c.determined),
             fingerprint,
             backing,
             cleared: None,
         });
+        adopted_flags.push(managed);
         spans.push(Some(c.value.span));
     }
     // F20 [I]: the defaults apply only when no IdentityFile entry (not even `none`) is
@@ -555,6 +650,7 @@ pub fn identity_selection_with_spans(
                 backing,
                 cleared: None,
             });
+            adopted_flags.push(false);
             spans.push(None);
         }
     }
@@ -566,20 +662,26 @@ pub fn identity_selection_with_spans(
     for c in certs.iter().filter(|c| !is_none_value(&c.value)) {
         entries.push(IdentityEntry {
             kind: IdentityEntryKind::CertificateFile,
-            source: IdentityEntrySource::User,
-            provenance: None,
+            source: entry_source(c.value.role),
+            provenance: provenance(c.value.span),
             certainty: certainty(c.determined),
             fingerprint: None,
             backing: IdentityBacking::Unknown,
             cleared: None,
         });
+        adopted_flags.push(false);
         spans.push(Some(c.value.span));
     }
     let identities_only = identities_only_of(evaluation);
-    let is_adopted = |e: &IdentityEntry| e.source == IdentityEntrySource::Managed;
     let determined = |e: &IdentityEntry| e.certainty == Certainty::Determined;
-    let other_det = entries.iter().any(|e| !is_adopted(e) && determined(e));
-    let adopted_det = entries.iter().any(|e| is_adopted(e) && determined(e));
+    let other_det = entries
+        .iter()
+        .zip(&adopted_flags)
+        .any(|(e, adopted)| !adopted && determined(e));
+    let adopted_det = entries
+        .iter()
+        .zip(&adopted_flags)
+        .any(|(e, adopted)| *adopted && determined(e));
     let any_undet = entries.iter().any(|e| !determined(e));
     let selection = if other_det {
         IdentitySelection::NotExclusive
@@ -606,6 +708,30 @@ pub fn identity_selection_with_spans(
         },
         spans,
     )
+}
+
+/// The entry source for a value's role (ADR-0007 §12.15 item 3b).
+fn entry_source(role: SourceRole) -> IdentityEntrySource {
+    match role {
+        SourceRole::Managed => IdentityEntrySource::Managed,
+        SourceRole::User => IdentityEntrySource::User,
+        SourceRole::System => IdentityEntrySource::System,
+        SourceRole::Default => IdentityEntrySource::Default,
+    }
+}
+
+/// A file's display form: `~/…` under the account home, otherwise the path, with `/`
+/// separators either way (a `--redact` caller reduces it further).
+fn display_path(path: &Path, home: &Path) -> String {
+    let text = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    if home.as_os_str().is_empty() {
+        return text(path);
+    }
+    match path.strip_prefix(home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
+        Ok(rest) => format!("~/{}", text(rest)),
+        Err(_) => text(path),
+    }
 }
 
 fn certainty(determined: bool) -> Certainty {
@@ -764,14 +890,30 @@ fn base64_encode_unpadded(data: &[u8]) -> String {
 
 // --- what the probes need ---------------------------------------------------------------
 
-/// Every construct that runs a command: `Match exec`, `ProxyCommand`,
-/// `KnownHostsCommand`, and `LocalCommand` with `PermitLocalCommand`.
+/// Every construct that runs a command or loads code: `Match exec`, `ProxyCommand`,
+/// `KnownHostsCommand`, `LocalCommand` with `PermitLocalCommand`, and, since
+/// ADR-0007 §12.15 item 5, `XAuthLocation`, `PKCS11Provider` and `SecurityKeyProvider`,
+/// which make ssh run a program or load a library when used. Their value class stays
+/// first-wins.
 ///
 /// Sorted and without duplicates. Only constructs that may take effect are listed: a
 /// `ProxyCommand` that a `ProxyJump` beats (F10), a value under a false condition, and
 /// a `none` value are not. An opaque candidate (an unreadable part of the tree, which
 /// may run anything) is listed with its span. A `LocalCommand` is listed when
 /// `PermitLocalCommand` may be `yes`.
+///
+/// `XAuthLocation` is listed whenever a non-`none` value may apply, with no condition on
+/// `ForwardX11`: ssh runs the program only when X11 forwarding is in use, and the
+/// command line (`-X`, `-Y`) can turn that on whatever the configuration says, which
+/// this crate does not model (the fail-closed reading). An unset directive is not
+/// listed: ssh's built-in default is not configuration.
+///
+/// A `none` value is not listed for any of the three, as ADR-0007 §12.15 item 5 and the
+/// W2-U2r task say. For `PKCS11Provider` and `SecurityKeyProvider` that is what ssh does
+/// (`ssh -G` on OpenSSH_10.3p1 printed nothing for `none`). For `XAuthLocation` it is
+/// not: the same client printed `xauthlocation none`, so `none` is a program name there,
+/// not a switch. That is an open point for the orchestrator (escalated in the unit
+/// report); listing it would be the fail-closed reading.
 #[must_use]
 pub fn executing_constructs(evaluation: &Evaluation) -> Vec<Span> {
     let mut spans = BTreeSet::new();
@@ -793,6 +935,13 @@ pub fn executing_constructs(evaluation: &Evaluation) -> Vec<Span> {
     };
     spans.extend(runs(KnownKeyword::ProxyCommand));
     spans.extend(runs(KnownKeyword::KnownHostsCommand));
+    for code_loading in [
+        KnownKeyword::XauthLocation,
+        KnownKeyword::Pkcs11Provider,
+        KnownKeyword::SecurityKeyProvider,
+    ] {
+        spans.extend(runs(code_loading));
+    }
     let permit = match evaluation.values.get(&KnownKeyword::PermitLocalCommand) {
         None | Some(Resolved::Unset) => false,
         Some(Resolved::Determined(v)) => is_yes(v),

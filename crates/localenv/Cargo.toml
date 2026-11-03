@@ -27,6 +27,10 @@ glob = { workspace = true }
 # client binaries, configuration snapshots and projection content (U3, U4).
 tokio = { workspace = true }
 sha2 = { workspace = true }
+# W2-U4c (escalated): 128-bit random quarantine slots and staged names (ADR-0007 §5.3
+# step 8.1, §5.7), and the canonical plan digest / locator JSON (§5.1, §5.8).
+getrandom = { workspace = true }
+serde_json = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 # U4 `replace`: atomic exchange and no-replace renames through the reviewed safe
@@ -40,6 +44,9 @@ windows-sys = { workspace = true }
 
 [dev-dependencies]
 heimdall-testkit = { workspace = true }
+# W2-U4c (escalated): the store-backed StageSink and its FaultHook in the commit-point
+# tests (already in this dev graph through heimdall-testkit's `store` feature).
+heimdall-store = { workspace = true }
 proptest = { workspace = true }
 tempfile = { workspace = true }
 

@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7dff9b56637899e364f66281e33f2543a5a1db536ccabf0ec8bc7435e0941859 # shrinks to state = RecoveryState { phase: Some(PostValidated { verdict: Mismatch, observed: Some(Unix { dev: 9, ino: 33, birth: Some(1033) }) }), restore: NotDue, settlement: None, item: Open, release_due: false }, shape = Removal, p = Recorded { which: D, content: Unchanged }, a = Absent, s = Unobservable
+cc 3e47dfd515c850b9f9fe2ddd6d91f4c82d29443fe71351622febce5aa87235d4 # shrinks to state = RecoveryState { phase: None, restore: NotDue, settlement: Some(SettleCtx { source: Staged, create_restore: false }), item: Committed, release_due: false }, shape = Replace, p = Absent, a = Foreign, s = Absent
+cc 15ea78e770af2cf9b74be86074a1e6621a291cfc5c2a482952446158412a647b # shrinks to events = [F(2, St), H(2)]

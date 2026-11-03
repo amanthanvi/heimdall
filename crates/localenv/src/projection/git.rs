@@ -9,7 +9,7 @@
 
 use heimdall_domain::projection::{Rendered, lock_holder_line};
 
-use super::replace::{DirHandle, Staged};
+use super::replace::{DirHandle, Staged, rename_noreplace};
 
 /// The lock is held: by Git, another writer, or an entry that is not provably K.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -29,6 +29,15 @@ pub struct Claimed {
 /// Claim Git's lock with K by a no-replace rename. Called only after the `git_lock`
 /// step's `file.staged` is durable; never with B_git's S.
 ///
+/// The rename is `replace::rename_noreplace` inside the validated directory (Linux
+/// `RENAME_NOREPLACE`, macOS `RENAME_EXCL`, Windows `MoveFileExW` without
+/// `MOVEFILE_REPLACE_EXISTING`): the lock name appears atomically, and only if it was
+/// absent, exactly as Git's own exclusive create (F22). Any failure (an entry at the
+/// lock name, K gone from its staged name, an I/O error) is a refusal: nothing was
+/// moved, and the caller settles K from its staged name. Ownership of whatever ends up
+/// at the lock name is decided by K's recorded identity at every later observation,
+/// never here.
+///
 /// # Errors
 /// [`LockRefusal::Held`].
 pub fn claim_lock(
@@ -36,8 +45,13 @@ pub fn claim_lock(
     holder: &Staged,
     lock_name: &str,
 ) -> Result<Claimed, LockRefusal> {
-    let _ = (dir, holder, lock_name);
-    todo!("M02-U4 projection::git::claim_lock")
+    if lock_name == holder.name {
+        return Err(LockRefusal::Held);
+    }
+    rename_noreplace(dir, &holder.name, lock_name).map_err(|_| LockRefusal::Held)?;
+    Ok(Claimed {
+        lock_name: lock_name.to_owned(),
+    })
 }
 
 /// K's one line: `heimdall setup lock, generation <N>, <32 lowercase hex>`. The nonce

@@ -113,13 +113,41 @@ pub trait ConfigSource {
     fn env(&self, name: &str) -> Option<String>;
 }
 
-/// The user and system configuration files an evaluation starts from.
+/// The user and system configuration files an evaluation starts from, and the file the
+/// source role of Heimdall's own values is read from.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Roots {
     /// The user file (`~/.ssh/config`, or `-F`), when present.
     pub user: Option<PathBuf>,
     /// The system file, when read (a `-F` file drops it, F6).
     pub system: Option<PathBuf>,
+    /// P, the Heimdall-owned include file (ADR-0007 §12.15 item 3a). It is not a
+    /// starting point: the user file's block B includes it. A file the walk reads whose
+    /// path (as requested, or canonical) is this one has the role
+    /// [`SourceRole::Managed`]; every other file has the role of its tree. `None`: no
+    /// file is managed.
+    pub managed: Option<PathBuf>,
+}
+
+impl Roots {
+    /// Roots with the user and system files and no managed include file. Use this (or
+    /// `..Roots::default()`) rather than a struct literal, so a field added later does
+    /// not break the caller.
+    #[must_use]
+    pub fn new(user: Option<PathBuf>, system: Option<PathBuf>) -> Self {
+        Self {
+            user,
+            system,
+            managed: None,
+        }
+    }
+
+    /// These roots with P's path set (see [`Roots::managed`]).
+    #[must_use]
+    pub fn with_managed(mut self, managed: impl Into<PathBuf>) -> Self {
+        self.managed = Some(managed.into());
+        self
+    }
 }
 
 /// Why an include could not be loaded.
@@ -317,6 +345,63 @@ pub enum Origin {
     User,
     /// The system file and what it includes.
     System,
+}
+
+/// Where a value comes from, reduced to the four roles of ADR-0007 §5.2 (the digest
+/// binds the role, never the file or the line).
+///
+/// A value read from a file has [`SourceRole::Managed`] (P, [`Roots::managed`]),
+/// [`SourceRole::User`] (the user file and what it includes) or
+/// [`SourceRole::System`] (the system file and what it includes). [`SourceRole::Default`]
+/// is ssh's own default, which no file states: an identity-list entry for a default
+/// identity file carries it; the evaluator gives no file value this role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SourceRole {
+    /// Read from the Heimdall-owned include file P.
+    Managed,
+    /// Read from the user's file or a file it includes.
+    User,
+    /// Read from the system file or a file it includes.
+    System,
+    /// ssh's built-in default.
+    Default,
+}
+
+impl SourceRole {
+    /// The stable `snake_case` name (§5.2), which the digest binds.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SourceRole::Managed => "managed",
+            SourceRole::User => "user",
+            SourceRole::System => "system",
+            SourceRole::Default => "default",
+        }
+    }
+
+    /// The role of an ordinary file of this tree (P is told apart by its path).
+    #[must_use]
+    pub fn of_origin(origin: Origin) -> Self {
+        match origin {
+            Origin::User => SourceRole::User,
+            Origin::System => SourceRole::System,
+        }
+    }
+}
+
+/// Whether two paths name the same file lexically: component-wise (so a doubled or
+/// trailing separator does not matter), ASCII-case-insensitively on Windows.
+fn same_path(a: &Path, b: &Path) -> bool {
+    if cfg!(windows) {
+        let lower = |p: &Path| {
+            p.components()
+                .map(|c| c.as_os_str().to_string_lossy().to_ascii_lowercase())
+                .collect::<Vec<_>>()
+        };
+        lower(a) == lower(b)
+    } else {
+        a == b
+    }
 }
 
 /// Why OpenSSH refuses an argument outright.
@@ -591,6 +676,9 @@ pub struct Visit {
     pub canonical: PathBuf,
     /// The tree it belongs to.
     pub origin: Origin,
+    /// Its source role: [`SourceRole::Managed`] for P ([`Roots::managed`]), otherwise
+    /// the role of its tree.
+    pub role: SourceRole,
     /// 0 for a root, `n` for a file `n` includes deep.
     pub depth: usize,
 }
@@ -649,12 +737,33 @@ struct Walker<'a> {
     set: &'a mut ConfigSet,
     source: &'a dyn ConfigSource,
     limits: &'a Limits,
+    /// P's path ([`Roots::managed`]).
+    managed: Option<&'a Path>,
     summary: WalkSummary,
     /// Canonical paths of the files being read, root first.
     chain: Vec<PathBuf>,
 }
 
 impl Walker<'_> {
+    /// P is told apart by its path, as requested or canonical (a symlinked directory
+    /// gives a different canonical spelling), or by the canonical path an earlier load
+    /// of P's configured path resolved to.
+    fn role_of(&self, requested: &Path, canonical: &Path, origin: Origin) -> SourceRole {
+        let is_managed = self.managed.is_some_and(|m| {
+            same_path(requested, m)
+                || same_path(canonical, m)
+                || self
+                    .set
+                    .canonical(m)
+                    .is_some_and(|resolved| same_path(canonical, resolved))
+        });
+        if is_managed {
+            SourceRole::Managed
+        } else {
+            SourceRole::of_origin(origin)
+        }
+    }
+
     fn visit(
         &mut self,
         visitor: &mut dyn IncludeVisitor,
@@ -674,10 +783,12 @@ impl Walker<'_> {
         }
         self.summary.visits += 1;
         self.summary.bytes += len;
+        let role = self.role_of(path, &canonical, origin);
         let visit = Visit {
             source: file.source,
             canonical: canonical.clone(),
             origin,
+            role,
             depth,
         };
         self.chain.push(canonical);
@@ -725,6 +836,7 @@ pub fn walk(
         set,
         source,
         limits,
+        managed: roots.managed.as_deref(),
         summary: WalkSummary::default(),
         chain: Vec::new(),
     };

@@ -44,10 +44,9 @@ fn state_of(user: &[u8], managed: Option<&[u8]>, host: &str) -> BehaviorState {
         },
         invocation: Invocation::Shell,
     };
-    let roots = Roots {
-        user: Some(PathBuf::from(USER_CONFIG)),
-        system: None,
-    };
+    // P's path, so its values carry the managed role the digest binds (ADR-0007 §12.15
+    // item 3a), as in the real flow.
+    let roots = Roots::new(Some(PathBuf::from(USER_CONFIG)), None).with_managed(MANAGED);
     let mut set = ConfigSet::new();
     let ev = evaluate(&mut set, &src, &roots, &query, &Limits::default());
     behavior_state(&relevant(&ev))

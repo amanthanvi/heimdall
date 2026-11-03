@@ -693,10 +693,7 @@ impl ScratchHome {
             env.insert("HOME".to_owned(), home.to_owned());
         }
         let source = ScratchSource::new(scope.clone(), env);
-        let roots = Roots {
-            user: Some(self.user_config.clone()),
-            system: None,
-        };
+        let roots = Roots::new(Some(self.user_config.clone()), None);
         let query = Query {
             host: alias.to_owned(),
             user: None,
@@ -845,14 +842,14 @@ mod tests {
     use heimdall_sshconf::parse::{SourceId, Span};
 
     fn value(arg: &str) -> Value {
-        Value {
-            args: vec![arg.to_owned()],
-            span: Span {
+        Value::new(
+            vec![arg.to_owned()],
+            Span {
                 source: SourceId(0),
                 line: 1,
             },
-            condition: None,
-        }
+            None,
+        )
     }
 
     fn eval_with(ids: &[(&str, bool)], agent: Option<Resolved>) -> Evaluation {

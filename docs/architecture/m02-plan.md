@@ -1186,8 +1186,10 @@ integrator flips the switch if the ruling differs.
       it is restored. The writer's bytes are active and intact, Heimdall's staged file is
       gone, and the result is `CONFIG_CONFLICT` `concurrent_writer`;
     * `a22_race_in_place_write_after_final_check_is_restored`;
-    * `a22_race_symlink_substitution_at_boundary_is_restored` (Unix): the symlink comes
-      back and its target is untouched;
+    * ⟨ADR-0007 §12.17 item 5⟩ `a22_race_symlink_substitution_at_boundary_is_held`
+      (Unix): a symlink is X whatever its identity (normalization rule 1), so F5d holds
+      the operation (`third_writer`), nothing moves, and the symlink's target is
+      untouched. Revision 5 named this `…_is_restored`;
     * `a22_race_third_writer_during_restore_preserves_both`. ⟨r4⟩ The operation is held
       (`third_writer`, `OUTCOME_UNKNOWN`, effect `unknown`), nothing is moved or
       renamed, and all three entries exist with their bytes. Revision 3 expected effect

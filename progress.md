@@ -474,3 +474,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Workspace checks passed in the reviewer's worktree: 1071 passed, fmt 0, clippy 0.
   - ADR-0007 §12.16 rules on all six. They are fixed after wave 2 integrates, by one fixer `W2b-fix` (sshconf plus testkit home.rs), because W2-U2r owns sshconf during wave 2.
 
+- **M02 wave 2** (`wf_2a33ac4a-86c`, relaunched 2026-11-03): all 6 agents done, with no API errors this time.
+  - Units, all implemented_unverified:
+    - W2-U2r: raw command text, source role, retired keywords, code-loading constructs;
+    - W2-U3: discovery, passive doctor, probes, Git observation, `adopt_inherited_fd`, `create_owner_only_exclusive`, the `ssh -G` corpus;
+    - W2-U4a: the replace primitive, quarantine, materializer;
+    - W2-U4b: `RecoveryState::build`, `normalize`, `decide`, `decide_item`, `effects`;
+    - W2-U4c: preview, apply, reconcile, the cleaner, the Git lock.
+  - Integrator check.sh: 2× exit 0, 1278 passed, 0 failed. No placeholder remains. The only `todo!()` left is `launch::eligibility::check_noninteractive` (wave 3; no callers).
+  - ADR-0007 §12.17 rules on the escalations and defines **wave 2b**:
+    - W2b-fix: §12.16 Y01–Y06 and §12.17 item 9;
+    - W2b-U4r: §12.17 items 1, 2, 4, 7 and the per-row recovery test;
+    - W2b-U4t: §12.17 items 2, 3, 4, 5, 6, 8 and 9 — the §5.5 conflict rename, the Git parse check, consent waivers, repair previews, generated domain for GitLock and Removal, and a real process-abort crash test.
+  - m02-plan U4: the symlink race test is renamed `…_is_held`.

@@ -7,19 +7,83 @@
 //! configuration tree, so without `allow_config_commands` they are always declined
 //! (`config_commands_not_authorized`) before anything runs, and a tree the static pass
 //! could not fully read declines them even with it (`config_not_fully_readable`).
+//!
+//! **What the static level reads:** the user and system configuration trees (through
+//! `fs::BoundedSource`), `known_hosts` files, `.pub` files and private-key presence by
+//! `stat` (identity selection), agent sockets by `stat` and `\\.\pipe\` by listing, the
+//! Git files of §5.6, and the catalog facts the caller read from the store read-only
+//! ([`LocalContext::catalog`]). With local queries: `<ssh> -V`, `ssh-keygen -F` and the
+//! `git config`/`git var` queries, each contained and bounded at 2 s.
+//!
+//! **Reporting rules:** paths are shown with `~` for the account home; command
+//! directives (`ProxyCommand`, `LocalCommand`, `KnownHostsCommand`) are shown as
+//! `<command>` with their file:line, never their text; a Git value never appears
+//! (digest only). `--redact` replaces aliases with `alias-<n>` and host and user names
+//! with `<redacted>`. The `executed_config_commands` of a probe record are the
+//! constructs the static pass found **before** the run; they are never described as
+//! complete, and [`INVENTORY_WORDING`] is the text every rendering uses.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use heimdall_contract::doctor::DoctorReport;
-use heimdall_contract::provider::ProbeLevel;
+use heimdall_contract::Timestamp;
+use heimdall_contract::code::Code;
+use heimdall_contract::doctor::{
+    AliasDefinition, AliasObservation, ClientObservation, ClientSource as WireSource,
+    ConfigFileObservation, ConfigFileRole, ConfigProvenance, Containment, DirectiveCertainty,
+    DirectiveObservation, DoctorReport, Finding, FindingSeverity, GitObservation, ProbeOutcome,
+    ProbeRecord, ProjectionObservation, ProjectionState, finding,
+};
+use heimdall_contract::envelope::{NextAction, ResourceRef};
+use heimdall_contract::provider::{
+    EvidenceBasis, IdentityBacking, IdentitySelection, InteractionKind, ProbeLevel,
+    ProviderAvailability, ProviderStatus,
+};
+use heimdall_contract::request::ConsumerKind;
+use heimdall_contract::setup::ConflictKind;
+use heimdall_sshconf::directive::{Keyword, KnownKeyword};
+use heimdall_sshconf::edit::{BlockPosition, find_blocks};
+use heimdall_sshconf::eval::{
+    Evaluation, OpenSshVersion, Resolved, UnresolvedReason, Value, evaluate,
+};
+use heimdall_sshconf::include::{self, ConfigSet, Roots};
 use heimdall_sshconf::limits::Limits;
+use heimdall_sshconf::parse::Line;
+use heimdall_sshconf::relevant::{
+    Proxy, ProxyResolution, RelevantBehavior, executing_constructs, identity_selection_with_spans,
+    relevant,
+};
 
-use crate::clients::ClientsConfig;
+use crate::agents::{AgentEndpoint, EndpointLocator, EndpointSource, Presence, detect_agents};
+use crate::clients::{ClientInventory, ClientKind, ClientSource, ClientsConfig, resolve_clients};
 use crate::env::{Env, Platform};
-use crate::local_query::LocalQueries;
+use crate::fs::BoundedSource;
+use crate::git::{DefaultGitSsh, observe_global, resolve_run_selection};
+use crate::known_hosts::lookup_detailed;
+use crate::local_query::{LocalQueries, version_text};
 use crate::paths::SshPaths;
-use crate::probe::ProbeHook;
+use crate::probe::{self, ProbeContext, ProbeHook, provenance};
+
+/// The wording every rendering of `executed_config_commands` uses (ADR-0007 §6; the
+/// list is never complete).
+pub const INVENTORY_WORDING: &str =
+    "configuration commands found before the run; the run may have executed others";
+
+/// The lowest client version M02 supports (in-box Windows 9.5p2; ADR-0004 E6).
+pub const CLIENT_FLOOR: OpenSshVersion = OpenSshVersion {
+    major: 9,
+    minor: 5,
+    portable: None,
+};
+
+/// More identity entries than this may exhaust the server's `MaxAuthTries` (default 6)
+/// before the adopted key is offered.
+pub const MAX_IDENTITY_ENTRIES: usize = 5;
+
+/// Most aliases one doctor run evaluates from the configuration.
+pub const MAX_ALIASES: usize = 256;
 
 /// What the doctor runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +102,45 @@ pub struct DoctorRequest {
     pub redact: bool,
 }
 
+impl DoctorRequest {
+    /// The default passive run: `static` only, local queries on, non-interactive.
+    #[must_use]
+    pub fn passive() -> Self {
+        Self {
+            levels: BTreeSet::from([ProbeLevel::Static]),
+            allow_config_commands: false,
+            aliases: None,
+            interactive: false,
+            local_queries: LocalQueries::Enabled,
+            redact: false,
+        }
+    }
+}
+
+/// An identity of the catalog, as the caller read it from the store read-only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CatalogIdentity {
+    /// The adopted public key's path (identity selection's `adopted`).
+    pub public_key_path: PathBuf,
+    /// Its fingerprint (`SHA256:…`), when recorded.
+    pub fingerprint: Option<String>,
+    /// Its current interaction: `none` only while a live declaration covers it.
+    pub interaction: InteractionKind,
+    /// The provider endpoint it is used through, when recorded.
+    pub endpoint: Option<EndpointLocator>,
+}
+
+/// An alias of the catalog (managed or observed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CatalogAlias {
+    /// The alias.
+    pub alias: String,
+    /// `managed` or `observed`.
+    pub definition: AliasDefinition,
+    /// Its identity, when one is adopted for it.
+    pub identity: Option<CatalogIdentity>,
+}
+
 /// The local facts a doctor run reads.
 #[derive(Clone)]
 pub struct LocalContext {
@@ -54,6 +157,16 @@ pub struct LocalContext {
     /// Test-only probe hook (env-gated through the test configuration; `None` in
     /// production).
     pub probe_hook: Option<Arc<dyn ProbeHook>>,
+    /// Test configuration only (ADR-0007 §9): the isolation arguments put on every
+    /// client a probe runs (`-F <scratch config>`, the scratch known-hosts files,
+    /// `BatchMode`). When set, the system file is not read, as `-F` drops it (F6).
+    /// `None` in production, where ssh reads the real tree.
+    pub client_isolation: Option<Vec<OsString>>,
+    /// The catalog's aliases and identities, read by the caller from the store
+    /// read-only; empty when the store could not be read.
+    pub catalog: Vec<CatalogAlias>,
+    /// The Heimdall-managed include file P, when known (its role is `managed`).
+    pub managed_file: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for LocalContext {
@@ -65,9 +178,1308 @@ impl std::fmt::Debug for LocalContext {
     }
 }
 
+impl LocalContext {
+    /// A context with no hook, no test isolation, an empty catalog and no managed
+    /// file.
+    #[must_use]
+    pub fn new(
+        paths: SshPaths,
+        env: Env,
+        platform: Platform,
+        clients: ClientsConfig,
+        limits: Limits,
+    ) -> Self {
+        Self {
+            paths,
+            env,
+            platform,
+            clients,
+            limits,
+            probe_hook: None,
+            client_isolation: None,
+            catalog: Vec::new(),
+            managed_file: None,
+        }
+    }
+
+    /// The local account name for `%u` and `Match localuser`: the account database
+    /// on Unix (as OpenSSH), `USERNAME` from the snapshot on Windows.
+    #[must_use]
+    pub fn local_user(&self) -> String {
+        #[cfg(unix)]
+        {
+            crate::sys::account_name().unwrap_or_default()
+        }
+        #[cfg(not(unix))]
+        {
+            self.env
+                .get("USERNAME")
+                .and_then(|v| v.to_str())
+                .unwrap_or_default()
+                .to_owned()
+        }
+    }
+
+    /// The roots ssh reads: the user file, and the system file unless the test
+    /// isolation passes `-F`; P's path, when known, gives its values the `managed`
+    /// role (ADR-0007 §12.15 item 3a).
+    #[must_use]
+    pub fn roots(&self) -> Roots {
+        let roots = crate::agents::roots_for(&self.paths, self.client_isolation.is_none());
+        match &self.managed_file {
+            Some(p) => roots.with_managed(p.clone()),
+            None => roots,
+        }
+    }
+
+    /// The catalog alias `alias`, if any.
+    #[must_use]
+    pub fn catalog_alias(&self, alias: &str) -> Option<&CatalogAlias> {
+        self.catalog.iter().find(|c| c.alias == alias)
+    }
+
+    /// The catalog identity adopted for `alias`, if any.
+    #[must_use]
+    pub fn catalog_identity(&self, alias: &str) -> Option<&CatalogIdentity> {
+        self.catalog_alias(alias).and_then(|c| c.identity.as_ref())
+    }
+
+    fn source(&self) -> BoundedSource {
+        BoundedSource::new(self.paths.clone(), self.env.clone(), self.limits)
+    }
+}
+
 /// Run the doctor.
 #[must_use]
 pub fn run(ctx: &LocalContext, request: &DoctorRequest) -> DoctorReport {
-    let _ = (ctx, request);
-    todo!("M02-U3 doctor::run")
+    let started_at = Timestamp::now();
+    let t0 = std::time::Instant::now();
+    let mut d = Doctor {
+        ctx,
+        request,
+        findings: Vec::new(),
+        probes: Vec::new(),
+    };
+    let inventory = resolve_clients(&ctx.env, &ctx.paths, &ctx.clients, request.local_queries);
+    let clients = d.clients(&inventory);
+    let ssh_version = inventory.selected(ClientKind::Ssh).and_then(|c| c.version);
+    let (config_files, config_aliases) = d.config_files();
+    d.home_mismatch();
+    let projection = d.projection();
+    let agents = detect_agents(&ctx.env, &ctx.paths, ctx.platform);
+    let providers = d.providers(&agents);
+    let aliases_to_check = d.alias_list(&config_aliases);
+    let mut aliases = Vec::new();
+    let mut evaluations: BTreeMap<String, Evaluation> = BTreeMap::new();
+    for alias in &aliases_to_check {
+        let (obs, evaluation) = d.alias(alias, ssh_version);
+        aliases.push(obs);
+        evaluations.insert(alias.clone(), evaluation);
+    }
+    let git = d.git(&inventory, &agents);
+    // The static level's own record: nothing configured ran, nothing was contacted
+    // or changed; local queries ran contained.
+    let mut static_record = probe::record(ProbeLevel::Static, "*", started_at);
+    static_record.duration_ms = u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
+    static_record.containment =
+        if request.local_queries == LocalQueries::Enabled && !inventory.candidates.is_empty() {
+            if cfg!(windows) {
+                Containment::JobObject
+            } else {
+                Containment::ProcessGroup
+            }
+        } else {
+            Containment::None
+        };
+    d.probes.push(static_record);
+    d.explicit_levels(&aliases_to_check, &evaluations, &agents, &inventory);
+    let mut levels_performed = BTreeSet::new();
+    let mut levels_declined = BTreeSet::new();
+    for r in &d.probes {
+        if r.outcome == ProbeOutcome::Declined {
+            levels_declined.insert(r.level);
+        } else {
+            levels_performed.insert(r.level);
+        }
+    }
+    let mut report = DoctorReport {
+        levels_performed,
+        levels_declined,
+        clients,
+        config_files,
+        aliases,
+        providers,
+        projection,
+        git,
+        findings: d.findings,
+        probes: d.probes,
+    };
+    if request.redact {
+        redact(&mut report);
+    }
+    report
+}
+
+struct Doctor<'a> {
+    ctx: &'a LocalContext,
+    request: &'a DoctorRequest,
+    findings: Vec<Finding>,
+    probes: Vec<ProbeRecord>,
+}
+
+fn subject(kind: &str, id: Option<&str>) -> ResourceRef {
+    ResourceRef {
+        kind: kind.to_owned(),
+        id: id.map(str::to_owned),
+    }
+}
+
+fn next(action: &str) -> NextAction {
+    NextAction {
+        action: action.to_owned(),
+        ..NextAction::default()
+    }
+}
+
+impl Doctor<'_> {
+    #[allow(clippy::too_many_arguments)]
+    fn add(
+        &mut self,
+        code: &str,
+        severity: FindingSeverity,
+        subject: ResourceRef,
+        level: ProbeLevel,
+        provenance: Option<ConfigProvenance>,
+        message: impl Into<String>,
+        action: &str,
+        reason: Option<&str>,
+    ) {
+        self.findings.push(Finding {
+            code: code.to_owned(),
+            severity,
+            subject,
+            level,
+            provenance,
+            message: message.into(),
+            next: next(action),
+            reason: reason.map(str::to_owned),
+        });
+    }
+
+    fn clients(&mut self, inventory: &ClientInventory) -> Vec<ClientObservation> {
+        let home = &self.ctx.paths.account_home;
+        let out: Vec<ClientObservation> = inventory
+            .candidates
+            .iter()
+            .map(|c| ClientObservation {
+                consumer: match c.kind {
+                    ClientKind::Ssh => ConsumerKind::Ssh,
+                    ClientKind::Scp => ConsumerKind::Scp,
+                    ClientKind::Sftp => ConsumerKind::Sftp,
+                    ClientKind::Git => ConsumerKind::Git,
+                    ClientKind::SshKeygen => ConsumerKind::SshKeygen,
+                },
+                path_display: crate::paths::display_path(home, &c.path),
+                source: match c.source {
+                    ClientSource::Path => WireSource::Path,
+                    ClientSource::System32 => WireSource::System32,
+                    ClientSource::GitBundled => WireSource::GitBundled,
+                    ClientSource::Configured => WireSource::Configured,
+                },
+                version: c
+                    .version
+                    .as_ref()
+                    .map(|v| format!("OpenSSH_{}", version_text(v))),
+                sha256: c.sha256.clone(),
+                selected: c.selected,
+            })
+            .collect();
+        match inventory.selected(ClientKind::Ssh) {
+            None => self.add(
+                finding::CLIENT_NOT_FOUND,
+                FindingSeverity::Problem,
+                subject("executable", Some("ssh")),
+                ProbeLevel::Static,
+                None,
+                "no ssh client was found on PATH or in config.toml [clients]",
+                "change_client",
+                None,
+            ),
+            Some(ssh) => {
+                if let Some(v) = ssh.version
+                    && v < CLIENT_FLOOR
+                {
+                    self.add(
+                        finding::CLIENT_UNSUPPORTED_VERSION,
+                        FindingSeverity::Problem,
+                        subject("executable", Some("ssh")),
+                        ProbeLevel::Static,
+                        None,
+                        format!(
+                            "the selected ssh is OpenSSH {}, below the supported floor 9.5",
+                            version_text(&v)
+                        ),
+                        "change_client",
+                        None,
+                    );
+                }
+            }
+        }
+        out
+    }
+
+    /// Read both trees once: the file inventory (role, readability, digest, size),
+    /// the encoding, permission, missing-include and bound findings, and the literal
+    /// `Host` aliases.
+    fn config_files(&mut self) -> (Vec<ConfigFileObservation>, Vec<String>) {
+        let ctx = self.ctx;
+        let source = ctx.source();
+        let digesting = probe::snapshot::Digesting::new(&source);
+        let roots = ctx.roots();
+        let mut set = ConfigSet::new();
+        let record = include::record(&mut set, &digesting, &roots, &ctx.limits, &|_| None);
+        let digests = digesting.into_digests();
+        let managed = ctx
+            .managed_file
+            .as_ref()
+            .and_then(|p| crate::fs::canonical_path(p).ok());
+        let mut files: Vec<ConfigFileObservation> = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut aliases: Vec<String> = Vec::new();
+        for visit in &record.visits {
+            if !seen.insert(visit.canonical.clone()) {
+                continue;
+            }
+            let role = if managed.as_ref() == Some(&visit.canonical) {
+                ConfigFileRole::Managed
+            } else if visit.depth > 0 {
+                ConfigFileRole::Included
+            } else if visit.origin == include::Origin::System {
+                ConfigFileRole::System
+            } else {
+                ConfigFileRole::User
+            };
+            let display = ctx.paths.display(&visit.canonical);
+            let (sha, bytes) = digests
+                .get(&visit.canonical)
+                .map_or((None, None), |(d, n)| (Some(d.clone()), Some(*n)));
+            files.push(ConfigFileObservation {
+                path_display: display.clone(),
+                role,
+                readable: true,
+                sha256: sha,
+                bytes,
+            });
+            if let Some(file) = set.file(visit.source) {
+                if file.had_bom {
+                    self.add(
+                        finding::UNSUPPORTED_ENCODING,
+                        FindingSeverity::Warning,
+                        subject("config", Some(&display)),
+                        ProbeLevel::Static,
+                        Some(ConfigProvenance {
+                            path_display: display.clone(),
+                            line: 1,
+                        }),
+                        "the file starts with a UTF-8 byte-order mark, which OpenSSH reads as part of the first keyword",
+                        "review_config",
+                        Some("byte_order_mark"),
+                    );
+                }
+                if role != ConfigFileRole::Managed {
+                    for line in &file.lines {
+                        if let Line::Directive(dir) = line
+                            && matches!(dir.keyword, Keyword::Known(KnownKeyword::Host))
+                        {
+                            for pat in &dir.args {
+                                if !pat.contains(['*', '?', '!', '%'])
+                                    && probe::alias_is_usable(pat)
+                                    && !aliases.contains(pat)
+                                    && aliases.len() < MAX_ALIASES
+                                {
+                                    aliases.push(pat.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            self.permissions(&visit.canonical, &display, visit.origin);
+        }
+        for failure in &record.failures {
+            let display = ctx.paths.display(&failure.path);
+            if seen.insert(failure.path.clone()) {
+                files.push(ConfigFileObservation {
+                    path_display: display.clone(),
+                    role: if failure.at.is_none() {
+                        if failure.origin == include::Origin::System {
+                            ConfigFileRole::System
+                        } else {
+                            ConfigFileRole::User
+                        }
+                    } else {
+                        ConfigFileRole::Included
+                    },
+                    readable: false,
+                    sha256: None,
+                    bytes: None,
+                });
+            }
+            let prov = failure.at.map(|span| provenance(ctx, &set, &roots, span));
+            let (code, reason) = if failure.error.is_bound() {
+                (finding::BOUND_EXCEEDED, None)
+            } else {
+                (finding::INCLUDE_MISSING, Some("unreadable"))
+            };
+            self.add(
+                code,
+                FindingSeverity::Problem,
+                subject("config", Some(&display)),
+                ProbeLevel::Static,
+                prov,
+                "a configuration file could not be read within the bounds; probes that run the real tree are declined",
+                "review_config",
+                reason,
+            );
+        }
+        for inc in &record.includes {
+            let literal = inc
+                .arg
+                .pattern
+                .as_ref()
+                .is_some_and(|p| !p.to_string_lossy().contains(['*', '?', '[']));
+            let prov = provenance(ctx, &set, &roots, inc.span);
+            match &inc.arg.matches {
+                Ok(m) if m.is_empty() && literal => self.add(
+                    finding::INCLUDE_MISSING,
+                    FindingSeverity::Warning,
+                    subject("config", Some(&prov.path_display)),
+                    ProbeLevel::Static,
+                    Some(prov),
+                    "an Include names a file that does not exist; ssh skips it",
+                    "review_config",
+                    None,
+                ),
+                Err(e) => {
+                    let bound = matches!(e, include::ArgError::Glob(g) if g.is_bound());
+                    self.add(
+                        if bound {
+                            finding::BOUND_EXCEEDED
+                        } else {
+                            finding::INCLUDE_MISSING
+                        },
+                        FindingSeverity::Problem,
+                        subject("config", Some(&prov.path_display)),
+                        ProbeLevel::Static,
+                        Some(prov),
+                        "an Include path could not be expanded statically",
+                        "review_config",
+                        Some("unresolved"),
+                    );
+                }
+                Ok(_) => {}
+            }
+        }
+        (files, aliases)
+    }
+
+    #[cfg(unix)]
+    fn permissions(&mut self, path: &Path, display: &str, origin: include::Origin) {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(meta) = std::fs::metadata(path) else {
+            return;
+        };
+        let foreign_owner = meta.uid() != crate::sys::current_uid() && meta.uid() != 0;
+        if origin == include::Origin::User && (meta.mode() & 0o022 != 0 || foreign_owner) {
+            self.add(
+                finding::CONFIG_PERMISSIONS_UNSAFE,
+                FindingSeverity::Problem,
+                subject("config", Some(display)),
+                ProbeLevel::Static,
+                None,
+                "the file is writable by another user or not owned by you; ssh refuses such a user configuration",
+                "review_config",
+                None,
+            );
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn permissions(&mut self, _path: &Path, _display: &str, _origin: include::Origin) {}
+
+    fn home_mismatch(&mut self) {
+        let Some(home) = self.ctx.env.get("HOME").map(PathBuf::from) else {
+            return;
+        };
+        if home.is_absolute() && home != self.ctx.paths.account_home {
+            self.add(
+                finding::HOME_MISMATCH,
+                FindingSeverity::Warning,
+                subject("environment", Some("HOME")),
+                ProbeLevel::Static,
+                None,
+                "HOME differs from the account's home: ssh reads ~/.ssh/config and expands %d from the account's home, but an Include's ~ and a relative Include follow HOME",
+                "review_config",
+                None,
+            );
+        }
+    }
+
+    fn projection(&mut self) -> Option<ProjectionObservation> {
+        let ctx = self.ctx;
+        let bytes = crate::fs::read_bounded(&ctx.paths.user_config, ctx.limits.file_bytes)
+            .ok()
+            .map(|r| r.bytes);
+        let blocks = bytes.as_deref().map(find_blocks).unwrap_or_default();
+        if blocks.is_empty() && ctx.managed_file.is_none() {
+            return None;
+        }
+        let display = ctx.paths.display(&ctx.paths.user_config);
+        let state = match blocks.as_slice() {
+            [] => ProjectionState::Absent,
+            [one] if !one.intact => {
+                self.add(
+                    finding::MARKER_EDITED,
+                    FindingSeverity::Problem,
+                    subject("projection", None),
+                    ProbeLevel::Static,
+                    None,
+                    "the Heimdall include block was edited",
+                    "review_config",
+                    None,
+                );
+                ProjectionState::Conflict
+            }
+            [one] => match one.position {
+                BlockPosition::BeforeFirstSection => ProjectionState::Healthy,
+                BlockPosition::Conditional(span) => {
+                    self.add(
+                        finding::INCLUDE_CONDITIONAL,
+                        FindingSeverity::Problem,
+                        subject("projection", None),
+                        ProbeLevel::Static,
+                        Some(ConfigProvenance {
+                            path_display: display.clone(),
+                            line: span.line,
+                        }),
+                        "the Heimdall include block is inside a Host or Match section, so it applies conditionally",
+                        "review_config",
+                        None,
+                    );
+                    ProjectionState::Conditional
+                }
+            },
+            _ => {
+                self.add(
+                    finding::MARKER_EDITED,
+                    FindingSeverity::Problem,
+                    subject("projection", None),
+                    ProbeLevel::Static,
+                    None,
+                    "the Heimdall include block appears more than once",
+                    "review_config",
+                    Some("marker_duplicated"),
+                );
+                ProjectionState::Conflict
+            }
+        };
+        let conflict = match (state, blocks.len()) {
+            (ProjectionState::Conflict, 1) => Some(ConflictKind::MarkerEdited),
+            (ProjectionState::Conflict, _) => Some(ConflictKind::MarkerDuplicated),
+            (ProjectionState::Conditional, _) => Some(ConflictKind::IncludeConditional),
+            _ => None,
+        };
+        Some(ProjectionObservation {
+            state,
+            generation: None,
+            conflict,
+        })
+    }
+
+    fn providers(&mut self, agents: &[AgentEndpoint]) -> Vec<ProviderStatus> {
+        let now = Timestamp::now();
+        let home = self.ctx.paths.account_home.clone();
+        let mut out = Vec::new();
+        for a in agents {
+            let availability = match a.presence {
+                Presence::Present | Presence::Unknown => ProviderAvailability::Unknown,
+                Presence::Absent | Presence::ForeignOwner => ProviderAvailability::Unavailable,
+            };
+            out.push(ProviderStatus {
+                provider: a.provider,
+                availability,
+                interaction: InteractionKind::Unknown,
+                observed_level: ProbeLevel::Static,
+                observed_at: now,
+                basis: EvidenceBasis::Inferred,
+            });
+            let display = a.locator.display(&home);
+            let prov = match &a.source {
+                EndpointSource::IdentityAgent(p) => Some(p.clone()),
+                _ => None,
+            };
+            match a.presence {
+                Presence::Absent => self.add(
+                    finding::AGENT_ENDPOINT_MISSING,
+                    FindingSeverity::Warning,
+                    subject("endpoint", Some(&display)),
+                    ProbeLevel::Static,
+                    prov,
+                    "an agent endpoint is named but nothing is there",
+                    "review_config",
+                    None,
+                ),
+                Presence::ForeignOwner => self.add(
+                    finding::AGENT_ENDPOINT_FOREIGN_OWNER,
+                    FindingSeverity::Problem,
+                    subject("endpoint", Some(&display)),
+                    ProbeLevel::Static,
+                    prov,
+                    "the agent socket is owned by another user; it is never contacted",
+                    "review_config",
+                    None,
+                ),
+                Presence::Present | Presence::Unknown => {}
+            }
+        }
+        out
+    }
+
+    fn alias_list(&self, config_aliases: &[String]) -> Vec<String> {
+        if let Some(list) = &self.request.aliases {
+            return list.clone();
+        }
+        let mut out: Vec<String> = self.ctx.catalog.iter().map(|c| c.alias.clone()).collect();
+        for a in config_aliases {
+            if !out.contains(a) && out.len() < MAX_ALIASES {
+                out.push(a.clone());
+            }
+        }
+        out
+    }
+
+    fn observe(
+        &self,
+        set: &ConfigSet,
+        roots: &Roots,
+        name: &str,
+        r: &Resolved,
+    ) -> DirectiveObservation {
+        let command = matches!(name, "ProxyCommand" | "LocalCommand" | "KnownHostsCommand");
+        let shown = |v: &Value| -> String {
+            if v.args.is_empty() {
+                "<unreadable>".to_owned()
+            } else if command {
+                "<command>".to_owned()
+            } else {
+                v.args.join(" ")
+            }
+        };
+        let prov = |v: &Value| provenance(self.ctx, set, roots, v.span);
+        match r {
+            Resolved::Unset => DirectiveObservation {
+                directive: name.to_owned(),
+                values: Vec::new(),
+                certainty: DirectiveCertainty::Unset,
+                provenance: Vec::new(),
+            },
+            Resolved::Determined(v) => DirectiveObservation {
+                directive: name.to_owned(),
+                values: vec![shown(v)],
+                certainty: DirectiveCertainty::Determined,
+                provenance: vec![prov(v)],
+            },
+            Resolved::Undetermined(vs) => DirectiveObservation {
+                directive: name.to_owned(),
+                values: vs.iter().map(shown).collect(),
+                certainty: DirectiveCertainty::Undetermined,
+                provenance: vs.iter().map(prov).collect(),
+            },
+        }
+    }
+
+    fn behavior(
+        &self,
+        set: &ConfigSet,
+        roots: &Roots,
+        b: &RelevantBehavior,
+    ) -> Vec<DirectiveObservation> {
+        let mut out = Vec::new();
+        let first: [(&str, &Resolved); 4] = [
+            ("HostName", &b.hostname),
+            ("Port", &b.port),
+            ("User", &b.user),
+            ("IdentityAgent", &b.identity_agent),
+        ];
+        for (n, r) in first {
+            out.push(self.observe(set, roots, n, r));
+        }
+        for (name, list) in [
+            ("IdentityFile", &b.identity_files),
+            ("CertificateFile", &b.certificate_files),
+        ] {
+            let certain = list.iter().all(|c| c.determined);
+            out.push(DirectiveObservation {
+                directive: name.to_owned(),
+                values: list
+                    .iter()
+                    .map(|c| {
+                        if c.value.args.is_empty() {
+                            "<unreadable>".to_owned()
+                        } else {
+                            c.value.args.join(" ")
+                        }
+                    })
+                    .collect(),
+                certainty: if list.is_empty() {
+                    DirectiveCertainty::Unset
+                } else if certain {
+                    DirectiveCertainty::Determined
+                } else {
+                    DirectiveCertainty::Undetermined
+                },
+                provenance: list
+                    .iter()
+                    .map(|c| provenance(self.ctx, set, roots, c.value.span))
+                    .collect(),
+            });
+        }
+        out.push(self.observe(set, roots, "IdentitiesOnly", &b.identities_only));
+        fn proxy_values(p: &Proxy) -> Option<(String, &Value)> {
+            match p {
+                Proxy::None => None,
+                Proxy::Jump(v) => Some((format!("ProxyJump {}", v.args.join(" ")), v)),
+                Proxy::Command(v) => Some(("ProxyCommand <command>".to_owned(), v)),
+            }
+        }
+        let (values, provs, certainty) = match &b.proxy {
+            ProxyResolution::Determined(p) => match proxy_values(p) {
+                Some((s, v)) => (
+                    vec![s],
+                    vec![provenance(self.ctx, set, roots, v.span)],
+                    DirectiveCertainty::Determined,
+                ),
+                None => (Vec::new(), Vec::new(), DirectiveCertainty::Unset),
+            },
+            ProxyResolution::Undetermined(ps) => {
+                let mut vals = Vec::new();
+                let mut provs = Vec::new();
+                for p in ps {
+                    match proxy_values(p) {
+                        Some((s, v)) => {
+                            vals.push(s);
+                            provs.push(provenance(self.ctx, set, roots, v.span));
+                        }
+                        None => vals.push("none".to_owned()),
+                    }
+                }
+                (vals, provs, DirectiveCertainty::Undetermined)
+            }
+        };
+        out.push(DirectiveObservation {
+            directive: "Proxy".to_owned(),
+            values,
+            certainty,
+            provenance: provs,
+        });
+        let rest: [(&str, &Resolved); 14] = [
+            ("ControlMaster", &b.control_master),
+            ("ControlPath", &b.control_path),
+            ("ControlPersist", &b.control_persist),
+            ("ForwardAgent", &b.forward_agent),
+            ("StrictHostKeyChecking", &b.strict_host_key_checking),
+            ("UserKnownHostsFile", &b.user_known_hosts_file),
+            ("GlobalKnownHostsFile", &b.global_known_hosts_file),
+            ("HostKeyAlias", &b.host_key_alias),
+            ("CanonicalizeHostname", &b.canonicalize_hostname),
+            ("PermitLocalCommand", &b.permit_local_command),
+            ("LocalCommand", &b.local_command),
+            ("KnownHostsCommand", &b.known_hosts_command),
+            ("AddKeysToAgent", &b.add_keys_to_agent),
+            ("PKCS11Provider", &b.pkcs11_provider),
+        ];
+        for (n, r) in rest {
+            out.push(self.observe(set, roots, n, r));
+        }
+        out.push(self.observe(set, roots, "SecurityKeyProvider", &b.security_key_provider));
+        out
+    }
+
+    /// Statically evaluate one alias, with its findings.
+    fn alias(
+        &mut self,
+        alias: &str,
+        version: Option<OpenSshVersion>,
+    ) -> (AliasObservation, Evaluation) {
+        let ctx = self.ctx;
+        let source = ctx.source();
+        let roots = ctx.roots();
+        let query = probe::query_for(ctx, alias, version);
+        let mut set = ConfigSet::new();
+        let evaluation = evaluate(&mut set, &source, &roots, &query, &ctx.limits);
+        let behavior = relevant(&evaluation);
+        let catalog = ctx.catalog_alias(alias).cloned();
+        let subj = || subject("destination", Some(alias));
+        for u in &evaluation.unresolved {
+            let prov = provenance(ctx, &set, &roots, u.span);
+            match &u.reason {
+                UnresolvedReason::MatchExec | UnresolvedReason::MatchLocalNetwork => self.add(
+                    finding::DYNAMIC_MATCH_UNRESOLVED,
+                    FindingSeverity::Warning,
+                    subj(),
+                    ProbeLevel::Static,
+                    Some(prov),
+                    "a Match condition cannot be decided without running something; the values it guards are undetermined",
+                    "review_config",
+                    Some(if u.reason == UnresolvedReason::MatchExec {
+                        "match_exec"
+                    } else {
+                        "match_localnetwork"
+                    }),
+                ),
+                UnresolvedReason::BoundExceeded => self.add(
+                    finding::BOUND_EXCEEDED,
+                    FindingSeverity::Problem,
+                    subj(),
+                    ProbeLevel::Static,
+                    Some(prov),
+                    "a read bound was exceeded; the tree is not fully readable",
+                    "review_config",
+                    None,
+                ),
+                _ => {}
+            }
+        }
+        let match_exec: BTreeSet<_> = evaluation
+            .unresolved
+            .iter()
+            .filter(|u| u.reason == UnresolvedReason::MatchExec)
+            .map(|u| u.span)
+            .collect();
+        for span in executing_constructs(&evaluation) {
+            if match_exec.contains(&span) {
+                continue;
+            }
+            let prov = provenance(ctx, &set, &roots, span);
+            self.add(
+                finding::EXECUTABLE_DIRECTIVE_PRESENT,
+                FindingSeverity::Info,
+                subj(),
+                ProbeLevel::Static,
+                Some(prov),
+                "a directive runs a command when ssh uses this alias; it was not run",
+                "none",
+                None,
+            );
+        }
+        for inv in &evaluation.invalid {
+            let prov = provenance(ctx, &set, &roots, inv.span);
+            let code = if inv.reason == "byte_order_mark" {
+                finding::UNSUPPORTED_ENCODING
+            } else {
+                finding::CONFIG_INVALID
+            };
+            self.add(
+                code,
+                FindingSeverity::Problem,
+                subj(),
+                ProbeLevel::Static,
+                Some(prov),
+                "ssh would refuse this line",
+                "review_config",
+                Some(&inv.reason),
+            );
+        }
+        if let Resolved::Determined(v) = &behavior.strict_host_key_checking
+            && v.args.first().is_some_and(|a| {
+                matches!(a.to_ascii_lowercase().as_str(), "no" | "off" | "accept-new")
+            })
+        {
+            let prov = provenance(ctx, &set, &roots, v.span);
+            self.add(
+                finding::STRICT_HOST_KEY_CHECKING_WEAK,
+                FindingSeverity::Warning,
+                subj(),
+                ProbeLevel::Static,
+                Some(prov),
+                "StrictHostKeyChecking accepts unknown host keys for this alias",
+                "review_host_trust",
+                None,
+            );
+        }
+        let mut identity_report = None;
+        if let Some(identity) = catalog.as_ref().and_then(|c| c.identity.as_ref()) {
+            let (mut report, spans) =
+                identity_selection_with_spans(&evaluation, &identity.public_key_path, &source);
+            for (entry, span) in report.entries.iter_mut().zip(spans) {
+                if entry.provenance.is_none()
+                    && let Some(span) = span
+                {
+                    entry.provenance = Some(provenance(ctx, &set, &roots, span));
+                }
+            }
+            match report.selection {
+                IdentitySelection::Exclusive => {}
+                IdentitySelection::NotExclusive => self.add(
+                    finding::IDENTITY_SELECTION_NOT_EXCLUSIVE,
+                    FindingSeverity::Warning,
+                    subj(),
+                    ProbeLevel::Static,
+                    report
+                        .entries
+                        .iter()
+                        .find_map(|e| e.provenance.clone()),
+                    "ssh may offer other identities than the adopted key for this alias: an inherited IdentityFile or CertificateFile, a default identity, or every key in the agent without IdentitiesOnly yes. Remedy: set IdentitiesOnly yes for the alias and remove or scope the inherited IdentityFile and CertificateFile lines listed in identity_selection",
+                    "review_config",
+                    None,
+                ),
+                IdentitySelection::Undetermined => self.add(
+                    finding::IDENTITY_SELECTION_UNDETERMINED,
+                    FindingSeverity::Warning,
+                    subj(),
+                    ProbeLevel::Static,
+                    None,
+                    "which identities ssh offers for this alias depends on something static evaluation cannot decide",
+                    "review_config",
+                    None,
+                ),
+                _ => {}
+            }
+            if report.entries.len() > MAX_IDENTITY_ENTRIES {
+                self.add(
+                    finding::TOO_MANY_IDENTITIES,
+                    FindingSeverity::Warning,
+                    subj(),
+                    ProbeLevel::Static,
+                    None,
+                    "more identities than a server's default MaxAuthTries allows may be offered before the adopted key",
+                    "review_config",
+                    None,
+                );
+            }
+            for e in &report.entries {
+                if e.fingerprint.is_none() && e.backing == IdentityBacking::Unknown {
+                    self.add(
+                        finding::IDENTITY_PUBLIC_KEY_UNKNOWN,
+                        FindingSeverity::Warning,
+                        subj(),
+                        ProbeLevel::Static,
+                        e.provenance.clone(),
+                        "an identity's public key is unknown (no .pub file); it is never read from the private key",
+                        "review_config",
+                        None,
+                    );
+                }
+            }
+            if let (Some(endpoint), Resolved::Determined(v)) =
+                (&identity.endpoint, &behavior.identity_agent)
+            {
+                let expanded = v
+                    .args
+                    .first()
+                    .and_then(|a| crate::agents::expand_agent_value(a, &source, &ctx.env))
+                    .and_then(|s| crate::agents::locator_for(&s, ctx.platform));
+                if expanded.as_ref() != Some(endpoint) {
+                    let prov = provenance(ctx, &set, &roots, v.span);
+                    self.add(
+                        finding::IDENTITY_AGENT_OVERRIDDEN,
+                        FindingSeverity::Warning,
+                        subj(),
+                        ProbeLevel::Static,
+                        Some(prov),
+                        "the effective IdentityAgent for this alias is not the identity's provider endpoint",
+                        "review_config",
+                        None,
+                    );
+                }
+            }
+            identity_report = Some(report);
+        }
+        self.known_host_static(alias, &behavior);
+        let obs = AliasObservation {
+            alias: alias.to_owned(),
+            definition: catalog.map_or(AliasDefinition::UserOnly, |c| c.definition),
+            behavior: self.behavior(&set, &roots, &behavior),
+            identity_selection: identity_report,
+        };
+        (obs, evaluation)
+    }
+
+    fn known_host_static(&mut self, alias: &str, b: &RelevantBehavior) {
+        // Only the default files are looked up; a configured file is the probe's.
+        if !matches!(b.user_known_hosts_file, Resolved::Unset)
+            || !matches!(b.global_known_hosts_file, Resolved::Unset)
+        {
+            return;
+        }
+        let Some((host, port)) = destination(alias, b) else {
+            return;
+        };
+        let name = match &b.host_key_alias {
+            Resolved::Determined(v) => v.args.first().cloned().unwrap_or(host),
+            Resolved::Unset => host,
+            Resolved::Undetermined(_) => return,
+        };
+        let keygen =
+            crate::clients::selected_path(&self.ctx.env, &self.ctx.clients, ClientKind::SshKeygen);
+        let look = lookup_detailed(
+            &self.ctx.paths,
+            &name,
+            port,
+            self.request.local_queries,
+            keygen.as_deref(),
+        );
+        if look.complete && look.keys.iter().all(|k| k.revoked) {
+            self.add(
+                finding::KNOWN_HOST_MISSING,
+                FindingSeverity::Info,
+                subject("destination", Some(alias)),
+                ProbeLevel::Static,
+                None,
+                "no known_hosts entry was found for this destination in the default files",
+                "review_host_trust",
+                None,
+            );
+        }
+    }
+
+    fn git(
+        &mut self,
+        inventory: &ClientInventory,
+        agents: &[AgentEndpoint],
+    ) -> Option<GitObservation> {
+        inventory.selected(ClientKind::Git)?;
+        let ctx = self.ctx;
+        let q = self.request.local_queries;
+        let obs = observe_global(&ctx.env, inventory, q);
+        let root = if cfg!(windows) {
+            PathBuf::from(r"C:\")
+        } else {
+            PathBuf::from("/")
+        };
+        let selection = resolve_run_selection(&root, &ctx.env, inventory, q);
+        if !obs.values.is_empty() {
+            self.add(
+                finding::GIT_SSH_COMMAND_PRESENT,
+                FindingSeverity::Info,
+                subject("config", Some("core.sshCommand")),
+                ProbeLevel::Static,
+                None,
+                "core.sshCommand is set in the system or global Git configuration (values are never shown)",
+                "none",
+                None,
+            );
+        }
+        if obs.file.is_none() && ctx.env.get("GIT_CONFIG_GLOBAL").is_some() {
+            self.add(
+                finding::GIT_GLOBAL_REDIRECTED,
+                FindingSeverity::Info,
+                subject("environment", Some("GIT_CONFIG_GLOBAL")),
+                ProbeLevel::Static,
+                None,
+                "GIT_CONFIG_GLOBAL redirects the global Git configuration",
+                "none",
+                None,
+            );
+        }
+        if !obs.unreadable.is_empty() {
+            self.add(
+                finding::GIT_CONFIG_UNREADABLE,
+                FindingSeverity::Warning,
+                subject("config", Some("git")),
+                ProbeLevel::Static,
+                None,
+                format!(
+                    "{} Git configuration file(s) or include(s) could not be read within the bounds",
+                    obs.unreadable.len()
+                ),
+                "review_config",
+                None,
+            );
+        }
+        if matches!(obs.default_ssh, DefaultGitSsh::BundledMsys(_))
+            && agents
+                .iter()
+                .any(|a| matches!(a.locator, EndpointLocator::NamedPipe(_)))
+        {
+            self.add(
+                finding::GIT_SSH_UNREACHABLE_AGENT,
+                FindingSeverity::Warning,
+                subject("executable", Some("git")),
+                ProbeLevel::Static,
+                None,
+                "Git's bundled ssh cannot reach a named-pipe agent",
+                "change_client",
+                None,
+            );
+        }
+        Some(GitObservation {
+            selection,
+            values: obs.values,
+        })
+    }
+
+    fn explicit_levels(
+        &mut self,
+        aliases: &[String],
+        evaluations: &BTreeMap<String, Evaluation>,
+        agents: &[AgentEndpoint],
+        inventory: &ClientInventory,
+    ) {
+        let ctx = self.ctx;
+        let mut pctx = ProbeContext::new(
+            ctx,
+            self.request.allow_config_commands,
+            self.request.interactive,
+        );
+        pctx.inventory = Some(inventory);
+        let levels: Vec<ProbeLevel> = self
+            .request
+            .levels
+            .iter()
+            .copied()
+            .filter(|l| *l != ProbeLevel::Static)
+            .collect();
+        for level in levels {
+            let before = self.probes.len();
+            match level {
+                ProbeLevel::Evaluate => {
+                    for alias in aliases {
+                        self.probes.push(probe::evaluate::ssh_g(&pctx, alias));
+                    }
+                }
+                ProbeLevel::HostVerification => {
+                    for alias in aliases {
+                        let (r, class) = probe::host::verify_observed(&pctx, alias);
+                        self.probes.push(r);
+                        self.host_findings(alias, class);
+                    }
+                }
+                ProbeLevel::Authentication => {
+                    for alias in aliases {
+                        let (r, refusal) = probe::auth::authenticate_observed(&pctx, alias);
+                        self.probes.push(r);
+                        if let Some(why) = refusal {
+                            self.add(
+                                finding::INTERACTION_UNKNOWN,
+                                FindingSeverity::Warning,
+                                subject("destination", Some(alias)),
+                                ProbeLevel::Authentication,
+                                None,
+                                "a non-interactive authentication was refused before anything ran",
+                                "interact",
+                                Some(why.as_str()),
+                            );
+                        }
+                    }
+                }
+                ProbeLevel::Network => {
+                    for alias in aliases {
+                        let Some(eval) = evaluations.get(alias) else {
+                            continue;
+                        };
+                        let b = relevant(eval);
+                        let direct = matches!(b.proxy, ProxyResolution::Determined(Proxy::None));
+                        match (direct, destination(alias, &b)) {
+                            (true, Some((host, port))) => {
+                                self.probes.push(probe::network::banner(&pctx, &host, port));
+                            }
+                            _ => {
+                                // Routed through a proxy, or not decided statically:
+                                // reported undetermined, never probed.
+                                self.probes.push(probe::refused(
+                                    ProbeLevel::Network,
+                                    alias,
+                                    Code::CapabilityUnavailable,
+                                ));
+                            }
+                        }
+                    }
+                }
+                ProbeLevel::Agent => {
+                    let mut targets: Vec<EndpointLocator> = Vec::new();
+                    for a in agents {
+                        if a.presence == Presence::Present && !targets.contains(&a.locator) {
+                            targets.push(a.locator.clone());
+                        }
+                    }
+                    for c in &ctx.catalog {
+                        if let Some(e) = c.identity.as_ref().and_then(|i| i.endpoint.clone())
+                            && !targets.contains(&e)
+                        {
+                            targets.push(e);
+                        }
+                    }
+                    for t in targets {
+                        let (r, listing) = probe::agent::list_identities_observed(&pctx, &t);
+                        self.probes.push(r);
+                        if let Ok(listing) = listing {
+                            self.listing_findings(&t, &listing);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if self.probes.len() == before {
+                self.probes.push(probe::refused(level, "*", Code::NotFound));
+            }
+        }
+    }
+
+    fn host_findings(&mut self, alias: &str, class: Option<probe::host::HostVerification>) {
+        use probe::host::HostVerification as H;
+        match class {
+            Some(H::Missing) => self.add(
+                finding::KNOWN_HOST_MISSING,
+                FindingSeverity::Warning,
+                subject("destination", Some(alias)),
+                ProbeLevel::HostVerification,
+                None,
+                "the host presented a key that no known_hosts entry vouches for",
+                "review_host_trust",
+                None,
+            ),
+            Some(H::Mismatch) => self.add(
+                finding::KNOWN_HOST_MISMATCH,
+                FindingSeverity::Problem,
+                subject("destination", Some(alias)),
+                ProbeLevel::HostVerification,
+                None,
+                "the host presented a key that differs from the known_hosts entry",
+                "review_host_trust",
+                None,
+            ),
+            _ => {}
+        }
+    }
+
+    fn listing_findings(
+        &mut self,
+        endpoint: &EndpointLocator,
+        listing: &heimdall_ipc::agent_client::AgentListing,
+    ) {
+        let listed: BTreeSet<&str> = listing
+            .identities
+            .iter()
+            .map(|i| i.fingerprint.as_str())
+            .collect();
+        let missing: Vec<String> = self
+            .ctx
+            .catalog
+            .iter()
+            .filter_map(|c| {
+                let id = c.identity.as_ref()?;
+                (id.endpoint.as_ref() == Some(endpoint)
+                    && id
+                        .fingerprint
+                        .as_deref()
+                        .is_some_and(|f| !listed.contains(f)))
+                .then(|| c.alias.clone())
+            })
+            .collect();
+        for alias in missing {
+            self.add(
+                finding::IDENTITY_NOT_LISTED,
+                FindingSeverity::Warning,
+                subject("destination", Some(&alias)),
+                ProbeLevel::Agent,
+                None,
+                "the agent does not list the adopted identity",
+                "interact",
+                None,
+            );
+        }
+    }
+}
+
+/// The statically known destination of an alias: its determined `HostName` (or the
+/// alias when unset; `%h` is the alias) and its determined `Port` (22 when unset).
+fn destination(alias: &str, b: &RelevantBehavior) -> Option<(String, u16)> {
+    let host = match &b.hostname {
+        Resolved::Unset => alias.to_owned(),
+        Resolved::Determined(v) => {
+            let h = v.args.first()?;
+            if h.contains('%') {
+                h.replace("%h", alias).replace("%%", "%")
+            } else {
+                h.clone()
+            }
+        }
+        Resolved::Undetermined(_) => return None,
+    };
+    if host.contains('%') {
+        return None;
+    }
+    let port = match &b.port {
+        Resolved::Unset => 22,
+        Resolved::Determined(v) => v.args.first()?.parse().ok()?,
+        Resolved::Undetermined(_) => return None,
+    };
+    Some((host, port))
+}
+
+/// `--redact`: aliases become `alias-<n>`; host names, user names and host key aliases
+/// become `<redacted>`.
+fn redact(report: &mut DoctorReport) {
+    let mut names: BTreeMap<String, String> = BTreeMap::new();
+    for (i, a) in report.aliases.iter().enumerate() {
+        names.insert(a.alias.clone(), format!("alias-{}", i + 1));
+    }
+    let swap = |s: &str| names.get(s).cloned();
+    for a in &mut report.aliases {
+        if let Some(n) = swap(&a.alias) {
+            a.alias = n;
+        }
+        for d in &mut a.behavior {
+            if matches!(
+                d.directive.as_str(),
+                "HostName" | "User" | "HostKeyAlias" | "Proxy"
+            ) {
+                for v in &mut d.values {
+                    *v = "<redacted>".to_owned();
+                }
+            }
+        }
+    }
+    for f in &mut report.findings {
+        if let Some(id) = f.subject.id.as_deref().and_then(swap) {
+            f.subject.id = Some(id);
+        }
+    }
+    for p in &mut report.probes {
+        if let Some(n) = swap(&p.target) {
+            p.target = n;
+        } else if p.level == ProbeLevel::Network
+            && let Some((_, port)) = p.target.rsplit_once(':')
+        {
+            p.target = format!("<redacted>:{port}");
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn destination_uses_the_alias_and_default_port_when_unset() {
+        let unset = RelevantBehavior {
+            hostname: Resolved::Unset,
+            port: Resolved::Unset,
+            ..relevant(&Evaluation::default())
+        };
+        assert_eq!(
+            destination("a.example", &unset),
+            Some(("a.example".to_owned(), 22))
+        );
+    }
+
+    #[test]
+    fn passive_request_is_static_only() {
+        let r = DoctorRequest::passive();
+        assert_eq!(r.levels, BTreeSet::from([ProbeLevel::Static]));
+        assert!(!r.allow_config_commands);
+        assert_eq!(r.local_queries, LocalQueries::Enabled);
+    }
 }

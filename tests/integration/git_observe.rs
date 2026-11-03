@@ -1,6 +1,612 @@
-//! Placeholder registered by the orchestrator before M02 wave 2 (ADR-0007 §12.15
-//! item 9). Owner: W2-U3, who replaces this file with the m02-plan tests. A placeholder
-//! left at wave-2 integration is a defect.
+//! Git observation (m02-plan U3 "Tests (Git observation, M2-D10)"; ADR-0007 §5.6, §8,
+//! F22).
+//!
+//! Cargo test target `integration_git_observe` hosted by `heimdall-localenv` (review
+//! F09 convention). Every test runs the local `git` with a scratch `HOME` this process
+//! created, either `GIT_CONFIG_NOSYSTEM=1` or a scratch `GIT_CONFIG_SYSTEM`, no
+//! `GIT_CONFIG_GLOBAL` unless the test redirects it into scratch, and `PATH` only:
+//! the owner's Git configuration and `~/.gitconfig` are never read (m02-plan §0).
+//! Heimdall's observation gets the same environment through an `Env` snapshot; the
+//! test's own `git` runs get it through `env_clear`. Observations specific to this
+//! Git (F22 `[I]` facts) are recorded on stderr as `observation` lines, paths shown
+//! relative to `<scratch>`.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
+
+use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+
+use heimdall_contract::doctor::{GitScope, GitSshClassification, GitSshSource};
+use heimdall_contract::setup::{GitFileResolution, GitGlobalFileKind};
+use heimdall_localenv::clients::{ClientInventory, ClientsConfig, resolve_clients};
+use heimdall_localenv::env::Env;
+use heimdall_localenv::git::{
+    GitGlobalObservation, observe_global, parse_origin_values, parse_scope_value,
+    resolve_global_file, resolve_run_selection, value_digest,
+};
+use heimdall_localenv::local_query::LocalQueries;
+use heimdall_localenv::paths::SshPaths;
+use heimdall_testkit::home::{Scratch, find_program};
+use heimdall_testkit::{CANARY_PREFIX, assert_no_canary};
+
+/// A scratch Git home.
+struct GitHome {
+    _scratch: Scratch,
+    /// Canonical scratch root.
+    root: PathBuf,
+    /// The scratch `HOME`.
+    home: PathBuf,
+    git: PathBuf,
+    /// Extra variables for this test (`GIT_CONFIG_SYSTEM`, `GIT_CONFIG_GLOBAL` …).
+    vars: BTreeMap<String, OsString>,
+}
+
+impl GitHome {
+    fn new() -> GitHome {
+        let scratch = Scratch::new().unwrap();
+        let root = std::fs::canonicalize(scratch.path()).unwrap();
+        let home = root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let git = find_program("git").expect("git on PATH");
+        let mut vars = BTreeMap::new();
+        vars.insert("GIT_CONFIG_NOSYSTEM".to_owned(), OsString::from("1"));
+        GitHome {
+            _scratch: scratch,
+            root,
+            home,
+            git,
+            vars,
+        }
+    }
+
+    fn path_var(&self) -> OsString {
+        let dir = self.git.parent().unwrap().to_path_buf();
+        std::env::join_paths([dir, PathBuf::from("/usr/bin"), PathBuf::from("/bin")]).unwrap()
+    }
+
+    fn env(&self) -> Env {
+        let mut vars: Vec<(OsString, OsString)> = vec![
+            ("PATH".into(), self.path_var()),
+            ("HOME".into(), self.home.clone().into_os_string()),
+        ];
+        vars.extend(
+            self.vars
+                .iter()
+                .map(|(k, v)| (OsString::from(k), v.clone())),
+        );
+        Env::from_vars(vars)
+    }
+
+    fn system_file(&mut self, text: &str) -> PathBuf {
+        let p = self.root.join("system-gitconfig");
+        std::fs::write(&p, text).unwrap();
+        self.vars.remove("GIT_CONFIG_NOSYSTEM");
+        self.vars
+            .insert("GIT_CONFIG_SYSTEM".to_owned(), p.clone().into_os_string());
+        p
+    }
+
+    fn write(&self, rel: &str, text: &str) -> PathBuf {
+        let p = self.home.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, text.replace("@HOME@", &self.home.to_string_lossy())).unwrap();
+        p
+    }
+
+    fn inventory(&self) -> ClientInventory {
+        let paths = SshPaths::with_test_override(self.home.clone(), self.root.join("etc-ssh"));
+        resolve_clients(
+            &self.env(),
+            &paths,
+            &ClientsConfig::default(),
+            LocalQueries::Enabled,
+        )
+    }
+
+    fn observe(&self) -> GitGlobalObservation {
+        observe_global(&self.env(), &self.inventory(), LocalQueries::Enabled)
+    }
+
+    /// Run the local `git` with exactly this test's environment.
+    fn git(&self, cwd: &Path, args: &[&str]) -> (i32, Vec<u8>) {
+        let mut cmd = Command::new(&self.git);
+        cmd.env_clear()
+            .env("PATH", self.path_var())
+            .env("HOME", &self.home)
+            .current_dir(cwd)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        for (k, v) in &self.vars {
+            cmd.env(k, v);
+        }
+        let out = cmd.output().unwrap();
+        (out.status.code().unwrap_or(-1), out.stdout)
+    }
+
+    fn record(&self, test: &str, fields: &[(&str, String)]) {
+        let (_, version) = self.git(&self.root, &["--version"]);
+        let mut line = format!(
+            "observation test={test} git={:?}",
+            String::from_utf8_lossy(&version).trim()
+        );
+        for (k, v) in fields {
+            line.push_str(&format!(
+                " {k}={:?}",
+                v.replace(&*self.root.to_string_lossy(), "<scratch>")
+            ));
+        }
+        eprintln!("{line}");
+    }
+
+    fn display(&self, rel: &str) -> String {
+        format!("file:~{}{rel}", std::path::MAIN_SEPARATOR)
+    }
+}
+
+fn per_scope(obs: &GitGlobalObservation) -> BTreeMap<String, u32> {
+    let mut m = BTreeMap::new();
+    for v in &obs.values {
+        *m.entry(format!("{:?}", v.scope)).or_insert(0) += v.count;
+    }
+    m
+}
 
 #[test]
-fn placeholder_owned_by_w2_u3() {}
+fn git_config_query_output_parsed() {
+    let h = GitHome::new();
+    h.write(
+        ".gitconfig",
+        "[core]\n\tsshCommand = \"ssh -v\" # c\n[include]\n\tpath = inc.conf\n",
+    );
+    h.write("inc.conf", "[core]\n\tsshCommand = included-ssh\n");
+    let (code, out) = h.git(
+        Path::new("/"),
+        &[
+            "config",
+            "--global",
+            "--includes",
+            "--show-origin",
+            "-z",
+            "--get-all",
+            "core.sshCommand",
+        ],
+    );
+    assert_eq!(code, 0);
+    let pairs = parse_origin_values(&out).expect("the --show-origin -z form parses");
+    let home = h.home.to_string_lossy().into_owned();
+    assert_eq!(
+        pairs,
+        vec![
+            (format!("file:{home}/.gitconfig"), "ssh -v".to_owned()),
+            (format!("file:{home}/inc.conf"), "included-ssh".to_owned()),
+        ]
+    );
+    let (code, out) = h.git(
+        Path::new("/"),
+        &["config", "--show-scope", "-z", "--get", "core.sshCommand"],
+    );
+    assert_eq!(code, 0);
+    assert_eq!(
+        parse_scope_value(&out),
+        Some((GitScope::Global, "included-ssh".to_owned())),
+        "the --show-scope -z form parses to the winning (last) value"
+    );
+    // Heimdall's observation reports both origins by digest only.
+    let obs = h.observe();
+    let origins: Vec<_> = obs
+        .values
+        .iter()
+        .map(|v| {
+            (
+                v.origin_display.clone().unwrap(),
+                v.value_sha256.clone(),
+                v.count,
+            )
+        })
+        .collect();
+    assert_eq!(
+        origins,
+        vec![
+            (h.display(".gitconfig"), value_digest("ssh -v"), 1),
+            (h.display("inc.conf"), value_digest("included-ssh"), 1),
+        ]
+    );
+    assert!(obs.unreadable.is_empty(), "{:?}", obs.unreadable);
+}
+
+#[test]
+fn git_global_file_resolution_follows_read_order() {
+    let h = GitHome::new();
+    let env = h.env();
+    // Neither file: ~/.gitconfig is created.
+    let r = resolve_global_file(&env).unwrap();
+    assert_eq!(
+        (r.file, r.rule, r.path.clone()),
+        (
+            GitGlobalFileKind::HomeGitconfig,
+            GitFileResolution::Created,
+            h.home.join(".gitconfig")
+        )
+    );
+    // Only ~/.gitconfig.
+    h.write(".gitconfig", "");
+    let r = resolve_global_file(&env).unwrap();
+    assert_eq!(
+        (r.file, r.rule),
+        (
+            GitGlobalFileKind::HomeGitconfig,
+            GitFileResolution::FirstReadExisting
+        )
+    );
+    // Both: the XDG file, which Git reads first.
+    h.write(".config/git/config", "");
+    let r = resolve_global_file(&env).unwrap();
+    assert_eq!(
+        (r.file, r.rule),
+        (
+            GitGlobalFileKind::XdgConfig,
+            GitFileResolution::FirstReadExisting
+        )
+    );
+    assert_eq!(r.path, h.home.join(".config").join("git").join("config"));
+    // Only XDG.
+    std::fs::remove_file(h.home.join(".gitconfig")).unwrap();
+    let r = resolve_global_file(&env).unwrap();
+    assert_eq!(
+        (r.file, r.rule),
+        (
+            GitGlobalFileKind::XdgConfig,
+            GitFileResolution::FirstReadExisting
+        )
+    );
+    // The read order itself, from this Git: `git var GIT_CONFIG_GLOBAL` lists the XDG
+    // file first, and with both files holding a value an unscoped query returns the
+    // XDG value first.
+    h.write(".gitconfig", "[core]\n\tsshCommand = home-value\n");
+    h.write(".config/git/config", "[core]\n\tsshCommand = xdg-value\n");
+    let (code, var) = h.git(Path::new("/"), &["var", "GIT_CONFIG_GLOBAL"]);
+    let listed: Vec<String> = String::from_utf8_lossy(&var)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let (_, all) = h.git(
+        Path::new("/"),
+        &["config", "-z", "--get-all", "core.sshCommand"],
+    );
+    let values: Vec<String> = all
+        .split(|b| *b == 0)
+        .filter(|s| !s.is_empty())
+        .map(|s| String::from_utf8_lossy(s).into_owned())
+        .collect();
+    h.record(
+        "git_global_file_resolution_follows_read_order",
+        &[
+            ("git_var_exit", code.to_string()),
+            ("git_var_global", listed.join(",")),
+            ("unscoped_read_order", values.join(",")),
+        ],
+    );
+    assert_eq!(
+        values,
+        ["xdg-value", "home-value"],
+        "this Git does not read the XDG file first"
+    );
+    if code == 0 {
+        assert_eq!(
+            listed.first().map(PathBuf::from),
+            Some(h.home.join(".config/git/config"))
+        );
+    }
+    // GIT_CONFIG_GLOBAL redirects: no file is offered.
+    let mut r = h;
+    r.vars.insert(
+        "GIT_CONFIG_GLOBAL".to_owned(),
+        r.root.join("other-gitconfig").into_os_string(),
+    );
+    assert!(resolve_global_file(&r.env()).is_none());
+    let obs = r.observe();
+    assert!(obs.file.is_none());
+    assert!(obs.env_overrides.contains(&"GIT_CONFIG_GLOBAL"));
+    assert_eq!(obs.not_applicable_reason(), Some("git_global_redirected"));
+}
+
+#[test]
+fn git_run_selection_in_cwd_reports_local_override() {
+    let h = GitHome::new();
+    let repo = h.root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    assert_eq!(h.git(&repo, &["init", "-q"]).0, 0);
+    let inv = h.inventory();
+    let ssh = inv
+        .selected(heimdall_localenv::clients::ClientKind::Ssh)
+        .expect("ssh on PATH")
+        .path
+        .clone();
+    let env = h.env();
+    // Nothing set anywhere: Git's default, `ssh` from PATH, the verified client here.
+    let s = resolve_run_selection(&repo, &env, &inv, LocalQueries::Enabled);
+    assert_eq!(s.source, GitSshSource::Default);
+    assert_eq!(s.classification, GitSshClassification::VerifiedClient);
+    // A global value naming the verified client, quoted as Heimdall renders it.
+    h.write(
+        ".gitconfig",
+        &format!("[core]\n\tsshCommand = \"'{}'\"\n", ssh.display()),
+    );
+    let s = resolve_run_selection(&repo, &env, &inv, LocalQueries::Enabled);
+    assert_eq!(
+        (s.source, s.scope, s.classification),
+        (
+            GitSshSource::Config,
+            Some(GitScope::Global),
+            GitSshClassification::VerifiedClient
+        )
+    );
+    // A repository-local value wins in that directory and is reported with its scope.
+    assert_eq!(
+        h.git(&repo, &["config", "core.sshCommand", "other-ssh -v"])
+            .0,
+        0
+    );
+    let s = resolve_run_selection(&repo, &env, &inv, LocalQueries::Enabled);
+    assert_eq!(
+        (s.source, s.scope, s.classification),
+        (
+            GitSshSource::Config,
+            Some(GitScope::Local),
+            GitSshClassification::Other
+        )
+    );
+    // Outside the repository the global value is the selection.
+    let s = resolve_run_selection(&h.root, &env, &inv, LocalQueries::Enabled);
+    assert_eq!(s.scope, Some(GitScope::Global));
+    // GIT_SSH_COMMAND in the child's environment wins over every scope.
+    let child = Env::from_vars(
+        env.iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .chain([(
+                OsString::from("GIT_SSH_COMMAND"),
+                OsString::from("other-ssh"),
+            )]),
+    );
+    let s = resolve_run_selection(&repo, &child, &inv, LocalQueries::Enabled);
+    assert_eq!((s.source, s.scope), (GitSshSource::EnvGitSshCommand, None));
+    // Without local queries a configured value cannot be ruled out.
+    let s = resolve_run_selection(&repo, &env, &inv, LocalQueries::Disabled);
+    assert_eq!(s.classification, GitSshClassification::Undetermined);
+}
+
+#[test]
+fn git_values_never_leave_observation() {
+    let canary = format!("{CANARY_PREFIX}GITVALUE_{}", std::process::id());
+    let value = format!("ssh -o SetEnv=X={canary}");
+    let mut h = GitHome::new();
+    h.system_file(&format!("[core]\n\tsshCommand = \"{value} system\"\n"));
+    h.write(
+        ".gitconfig",
+        &format!(
+            "[core]\n\tsshCommand = \"{value}\"\n[include]\n\tpath = inc.conf\n[includeIf \"gitdir:@HOME@/work/\"]\n\tpath = cond.conf\n"
+        ),
+    );
+    h.write(
+        "inc.conf",
+        &format!("[core]\n\tsshCommand = \"{value} inc\"\n"),
+    );
+    h.write(
+        "cond.conf",
+        &format!("[core]\n\tsshCommand = \"{value} cond\"\n"),
+    );
+    let repo = h.root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    assert_eq!(h.git(&repo, &["init", "-q"]).0, 0);
+    assert_eq!(
+        h.git(
+            &repo,
+            &["config", "core.sshCommand", &format!("{value} local")]
+        )
+        .0,
+        0
+    );
+    let inv = h.inventory();
+    let obs = observe_global(&h.env(), &inv, LocalQueries::Enabled);
+    let sel = resolve_run_selection(&repo, &h.env(), &inv, LocalQueries::Enabled);
+    assert_eq!(obs.values.len(), 4, "{:?}", obs.values);
+    // `Debug` prints every field of the observation and the selection.
+    for text in [format!("{obs:?}"), format!("{sel:?}")] {
+        assert_no_canary(&text);
+    }
+    // The digest is of the value, not of the line.
+    assert!(
+        obs.values
+            .iter()
+            .any(|v| v.value_sha256 == value_digest(&value))
+    );
+}
+
+#[test]
+fn git_both_global_files_present_values_in_either_make_item_not_applicable() {
+    let h = GitHome::new();
+    // A value only in the XDG file, both files present.
+    h.write(".gitconfig", "[user]\n\tname = scratch\n");
+    h.write(".config/git/config", "[core]\n\tsshCommand = xdg-only\n");
+    let obs = h.observe();
+    assert_eq!(obs.values.len(), 1, "{:?}", obs.values);
+    assert_eq!(
+        obs.values[0].origin_display.as_deref(),
+        Some(h.display(".config/git/config").as_str())
+    );
+    assert_eq!(obs.values[0].scope, GitScope::Global);
+    assert_eq!(obs.not_applicable_reason(), Some("git_ssh_command_present"));
+    // F22 `[I]`: whether this Git's `--global` query reads the XDG file when
+    // `~/.gitconfig` exists. Heimdall's static scan does not depend on it.
+    let (code, _) = h.git(
+        Path::new("/"),
+        &[
+            "config",
+            "--global",
+            "--includes",
+            "--get-all",
+            "core.sshCommand",
+        ],
+    );
+    h.record(
+        "git_both_global_files_present_values_in_either_make_item_not_applicable",
+        &[(
+            "global_query_reads_xdg_when_home_file_exists",
+            (code == 0).to_string(),
+        )],
+    );
+    // A value only in ~/.gitconfig, both files present.
+    h.write(".gitconfig", "[core]\n\tsshCommand = home-only\n");
+    h.write(".config/git/config", "[user]\n\tname = scratch\n");
+    let obs = h.observe();
+    assert_eq!(obs.values.len(), 1, "{:?}", obs.values);
+    assert_eq!(
+        obs.values[0].origin_display.as_deref(),
+        Some(h.display(".gitconfig").as_str())
+    );
+    assert_eq!(obs.not_applicable_reason(), Some("git_ssh_command_present"));
+}
+
+#[test]
+fn git_queries_use_includes_flag_and_expand_includes() {
+    let h = GitHome::new();
+    h.write(".gitconfig", "[include]\n\tpath = held.conf\n");
+    h.write("held.conf", "[core]\n\tsshCommand = held-value\n");
+    let obs = h.observe();
+    assert_eq!(obs.values.len(), 1);
+    assert_eq!(
+        obs.values[0].origin_display.as_deref(),
+        Some(h.display("held.conf").as_str())
+    );
+    assert!(!obs.values[0].conditional);
+    // The control: the same query without --includes must miss the value, which
+    // shows the flag matters on this Git (F22).
+    let (with_flag, _) = h.git(
+        Path::new("/"),
+        &[
+            "config",
+            "--global",
+            "--includes",
+            "--show-origin",
+            "--get-all",
+            "core.sshCommand",
+        ],
+    );
+    let (without_flag, _) = h.git(
+        Path::new("/"),
+        &[
+            "config",
+            "--global",
+            "--show-origin",
+            "--get-all",
+            "core.sshCommand",
+        ],
+    );
+    h.record(
+        "git_queries_use_includes_flag_and_expand_includes",
+        &[
+            ("with_includes_exit", with_flag.to_string()),
+            ("without_includes_exit", without_flag.to_string()),
+        ],
+    );
+    assert_eq!(with_flag, 0);
+    assert_eq!(
+        without_flag, 1,
+        "a --global query followed include.path without --includes"
+    );
+}
+
+#[test]
+fn git_value_through_conditional_include_is_counted_conditional() {
+    let h = GitHome::new();
+    std::fs::create_dir_all(h.home.join("work")).unwrap();
+    h.write(
+        ".gitconfig",
+        "[includeIf \"gitdir:@HOME@/work/\"]\n\tpath = cond.conf\n",
+    );
+    h.write("cond.conf", "[core]\n\tsshCommand = cond-value\n");
+    // The query run outside any repository misses it (F22).
+    let (code, _) = h.git(
+        Path::new("/"),
+        &[
+            "config",
+            "--global",
+            "--includes",
+            "--get-all",
+            "core.sshCommand",
+        ],
+    );
+    h.record(
+        "git_value_through_conditional_include_is_counted_conditional",
+        &[("query_outside_repository_exit", code.to_string())],
+    );
+    assert_eq!(
+        code, 1,
+        "a query outside any repository followed includeIf gitdir:"
+    );
+    let obs = h.observe();
+    assert_eq!(obs.values.len(), 1, "{:?}", obs.values);
+    assert!(obs.values[0].conditional);
+    assert_eq!(
+        obs.values[0].origin_display.as_deref(),
+        Some(h.display("cond.conf").as_str())
+    );
+    assert_eq!(obs.not_applicable_reason(), Some("git_ssh_command_present"));
+}
+
+#[test]
+fn git_multiplicity_through_includes_counts_each_origin() {
+    let mut h = GitHome::new();
+    h.system_file("[core]\n\tsshCommand = sys-value\n");
+    h.write(
+        ".gitconfig",
+        "[core]\n\tsshCommand = global-value\n[include]\n\tpath = inc.conf\n",
+    );
+    h.write("inc.conf", "[core]\n\tsshCommand = inc-value\n");
+    let obs = h.observe();
+    assert_eq!(obs.values.len(), 3, "{:?}", obs.values);
+    let scopes = per_scope(&obs);
+    assert_eq!(scopes.get("System"), Some(&1));
+    assert_eq!(scopes.get("Global"), Some(&2));
+    let origins: Vec<_> = obs
+        .values
+        .iter()
+        .filter_map(|v| v.origin_display.clone())
+        .collect();
+    assert!(origins.contains(&h.display(".gitconfig")));
+    assert!(origins.contains(&h.display("inc.conf")));
+}
+
+#[cfg(unix)]
+#[test]
+fn git_unreadable_include_makes_item_not_applicable() {
+    use std::os::unix::fs::PermissionsExt;
+    let h = GitHome::new();
+    h.write(".gitconfig", "[include]\n\tpath = locked.conf\n");
+    let locked = h.write("locked.conf", "[core]\n\tsshCommand = hidden\n");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let obs = h.observe();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(!obs.unreadable.is_empty());
+    assert_eq!(obs.not_applicable_reason(), Some("git_config_unreadable"));
+
+    // An include chain deeper than the bound.
+    let h = GitHome::new();
+    h.write(".gitconfig", "[include]\n\tpath = c0.conf\n");
+    for i in 0..=heimdall_localenv::git::GIT_WALK_DEPTH + 1 {
+        h.write(
+            &format!("c{i}.conf"),
+            &format!("[include]\n\tpath = c{}.conf\n", i + 1),
+        );
+    }
+    let obs = h.observe();
+    assert!(
+        !obs.unreadable.is_empty(),
+        "the depth bound was not enforced"
+    );
+    assert_eq!(obs.not_applicable_reason(), Some("git_config_unreadable"));
+}

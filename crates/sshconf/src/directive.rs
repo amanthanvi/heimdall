@@ -16,7 +16,9 @@
 //! **Retired keywords (U1).** OpenSSH accepts, and ignores, a few keywords it no longer
 //! implements (`Protocol`, `UseRoaming` …). They parse as [`Keyword::Unknown`] (the
 //! frozen AST has no other place for them); [`obsolete`] tells an evaluator that ssh
-//! ignores such a line instead of refusing the file. Also `[I]`, settled the same way.
+//! ignores such a line instead of refusing the file, and `eval::evaluate` uses it that
+//! way: such a line is not invalid, changes no value, and is recorded in
+//! `Evaluation::ignored` (ADR-0007 §12.15 item 4). Also `[I]`, settled the same way.
 //!
 //! **Classes.** [`class`] follows F1–F4 and the S01 text: the six keywords whose entry
 //! says that occurrences add up are [`DirectiveClass::Accumulates`]; `Host`/`Match` are
@@ -743,6 +745,23 @@ pub fn class(keyword: KnownKeyword) -> DirectiveClass {
         | K::WarnWeakCrypto
         | K::XauthLocation => DirectiveClass::FirstWins,
     }
+}
+
+/// Whether the parser keeps the raw rest of the line (`parse::Directive::raw`) for this
+/// keyword: the four whose text OpenSSH stores as written and hands to a shell,
+/// `ProxyCommand`, `LocalCommand`, `RemoteCommand` and `KnownHostsCommand`
+/// (ADR-0007 §12.15 item 2). `RemoteCommand` runs on the server, so [`class`] does not
+/// call it [`DirectiveClass::Executes`], but its quoting changes the command all the
+/// same.
+#[must_use]
+pub fn keeps_raw(keyword: KnownKeyword) -> bool {
+    matches!(
+        keyword,
+        KnownKeyword::ProxyCommand
+            | KnownKeyword::LocalCommand
+            | KnownKeyword::RemoteCommand
+            | KnownKeyword::KnownHostsCommand
+    )
 }
 
 /// Every `%` token letter of S01's TOKENS section (`%%` aside).

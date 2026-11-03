@@ -12,12 +12,16 @@
 use std::path::{Path, PathBuf};
 
 use heimdall_sshconf::directive::{Keyword, KnownKeyword};
+use heimdall_sshconf::eval::{
+    Invocation, OpenSshVersion, Query, Resolved, SourceRole, Value, evaluate,
+};
 use heimdall_sshconf::include::{
     ArgError, ConfigSet, IncludeError, MemEntry, MemSource, Roots, SourceError, WalkRecord, record,
 };
 use heimdall_sshconf::lex::split_args;
 use heimdall_sshconf::limits::Limits;
 use heimdall_sshconf::parse::{Line, ParseError, SourceId, parse_file};
+use heimdall_sshconf::relevant::{behavior_digest, executing_constructs, relevant};
 use proptest::prelude::*;
 use proptest::test_runner::{FileFailurePersistence, RngSeed};
 
@@ -29,10 +33,7 @@ fn source() -> MemSource {
 
 fn walk_user(src: &MemSource, limits: &Limits) -> (ConfigSet, WalkRecord) {
     let mut set = ConfigSet::new();
-    let roots = Roots {
-        user: Some(PathBuf::from(ROOT)),
-        system: None,
-    };
+    let roots = Roots::new(Some(PathBuf::from(ROOT)), None);
     let rec = record(&mut set, src, &roots, limits, &|_| None);
     (set, rec)
 }
@@ -424,6 +425,128 @@ fn shell_metacharacters_in_values_stay_data() {
 }
 
 #[test]
+fn command_text_with_shell_metacharacters_is_kept_raw_as_data() {
+    // ADR-0007 §12.15 item 2: the four command keywords keep the rest of the line as
+    // OpenSSH does, hostile text and trailing comment included. It is only ever data:
+    // the MemSource stores bytes and the crate has no API that runs anything.
+    let text = concat!(
+        "Host box\n",
+        "  ProxyCommand sh -c 'echo $HOME; rm -rf /nowhere' ; nc %h %p > /dev/null & # $(id)\n",
+        "  LocalCommand $(curl x) && `whoami` | tee \"a b\"\n",
+        "  KnownHostsCommand /bin/echo %H; exit 0\n",
+        "  RemoteCommand \"; touch /tmp/hm-never; \" \\\n",
+        "  HostName a;b|c&d$(e)`f`\n",
+    );
+    let file = parse_file(SourceId(0), text.as_bytes(), &Limits::default()).unwrap();
+    let raws: Vec<Option<&str>> = file
+        .lines
+        .iter()
+        .filter_map(|l| match l {
+            Line::Directive(d) if d.keyword != Keyword::Known(KnownKeyword::Host) => {
+                Some(d.raw.as_deref())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        raws,
+        [
+            Some("sh -c 'echo $HOME; rm -rf /nowhere' ; nc %h %p > /dev/null & # $(id)"),
+            Some("$(curl x) && `whoami` | tee \"a b\""),
+            Some("/bin/echo %H; exit 0"),
+            Some("\"; touch /tmp/hm-never; \" \\"),
+            None,
+        ]
+    );
+
+    // The evaluation reads only the configuration file, lists the commands as
+    // executing constructs, and binds the hostile text as written: a change of quoting
+    // alone, which leaves the split arguments equal, changes the digest.
+    let src = source().with_file(ROOT, text);
+    let eval = |src: &MemSource| {
+        let roots = Roots::new(Some(PathBuf::from(ROOT)), None);
+        let query = Query {
+            host: "box".to_owned(),
+            user: None,
+            local_user: "fixture".to_owned(),
+            client_version: OpenSshVersion {
+                major: 10,
+                minor: 3,
+                portable: Some(1),
+            },
+            invocation: Invocation::Shell,
+        };
+        let mut set = ConfigSet::new();
+        evaluate(&mut set, src, &roots, &query, &Limits::default())
+    };
+    let ev = eval(&src);
+    assert_eq!(src.reads(), 1);
+    assert_eq!(src.globs(), 0);
+    assert!(ev.invalid.is_empty(), "{:?}", ev.invalid);
+    // ProxyCommand and KnownHostsCommand run here; LocalCommand needs PermitLocalCommand
+    // and RemoteCommand runs on the server.
+    assert_eq!(executing_constructs(&ev).len(), 2);
+    let requoted = source().with_file(ROOT, text.replace("exit 0", "exit '0'"));
+    let after = eval(&requoted);
+    assert_eq!(
+        after.values[&KnownKeyword::KnownHostsCommand],
+        Resolved::Determined(match &ev.values[&KnownKeyword::KnownHostsCommand] {
+            Resolved::Determined(v) => Value {
+                raw: Some("/bin/echo %H; exit '0'".to_owned()),
+                ..v.clone()
+            },
+            other => panic!("{other:?}"),
+        }),
+        "only the raw text differs; the split arguments are the same"
+    );
+    assert_ne!(
+        behavior_digest(&relevant(&ev)),
+        behavior_digest(&relevant(&after))
+    );
+}
+
+#[test]
+fn a_hostile_retired_keyword_line_is_ignored_not_trusted() {
+    // A retired keyword has no effect, whatever follows it, and a line that only looks
+    // like one (a prefix, a suffix, a different spelling) is still an unknown keyword.
+    let text =
+        "Host box\n  Protocol 2 ; touch /tmp/hm-never\n  ProtocolX 2\n  Protoco 2\n  Port 2210\n";
+    let src = source().with_file(ROOT, text);
+    let roots = Roots::new(Some(PathBuf::from(ROOT)), None);
+    let query = Query {
+        host: "box".to_owned(),
+        user: None,
+        local_user: "fixture".to_owned(),
+        client_version: OpenSshVersion {
+            major: 10,
+            minor: 3,
+            portable: Some(1),
+        },
+        invocation: Invocation::Shell,
+    };
+    let ev = evaluate(
+        &mut ConfigSet::new(),
+        &src,
+        &roots,
+        &query,
+        &Limits::default(),
+    );
+    assert_eq!(ev.ignored.len(), 1);
+    assert_eq!(ev.ignored[0].span.line, 2);
+    assert_eq!(
+        ev.invalid
+            .iter()
+            .map(|i| (i.span.line, i.reason.as_str()))
+            .collect::<Vec<_>>(),
+        [(3, "unknown_keyword"), (4, "unknown_keyword")]
+    );
+    assert!(matches!(
+        ev.values.get(&KnownKeyword::Port),
+        Some(Resolved::Determined(v)) if v.args == ["2210"]
+    ));
+}
+
+#[test]
 fn pathological_quoting_and_escapes_never_panic() {
     for line in [
         "\\",
@@ -445,6 +568,46 @@ fn pathological_quoting_and_escapes_never_panic() {
         let _ = split_args(line);
         let _ = parse_file(SourceId(0), line.as_bytes(), &Limits::default());
     }
+}
+
+const SYSTEM_ROOT: &str = "/hm/etc/ssh/ssh_config";
+const MANAGED_FILE: &str = "/hm/home/.config/heimdall/ssh_config";
+/// Includes a user-tree file may hold: other user-tree files, P, and a missing file.
+const USER_INCLUDES: [&str; 5] = [
+    "Include /hm/home/.ssh/f1\n",
+    "Include /hm/home/.ssh/f2\n",
+    "Include /hm/home/.config/heimdall/ssh_config\n",
+    "Include /hm/home/.ssh/missing\n",
+    "Include /hm/home/.ssh/f*\n",
+];
+/// Includes a system-tree file may hold.
+const SYSTEM_INCLUDES: [&str; 3] = [
+    "Include /hm/etc/ssh/s1\n",
+    "Include /hm/etc/ssh/s2\n",
+    "Include /hm/etc/ssh/missing\n",
+];
+
+/// Four small files of random lines (index 0 is the root of the tree): includes from
+/// `includes`, sections, plain and command values, retired keywords, a code-loading
+/// keyword, a `Match exec`, and a line that is not UTF-8-safe to guess.
+fn tree_lines(includes: &'static [&'static str]) -> impl Strategy<Value = Vec<Vec<String>>> {
+    let line = prop_oneof![
+        proptest::sample::select(includes.to_vec()).prop_map(str::to_owned),
+        Just("Host box\n".to_owned()),
+        Just("Host other\n".to_owned()),
+        Just("Match exec \"probe\"\n".to_owned()),
+        Just("Port 2200\n".to_owned()),
+        Just("HostName h.example\n".to_owned()),
+        Just("IdentityFile ~/.ssh/k\n".to_owned()),
+        Just("ProxyCommand echo '$X' # c\n".to_owned()),
+        Just("LocalCommand echo $X\n".to_owned()),
+        Just("PermitLocalCommand yes\n".to_owned()),
+        Just("Protocol 2\n".to_owned()),
+        Just("KerberosAuthentication yes\n".to_owned()),
+        Just("PKCS11Provider /hm/lib/p11\n".to_owned()),
+        Just("XAuthLocation none\n".to_owned()),
+    ];
+    proptest::collection::vec(proptest::collection::vec(line, 0..6), 4)
 }
 
 proptest! {
@@ -495,6 +658,80 @@ proptest! {
     ) {
         let bytes: Vec<u8> = parts.concat();
         let _ = parse_file(SourceId(0), &bytes, &Limits::default());
+    }
+
+    /// The source role of every value is the role of the file it was read from, for any
+    /// tree of the user, the system and the managed file with random includes, command
+    /// lines, retired keywords and unreadable parts: the user tree's files are `User`,
+    /// the system tree's `System`, P `Managed`. `evaluate` never panics, and every
+    /// retired keyword it records sits on a line of a file it read.
+    #[test]
+    fn every_value_has_the_role_of_its_file(
+        user in tree_lines(&USER_INCLUDES),
+        system in tree_lines(&SYSTEM_INCLUDES),
+        managed in tree_lines(&USER_INCLUDES),
+    ) {
+        let mut src = source();
+        let mut add = |path: &str, lines: &[String]| {
+            src.insert(path, MemEntry::File(lines.concat().into_bytes()));
+        };
+        add(ROOT, &user[0]);
+        for (i, lines) in user.iter().enumerate().skip(1) {
+            add(&format!("/hm/home/.ssh/f{i}"), lines);
+        }
+        add(SYSTEM_ROOT, &system[0]);
+        for (i, lines) in system.iter().enumerate().skip(1) {
+            add(&format!("/hm/etc/ssh/s{i}"), lines);
+        }
+        add(MANAGED_FILE, &managed[0]);
+        let roots = Roots::new(Some(PathBuf::from(ROOT)), Some(PathBuf::from(SYSTEM_ROOT)))
+            .with_managed(MANAGED_FILE);
+        let query = Query {
+            host: "box".to_owned(),
+            user: None,
+            local_user: "fixture".to_owned(),
+            client_version: OpenSshVersion { major: 10, minor: 3, portable: Some(1) },
+            invocation: Invocation::Shell,
+        };
+        let ev = evaluate(&mut ConfigSet::new(), &src, &roots, &query, &Limits::default());
+        let expected = |path: &Path| {
+            if path == Path::new(MANAGED_FILE) {
+                SourceRole::Managed
+            } else if path.starts_with("/hm/etc/ssh") {
+                SourceRole::System
+            } else {
+                SourceRole::User
+            }
+        };
+        let check = |v: &Value| -> Result<(), TestCaseError> {
+            // Spans of an unreadable root point at no file; every other span is a file.
+            if let Some(path) = ev.files.get(&v.span.source) {
+                prop_assert_eq!(v.role, expected(path), "{:?} {:?}", path, v);
+            }
+            Ok(())
+        };
+        for r in ev.values.values() {
+            match r {
+                Resolved::Unset => {}
+                Resolved::Determined(v) => check(v)?,
+                Resolved::Undetermined(vs) => {
+                    for v in vs {
+                        check(v)?;
+                    }
+                }
+            }
+        }
+        for list in ev.accumulated.values() {
+            for c in list {
+                check(&c.value)?;
+            }
+        }
+        for ig in &ev.ignored {
+            prop_assert!(ev.files.contains_key(&ig.span.source));
+        }
+        // The digest is total over whatever came out.
+        let _ = behavior_digest(&relevant(&ev));
+        let _ = executing_constructs(&ev);
     }
 
     /// The include walk is total and bounded over arbitrary trees of small files whose

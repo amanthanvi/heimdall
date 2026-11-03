@@ -37,6 +37,20 @@
 //!   candidate**: a [`Value`] with no arguments whose span is the unreadable point.
 //!   No real value has empty arguments (a directive without one is `invalid`).
 //!
+//! **Source role** (ADR-0007 §5.2, §12.15 item 3). Every [`Value`] carries the role of
+//! the file it was read from: [`SourceRole::Managed`] for P, the Heimdall-owned file
+//! whose path the caller gives in [`Roots::managed`] (the walk tells P apart by its
+//! path), otherwise [`SourceRole::User`] for the user file and what it includes, or
+//! [`SourceRole::System`] for the system file and what it includes. The behaviour
+//! digest binds the role, never the file or the line. [`Evaluation::files`] names each
+//! file read, so a span can be shown as `file:line`.
+//!
+//! **Retired keywords** (ADR-0007 §12.15 item 4). A keyword in
+//! [`crate::directive::OBSOLETE`] is in ssh's own keyword table, so ssh accepts the line
+//! and ignores it, whatever `IgnoreUnknown` says and wherever the line is. It is not
+//! `invalid`, it changes no value, and it is recorded in [`Evaluation::ignored`] with
+//! what ssh says about it; an `Unsupported` one is the doctor's note.
+//!
 //! **The final pass.** It runs when a `Match final` line was read in the first pass or
 //! `CanonicalizeHostname` is not `no`; when either is unknown the final pass's lines
 //! apply under an unknown condition. In the final pass `Host` and `Match host` match
@@ -60,9 +74,12 @@
 //! the rest is ssh's (U3's corpus covers it).
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::directive::{DirectiveClass, Keyword, KnownKeyword, class, expands_env};
+use crate::directive::{
+    DirectiveClass, Keyword, KnownKeyword, Obsolete, class, expands_env, obsolete,
+};
+pub use crate::include::SourceRole;
 use crate::include::{
     self, ArgError, ConfigSet, ConfigSource, IncludeArg, IncludeError, IncludeVisitor, Origin,
     Roots, SourceError, Visit,
@@ -139,6 +156,47 @@ pub struct Value {
     pub span: Span,
     /// The `Host`/`Match` line that made it apply, if any.
     pub condition: Option<Span>,
+    /// The source role of the file the directive was read from (ADR-0007 §5.2,
+    /// §12.15 item 3): [`SourceRole::Managed`] for P ([`Roots::managed`]),
+    /// [`SourceRole::User`] or [`SourceRole::System`] for the file's tree. An opaque
+    /// candidate (an unreadable part of the tree) has the role of the file that
+    /// included it.
+    pub role: SourceRole,
+    /// For `ProxyCommand`, `LocalCommand`, `RemoteCommand` and `KnownHostsCommand`: the
+    /// directive's raw text ([`crate::parse::Directive::raw`]), which the behaviour
+    /// digest binds in place of `args` (ADR-0007 §12.15 item 2). `None` for every other
+    /// directive and for an opaque candidate.
+    pub raw: Option<String>,
+}
+
+impl Value {
+    /// A value with these arguments, span and condition, role [`SourceRole::User`] and
+    /// no raw text. Use this rather than a struct literal, so a field added later does
+    /// not break the caller.
+    #[must_use]
+    pub fn new(args: Vec<String>, span: Span, condition: Option<Span>) -> Self {
+        Self {
+            args,
+            span,
+            condition,
+            role: SourceRole::User,
+            raw: None,
+        }
+    }
+
+    /// This value with another source role.
+    #[must_use]
+    pub fn with_role(mut self, role: SourceRole) -> Self {
+        self.role = role;
+        self
+    }
+
+    /// This value with raw command text.
+    #[must_use]
+    pub fn with_raw(mut self, raw: impl Into<String>) -> Self {
+        self.raw = Some(raw.into());
+        self
+    }
 }
 
 /// The evaluated state of a first-wins directive.
@@ -198,6 +256,19 @@ pub struct Invalid {
     pub reason: String,
 }
 
+/// A retired keyword ssh ignores (ADR-0007 §12.15 item 4): accepted, no effect on any
+/// value, not invalid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ignored {
+    /// Where.
+    pub span: Span,
+    /// The retired keyword, in the table's lower-case spelling.
+    pub keyword: &'static str,
+    /// What ssh says about it. [`Obsolete::Unsupported`] is the case a doctor notes:
+    /// ssh prints an "Unsupported option" error and carries on.
+    pub kind: Obsolete,
+}
+
 /// The result of one evaluation.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Evaluation {
@@ -209,6 +280,22 @@ pub struct Evaluation {
     pub unresolved: Vec<Unresolved>,
     /// Everything OpenSSH would refuse.
     pub invalid: Vec<Invalid>,
+    /// Retired keywords ssh accepts and ignores, in reading order, one entry per line
+    /// (ADR-0007 §12.15 item 4). They have no effect on `values` or `accumulated`.
+    pub ignored: Vec<Ignored>,
+    /// The canonical path of every file the walk read, by the id its spans carry, so a
+    /// caller can show `file:line` for a [`Span`] (ADR-0007 §3 item 3).
+    pub files: BTreeMap<SourceId, PathBuf>,
+}
+
+impl Evaluation {
+    /// The retired keywords ssh reports as unsupported (`Unsupported`): the ones a
+    /// doctor notes, although the file still loads (ADR-0007 §12.15 item 4).
+    pub fn unsupported(&self) -> impl Iterator<Item = &Ignored> {
+        self.ignored
+            .iter()
+            .filter(|i| i.kind == Obsolete::Unsupported)
+    }
 }
 
 /// Evaluate `query` over the tree rooted at `roots`, reading through `source`.
@@ -234,6 +321,9 @@ pub fn evaluate(
         unresolved_seen: HashSet::new(),
         invalid: Vec::new(),
         invalid_seen: HashSet::new(),
+        ignored: Vec::new(),
+        ignored_seen: HashSet::new(),
+        files: BTreeMap::new(),
         want_final: Tri::False,
         pass: Pass {
             is_final: false,
@@ -516,6 +606,16 @@ fn expand_h(hostname: &str, host: &str) -> Option<String> {
     Some(out)
 }
 
+/// The retired keyword `spelling` names, in the table's spelling, with what ssh does
+/// with it ([`crate::directive::obsolete`]).
+fn retired(spelling: &str) -> Option<(&'static str, Obsolete)> {
+    let kind = obsolete(spelling)?;
+    crate::directive::OBSOLETE
+        .iter()
+        .find(|(s, _)| s.eq_ignore_ascii_case(spelling))
+        .map(|(s, _)| (*s, kind))
+}
+
 // --- the walker -----------------------------------------------------------------------
 
 /// A first-wins slot.
@@ -620,6 +720,8 @@ struct Pass {
 struct Frame {
     ctx: Ctx,
     cur: Ctx,
+    /// The source role of the file being read.
+    role: SourceRole,
 }
 
 struct Walker<'a> {
@@ -632,6 +734,9 @@ struct Walker<'a> {
     unresolved_seen: HashSet<(UnresolvedReason, Span)>,
     invalid: Vec<Invalid>,
     invalid_seen: HashSet<(Span, String)>,
+    ignored: Vec<Ignored>,
+    ignored_seen: HashSet<Span>,
+    files: BTreeMap<SourceId, PathBuf>,
     want_final: Tri,
     pass: Pass,
     frames: Vec<Frame>,
@@ -657,6 +762,9 @@ impl IncludeVisitor for Walker<'_> {
 
     fn enter(&mut self, visit: &Visit) {
         self.visited.insert(visit.source);
+        self.files
+            .entry(visit.source)
+            .or_insert_with(|| visit.canonical.clone());
         let ctx = match self.frames.last() {
             Some(parent) if visit.depth > 0 => parent.cur.clone(),
             _ => Ctx {
@@ -667,6 +775,7 @@ impl IncludeVisitor for Walker<'_> {
         self.frames.push(Frame {
             cur: ctx.clone(),
             ctx,
+            role: visit.role,
         });
     }
 
@@ -678,7 +787,7 @@ impl IncludeVisitor for Walker<'_> {
         }
     }
 
-    fn include(&mut self, _visit: &Visit, span: Span, arg: &IncludeArg) {
+    fn include(&mut self, visit: &Visit, span: Span, arg: &IncludeArg) {
         let Err(error) = &arg.matches else {
             return;
         };
@@ -708,10 +817,10 @@ impl IncludeVisitor for Walker<'_> {
                 Tri::Unknown
             }
         };
-        self.opaque(span, cond_span, applies);
+        self.opaque(span, cond_span, applies, visit.role);
     }
 
-    fn include_failed(&mut self, _visit: &Visit, span: Span, _path: &Path, error: &IncludeError) {
+    fn include_failed(&mut self, visit: &Visit, span: Span, _path: &Path, error: &IncludeError) {
         if matches!(error, IncludeError::Unreadable(SourceError::NotFound)) {
             // Gone between the glob and the read: OpenSSH skips it too.
             return;
@@ -719,7 +828,7 @@ impl IncludeVisitor for Walker<'_> {
         self.unresolve(include_reason(error), span);
         let cond_span = self.frames.last().and_then(|f| f.cur.span);
         // ssh fails on a file it cannot read, wherever it is: nothing is known.
-        self.opaque(span, cond_span, Tri::Unknown);
+        self.opaque(span, cond_span, Tri::Unknown, visit.role);
     }
 
     fn leave(&mut self, _visit: &Visit) {
@@ -735,7 +844,7 @@ impl IncludeVisitor for Walker<'_> {
             Origin::System => SYSTEM_ROOT_SPAN,
         };
         self.unresolve(include_reason(error), span);
-        self.opaque(span, None, Tri::Unknown);
+        self.opaque(span, None, Tri::Unknown, SourceRole::of_origin(origin));
     }
 }
 
@@ -770,7 +879,7 @@ impl Walker<'_> {
         let Some(frame) = self.frames.last().cloned() else {
             return;
         };
-        let (ctx, cur) = (frame.ctx, frame.cur);
+        let (ctx, cur, role) = (frame.ctx, frame.cur, frame.role);
         match &d.keyword {
             Keyword::Unreadable => {
                 // Not UTF-8: it may be any directive, so nothing is guessed about it.
@@ -778,7 +887,7 @@ impl Walker<'_> {
                 // `Match` line it would start a section whose condition is unknown,
                 // so the lines after it are read under either condition.
                 self.invalid(d.span, "unreadable_line");
-                self.opaque(d.span, cur.span, cur.cond);
+                self.opaque(d.span, cur.span, cur.cond, role);
                 let as_section = ctx.cond.and(Tri::Unknown);
                 if let Some(f) = self.frames.last_mut()
                     && f.cur.cond != as_section
@@ -790,7 +899,19 @@ impl Walker<'_> {
                 }
             }
             Keyword::Unknown(name) => {
-                if self.ignored(name) != Tri::True {
+                // A retired keyword is in ssh's keyword table: it is neither unknown
+                // nor covered by `IgnoreUnknown`, and it changes nothing (ADR-0007
+                // §12.15 item 4). ssh reports it wherever the line is, so a section
+                // that does not apply does not hide it.
+                if let Some((keyword, kind)) = retired(name) {
+                    if self.ignored_seen.insert(d.span) {
+                        self.ignored.push(Ignored {
+                            span: d.span,
+                            keyword,
+                            kind,
+                        });
+                    }
+                } else if self.ignored(name) != Tri::True {
                     self.invalid(d.span, "unknown_keyword");
                 }
             }
@@ -816,11 +937,11 @@ impl Walker<'_> {
                             self.invalid(d.span, "missing_argument");
                         }
                     }
-                    DirectiveClass::Accumulates => self.accumulate(kw, d, &cur),
+                    DirectiveClass::Accumulates => self.accumulate(kw, d, &cur, role),
                     DirectiveClass::FirstWins
                     | DirectiveClass::Executes
                     | DirectiveClass::Other => {
-                        self.first_wins(kw, d, &cur);
+                        self.first_wins(kw, d, &cur, role);
                     }
                 }
             }
@@ -1066,7 +1187,7 @@ impl Walker<'_> {
             || kw == KnownKeyword::Hostname && self.pass.is_final)
     }
 
-    fn first_wins(&mut self, kw: KnownKeyword, d: &Directive, cur: &Ctx) {
+    fn first_wins(&mut self, kw: KnownKeyword, d: &Directive, cur: &Ctx, role: SourceRole) {
         if d.args.is_empty() {
             self.invalid(d.span, "missing_argument");
             return;
@@ -1090,6 +1211,8 @@ impl Walker<'_> {
             args: d.args.clone(),
             span: d.span,
             condition: cur.span,
+            role,
+            raw: d.raw.clone(),
         };
         self.apply_first(kw, v, c);
     }
@@ -1102,7 +1225,7 @@ impl Walker<'_> {
         }
     }
 
-    fn accumulate(&mut self, kw: KnownKeyword, d: &Directive, cur: &Ctx) {
+    fn accumulate(&mut self, kw: KnownKeyword, d: &Directive, cur: &Ctx, role: SourceRole) {
         if d.args.is_empty() {
             self.invalid(d.span, "missing_argument");
             return;
@@ -1115,6 +1238,8 @@ impl Walker<'_> {
             args: d.args.clone(),
             span: d.span,
             condition: cur.span,
+            role,
+            raw: d.raw.clone(),
         };
         self.push_candidate(kw, v, c == Tri::True);
     }
@@ -1145,7 +1270,7 @@ impl Walker<'_> {
     /// A point whose content is unknown. Unless `cond` is false, every directive that
     /// may still be unset may get a value here (under an unknown condition); it may
     /// hold a `Match final` in any case.
-    fn opaque(&mut self, span: Span, condition: Option<Span>, cond: Tri) {
+    fn opaque(&mut self, span: Span, condition: Option<Span>, cond: Tri, role: SourceRole) {
         if !self.pass.is_final {
             self.want_final = self.want_final.or(Tri::Unknown);
         }
@@ -1156,6 +1281,8 @@ impl Walker<'_> {
             args: Vec::new(),
             span,
             condition,
+            role,
+            raw: None,
         };
         for &kw in KnownKeyword::ALL {
             match class(kw) {
@@ -1245,6 +1372,8 @@ impl Walker<'_> {
             accumulated: self.acc,
             unresolved: self.unresolved,
             invalid: self.invalid,
+            ignored: self.ignored,
+            files: self.files,
         }
     }
 }
@@ -1272,13 +1401,15 @@ mod tests {
 
     #[test]
     fn three_valued_slot_keeps_every_candidate_that_may_apply() {
-        let v = |n: u32| Value {
-            args: vec![n.to_string()],
-            span: Span {
-                source: SourceId(0),
-                line: n,
-            },
-            condition: None,
+        let v = |n: u32| {
+            Value::new(
+                vec![n.to_string()],
+                Span {
+                    source: SourceId(0),
+                    line: n,
+                },
+                None,
+            )
         };
         let mut s = Slot::Unset;
         s.apply(v(1), Tri::Unknown);

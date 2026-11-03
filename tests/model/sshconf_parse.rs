@@ -42,10 +42,7 @@ fn source() -> MemSource {
 }
 
 fn user_root(path: &str) -> Roots {
-    Roots {
-        user: Some(PathBuf::from(path)),
-        system: None,
-    }
+    Roots::new(Some(PathBuf::from(path)), None)
 }
 
 fn no_tokens(_: char) -> Option<String> {
@@ -635,10 +632,10 @@ fn relative_include_resolves_under_user_or_system_directory() {
         // Decoys beside the including files' other tree: never chosen.
         .with_file("/hm/etc/ssh/conf.d/a.conf", "Port 9\n")
         .with_file("/hm/home/.ssh/sys.d/b.conf", "Port 9\n");
-    let roots = Roots {
-        user: Some("/hm/home/.ssh/config".into()),
-        system: Some("/hm/etc/ssh/ssh_config".into()),
-    };
+    let roots = Roots::new(
+        Some("/hm/home/.ssh/config".into()),
+        Some("/hm/etc/ssh/ssh_config".into()),
+    );
     let mut set = ConfigSet::new();
     let rec = record(&mut set, &src, &roots, &Limits::default(), &no_tokens);
     assert!(rec.failures.is_empty(), "{:?}", rec.failures);
@@ -1090,10 +1087,10 @@ fn missing_root_and_missing_literal_include() {
     let mut set = ConfigSet::new();
     // A literal include that does not exist matches nothing and is skipped (OpenSSH
     // debug "matched no files"), but a root the caller named is reported.
-    let roots = Roots {
-        user: Some("/hm/home/.ssh/config".into()),
-        system: Some("/hm/etc/ssh/ssh_config".into()),
-    };
+    let roots = Roots::new(
+        Some("/hm/home/.ssh/config".into()),
+        Some("/hm/etc/ssh/ssh_config".into()),
+    );
     let rec = record(&mut set, &src, &roots, &Limits::default(), &no_tokens);
     assert_eq!(rec.includes[0].arg.matches, Ok(vec![]));
     assert_eq!(rec.failures.len(), 1);
@@ -1487,7 +1484,9 @@ fn corpus_roots_walk_cleanly_in_bytewise_order() {
 fn corpus_lexer_file_splits_as_ssh_g_printed() {
     // `ssh -G -F lexer.conf <alias>` on OpenSSH_10.3p1 (macOS) printed, during
     // M02-W1-U1: hostname a#b; user u v; port 2290 and user =eq; user a b; user a\nb;
-    // remotecommand echo '$X'  "q"  # c. The U3 corpus test repeats this per client.
+    // remotecommand echo '$X'  "q"  # c. During M02-W2-U2r the same command printed, for
+    // the three lex-command-* aliases: remotecommand echo $X; remotecommand echo '$X';
+    // remotecommand echo "a b" c\ d # tail. The U3 corpus test repeats this per client.
     let bytes = std::fs::read(corpus_dir().join("lexer.conf")).unwrap();
     let file = parse_file(SourceId(0), &bytes, &Limits::default()).unwrap();
     let mut host = String::new();
@@ -1496,32 +1495,194 @@ fn corpus_lexer_file_splits_as_ssh_g_printed() {
         let Line::Directive(d) = line else { continue };
         match &d.keyword {
             Keyword::Known(KnownKeyword::Host) => host = d.args.join(" "),
-            Keyword::Known(k) => got.push((host.clone(), *k, d.args.clone())),
+            Keyword::Known(k) => got.push((host.clone(), *k, d.args.clone(), d.raw.clone())),
             other => panic!("{other:?}"),
         }
     }
     let s = |v: &[&str]| v.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
+    let plain =
+        |host: &str, k: KnownKeyword, args: &[&str]| (host.to_owned(), k, s(args), None::<String>);
+    // OpenSSH keeps the raw rest of the line for a command keyword (ADR-0007 §12.15
+    // item 2): `Directive::raw` must equal what `ssh -G` printed after the keyword,
+    // while the split arguments drop the quoting and the comment.
+    let command = |host: &str, args: &[&str], raw: &str| {
+        (
+            host.to_owned(),
+            KnownKeyword::RemoteCommand,
+            s(args),
+            Some(raw.to_owned()),
+        )
+    };
     assert_eq!(
         got,
         [
-            ("lex-hash".to_owned(), KnownKeyword::Hostname, s(&["a#b"])),
-            ("lex-quote".to_owned(), KnownKeyword::User, s(&["u v"])),
-            ("lex-equals".to_owned(), KnownKeyword::Port, s(&["2290"])),
-            ("lex-equals".to_owned(), KnownKeyword::User, s(&["=eq"])),
-            ("lex-escape".to_owned(), KnownKeyword::User, s(&["a b"])),
-            (
-                "lex-unknown-escape".to_owned(),
-                KnownKeyword::User,
-                s(&[r"a\nb"])
-            ),
-            // OpenSSH keeps the raw rest of the line for a command keyword; the frozen
-            // `Directive` has only split arguments, which drop the quoting and comment
-            // (escalated in the M02-W1-U1 report).
-            (
-                "lex-command".to_owned(),
-                KnownKeyword::RemoteCommand,
-                s(&["echo", "$X", "q"])
+            plain("lex-hash", KnownKeyword::Hostname, &["a#b"]),
+            plain("lex-quote", KnownKeyword::User, &["u v"]),
+            plain("lex-equals", KnownKeyword::Port, &["2290"]),
+            plain("lex-equals", KnownKeyword::User, &["=eq"]),
+            plain("lex-escape", KnownKeyword::User, &["a b"]),
+            plain("lex-unknown-escape", KnownKeyword::User, &[r"a\nb"]),
+            command("lex-command", &["echo", "$X", "q"], "echo '$X'  \"q\"  # c"),
+            command("lex-command-bare", &["echo", "$X"], "echo $X"),
+            // The split arguments keep the second `=` (argument syntax, F7); the raw text,
+            // which a command keyword is bound by, skips it as OpenSSH's parse_command does.
+            command("lex-command-equals", &["=", "echo", "$X"], "echo '$X'"),
+            command(
+                "lex-command-escapes",
+                &["echo", "a b", "c d"],
+                r#"echo "a b" c\ d # tail"#
             ),
         ]
     );
+}
+
+// --- raw command text (ADR-0007 §12.15 item 2) --------------------------------------------
+
+/// The one directive of `text`, parsed.
+fn only_directive(text: &str) -> heimdall_sshconf::parse::Directive {
+    match parse(text).into_iter().next() {
+        Some(Line::Directive(d)) => d,
+        other => panic!("{text:?}: {other:?}"),
+    }
+}
+
+#[test]
+fn raw_is_kept_for_the_four_command_keywords_only() {
+    for kw in [
+        KnownKeyword::ProxyCommand,
+        KnownKeyword::LocalCommand,
+        KnownKeyword::RemoteCommand,
+        KnownKeyword::KnownHostsCommand,
+    ] {
+        assert!(directive::keeps_raw(kw), "{kw:?}");
+        for spelling in [
+            kw.as_str().to_owned(),
+            kw.as_str().to_ascii_lowercase(),
+            kw.as_str().to_ascii_uppercase(),
+        ] {
+            let d = only_directive(&format!("{spelling} echo '$X' # c"));
+            assert_eq!(d.keyword, Keyword::Known(kw));
+            assert_eq!(d.raw.as_deref(), Some("echo '$X' # c"), "{spelling}");
+            // The split arguments drop the quotes and the comment.
+            assert_eq!(d.args, ["echo", "$X"]);
+        }
+    }
+    // Every other keyword has none, however command-like its text.
+    for kw in KnownKeyword::ALL {
+        if directive::keeps_raw(*kw) {
+            continue;
+        }
+        let d = only_directive(&format!("{} echo '$X' # c", kw.as_str()));
+        assert_eq!(d.keyword, Keyword::Known(*kw));
+        assert_eq!(d.raw, None, "{kw:?}");
+    }
+    // An unknown keyword, a comment and a blank line have none either.
+    assert_eq!(only_directive("NoSuchKeyword echo $X").raw, None);
+}
+
+#[test]
+fn raw_follows_parse_command_for_separators_quoting_and_comments() {
+    // (line, raw). Observed on OpenSSH_10.3p1 with `ssh -G -F <scratch>` (a scratch file,
+    // never the corpus, which holds no local command): the printed value of
+    // proxycommand, localcommand, knownhostscommand and remotecommand equals this raw
+    // text for each of these shapes.
+    for (line, raw) in [
+        (
+            "ProxyCommand echo '$X'  \"q\"  # c",
+            "echo '$X'  \"q\"  # c",
+        ),
+        ("ProxyCommand = = echo bare", "echo bare"),
+        ("ProxyCommand=echo=eq", "echo=eq"),
+        ("ProxyCommand\t=\techo", "echo"),
+        ("LocalCommand echo $X", "echo $X"),
+        ("LocalCommand \"echo\" '$X'", "\"echo\" '$X'"),
+        ("KnownHostsCommand echo  two  spaces", "echo  two  spaces"),
+        ("RemoteCommand = echo '$X'", "echo '$X'"),
+        (
+            "RemoteCommand echo \"a b\" c\\ d # tail",
+            "echo \"a b\" c\\ d # tail",
+        ),
+        // Trailing blanks and a trailing form feed are stripped like on every line.
+        ("RemoteCommand echo x \t\u{c}", "echo x"),
+        // A CRLF file: the CR is trailing whitespace.
+        ("ProxyCommand echo x\r", "echo x"),
+        // Nothing but `=` after the separator leaves an empty command, as in ssh.
+        ("ProxyCommand = =", ""),
+    ] {
+        let d = only_directive(line);
+        assert_eq!(d.raw.as_deref(), Some(raw), "{line:?}");
+    }
+    // Quoting alone changes the raw text although the split arguments are equal.
+    let a = only_directive("ProxyCommand echo $X");
+    let b = only_directive("ProxyCommand echo '$X'");
+    let c = only_directive("ProxyCommand echo \"$X\"");
+    assert_eq!(a.args, b.args);
+    assert_eq!(b.args, c.args);
+    assert_ne!(a.raw, b.raw);
+    assert_ne!(b.raw, c.raw);
+}
+
+#[test]
+fn a_command_line_whose_raw_text_is_not_utf8_is_unreadable_not_guessed() {
+    // The trailing comment is part of the raw text of a command keyword, so invalid
+    // UTF-8 there makes the whole line unreadable ...
+    for kw in [
+        "ProxyCommand",
+        "LocalCommand",
+        "RemoteCommand",
+        "KnownHostsCommand",
+    ] {
+        let mut bytes = format!("{kw} echo ok # tail ").into_bytes();
+        bytes.extend_from_slice(b"\xF4\x90");
+        bytes.push(b'\n');
+        let file = parse_file(SourceId(0), &bytes, &Limits::default()).unwrap();
+        match &file.lines[0] {
+            Line::Directive(d) => {
+                assert_eq!(d.keyword, Keyword::Unreadable, "{kw}");
+                assert!(d.args.is_empty() && d.raw.is_none(), "{kw}: {d:?}");
+            }
+            other => panic!("{kw}: {other:?}"),
+        }
+    }
+    // ... while the same bytes in the comment of any other keyword are still ignored, as
+    // before (nothing after a comment start matters there).
+    let mut bytes = b"HostName ok.example # tail ".to_vec();
+    bytes.extend_from_slice(b"\xF4\x90\n");
+    let file = parse_file(SourceId(0), &bytes, &Limits::default()).unwrap();
+    match &file.lines[0] {
+        Line::Directive(d) => {
+            assert_eq!(d.keyword, Keyword::Known(KnownKeyword::Hostname));
+            assert_eq!(d.args, ["ok.example"]);
+            assert_eq!(d.raw, None);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+proptest! {
+    #![proptest_config(config())]
+
+    /// The raw text and the arguments describe the same line: splitting the raw text
+    /// again gives the arguments, and the raw text never carries a trailing blank.
+    #[test]
+    fn raw_text_splits_back_into_the_arguments(
+        kw in prop::sample::select(vec![
+            "ProxyCommand", "LocalCommand", "RemoteCommand", "KnownHostsCommand",
+        ]),
+        text in "[A-Za-z0-9$'\"\\\\ \t#=%/._:-]{1,40}",
+    ) {
+        prop_assume!(!text.starts_with([' ', '\t', '=']));
+        let line = format!("{kw} {text}");
+        let lines = parse_file(SourceId(0), line.as_bytes(), &Limits::default()).unwrap().lines;
+        match lines.first() {
+            Some(Line::Directive(d)) => {
+                let raw = d.raw.as_deref().expect("a command keyword keeps its raw text");
+                prop_assert!(!raw.ends_with([' ', '\t', '\r', '\n', '\u{c}']), "{:?}", raw);
+                let again = split_args(&format!("X {raw}")).unwrap();
+                prop_assert_eq!(&again[1..], &d.args[..], "raw {:?}", raw);
+            }
+            Some(Line::Invalid { .. }) => {} // an unterminated quote: refused, no raw text
+            other => prop_assert!(false, "{:?}", other),
+        }
+    }
 }

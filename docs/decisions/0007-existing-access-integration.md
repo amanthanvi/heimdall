@@ -3177,6 +3177,144 @@ regression test that fails without it.
    `render.rs`, hence the fix after wave 2. Until then, no wave-2 test may rely on the
    wave-1 behaviour these rulings change.
 
+### 12.17 Rulings on the wave-2 escalations (orchestrator, 2026-11-03)
+
+Sources: the five wave-2 unit reports and the integrator's report (workflow
+`wf_2a33ac4a-86c`). check.sh exits 0: twice for the integrator and once for the
+orchestrator, with 1278 tests passed and 0 failed.
+
+The follow-up work is **wave 2b**, with three units of disjoint files:
+* **W2b-fix**: `crates/sshconf/**`, `crates/testkit/src/home.rs` and their tests;
+  §12.16 and items 9–10 below.
+* **W2b-U4r**: `projection/replace.rs`, `projection/content.rs`, `materialize.rs`,
+  `sys/quarantine.rs`, `projection/recovery.rs`, the bodies and docs of the recovery types in
+  `crates/domain/src/projection.rs`, `tests/model/projection_recovery.rs` and
+  `tests/integration/projection_replace.rs`.
+* **W2b-U4t**: `projection/{mod,plan,apply,observe,cleaner,git}.rs`,
+  `tests/integration/projection.rs` and `tests/integration/projection_git.rs`.
+
+Item 2 runs across W2b-U4r and W2b-U4t, as that item describes.
+
+1. **Name-taking replace API (U4a, U4b E5, U4c).** The additive `learn_step`,
+   `exchange_at`, `observe_step_at`, `restore_with` and `rename_noreplace`, which take the
+   step's `StepNames`, are the frozen API of `projection::replace`. The name-learning
+   fallbacks are retired. This API is internal to `heimdall-localenv` and does not cross the
+   port. Owner: W2b-U4r. W2b-U4t follows any rename.
+2. **F0x/K0x have one home.** `observe_step_at` classifies an unrecorded, regular,
+   user-owned, single-link entry at a step's staged name, for a step with no receipt, by
+   digest: `Recorded{S}` or `Recorded{S′}`. It never does so at the lock name. Anything
+   else there is `Foreign`. The engine's `unrecorded_staged` workaround is then deleted.
+   Owners: W2b-U4r (the classifier) and W2b-U4t (deleting the workaround once the
+   classifier change has landed; if it has not, the workaround stays and is reported).
+3. **`release_due` in an abort (U4b E3, U4c (a)).** No new receipt is added. Release of K
+   is due when either of these holds:
+   * the receipts make it due (build);
+   * `decide_item` decides the item's abort or restore, and every other Git step has
+     reached its abort end in the current observation.
+   `reconcile` computes the second condition from durable receipts and fresh
+   observations each round. So a restart reproduces it, and §5.7's "release K last" holds.
+   Regression: a crash after the hand-over and before K's release releases K at
+   restart, and never earlier. Owner: W2b-U4t.
+4. **`decide_item` inputs (U4b E4).** `StepState::Held(HoldReason)` carries the real
+   reason. A new `StepState::CommitRestored` is the commit step after its own file-level
+   restore (`restore_started{file_mismatch}` through `restored`), and T3 reads it. The
+   `Unmatched` placeholder is retired. Owners: W2b-U4r (the type and `decide_item`) and
+   W2b-U4t (the caller).
+5. **A symlink substituted at the restore boundary is held (U4a, U4b, U4c).** Normalization
+   rule 1 (r5) stands: a symlink is X whatever its identity, F5d holds with
+   `third_writer`, and nothing moves. The test is renamed
+   `a22_race_symlink_substitution_at_boundary_is_held`, and m02-plan U4's list is amended.
+   Owner: W2b-U4t.
+6. **§5.7 governs a failed first-adoption check (U4c).** A first-adoption transaction check
+   can fail with an edited inactive P. The user file is then restored, unchanged inactive
+   files are rolled back, the edited P is held (C7a), and a held Git item keeps K. The
+   result is `OUTCOME_UNKNOWN` with the held repair options, not `CONFIG_CONFLICT` with
+   effect `none`. §5.4's sentence is superseded by this item. An edited inactive P before
+   commit means another writer touched Heimdall's file, and holding it for the owner
+   fails closed.
+7. **Readings accepted (U4a, U4b E1, E6, E7, U4c).**
+   * The removal shape reads the locator as `Recorded{V}`.
+   * For the removal shape, `Hold` means that nothing moves and the cleaner retries on
+     its next pass. That is row R6. The cleaner writes no receipts and never escalates on
+     its own, so `Hold(ThirdWriter)` there is not reported to the owner.
+   * The contradictory-history list and the settlement-source pairings of E6.
+   * The receipt-bounded effect sequence of E7.
+   * U4a's fail-closed readings: group- or other-writable is `ForeignOwner`, the size
+     bounds, and an owner-only DACL on Windows.
+   * The primitive's foreign put-back name is `<name>.hm-conflict-<slot>`, because the
+     primitive knows no generation. This amends §5.3. §5.5's rollback rename of an edited
+     P keeps `ssh_config.hm-conflict-<gen>`, from the plan, which knows the generation.
+   * The stale "open settlement" and "Body: U4 (unreachable…)" documentation is
+     corrected by W2b-U4r. `RecoveryState.settlement` stays `Some` from `file.settling` until
+     the slot is empty.
+8. **U4c's open work, assigned to W2b-U4t and part of the wave-2 exit:**
+   * §5.5: rollback renames an edited P to `ssh_config.hm-conflict-<gen>`, with a
+     no-replace rename.
+   * §5.6: the Git parse check `git config --file <N_s> --no-includes --list` runs before
+     B_git's exchange. A failure aborts before the commit point.
+   * The §5.2 consent waivers are computed in `preview` through `sshconf::consent`, and
+     `ProjectionPlan.consent` is filled. A plan that needs no decision under §5.2 gets none.
+   * The `RemoveDuplicateMarkers`, `MoveIncludeToTop` and `ManualMode` repair previews.
+   * The manual-mode encoding check uses `ClientInventory::accepts_encoding` (U3 E6).
+   * `recovery_generated_observations_preserve_every_entry` covers the GitLock and Removal
+     shapes too.
+   * The commit-point crash test runs once as a real child-process abort (`std::process::
+     abort` at the hook), labelled as such, besides the in-process unwind. In-process
+     unwinds stay labelled as unwinds in evidence.
+
+   `recovery_table_rows_each_have_a_test_vector` is W2b-U4r's, in
+   `tests/model/projection_recovery.rs`.
+9. **sshconf semantics (W2-U2r 3–10, W2-U3 E1, E7), for W2b-fix with §12.16.**
+   * `XAuthLocation` is listed by `executing_constructs` whenever it is set, `none`
+     included, since `ssh -G` 10.3p1 shows `none` is a program name for it. There is no
+     `ForwardX11` gate, which fails closed.
+   * Accepted as implemented:
+     * a command keyword's `none` is decided by its raw text;
+     * `RemoteCommand` is in `RelevantBehavior`, with digest tag `heimdall.behavior.v2`
+       (nothing is persisted yet);
+     * a non-UTF-8 command line is `Keyword::Unreadable`;
+     * the `IdentityEntry.source`/`provenance` reading;
+     * the default role is the role of a value no file sets.
+   * `RemoteCommand` joins the item-2 keyword list of §12.15.
+   * **Include `~` (U3 E1, observed on 10.3p1):** OpenSSH expands `~` in an Include, and in
+     the implicit `~/.ssh/` of a relative user Include, through `glob(3)` `GLOB_TILDE`,
+     which reads `$HOME`. F19 still holds for `IdentityFile` and the other paths.
+     Therefore:
+     * The evaluator expands an Include's `~` with the account home when the runtime's
+       `HOME` equals it. Otherwise that Include's resolution is undetermined (reason
+       `environment_reference`, as §12.16 item 1), and the doctor reports `home_mismatch`.
+     * The include block B's target is rendered as an **absolute** path, never `~`, so B
+       loads P whatever `$HOME` is. This amends §4's home-relative row for the Include
+       target only.
+   * **Default identities (U3 E7):** sshconf's six-name default list stays a superset
+     of 10.3p1's five. A larger list can only make a selection non-exclusive, which fails
+     closed. U11 records the per-client list in the matrix.
+10. **U3's settled observations and interface choices (E2–E9) are accepted.**
+    * §5.6 and F22 are corrected: `git config --global` reads `~/.gitconfig` alone when
+      that file exists. The static scan reads both files.
+    * Wave 3 must honour:
+      * `create_owner_only_exclusive` returns `io::Result<File>`;
+      * `adopt_inherited_fd` allows one adoption per process, so wave-3 `--meta-fd`
+        tests use subprocesses.
+    * On Windows, the account home comes from `GetUserProfileDirectoryW`, and the sys
+      inventory says so.
+    * U9 fills the `LocalContext` and `ProbeContext` fields.
+    * Non-interactive authentication probes are refused while selection is not
+      exclusive, until U0b phase 2 lands `fallback_clearance`.
+    * The doctor reports a command as `<command>`, and a proxied network level as
+      refused with `CAPABILITY_UNAVAILABLE`.
+11. **U4c's interface additions are accepted for wave 3:**
+    * the `ProjectionConfig` fields and `PublicKeySource` (preview fails `Unavailable`
+      without keys);
+    * the `ItemCommit.record` placeholders, which the sink overwrites (the store refuses
+      a mismatch);
+    * `ItemRecord.files` lists only written files, and the sink merges the rest;
+    * the test-only `git_item_any_default`;
+    * the reasons `git_default_not_bundled_msys` and `verified_client_unavailable`.
+    U5 adds those reasons to the contract's reason list.
+    The three added dependencies (getrandom, serde_json, dev heimdall-store; all
+    workspace-pinned) and W2-U2r's constructor edit in testkit `home.rs` are adopted.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

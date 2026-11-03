@@ -10,6 +10,14 @@
 //! * U2 owns [`eval`], [`relevant`], [`render`], [`edit`], [`consent`] and
 //!   [`gitedit`].
 //!
+//! **Wave 2 (W2-U2r, ADR-0007 §12.15 items 2 to 5).** `parse::Directive::raw` keeps the
+//! raw text of the four command keywords and the behaviour digest binds it;
+//! `eval::Value` carries the source role (managed, user, system, default), which the
+//! evaluator reads from the file's tree and from `include::Roots::managed` (P's path),
+//! and the digest and the identity-selection report use it; a retired keyword is
+//! ignored, not invalid (`Evaluation::ignored`); `relevant::executing_constructs` also
+//! lists `XAuthLocation`, `PKCS11Provider` and `SecurityKeyProvider`.
+//!
 //! **Status (m02-plan wave 1).** Every type and signature here was fixed by the
 //! integrator in wave 0; U1 and U2 have written every body, so no `todo!()` remains.
 //! No request, CLI command, restart recovery or store method calls into this crate

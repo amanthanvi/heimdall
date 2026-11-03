@@ -24,6 +24,12 @@ pub struct Directive {
     pub keyword: Keyword,
     /// The arguments after the keyword, split by [`crate::lex::split_args`].
     pub args: Vec<String>,
+    /// For `ProxyCommand`, `LocalCommand`, `RemoteCommand` and `KnownHostsCommand`
+    /// ([`crate::directive::keeps_raw`]): the rest of the line after the keyword and
+    /// its separator, as OpenSSH's `readconf` keeps it and hands it to a shell, with
+    /// quotes, escapes and a trailing comment included. `None` for every other
+    /// keyword (ADR-0007 §12.15 item 2).
+    pub raw: Option<String>,
     /// Where it was read.
     pub span: Span,
 }
@@ -105,7 +111,10 @@ const BOM: &[u8] = b"\xEF\xBB\xBF";
 /// * each line is split by the [`crate::lex`] rules over its bytes. The keyword and
 ///   every argument must be UTF-8, or the directive is [`Keyword::Unreadable`] with no
 ///   arguments (never a guess). Bytes after a comment start never matter, so a
-///   comment, including a trailing one, may hold any bytes;
+///   comment, including a trailing one, may hold any bytes, except on the four command
+///   keywords ([`crate::directive::keeps_raw`]): their raw text includes a trailing
+///   comment and is the command ssh hands to a shell, so a line whose raw text is not
+///   UTF-8 is unreadable too;
 /// * a line the lexer refuses is [`Line::Invalid`].
 ///
 /// # Errors
@@ -166,25 +175,49 @@ pub fn parse_file(
     })
 }
 
+/// A directive that is not UTF-8: nothing is guessed about it.
+fn unreadable(span: Span) -> Directive {
+    Directive {
+        keyword: Keyword::Unreadable,
+        args: Vec::new(),
+        raw: None,
+        span,
+    }
+}
+
 fn classify(span: Span, content: &[u8]) -> Line {
     match crate::lex::split_line(content) {
         Err(error) => Line::Invalid { span, error },
         Ok(Split::Blank) => Line::Blank(span),
         Ok(Split::Comment) => Line::Comment(span),
-        Ok(Split::Directive { keyword, args }) => {
+        Ok(Split::Directive { keyword, args, raw }) => {
             let keyword = String::from_utf8(keyword);
             let args: Result<Vec<String>, _> = args.into_iter().map(String::from_utf8).collect();
             let directive = match (keyword, args) {
-                (Ok(keyword), Ok(args)) => Directive {
-                    keyword: crate::directive::keyword(&keyword),
-                    args,
-                    span,
-                },
-                _ => Directive {
-                    keyword: Keyword::Unreadable,
-                    args: Vec::new(),
-                    span,
-                },
+                (Ok(keyword), Ok(args)) => {
+                    let keyword = crate::directive::keyword(&keyword);
+                    let keeps_raw =
+                        matches!(&keyword, Keyword::Known(k) if crate::directive::keeps_raw(*k));
+                    if keeps_raw {
+                        match String::from_utf8(raw) {
+                            Ok(raw) => Directive {
+                                keyword,
+                                args,
+                                raw: Some(raw),
+                                span,
+                            },
+                            Err(_) => unreadable(span),
+                        }
+                    } else {
+                        Directive {
+                            keyword,
+                            args,
+                            raw: None,
+                            span,
+                        }
+                    }
+                }
+                _ => unreadable(span),
             };
             Line::Directive(directive)
         }

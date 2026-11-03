@@ -24,10 +24,11 @@ use heimdall_contract::provider::{
     Certainty, IdentitiesOnly, IdentityBacking, IdentityEntryKind, IdentityEntrySource,
     IdentitySelection,
 };
-use heimdall_sshconf::directive::KnownKeyword;
+use heimdall_sshconf::directive::{DirectiveClass, KnownKeyword, OBSOLETE, Obsolete, class};
 use heimdall_sshconf::edit::{IncludeBlock, plan_insert};
 use heimdall_sshconf::eval::{
-    Evaluation, Invocation, OpenSshVersion, Query, Resolved, UnresolvedReason, Value, evaluate,
+    Evaluation, Invocation, OpenSshVersion, Query, Resolved, SourceRole, UnresolvedReason, Value,
+    evaluate,
 };
 use heimdall_sshconf::include::{
     ConfigSet, ConfigSource, MemEntry, MemSource, Roots, SourceBytes, SourceError,
@@ -73,11 +74,14 @@ fn source() -> MemSource {
     MemSource::new(HOME, USER_DIR, SYSTEM_DIR)
 }
 
+/// The user and system files, and P: the evaluator tells P's values apart by its path
+/// (ADR-0007 §12.15 item 3a).
 fn user_roots() -> Roots {
-    Roots {
-        user: Some(PathBuf::from(USER_CONFIG)),
-        system: Some(PathBuf::from(SYSTEM_CONFIG)),
-    }
+    Roots::new(
+        Some(PathBuf::from(USER_CONFIG)),
+        Some(PathBuf::from(SYSTEM_CONFIG)),
+    )
+    .with_managed(MANAGED)
 }
 
 fn q(host: &str) -> Query {
@@ -844,6 +848,575 @@ fn behavior_digest_ignores_line_moves_and_comments_not_values() {
         behavior_digest(&relevant(&e))
     );
     assert!(!behavior_state(&relevant(&e)).determined);
+}
+
+// --- W2-U2r: command text, source role, retired and code-loading keywords ------------------
+// (ADR-0007 §12.15 items 2 to 5)
+
+fn digest_of(ev: &Evaluation) -> heimdall_domain::projection::BehaviorDigest {
+    behavior_digest(&relevant(ev))
+}
+
+/// The arguments of the determined value of `k`.
+fn det_args(ev: &Evaluation, k: KnownKeyword) -> Vec<String> {
+    det(ev, k).unwrap_or_else(|| panic!("{k:?} is not determined: {ev:?}"))
+}
+
+/// The source role of the determined value of `k`.
+fn role_of(ev: &Evaluation, k: KnownKeyword) -> SourceRole {
+    match ev.values.get(&k) {
+        Some(Resolved::Determined(v)) => v.role,
+        other => panic!("{k:?} is not determined: {other:?}"),
+    }
+}
+
+/// `evaluate` with explicit roots.
+fn eval_roots(src: &dyn ConfigSource, roots: &Roots, host: &str) -> Evaluation {
+    let mut set = ConfigSet::new();
+    evaluate(&mut set, src, roots, &q(host), &Limits::default())
+}
+
+#[test]
+fn a_quoting_only_change_of_each_command_keyword_changes_the_digest() {
+    let commands = [
+        KnownKeyword::ProxyCommand,
+        KnownKeyword::LocalCommand,
+        KnownKeyword::RemoteCommand,
+        KnownKeyword::KnownHostsCommand,
+    ];
+    for kw in commands {
+        let ev = |text: &str| eval_user(&format!("Host box\n    {} {text}\n", kw.as_str()), "box");
+        let (bare, single, double) = (ev("echo $X"), ev("echo '$X'"), ev("echo \"$X\""));
+        // The premise: the split arguments are the same, so only the raw text differs ...
+        assert_eq!(det_args(&bare, kw), ["echo", "$X"]);
+        assert_eq!(det_args(&bare, kw), det_args(&single, kw), "{kw:?}");
+        assert_eq!(det_args(&single, kw), det_args(&double, kw), "{kw:?}");
+        // ... and the digest is bound to the raw text, so each quoting is its own state.
+        let (db, ds, dd) = (digest_of(&bare), digest_of(&single), digest_of(&double));
+        assert_ne!(db, ds, "{kw:?}: $X against '$X'");
+        assert_ne!(ds, dd, "{kw:?}: '$X' against \"$X\"");
+        assert_ne!(db, dd, "{kw:?}: $X against \"$X\"");
+        // The comparison names the directive, and only that one.
+        let changes = diff(&relevant(&bare), &relevant(&single));
+        assert_eq!(changes.len(), 1, "{kw:?}: {changes:?}");
+        assert_eq!(changes[0].directive, kw);
+        // A trailing comment is part of the text ssh hands to the shell.
+        assert_ne!(db, digest_of(&ev("echo $X # why")), "{kw:?}");
+        // Controls: the same text again, a comment line and a moved line change nothing.
+        assert_eq!(db, digest_of(&ev("echo $X")), "{kw:?}");
+        let commented = eval_user(
+            &format!(
+                "# note\nHost box\n\n    # inside\n    {} echo $X\n",
+                kw.as_str()
+            ),
+            "box",
+        );
+        assert_eq!(db, digest_of(&commented), "{kw:?}");
+        assert!(diff(&relevant(&bare), &relevant(&commented)).is_empty());
+    }
+    // `none` is the whole raw text or nothing: with a comment or quotes it is a command.
+    for (text, is_none) in [
+        ("none", true),
+        ("NONE", true),
+        ("none # why", false),
+        ("\"none\"", false),
+    ] {
+        let ev = eval_user(&format!("Host box\n    ProxyCommand {text}\n"), "box");
+        let listed = !executing_constructs(&ev).is_empty();
+        assert_eq!(listed, !is_none, "ProxyCommand {text}");
+        assert_eq!(
+            matches!(
+                relevant(&ev).proxy,
+                ProxyResolution::Determined(Proxy::None)
+            ),
+            is_none,
+            "ProxyCommand {text}"
+        );
+    }
+}
+
+/// The same `Host box` block, read from four places.
+const BLOCK: &str = "Host box\n    HostName h.example\n    Port 2200\n";
+
+#[test]
+fn moving_a_value_between_roles_changes_the_digest_but_a_line_move_or_comment_does_not() {
+    let roots = user_roots();
+    let eval = |src: &MemSource| eval_roots(src, &roots, "box");
+    // The user's own file.
+    let user = eval(&source().with_file(USER_CONFIG, BLOCK));
+    // A file the user's file includes: another file, the same role.
+    let included = eval(
+        &source()
+            .with_file(USER_CONFIG, "Include extra.conf\n")
+            .with_file(format!("{USER_DIR}/extra.conf"), BLOCK),
+    );
+    // The same lines in P, which B includes.
+    let managed = eval(
+        &source()
+            .with_file(USER_CONFIG, format!("Include \"{MANAGED_REL}\"\n"))
+            .with_file(MANAGED, BLOCK),
+    );
+    // And in the system file.
+    let system = eval(&source().with_file(SYSTEM_CONFIG, BLOCK));
+    for ev in [&user, &included, &managed, &system] {
+        assert_eq!(det_args(ev, KnownKeyword::Port), ["2200"]);
+        assert!(ev.invalid.is_empty() && ev.unresolved.is_empty(), "{ev:?}");
+    }
+    assert_eq!(role_of(&user, KnownKeyword::Port), SourceRole::User);
+    assert_eq!(role_of(&included, KnownKeyword::Port), SourceRole::User);
+    assert_eq!(role_of(&managed, KnownKeyword::Port), SourceRole::Managed);
+    assert_eq!(role_of(&system, KnownKeyword::Port), SourceRole::System);
+
+    // The values are equal in all four, so the roles alone make the digests differ.
+    let (du, di, dm, ds) = (
+        digest_of(&user),
+        digest_of(&included),
+        digest_of(&managed),
+        digest_of(&system),
+    );
+    assert_eq!(du, di, "another file of the same role is not a move");
+    assert_ne!(du, dm, "user to managed");
+    assert_ne!(du, ds, "user to system");
+    assert_ne!(dm, ds, "managed to system");
+    // The comparison reports the moved values, with the roles in them.
+    let changes = diff(&relevant(&user), &relevant(&managed));
+    let moved: Vec<_> = changes.iter().map(|c| c.directive).collect();
+    assert_eq!(moved, [KnownKeyword::Hostname, KnownKeyword::Port]);
+    assert!(diff(&relevant(&user), &relevant(&included)).is_empty());
+    assert!(behavior_state(&relevant(&managed)).determined);
+
+    // Moving a line within a role, and adding comments or blank lines, change nothing.
+    let reordered = eval(&source().with_file(
+        USER_CONFIG,
+        "# note\n\nHost box\n    Port 2200\n\n    # inside\n    HostName h.example\n",
+    ));
+    assert_eq!(digest_of(&reordered), du);
+    assert!(diff(&relevant(&user), &relevant(&reordered)).is_empty());
+    let reordered_p = eval(
+        &source()
+            .with_file(USER_CONFIG, format!("Include \"{MANAGED_REL}\"\n"))
+            .with_file(
+                MANAGED,
+                "# managed\nHost box\n    Port 2200\n    # c\n    HostName h.example\n",
+            ),
+    );
+    assert_eq!(digest_of(&reordered_p), dm);
+
+    // Without P's path, P is just another file of the user's tree.
+    let unaware = eval_roots(
+        &source()
+            .with_file(USER_CONFIG, format!("Include \"{MANAGED_REL}\"\n"))
+            .with_file(MANAGED, BLOCK),
+        &Roots::new(Some(PathBuf::from(USER_CONFIG)), None),
+        "box",
+    );
+    assert_eq!(role_of(&unaware, KnownKeyword::Port), SourceRole::User);
+    assert_eq!(digest_of(&unaware), du);
+}
+
+#[test]
+fn a_determined_values_role_is_right_for_user_included_system_and_managed_files() {
+    let src = source()
+        .with_file(
+            USER_CONFIG,
+            format!("Include \"{MANAGED_REL}\"\nInclude extra.conf\nHost box\n    Port 2200\n"),
+        )
+        .with_file(MANAGED, "Host box\n    HostName managed.example\n")
+        .with_file(
+            format!("{USER_DIR}/extra.conf"),
+            "Host box\n    User from-include\n",
+        )
+        .with_file(
+            SYSTEM_CONFIG,
+            "Include sys.conf\nHost *\n    ForwardAgent no\n",
+        )
+        .with_file(
+            format!("{}/sys.conf", SYSTEM_DIR),
+            "Host box\n    ControlPersist no\n",
+        );
+    let ev = eval_roots(&src, &user_roots(), "box");
+    assert!(ev.invalid.is_empty() && ev.unresolved.is_empty(), "{ev:?}");
+    // P, the user's own file, a file the user's file includes, the system file, a file
+    // the system file includes.
+    assert_eq!(role_of(&ev, KnownKeyword::Hostname), SourceRole::Managed);
+    assert_eq!(role_of(&ev, KnownKeyword::Port), SourceRole::User);
+    assert_eq!(role_of(&ev, KnownKeyword::User), SourceRole::User);
+    assert_eq!(role_of(&ev, KnownKeyword::ForwardAgent), SourceRole::System);
+    assert_eq!(
+        role_of(&ev, KnownKeyword::ControlPersist),
+        SourceRole::System
+    );
+
+    // The role follows the file's path, spelled however it is reached: a doubled
+    // separator in the configured path, and an include through a symlink.
+    let spelled = Roots::new(Some(PathBuf::from(USER_CONFIG)), None)
+        .with_managed("/hm/home/.config//heimdall/ssh_config");
+    assert_eq!(
+        role_of(&eval_roots(&src, &spelled, "box"), KnownKeyword::Hostname),
+        SourceRole::Managed
+    );
+    let linked = source()
+        .with_file(USER_CONFIG, "Include /hm/home/.config/heimdall/link.conf\n")
+        .with_file(MANAGED, "Host box\n    HostName managed.example\n")
+        .with_entry(
+            "/hm/home/.config/heimdall/link.conf",
+            MemEntry::Symlink(PathBuf::from(MANAGED)),
+        );
+    assert_eq!(
+        role_of(
+            &eval_roots(&linked, &user_roots(), "box"),
+            KnownKeyword::Hostname
+        ),
+        SourceRole::Managed,
+        "P reached through a symlink is still P (its canonical path)"
+    );
+    // Another file is never P, whatever its name looks like.
+    let lookalike = source()
+        .with_file(USER_CONFIG, "Include other.conf\n")
+        .with_file(
+            format!("{USER_DIR}/other.conf"),
+            "Host box\n    HostName x.example\n",
+        );
+    assert_eq!(
+        role_of(
+            &eval_roots(&lookalike, &user_roots(), "box"),
+            KnownKeyword::Hostname
+        ),
+        SourceRole::User
+    );
+
+    // The opaque candidate of an unreadable include has the role of the file that holds
+    // the include: user for the user's tree, system for the system's.
+    let candidate_role = |ev: &Evaluation| match ev.values.get(&KnownKeyword::Hostname) {
+        Some(Resolved::Undetermined(vs)) => vs.iter().map(|v| v.role).collect::<Vec<_>>(),
+        other => panic!("{other:?}"),
+    };
+    let user_denied = source()
+        .with_file(USER_CONFIG, "Include denied.conf\n")
+        .with_entry(format!("{USER_DIR}/denied.conf"), MemEntry::Denied);
+    assert_eq!(
+        candidate_role(&eval_roots(&user_denied, &user_roots(), "box")),
+        [SourceRole::User]
+    );
+    let system_denied = source()
+        .with_file(SYSTEM_CONFIG, "Include denied.conf\n")
+        .with_entry(format!("{SYSTEM_DIR}/denied.conf"), MemEntry::Denied);
+    assert_eq!(
+        candidate_role(&eval_roots(&system_denied, &user_roots(), "box")),
+        [SourceRole::System]
+    );
+    // Accumulated entries carry theirs too, in order.
+    let ids = source()
+        .with_file(
+            USER_CONFIG,
+            format!("Include \"{MANAGED_REL}\"\nHost *\n    IdentityFile ~/.ssh/u\n"),
+        )
+        .with_file(MANAGED, "Host box\n    IdentityFile ~/.ssh/m\n")
+        .with_file(SYSTEM_CONFIG, "IdentityFile ~/.ssh/s\n");
+    let ev = eval_roots(&ids, &user_roots(), "box");
+    let roles: Vec<_> = ev.accumulated[&KnownKeyword::IdentityFile]
+        .iter()
+        .map(|c| (c.value.args[0].clone(), c.value.role))
+        .collect();
+    assert_eq!(
+        roles,
+        [
+            ("~/.ssh/m".to_owned(), SourceRole::Managed),
+            ("~/.ssh/u".to_owned(), SourceRole::User),
+            ("~/.ssh/s".to_owned(), SourceRole::System),
+        ]
+    );
+    // Every file read is named, so a span can be shown as file:line.
+    let named: BTreeSet<_> = ev
+        .files
+        .values()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        named.contains(USER_CONFIG) && named.contains(MANAGED) && named.contains(SYSTEM_CONFIG)
+    );
+}
+
+#[test]
+fn retired_keywords_load_with_no_invalid_entry_and_no_effect() {
+    let base = "Host box\n    HostName h.example\n    Port 2201\n    IdentityFile ~/.ssh/k\n";
+    let plain = eval_user(base, "box");
+    assert!(plain.ignored.is_empty() && plain.invalid.is_empty());
+
+    // Every retired keyword, in odd cases, after the lines whose spans we compare.
+    let mut text = base.to_owned();
+    for (i, (name, _)) in OBSOLETE.iter().enumerate() {
+        let spelled = if i % 2 == 0 {
+            name.to_ascii_uppercase()
+        } else {
+            (*name).to_owned()
+        };
+        text.push_str(&format!("    {spelled} 2\n"));
+    }
+    let ev = eval_user(&text, "box");
+    assert!(ev.invalid.is_empty(), "{:?}", ev.invalid);
+    assert!(ev.unresolved.is_empty(), "{:?}", ev.unresolved);
+    // No effect on any value: the evaluation is the plain one, apart from `ignored`.
+    assert_eq!(ev.values, plain.values);
+    assert_eq!(ev.accumulated, plain.accumulated);
+    assert_eq!(digest_of(&ev), digest_of(&plain));
+    assert!(diff(&relevant(&ev), &relevant(&plain)).is_empty());
+    assert!(behavior_state(&relevant(&ev)).determined);
+    // Each is recorded as ignored, once, in reading order, with what ssh says about it.
+    assert_eq!(ev.ignored.len(), OBSOLETE.len());
+    for (i, (ig, (name, kind))) in ev.ignored.iter().zip(OBSOLETE).enumerate() {
+        assert_eq!(ig.keyword, *name);
+        assert_eq!(ig.kind, *kind);
+        assert_eq!(ig.span.line, 5 + u32::try_from(i).unwrap());
+    }
+    // An `Unsupported` one is what the doctor notes; the others are not.
+    let noted: Vec<_> = ev.unsupported().map(|i| i.keyword).collect();
+    let expected: Vec<_> = OBSOLETE
+        .iter()
+        .filter(|(_, k)| *k == Obsolete::Unsupported)
+        .map(|(n, _)| *n)
+        .collect();
+    assert!(!expected.is_empty());
+    assert_eq!(noted, expected);
+
+    // Where the line is does not matter: ssh reports it in a section that does not
+    // apply, in an included file, and under `IgnoreUnknown` that does not name it.
+    let ev = eval_src(
+        &source()
+            .with_file(
+                USER_CONFIG,
+                "IgnoreUnknown Frob*\nHost nomatch\n    Protocol 2\nInclude inc.conf\nHost box\n    Port 2201\n",
+            )
+            .with_file(format!("{USER_DIR}/inc.conf"), "KerberosAuthentication yes\n"),
+        &q("box"),
+    );
+    assert!(ev.invalid.is_empty(), "{:?}", ev.invalid);
+    assert_eq!(
+        ev.ignored.iter().map(|i| i.keyword).collect::<Vec<_>>(),
+        ["protocol", "kerberosauthentication"]
+    );
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2201"));
+    // The final pass reads every line again; the line is still recorded once.
+    let ev = eval_user("Protocol 2\nMatch final\n    Port 2202\n", "box");
+    assert_eq!(ev.ignored.len(), 1, "{:?}", ev.ignored);
+    assert!(ev.invalid.is_empty());
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2202"));
+
+    // Controls: an unknown keyword is still invalid, and a retired keyword with no
+    // argument is refused by the lexer before ssh looks the keyword up.
+    let ev = eval_user("Protocol 2\nFrobnicateWidget yes\nUseRoaming\n", "box");
+    assert_eq!(ev.ignored.len(), 1);
+    let reasons: Vec<_> = ev
+        .invalid
+        .iter()
+        .map(|i| (i.span.line, i.reason.as_str()))
+        .collect();
+    assert_eq!(reasons, [(2, "unknown_keyword"), (3, "lex_error")]);
+}
+
+/// The first line of the file holding the one construct, as a list of line numbers.
+fn listed_lines(ev: &Evaluation) -> Vec<u32> {
+    executing_constructs(ev).iter().map(|s| s.line).collect()
+}
+
+#[test]
+fn each_code_loading_keyword_is_listed_and_its_none_value_is_not() {
+    for kw in [
+        KnownKeyword::XauthLocation,
+        KnownKeyword::Pkcs11Provider,
+        KnownKeyword::SecurityKeyProvider,
+    ] {
+        let name = kw.as_str();
+        // Their value class stays first-wins.
+        assert_eq!(class(kw), DirectiveClass::FirstWins);
+        let ev = |text: &str| eval_user(text, "box");
+
+        // A value that applies is listed, at its line.
+        let listed = ev(&format!("Host box\n    {name} /hm/lib/x\n"));
+        assert_eq!(listed_lines(&listed), [2], "{name}");
+        assert_eq!(det1(&listed, kw).as_deref(), Some("/hm/lib/x"));
+        // `none`, in any case, is not.
+        for none in ["none", "NONE", "None"] {
+            let ev = ev(&format!("Host box\n    {name} {none}\n"));
+            assert!(executing_constructs(&ev).is_empty(), "{name} {none}");
+        }
+        // Unset is not.
+        assert!(executing_constructs(&ev("Host box\n    User u\n")).is_empty());
+        // First-wins: the first obtained value decides what may take effect.
+        let none_first = ev(&format!(
+            "Host box\n    {name} none\nHost *\n    {name} /hm/lib/x\n"
+        ));
+        assert!(executing_constructs(&none_first).is_empty(), "{name}");
+        let real_first = ev(&format!(
+            "Host box\n    {name} /hm/lib/x\nHost *\n    {name} none\n"
+        ));
+        assert_eq!(listed_lines(&real_first), [2], "{name}");
+        // A value under a condition that is false is not.
+        let nomatch = ev(&format!("Host nomatch\n    {name} /hm/lib/x\n"));
+        assert!(executing_constructs(&nomatch).is_empty(), "{name}");
+        // Behind a condition that cannot be decided statically it may take effect, and
+        // a `none` candidate may not.
+        let behind_exec = ev(&format!(
+            "Match exec \"probe-code\"\n    {name} /hm/lib/x\nHost *\n    {name} none\n"
+        ));
+        assert_eq!(
+            undet(&behind_exec, kw),
+            Some(vec!["/hm/lib/x".to_owned(), "none".to_owned()]),
+            "{name}"
+        );
+        assert_eq!(
+            listed_lines(&behind_exec),
+            [1, 2],
+            "{name}: the Match exec and its value"
+        );
+        let only_none_behind = ev(&format!("Match exec \"probe-code\"\n    {name} none\n"));
+        assert_eq!(
+            listed_lines(&only_none_behind),
+            [1],
+            "{name}: only the Match exec"
+        );
+        // An unreadable part of the tree may set anything, so it is listed too.
+        let denied = eval_src(
+            &source()
+                .with_file(USER_CONFIG, "Include denied.conf\n")
+                .with_entry(format!("{USER_DIR}/denied.conf"), MemEntry::Denied),
+            &q("box"),
+        );
+        assert_eq!(listed_lines(&denied), [1], "{name}");
+    }
+    // They join the older constructs in one sorted list without duplicates.
+    let ev = eval_user(
+        "Host box\n    XAuthLocation /hm/bin/xauth\n    PKCS11Provider /hm/lib/p11.so\n\
+         ProxyCommand nc %h %p\n    SecurityKeyProvider /hm/lib/sk.so\n    KnownHostsCommand /hm/bin/kh\n",
+        "box",
+    );
+    assert_eq!(listed_lines(&ev), [2, 3, 4, 5, 6]);
+}
+
+fn line_of(src: &MemSource, path: &str, needle: &str) -> u32 {
+    let bytes = src.read(Path::new(path)).unwrap().bytes;
+    let text = String::from_utf8(bytes).unwrap();
+    let at = text
+        .lines()
+        .position(|l| l.contains(needle))
+        .unwrap_or_else(|| panic!("{needle} not in {path}"));
+    u32::try_from(at + 1).unwrap()
+}
+
+#[test]
+fn identity_entries_carry_the_source_role_and_file_line_provenance() {
+    let mut src = adopted_tree(
+        b"Include extra.conf\nHost *\n    IdentityFile ~/.ssh/u1\n    CertificateFile ~/.ssh/c1-cert.pub\n",
+        &[managed_alias("m1", "m1.example", None)],
+    );
+    src.insert(
+        format!("{USER_DIR}/extra.conf"),
+        MemEntry::File(b"Host m1\n    IdentityFile ~/.ssh/inc\n".to_vec()),
+    );
+    src.insert(
+        SYSTEM_CONFIG,
+        MemEntry::File(b"IdentityFile ~/.ssh/s1\n".to_vec()),
+    );
+    let ev = eval_src(&src, &q("m1"));
+    let report = identity_selection(&ev, &adopted_path("m1"), &src);
+    let shown: Vec<_> = report
+        .entries
+        .iter()
+        .map(|e| {
+            (
+                e.kind,
+                e.source,
+                e.provenance
+                    .as_ref()
+                    .map(|p| (p.path_display.clone(), p.line)),
+            )
+        })
+        .collect();
+    let at = |display: &str, path: &str, needle: &str| {
+        Some((display.to_owned(), line_of(&src, path, needle)))
+    };
+    use IdentityEntryKind::{CertificateFile, IdentityFile};
+    assert_eq!(
+        shown,
+        [
+            // P's entry, then the user file's (B includes P first), in reading order.
+            (
+                IdentityFile,
+                IdentityEntrySource::Managed,
+                at("~/.config/heimdall/ssh_config", MANAGED, "IdentityFile")
+            ),
+            (
+                IdentityFile,
+                IdentityEntrySource::User,
+                at(
+                    "~/.ssh/extra.conf",
+                    &format!("{USER_DIR}/extra.conf"),
+                    "inc"
+                )
+            ),
+            (
+                IdentityFile,
+                IdentityEntrySource::User,
+                at("~/.ssh/config", USER_CONFIG, "u1")
+            ),
+            (
+                IdentityFile,
+                IdentityEntrySource::System,
+                at("/hm/etc/ssh/ssh_config", SYSTEM_CONFIG, "s1")
+            ),
+            (
+                CertificateFile,
+                IdentityEntrySource::User,
+                at("~/.ssh/config", USER_CONFIG, "c1")
+            ),
+        ]
+    );
+    assert_eq!(report.selection, IdentitySelection::NotExclusive);
+
+    // A default identity comes from no file: role default, no provenance.
+    let src = source()
+        .with_file(USER_CONFIG, "Host box\n    User u\n")
+        .with_file(format!("{USER_DIR}/id_ed25519.pub"), synthetic_pub(9, "d"));
+    let ev = eval_src(&src, &q("box"));
+    let e = &identity_selection(&ev, &adopted_path("box"), &src).entries[0];
+    assert_eq!(
+        (e.source, e.provenance.clone()),
+        (IdentityEntrySource::Default, None)
+    );
+
+    // The source is the role of the file the entry was read from, not a guess from its
+    // path: the user's file names the adopted key in another spelling. Both entries are
+    // the adopted key, so the selection stays exclusive, and the second is `User`.
+    let src = adopted_tree(
+        b"Host m1\n    IdentityFile /hm/home/.config/heimdall/keys/m1.pub\n",
+        &[managed_alias("m1", "m1.example", None)],
+    );
+    let ev = eval_src(&src, &q("m1"));
+    let report = identity_selection(&ev, &adopted_path("m1"), &src);
+    assert_eq!(report.selection, IdentitySelection::Exclusive, "{report:?}");
+    assert_eq!(
+        report.entries.iter().map(|e| e.source).collect::<Vec<_>>(),
+        [IdentityEntrySource::Managed, IdentityEntrySource::User]
+    );
+    // The same spelling is dropped as a duplicate, as ssh drops it: one `Managed` entry.
+    let src = adopted_tree(
+        b"Host m1\n    IdentityFile ~/.config/heimdall/keys/m1.pub\n",
+        &[managed_alias("m1", "m1.example", None)],
+    );
+    let ev = eval_src(&src, &q("m1"));
+    let report = identity_selection(&ev, &adopted_path("m1"), &src);
+    assert_eq!(report.entries.len(), 1);
+    assert_eq!(report.entries[0].source, IdentityEntrySource::Managed);
+
+    // Without P's path P's entry is just the user tree's: `User`, never `Managed`.
+    let src = adopted_tree(b"", &[managed_alias("m1", "m1.example", None)]);
+    let unaware = eval_roots(
+        &src,
+        &Roots::new(Some(PathBuf::from(USER_CONFIG)), None),
+        "m1",
+    );
+    let report = identity_selection(&unaware, &adopted_path("m1"), &src);
+    assert_eq!(report.entries[0].source, IdentityEntrySource::User);
 }
 
 // --- rendering (ADR-0007 §4) -------------------------------------------------------------

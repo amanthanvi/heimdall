@@ -1547,8 +1547,371 @@ impl RecoveryState {
         receipts: &[StageReceipt],
         files: &[FileStep],
     ) -> Result<RecoveryState, Contradictory> {
-        let _ = (step, receipts, files);
-        todo!("M02-U4 RecoveryState::build (ADR-0007 §5.7 \"The recovery state\")")
+        // M02-W2-U4b (ADR-0007 §5.7 "The recovery state", §12.11 item 4, §12.14 item 1).
+        //
+        // Only `StageReceipt.local` is read; M01 receipts (`local: None`) are skipped.
+        // A local receipt naming a step or an item the intent does not have is a
+        // corrupt history and refuses every step: nothing is inferred from it.
+        //
+        // Per step, `held` receipts are dropped first, so they never affect the result
+        // (`held` is never an effective phase). The rest must follow the shape's phase
+        // order, one receipt per phase (no phase repeats):
+        //
+        // * replace: staged → validated{V} → exchanged → post_validated{valid |
+        //   mismatch}; valid → (item.committed) settling{displaced} or
+        //   settle_conflict (F4d, F4e), or (item.rolling_back)
+        //   restore_started{transaction_check}; mismatch →
+        //   restore_started{file_mismatch}; restore_started → restored →
+        //   settling{staged} or settle_conflict (F6, F6a). An abort settles S from
+        //   staged or validated: settling{staged} or settle_conflict;
+        // * create: staged → validated{absent} → exchanged → post_validated{valid};
+        //   valid → (item.committed) settled{nothing_displaced} (C5b), or
+        //   (item.rolling_back) restore_started{transaction_check} →
+        //   settling{path} → the settlement block → restored (C7). The abort is as for
+        //   a replace;
+        // * git_lock: staged{K} → settling{staged | path} or settle_conflict (K3,
+        //   K4);
+        // * removal: the cleaner writes no stage receipt, so any file receipt
+        //   contradicts it;
+        // * the settlement block, every shape: settling → settled{quarantined} or
+        //   settle_conflict; settled{quarantined} → settle_conflict (F9a).
+        //
+        // The item's receipts: at most one each of committed and rolling_back and
+        // never both, nothing of the item after item.finished (no item receipt and
+        // none of this step's file receipts), finished{applied} only with committed,
+        // any other outcome never with committed, and not_applied never after
+        // rolling_back.
+        //
+        // `restore`: due(file_mismatch) at post_validated{mismatch};
+        // due(transaction_check) at post_validated{valid} once item.rolling_back is on
+        // record; started(cause) after restore_started, also through a create's
+        // restore settlement; done(cause) after restored, kept through the settlement
+        // that follows it (ADR-0007 §12.14 item 1).
+        //
+        // A `file.settling` names the entry its source holds: S (K) for a `staged` or
+        // `path` source, V for a `displaced` one (D after a valid post-validation).
+        //
+        // `settlement`: the step's one `file.settling`, from that receipt on. Its slot
+        // stays named after settled or settle_conflict (and, for a create's restore,
+        // after restored), so the slot is still observed (F9–F9d, C8).
+        //
+        // `release_due` (git_lock only): every other step of the Git item is final by
+        // its receipts: a removal step (handed to the cleaner), settled or
+        // settle_conflict (a create's restore only once restored follows), or a
+        // create's restored. A never-staged sibling, or an exchanged inactive one, is
+        // final only once `decide_item` has decided the abort in the same run; no
+        // receipt records that, so the builder never counts it (wave-0 verifier E7,
+        // accepted by §12.14 item 1) and K2 keeps the lock until the caller does.
+        use crate::operation::{ItemFinish, ItemPhase, LocalReceipt};
+
+        /// The item receipts seen so far, in log order.
+        #[derive(Default)]
+        struct ItemSeen {
+            committed: bool,
+            rolling_back: bool,
+            finished: bool,
+        }
+
+        /// One step's walk through its history.
+        struct Walk {
+            phase: Option<EffectivePhase>,
+            restore: RestoreCtx,
+            settlement: Option<SettleCtx>,
+            item: ItemState,
+        }
+
+        /// Whether `next` may follow `cur` for a step of `shape`.
+        fn allowed(
+            shape: StepShape,
+            cur: Option<&EffectivePhase>,
+            next: &EffectivePhase,
+            create_restore: bool,
+            item: &ItemSeen,
+        ) -> bool {
+            use EffectivePhase as P;
+            use PostVerdict::{Mismatch, Valid};
+            use SettleSource::{Displaced, Path, Staged};
+            use SettledDisposition::{NothingDisplaced, Quarantined};
+            match shape {
+                StepShape::Removal => false,
+                StepShape::GitLock => matches!(
+                    (cur, next),
+                    (None, P::Staged { .. })
+                        | (
+                            Some(P::Staged { .. }),
+                            P::Settling {
+                                source: Staged | Path,
+                                ..
+                            } | P::SettleConflict { .. }
+                        )
+                        | (
+                            Some(P::Settling { .. }),
+                            P::Settled {
+                                disposition: Quarantined
+                            } | P::SettleConflict { .. }
+                        )
+                        | (
+                            Some(P::Settled {
+                                disposition: Quarantined
+                            }),
+                            P::SettleConflict { .. }
+                        )
+                ),
+                StepShape::Replace | StepShape::Create => {
+                    let create = shape == StepShape::Create;
+                    match (cur, next) {
+                        (None, P::Staged { .. })
+                        | (Some(P::Validated { .. }), P::Exchanged)
+                        | (
+                            Some(P::Staged { .. } | P::Validated { .. }),
+                            P::Settling { source: Staged, .. } | P::SettleConflict { .. },
+                        )
+                        | (
+                            Some(P::Settling { .. }),
+                            P::Settled {
+                                disposition: Quarantined,
+                            }
+                            | P::SettleConflict { .. },
+                        )
+                        | (
+                            Some(P::Settled {
+                                disposition: Quarantined,
+                            }),
+                            P::SettleConflict { .. },
+                        ) => true,
+                        (Some(P::Staged { .. }), P::Validated { base }) => base.is_some() != create,
+                        (Some(P::Exchanged), P::PostValidated { verdict, .. }) => {
+                            *verdict == Valid || !create
+                        }
+                        (
+                            Some(P::PostValidated { verdict: Valid, .. }),
+                            P::RestoreStarted {
+                                cause: RestoreCause::TransactionCheck,
+                            },
+                        ) => item.rolling_back,
+                        (
+                            Some(P::PostValidated {
+                                verdict: Mismatch, ..
+                            }),
+                            P::RestoreStarted {
+                                cause: RestoreCause::FileMismatch,
+                            },
+                        )
+                        | (Some(P::Restored), P::Settling { source: Staged, .. })
+                        | (Some(P::Restored), P::SettleConflict { .. })
+                        | (Some(P::RestoreStarted { .. }), P::Restored) => !create,
+                        (
+                            Some(P::PostValidated { verdict: Valid, .. }),
+                            P::Settling {
+                                source: Displaced, ..
+                            }
+                            | P::SettleConflict { .. },
+                        ) => !create && item.committed,
+                        (
+                            Some(P::PostValidated { verdict: Valid, .. }),
+                            P::Settled {
+                                disposition: NothingDisplaced,
+                            },
+                        ) => create && item.committed,
+                        (Some(P::RestoreStarted { .. }), P::Settling { source: Path, .. }) => {
+                            create
+                        }
+                        (
+                            Some(
+                                P::Settled {
+                                    disposition: Quarantined,
+                                }
+                                | P::SettleConflict { .. },
+                            ),
+                            P::Restored,
+                        ) => create_restore,
+                        _ => false,
+                    }
+                }
+            }
+        }
+
+        /// Walk step `idx` (shape `shape`, item `item`) through `receipts`.
+        fn walk(
+            idx: usize,
+            shape: StepShape,
+            item: ProjectionItem,
+            receipts: &[StageReceipt],
+        ) -> Result<Walk, Contradictory> {
+            let mut seen = ItemSeen::default();
+            let mut phase: Option<EffectivePhase> = None;
+            let mut started: Option<RestoreCause> = None;
+            let mut restored = false;
+            let mut settlement: Option<SettleCtx> = None;
+            let mut staged_identity: Option<FileIdentity> = None;
+            let mut base_identity: Option<FileIdentity> = None;
+            for receipt in receipts {
+                match &receipt.local {
+                    None => {}
+                    Some(LocalReceipt::Item { item: of, phase: p }) => {
+                        if *of != item {
+                            continue;
+                        }
+                        if seen.finished {
+                            return Err(Contradictory);
+                        }
+                        match p {
+                            ItemPhase::Committed { .. } | ItemPhase::RollingBack { .. } => {
+                                if seen.committed || seen.rolling_back {
+                                    return Err(Contradictory);
+                                }
+                                if matches!(p, ItemPhase::Committed { .. }) {
+                                    seen.committed = true;
+                                } else {
+                                    seen.rolling_back = true;
+                                }
+                            }
+                            ItemPhase::Finished { outcome } => {
+                                let consistent = match outcome {
+                                    ItemFinish::Applied => seen.committed,
+                                    ItemFinish::NotApplied => !seen.committed && !seen.rolling_back,
+                                    ItemFinish::Restored | ItemFinish::ConflictPreserved => {
+                                        !seen.committed
+                                    }
+                                };
+                                if !consistent {
+                                    return Err(Contradictory);
+                                }
+                                seen.finished = true;
+                            }
+                        }
+                    }
+                    Some(LocalReceipt::File { step: s, phase: p }) => {
+                        if usize::from(*s) != idx || matches!(p, FilePhase::Held { .. }) {
+                            continue;
+                        }
+                        let Ok(next) = EffectivePhase::try_from(p.clone()) else {
+                            continue;
+                        };
+                        if seen.finished {
+                            return Err(Contradictory);
+                        }
+                        let create_restore = settlement.is_some_and(|c| c.create_restore);
+                        if !allowed(shape, phase.as_ref(), &next, create_restore, &seen) {
+                            return Err(Contradictory);
+                        }
+                        match &next {
+                            EffectivePhase::RestoreStarted { cause } => started = Some(*cause),
+                            EffectivePhase::Restored => restored = true,
+                            EffectivePhase::Staged { identity } => {
+                                staged_identity = Some(identity.clone());
+                            }
+                            EffectivePhase::Validated { base } => base_identity.clone_from(base),
+                            EffectivePhase::Settling {
+                                source, expected, ..
+                            } => {
+                                let owner = match source {
+                                    SettleSource::Displaced => base_identity.as_ref(),
+                                    SettleSource::Staged | SettleSource::Path => {
+                                        staged_identity.as_ref()
+                                    }
+                                };
+                                if owner.is_none_or(|id| !id.same_file(expected)) {
+                                    return Err(Contradictory);
+                                }
+                                settlement = Some(SettleCtx {
+                                    source: *source,
+                                    create_restore: shape == StepShape::Create
+                                        && *source == SettleSource::Path,
+                                });
+                            }
+                            _ => {}
+                        }
+                        phase = Some(next);
+                    }
+                }
+            }
+            let restore = match (started, &phase) {
+                (Some(cause), _) if restored => RestoreCtx::Done(cause),
+                (Some(cause), _) => RestoreCtx::Started(cause),
+                (
+                    None,
+                    Some(EffectivePhase::PostValidated {
+                        verdict: PostVerdict::Mismatch,
+                        ..
+                    }),
+                ) => RestoreCtx::Due(RestoreCause::FileMismatch),
+                (
+                    None,
+                    Some(EffectivePhase::PostValidated {
+                        verdict: PostVerdict::Valid,
+                        ..
+                    }),
+                ) if seen.rolling_back => RestoreCtx::Due(RestoreCause::TransactionCheck),
+                _ => RestoreCtx::NotDue,
+            };
+            let item = if seen.finished {
+                ItemState::Finished
+            } else if seen.committed {
+                ItemState::Committed
+            } else if seen.rolling_back {
+                ItemState::RollingBack
+            } else {
+                ItemState::Open
+            };
+            Ok(Walk {
+                phase,
+                restore,
+                settlement,
+                item,
+            })
+        }
+
+        /// Whether sibling step `idx` is final by its receipts (for `release_due`).
+        fn final_by_receipts(idx: usize, step: &FileStep, receipts: &[StageReceipt]) -> bool {
+            let shape = StepShape::of(step);
+            let Ok(w) = walk(idx, shape, step.role.item(), receipts) else {
+                return false;
+            };
+            if shape == StepShape::Removal {
+                return true;
+            }
+            let in_create_restore = w.settlement.is_some_and(|c| c.create_restore);
+            match &w.phase {
+                Some(EffectivePhase::Settled { .. } | EffectivePhase::SettleConflict { .. }) => {
+                    !in_create_restore
+                }
+                Some(EffectivePhase::Restored) => shape == StepShape::Create,
+                _ => false,
+            }
+        }
+
+        let idx = usize::from(step);
+        let Some(this) = files.get(idx) else {
+            return Err(Contradictory);
+        };
+        for receipt in receipts {
+            let foreign = match &receipt.local {
+                Some(LocalReceipt::File { step: s, .. }) => usize::from(*s) >= files.len(),
+                Some(LocalReceipt::Item { item, .. }) => {
+                    !files.iter().any(|f| f.role.item() == *item)
+                }
+                None => false,
+            };
+            if foreign {
+                return Err(Contradictory);
+            }
+        }
+        let shape = StepShape::of(this);
+        let w = walk(idx, shape, this.role.item(), receipts)?;
+        let release_due = shape == StepShape::GitLock
+            && files.iter().enumerate().all(|(j, f)| {
+                j == idx
+                    || f.role.item() != ProjectionItem::Git
+                    || final_by_receipts(j, f, receipts)
+            });
+        Ok(RecoveryState {
+            phase: w.phase,
+            restore: w.restore,
+            settlement: w.settlement,
+            item: w.item,
+            release_due,
+        })
     }
 }
 
@@ -1644,8 +2007,86 @@ impl StepObservation {
         state: &RecoveryState,
         shape: StepShape,
     ) -> Result<StepObservation, Impossible> {
-        let _ = (path, aside, slot, state, shape);
-        todo!("M02-U4 StepObservation::normalize (ADR-0007 §5.7 \"Normalization\")")
+        // M02-W2-U4b (ADR-0007 §5.7 "Normalization" item 3; §12.11 item 5). The rules
+        // are checked in the ADR's order and the first that fails names the cell:
+        //
+        // 1. One recorded identity at two names. Same-role symbols are one identity.
+        //    So are Q and the role whose entry the open settlement moves: S for a
+        //    `staged` or `path` source (an abort, a restore's settlement, a create's
+        //    restore, K's release), V for a `displaced` source (D after a valid
+        //    post-validation is V). For the removal shape S and V both name the
+        //    locator's entry L, so they are one identity too.
+        // 2. Q anywhere without a settlement, or at a name other than its source name
+        //    (the path for a `path` source, the aside name otherwise) and its slot.
+        // 3. D unless a mismatch is on record (the restore context's cause is
+        //    `file_mismatch`, which `RestoreCtx::Done` keeps); V for a shape whose base
+        //    is absent (create, git_lock).
+        // 4. Anything at the slot, `?` included, when no `file.settling` names one. The
+        //    removal shape is exempt: the cleaner's slot is derived from its locator.
+        // 5. `release_due` on a shape other than git_lock.
+        //
+        // The shape rule and the role precedence are the classifier's (`observe_step`),
+        // which produces each `EntryObs`.
+        let names = [path, aside, slot];
+        let settle = state.settlement;
+        let class = |e: EntryObs| -> Option<RecordedRole> {
+            let EntryObs::Recorded { which, .. } = e else {
+                return None;
+            };
+            Some(match (which, settle.map(|c| c.source)) {
+                (RecordedRole::Q, Some(SettleSource::Staged | SettleSource::Path)) => {
+                    RecordedRole::S
+                }
+                (RecordedRole::Q, Some(SettleSource::Displaced)) => RecordedRole::V,
+                (RecordedRole::V, _) if shape == StepShape::Removal => RecordedRole::S,
+                (other, _) => other,
+            })
+        };
+        for (i, a) in names.iter().enumerate() {
+            for b in &names[i + 1..] {
+                if let (Some(x), Some(y)) = (class(*a), class(*b))
+                    && x == y
+                {
+                    return Err(Impossible::RecordedAtTwoNames);
+                }
+            }
+        }
+        let is = |e: EntryObs, role: RecordedRole| matches!(e, EntryObs::Recorded { which, .. } if which == role);
+        let q_outside = match settle.map(|c| c.source) {
+            None => names.iter().any(|e| is(*e, RecordedRole::Q)),
+            Some(SettleSource::Path) => is(aside, RecordedRole::Q),
+            Some(SettleSource::Staged | SettleSource::Displaced) => is(path, RecordedRole::Q),
+        };
+        if q_outside {
+            return Err(Impossible::QuarantineOutsideSettlement);
+        }
+        let mismatch = matches!(
+            state.restore,
+            RestoreCtx::Due(RestoreCause::FileMismatch)
+                | RestoreCtx::Started(RestoreCause::FileMismatch)
+                | RestoreCtx::Done(RestoreCause::FileMismatch)
+        ) || matches!(
+            state.phase,
+            Some(EffectivePhase::PostValidated {
+                verdict: PostVerdict::Mismatch,
+                ..
+            })
+        );
+        if !mismatch && names.iter().any(|e| is(*e, RecordedRole::D)) {
+            return Err(Impossible::DisplacedWithoutMismatch);
+        }
+        if matches!(shape, StepShape::Create | StepShape::GitLock)
+            && names.iter().any(|e| is(*e, RecordedRole::V))
+        {
+            return Err(Impossible::ValidatedWithoutBase);
+        }
+        if shape != StepShape::Removal && settle.is_none() && slot != EntryObs::Absent {
+            return Err(Impossible::SlotWithoutSettlement);
+        }
+        if state.release_due && shape != StepShape::GitLock {
+            return Err(Impossible::LockStateOnOtherShape);
+        }
+        Ok(StepObservation { path, aside, slot })
     }
 
     /// The path's symbol.
