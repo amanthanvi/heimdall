@@ -568,3 +568,14 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - ADR-0007 §12.24 rules on the escalations and defines wave 3c:
     - W3c-ops: U01, U02, inspect listing, decision-deadline wake, `ErrorDetail.entries`, catalog stale reissue;
     - W3c-run: connect with observed aliases, replayed-bind re-check, filling the entries, manual first adoption always needing a decision, and 5 missing A27/A11 tests.
+- Wave 3b is committed as 7b5015ef. My check.sh: exit 0, 1480 passed.
+- Pruned `target/debug`, 27G → 653M, under cargo's lock with no build running.
+- Running (2026-11-03):
+  - workflow `wf_69e1c65c-1d4`, wave 3c: W3c-ops and W3c-run, then an integrator;
+  - task M02-W3b-code-review: Codex, worktree at 7b5015ef.
+- M02 wave-3b code review (Codex; `tests/evidence/artifacts/review-m02-code/wave3b.md`): fix first, all P1.
+  - T01: the pre-launch check is shell-only.
+  - T02: `Match localuser` comes from `$USER`.
+  - T03: the authentication probe accepts an exclusive key through an undeclared agent.
+  - T04: overlapping runs share one holder.
+  - ADR-0007 §12.25 rules on all four. Wave 3d (W3d-select, W3d-holder) runs after wave 3c.

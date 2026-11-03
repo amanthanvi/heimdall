@@ -3769,6 +3769,54 @@ Sources: the three wave-3b unit reports and the integrator's report (workflow
        tests in `tests/integration/projection.rs`.
    * `tui_handoff_ctrl_z_stops_and_fg_resumes_as_one_job` stays with U10 (wave 4).
 
+### 12.25 Rulings on the wave-3b code review (orchestrator, 2026-11-03)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave3b.md` (Codex, independent, fix first).
+T01–T04 were each reproduced through production components and are accepted as defects. They
+touch files wave 3c edits concurrently, so they are fixed in **wave 3d** after wave 3c
+integrates.
+
+1. **T01: the no-interaction checks cover every invocation profile.**
+   * The pre-launch check evaluates the alias under `Shell`, `Exec(None)` and
+     `Subsystem("sftp")`, the consent v3 profile set (§12.21 item 2), for both `run` and
+     `connect`. It requires the selection to be cleared in every profile. An uncleared or
+     undetermined selection in any profile refuses.
+   * The non-interactive authentication probe evaluates the invocation it actually runs.
+   * Regressions: exec-only and subsystem-only fallback identities, and an `IdentityAgent`
+     override behind each, are refused before launch.
+2. **T02: `%u` and `Match localuser` come from the account database.**
+   * Every query builder takes `local_user` from the OS account (`sys::account_name()`,
+     the lookup `LocalContext::local_user` uses), never from `USER` or `USERNAME`. That
+     covers projection observe and preview (consent), the pre-launch check, the probes and
+     doctor.
+   * When the account cannot be established, `Match localuser` is `Unknown` and `%u` is
+     unavailable. Both are undetermined, and neither is an empty name.
+   * Regressions: `USER` unset, and `USER` set to another name.
+3. **T03: an exclusive selection is accepted only through its declared endpoint.**
+   * Before either success path, the authentication probe establishes the effective
+     `IdentityAgent` with the T01 profile and requires it to equal the adopted identity's
+     declared endpoint. An unknown or different endpoint refuses.
+   * The pre-launch check already makes the same comparison (§12.24 item 5).
+   * Regression: an exclusive selection that changes only `IdentityAgent`.
+4. **T04: one live holder per binding.**
+   * A launch whose binding already has a live holder that is not this process is refused
+     before `launching`: `REQUEST_CONFLICT`, reason `binding_in_use`, `next:
+     new_request_id`. The existing holder is not overwritten.
+   * The check and the holder registration happen in one transaction, so two overlapping
+     invocations cannot both pass.
+   * Sequential retries, after the first holder has exited and been released, keep their
+     current behaviour, governed by §12.24 item 2's active re-check.
+   * Regression: the reviewer's two overlapping invocations. The second is refused and the
+     binding stays active until the first exits.
+5. **Wave 3d**, two units:
+   * **W3d-select:** items 1–3. Owns `crates/heimdall/src/launch_flow.rs`,
+     `crates/localenv/src/projection/{observe,plan}.rs` (query construction only),
+     `crates/localenv/src/probe/**`, `crates/localenv/src/doctor.rs`,
+     `crates/launch/src/eligibility.rs` and their tests.
+   * **W3d-holder:** item 4. Owns `crates/heimdall/src/run_cmd.rs`,
+     `crates/heimdall/src/connect_cmd.rs`, `crates/app/src/{holders,operations}.rs` (the
+     holder registration only) and `tests/e2e/run_m02.rs` (the holder tests).
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
