@@ -4032,6 +4032,49 @@ No M02 command answers "not available in this build" any more.
       needs an sshd log of offered keys, through `HM_FIXTURE_SSHD_LOG`;
     * the TUI's first-frame latency.
 
+### 12.31 Rulings on the wave-4 code review (orchestrator, 2026-11-03)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave4.md` (Codex, independent, fix first). S01
+and R01 are closed. Q01–Q04 are accepted. They are fixed in **wave 5b**, after wave 5
+integrates and before the final native runs at the M02 exit build.
+
+1. **Q01: purging state needs its own attended confirmation (Q6).**
+   * `uninstall --purge-state` shows what it will discard: the state database with counts
+     of operations, grants, decisions and catalog records, the backups, and any quarantine
+     or conflict copies it would remove.
+   * It requires an attended typed `y`/`yes`. Non-TTY, `--non-interactive`, EOF,
+     interruption, timeout and any other answer keep everything and exit 3,
+     `INTERACTION_REQUIRED` (client-side, no `decision_ref`).
+   * The `--allow-config-commands` exception does not apply here.
+   * Regressions: refused without a typed yes, and done with one.
+2. **Q02: a skipped authorization never authorizes.**
+   * The authorization step reports one of two outcomes: authorized (a typed yes, or
+     `--non-interactive` with the flag, as documented) or not authorized.
+   * "Nothing runnable" and "the configuration could not be read" are not authorized.
+     Every real-tree level of that invocation is then declined (`ProbeOutcome::Declined`,
+     with the reason), whatever a later pass sees.
+   * Regression: the reviewer's unreadable-to-readable interleaving runs no evaluation.
+3. **Q03 and Q04: the owner can see everything before typing yes.**
+   * Decision and authorization content is never truncated. Long cells wrap, the layout
+     falls back to stacked columns when needed, and the content scrolls (arrows,
+     PgUp/PgDn, Home/End) while the prompt stays fixed.
+   * A modal shows how much is left below. A typed `yes` is accepted only once the last
+     line of the content has been on screen; before that the answer is refused, with the
+     modal saying so.
+   * Regressions, at 120×40 and 40×12:
+     * a diff whose meaningful suffix lies beyond the cell width can be read in full;
+     * the last entry of a 15-construct inventory can be reached;
+     * `yes` is refused until it has been shown.
+4. **The intermittent pipe test** (`heimdall-launch`
+   `meta::tests::fd_protocol_writes_whole_lines_and_epipe_is_an_error_not_a_signal`) failed
+   once in the reviewer's run and very probably once in the orchestrator's (§12.30). The
+   wave-5b unit diagnoses its cause and fixes the test or the code, with evidence. A flaky
+   test is never retried away or ignored. Hypothesis to check, not a finding: another
+   test's child process inherits the pipe's read end.
+5. **Wave 5b:** one unit, `W5b-fix`, owning `crates/heimdall/src/{uninstall_cmd,doctor_cmd}.rs`,
+   `crates/heimdall/src/tui/{view,model}.rs`, `crates/launch/src/meta.rs` and their tests.
+   Then the native runs are repeated at the resulting exit build.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

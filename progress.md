@@ -643,3 +643,18 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - one earlier run had one failing test, unidentified because I deleted the log before reading it. It did not recur: a no-fail-fast rerun passed 1623/0. Lesson: keep logs until read.
   - final run: exit 0, 1625 passed, 0 failed.
 - ADR-0007 §12.30 rules on the wave-4 escalations. The remaining items go to wave 5 (W5-U11, with the exit suite).
+- Wave 4 is committed as bac4be49.
+- Running (2026-11-03):
+  - workflow `wf_0a557c90-850`, wave 5, the exit wave:
+    1. W5-fix (§12.30 items) and W5-harness (tests/native/m02 harnesses, case index, evidence generator) in parallel;
+    2. the integrator;
+    3. W5-run: native runs on macOS, the devbox and the Windows 11 PC; m02 evidence records; matrix rows; `docs/architecture/m02-exit-draft.md`.
+  - task M02-W4-code-review: Codex, worktree at bac4be49.
+- After wave 5: review the native evidence and the Codex W4 review; fix any findings; write the M02 exit record; then M03.
+- M02 wave-4 code review (Codex; `tests/evidence/artifacts/review-m02-code/wave4.md`): fix first.
+  - Q01 (P1): purge-state without confirmation.
+  - Q02 (P1): a skipped doctor authorization still executes.
+  - Q03 and Q04 (P2): the TUI truncates decisions; the authorization list cannot scroll.
+  - S01 and R01 closed.
+  - The intermittent test is identified: `heimdall-launch` `meta::tests::fd_protocol_writes_whole_lines_and_epipe_is_an_error_not_a_signal`.
+  - ADR-0007 §12.31: fixed in wave 5b (W5b-fix), then native runs repeated at the exit build.
