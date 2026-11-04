@@ -850,8 +850,10 @@ fn contains(hay: &[u8], needle: &str) -> bool {
 /// (Q8 as qualified): an argument canary reaches the child, and appears nowhere
 /// else: not in any envelope or diagnostic, run record, the store's files, the logs,
 /// the events, nor in a replay with the same request ID or a refusal. (Batch refusals
-/// are Windows-only; the refusal checked here is an exec failure and a missing
-/// program.)
+/// are Windows-only; the refusals checked here are the replay's, an exec failure and a
+/// missing program.) ADR-0007 §12.25 item 4: the replay, another process, is refused
+/// before launch (the first invocation's binding is held until the holder pass
+/// releases it, then released), so the exec failure runs as new work.
 #[test]
 fn a27_argv_canary_absent_from_ipc_store_events_logs_errors_batch_refusals_replay_and_meta() {
     let rig = Rig::new();
@@ -882,16 +884,9 @@ fn a27_argv_canary_absent_from_ipc_store_events_logs_errors_batch_refusals_repla
         ]
     };
     let mut scanned: Vec<(String, Vec<u8>)> = Vec::new();
-    let mut run_one = |name: &str, args: Vec<OsString>, extra: &[(&str, &OsStr)]| {
+    let mut run_one = |name: &str, request: &str, args: Vec<OsString>, extra: &[(&str, &OsStr)]| {
         let meta = rig.file(&format!("{name}.ndjson"));
-        let mut a = os(&[
-            "--json",
-            "run",
-            "--profile",
-            "ops",
-            "--request-id",
-            "req-canary",
-        ]);
+        let mut a = os(&["--json", "run", "--profile", "ops", "--request-id", request]);
         a.push("--meta-file".into());
         a.push(meta.clone().into_os_string());
         a.push("--".into());
@@ -905,23 +900,35 @@ fn a27_argv_canary_absent_from_ipc_store_events_logs_errors_batch_refusals_repla
         ));
         out.status
     };
-    assert_eq!(run_one("first", argv.clone(), &[]).code(), Some(0));
+    assert_eq!(
+        run_one("first", "req-canary", argv.clone(), &[]).code(),
+        Some(0)
+    );
     assert_eq!(
         std::fs::read_to_string(&seen).unwrap(),
         canary,
         "the child got it"
     );
-    assert_eq!(run_one("replay", argv.clone(), &[]).code(), Some(0));
+    std::fs::remove_file(&seen).unwrap();
+    let replay = run_one("replay", "req-canary", argv.clone(), &[]).code();
+    assert!(
+        matches!(replay, Some(6 | 4)),
+        "binding_in_use, or binding_released once the holder pass ran: {replay:?}"
+    );
+    assert!(!seen.exists(), "the replay launched nothing");
     let forced = [("HEIMDALL_TEST_FORCE_EXEC_FAILURE", OsStr::new("1"))];
     if cfg!(unix) {
         assert_eq!(
-            run_one("exec-failure", argv.clone(), &forced).code(),
+            run_one("exec-failure", "req-canary-exec", argv.clone(), &forced).code(),
             Some(127)
         );
     }
     let mut missing = argv.clone();
     missing[0] = "hm-no-such-program-u8".into();
-    assert_eq!(run_one("missing", missing, &[]).code(), Some(127));
+    assert_eq!(
+        run_one("missing", "req-canary", missing, &[]).code(),
+        Some(127)
+    );
     let events = rig.run(&["--json", "operation", "events", "--limit", "500"]);
     scanned.push(("events".to_owned(), events.stdout.clone()));
     let ops = rig.run(&["--json", "inspect", "operations"]);
@@ -1514,13 +1521,16 @@ fn line_count(path: &Path) -> usize {
 
 /// The refusal of a replayed `bind` whose binding the holder pass released (ADR-0007
 /// §12.24 item 2): `CREDENTIAL_EXPIRED`, exit 4, `next: new_work`, the binding named
-/// as the resource, and one `prelaunch_failed` record; nothing launched.
+/// as the resource, reason `binding_released` (§12.26 item 3(a)) in the envelope and
+/// in the one `prelaunch_failed` record; nothing launched.
 fn assert_released_refusal(out: &Out, meta: &Path) {
     assert_eq!(out.code(), Some(4), "{}", out.stderr);
     let env = out.envelope();
     assert_eq!(env["code"], "CREDENTIAL_EXPIRED", "{}", out.stderr);
     assert_eq!(env["next"]["action"], "new_work");
     assert_eq!(env["data"]["error"]["resource"]["kind"], "binding");
+    assert_eq!(env["data"]["error"]["reason"], "binding_released");
+    assert_eq!(env["data"]["error"]["effect_status"], "none");
     assert!(out.stdout.is_empty());
     let recs = records(meta);
     assert!(
@@ -1531,7 +1541,35 @@ fn assert_released_refusal(out: &Out, meta: &Path) {
         classify(&recs, PLATFORM),
         LaunchClassification::NotLaunched {
             code: Some(heimdall_contract::Code::CredentialExpired),
-            reason: None,
+            reason: Some("binding_released".to_owned()),
+        }
+    );
+}
+
+/// The refusal of a launch whose binding another live holder holds (ADR-0007 §12.25
+/// item 4): `REQUEST_CONFLICT`, exit 6, `next: new_request_id`, effect `none`, the
+/// binding named as the resource, reason `binding_in_use` in the envelope and in the
+/// one `prelaunch_failed` record; nothing launched.
+fn assert_in_use_refusal(out: &Out, meta: &Path, binding: &str) {
+    assert_eq!(out.code(), Some(6), "{}", out.stderr);
+    let env = out.envelope();
+    assert_eq!(env["code"], "REQUEST_CONFLICT", "{}", out.stderr);
+    assert_eq!(env["next"]["action"], "new_request_id");
+    assert_eq!(env["data"]["error"]["reason"], "binding_in_use");
+    assert_eq!(env["data"]["error"]["effect_status"], "none");
+    assert_eq!(env["data"]["error"]["resource"]["kind"], "binding");
+    assert_eq!(env["data"]["error"]["resource"]["id"], binding);
+    assert!(out.stdout.is_empty());
+    let recs = records(meta);
+    assert!(
+        matches!(recs.as_slice(), [RunRecord::PrelaunchFailed { .. }]),
+        "{recs:?}"
+    );
+    assert_eq!(
+        classify(&recs, PLATFORM),
+        LaunchClassification::NotLaunched {
+            code: Some(heimdall_contract::Code::RequestConflict),
+            reason: Some("binding_in_use".to_owned()),
         }
     );
 }
@@ -1541,14 +1579,15 @@ fn assert_released_refusal(out: &Out, meta: &Path) {
 /// (the same operation and binding in every record) and launches at most once per
 /// explicit invocation; a runtime restart relaunches nothing, a child that failed is
 /// not retried, and the runtime never launches anything itself. The first invocation
-/// launches. A retry launches while the binding is still active; once the holder pass
-/// has released it (its holder, the first invocation, exited), the retry is refused
-/// before `launching` (ADR-0007 §12.24 item 2), which also launches nothing.
+/// launches. A retry never launches again: until the holder pass releases the binding
+/// the first invocation's holder row holds it, so the retry (another process) is
+/// refused as `binding_in_use` (ADR-0007 §12.25 item 4); once released, the retry is
+/// refused before `launching` (§12.24 item 2, `binding_released`).
 #[test]
 fn run_retry_with_same_request_id_never_relaunches_automatically() {
     let rig = Rig::new();
     let count = rig.file("count");
-    let mut ids = Vec::new();
+    let mut ids: Vec<(Option<String>, Option<String>)> = Vec::new();
     let mut launched = 0;
     let mut invoke = |n: usize| {
         let meta = rig.file(&format!("meta-{n}.ndjson"));
@@ -1561,7 +1600,12 @@ fn run_retry_with_same_request_id_never_relaunches_automatically() {
             launched += 1;
         } else {
             assert!(n > 1, "the first invocation launches: {}", out.stderr);
-            assert_released_refusal(&out, &meta);
+            if out.code() == Some(6) {
+                let binding = ids[0].1.clone().unwrap();
+                assert_in_use_refusal(&out, &meta, &binding);
+            } else {
+                assert_released_refusal(&out, &meta);
+            }
         }
         ids.push(record_ids(&records(&meta)));
         launched
@@ -1569,6 +1613,7 @@ fn run_retry_with_same_request_id_never_relaunches_automatically() {
     assert_eq!(invoke(1), 1);
     assert_eq!(line_count(&count), 1);
     let after_two = invoke(2);
+    assert_eq!(after_two, 1, "a retry does not launch again");
     assert_eq!(
         line_count(&count),
         after_two,
@@ -1578,6 +1623,7 @@ fn run_retry_with_same_request_id_never_relaunches_automatically() {
     let stop = rig.run(&["--json", "service", "stop"]);
     assert_eq!(stop.code(), Some(0), "{}", stop.stderr);
     let after_three = invoke(3);
+    assert_eq!(after_three, 1, "nor after a restart");
     std::thread::sleep(Duration::from_millis(1500));
     assert_eq!(
         line_count(&count),
@@ -1676,6 +1722,81 @@ fn holder_pass_releases_the_binding_once_the_run_exits() {
     wait_for("the holder pass", Duration::from_secs(20), || {
         state(&rig) != "active"
     });
+}
+
+/// ADR-0007 §12.25 item 4 (T04; regression for the reviewer's probe
+/// `review_replayed_live_binding_releases_while_second_child_lives`): two real `run`
+/// invocations with one request ID overlap. The first launches its child, blocked on
+/// a scratch FIFO. The second replays the same `ensure` and `bind` and is refused
+/// before `launching` (`REQUEST_CONFLICT`, `binding_in_use`, `next: new_request_id`),
+/// naming the replayed operation and binding; its child never starts. The first stays
+/// the holder: with the second gone, and across more than one holder pass (at most
+/// 5 s apart), the binding is still active; once the first exits, the pass releases
+/// it.
+#[cfg(unix)]
+#[test]
+fn t04_overlapping_runs_of_one_binding_refuse_the_second_and_keep_the_first_holder() {
+    let rig = Rig::new();
+    let fifo = rig.file("hold");
+    mkfifo(&fifo);
+    let count = rig.file("count");
+    let first_meta = rig.file("first.ndjson");
+    let script = format!("read x < '{}'", fifo.display());
+    let mut args = os(&[
+        "--json",
+        "run",
+        "--profile",
+        "ops",
+        "--request-id",
+        "req-overlap",
+    ]);
+    args.push("--meta-file".into());
+    args.push(first_meta.as_os_str().to_owned());
+    args.push("--".into());
+    args.extend(os(&["/bin/sh", "-c", &script]));
+    let first = Running(Some(
+        rig.command(&refs(&args), &[])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    ));
+    wait_for("launching", Duration::from_secs(30), || {
+        std::fs::read_to_string(&first_meta).is_ok_and(|t| t.ends_with('\n'))
+    });
+    let (operation, binding) = launching_ids(&records(&first_meta));
+    let binding = binding.unwrap();
+    assert_eq!(binding_state(&rig, &binding), "active");
+    // The second invocation, with the same request ID, while the first runs.
+    let second_meta = rig.file("second.ndjson");
+    let out = counted_run(&rig, "req-overlap", &second_meta, &count);
+    assert_in_use_refusal(&out, &second_meta, &binding);
+    assert_eq!(
+        record_ids(&records(&second_meta)),
+        (operation, Some(binding.clone())),
+        "the replayed operation and binding"
+    );
+    assert_eq!(line_count(&count), 0, "the second child never ran");
+    // The second has exited; a holder pass later the binding is still active, so the
+    // holder row still names the first.
+    std::thread::sleep(Duration::from_secs(6));
+    assert_eq!(
+        binding_state(&rig, &binding),
+        "active",
+        "the first invocation still holds the binding"
+    );
+    {
+        use std::io::Write as _;
+        let mut w = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+        writeln!(w, "go").unwrap();
+    }
+    let status = first.wait(Duration::from_secs(30));
+    assert_eq!(status.code(), Some(0));
+    wait_for("the holder pass", Duration::from_secs(20), || {
+        binding_state(&rig, &binding) != "active"
+    });
+    assert_eq!(line_count(&count), 0);
 }
 
 // =================================================================================
@@ -2796,9 +2917,26 @@ mod a11 {
         }
     }
 
+    /// Wait until the holder pass has released `binding` (its holder, a `run` that
+    /// finished, has exited).
+    fn wait_released(w: &World, binding: &str) {
+        let id = heimdall_contract::ids::BindingId::parse(binding).unwrap();
+        let store = Arc::clone(&w.service.as_ref().unwrap().store);
+        wait_for("the holder pass", Duration::from_secs(30), || {
+            store
+                .transaction(|tx| tx.binding(&id))
+                .unwrap()
+                .is_some_and(|b| b.state == heimdall_domain::binding::BindingState::Released)
+        });
+    }
+
     /// m02-plan U8 `a11_replayed_bind_result_still_gets_prelaunch_check`: the same
     /// `bind` request ID is replayed after a withdrawal; the replayed envelope still
-    /// says `none`, and the launch is refused. Also across a restart.
+    /// says `none`, and the launch is refused. Also across a restart. ADR-0007 §12.25
+    /// item 4: the replaying process gets the stored result only once the first
+    /// invocation's binding is released (until then its holder row holds it and the
+    /// replay is refused as `binding_in_use`), so the replay waits for the holder pass;
+    /// the pre-launch check runs before `run`'s active re-check.
     #[test]
     fn a11_replayed_bind_result_still_gets_prelaunch_check() {
         for restart in [false, true] {
@@ -2811,6 +2949,7 @@ mod a11 {
             if restart {
                 w.restart();
             }
+            wait_released(&w, &launching_ids(&w.records("first")).1.unwrap());
             w.withdraw(&id, WithdrawReason::Owner);
             let out = w.run_cli(
                 &w.run_args("again", true, &["--request-id", "req-replay"]),
@@ -2925,6 +3064,268 @@ mod a11 {
         let out = w.run_cli(&w.run_args("file", true, &[]), &[]);
         assert_refused(&w, "file", &out, "fallback_identity_interaction");
         assert!(pub_path.exists());
+    }
+
+    /// The `--non-interactive connect alpha` arguments, with the run record at
+    /// `<name>.ndjson`.
+    fn connect_args(w: &World, name: &str) -> Vec<OsString> {
+        let mut a = os(&[
+            "--json",
+            "--non-interactive",
+            "connect",
+            ALPHA.alias,
+            "--meta-file",
+        ]);
+        a.push(w.marker(&format!("{name}.ndjson")).into_os_string());
+        a
+    }
+
+    /// ADR-0007 §12.25 item 1 (T01), the reviewer's
+    /// `review_exec_only_fallback_passes_the_prelaunch_check`: the pre-launch check of
+    /// `run` and of `connect` evaluates `alpha` under `Shell`, `Exec(None)` and
+    /// `Subsystem("sftp")`. Each configuration below leaves the shell's selection
+    /// exclusive at the declared agent, and each is refused before launch:
+    /// * an `IdentityFile` behind `Match sessiontype exec` (an exec-only fallback) and
+    ///   one behind `Match sessiontype subsystem` (subsystem-only):
+    ///   `fallback_identity_interaction`, naming its line;
+    /// * an `IdentityAgent` override behind each (placed before Heimdall's block, so it
+    ///   is the value ssh obtains first): `interaction_unknown`.
+    ///
+    /// `run` gains the entry after `bind` (during the pre-check pause); `connect` meets
+    /// it in place. Nothing is launched (no marker, the stub client never runs), and the
+    /// agent is never contacted. Control: the base configuration launches both.
+    #[test]
+    fn t01_exec_only_and_subsystem_only_entries_are_refused_before_launch() {
+        let (w, _) = World::single(true);
+        let base = std::fs::read_to_string(&w.home.user_config).unwrap();
+        let k2 = write_pub(&w, 1, "k2");
+        let other = w.home.root.join("other-agent.sock");
+        let dir = stub_ssh(&w);
+        let path = OsString::from(format!("{}:/usr/bin:/bin", dir.display()));
+        let ran = w.home.root.join("ssh-args");
+        let fallback_line = u32::try_from(base.lines().count() + 2).unwrap();
+        let cases = [
+            (
+                "exec-fallback",
+                format!(
+                    "{base}Match sessiontype exec\n    IdentityFile \"{}\"\n",
+                    k2.display()
+                ),
+                "fallback_identity_interaction",
+            ),
+            (
+                "sftp-fallback",
+                format!(
+                    "{base}Match sessiontype subsystem\n    IdentityFile \"{}\"\n",
+                    k2.display()
+                ),
+                "fallback_identity_interaction",
+            ),
+            (
+                "exec-agent",
+                format!(
+                    "Match sessiontype exec\n    IdentityAgent \"{}\"\nMatch all\n{base}",
+                    other.display()
+                ),
+                "interaction_unknown",
+            ),
+            (
+                "sftp-agent",
+                format!(
+                    "Match sessiontype subsystem\n    IdentityAgent \"{}\"\nMatch all\n{base}",
+                    other.display()
+                ),
+                "interaction_unknown",
+            ),
+        ];
+        for (name, text, reason) in &cases {
+            let run = format!("run-{name}");
+            let out = w.run_paused(&w.run_args(&run, true, &[]), &[], || {
+                std::fs::write(&w.home.user_config, text).unwrap();
+            });
+            assert_refused(&w, &run, &out, reason);
+            if *reason == "fallback_identity_interaction" {
+                assert_refusal_entries(&out, &[fallback_line]);
+            }
+
+            let _ = std::fs::remove_file(&ran);
+            let connect = format!("connect-{name}");
+            let out = w.run_cli(&connect_args(&w, &connect), &[("PATH", path.as_os_str())]);
+            assert_eq!(out.code(), Some(3), "{name}: {}", out.stderr);
+            assert_eq!(code_of(&out), "INTERACTION_REQUIRED", "{}", out.stderr);
+            assert_eq!(reason_of(&out), *reason, "{name}: {}", out.stderr);
+            if *reason == "fallback_identity_interaction" {
+                assert_refusal_entries(&out, &[fallback_line]);
+            }
+            assert!(!ran.exists(), "{name}: the client never ran");
+            assert!(out.stdout.is_empty());
+            assert_eq!(w.agent.contact_count(), 0, "no agent contact");
+            std::fs::write(&w.home.user_config, &base).unwrap();
+        }
+        // Control: the base configuration launches both.
+        let out = w.run_cli(&w.run_args("base", true, &[]), &[]);
+        assert_launched(&w, "base", &out);
+        let out = w.run_cli(
+            &connect_args(&w, "connect-base"),
+            &[("PATH", path.as_os_str())],
+        );
+        assert_eq!(out.code(), Some(0), "{}", out.stderr);
+        assert!(ran.exists());
+    }
+
+    /// ADR-0007 §12.25 item 1 (T01), `connect`'s observed alias: `gamma`, defined by
+    /// the user's own configuration, naming the adopted key 0 (declared `none`) at its
+    /// agent under `IdentitiesOnly yes`, launches; the doctor's static level evaluates
+    /// it under every profile, so an exec-only or subsystem-only fallback identity is
+    /// refused (`fallback_identity_interaction`, naming its line), and so is an exec-only
+    /// `IdentityAgent` override (`interaction_unknown`). The stub client never runs.
+    #[test]
+    fn t01_connect_observed_alias_refuses_exec_only_and_subsystem_only_entries() {
+        let (w, _) = World::single(true);
+        w.catalog(CatalogRequest::UpsertDestination {
+            destination: DestinationSpec {
+                id: DestinationId::parse("dst-gamma").unwrap(),
+                alias: "gamma".to_owned(),
+                definition: DestinationDefinitionSpec::Observed,
+                label: None,
+            },
+            request_id: w.next_id("dest"),
+        })
+        .unwrap();
+        let k0 = write_pub(&w, 0, "k0");
+        let k1 = write_pub(&w, 1, "k1");
+        let agent = w.endpoint().locator;
+        let other = w.home.root.join("other-agent.sock");
+        let gamma = format!(
+            "Host gamma\n    HostName gamma.example.invalid\n    IdentityFile \"{}\"\n    IdentityAgent \"{agent}\"\n    IdentitiesOnly yes\n",
+            k0.display()
+        );
+        let base = std::fs::read_to_string(&w.home.user_config).unwrap();
+        let dir = stub_ssh(&w);
+        let path = OsString::from(format!("{}:/usr/bin:/bin", dir.display()));
+        let ran = w.home.root.join("ssh-args");
+        let connect = |name: &str, text: &str| {
+            std::fs::write(&w.home.user_config, text).unwrap();
+            let _ = std::fs::remove_file(&ran);
+            let mut a = os(&[
+                "--json",
+                "--non-interactive",
+                "connect",
+                "gamma",
+                "--meta-file",
+            ]);
+            a.push(w.marker(&format!("{name}.ndjson")).into_os_string());
+            w.run_cli(&a, &[("PATH", path.as_os_str())])
+        };
+        let out = connect("gamma-control", &format!("{base}{gamma}"));
+        assert_eq!(out.code(), Some(0), "{}", out.stderr);
+        assert!(ran.exists(), "control: launched");
+        let fallback_line =
+            u32::try_from(base.lines().count() + gamma.lines().count() + 2).unwrap();
+        for (name, text, reason) in [
+            (
+                "gamma-exec",
+                format!(
+                    "{base}{gamma}Match sessiontype exec\n    IdentityFile \"{}\"\n",
+                    k1.display()
+                ),
+                "fallback_identity_interaction",
+            ),
+            (
+                "gamma-sftp",
+                format!(
+                    "{base}{gamma}Match sessiontype subsystem\n    IdentityFile \"{}\"\n",
+                    k1.display()
+                ),
+                "fallback_identity_interaction",
+            ),
+            (
+                "gamma-exec-agent",
+                format!(
+                    "Match sessiontype exec\n    IdentityAgent \"{}\"\nMatch all\n{base}{gamma}",
+                    other.display()
+                ),
+                "interaction_unknown",
+            ),
+        ] {
+            let out = connect(name, &text);
+            assert_refused(&w, name, &out, reason);
+            if reason == "fallback_identity_interaction" {
+                assert_refusal_entries(&out, &[fallback_line]);
+            }
+            assert!(!ran.exists(), "{name}: never launched");
+        }
+    }
+
+    /// ADR-0007 §12.25 item 2 (T02), the reviewer's
+    /// `review_localuser_fallback_passes_with_user_unset`: `Match localuser` is read
+    /// from the account database, never `USER`. During the pre-check pause the user
+    /// file gains `Match localuser <the OS account>` with an undeclared fallback; the
+    /// launch is refused with `USER` unset and with `USER` (and `USERNAME`) naming
+    /// another account. Control: a rule for that other name never applies, so the
+    /// launch proceeds even while `USER` names it.
+    #[test]
+    fn t02_localuser_fallback_is_refused_with_user_unset_or_naming_another_account() {
+        let (w, _) = World::single(true);
+        let base = std::fs::read_to_string(&w.home.user_config).unwrap();
+        let k2 = write_pub(&w, 1, "k2");
+        let account = account_name();
+        let other = "hm-fixture-other-account";
+        let rule = |name: &str| {
+            format!(
+                "{base}Match localuser {name}\n    IdentityFile \"{}\"\n",
+                k2.display()
+            )
+        };
+        let fallback_line = u32::try_from(base.lines().count() + 2).unwrap();
+        let named: [(&str, &OsStr); 2] =
+            [("USER", OsStr::new(other)), ("USERNAME", OsStr::new(other))];
+        for (name, extra) in [("unset", &[][..]), ("other", &named[..])] {
+            let run = format!("localuser-{name}");
+            let out = w.run_paused(&w.run_args(&run, true, &[]), extra, || {
+                std::fs::write(&w.home.user_config, rule(&account)).unwrap();
+            });
+            assert_refused(&w, &run, &out, "fallback_identity_interaction");
+            assert_refusal_entries(&out, &[fallback_line]);
+            std::fs::write(&w.home.user_config, &base).unwrap();
+        }
+        let out = w.run_paused(&w.run_args("localuser-control", true, &[]), &named, || {
+            std::fs::write(&w.home.user_config, rule(other)).unwrap();
+        });
+        assert_launched(&w, "localuser-control", &out);
+    }
+
+    /// ADR-0007 §12.26 item 4: the runtime's own no-interaction refusal at `ensure`
+    /// names the refused `IdentityFile` line, which lies inside `Host *`, as the CLI's
+    /// pre-launch refusal does. With the fallback in place before `run`, the runtime
+    /// refuses the `ensure` (its message, not the CLI's) and names `~/.ssh/config:5`
+    /// (the include block's three lines and `Host *` come first); nothing is launched
+    /// and the agent is never contacted.
+    #[test]
+    fn runtime_ensure_refusal_names_the_refused_identityfile_line() {
+        let (w, _) = World::single(true);
+        let k2 = write_pub(&w, 1, "k2");
+        append_user_config(
+            &w,
+            &format!("Host *\n    IdentityFile \"{}\"\n", k2.display()),
+        );
+        let out = w.run_cli(&w.run_args("ensure-refused", true, &[]), &[]);
+        assert_refused(&w, "ensure-refused", &out, "fallback_identity_interaction");
+        let message = out.envelope()["data"]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            message.starts_with("the credential provider requires an interaction"),
+            "the runtime's refusal: {message}"
+        );
+        assert!(
+            message.contains("(~/.ssh/config:5)"),
+            "names the line: {message}"
+        );
+        assert!(!message.contains("/home/.ssh"), "{message}");
+        // ADR-0007 §12.26 item 4: and as data, as the CLI's pre-launch refusal does.
+        assert_refusal_entries(&out, &[5]);
     }
 
     /// A stub `ssh` that records its arguments and prints the 256 byte values.
@@ -3643,7 +4044,9 @@ mod a11 {
 
     /// ADR-0007 §12.24 item 4: a fallback refusal's `data.error.entries` name each
     /// refused entry's file (the scratch user configuration, shown as `~/.ssh/config`)
-    /// and line, in order.
+    /// and line, in order. §12.26 item 7: exactly `~/.ssh/config`, even though the
+    /// scratch home may be reached through a symlink (`/var` and `/private/var` on
+    /// macOS); the home's absolute path appears nowhere in the error.
     fn assert_refusal_entries(out: &Out, lines: &[u32]) {
         let env = out.envelope();
         let entries = env["data"]["error"]["entries"]
@@ -3653,11 +4056,17 @@ mod a11 {
             .iter()
             .map(|e| {
                 let path = e["path_display"].as_str().unwrap();
-                assert!(path.ends_with(".ssh/config"), "{path}");
+                assert_eq!(path, "~/.ssh/config", "{}", out.stderr);
                 u32::try_from(e["line"].as_u64().unwrap()).unwrap()
             })
             .collect();
         assert_eq!(got, lines, "{}", out.stderr);
+        // The scratch home is `<root>/home`: its absolute form never appears.
+        let error = env["data"]["error"].to_string();
+        assert!(
+            !error.contains("/home/.ssh"),
+            "no absolute home path: {error}"
+        );
     }
 
     /// Replace the first occurrence of `from` in the scratch user configuration.

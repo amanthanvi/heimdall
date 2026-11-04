@@ -2200,6 +2200,27 @@ impl CredentialAdapter for U10Adapter {
     fn descriptor(&self) -> &AdapterDescriptor {
         self.inner.descriptor()
     }
+    // ADR-0007 §12.26 item 2: no default bodies; this test adapter reads no
+    // source and its bounded call is its own `prepare`.
+    fn read_sources(
+        &self,
+        _pairs: &[heimdall_app::ports::PreparePair],
+    ) -> heimdall_app::ports::IntegrationSnapshot {
+        heimdall_app::ports::IntegrationSnapshot::default()
+    }
+    fn prepare_from<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+        _sources: &'life2 heimdall_app::ports::IntegrationSnapshot,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.prepare(req)
+    }
     fn prepare<'life0, 'life1, 'async_trait>(
         &'life0 self,
         req: heimdall_app::ports::PrepareRequest<'life1>,
@@ -3715,6 +3736,27 @@ impl CredentialAdapter for PendingRevoke {
     fn descriptor(&self) -> &AdapterDescriptor {
         self.inner.descriptor()
     }
+    // ADR-0007 §12.26 item 2: no default bodies; this test adapter reads no
+    // source and its bounded call is its own `prepare`.
+    fn read_sources(
+        &self,
+        _pairs: &[heimdall_app::ports::PreparePair],
+    ) -> heimdall_app::ports::IntegrationSnapshot {
+        heimdall_app::ports::IntegrationSnapshot::default()
+    }
+    fn prepare_from<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+        _sources: &'life2 heimdall_app::ports::IntegrationSnapshot,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.prepare(req)
+    }
     fn prepare<'life0, 'life1, 'async_trait>(
         &'life0 self,
         req: heimdall_app::ports::PrepareRequest<'life1>,
@@ -4789,6 +4831,27 @@ impl CredentialAdapter for TogglePending {
     fn descriptor(&self) -> &AdapterDescriptor {
         self.inner.descriptor()
     }
+    // ADR-0007 §12.26 item 2: no default bodies; this test adapter reads no
+    // source and its bounded call is its own `prepare`.
+    fn read_sources(
+        &self,
+        _pairs: &[heimdall_app::ports::PreparePair],
+    ) -> heimdall_app::ports::IntegrationSnapshot {
+        heimdall_app::ports::IntegrationSnapshot::default()
+    }
+    fn prepare_from<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+        _sources: &'life2 heimdall_app::ports::IntegrationSnapshot,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.prepare(req)
+    }
     fn prepare<'life0, 'life1, 'async_trait>(
         &'life0 self,
         req: heimdall_app::ports::PrepareRequest<'life1>,
@@ -5378,6 +5441,27 @@ impl PendingCounter {
 impl CredentialAdapter for PendingCounter {
     fn descriptor(&self) -> &AdapterDescriptor {
         self.inner.descriptor()
+    }
+    // ADR-0007 §12.26 item 2: no default bodies; this test adapter reads no
+    // source and its bounded call is its own `prepare`.
+    fn read_sources(
+        &self,
+        _pairs: &[heimdall_app::ports::PreparePair],
+    ) -> heimdall_app::ports::IntegrationSnapshot {
+        heimdall_app::ports::IntegrationSnapshot::default()
+    }
+    fn prepare_from<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        req: heimdall_app::ports::PrepareRequest<'life1>,
+        _sources: &'life2 heimdall_app::ports::IntegrationSnapshot,
+    ) -> U10Fut<'async_trait, PrepareOutcome>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.prepare(req)
     }
     fn prepare<'life0, 'life1, 'async_trait>(
         &'life0 self,
@@ -9797,6 +9881,27 @@ mod m02_integration {
         fn descriptor(&self) -> &AdapterDescriptor {
             self.inner.descriptor()
         }
+        // ADR-0007 §12.26 item 2: no default bodies; this test adapter reads no
+        // source and its bounded call is its own `prepare`.
+        fn read_sources(
+            &self,
+            _pairs: &[heimdall_app::ports::PreparePair],
+        ) -> heimdall_app::ports::IntegrationSnapshot {
+            heimdall_app::ports::IntegrationSnapshot::default()
+        }
+        fn prepare_from<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            req: heimdall_app::ports::PrepareRequest<'life1>,
+            _sources: &'life2 heimdall_app::ports::IntegrationSnapshot,
+        ) -> U10Fut<'async_trait, PrepareOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.prepare(req)
+        }
         fn prepare<'life0, 'life1, 'async_trait>(
             &'life0 self,
             req: PrepareRequest<'life1>,
@@ -9985,6 +10090,9 @@ mod m02_integration {
     /// U0b row 3: a launch binding validates its executable and holder; the holder
     /// is delivery metadata, so the same request ID with another holder replays and
     /// another executable conflicts. Materialize still hashes exactly as in M01.
+    /// ADR-0007 §12.25 item 4: the replay with another holder (or none) names the same
+    /// operation but is refused with `binding_in_use` while the first holder holds the
+    /// binding, and writes nothing; the first holder itself replays.
     #[tokio::test]
     async fn u0b_bind_launch_validates_executable_and_excludes_holder_from_hash() {
         let w = World::new().await;
@@ -10028,20 +10136,32 @@ mod m02_integration {
                 .unwrap()
         };
         assert_eq!(stored_holder(&w), Some(first_holder.clone()));
-        // Another holder, the same request ID: a replay of the same operation.
-        let replay = ok(w
+        // Another holder, the same request ID: a replay of the same operation, refused
+        // while the first holder holds the binding (ADR-0007 §12.25 item 4).
+        let replay = err(w
             .ops
             .bind(
                 &unattended(501),
                 launch(exe, Some(holder(4343, "1700000001.000")), "u0b-bl-1"),
             )
             .await);
+        assert_eq!(replay.code, Code::RequestConflict);
+        assert_eq!(replay.reason.as_deref(), Some("binding_in_use"));
         assert_eq!(replay.operation_id, first.operation_id);
-        let replay_without = ok(w
+        let replay_without = err(w
             .ops
             .bind(&unattended(501), launch(exe, None, "u0b-bl-1"))
             .await);
+        assert_eq!(replay_without.reason.as_deref(), Some("binding_in_use"));
         assert_eq!(replay_without.operation_id, first.operation_id);
+        let replay_same = ok(w
+            .ops
+            .bind(
+                &unattended(501),
+                launch(exe, Some(first_holder.clone()), "u0b-bl-1"),
+            )
+            .await);
+        assert_eq!(replay_same.operation_id, first.operation_id);
         assert_eq!(
             stored_holder(&w),
             Some(first_holder.clone()),
@@ -12727,6 +12847,154 @@ mod u0b_adapter_bound {
                 assert!(
                     !span.contains(blocking),
                     "`{blocking}` inside a bounded adapter call: {span}"
+                );
+            }
+        }
+    }
+
+    /// The production part of `crates/adapters/src/<file>`, each line cut at its `//`
+    /// comment.
+    fn adapter_source(file: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../adapters/src")
+            .join(file);
+        let source = std::fs::read_to_string(path).unwrap();
+        let production = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production part");
+        production
+            .lines()
+            .map(|l| l.split("//").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The bodies (from the first `{` after the name to its matching `}`; string
+    /// literals skipped) of every function `name` in `text`.
+    fn fn_bodies<'a>(text: &'a str, name: &str) -> Vec<&'a str> {
+        let needle = format!("fn {name}(");
+        let bytes = text.as_bytes();
+        let mut bodies = Vec::new();
+        for (at, _) in text.match_indices(&needle) {
+            let Some(open) = text[at..].find('{').map(|i| at + i) else {
+                continue;
+            };
+            let (mut depth, mut i, mut in_str) = (0usize, open, false);
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'\\' if in_str => i += 1,
+                    b'"' => in_str = !in_str,
+                    b'{' if !in_str => depth += 1,
+                    b'}' if !in_str => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            bodies.push(&text[open..=i.min(bytes.len() - 1)]);
+        }
+        bodies
+    }
+
+    /// What a bounded `prepare_from` must not reach: the store, the file system, the
+    /// projection writer, the blocking pool, and the adapter's live sources (read
+    /// only by `read_sources`, before the bound).
+    const NOT_INSIDE_THE_BOUND: &[&str] = &[
+        "read_sources",
+        "prepare_reading",
+        "snapshot_of",
+        "self.sources",
+        "core.sources",
+        "self.prepare(",
+        "prepare_detailed(",
+        ".transaction(",
+        "Store",
+        "spawn_blocking",
+        "std::fs",
+        "File::",
+        "read_to_string",
+        ".observe(",
+    ];
+
+    /// ⟨M02⟩ ADR-0007 §12.26 item 2: the source check extends to the adapters. Every
+    /// `CredentialAdapter` implementation in `crates/adapters/src` states its own
+    /// `prepare_from` (the port has no default body), and that body, the call the
+    /// runtime bounds, evaluates over the snapshot through `Core::prepare` only.
+    /// `Core::prepare` and `Core::establish`, which it reaches, read nothing but their
+    /// request and the snapshot passed in (and one endpoint `stat`): no store, file,
+    /// projection or live-source read.
+    #[test]
+    fn u02_adapters_prepare_from_reads_no_store_or_live_source() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../adapters/src");
+        let mut implementors = Vec::new();
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let file = entry.unwrap().file_name().into_string().unwrap();
+            if !file.ends_with(".rs") {
+                continue;
+            }
+            let text = adapter_source(&file);
+            let impls = text.matches("impl CredentialAdapter for ").count();
+            if impls == 0 {
+                continue;
+            }
+            implementors.push(file.clone());
+            let bodies = fn_bodies(&text, "prepare_from");
+            assert_eq!(
+                bodies.len(),
+                impls,
+                "{file}: every adapter states prepare_from"
+            );
+            for body in bodies {
+                assert!(
+                    body.contains("self.core.prepare(&req, sources)"),
+                    "{file}: prepare_from evaluates over the snapshot: {body}"
+                );
+                for needle in NOT_INSIDE_THE_BOUND {
+                    assert!(
+                        !body.contains(needle),
+                        "{file}: `{needle}` inside prepare_from: {body}"
+                    );
+                }
+            }
+        }
+        implementors.sort();
+        assert_eq!(implementors, ["native_agent.rs", "onepassword.rs"]);
+        // The port declares both without a default body (a `;`, never a `{`).
+        let ports = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app/src/ports.rs"),
+        )
+        .unwrap();
+        let ports: String = ports
+            .lines()
+            .map(|l| l.split("//").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let start = ports.find("pub trait CredentialAdapter").expect("the port");
+        let port = &ports[start..];
+        for name in ["read_sources", "prepare_from"] {
+            let at = port.find(&format!("fn {name}(")).expect(name);
+            let rest = &port[at..];
+            let end = rest.find([';', '{']).expect(name);
+            assert_eq!(
+                &rest[end..=end],
+                ";",
+                "CredentialAdapter::{name} has a default body"
+            );
+        }
+        let core = adapter_source("integration.rs");
+        for name in ["prepare", "establish"] {
+            let bodies = fn_bodies(&core, name);
+            assert_eq!(bodies.len(), 1, "Core::{name}");
+            for needle in NOT_INSIDE_THE_BOUND {
+                assert!(
+                    !bodies[0].contains(needle),
+                    "`{needle}` inside Core::{name}: {}",
+                    bodies[0]
                 );
             }
         }

@@ -619,6 +619,10 @@ fn error_reasons_are_stable_snake_case_and_complete() {
         "git_default_not_bundled_msys",
         "verified_client_unavailable",
         "include_target_glob",
+        // ADR-0007 §12.25 item 4 and §12.26 item 3(a): the launch binding's holder
+        // and the released binding.
+        "binding_in_use",
+        "binding_released",
     ]
     .into_iter()
     .map(str::to_owned)

@@ -50,6 +50,11 @@ pub struct OpError {
     /// `data.error.reason`, the wave-0 E3 reading). Values from
     /// `heimdall_contract::envelope::reason`; never request content.
     pub reason: Option<String>,
+    /// ⟨M02⟩ ADR-0007 §12.26 item 4: the configuration entries the refusal concerns
+    /// (wire `data.error.entries`): the runtime's no-interaction refusal at `ensure`
+    /// names the refused `IdentityFile` lines, as the CLI's pre-launch refusal does.
+    /// Display paths and line numbers only; empty for every other error.
+    pub entries: Vec<heimdall_contract::doctor::ConfigProvenance>,
 }
 
 impl OpError {
@@ -64,6 +69,7 @@ impl OpError {
             message: message.into(),
             operation_id: None,
             reason: None,
+            entries: Vec::new(),
         }
     }
 
@@ -71,6 +77,17 @@ impl OpError {
     #[must_use]
     pub fn with_reason(mut self, reason: &str) -> Self {
         self.reason = Some(reason.to_owned());
+        self
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.26 item 4: attach the configuration entries the refusal
+    /// concerns (`data.error.entries`).
+    #[must_use]
+    pub fn with_entries(
+        mut self,
+        entries: Vec<heimdall_contract::doctor::ConfigProvenance>,
+    ) -> Self {
+        self.entries = entries;
         self
     }
 
@@ -171,17 +188,16 @@ impl OpError {
             next: self.next.clone(),
             message: self.message.clone(),
             reason: self.reason.clone(),
-            // ⟨M02⟩ ADR-0007 §12.24 item 4: an application error names no
-            // configuration entry; a launcher that does sets `entries` on the detail
-            // it renders.
-            entries: Vec::new(),
+            // ⟨M02⟩ ADR-0007 §12.24 item 4, §12.26 item 4: the runtime's
+            // no-interaction refusal names its refused lines; a launcher's pre-launch
+            // refusal sets `entries` on the detail it renders.
+            entries: self.entries.clone(),
         }
     }
 
     /// Rebuild from a stored error detail (replay of a settled failure). ⟨M02⟩ The
-    /// detail's `entries` are not carried: no stored application error names one
-    /// (the pre-launch refusals that do are rendered by the launcher, ADR-0007 §12.24
-    /// item 4).
+    /// detail's `entries` are kept: a replayed no-interaction refusal names the same
+    /// lines (ADR-0007 §12.26 item 4).
     #[must_use]
     pub fn from_detail(detail: ErrorDetail, operation_id: Option<OperationId>) -> Self {
         Self {
@@ -192,6 +208,7 @@ impl OpError {
             message: detail.message,
             operation_id,
             reason: detail.reason,
+            entries: detail.entries,
         }
     }
 
@@ -522,5 +539,28 @@ mod tests {
         let dest =
             OpError::from_adapter_for(&AdapterError::Unavailable(secret.into()), "destination");
         assert_eq!(dest.code, Code::DestinationUnreachable);
+    }
+
+    /// ADR-0007 §12.26 item 4: the refused lines travel in `data.error.entries`, and
+    /// a replayed stored failure keeps them.
+    #[test]
+    fn entries_reach_the_detail_and_survive_replay() {
+        let at = |line| heimdall_contract::doctor::ConfigProvenance {
+            path_display: "~/.ssh/config".to_owned(),
+            line,
+        };
+        let e = OpError::new(Code::InteractionRequired, "not attended")
+            .with_entries(vec![at(5), at(9)]);
+        let detail = e.detail();
+        assert_eq!(detail.entries, [at(5), at(9)]);
+        let replayed = OpError::from_detail(detail, None);
+        assert_eq!(replayed.entries, [at(5), at(9)]);
+        assert_eq!(replayed.into_envelope().data.error.entries, [at(5), at(9)]);
+        assert!(
+            OpError::new(Code::InternalError, "x")
+                .detail()
+                .entries
+                .is_empty()
+        );
     }
 }

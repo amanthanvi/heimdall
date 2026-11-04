@@ -9,10 +9,16 @@
 //!
 //! **Non-interactive refusal** (`ProbeContext::interactive == false`), decided after
 //! the static pass and before anything runs (outcome `refused`, code
-//! `INTERACTION_REQUIRED`):
+//! `INTERACTION_REQUIRED`). The static pass evaluates the invocation the probe runs,
+//! the remote command `exit 0` (`Exec(Some("exit 0"))`, ADR-0007 §12.25 item 1), with
+//! the local account from the account database (item 2):
 //!
 //! * `interaction_unknown`: the alias has no catalog identity, or its identity's
 //!   current interaction is not `none` (only a live declaration makes it `none`);
+//! * `interaction_unknown` (§12.25 item 3, T03), before either success path: the
+//!   alias's effective `IdentityAgent` under that invocation (below) is unknown or is
+//!   not the endpoint the adopted identity's declaration covers (its recorded
+//!   endpoint), or the pass is undetermined for want of the local account;
 //! * `fallback_identity_interaction` (M2-R05): the identity selection for the adopted
 //!   key is not `exclusive`, **and** the domain's fallback clearance rule
 //!   (`heimdall_domain::catalog::fallback_clearance`, ADR-0007 §7; adopted by
@@ -144,6 +150,18 @@ fn noninteractive_refusal(
     if identity.interaction != InteractionKind::None {
         return Some(AuthRefusal::InteractionUnknown);
     }
+    // ADR-0007 §12.25 item 3 (T03): before either success path, the effective
+    // `IdentityAgent` of the invocation the probe runs (item 1; the pass evaluated
+    // it) is the endpoint the adopted identity's declaration covers. A declaration
+    // covers one endpoint only, so an unknown or different one refuses, exclusive
+    // selection or not; so does a pass the local account leaves undetermined (item 2).
+    let declared = identity.endpoint.as_ref().and_then(endpoint_of);
+    let endpoint = match (effective_agent(ctx, pass), declared) {
+        (Some(effective), Some(declared)) if effective == declared && !pass.account_unknown => {
+            effective
+        }
+        _ => return Some(AuthRefusal::InteractionUnknown),
+    };
     let source = BoundedSource::new(
         ctx.local.paths.clone(),
         ctx.local.env.clone(),
@@ -151,7 +169,7 @@ fn noninteractive_refusal(
     );
     let report = identity_selection(&pass.evaluation, &identity.public_key_path, &source);
     if report.selection == IdentitySelection::Exclusive
-        || fallbacks_cleared(ctx, pass, identity, &report, &source)
+        || fallbacks_cleared(ctx, &endpoint, identity, &report, &source)
     {
         return None;
     }
@@ -159,17 +177,15 @@ fn noninteractive_refusal(
 }
 
 /// ADR-0007 §12.17 item 10: whether the domain's fallback clearance rule clears every
-/// alternative of `report` (module docs for the inputs).
+/// alternative of `report` at the alias's effective agent `endpoint` (module docs for
+/// the inputs).
 fn fallbacks_cleared(
     ctx: &ProbeContext<'_>,
-    pass: &super::StaticPass,
+    endpoint: &EndpointRef,
     adopted: &CatalogIdentity,
     report: &IdentitySelectionReport,
     source: &BoundedSource,
 ) -> bool {
-    let Some(endpoint) = effective_agent(ctx, pass) else {
-        return false;
-    };
     let catalog = catalog_identities(ctx, source);
     let records: Vec<IdentityRecord> = catalog.iter().map(|(r, _)| r.clone()).collect();
     let eligibility_of = |id: &IdentityId| -> PairEligibility {
@@ -200,7 +216,7 @@ fn fallbacks_cleared(
         report,
         &records,
         &eligibility_of,
-        &endpoint,
+        endpoint,
         &adopted_fingerprint,
     )
     .cleared
@@ -433,10 +449,22 @@ mod tests {
             c
         }
 
+        /// The refusal of the static pass the probe takes: the invocation it runs,
+        /// `exit 0` (ADR-0007 §12.25 item 1).
         fn refusal(&self, ctx: &LocalContext) -> Option<AuthRefusal> {
-            let pass = super::super::static_pass(ctx, ALIAS, None);
-            assert!(!pass.not_fully_readable);
+            let pass = self.pass(ctx);
             noninteractive_refusal(&ProbeContext::new(ctx, true, false), ALIAS, &pass)
+        }
+
+        fn pass(&self, ctx: &LocalContext) -> super::super::StaticPass {
+            let pass = super::super::static_pass_for(
+                ctx,
+                ALIAS,
+                None,
+                super::super::invocation_of(AUTHENTICATION_COMMAND),
+            );
+            assert!(!pass.not_fully_readable);
+            pass
         }
     }
 
@@ -515,7 +543,8 @@ mod tests {
             "IdentitiesOnly is not a determined yes"
         );
         // Even when the catalog recorded the very same text, a value with a token (or
-        // `none`) is not a determined endpoint: only that rule refuses here.
+        // `none`) is not a determined endpoint, so the adopted identity's declared
+        // endpoint is not established (ADR-0007 §12.25 item 3).
         for agent_value in ["none", "~/agent.sock", "%d/agent.sock", "$AGENT/agent.sock"] {
             fx.config(&format!(
                 "{}{inherit}",
@@ -531,7 +560,7 @@ mod tests {
             );
             assert_eq!(
                 fx.refusal(&ctx),
-                Some(Refused),
+                Some(AuthRefusal::InteractionUnknown),
                 "IdentityAgent {agent_value} is not a determined endpoint"
             );
         }
@@ -580,7 +609,8 @@ mod tests {
         assert_eq!(fx.refusal(&fx.ctx(wrong, None)), Some(Refused));
 
         // The default agent is the snapshot's SSH_AUTH_SOCK: cleared when it is the
-        // catalog's endpoint, refused when it is another or unset.
+        // catalog's endpoint, refused when it is another or unset (the adopted
+        // identity's declared endpoint is not the alias's agent, §12.25 item 3).
         fx.config(&format!(
             "{}{inherit}",
             fx.alias_block(None, &adopted, true)
@@ -591,11 +621,11 @@ mod tests {
         );
         assert_eq!(
             fx.refusal(&fx.ctx(both(Declared, &fx.agent), Some(&other_agent))),
-            Some(Refused)
+            Some(AuthRefusal::InteractionUnknown)
         );
         assert_eq!(
             fx.refusal(&fx.ctx(both(Declared, &fx.agent), None)),
-            Some(Refused)
+            Some(AuthRefusal::InteractionUnknown)
         );
         // An identity whose interaction is not `none` is still `interaction_unknown`.
         fx.config(&full);
@@ -630,8 +660,9 @@ mod tests {
                     public_key_path: adopted.clone(),
                     fingerprint: None,
                     interaction: InteractionKind::None,
-                    // The adopted identity's own record is not what clears it.
-                    endpoint: None,
+                    // Its declared endpoint is the alias's agent (ADR-0007 §12.25 item
+                    // 3); its own record is not what clears it as an alternative.
+                    endpoint: Some(EndpointLocator::UnixSocket(fx.agent.clone())),
                 }),
             },
             entry("hm-other", &inherited, InteractionKind::None, &fx.agent),
@@ -653,6 +684,203 @@ mod tests {
         assert_eq!(
             fx.refusal(&ctx),
             Some(AuthRefusal::FallbackIdentityInteraction)
+        );
+    }
+
+    /// A stub `ssh` in `<root>/bin` that creates `<root>/<marker>` when it runs, and
+    /// a context whose snapshot `PATH` finds it (the probe resolves `ssh` from the
+    /// snapshot).
+    fn with_stub(fx: &Fx, ctx: &mut LocalContext, marker: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let bin = fx.root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let ran = fx.root.join(marker);
+        let ssh = bin.join("ssh");
+        std::fs::write(&ssh, format!("#!/bin/sh\n: > '{}'\n", ran.display())).unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut vars: Vec<(String, OsString)> = vec![
+            ("HOME".to_owned(), fx.home.clone().into_os_string()),
+            ("PATH".to_owned(), bin.into_os_string()),
+        ];
+        if let Some(sock) = ctx.env.get("SSH_AUTH_SOCK") {
+            vars.push(("SSH_AUTH_SOCK".to_owned(), sock.to_owned()));
+        }
+        ctx.env = Env::from_vars(vars);
+        ran
+    }
+
+    /// ADR-0007 §12.25 item 3 (T03), the reviewer's
+    /// `review_authentication_probe_ignores_changed_agent_for_exclusive_key`: an
+    /// exclusive selection of the adopted key whose configuration changes only
+    /// `IdentityAgent` to another endpoint is refused before anything runs, through
+    /// `authenticate_observed` with a stub client (its marker is never created). The
+    /// control, the same configuration at the declared endpoint, runs the stub.
+    #[test]
+    fn exclusive_selection_through_another_agent_is_refused_before_anything_runs() {
+        let fx = Fx::new();
+        let adopted = fx.key("adopted", "ssh-ed25519", 7);
+        let other = fx.root.join("other.sock").display().to_string();
+        let catalog = || vec![entry(ALIAS, &adopted, InteractionKind::None, &fx.agent)];
+        fx.config(&fx.alias_block(Some(&other), &adopted, true));
+        let mut ctx = fx.ctx(catalog(), None);
+        let pass = fx.pass(&ctx);
+        assert_eq!(
+            identity_selection(
+                &pass.evaluation,
+                &adopted,
+                &BoundedSource::new(ctx.paths.clone(), ctx.env.clone(), ctx.limits)
+            )
+            .selection,
+            IdentitySelection::Exclusive,
+            "only the agent changed"
+        );
+        assert_eq!(fx.refusal(&ctx), Some(AuthRefusal::InteractionUnknown));
+        let ran = with_stub(&fx, &mut ctx, "ran-refused");
+        let (record, why) = authenticate_observed(&ProbeContext::new(&ctx, true, false), ALIAS);
+        assert_eq!(why, Some(AuthRefusal::InteractionUnknown));
+        assert_eq!(record.outcome, ProbeOutcome::Refused);
+        assert_eq!(record.code, Some(Code::InteractionRequired));
+        assert!(!ran.exists(), "nothing ran");
+
+        // Control: the declared endpoint.
+        fx.config(&fx.alias_block(Some(&fx.agent.display().to_string()), &adopted, true));
+        let mut ctx = fx.ctx(catalog(), None);
+        let ran = with_stub(&fx, &mut ctx, "ran-control");
+        let (record, why) = authenticate_observed(&ProbeContext::new(&ctx, true, false), ALIAS);
+        assert_eq!(why, None);
+        assert_eq!(record.outcome, ProbeOutcome::Ok, "{record:?}");
+        assert!(ran.exists(), "the stub ran");
+        // An adopted identity with no recorded endpoint is not established either.
+        let mut unrecorded = catalog();
+        if let Some(i) = unrecorded[0].identity.as_mut() {
+            i.endpoint = None;
+        }
+        assert_eq!(
+            fx.refusal(&fx.ctx(unrecorded, None)),
+            Some(AuthRefusal::InteractionUnknown)
+        );
+    }
+
+    /// ADR-0007 §12.25 item 1 (T01): the probe's static pass evaluates the invocation
+    /// it runs (`exit 0`, an exec session), not the shell. An `IdentityFile` behind
+    /// `Match sessiontype exec` or `Match command "exit 0"` is a fallback the shell
+    /// never sees, and an `IdentityAgent` override behind `Match sessiontype exec`
+    /// moves the agent; each is refused, and each is invisible to a shell pass.
+    #[test]
+    fn the_probe_evaluates_the_exec_invocation_it_runs() {
+        let fx = Fx::new();
+        let adopted = fx.key("adopted", "ssh-ed25519", 8);
+        let inherited = fx.key("inherited", "ssh-ed25519", 9);
+        let agent = fx.agent.display().to_string();
+        let block = fx.alias_block(Some(&agent), &adopted, true);
+        let ctx = || {
+            fx.ctx(
+                vec![entry(ALIAS, &adopted, InteractionKind::None, &fx.agent)],
+                None,
+            )
+        };
+        let shell = |ctx: &LocalContext| {
+            let pass = super::super::static_pass(ctx, ALIAS, None);
+            noninteractive_refusal(&ProbeContext::new(ctx, true, false), ALIAS, &pass)
+        };
+        assert_eq!(
+            super::super::invocation_of(AUTHENTICATION_COMMAND),
+            heimdall_sshconf::eval::Invocation::Exec(Some("exit 0".to_owned()))
+        );
+        for condition in ["Match sessiontype exec", "Match command \"exit 0\""] {
+            fx.config(&format!(
+                "{block}{condition}\n  IdentityFile \"{}\"\n",
+                inherited.display()
+            ));
+            assert_eq!(
+                shell(&ctx()),
+                None,
+                "{condition}: the shell does not see it"
+            );
+            assert_eq!(
+                fx.refusal(&ctx()),
+                Some(AuthRefusal::FallbackIdentityInteraction),
+                "{condition}"
+            );
+        }
+        // Through the probe itself (its real-tree run takes the same pass): refused,
+        // and the stub client never runs.
+        let mut c = ctx();
+        let ran = with_stub(&fx, &mut c, "ran-exec-fallback");
+        let (record, why) = authenticate_observed(&ProbeContext::new(&c, true, false), ALIAS);
+        assert_eq!(why, Some(AuthRefusal::FallbackIdentityInteraction));
+        assert_eq!(record.outcome, ProbeOutcome::Refused);
+        assert!(!ran.exists(), "nothing ran");
+        let other = fx.root.join("other.sock").display().to_string();
+        fx.config(&format!(
+            "Match sessiontype exec\n  IdentityAgent \"{other}\"\n{block}"
+        ));
+        assert_eq!(shell(&ctx()), None, "the shell keeps the declared agent");
+        assert_eq!(fx.refusal(&ctx()), Some(AuthRefusal::InteractionUnknown));
+        let mut c = ctx();
+        let ran = with_stub(&fx, &mut c, "ran-exec-agent");
+        let (_, why) = authenticate_observed(&ProbeContext::new(&c, true, false), ALIAS);
+        assert_eq!(why, Some(AuthRefusal::InteractionUnknown));
+        assert!(!ran.exists(), "nothing ran");
+    }
+
+    /// ADR-0007 §12.25 item 2 (T02): `Match localuser` reads the account database,
+    /// never the snapshot's `USER`. A fallback behind `Match localuser <the account>`
+    /// is refused with `USER` unset and with `USER` naming another account; a rule
+    /// for that other name never applies. A pass the local account leaves undetermined
+    /// is refused.
+    #[test]
+    fn localuser_comes_from_the_account_database_not_the_environment() {
+        let Some(account) = crate::doctor::local_account() else {
+            panic!("the account database names this test's account");
+        };
+        let fx = Fx::new();
+        let adopted = fx.key("adopted", "ssh-ed25519", 10);
+        let inherited = fx.key("inherited", "ssh-ed25519", 11);
+        let agent = fx.agent.display().to_string();
+        let block = fx.alias_block(Some(&agent), &adopted, true);
+        let ctx = |user: Option<&str>| {
+            let mut c = fx.ctx(
+                vec![entry(ALIAS, &adopted, InteractionKind::None, &fx.agent)],
+                None,
+            );
+            let mut vars: Vec<(String, OsString)> =
+                vec![("HOME".to_owned(), fx.home.clone().into_os_string())];
+            if let Some(u) = user {
+                vars.push(("USER".to_owned(), u.into()));
+                vars.push(("USERNAME".to_owned(), u.into()));
+            }
+            c.env = Env::from_vars(vars);
+            c
+        };
+        let rule = |name: &str| {
+            format!(
+                "{block}Match localuser {name}\n  IdentityFile \"{}\"\n",
+                inherited.display()
+            )
+        };
+        fx.config(&rule(&account));
+        for user in [None, Some("hm-fixture-not-the-account")] {
+            assert_eq!(
+                fx.refusal(&ctx(user)),
+                Some(AuthRefusal::FallbackIdentityInteraction),
+                "USER {}",
+                if user.is_some() {
+                    "set to another name"
+                } else {
+                    "unset"
+                }
+            );
+        }
+        fx.config(&rule("hm-fixture-not-the-account"));
+        assert_eq!(fx.refusal(&ctx(Some("hm-fixture-not-the-account"))), None);
+        let c = ctx(None);
+        let mut pass = fx.pass(&c);
+        assert!(!pass.account_unknown);
+        pass.account_unknown = true;
+        assert_eq!(
+            noninteractive_refusal(&ProbeContext::new(&c, true, false), ALIAS, &pass),
+            Some(AuthRefusal::InteractionUnknown)
         );
     }
 }

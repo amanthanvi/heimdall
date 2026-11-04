@@ -79,6 +79,17 @@
 //! consents to gets `new_state` even when its evaluated states are equal (a manual plan
 //! whose configuration does not include P yet), because the owner's own Include then
 //! activates P without another Heimdall decision.
+//!
+//! **Wave 3d (W3d-select; ADR-0007 §12.25 item 2, §12.26 item 5).**
+//!
+//! * *A changed managed alias always needs a decision, in manual mode too*, P active or
+//!   not: a manual plan whose alias section in P changes gets `new_state` when the
+//!   classification gave it none (P not yet included evaluates the same state before
+//!   and after, and the owner's own Include later activates the change without another
+//!   decision).
+//! * *The local account* for `%u` and `Match localuser` is the account database's,
+//!   never `USER` or `USERNAME`; when it cannot be established, a state whose
+//!   configuration reads it is undetermined.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -104,7 +115,7 @@ use heimdall_domain::projection::{
 };
 use heimdall_sshconf::consent;
 use heimdall_sshconf::edit::{self, BlockPosition, EditRefusal, FoundBlock, IncludeBlock};
-use heimdall_sshconf::eval::{Invocation, OpenSshVersion, Query};
+use heimdall_sshconf::eval::{Invocation, OpenSshVersion, Query, evaluate};
 use heimdall_sshconf::gitedit;
 use heimdall_sshconf::include::{ConfigSet, ConfigSource, Roots, SourceBytes, SourceError};
 use heimdall_sshconf::limits::Limits;
@@ -243,6 +254,10 @@ struct Builder<'a> {
     user_unreadable: bool,
     /// The `manual_mode` repair, with the conflict it resolves.
     manual_for: Option<ConflictKind>,
+    /// ADR-0007 §12.25 item 2 (T02): the local account for `%u` and `Match localuser`,
+    /// from the account database (`doctor::local_account`); `None` when it cannot be
+    /// established, so a state whose configuration reads it is undetermined.
+    account: Option<String>,
     /// The Git selection now and after the plan, when the plan changes it.
     git_selection: Option<(GitSshSelection, GitSshSelection)>,
     /// ADR-0007 §12.18 item 3: every file the preview read so far, with the base it
@@ -277,6 +292,7 @@ impl<'a> Builder<'a> {
             ssh_manual: false,
             user_unreadable: false,
             manual_for: None,
+            account: crate::doctor::local_account(),
             git_selection: None,
             reads: BTreeMap::new(),
         }
@@ -1559,7 +1575,8 @@ impl<'a> Builder<'a> {
     /// projection record still manages, never for an empty record (§12.22 item 2), so
     /// a first adoption, or an alias added again after a rollback, always needs a
     /// decision: such an alias has a reason even when its states are equal, manual
-    /// mode included (§12.24 item 6, [`first_adoption_needs_decision`]). When a manual
+    /// mode included (§12.24 item 6, [`always_needs_decision`]). So does an alias whose
+    /// section a manual plan changes, P active or not (§12.26 item 5). When a manual
     /// plan could not read the user configuration, every alias state is undetermined
     /// (§12.21 item 1).
     fn consent(&self) -> Decided {
@@ -1586,8 +1603,10 @@ impl<'a> Builder<'a> {
         let mut out = Decided::default();
         let mut items = Vec::new();
         let mut kept: Vec<(ItemId, BehaviorState, BehaviorState)> = Vec::new();
-        // Aliases the plan adds that no live record consents to (§12.24 item 6).
-        let mut first: BTreeSet<String> = BTreeSet::new();
+        // Aliases that always need a decision: those the plan adds that no live record
+        // consents to (§12.24 item 6), and those whose section a manual plan changes
+        // (§12.26 item 5).
+        let mut always: BTreeSet<String> = BTreeSet::new();
         if !affected.is_empty() {
             let paths = &self.config.paths;
             let source =
@@ -1643,6 +1662,11 @@ impl<'a> Builder<'a> {
                     kept.push((id.clone(), after_state.clone(), restore.clone()));
                     if now.contains_key(name) {
                         out.changed.push(name.clone());
+                        // §12.26 item 5: P active or not, the owner's own Include
+                        // activates a manual plan's change without another decision.
+                        if self.ssh_manual && now.get(name) != after.get(name) {
+                            always.insert(name.clone());
+                        }
                     } else {
                         out.added.push(name.clone());
                     }
@@ -1654,7 +1678,7 @@ impl<'a> Builder<'a> {
                     .and_then(|_| consented(&id));
                 if consented_states.is_none() && after.contains_key(name) && !now.contains_key(name)
                 {
-                    first.insert(name.clone());
+                    always.insert(name.clone());
                 }
                 items.push(consent::ConsentItem {
                     item: consent::ConsentItemId(name.clone()),
@@ -1685,7 +1709,7 @@ impl<'a> Builder<'a> {
                 consented: managed(ProjectionItem::Git).and_then(|_| consented(&id)),
             });
         }
-        out.need = first_adoption_needs_decision(consent::classify(&items), &items, &first);
+        out.need = always_needs_decision(consent::classify(&items), &items, &always);
         // Placeholder decision: `apply` records the intent's approval in its place.
         let decision = DecisionId::from_random_bytes([0; 16]);
         for (id, managed_state, restore) in kept {
@@ -1722,17 +1746,13 @@ impl<'a> Builder<'a> {
             Some(paths.system_config.clone()),
         );
         roots.managed = Some(self.config.managed_ssh_path());
+        // ADR-0007 §12.25 item 2 (T02): the account database, never the environment
+        // (`Builder::account`).
+        let local_user = self.account.clone();
         let query = Query {
             host: alias.to_owned(),
             user: None,
-            local_user: self
-                .config
-                .env
-                .get("USER")
-                .or_else(|| self.config.env.get("USERNAME"))
-                .and_then(|v| v.to_str())
-                .unwrap_or_default()
-                .to_owned(),
+            local_user: local_user.clone().unwrap_or_default(),
             client_version: self
                 .config
                 .clients
@@ -1743,7 +1763,26 @@ impl<'a> Builder<'a> {
             invocation: Invocation::Shell,
         };
         let mut set = ConfigSet::new();
-        consent_behavior_state(&mut set, source, &roots, &query, &Limits::default())
+        let state = consent_behavior_state(&mut set, source, &roots, &query, &Limits::default());
+        if local_user.is_some() {
+            return state;
+        }
+        // The account cannot be established: undetermined when any profile's
+        // configuration reads it (never evaluated as an empty name).
+        let reads = Invocation::consent_profiles()
+            .into_iter()
+            .any(|invocation| {
+                let q = Query {
+                    invocation,
+                    ..query.clone()
+                };
+                let evaluation = evaluate(&mut set, source, &roots, &q, &Limits::default());
+                crate::doctor::reads_local_account(&set, &evaluation)
+            });
+        BehaviorState {
+            determined: state.determined && !reads,
+            ..state
+        }
     }
 
     // --- the plan ---------------------------------------------------------------------
@@ -1972,23 +2011,24 @@ fn without_blocks(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// ADR-0007 §5.2 ("first adoption, and any new … managed alias, always need a
-/// decision"), manual mode included (§12.24 item 6): an alias the plan adds to P that no
-/// live record consents to always has a reason, `new_state` when the classification
-/// gave it none. A manual plan whose configuration does not activate P yet evaluates the
-/// same state before and after, but the owner's own Include then activates P without
-/// another Heimdall decision. `first` names those aliases; each reason keeps the item
-/// order of `items`.
-fn first_adoption_needs_decision(
+/// ADR-0007 §5.2 ("first adoption, and any new or changed managed alias, always need a
+/// decision"), manual mode included (§12.24 item 6, §12.26 item 5): an alias the plan
+/// adds to P that no live record consents to, and an alias whose section a manual plan
+/// changes, always have a reason, `new_state` when the classification gave them none. A
+/// manual plan whose configuration does not activate P yet evaluates the same state
+/// before and after (and, for a change, a state the first decision consented to), but
+/// the owner's own Include then activates P without another Heimdall decision. `always`
+/// names those aliases; each reason keeps the item order of `items`.
+fn always_needs_decision(
     classified: consent::ConsentNeed,
     items: &[consent::ConsentItem],
-    first: &BTreeSet<String>,
+    always: &BTreeSet<String>,
 ) -> consent::ConsentNeed {
     let mut reasons = Vec::with_capacity(items.len());
     for item in items {
         if let Some(r) = classified.reasons.iter().find(|r| r.item == item.item) {
             reasons.push(r.clone());
-        } else if first.contains(&item.item.0) {
+        } else if always.contains(&item.item.0) {
             reasons.push(consent::ConsentReason {
                 item: item.item.clone(),
                 kind: consent::ConsentReasonKind::NewState,
@@ -2255,6 +2295,40 @@ mod tests {
             consent: ConsentRecord::default(),
         };
         (config, spec)
+    }
+
+    /// ADR-0007 §12.25 item 2 (T02): with the local account not established, an
+    /// alias's consent state is undetermined when its configuration reads the account
+    /// (`Match localuser`), in any profile, and determined otherwise; with the
+    /// account known, the same configuration is determined.
+    #[test]
+    fn an_unknown_local_account_makes_a_state_that_reads_it_undetermined() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        let paths = SshPaths::with_test_override(home.clone(), dir.path().join("etc-ssh"));
+        let config = ProjectionConfig::new(
+            paths.clone(),
+            Platform::current(),
+            dir.path().join("config"),
+        );
+        let (_, spec) = world();
+        let source = BoundedSource::new(paths, crate::env::Env::default(), Limits::default());
+        let state = |text: &str, account: Option<&str>| {
+            std::fs::write(home.join(".ssh").join("config"), text).unwrap();
+            let mut b = Builder::new(&config, &spec, 1);
+            b.account = account.map(str::to_owned);
+            b.behavior(&source, "work")
+        };
+        let reads = "Match localuser hm-fixture-account\n  ForwardAgent yes\n";
+        let exec_only = "Match sessiontype exec\nInclude ~/%u.conf\n";
+        assert!(!state(reads, None).determined);
+        assert!(
+            !state(exec_only, None).determined,
+            "an exec-only Include of %u"
+        );
+        assert!(state(reads, Some("hm-fixture-account")).determined);
+        assert!(state("Host work\n  ForwardAgent yes\n", None).determined);
     }
 
     /// The recipe of ADR-0007 §12.18 item 3 as amended by §12.20 item 3, restated

@@ -3887,6 +3887,58 @@ U01 and U02 are closed, with discriminating regressions. S01, a medium finding, 
    * Owner: the orchestrator, after wave 3d integrates, because both wave-3d units edit
      `operations.rs`.
 
+### 12.28 Rulings on the wave-3d escalations; wave 4 (orchestrator, 2026-11-03)
+
+Sources: the two wave-3d unit reports and the integrator's report (workflow
+`wf_04c83924-030`). check.sh exited 0 twice, with 1526 tests passed and 0 failed. Every item of
+§12.25 and §12.26 is done, and each of the 30 named proving tests exists and passed.
+
+1. **`OpError.entries` (ratified; amends §12.26 item 1).** The runtime's ensure refusal
+   crosses IPC as an envelope built from an `OpError`. `OpError` therefore carries
+   `entries`; `detail()` emits them and `from_detail()` keeps them, so a replayed stored
+   refusal names the same lines. It is additive on the wire. The justified
+   `large_enum_variant` allowance on the runtime's `ServiceError` is accepted.
+2. **The live holder (T04, ratified; amends §12.25 item 4).** The bind path has no
+   liveness port, so a holder row on an active binding counts as live until the holder
+   pass releases it.
+   * A same-request retry within about one holder-pass interval of the first holder's exit
+     is refused as `binding_in_use`.
+   * After the release, it is refused as `binding_released`.
+   * Both refusals fail closed. The m02-plan U0b row-3 text is amended accordingly.
+3. **An unknown local account (T02 refinement).** `sshconf::eval::Query.local_user` becomes
+   `Option<String>`. With `None`:
+   * `Match localuser` and `Match user` are `Unknown`;
+   * `%u` and `%r` are `TokenUnavailable`.
+   Only the affected conditions are undetermined, not the whole configuration. The
+   current whole-configuration reading fails closed and stays until this lands. Owner:
+   W4-fix.
+4. **Windows account lookup** (`sys::account_name` matching Win32-OpenSSH's `pw_name`) is
+   **blocked** on a native Windows host. Until then the account is unknown on Windows,
+   which fails closed. U11 closes it natively.
+5. **`ensure` readiness covers every profile.** The runtime's no-interaction readiness, the
+   projection observation it reads, clears the selection under `Shell`, `Exec(None)` and
+   `Subsystem("sftp")`, as the pre-launch check does (§12.25 item 1). An API caller that
+   uses `ensure` without the CLI then gets the same guarantee. Owner: W4-fix.
+6. **A path outside the home** is shown as written in the configuration, not in its
+   canonical form, as §12.26 item 7 says. Owner: W4-fix.
+7. **Cleanup accepted:** the `binding_released` mapping moves into
+   `launch_flow::confirm_binding_active`. Owner: W4-fix.
+8. **S01 (§12.27)** goes to W4-fix as well, since it sits beside item 5 in `operations.rs`.
+9. **Wave 4**, three units:
+   * **W4-fix:** items 3, 5, 6, 7 and 8. Owns:
+     * `crates/sshconf/src/eval.rs` (`local_user`) and its callers' query construction;
+     * `crates/app/src/operations.rs` (activation and readiness only);
+     * `crates/localenv/src/projection/observe.rs`;
+     * `crates/localenv/src/doctor.rs` (`path_display` only);
+     * `crates/heimdall/src/{launch_flow,run_cmd}.rs`;
+     * their tests.
+   * **W4-U9:** m02-plan U9, the CLI surface for setup, doctor, catalog and uninstall. It
+     also takes the U9 items in §12.17 item 10, §12.19 item 7, §12.22 items 7 and 10
+     (the uninstall leg of the held-operation test), §12.24 item 6 and §12.25 item 2's
+     doctor wiring.
+   * **W4-U10:** m02-plan U10, the first useful TUI, plus
+     `tui_handoff_ctrl_z_stops_and_fg_resumes_as_one_job` (§12.24 item 9).
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

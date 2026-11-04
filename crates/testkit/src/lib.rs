@@ -179,8 +179,8 @@ mod fake_adapter {
     use async_trait::async_trait;
     use heimdall_app::ensure::{EnsureStage, StageHook};
     use heimdall_app::ports::{
-        AdapterDescriptor, AdapterError, CredentialAdapter, PrepareOutcome, PrepareRequest,
-        ReconcileOutcome, RevokeOutcome,
+        AdapterDescriptor, AdapterError, CredentialAdapter, IntegrationSnapshot, PrepareOutcome,
+        PreparePair, PrepareRequest, ReconcileOutcome, RevokeOutcome,
     };
     use heimdall_contract::Timestamp;
     use heimdall_contract::ids::GrantId;
@@ -625,6 +625,21 @@ mod fake_adapter {
                     "a reconcile or revoke hang is armed, not scripted".into(),
                 )),
             }
+        }
+
+        /// ⟨M02⟩ ADR-0007 §12.26 item 2: the fake reads no source.
+        fn read_sources(&self, _pairs: &[PreparePair]) -> IntegrationSnapshot {
+            IntegrationSnapshot::default()
+        }
+
+        /// ⟨M02⟩ ADR-0007 §12.26 item 2: the fake's `prepare`, which reads only its
+        /// own script and ledger (the snapshot is empty).
+        async fn prepare_from(
+            &self,
+            req: PrepareRequest<'_>,
+            _sources: &IntegrationSnapshot,
+        ) -> Result<PrepareOutcome, AdapterError> {
+            self.prepare(req).await
         }
 
         async fn renew(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {

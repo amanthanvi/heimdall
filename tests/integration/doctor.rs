@@ -1083,6 +1083,8 @@ fn a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity
         qp(&key_pub)
     );
     fx.config(&alias);
+    // The identity's declared endpoint is the alias's agent (ADR-0007 §12.25 item 3:
+    // the probe compares them before either success path).
     let identity = |interaction| CatalogAlias {
         alias: ALIAS.to_owned(),
         definition: AliasDefinition::Managed,
@@ -1090,7 +1092,9 @@ fn a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity
             public_key_path: key_pub.clone(),
             fingerprint: None,
             interaction,
-            endpoint: None,
+            endpoint: Some(EndpointLocator::UnixSocket(PathBuf::from(
+                agent.endpoint().locator(),
+            ))),
         }),
     };
     let refused = |ctx: &LocalContext, reason: &str| {
@@ -1126,6 +1130,93 @@ fn a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity
     assert!(!fx.ssh_started(), "an ssh child was started");
     assert_eq!(agent.contact_count(), 0);
     assert_eq!(fx.home.decoy_agent().contact_count(), 0);
+}
+
+/// ADR-0007 §12.25 item 2 (T02) for the doctor and the connect path that uses its
+/// static level (`doctor::alias_profiles`): `Match localuser` reads the account
+/// database, never the snapshot's `USER` or `USERNAME`. A fallback behind `Match
+/// localuser <the OS account>` makes the adopted key's selection not exclusive with
+/// `USER` unset and with `USER` naming another account, in the passive doctor and in
+/// every profile; a rule for that other name never applies.
+#[cfg(unix)]
+#[test]
+fn doctor_reads_localuser_from_the_account_database() {
+    let fx = Fx::new();
+    let key_pub = fx.home.ssh_dir.join("adopted.pub");
+    FixtureKey::generate().write_public(&key_pub).unwrap();
+    let inherited = fx.home.ssh_dir.join("inherited.pub");
+    FixtureKey::generate().write_public(&inherited).unwrap();
+    let account = heimdall_localenv::doctor::local_account()
+        .expect("the account database names this account");
+    let other = "hm-fixture-other-account";
+    let block = format!(
+        "Host {ALIAS}\n  HostName 127.0.0.1\n  IdentityAgent none\n  IdentityFile {}\n  IdentitiesOnly yes\n",
+        qp(&key_pub)
+    );
+    let rule = |name: &str| {
+        format!(
+            "{block}Match localuser {name}\n  IdentityFile {}\n",
+            qp(&inherited)
+        )
+    };
+    let ctx = |user: Option<&str>| {
+        let mut c = fx.ctx();
+        let mut vars: Vec<(String, OsString)> = vec![
+            ("PATH".to_owned(), OsString::from("/usr/bin:/bin")),
+            ("HOME".to_owned(), fx.home.git_home.clone().into_os_string()),
+        ];
+        if let Some(u) = user {
+            vars.push(("USER".to_owned(), u.into()));
+            vars.push(("USERNAME".to_owned(), u.into()));
+        }
+        c.env = Env::from_vars(vars);
+        c.catalog = vec![CatalogAlias {
+            alias: ALIAS.to_owned(),
+            definition: AliasDefinition::Managed,
+            identity: Some(CatalogIdentity {
+                public_key_path: key_pub.clone(),
+                fingerprint: None,
+                interaction: InteractionKind::None,
+                endpoint: None,
+            }),
+        }];
+        c
+    };
+    let selections = |c: &LocalContext| -> Vec<IdentitySelection> {
+        let mut request = DoctorRequest::passive();
+        request.aliases = Some(vec![ALIAS.to_owned()]);
+        request.local_queries = LocalQueries::Disabled;
+        let mut out: Vec<IdentitySelection> = run(c, &request)
+            .aliases
+            .iter()
+            .filter_map(|o| o.identity_selection.as_ref().map(|r| r.selection))
+            .collect();
+        out.extend(
+            heimdall_localenv::doctor::alias_profiles(c, ALIAS)
+                .iter()
+                .filter_map(|(_, o)| o.identity_selection.as_ref().map(|r| r.selection)),
+        );
+        out
+    };
+    fx.config(&rule(&account));
+    for user in [None, Some(other)] {
+        assert_eq!(
+            selections(&ctx(user)),
+            vec![IdentitySelection::NotExclusive; 4],
+            "USER {}",
+            if user.is_some() {
+                "names another account"
+            } else {
+                "unset"
+            }
+        );
+    }
+    fx.config(&rule(other));
+    assert_eq!(
+        selections(&ctx(Some(other))),
+        vec![IdentitySelection::Exclusive; 4]
+    );
+    assert!(!fx.ssh_started());
 }
 
 // --- reads that must not block, local queries ------------------------------------------------

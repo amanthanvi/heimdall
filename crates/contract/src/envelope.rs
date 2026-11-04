@@ -262,6 +262,13 @@ pub mod reason {
     /// ⟨ADR-0007 §12.17 item 11⟩ A check needs a verified client that is not
     /// available (no verified Git client, or local queries disabled).
     pub const VERIFIED_CLIENT_UNAVAILABLE: &str = "verified_client_unavailable";
+    /// ⟨ADR-0007 §12.25 item 4⟩ Launch: the binding already has a live holder that is
+    /// not this process (`REQUEST_CONFLICT`, `next: new_request_id`); nothing was
+    /// launched and the existing holder is kept.
+    pub const BINDING_IN_USE: &str = "binding_in_use";
+    /// ⟨ADR-0007 §12.26 item 3(a)⟩ Launch: the binding was released (its holder exited)
+    /// before this launch (`CREDENTIAL_EXPIRED`, `next: new_work`, resource `binding`).
+    pub const BINDING_RELEASED: &str = "binding_released";
 
     /// The reasons defined here, in documentation order. Together with the conflict
     /// kinds and the manual reasons they are every reason this build writes.
@@ -290,6 +297,8 @@ pub mod reason {
         PROJECTION_TOO_LARGE,
         GIT_DEFAULT_NOT_BUNDLED_MSYS,
         VERIFIED_CLIENT_UNAVAILABLE,
+        BINDING_IN_USE,
+        BINDING_RELEASED,
     ];
 }
 

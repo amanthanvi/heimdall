@@ -32,8 +32,9 @@
 //! in [`CredentialAdapter::read_sources`], which the runtime calls on the blocking
 //! pool **before** `bounded_adapter_call`, in the same operation step. The result,
 //! an in-memory [`IntegrationSnapshot`], is handed to the bounded
-//! [`CredentialAdapter::prepare_from`], which only evaluates over it. Both have
-//! defaults (no sources; `prepare`), so an adapter that reads nothing is unchanged.
+//! [`CredentialAdapter::prepare_from`], which only evaluates over it. ⟨M02⟩ ADR-0007
+//! §12.26 item 2: neither has a default body, so every adapter states both (one that
+//! reads no source returns an empty snapshot and prepares from its request alone).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -289,25 +290,22 @@ pub trait CredentialAdapter: Send + Sync {
     /// for `pairs` (store and file reads), **before** the bound. Synchronous: it may
     /// wait on the store or a slow file system, which delays the operation's own step
     /// as any store wait does and never the bounded call. The runtime calls it on the
-    /// blocking pool, never inside `bounded_adapter_call`. Default: nothing (an
-    /// adapter that reads no source).
-    fn read_sources(&self, pairs: &[PreparePair]) -> IntegrationSnapshot {
-        let _ = pairs;
-        IntegrationSnapshot::default()
-    }
+    /// blocking pool, never inside `bounded_adapter_call`. ⟨M02⟩ ADR-0007 §12.26
+    /// item 2: no default; an adapter that reads no source returns
+    /// `IntegrationSnapshot::default()`.
+    fn read_sources(&self, pairs: &[PreparePair]) -> IntegrationSnapshot;
 
     /// ⟨M02⟩ ADR-0007 §12.23 item 2: `prepare` over `sources`, the snapshot
     /// [`Self::read_sources`] returned for `req.pairs` in the same step. This is the
-    /// call the runtime bounds; it reads nothing that can block. Same contract as
-    /// `prepare` otherwise. Default: `prepare` (an adapter that reads no source).
+    /// call the runtime bounds; it reads nothing that can block: no store, no file and
+    /// no live source, only `req` and `sources` (and an adapter's own bounded, passive
+    /// checks). Same contract as `prepare` otherwise. ⟨M02⟩ ADR-0007 §12.26 item 2: no
+    /// default.
     async fn prepare_from(
         &self,
         req: PrepareRequest<'_>,
         sources: &IntegrationSnapshot,
-    ) -> Result<PrepareOutcome, AdapterError> {
-        let _ = sources;
-        self.prepare(req).await
-    }
+    ) -> Result<PrepareOutcome, AdapterError>;
 
     /// Renew within the grant (never past its deadline or cutoff).
     async fn renew(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError>;

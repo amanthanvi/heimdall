@@ -598,3 +598,20 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - U01 and U02 closed.
   - S01 (P2): a declaration withdrawn after the snapshot still lets a non-interactive ensure activate.
   - ADR-0007 §12.27: I fix S01 after wave 3d integrates.
+- **M02 wave 3d** (`wf_04c83924-030`): all 3 agents done.
+  - W3d-select:
+    - T01: the pre-launch check and the auth probe cover every profile;
+    - T02: the account comes from the account database;
+    - T03: the declared endpoint is required;
+    - refusal lines at ensure (the integrator finished it via `OpError.entries`);
+    - a changed alias in manual mode needs a decision;
+    - path_display privacy.
+  - W3d-holder:
+    - T04: one live holder per binding;
+    - `binding_released` and `binding_in_use`;
+    - `prepare_from` and `read_sources` are required.
+  - check.sh: the integrator ran it twice and I ran it once, all exit 0, 1526 passed.
+  - ADR-0007 §12.28 rules on the escalations and defines wave 4:
+    - W4-fix: S01, ensure readiness over every profile, `local_user: Option`, paths as written, the binding_released cleanup;
+    - W4-U9: CLI;
+    - W4-U10: TUI.

@@ -34,6 +34,16 @@
 //!    fresh view, else `fallback_identity_interaction` naming each uncleared entry's
 //!    file and line. A missing selection clears nothing.
 //!
+//! **Every invocation profile** (ADR-0007 §12.25 item 1, T01). The launched work may be
+//! a shell, a remote command (Git over SSH, SCP) or SFTP, so a [`FreshSelection`]
+//! carries the alias's selection and agent under each profile of [`required_profiles`]
+//! (`shell`, `exec`, `subsystem:sftp`, the consent v3 set). Steps 3 and 4 hold for
+//! every profile: an agent that differs or is undetermined in any profile refuses
+//! first (`interaction_unknown`), then a selection uncleared or undetermined in any
+//! profile refuses (`fallback_identity_interaction`, naming every uncleared entry of
+//! every profile once, in profile order). A profile the selection does not carry is
+//! undetermined, so it refuses.
+//!
 //! The fresh view carries no key type or mechanism, so the catalog records the
 //! clearance rule reads are rebuilt from it: an identity is at its viewed endpoint,
 //! and its viewed fresh interaction decides. A 1Password or FIDO identity is never
@@ -84,15 +94,60 @@ impl IdentitiesView {
     }
 }
 
+/// The invocation profiles a launch can use, by name, in order: `shell`, `exec` (any
+/// remote command) and `subsystem:sftp` (ADR-0007 §12.25 item 1; the consent v3 set,
+/// `heimdall_localenv::projection::observe::profile_names`).
+#[must_use]
+pub fn required_profiles() -> Vec<String> {
+    heimdall_localenv::projection::observe::profile_names()
+}
+
+/// One invocation profile's fresh selection (ADR-0007 §12.25 item 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileSelection {
+    /// The profile's name ([`required_profiles`]).
+    pub profile: String,
+    /// The identity selection the static pass found under it.
+    pub report: IdentitySelectionReport,
+    /// The alias's effective `IdentityAgent` endpoint under it, when determined.
+    pub endpoint: Option<EndpointRef>,
+}
+
 /// One pair's selection, re-evaluated now in the CLI process (passive).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FreshSelection {
     /// The pair's alias.
     pub alias: String,
-    /// The identity selection the static pass found.
+    /// The identity selection the static pass found for the first profile, `shell`
+    /// (also what `connect` reads the alias's identity from).
     pub report: IdentitySelectionReport,
-    /// The alias's effective `IdentityAgent` endpoint, when determined.
+    /// The alias's effective `IdentityAgent` endpoint under `shell`, when determined.
     pub endpoint: Option<EndpointRef>,
+    /// ADR-0007 §12.25 item 1 (T01): the selections under every other profile of
+    /// [`required_profiles`] (`exec`, `subsystem:sftp`). The check reads `shell` from
+    /// `report` and `endpoint`; a profile missing here is undetermined and refuses.
+    pub profiles: Vec<ProfileSelection>,
+}
+
+impl FreshSelection {
+    /// Every profile's `(name, report, endpoint)`, `shell` first.
+    fn every_profile(&self) -> Vec<(&str, &IdentitySelectionReport, Option<&EndpointRef>)> {
+        let mut out = vec![("shell", &self.report, self.endpoint.as_ref())];
+        out.extend(
+            self.profiles
+                .iter()
+                .map(|p| (p.profile.as_str(), &p.report, p.endpoint.as_ref())),
+        );
+        out
+    }
+
+    /// Whether every profile of [`required_profiles`] is carried.
+    fn covers_every_profile(&self) -> bool {
+        let carried: Vec<&str> = self.every_profile().iter().map(|(n, _, _)| *n).collect();
+        required_profiles()
+            .iter()
+            .all(|r| carried.contains(&r.as_str()))
+    }
 }
 
 /// What the check needs of one bound pair: a bind result's [`PairIntegration`]
@@ -254,47 +309,60 @@ fn check_pair(
     {
         return Err(refusal(PrelaunchReason::InteractionUnknown, index));
     }
-    // 3. The agent ssh will use for the alias is the declared one.
+    // 3. The agent ssh will use for the alias is the declared one, in every profile
+    //    (ADR-0007 §12.25 item 1).
     let Some(selection) = selection.filter(|s| pair.alias.as_deref() == Some(s.alias.as_str()))
     else {
         return Err(refusal(PrelaunchReason::FallbackIdentityInteraction, index));
     };
-    let endpoint = match (&selection.endpoint, &pair.endpoint) {
-        (Some(alias_agent), Some(bound)) if alias_agent == bound && *bound == relied.endpoint => {
-            alias_agent
-        }
-        _ => return Err(refusal(PrelaunchReason::InteractionUnknown, index)),
+    let Some(bound) = pair.endpoint.as_ref().filter(|b| **b == relied.endpoint) else {
+        return Err(refusal(PrelaunchReason::InteractionUnknown, index));
     };
-    // 4. The selection: exclusive for the adopted key, or every alternative cleared.
-    let report = &selection.report;
-    let adopted_entry = report.entries.iter().any(|e| {
-        e.source == IdentityEntrySource::Managed
-            && e.fingerprint.as_deref() == Some(view.fingerprint.as_str())
-    });
-    if report.selection == IdentitySelection::Exclusive && adopted_entry {
-        return Ok(());
+    let profiles = selection.every_profile();
+    if profiles
+        .iter()
+        .any(|(_, _, alias_agent)| *alias_agent != Some(bound))
+    {
+        return Err(refusal(PrelaunchReason::InteractionUnknown, index));
     }
+    // 4. The selection, in every profile: exclusive for the adopted key, or every
+    //    alternative cleared. A profile the selection does not carry clears nothing.
+    let mut entries: Vec<ConfigProvenance> = Vec::new();
+    let mut cleared = selection.covers_every_profile();
     let records = records_of(fresh, now);
     let eligibility_of = |id: &IdentityId| eligibility_of(fresh, id);
-    let clearance = fallback_clearance(
-        report,
-        &records,
-        &eligibility_of,
-        endpoint,
-        &view.fingerprint,
-    );
-    if clearance.cleared {
+    for (_, report, _) in profiles {
+        let adopted_entry = report.entries.iter().any(|e| {
+            e.source == IdentityEntrySource::Managed
+                && e.fingerprint.as_deref() == Some(view.fingerprint.as_str())
+        });
+        if report.selection == IdentitySelection::Exclusive && adopted_entry {
+            continue;
+        }
+        let clearance =
+            fallback_clearance(report, &records, &eligibility_of, bound, &view.fingerprint);
+        if clearance.cleared {
+            continue;
+        }
+        cleared = false;
+        for p in clearance
+            .uncleared
+            .iter()
+            .filter_map(|i| report.entries.get(*i))
+            .filter_map(|e| e.provenance.clone())
+        {
+            if !entries.contains(&p) {
+                entries.push(p);
+            }
+        }
+    }
+    if cleared {
         return Ok(());
     }
     Err(PrelaunchRefusal {
         reason: PrelaunchReason::FallbackIdentityInteraction,
         pair: index,
-        entries: clearance
-            .uncleared
-            .iter()
-            .filter_map(|i| report.entries.get(*i))
-            .filter_map(|e| e.provenance.clone())
-            .collect(),
+        entries,
     })
 }
 
@@ -439,12 +507,27 @@ mod tests {
         )
     }
 
+    /// `s` with every other profile (`exec`, `subsystem:sftp`) the same as `shell`.
+    fn synced(mut s: FreshSelection) -> FreshSelection {
+        s.profiles = required_profiles()
+            .into_iter()
+            .filter(|p| p != "shell")
+            .map(|profile| ProfileSelection {
+                profile,
+                report: s.report.clone(),
+                endpoint: s.endpoint.clone(),
+            })
+            .collect();
+        s
+    }
+
+    /// A selection with the same report and agent in every profile.
     fn sel(
         alias: &str,
         selection: IdentitySelection,
         entries: Vec<IdentityEntry>,
     ) -> FreshSelection {
-        FreshSelection {
+        synced(FreshSelection {
             alias: alias.to_owned(),
             report: IdentitySelectionReport {
                 selection,
@@ -452,7 +535,8 @@ mod tests {
                 identities_only: IdentitiesOnly::DeterminedYes,
             },
             endpoint: Some(ep(A)),
-        }
+            profiles: Vec::new(),
+        })
     }
 
     fn exclusive(alias: &str, n: u8) -> FreshSelection {
@@ -592,13 +676,13 @@ mod tests {
         let mut other = exclusive("a", 1);
         other.endpoint = Some(ep(B));
         assert_eq!(
-            reason(check_pairs(&b, &fresh, &[other], now())),
+            reason(check_pairs(&b, &fresh, &[synced(other)], now())),
             Some((PrelaunchReason::InteractionUnknown, 0))
         );
         let mut undetermined = exclusive("a", 1);
         undetermined.endpoint = None;
         assert_eq!(
-            reason(check_pairs(&b, &fresh, &[undetermined], now())),
+            reason(check_pairs(&b, &fresh, &[synced(undetermined)], now())),
             Some((PrelaunchReason::InteractionUnknown, 0))
         );
         // A missing selection, or one for another alias, clears nothing.
@@ -711,7 +795,12 @@ mod tests {
         let mut open = sel("a", IdentitySelection::NotExclusive, vec![managed(1)]);
         open.report.identities_only = IdentitiesOnly::DeterminedNo;
         assert_eq!(
-            reason(check_pairs(&b, &view(vec![one, two]), &[open], now())),
+            reason(check_pairs(
+                &b,
+                &view(vec![one, two]),
+                &[synced(open)],
+                now()
+            )),
             Some((PrelaunchReason::FallbackIdentityInteraction, 0))
         );
     }
@@ -772,6 +861,138 @@ mod tests {
         assert_eq!(
             reason(check_noninteractive(&[pair], &fresh, &[], now())),
             Some((PrelaunchReason::FallbackIdentityInteraction, 0))
+        );
+    }
+
+    /// ADR-0007 §12.25 item 1 (T01): the check covers every invocation profile. A
+    /// shell selection that is exclusive at the declared agent launches only when the
+    /// `exec` and `subsystem:sftp` selections are too: an exec-only or subsystem-only
+    /// fallback identity refuses (`fallback_identity_interaction`, naming its line),
+    /// and so does an exec-only or subsystem-only `IdentityAgent` override, or an
+    /// undetermined agent there (`interaction_unknown`). A selection that does not
+    /// carry every profile, or whose other profile is undetermined, refuses.
+    #[test]
+    fn every_invocation_profile_must_be_cleared() {
+        let one = declared(1);
+        let b = [bound_of(&one, "a")];
+        let fresh = view(vec![one]);
+        assert_eq!(required_profiles(), ["shell", "exec", "subsystem:sftp"]);
+        let line = |n: u32| ConfigProvenance {
+            path_display: "~/.ssh/config".to_owned(),
+            line: n,
+        };
+        let fallback = |n: u32| {
+            let mut e = entry(IdentityEntrySource::User, None, IdentityBacking::Agent);
+            e.provenance = Some(line(n));
+            e
+        };
+        let with =
+            |profile: &str, report: IdentitySelectionReport, endpoint: Option<EndpointRef>| {
+                let mut s = exclusive("a", 1);
+                for p in &mut s.profiles {
+                    if p.profile == profile {
+                        p.report = report.clone();
+                        p.endpoint = endpoint.clone();
+                    }
+                }
+                s
+            };
+        let not_exclusive = |n: u32| IdentitySelectionReport {
+            selection: IdentitySelection::NotExclusive,
+            entries: vec![managed(1), fallback(n)],
+            identities_only: IdentitiesOnly::DeterminedYes,
+        };
+        let exclusive_report = exclusive("a", 1).report;
+        assert_eq!(
+            check_pairs(&b, &fresh, &[exclusive("a", 1)], now()),
+            Ok(()),
+            "control: exclusive everywhere"
+        );
+        for (profile, n) in [("exec", 11), ("subsystem:sftp", 12)] {
+            let r = check_pairs(
+                &b,
+                &fresh,
+                &[with(profile, not_exclusive(n), Some(ep(A)))],
+                now(),
+            )
+            .unwrap_err();
+            assert_eq!(
+                r.reason,
+                PrelaunchReason::FallbackIdentityInteraction,
+                "{profile}"
+            );
+            assert_eq!(r.entries, [line(n)], "{profile} names its fallback line");
+            for agent in [Some(ep(B)), None] {
+                assert_eq!(
+                    reason(check_pairs(
+                        &b,
+                        &fresh,
+                        &[with(profile, exclusive_report.clone(), agent.clone())],
+                        now()
+                    )),
+                    Some((PrelaunchReason::InteractionUnknown, 0)),
+                    "{profile} agent {agent:?}"
+                );
+            }
+            // An agent override behind the profile is refused even with a fallback
+            // there: the agent is checked first.
+            assert_eq!(
+                reason(check_pairs(
+                    &b,
+                    &fresh,
+                    &[with(profile, not_exclusive(n), Some(ep(B)))],
+                    now()
+                )),
+                Some((PrelaunchReason::InteractionUnknown, 0))
+            );
+            // Undetermined there: an entry that may apply (a `Match command` it sits
+            // behind, say) is never cleared.
+            let mut maybe = fallback(n);
+            maybe.certainty = Certainty::Undetermined;
+            let undetermined = IdentitySelectionReport {
+                selection: IdentitySelection::Undetermined,
+                entries: vec![managed(1), maybe],
+                identities_only: IdentitiesOnly::DeterminedYes,
+            };
+            assert_eq!(
+                reason(check_pairs(
+                    &b,
+                    &fresh,
+                    &[with(profile, undetermined, Some(ep(A)))],
+                    now()
+                )),
+                Some((PrelaunchReason::FallbackIdentityInteraction, 0)),
+                "{profile} undetermined"
+            );
+        }
+        // Fallbacks in both other profiles: each line once, in profile order.
+        let mut both = with("exec", not_exclusive(11), Some(ep(A)));
+        if let Some(p) = both
+            .profiles
+            .iter_mut()
+            .find(|p| p.profile == "subsystem:sftp")
+        {
+            p.report = IdentitySelectionReport {
+                selection: IdentitySelection::NotExclusive,
+                entries: vec![managed(1), fallback(12), fallback(11)],
+                identities_only: IdentitiesOnly::DeterminedYes,
+            };
+        }
+        let r = check_pairs(&b, &fresh, &[both], now()).unwrap_err();
+        assert_eq!(r.entries, [line(11), line(12)]);
+        // A selection without the other profiles is undetermined there.
+        let mut shell_only = exclusive("a", 1);
+        shell_only.profiles.clear();
+        assert_eq!(
+            reason(check_pairs(&b, &fresh, &[shell_only], now())),
+            Some((PrelaunchReason::FallbackIdentityInteraction, 0))
+        );
+        let mut renamed = exclusive("a", 1);
+        renamed.profiles[0].profile = "exec:git-upload-pack".to_owned();
+        assert_eq!(
+            reason(check_pairs(&b, &fresh, &[renamed], now())),
+            Some((PrelaunchReason::FallbackIdentityInteraction, 0)),
+            "a known command is not the unknown-command profile"
         );
     }
 
@@ -850,7 +1071,7 @@ mod tests {
                 0 | 1 => Some(ep(A)),
                 _ => Some(ep(B)),
             };
-            (fresh, bound, s)
+            (fresh, bound, synced(s))
         }
 
         proptest! {

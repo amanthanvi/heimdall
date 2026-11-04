@@ -231,6 +231,22 @@ impl CredentialAdapter for Gated {
     fn descriptor(&self) -> &AdapterDescriptor {
         self.inner.descriptor()
     }
+    // ADR-0007 §12.26 item 2: no default bodies; this test adapter reads no
+    // source and its bounded call is its own `prepare`.
+    fn read_sources(
+        &self,
+        _pairs: &[heimdall_app::ports::PreparePair],
+    ) -> heimdall_app::ports::IntegrationSnapshot {
+        heimdall_app::ports::IntegrationSnapshot::default()
+    }
+
+    async fn prepare_from(
+        &self,
+        req: PrepareRequest<'_>,
+        _sources: &heimdall_app::ports::IntegrationSnapshot,
+    ) -> Result<PrepareOutcome, AdapterError> {
+        self.prepare(req).await
+    }
 
     async fn prepare(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
         let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;

@@ -23,9 +23,22 @@
 //! * A holder row whose binding is already released, or missing, is skipped.
 //! * The release checks, in its own transaction, that the binding is still active and
 //!   its holder row still names the process that was observed exited
-//!   (`Operations::release_if_held_by`): if a later `bind` of the same binding replaced
-//!   the holder, nothing is released.
+//!   (`Operations::release_if_held_by`): if the holder row changed since the
+//!   observation, nothing is released. (Since §12.25 item 4 a launch never replaces
+//!   another process's row; it may only fill an empty one.)
 //! * A failed release of one binding does not stop the pass; the next pass retries.
+//!
+//! **One live holder per binding** (ADR-0007 §12.25 item 4, T04). A launch `bind`
+//! registers its holder in the transaction that checks the binding's holder row
+//! (`claim_launch_holder` in `operations.rs`): the settling transaction of a new
+//! `bind`, or, for a replay with the same request ID (the holder is not hashed),
+//! one transaction after the stored result is read. When the row names another
+//! process, or names one and the launch has none, the launch is refused before
+//! `launching` with `REQUEST_CONFLICT`, reason `binding_in_use`, `next:
+//! new_request_id`, and the row is kept. A holder row counts as live until this pass
+//! releases its binding: the bind path observes no liveness, and unknown liveness
+//! never counts as an exit. A released binding is not claimed; `run`'s active
+//! re-check refuses it (§12.24 item 2, §12.26 item 3).
 
 use std::sync::Arc;
 
@@ -171,8 +184,9 @@ mod tests {
     use crate::ensure::NoStageHook;
     use crate::operations::{Limits, OperationsConfig};
     use crate::ports::{
-        AdapterDescriptor, AdapterError, CredentialAdapter, InteractionRequirement, LockContinuity,
-        PrepareOutcome, PrepareRequest, ReconcileOutcome, RevokeOutcome,
+        AdapterDescriptor, AdapterError, CredentialAdapter, IntegrationSnapshot,
+        InteractionRequirement, LockContinuity, PrepareOutcome, PreparePair, PrepareRequest,
+        ReconcileOutcome, RevokeOutcome,
     };
 
     /// An adapter that prepares every time (this crate's own port: the testkit fake
@@ -186,6 +200,16 @@ mod tests {
         }
         async fn prepare(&self, _req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
             Ok(outcome())
+        }
+        fn read_sources(&self, _pairs: &[PreparePair]) -> IntegrationSnapshot {
+            IntegrationSnapshot::default()
+        }
+        async fn prepare_from(
+            &self,
+            req: PrepareRequest<'_>,
+            _sources: &IntegrationSnapshot,
+        ) -> Result<PrepareOutcome, AdapterError> {
+            self.prepare(req).await
         }
         async fn renew(&self, _req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
             Ok(outcome())
@@ -496,42 +520,187 @@ mod tests {
         );
     }
 
-    /// A later `bind` of the same binding replaces its holder: the old holder's exit
-    /// no longer releases it, the new holder's does.
-    #[tokio::test]
-    async fn a_replaced_holder_decides_and_the_old_ones_exit_does_not() {
-        let (ops, store) = ops().await;
-        let first = launch_binding(&ops, "w1", Some(holder(6001, "1.000001"))).await;
-        let caller = Caller::unattended(owner());
+    /// `bind(launch)` of `binding` with `holder` under `request`.
+    async fn bind_launch(
+        ops: &Operations,
+        binding: &BindingId,
+        holder: Option<ProcessHolder>,
+        request: &str,
+    ) -> OpResult<EnsureData> {
         ops.bind(
-            &caller,
+            &Caller::unattended(owner()),
             BindRequest {
-                binding_id: first.binding_id.clone(),
+                binding_id: binding.clone(),
                 form: BindForm::Launch(LaunchBinding {
                     executable: "/bin/sh".to_owned(),
-                    holder: Some(holder(6002, "2.000002")),
+                    holder,
                 }),
-                request_id: RequestId::parse("b-w1-again").unwrap(),
+                request_id: RequestId::parse(request).unwrap(),
             },
         )
         .await
-        .unwrap();
+    }
+
+    fn stored_holder(store: &Store, id: &BindingId) -> Option<ProcessHolder> {
+        store.transaction(|tx| tx.binding_holder(id)).unwrap()
+    }
+
+    /// ADR-0007 §12.25 item 4: the `binding_in_use` refusal, before any launch.
+    fn assert_in_use(e: &OpError, binding: &BindingId) {
+        assert_eq!(e.code, Code::RequestConflict, "{e:?}");
+        assert_eq!(
+            e.reason.as_deref(),
+            Some(heimdall_contract::envelope::reason::BINDING_IN_USE)
+        );
+        assert_eq!(e.next.action, "new_request_id");
+        assert_eq!(
+            e.effect_status,
+            heimdall_contract::envelope::EffectStatus::None
+        );
+        let resource = e.resource.as_deref().unwrap();
+        assert_eq!(resource.kind, "binding");
+        assert_eq!(resource.id.as_deref(), Some(binding.as_str()));
+    }
+
+    /// ADR-0007 §12.25 item 4 (T04, the reviewer's replay): a second process replays
+    /// the first's `bind` (the same request ID; the holder is not hashed) while the
+    /// first holds the binding. It is refused with `binding_in_use`, naming the
+    /// replayed operation, and the holder row keeps the first process, so the binding
+    /// stays active until the first exits; a launch without a holder is refused the
+    /// same way, and the holder itself replays. Once the first has exited and been
+    /// released, a retry keeps its §12.24 item 2 behaviour: the stored result,
+    /// nothing registered on the released binding (`run`'s re-check refuses it).
+    #[tokio::test]
+    async fn t04_a_replayed_launch_while_another_holder_holds_is_refused_and_the_holder_kept() {
+        let (ops, store) = ops().await;
+        let a = holder(6101, "1.000001");
+        let b = holder(6102, "2.000002");
+        let data = launch_binding(&ops, "w1", Some(a.clone())).await;
+        let id = data.binding_id.clone();
+        let first = bind_launch(&ops, &id, Some(a.clone()), "b-w1")
+            .await
+            .unwrap();
+        let refused = bind_launch(&ops, &id, Some(b.clone()), "b-w1")
+            .await
+            .unwrap_err();
+        assert_in_use(&refused, &id);
+        assert_eq!(
+            refused.operation_id, first.operation_id,
+            "the replayed bind"
+        );
+        let unheld = bind_launch(&ops, &id, None, "b-w1").await.unwrap_err();
+        assert_in_use(&unheld, &id);
+        assert_eq!(stored_holder(&store, &id), Some(a.clone()), "kept");
+        // B has exited, A still runs: the binding stays active.
         let table = Table::default();
         table
             .running
             .lock()
             .unwrap()
-            .insert(6002, "2.000002".to_owned());
-        assert!(
-            pass(&ops, &table).await.is_empty(),
-            "the current holder runs"
-        );
-        assert_eq!(
-            binding_state(&store, &first.binding_id),
-            BindingState::Active
-        );
+            .insert(a.pid, a.started_at.clone());
+        for _ in 0..2 {
+            assert!(pass(&ops, &table).await.is_empty(), "the first still runs");
+        }
+        assert_eq!(binding_state(&store, &id), BindingState::Active);
+        // A exits and is released; the sequential retry is the stored result.
         table.running.lock().unwrap().clear();
-        assert_eq!(pass(&ops, &table).await, vec![first.binding_id.clone()]);
+        assert_eq!(pass(&ops, &table).await, vec![id.clone()]);
+        let retry = bind_launch(&ops, &id, Some(b.clone()), "b-w1")
+            .await
+            .unwrap();
+        assert_eq!(retry.operation_id, first.operation_id);
+        assert_eq!(binding_state(&store, &id), BindingState::Released);
+        assert_eq!(
+            stored_holder(&store, &id),
+            Some(a),
+            "nothing registered on a released binding"
+        );
+        // ADR-0007 §12.26 item 3(a): a new `bind` of the released binding names the
+        // reason.
+        let gone = bind_launch(&ops, &id, Some(b), "b-w1-new")
+            .await
+            .unwrap_err();
+        assert_eq!(gone.code, Code::CredentialExpired);
+        assert_eq!(
+            gone.reason.as_deref(),
+            Some(heimdall_contract::envelope::reason::BINDING_RELEASED)
+        );
+        assert_eq!(gone.next.action, "new_work");
+        let resource = gone.resource.as_deref().unwrap();
+        assert_eq!(resource.kind, "binding");
+        assert_eq!(resource.id.as_deref(), Some(id.as_str()));
+    }
+
+    /// ADR-0007 §12.25 item 4: a new `bind` (another request ID) of a binding another
+    /// holder holds settles failed with `binding_in_use` in the transaction that
+    /// checks the holder; the holder is never replaced, so only its own exit releases
+    /// the binding. A replay of the refused request is the same refusal.
+    #[tokio::test]
+    async fn t04_a_new_launch_bind_of_a_held_binding_is_refused_and_never_replaces_the_holder() {
+        let (ops, store) = ops().await;
+        let a = holder(6001, "1.000001");
+        let b = holder(6002, "2.000002");
+        let first = launch_binding(&ops, "w1", Some(a.clone())).await;
+        let id = first.binding_id.clone();
+        let refused = bind_launch(&ops, &id, Some(b.clone()), "b-w1-again")
+            .await
+            .unwrap_err();
+        assert_in_use(&refused, &id);
+        let op = refused.operation_id.clone().unwrap();
+        let settled = store.transaction(|tx| tx.operation(&op)).unwrap().unwrap();
+        assert_eq!(settled.state, heimdall_contract::OperationState::Failed);
+        let again = bind_launch(&ops, &id, Some(b.clone()), "b-w1-again")
+            .await
+            .unwrap_err();
+        assert_in_use(&again, &id);
+        assert_eq!(again.operation_id, Some(op));
+        assert_eq!(stored_holder(&store, &id), Some(a.clone()));
+        // The refused process runs and the holder has exited: the holder decides.
+        let table = Table::default();
+        table
+            .running
+            .lock()
+            .unwrap()
+            .insert(b.pid, b.started_at.clone());
+        assert_eq!(pass(&ops, &table).await, vec![id.clone()]);
+        assert_eq!(binding_state(&store, &id), BindingState::Released);
+    }
+
+    /// ADR-0007 §12.25 item 4: overlapping launches of one binding (joined, so their
+    /// store transactions interleave on the blocking pool) admit exactly one, with
+    /// the replayed bind (one request ID) and with two new binds (two request IDs)
+    /// alike; the holder row names the one admitted.
+    #[tokio::test]
+    async fn t04_overlapping_launches_of_one_binding_admit_exactly_one() {
+        let (ops, store) = ops().await;
+        for round in 0..16u32 {
+            let work = format!("race-{round}");
+            let data = launch_binding(&ops, &work, None).await;
+            let id = data.binding_id.clone();
+            let (ra, rb) = if round % 2 == 0 {
+                (format!("r-{work}-x"), format!("r-{work}-x"))
+            } else {
+                (format!("r-{work}-a"), format!("r-{work}-b"))
+            };
+            let a = holder(7000 + 2 * round + 1, "1.0");
+            let b = holder(7000 + 2 * round + 2, "2.0");
+            let (left, right) = tokio::join!(
+                bind_launch(&ops, &id, Some(a.clone()), &ra),
+                bind_launch(&ops, &id, Some(b.clone()), &rb),
+            );
+            let winner = match (&left, &right) {
+                (Ok(_), Err(e)) => {
+                    assert_in_use(e, &id);
+                    a
+                }
+                (Err(e), Ok(_)) => {
+                    assert_in_use(e, &id);
+                    b
+                }
+                other => panic!("round {round}: exactly one is admitted: {other:?}"),
+            };
+            assert_eq!(stored_holder(&store, &id), Some(winner), "round {round}");
+        }
     }
 
     /// A holder replaced after the pass observed the old one exited, and before the

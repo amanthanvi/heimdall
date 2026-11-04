@@ -110,6 +110,10 @@ const ACCEPT_RETRY: Duration = Duration::from_millis(100);
 
 /// Service start-up failure (mapped to `SERVICE_UNAVAILABLE`/`STATE_UNAVAILABLE`
 /// by the CLI).
+// A start-up error is built at most once per runtime; boxing `App` (grown by
+// ADR-0007 §12.26 item 4's `OpError::entries`) would change every `?` that converts an
+// `OpError`, for no measurable gain.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceError {
     /// Another instance is running.

@@ -18,8 +18,12 @@
 //! * **The fresh views** of the pre-launch check: a new `inspect identities` (owner
 //!   role, ADR-0007 §12.14 item 5) and, per pair, a static `sshconf` pass in this
 //!   process over the user's configuration with P as the managed root
-//!   (`heimdall_localenv::projection::observe::observe`; passive: nothing executes and
-//!   no local query runs).
+//!   (`heimdall_localenv::projection::observe::observe_profiles`; passive: nothing
+//!   executes and no local query runs). The pass covers every invocation profile the
+//!   launched work can use, `Shell`, `Exec(None)` and `Subsystem("sftp")` (ADR-0007
+//!   §12.25 item 1), takes the local account from the account database, never `USER`
+//!   or `USERNAME` (item 2), and shows each entry's file through the canonicalized
+//!   account home, so the home's absolute path never appears (§12.26 item 7).
 //! * **Argument privacy.** `argv` never crosses IPC and never appears in a record,
 //!   envelope, diagnostic or log: refusals name an argument by index only.
 
@@ -40,6 +44,7 @@ use heimdall_domain::projection::ProjectionRecord;
 use heimdall_launch::LaunchFailure;
 use heimdall_launch::eligibility::{
     FreshSelection, IdentitiesView, IdentityView, PrelaunchReason, PrelaunchRefusal,
+    ProfileSelection,
 };
 use heimdall_launch::env::EnvDelta;
 use heimdall_launch::meta::{MetaError, SideChannel};
@@ -410,7 +415,8 @@ fn undetermined() -> IdentitySelectionReport {
 }
 
 /// The alias's effective `IdentityAgent`, when the static pass determined one explicit
-/// endpoint (the default agent and `~` paths are not endpoints the check can compare).
+/// endpoint (the default agent, `~` paths and values with a `%` token are not endpoints
+/// the check can compare: ssh expands them).
 fn identity_agent(
     observation: &heimdall_contract::doctor::AliasObservation,
 ) -> Option<EndpointRef> {
@@ -430,6 +436,7 @@ fn identity_agent(
         || value == "SSH_AUTH_SOCK"
         || value.starts_with('$')
         || value.starts_with('~')
+        || value.contains('%')
     {
         return None;
     }
@@ -443,25 +450,19 @@ fn identity_agent(
     })
 }
 
-/// The fresh static selection of `alias` (module docs). No alias, or an alias the
-/// pass cannot evaluate, is undetermined with no endpoint, which clears nothing.
+/// The fresh static selection of `alias` (module docs), under every invocation
+/// profile (ADR-0007 §12.25 item 1). No alias, or an alias the pass cannot evaluate,
+/// is undetermined with no endpoint, which clears nothing.
 pub(crate) fn fresh_selection(
     config: &ProjectionConfig,
     record: &ProjectionRecord,
     alias: Option<&str>,
 ) -> FreshSelection {
     let Some(alias) = alias else {
-        return FreshSelection {
-            alias: String::new(),
-            report: undetermined(),
-            endpoint: None,
-        };
+        return selection_of("", Vec::new(), &config.paths.account_home);
     };
-    let observation =
-        heimdall_localenv::projection::observe::observe(config, record, &[alias.to_owned()])
-            .into_iter()
-            .next();
-    selection_of(alias, observation.as_ref())
+    let profiles = heimdall_localenv::projection::observe::observe_profiles(config, record, alias);
+    selection_of(alias, profiles, &config.paths.account_home)
 }
 
 /// The fresh static selection of an **observed** alias, one the user's own
@@ -470,11 +471,12 @@ pub(crate) fn fresh_selection(
 /// alias is evaluated by the doctor's static level instead, as an observed catalog
 /// alias: passive, with local queries off, so nothing executes, no agent is contacted
 /// and only configuration and `.pub` files are read (the same evaluator, roots and
-/// managed root P as `observe`). Its placeholder identity names no key file, so every
+/// managed root P as `observe`), under every invocation profile (§12.25 item 1,
+/// `doctor::alias_profiles`). Its placeholder identity names no key file, so every
 /// entry is reported with its own source, fingerprint, backing and provenance, and the
 /// check reads each one as an alternative the domain rule must clear.
 pub(crate) fn fresh_observed_selection(config: &ProjectionConfig, alias: &str) -> FreshSelection {
-    use heimdall_localenv::doctor::{CatalogAlias, CatalogIdentity, DoctorRequest, LocalContext};
+    use heimdall_localenv::doctor::{CatalogAlias, CatalogIdentity, LocalContext};
     let mut ctx = LocalContext::new(
         config.paths.clone(),
         config.env.clone(),
@@ -493,32 +495,61 @@ pub(crate) fn fresh_observed_selection(config: &ProjectionConfig, alias: &str) -
             endpoint: None,
         }),
     }];
-    let mut request = DoctorRequest::passive();
-    request.aliases = Some(vec![alias.to_owned()]);
-    request.local_queries = heimdall_localenv::local_query::LocalQueries::Disabled;
-    let observation = heimdall_localenv::doctor::run(&ctx, &request)
-        .aliases
+    let profiles = heimdall_localenv::doctor::alias_profiles(&ctx, alias)
         .into_iter()
-        .find(|o| o.alias == alias);
-    selection_of(alias, observation.as_ref())
+        .map(|(name, observation)| (name, (observation.alias == alias).then_some(observation)))
+        .collect();
+    selection_of(alias, profiles, &config.paths.account_home)
 }
 
-/// A fresh selection from `alias`'s static observation; none is undetermined with no
-/// endpoint, which clears nothing. A stored clearance is never what the check reads.
+/// A fresh selection from `alias`'s static observation under each profile
+/// (`(name, observation)`). A profile with no observation, or one `profiles` lacks, is
+/// undetermined with no endpoint, which clears nothing. A stored clearance is never
+/// what the check reads. Each entry's file is shown through the canonicalized account
+/// `home` (ADR-0007 §12.26 item 7).
 fn selection_of(
     alias: &str,
-    observation: Option<&heimdall_contract::doctor::AliasObservation>,
+    profiles: Vec<(String, Option<heimdall_contract::doctor::AliasObservation>)>,
+    home: &Path,
 ) -> FreshSelection {
-    let mut report = observation
-        .and_then(|o| o.identity_selection.clone())
-        .unwrap_or_else(undetermined);
-    for entry in &mut report.entries {
-        entry.cleared = None;
-    }
+    let mut by_name: Vec<ProfileSelection> = heimdall_launch::eligibility::required_profiles()
+        .into_iter()
+        .map(|profile| {
+            let observation = profiles
+                .iter()
+                .find(|(name, _)| *name == profile)
+                .and_then(|(_, o)| o.as_ref());
+            let mut report = observation
+                .and_then(|o| o.identity_selection.clone())
+                .unwrap_or_else(undetermined);
+            for entry in &mut report.entries {
+                entry.cleared = None;
+                if let Some(p) = entry.provenance.as_mut() {
+                    heimdall_localenv::doctor::redisplay(p, home);
+                }
+            }
+            ProfileSelection {
+                profile,
+                report,
+                endpoint: observation.and_then(identity_agent),
+            }
+        })
+        .collect();
+    // `shell` is the first required profile: the selection's own report and agent.
+    let shell = if by_name.is_empty() {
+        ProfileSelection {
+            profile: "shell".to_owned(),
+            report: undetermined(),
+            endpoint: None,
+        }
+    } else {
+        by_name.remove(0)
+    };
     FreshSelection {
         alias: alias.to_owned(),
-        report,
-        endpoint: observation.and_then(identity_agent),
+        report: shell.report,
+        endpoint: shell.endpoint,
+        profiles: by_name,
     }
 }
 
@@ -726,5 +757,211 @@ mod tests {
         };
         let f = Failure::ineligible(&none, ProviderKind::NativeAgent, InteractionKind::Unknown);
         assert!(f.env.data["error"].get("entries").is_none());
+    }
+
+    /// A scratch layout for the static pass: the account's real home holds a segment
+    /// that stands for the account name, and the configured home reaches it through a
+    /// symlink (as `/var` reaches `/private/var` on macOS). P names the adopted key for
+    /// `alpha` under `IdentitiesOnly yes`; the user file includes P and appends
+    /// `extra`.
+    #[cfg(unix)]
+    struct Layout {
+        _dir: tempfile::TempDir,
+        real: std::path::PathBuf,
+        link: std::path::PathBuf,
+        config: ProjectionConfig,
+        record: ProjectionRecord,
+    }
+
+    #[cfg(unix)]
+    const NAME_SEGMENT: &str = "hm-fixture-account-name";
+
+    #[cfg(unix)]
+    impl Layout {
+        fn new(extra: &str) -> Layout {
+            use heimdall_contract::setup::ProjectionItem;
+            use heimdall_domain::projection::{
+                FileIdentity, FileRole, ItemRecord, ProjectionLocator, Sha256Hex,
+            };
+            let dir = tempfile::tempdir().unwrap();
+            let real = dir.path().join("real").join(NAME_SEGMENT);
+            std::fs::create_dir_all(real.join(".ssh")).unwrap();
+            let link = dir.path().join("home");
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            let config_dir = dir.path().join("config");
+            std::fs::create_dir_all(&config_dir).unwrap();
+            let key = config_dir.join("alpha.pub");
+            std::fs::write(&key, "ssh-ed25519 AAAA fixture\n").unwrap();
+            std::fs::write(
+                config_dir.join("ssh_config"),
+                format!(
+                    "Host alpha\n  IdentityFile \"{}\"\n  IdentitiesOnly yes\n",
+                    key.display()
+                ),
+            )
+            .unwrap();
+            std::fs::write(
+                link.join(".ssh").join("config"),
+                format!(
+                    "Include \"{}\"\n{extra}",
+                    config_dir.join("ssh_config").display()
+                ),
+            )
+            .unwrap();
+            let paths = SshPaths::with_test_override(link.clone(), dir.path().join("etc-ssh"));
+            let config = ProjectionConfig::new(paths, Platform::current(), config_dir);
+            let environment = heimdall_contract::ids::EnvironmentId::from_random_bytes([4; 16]);
+            let record = ProjectionRecord {
+                environment,
+                items: [(
+                    ProjectionItem::Ssh,
+                    ItemRecord {
+                        generation: 1,
+                        files: vec![ProjectionLocator {
+                            role: FileRole::Key,
+                            path: key.display().to_string(),
+                            identity: FileIdentity::Unix {
+                                dev: 1,
+                                ino: 2,
+                                birth: None,
+                            },
+                            sha256: Sha256Hex::of(b"fixture"),
+                        }],
+                        aliases: vec!["alpha".to_owned()],
+                        operation: OperationId::from_random_bytes([3; 16]),
+                        committed_at: heimdall_contract::Timestamp::now(),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            };
+            Layout {
+                _dir: dir,
+                real,
+                link,
+                config,
+                record,
+            }
+        }
+
+        fn selection(&self) -> FreshSelection {
+            fresh_selection(&self.config, &self.record, Some("alpha"))
+        }
+    }
+
+    /// The user-sourced entries' provenance of one report.
+    #[cfg(unix)]
+    fn user_entries(report: &IdentitySelectionReport) -> Vec<ConfigProvenance> {
+        report
+            .entries
+            .iter()
+            .filter(|e| e.source == heimdall_contract::provider::IdentityEntrySource::User)
+            .filter_map(|e| e.provenance.clone())
+            .collect()
+    }
+
+    /// ADR-0007 §12.25 item 1 (T01): the fresh selection carries every invocation
+    /// profile, `shell` in its own report and `exec` and `subsystem:sftp` in
+    /// `profiles`, each evaluated under its own invocation: an `IdentityFile` behind
+    /// `Match sessiontype exec` is in the `exec` profile's report only, one behind
+    /// `Match sessiontype subsystem` in the `subsystem:sftp` profile's only.
+    #[cfg(unix)]
+    #[test]
+    fn the_fresh_selection_evaluates_every_invocation_profile() {
+        let names = |s: &FreshSelection| -> Vec<String> {
+            s.profiles.iter().map(|p| p.profile.clone()).collect()
+        };
+        let at = |line: u32| ConfigProvenance {
+            path_display: "~/.ssh/config".to_owned(),
+            line,
+        };
+        let l = Layout::new(
+            "Match sessiontype exec\n  IdentityFile \"~/k2.pub\"\nMatch sessiontype subsystem\n  IdentityFile \"~/k3.pub\"\n",
+        );
+        let s = l.selection();
+        assert_eq!(names(&s), ["exec", "subsystem:sftp"]);
+        assert_eq!(
+            s.report.selection,
+            IdentitySelection::Exclusive,
+            "{:?}",
+            s.report
+        );
+        assert!(user_entries(&s.report).is_empty());
+        assert_eq!(user_entries(&s.profiles[0].report), [at(3)]);
+        assert_ne!(s.profiles[0].report.selection, IdentitySelection::Exclusive);
+        assert_eq!(user_entries(&s.profiles[1].report), [at(5)]);
+        assert_ne!(s.profiles[1].report.selection, IdentitySelection::Exclusive);
+        // No alias: every profile undetermined.
+        let none = fresh_selection(&l.config, &l.record, None);
+        assert_eq!(names(&none), ["exec", "subsystem:sftp"]);
+        assert!(
+            std::iter::once(&none.report)
+                .chain(none.profiles.iter().map(|p| &p.report))
+                .all(|r| r.selection == IdentitySelection::Undetermined)
+        );
+    }
+
+    /// ADR-0007 §12.26 item 7: with the account home reached through a symlink, every
+    /// entry of the pre-launch check's fresh selection is shown as `~/.ssh/config`, so
+    /// the refusal's `data.error.entries` and message never show the home's absolute
+    /// path nor the account-name segment it holds. A path outside the home is shown as
+    /// written.
+    #[cfg(unix)]
+    #[test]
+    fn refusal_entries_show_a_home_behind_a_symlink_as_tilde() {
+        let l = Layout::new(
+            "Host *\n  IdentityFile \"~/k2.pub\"\n  IdentityFile \"/hm-fixture-outside/k4.pub\"\n",
+        );
+        let s = l.selection();
+        let expected = [
+            ConfigProvenance {
+                path_display: "~/.ssh/config".to_owned(),
+                line: 3,
+            },
+            ConfigProvenance {
+                path_display: "~/.ssh/config".to_owned(),
+                line: 4,
+            },
+        ];
+        assert_eq!(user_entries(&s.report), expected);
+        for p in &s.profiles {
+            assert_eq!(user_entries(&p.report), expected, "{}", p.profile);
+        }
+        let refusal = PrelaunchRefusal {
+            reason: PrelaunchReason::FallbackIdentityInteraction,
+            pair: 0,
+            entries: user_entries(&s.report),
+        };
+        let f = Failure::ineligible(
+            &refusal,
+            ProviderKind::NativeAgent,
+            InteractionKind::Unknown,
+        );
+        let text = serde_json::to_string(&f.env).unwrap();
+        for absent in [
+            NAME_SEGMENT.to_owned(),
+            l.real.display().to_string(),
+            l.link.display().to_string(),
+            std::fs::canonicalize(&l.real)
+                .unwrap()
+                .display()
+                .to_string(),
+        ] {
+            assert!(!text.contains(&absent), "{text}");
+        }
+        assert!(
+            f.env.data["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("~/.ssh/config:3, ~/.ssh/config:4")
+        );
+        // Outside the home: shown as written.
+        assert_eq!(
+            heimdall_localenv::doctor::path_display(
+                std::path::Path::new("/hm-fixture-outside/x"),
+                &l.link
+            ),
+            "/hm-fixture-outside/x"
+        );
     }
 }

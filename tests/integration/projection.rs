@@ -2954,6 +2954,209 @@ fn manual_first_adoption_without_b_still_needs_a_decision() {
     );
 }
 
+/// ADR-0007 §12.26 item 5: a changed managed alias always needs a decision, in manual
+/// mode too, P active or not. `work` is adopted in manual mode under a symlinked user
+/// configuration without B: P is not in effect, so the consented managed state is the
+/// user-only state. Its HostName then changes: the plan is manual, P's section changes,
+/// and every evaluated state (current, after, consented) is still the same user-only
+/// state, so the classification alone needs nothing; the owner's own Include would then
+/// activate the change without another decision. The plan needs one (`new_state`) and
+/// lists the alias as changed. Control: the unchanged spec affects nothing.
+#[test]
+fn manual_changed_alias_with_inactive_p_still_needs_a_decision() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    use heimdall_domain::projection::ItemId;
+    let fx = Fx::new();
+    symlink_user_config(&fx, USER_TEXT.as_bytes());
+    let (first, sink) = fx.adopt(&["work"]);
+    let consented = consent_of(&sink);
+    let recorded = &consented.items[&ItemId::alias("work")];
+    assert!(recorded.managed.determined);
+    assert_eq!(
+        recorded.managed.digest, recorded.restore.digest,
+        "P is not in effect: the consented state is the user-only state"
+    );
+    let same = fx.preview(
+        &update_spec(&fx, &first, &sink, &["work"]),
+        &Fx::apply_intent(),
+    );
+    assert_eq!(same.view.mode, SetupMode::Manual);
+    assert!(!same.view.consent.decision_required, "{:?}", reasons(&same));
+
+    let mut spec = update_spec(&fx, &first, &sink, &["work"]);
+    spec.aliases[0].hostname = "moved.example.invalid".to_owned();
+    let plan = fx.preview(&spec, &Fx::apply_intent());
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert!(plan.files.iter().any(|s| s.role == FileRole::ManagedSsh));
+    assert!(plan.files.iter().all(|s| s.role != FileRole::UserSsh));
+    let work = &plan.consent.items[&ItemId::alias("work")];
+    assert_eq!(
+        work.managed.digest, recorded.managed.digest,
+        "the after state is the consented one"
+    );
+    assert!(plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::NewState)]
+    );
+    assert_eq!(
+        plan.summary.as_ref().unwrap().changed_aliases,
+        vec!["work".to_owned()]
+    );
+}
+
+// --- W3d-select: the local account from the account database (ADR-0007 §12.25 item 2) ---
+
+/// The account database's name for this test's account (never printed).
+fn os_account() -> String {
+    heimdall_localenv::doctor::local_account().expect("the account database names this account")
+}
+
+/// A projection configuration whose environment snapshot has `USER` (and `USERNAME`)
+/// set to `user`, or neither.
+fn config_with_user(fx: &Fx, user: Option<&str>) -> ProjectionConfig {
+    let mut c = fx.config();
+    let mut vars: Vec<(&str, String)> = vec![("HOME", fx.home.git_home.display().to_string())];
+    if let Some(u) = user {
+        vars.push(("USER", u.to_owned()));
+        vars.push(("USERNAME", u.to_owned()));
+    }
+    c.env = heimdall_localenv::env::Env::from_vars(vars);
+    c
+}
+
+/// ADR-0007 §12.25 item 2 (T02), projection observe (the runtime's readiness and the
+/// CLI's pre-launch check): `Match localuser` reads the account database. A fallback
+/// behind `Match localuser <the OS account>` makes `work`'s selection not exclusive
+/// with `USER` unset and with `USER` naming another account; a rule for that other
+/// name never applies, so the selection stays exclusive while `USER` names it.
+#[test]
+fn observe_reads_localuser_from_the_account_database() {
+    use heimdall_contract::provider::IdentitySelection;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    let record = sink.record(&fx.env);
+    let base = std::fs::read_to_string(fx.user()).unwrap();
+    let k2 = fx.home.root.join("k2.pub");
+    std::fs::write(&k2, format!("{}\n", synthetic_public_key())).unwrap();
+    let rule = |name: &str| {
+        format!(
+            "{base}Match localuser {name}\n    IdentityFile \"{}\"\n",
+            k2.display()
+        )
+    };
+    let other = "hm-fixture-other-account";
+    let selection = |config: &ProjectionConfig| {
+        heimdall_localenv::projection::observe::observe(config, &record, &["work".to_owned()])[0]
+            .identity_selection
+            .clone()
+            .expect("a managed alias's selection")
+            .selection
+    };
+    assert_eq!(
+        selection(&config_with_user(&fx, None)),
+        IdentitySelection::Exclusive,
+        "control: the base configuration"
+    );
+    std::fs::write(fx.user(), rule(&os_account())).unwrap();
+    for user in [None, Some(other)] {
+        assert_eq!(
+            selection(&config_with_user(&fx, user)),
+            IdentitySelection::NotExclusive,
+            "USER {}",
+            if user.is_some() {
+                "names another account"
+            } else {
+                "unset"
+            }
+        );
+    }
+    std::fs::write(fx.user(), rule(other)).unwrap();
+    assert_eq!(
+        selection(&config_with_user(&fx, Some(other))),
+        IdentitySelection::Exclusive
+    );
+}
+
+/// ADR-0007 §12.25 item 2 (T02): when the local account cannot be established
+/// (`observe_as` with `None`), an alias whose configuration reads it (`Match
+/// localuser`, whatever name it tests) is undetermined: its selection, `IdentitiesOnly`
+/// and every directive. The same configuration with the account named is determined,
+/// and a configuration that does not read the account is unaffected.
+#[test]
+fn observe_with_the_account_unknown_is_undetermined_where_the_configuration_reads_it() {
+    use heimdall_contract::doctor::DirectiveCertainty;
+    use heimdall_contract::provider::{IdentitiesOnly, IdentitySelection};
+    use heimdall_sshconf::eval::Invocation;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    let record = sink.record(&fx.env);
+    let base = std::fs::read_to_string(fx.user()).unwrap();
+    let observe = |account: Option<&str>| {
+        heimdall_localenv::projection::observe::observe_as(
+            &fx.config(),
+            &record,
+            &["work".to_owned()],
+            &Invocation::Shell,
+            account.map(str::to_owned),
+        )
+        .remove(0)
+    };
+    let known = observe(None);
+    let report = known.identity_selection.clone().unwrap();
+    assert_eq!(report.selection, IdentitySelection::Exclusive, "unaffected");
+    std::fs::write(
+        fx.user(),
+        format!("{base}Match localuser hm-fixture-nobody\n    ForwardAgent yes\n"),
+    )
+    .unwrap();
+    let unknown = observe(None);
+    let report = unknown.identity_selection.clone().unwrap();
+    assert_eq!(report.selection, IdentitySelection::Undetermined);
+    assert_eq!(report.identities_only, IdentitiesOnly::Undetermined);
+    assert!(
+        unknown
+            .behavior
+            .iter()
+            .all(|d| d.certainty == DirectiveCertainty::Undetermined)
+    );
+    let named = observe(Some("hm-fixture-account"));
+    assert_eq!(
+        named.identity_selection.unwrap().selection,
+        IdentitySelection::Exclusive
+    );
+}
+
+/// ADR-0007 §12.25 item 2 (T02), preview (consent): a `ForwardAgent yes` behind `Match
+/// localuser <the OS account>` is part of `work`'s consented state with `USER` naming
+/// another account (its digest differs from the state without the rule), and one
+/// behind `Match localuser <that other name>` is not (the digest is the rule-less one).
+#[test]
+fn preview_consent_reads_localuser_from_the_account_database() {
+    use heimdall_domain::projection::ItemId;
+    let other = "hm-fixture-other-account";
+    let fx = Fx::new();
+    let spec = fx.spec(&["work"], None);
+    let state = |extra: &str| {
+        std::fs::write(fx.user(), format!("{USER_TEXT}{extra}")).unwrap();
+        let plan = LocalProjection::new(config_with_user(&fx, Some(other)))
+            .preview(&spec, &Fx::apply_intent())
+            .unwrap();
+        plan.consent.items[&ItemId::alias("work")].managed.clone()
+    };
+    let none = state("");
+    let account = state(&format!(
+        "Match localuser {}\n    ForwardAgent yes\n",
+        os_account()
+    ));
+    let named = state(&format!("Match localuser {other}\n    ForwardAgent yes\n"));
+    assert!(none.determined && account.determined && named.determined);
+    assert_ne!(account.digest, none.digest, "the account's rule applies");
+    assert_eq!(named.digest, none.digest, "the USER name's rule does not");
+}
+
 // --- W3b-consent: every invocation profile (ADR-0007 §12.21 item 2, V02) ---------------
 
 /// The spec of a rollback after `sink`'s adoption, with its consent.

@@ -260,8 +260,9 @@ mod enabled {
 
     use heimdall_app::ensure::EnsureStage;
     use heimdall_app::ports::{
-        AdapterDescriptor, AdapterError, CredentialAdapter, InteractionRequirement, LockContinuity,
-        PrepareOutcome, PrepareRequest, ReconcileOutcome, RevokeOutcome,
+        AdapterDescriptor, AdapterError, CredentialAdapter, IntegrationSnapshot,
+        InteractionRequirement, LockContinuity, PrepareOutcome, PreparePair, PrepareRequest,
+        ReconcileOutcome, RevokeOutcome,
     };
     use heimdall_contract::Code;
     use heimdall_contract::Timestamp;
@@ -638,6 +639,26 @@ mod enabled {
                 }
                 r
             })
+        }
+
+        // ⟨M02⟩ ADR-0007 §12.26 item 2: the fake reads no source, and the bounded
+        // call is this adapter's own `prepare`, with its delay and hang.
+        fn read_sources(&self, _pairs: &[PreparePair]) -> IntegrationSnapshot {
+            IntegrationSnapshot::default()
+        }
+
+        fn prepare_from<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            req: PrepareRequest<'life1>,
+            _sources: &'life2 IntegrationSnapshot,
+        ) -> BoxFuture<'async_trait, Result<PrepareOutcome, AdapterError>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.prepare(req)
         }
 
         fn renew<'life0, 'life1, 'async_trait>(

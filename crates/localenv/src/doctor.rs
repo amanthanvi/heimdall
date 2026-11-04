@@ -46,7 +46,7 @@ use heimdall_contract::setup::ConflictKind;
 use heimdall_sshconf::directive::{Keyword, KnownKeyword};
 use heimdall_sshconf::edit::{BlockPosition, find_blocks};
 use heimdall_sshconf::eval::{
-    Evaluation, OpenSshVersion, Resolved, UnresolvedReason, Value, evaluate,
+    Evaluation, Invocation, OpenSshVersion, Resolved, UnresolvedReason, Value, evaluate,
 };
 use heimdall_sshconf::include::{self, ConfigSet, Roots};
 use heimdall_sshconf::limits::Limits;
@@ -202,22 +202,11 @@ impl LocalContext {
         }
     }
 
-    /// The local account name for `%u` and `Match localuser`: the account database
-    /// on Unix (as OpenSSH), `USERNAME` from the snapshot on Windows.
+    /// The local account name for `%u` and `Match localuser` ([`local_account`]):
+    /// `None` when the account cannot be established.
     #[must_use]
-    pub fn local_user(&self) -> String {
-        #[cfg(unix)]
-        {
-            crate::sys::account_name().unwrap_or_default()
-        }
-        #[cfg(not(unix))]
-        {
-            self.env
-                .get("USERNAME")
-                .and_then(|v| v.to_str())
-                .unwrap_or_default()
-                .to_owned()
-        }
+    pub fn local_user(&self) -> Option<String> {
+        local_account()
     }
 
     /// The roots ssh reads: the user file, and the system file unless the test
@@ -249,6 +238,165 @@ impl LocalContext {
     }
 }
 
+/// ADR-0007 §12.25 item 2 (T02): the local account name for `%u` and `Match
+/// localuser`, from the OS account database as OpenSSH computes it
+/// (`sys::account_name`, `getpwuid_r(getuid())`), never from `USER`, `USERNAME` or
+/// `LOGNAME`. `None` when the account cannot be established: a failed lookup, an empty
+/// name, and Windows, where this build has no account-database lookup. Every query
+/// builder (projection observe and preview, the pre-launch check, the probes and the
+/// doctor) then evaluates with no name and treats a configuration that reads the local
+/// account ([`reads_local_account`]) as undetermined, never as an empty name.
+#[must_use]
+pub fn local_account() -> Option<String> {
+    #[cfg(unix)]
+    {
+        crate::sys::account_name().ok().filter(|n| !n.is_empty())
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+/// Whether the configuration `evaluation` read can depend on the local account name
+/// (ADR-0007 §12.25 item 2): a `Match` line with a `localuser` or `user` criterion
+/// (`Match user` compares with the local account when no `User` is in force), or an
+/// `Include` argument with a `%u` or `%r` token. Read over every file the evaluation
+/// visited, whatever its sections' conditions, so a line in a section that does not
+/// apply still counts (the conservative reading).
+#[must_use]
+pub fn reads_local_account(set: &ConfigSet, evaluation: &Evaluation) -> bool {
+    evaluation.files.keys().any(|id| {
+        set.file(*id).is_some_and(|file| {
+            file.lines.iter().any(|line| match line {
+                Line::Directive(d) => match &d.keyword {
+                    Keyword::Known(KnownKeyword::Match) => d.args.iter().any(|a| {
+                        let a = a.trim_start_matches('!').to_ascii_lowercase();
+                        let criterion = a.split('=').next().unwrap_or_default();
+                        criterion == "localuser" || criterion == "user"
+                    }),
+                    Keyword::Known(KnownKeyword::Include) => {
+                        d.args.iter().any(|a| a.contains("%u") || a.contains("%r"))
+                    }
+                    _ => false,
+                },
+                _ => false,
+            })
+        })
+    })
+}
+
+/// ADR-0007 §12.25 item 2: `observation` as undetermined, because the local account
+/// cannot be established and the configuration reads it. Every directive is
+/// `undetermined`, and so are the identity selection (its `IdentitiesOnly` and each
+/// entry included), so nothing is cleared or consented to on its strength.
+pub fn mark_account_undetermined(observation: &mut AliasObservation) {
+    for d in &mut observation.behavior {
+        d.certainty = DirectiveCertainty::Undetermined;
+    }
+    if let Some(report) = observation.identity_selection.as_mut() {
+        report.selection = IdentitySelection::Undetermined;
+        report.identities_only = heimdall_contract::provider::IdentitiesOnly::Undetermined;
+        for e in &mut report.entries {
+            e.certainty = heimdall_contract::provider::Certainty::Undetermined;
+        }
+    }
+}
+
+/// ADR-0007 §12.26 item 7: `path` for display, `~/…` when it lies under the account
+/// `home`. Both are canonicalized before the comparison, so a home reached through a
+/// symlink (`/var` against `/private/var`, as on macOS) still shows as `~/…`; the
+/// written forms are compared too. A path outside the home is shown as given. `/`
+/// separators. The account home's absolute path, and so the account name it holds,
+/// never appears for a path under it.
+#[must_use]
+pub fn path_display(path: &Path, home: &Path) -> String {
+    let text = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    if home.as_os_str().is_empty() {
+        return text(path);
+    }
+    let tilde = |rest: &Path| {
+        if rest.as_os_str().is_empty() {
+            "~".to_owned()
+        } else {
+            format!("~/{}", text(rest))
+        }
+    };
+    let canonical_home = std::fs::canonicalize(home).ok();
+    let canonical_path = std::fs::canonicalize(path).ok();
+    let candidates = [
+        (Some(path), Some(home)),
+        (Some(path), canonical_home.as_deref()),
+        (canonical_path.as_deref(), Some(home)),
+        (canonical_path.as_deref(), canonical_home.as_deref()),
+    ];
+    for (p, h) in candidates {
+        if let (Some(p), Some(h)) = (p, h)
+            && let Ok(rest) = p.strip_prefix(h)
+        {
+            return tilde(rest);
+        }
+    }
+    text(path)
+}
+
+/// ADR-0007 §12.26 item 7: `provenance` shown through [`path_display`]. A display
+/// that already starts at `~` is kept; any other is read as the path it shows (the
+/// evaluator's display of a file it could not place under the home it was given) and
+/// shown again, so a home behind a symlink is still `~/…`.
+pub fn redisplay(provenance: &mut ConfigProvenance, home: &Path) {
+    if !provenance.path_display.starts_with('~') {
+        provenance.path_display = path_display(Path::new(&provenance.path_display), home);
+    }
+}
+
+/// [`redisplay`] over every provenance of `observation` (its directives and its
+/// identity selection's entries).
+pub fn redisplay_observation(observation: &mut AliasObservation, home: &Path) {
+    for d in &mut observation.behavior {
+        for p in &mut d.provenance {
+            redisplay(p, home);
+        }
+    }
+    if let Some(report) = observation.identity_selection.as_mut() {
+        for p in report
+            .entries
+            .iter_mut()
+            .filter_map(|e| e.provenance.as_mut())
+        {
+            redisplay(p, home);
+        }
+    }
+}
+
+/// ADR-0007 §12.25 item 1 (T01): `alias`'s static observation under each invocation
+/// profile a launch can use, `Shell`, `Exec(None)` and `Subsystem("sftp")` (the
+/// consent profile set, `Invocation::consent_profiles`), each named by
+/// `Invocation::profile_name`, in that order. The doctor's static level for the alias
+/// alone: passive, no local query and no client version query (the floor version), no
+/// finding kept. With the local account unknown (T02) a profile whose configuration
+/// reads it is undetermined; every provenance is shown through [`path_display`].
+#[must_use]
+pub fn alias_profiles(ctx: &LocalContext, alias: &str) -> Vec<(String, AliasObservation)> {
+    let mut request = DoctorRequest::passive();
+    request.aliases = Some(vec![alias.to_owned()]);
+    request.local_queries = LocalQueries::Disabled;
+    let mut d = Doctor {
+        ctx,
+        request: &request,
+        findings: Vec::new(),
+        probes: Vec::new(),
+    };
+    Invocation::consent_profiles()
+        .into_iter()
+        .map(|invocation| {
+            let name = invocation.profile_name();
+            let (observation, _) = d.alias(alias, None, invocation);
+            (name, observation)
+        })
+        .collect()
+}
+
 /// Run the doctor.
 #[must_use]
 pub fn run(ctx: &LocalContext, request: &DoctorRequest) -> DoctorReport {
@@ -272,7 +420,7 @@ pub fn run(ctx: &LocalContext, request: &DoctorRequest) -> DoctorReport {
     let mut aliases = Vec::new();
     let mut evaluations: BTreeMap<String, Evaluation> = BTreeMap::new();
     for alias in &aliases_to_check {
-        let (obs, evaluation) = d.alias(alias, ssh_version);
+        let (obs, evaluation) = d.alias(alias, ssh_version, Invocation::Shell);
         aliases.push(obs);
         evaluations.insert(alias.clone(), evaluation);
     }
@@ -905,18 +1053,24 @@ impl Doctor<'_> {
         out
     }
 
-    /// Statically evaluate one alias, with its findings.
+    /// Statically evaluate one alias under `invocation`, with its findings. The local
+    /// account comes from the account database (ADR-0007 §12.25 item 2): when it cannot
+    /// be established and the configuration reads it, the observation is undetermined
+    /// ([`mark_account_undetermined`]) with an `identity_selection_undetermined`
+    /// finding for an alias with a catalog identity.
     fn alias(
         &mut self,
         alias: &str,
         version: Option<OpenSshVersion>,
+        invocation: Invocation,
     ) -> (AliasObservation, Evaluation) {
         let ctx = self.ctx;
         let source = ctx.source();
         let roots = ctx.roots();
-        let query = probe::query_for(ctx, alias, version);
+        let query = probe::query_with(ctx, alias, version, invocation);
         let mut set = ConfigSet::new();
         let evaluation = evaluate(&mut set, &source, &roots, &query, &ctx.limits);
+        let account_unknown = probe::account_undetermined(&query, &set, &evaluation);
         let behavior = relevant(&evaluation);
         let catalog = ctx.catalog_alias(alias).cloned();
         let subj = || subject("destination", Some(alias));
@@ -1096,12 +1250,29 @@ impl Doctor<'_> {
             identity_report = Some(report);
         }
         self.known_host_static(alias, &behavior);
-        let obs = AliasObservation {
+        let has_identity = identity_report.is_some();
+        let mut obs = AliasObservation {
             alias: alias.to_owned(),
             definition: catalog.map_or(AliasDefinition::UserOnly, |c| c.definition),
             behavior: self.behavior(&set, &roots, &behavior),
             identity_selection: identity_report,
         };
+        if account_unknown {
+            mark_account_undetermined(&mut obs);
+            if has_identity {
+                self.add(
+                    finding::IDENTITY_SELECTION_UNDETERMINED,
+                    FindingSeverity::Warning,
+                    subj(),
+                    ProbeLevel::Static,
+                    None,
+                    "the configuration reads the local account name, which cannot be established from the account database, so the identities ssh offers for this alias are undetermined",
+                    "review_config",
+                    None,
+                );
+            }
+        }
+        redisplay_observation(&mut obs, &ctx.paths.account_home);
         (obs, evaluation)
     }
 
@@ -1481,5 +1652,144 @@ mod tests {
         assert_eq!(r.levels, BTreeSet::from([ProbeLevel::Static]));
         assert!(!r.allow_config_commands);
         assert_eq!(r.local_queries, LocalQueries::Enabled);
+    }
+
+    /// A scratch home whose user file is `text`, evaluated for `alias` with no local
+    /// account (as a builder does when the account cannot be established).
+    #[cfg(unix)]
+    fn reads(text: &str) -> bool {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        std::fs::write(home.join(".ssh").join("config"), text).unwrap();
+        std::fs::write(home.join("other.conf"), "Host x\n  Match localuser a\n").unwrap();
+        let paths = SshPaths::with_test_override(home.clone(), dir.path().join("etc-ssh"));
+        let source = BoundedSource::new(paths.clone(), Env::default(), Limits::default());
+        let roots = Roots::new(Some(paths.user_config.clone()), None);
+        let query = heimdall_sshconf::eval::Query {
+            host: "alias".to_owned(),
+            user: None,
+            local_user: String::new(),
+            client_version: OpenSshVersion::MINIMUM,
+            invocation: Invocation::Shell,
+        };
+        let mut set = ConfigSet::new();
+        let evaluation = evaluate(&mut set, &source, &roots, &query, &Limits::default());
+        probe::account_undetermined(&query, &set, &evaluation)
+    }
+
+    /// ADR-0007 §12.25 item 2 (T02): with the local account not established, a
+    /// configuration reads it through `Match localuser` (negated or not, any case, in
+    /// a section that does not apply too), `Match user` (compared with the local
+    /// account when no `User` is in force), or an `Include` argument with `%u` or
+    /// `%r`; through a file it includes as well. Anything else does not.
+    #[cfg(unix)]
+    #[test]
+    fn a_configuration_reads_the_local_account_only_through_its_tokens_and_criteria() {
+        for text in [
+            "Match localuser someone\n  IdentityFile ~/k\n",
+            "Match !LocalUser someone\n  IdentityFile ~/k\n",
+            "Host nothing-applies\nMatch user someone\n  IdentityFile ~/k\n",
+            "Match host x user someone\n  Port 2\n",
+            "Include ~/%u.conf\n",
+            "Include ~/conf.d/%r\n",
+            "Include ~/other.conf\n",
+        ] {
+            assert!(reads(text), "{text:?}");
+        }
+        for text in [
+            "",
+            "Host alias\n  User someone\n  IdentityFile ~/k\n",
+            "Match host alias\n  Port 2\n",
+            "Include ~/conf.d/%h\n",
+            "Host alias\n  IdentityFile ~/.ssh/%u\n",
+        ] {
+            assert!(!reads(text), "{text:?}");
+        }
+    }
+
+    /// ADR-0007 §12.25 item 2: an observation the local account leaves undetermined
+    /// has every directive, its selection, `IdentitiesOnly` and every entry
+    /// undetermined, so nothing clears it.
+    #[test]
+    fn an_account_undetermined_observation_clears_nothing() {
+        use heimdall_contract::provider::{
+            Certainty, IdentitiesOnly, IdentityEntry, IdentityEntryKind, IdentityEntrySource,
+            IdentitySelectionReport,
+        };
+        let mut o = AliasObservation {
+            alias: "a".to_owned(),
+            definition: AliasDefinition::Managed,
+            behavior: vec![DirectiveObservation {
+                directive: "HostName".to_owned(),
+                values: vec!["a.example.invalid".to_owned()],
+                certainty: DirectiveCertainty::Determined,
+                provenance: Vec::new(),
+            }],
+            identity_selection: Some(IdentitySelectionReport {
+                selection: IdentitySelection::Exclusive,
+                entries: vec![IdentityEntry {
+                    kind: IdentityEntryKind::IdentityFile,
+                    source: IdentityEntrySource::Managed,
+                    provenance: None,
+                    certainty: Certainty::Determined,
+                    fingerprint: Some("SHA256:fixture".to_owned()),
+                    backing: IdentityBacking::Agent,
+                    cleared: None,
+                }],
+                identities_only: IdentitiesOnly::DeterminedYes,
+            }),
+        };
+        mark_account_undetermined(&mut o);
+        assert_eq!(o.behavior[0].certainty, DirectiveCertainty::Undetermined);
+        let r = o.identity_selection.unwrap();
+        assert_eq!(r.selection, IdentitySelection::Undetermined);
+        assert_eq!(r.identities_only, IdentitiesOnly::Undetermined);
+        assert_eq!(r.entries[0].certainty, Certainty::Undetermined);
+    }
+
+    /// ADR-0007 §12.26 item 7: a home reached through a symlink (the configured home is
+    /// the link; the evaluator reports canonical file paths) still shows as `~/…`, from
+    /// either side; the home itself is `~`; a path outside it is shown as given, and so
+    /// is a sibling that only shares the home's name as a prefix.
+    #[cfg(unix)]
+    #[test]
+    fn path_display_canonicalizes_the_home_and_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real").join("hm-fixture-account-name");
+        std::fs::create_dir_all(real.join(".ssh")).unwrap();
+        std::fs::write(real.join(".ssh").join("config"), "").unwrap();
+        let link = dir.path().join("home");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let canonical = std::fs::canonicalize(&real).unwrap();
+        let file = canonical.join(".ssh").join("config");
+        assert_eq!(path_display(&file, &link), "~/.ssh/config");
+        assert_eq!(
+            path_display(&link.join(".ssh").join("config"), &link),
+            "~/.ssh/config"
+        );
+        assert_eq!(
+            path_display(&link.join(".ssh").join("config"), &canonical),
+            "~/.ssh/config"
+        );
+        assert_eq!(path_display(&canonical, &link), "~");
+        assert_eq!(
+            path_display(Path::new("/hm-fixture-outside/x"), &link),
+            "/hm-fixture-outside/x"
+        );
+        let sibling = dir.path().join("homework");
+        assert_eq!(path_display(&sibling, &link), sibling.display().to_string());
+        let mut p = ConfigProvenance {
+            path_display: file.display().to_string(),
+            line: 3,
+        };
+        redisplay(&mut p, &link);
+        assert_eq!(p.path_display, "~/.ssh/config");
+        let mut kept = ConfigProvenance {
+            path_display: "~/x".to_owned(),
+            line: 1,
+        };
+        redisplay(&mut kept, &link);
+        assert_eq!(kept.path_display, "~/x");
     }
 }

@@ -211,6 +211,13 @@ pub struct StaticPass {
     pub executed: Vec<ConfigProvenance>,
     /// Whether it met an unreadable include, a bound or an unexpandable include path.
     pub not_fully_readable: bool,
+    /// The invocation it evaluated: the one the level's `ssh` child runs (ADR-0007
+    /// §12.25 item 1).
+    pub invocation: Invocation,
+    /// ADR-0007 §12.25 item 2: the local account cannot be established and the
+    /// configuration reads it ([`account_undetermined`]), so every value the pass
+    /// obtained is undetermined.
+    pub account_unknown: bool,
 }
 
 /// `span` as file:line (display form), for the files of `set` and the two roots.
@@ -228,8 +235,19 @@ pub fn provenance(
     } else {
         set.path_of(span.source).map(std::path::Path::to_path_buf)
     };
+    // ADR-0007 §12.26 item 7: a path the plain display cannot place under the home is
+    // shown through the canonicalized home too, so a home behind a symlink is still
+    // `~/…`.
+    let shown = |p: &std::path::Path| {
+        let plain = local.paths.display(p);
+        if plain.starts_with('~') {
+            plain
+        } else {
+            crate::doctor::path_display(p, &local.paths.account_home)
+        }
+    };
     ConfigProvenance {
-        path_display: path.map_or_else(|| "?".to_owned(), |p| local.paths.display(&p)),
+        path_display: path.map_or_else(|| "?".to_owned(), |p| shown(&p)),
         line: span.line,
     }
 }
@@ -237,25 +255,73 @@ pub fn provenance(
 /// The query for `alias` (interactive shell, no `-l`).
 #[must_use]
 pub fn query_for(local: &LocalContext, alias: &str, version: Option<OpenSshVersion>) -> Query {
+    query_with(local, alias, version, Invocation::Shell)
+}
+
+/// The query for `alias` under `invocation` (no `-l`). `local_user` is the account
+/// database's name (ADR-0007 §12.25 item 2, [`LocalContext::local_user`]); empty
+/// stands for an account that cannot be established, which [`account_undetermined`]
+/// reads as undetermined, never as an empty name.
+#[must_use]
+pub fn query_with(
+    local: &LocalContext,
+    alias: &str,
+    version: Option<OpenSshVersion>,
+    invocation: Invocation,
+) -> Query {
     Query {
         host: alias.to_owned(),
         user: None,
-        local_user: local.local_user(),
+        local_user: local.local_user().unwrap_or_default(),
         client_version: version.unwrap_or(OpenSshVersion::MINIMUM),
-        invocation: Invocation::Shell,
+        invocation,
     }
 }
 
-/// Run the static pass for `alias` (passive: reads only, executes nothing).
+/// ADR-0007 §12.25 item 2: whether `evaluation` of `query` is undetermined for want of
+/// the local account: the account could not be established (an empty `local_user`,
+/// [`query_with`]) and the configuration reads it
+/// ([`crate::doctor::reads_local_account`]).
+#[must_use]
+pub fn account_undetermined(query: &Query, set: &ConfigSet, evaluation: &Evaluation) -> bool {
+    query.local_user.is_empty() && crate::doctor::reads_local_account(set, evaluation)
+}
+
+/// The invocation `ssh <options> <alias> <trailing>` runs (ADR-0007 §12.25 item 1): an
+/// interactive shell with no command, otherwise the remote command `ssh` sends (its
+/// arguments joined by spaces, as `ssh` joins them).
+#[must_use]
+pub fn invocation_of(trailing: &[&str]) -> Invocation {
+    if trailing.is_empty() {
+        Invocation::Shell
+    } else {
+        Invocation::Exec(Some(trailing.join(" ")))
+    }
+}
+
+/// Run the static pass for `alias` as an interactive shell (passive: reads only,
+/// executes nothing).
 #[must_use]
 pub fn static_pass(
     local: &LocalContext,
     alias: &str,
     version: Option<OpenSshVersion>,
 ) -> StaticPass {
+    static_pass_for(local, alias, version, Invocation::Shell)
+}
+
+/// [`static_pass`] under `invocation`, the one the level's child runs (ADR-0007
+/// §12.25 item 1).
+#[must_use]
+pub fn static_pass_for(
+    local: &LocalContext,
+    alias: &str,
+    version: Option<OpenSshVersion>,
+    invocation: Invocation,
+) -> StaticPass {
     let source = BoundedSource::new(local.paths.clone(), local.env.clone(), local.limits);
     let roots = local.roots();
-    let query = query_for(local, alias, version);
+    let query = query_with(local, alias, version, invocation.clone());
     let mut set = ConfigSet::new();
     let evaluation = evaluate(&mut set, &source, &roots, &query, &local.limits);
     let snapshot = snapshot::take(&source, &roots, &query, &local.limits);
@@ -264,6 +330,7 @@ pub fn static_pass(
         .map(|span| provenance(local, &set, &roots, span))
         .collect();
     let not_fully_readable = !unreadable_includes(&evaluation).is_empty();
+    let account_unknown = account_undetermined(&query, &set, &evaluation);
     StaticPass {
         evaluation,
         set,
@@ -271,6 +338,8 @@ pub fn static_pass(
         snapshot,
         executed,
         not_fully_readable,
+        invocation,
+        account_unknown,
     }
 }
 
@@ -302,7 +371,9 @@ pub(crate) fn run_real_tree(
             finished: None,
         };
     }
-    let pass = static_pass(ctx.local, alias, ctx.ssh_version());
+    // ADR-0007 §12.25 item 1: the pass evaluates the invocation the child runs.
+    let invocation = invocation_of(trailing);
+    let pass = static_pass_for(ctx.local, alias, ctx.ssh_version(), invocation.clone());
     if pass.not_fully_readable {
         return RealTreeRun {
             record: declined(level, alias, decline_reason::CONFIG_NOT_FULLY_READABLE),
@@ -353,7 +424,7 @@ pub(crate) fn run_real_tree(
         ctx.local.env.clone(),
         ctx.local.limits,
     );
-    let query = query_for(ctx.local, alias, ctx.ssh_version());
+    let query = query_with(ctx.local, alias, ctx.ssh_version(), invocation);
     let after = snapshot::take(&source, &pass.roots, &query, &ctx.local.limits);
     let differences = snapshot::compare(&pass.snapshot, &after);
     let mut r = record(level, alias, started_at);

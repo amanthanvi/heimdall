@@ -2718,6 +2718,27 @@ mod u8b {
         fn descriptor(&self) -> &AdapterDescriptor {
             self.inner.descriptor()
         }
+        // ADR-0007 §12.26 item 2: no default bodies; this test adapter reads no
+        // source and its bounded call is its own `prepare`.
+        fn read_sources(
+            &self,
+            _pairs: &[heimdall_app::ports::PreparePair],
+        ) -> heimdall_app::ports::IntegrationSnapshot {
+            heimdall_app::ports::IntegrationSnapshot::default()
+        }
+        fn prepare_from<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            req: heimdall_app::ports::PrepareRequest<'life1>,
+            _sources: &'life2 heimdall_app::ports::IntegrationSnapshot,
+        ) -> AdapterFut<'async_trait, PrepareOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.prepare(req)
+        }
         fn prepare<'life0, 'life1, 'async_trait>(
             &'life0 self,
             req: heimdall_app::ports::PrepareRequest<'life1>,
@@ -3089,6 +3110,27 @@ mod u8b {
     impl CredentialAdapter for SlowAdapter {
         fn descriptor(&self) -> &AdapterDescriptor {
             self.inner.descriptor()
+        }
+        // ADR-0007 §12.26 item 2: no default bodies; this test adapter reads no
+        // source and its bounded call is its own `prepare`.
+        fn read_sources(
+            &self,
+            _pairs: &[heimdall_app::ports::PreparePair],
+        ) -> heimdall_app::ports::IntegrationSnapshot {
+            heimdall_app::ports::IntegrationSnapshot::default()
+        }
+        fn prepare_from<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            req: heimdall_app::ports::PrepareRequest<'life1>,
+            _sources: &'life2 heimdall_app::ports::IntegrationSnapshot,
+        ) -> AdapterFut<'async_trait, PrepareOutcome>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            self.prepare(req)
         }
         fn prepare<'life0, 'life1, 'async_trait>(
             &'life0 self,

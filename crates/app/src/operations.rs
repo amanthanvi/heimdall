@@ -830,6 +830,40 @@ fn settle_succeeded(
     emit.op(tx, op)
 }
 
+/// ⟨M02⟩ ADR-0007 §12.25 item 4 (T04): one live holder per launch binding. In the
+/// caller's transaction, with `binding` active: when its holder row names another
+/// process, or names one and this launch has none, returns `false` and writes
+/// nothing (the existing holder is kept); otherwise registers `holder` (when given)
+/// and returns `true`. A holder row counts as live until the holder pass releases
+/// the binding: this path observes no liveness, and unknown liveness never counts as
+/// an exit (ADR-0007 §8). The check and the registration share the transaction, so of
+/// two overlapping launches of one binding at most one is admitted.
+fn claim_launch_holder(
+    tx: &mut Txn<'_>,
+    binding: &BindingId,
+    holder: Option<&heimdall_domain::holder::ProcessHolder>,
+) -> heimdall_store::Result<bool> {
+    match (tx.binding_holder(binding)?, holder) {
+        (Some(current), Some(this)) => Ok(current == *this),
+        (Some(_), None) => Ok(false),
+        (None, Some(this)) => tx.set_binding_holder(binding, this).map(|()| true),
+        (None, None) => Ok(true),
+    }
+}
+
+/// ⟨M02⟩ ADR-0007 §12.25 item 4: the refusal of a launch whose binding another live
+/// holder holds: `REQUEST_CONFLICT`, reason `binding_in_use`, `next:
+/// new_request_id`, effect `none`, the binding as the resource.
+fn binding_in_use(binding: &BindingId) -> OpError {
+    OpError::new(
+        Code::RequestConflict,
+        "another running launch holds this binding; nothing was launched (retry with a new request ID)",
+    )
+    .with_reason(heimdall_contract::envelope::reason::BINDING_IN_USE)
+    .with_effect(EffectStatus::None)
+    .with_resource("binding", Some(binding.to_string()))
+}
+
 /// The recorded parent grant and the chain above it, nearest first (the shape
 /// `IssuanceCheck` wants: `parent`, then `ancestors`).
 fn ancestry(tx: &mut Txn<'_>, grant: &GrantSnapshot) -> heimdall_store::Result<Vec<GrantSnapshot>> {
@@ -3362,19 +3396,37 @@ fn provider_interaction_next(
 /// Every pair eligible: the adapter refused for an uncleared fallback identity
 /// (`fallback_identity_interaction`). No pair: the provider's documented interaction
 /// (1Password `provider_approval`, otherwise `unknown`).
+///
+/// ⟨M02⟩ ADR-0007 §12.26 item 4: for `fallback_identity_interaction`, also the refused
+/// entries' provenance, as the CLI's pre-launch refusal names them: the refused
+/// `IdentityFile` lines (which may lie inside `Host *`), each once, of the first
+/// prepared pair whose selection the domain's fallback clearance rule does not clear
+/// ([`refused_entries`]). Empty for every other reason.
 fn interaction_refusal(
     provider: ProviderKind,
     pairs: &[PairEligibility],
-) -> (InteractionKind, &'static str) {
+    prepared: &[PreparePair],
+    sources: &IntegrationSnapshot,
+    now: Timestamp,
+) -> (
+    InteractionKind,
+    &'static str,
+    Vec<heimdall_contract::doctor::ConfigProvenance>,
+) {
     use heimdall_contract::envelope::reason;
     let Some(first) = pairs.first() else {
         return if provider == ProviderKind::OnePassword {
             (
                 InteractionKind::ProviderApproval,
                 reason::PROVIDER_INTERACTION,
+                Vec::new(),
             )
         } else {
-            (InteractionKind::Unknown, reason::INTERACTION_UNKNOWN)
+            (
+                InteractionKind::Unknown,
+                reason::INTERACTION_UNKNOWN,
+                Vec::new(),
+            )
         };
     };
     match pairs.iter().find(|p| !p.noninteractive.eligible) {
@@ -3389,9 +3441,100 @@ fn interaction_refusal(
                 // narrowing reading.
                 _ => reason::INTERACTION_UNKNOWN,
             },
+            Vec::new(),
         ),
-        None => (first.interaction, reason::FALLBACK_IDENTITY_INTERACTION),
+        None => (
+            first.interaction,
+            reason::FALLBACK_IDENTITY_INTERACTION,
+            refused_entries(prepared, sources, now),
+        ),
     }
+}
+
+/// ⟨M02⟩ ADR-0007 §12.26 item 4: the provenance of the entries the adapter's fallback
+/// clearance refused, recomputed from the snapshot the adapter evaluated (its static
+/// observation, catalog identities and declaration rows) with the one domain rule
+/// (`heimdall_domain::catalog::fallback_clearance`), as the adapter applies it: the
+/// selection is the alias's observed report, read as `undetermined` when it claims
+/// `exclusive` without the identity's own managed entry; the agent is the identity's
+/// endpoint; an alternative's eligibility is the domain's over its declaration row, and
+/// an identity outside the catalog is not eligible. The first pair that is not cleared
+/// decides; each line is named once, in entry order. A pair with no observation names
+/// nothing (its refusal has no line to name).
+fn refused_entries(
+    prepared: &[PreparePair],
+    sources: &IntegrationSnapshot,
+    now: Timestamp,
+) -> Vec<heimdall_contract::doctor::ConfigProvenance> {
+    for pair in prepared {
+        let Some(mut report) = pair.alias.as_deref().and_then(|alias| {
+            sources
+                .observations
+                .iter()
+                .find(|o| o.alias == alias)
+                .and_then(|o| o.identity_selection.clone())
+        }) else {
+            continue;
+        };
+        let adopted = report.entries.iter().any(|e| {
+            e.source == heimdall_contract::provider::IdentityEntrySource::Managed
+                && e.fingerprint.as_deref() == Some(pair.identity.fingerprint.as_str())
+        });
+        if report.selection == IdentitySelection::Exclusive {
+            if adopted {
+                continue;
+            }
+            report.selection = IdentitySelection::Undetermined;
+        }
+        let endpoint = pair
+            .identity
+            .source
+            .endpoint()
+            .cloned()
+            .unwrap_or_else(no_endpoint);
+        let eligibility_of = |id: &heimdall_contract::ids::IdentityId| -> PairEligibility {
+            match sources.identities.iter().find(|r| &r.id == id) {
+                Some(r) => heimdall_domain::catalog::eligibility(
+                    r,
+                    sources.declarations.get(id),
+                    r.source.endpoint().unwrap_or(&endpoint),
+                    now,
+                ),
+                None => PairEligibility {
+                    interaction: InteractionKind::Unknown,
+                    basis: EvidenceBasis::Inferred,
+                    declaration: None,
+                    noninteractive: NoninteractiveEligibility {
+                        eligible: false,
+                        reason: Some(noninteractive_reason::INTERACTION_UNKNOWN.to_owned()),
+                    },
+                },
+            }
+        };
+        let clearance = heimdall_domain::catalog::fallback_clearance(
+            &report,
+            &sources.identities,
+            &eligibility_of,
+            &endpoint,
+            &pair.identity.fingerprint,
+        );
+        if clearance.cleared {
+            continue;
+        }
+        let mut out: Vec<heimdall_contract::doctor::ConfigProvenance> = Vec::new();
+        for p in clearance
+            .uncleared
+            .iter()
+            .filter_map(|i| report.entries.get(*i))
+            .filter_map(|e| e.provenance.clone())
+        {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
+        return out;
+    }
+    Vec::new()
 }
 
 // ---------------------------------------------------------------------------------
@@ -6293,7 +6436,9 @@ impl Operations {
                 self.mark_uncertain(&id, identity, token, &grant_id).await
             }
             Err(e) => {
-                let error = self.prepare_error(&e, &identity, &named, now).await;
+                let error = self
+                    .prepare_error(&e, &identity, &named, &sources, now)
+                    .await;
                 self.fail_running(&id, error, Some(GrantEvent::PreparationFailed))
                     .await
             }
@@ -6392,6 +6537,7 @@ impl Operations {
         e: &AdapterError,
         adapter: &AdapterIdentity,
         pairs: &[PreparePair],
+        sources: &IntegrationSnapshot,
         now: Timestamp,
     ) -> OpError {
         let Some(provider) = existing_access_provider(&adapter.mechanism) else {
@@ -6420,20 +6566,37 @@ impl Operations {
                         Ok(out)
                     })
                     .await;
-                let (kind, reason) = match judged {
-                    Ok(eligibility) => interaction_refusal(provider, &eligibility),
+                let (kind, reason, entries) = match judged {
+                    Ok(eligibility) => {
+                        interaction_refusal(provider, &eligibility, pairs, sources, now)
+                    }
                     // Unreadable: the narrowing reading.
                     Err(_) => (
                         InteractionKind::Unknown,
                         heimdall_contract::envelope::reason::INTERACTION_UNKNOWN,
+                        Vec::new(),
                     ),
                 };
-                base.with_reason(reason)
+                let mut error = base
+                    .with_reason(reason)
                     .with_next(provider_interaction_next(
                         Code::InteractionRequired,
                         provider,
                         kind,
-                    ))
+                    ));
+                // ADR-0007 §12.26 item 4: the refused lines, as the CLI's pre-launch
+                // refusal names them (display paths, `~` for the account home).
+                if !entries.is_empty() {
+                    let lines: Vec<String> = entries
+                        .iter()
+                        .map(|p| format!("{}:{}", p.path_display, p.line))
+                        .collect();
+                    error.message.push_str(&format!(
+                        "; an identity ssh may also try is not cleared for use without interaction ({})",
+                        lines.join(", ")
+                    ));
+                }
+                error.with_entries(entries)
             }
             _ => base,
         }
@@ -7959,6 +8122,13 @@ impl Operations {
             kind: OperationKind::Bind,
             request_id: req.request_id.clone(),
         };
+        // ⟨M02⟩ ADR-0007 §12.25 item 4 (T04): this request's holder, which a replay
+        // does not store (the holder is not hashed), so the replayed launch is
+        // checked against the binding's holder below.
+        let launch_holder = match &req.form {
+            BindForm::Launch(launch) => Some(launch.holder.clone()),
+            BindForm::Materialize => None,
+        };
         let request_json = serde_json::to_value(Request::Bind(req))
             .map_err(|_| internal("request is not serializable"))?;
         let outcome = self
@@ -7987,6 +8157,10 @@ impl Operations {
         }
         let st = self.load_work(&id).await?;
         let done = render_settled::<EnsureData>(&st.op)?;
+        if let Some(holder) = launch_holder {
+            self.claim_replayed_launch(&done.data.binding_id, holder, &id)
+                .await?;
+        }
         Ok(Completed {
             next: Some(NextAction {
                 action: "use_binding".to_owned(),
@@ -7995,6 +8169,36 @@ impl Operations {
             }),
             ..done
         })
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.25 item 4 (T04): a settled launch `bind` names this
+    /// request's `holder` as the binding's one live holder, in one transaction with
+    /// the check ([`claim_launch_holder`]). A replay with the same request ID (the
+    /// holder is not hashed, so another process replays the stored result) is refused
+    /// with `REQUEST_CONFLICT`, reason `binding_in_use`, while another holder holds the
+    /// binding; that holder is kept. A binding that is no longer active is left to
+    /// `run`'s active re-check (§12.24 item 2, §12.26 item 3): nothing is registered on
+    /// it and the stored result is returned unchanged.
+    async fn claim_replayed_launch(
+        &self,
+        binding: &BindingId,
+        holder: Option<heimdall_domain::holder::ProcessHolder>,
+        operation: &OperationId,
+    ) -> Result<(), OpError> {
+        let bid = binding.clone();
+        let claimed = self
+            .write(move |tx, _| match tx.binding(&bid)? {
+                Some(b) if b.state == BindingState::Active => {
+                    claim_launch_holder(tx, &bid, holder.as_ref())
+                }
+                _ => Ok(true),
+            })
+            .await?;
+        if claimed {
+            Ok(())
+        } else {
+            Err(binding_in_use(binding).with_operation(operation.clone()))
+        }
     }
 
     async fn drive_bind(&self, id: &OperationId) -> Result<(), OpError> {
@@ -8073,11 +8277,14 @@ impl Operations {
                     );
                 };
                 if b.state != BindingState::Active {
+                    // ⟨M02⟩ ADR-0007 §12.26 item 3(a): a released binding names its
+                    // reason.
                     return fail(
                         tx,
                         emit,
                         &mut op,
                         OpError::new(Code::CredentialExpired, "the binding was released")
+                            .with_reason(heimdall_contract::envelope::reason::BINDING_RELEASED)
                             .with_resource("binding", Some(b.id.to_string())),
                     );
                 }
@@ -8159,11 +8366,14 @@ impl Operations {
                     .with_eligibility(tx, now)?;
                 let data = ensure_data(&b, &g, &facts, bound);
                 let value = serde_json::to_value(&data)?;
-                // ⟨M02⟩ U0b row 4: the launch binding's holder, when given.
+                // ⟨M02⟩ U0b row 4: the launch binding's holder, when given. ADR-0007
+                // §12.25 item 4 (T04): checked and registered in this settling
+                // transaction; a binding another live holder holds is refused and
+                // that holder is kept.
                 if let BindForm::Launch(launch) = &req.form
-                    && let Some(holder) = &launch.holder
+                    && !claim_launch_holder(tx, &b.id, launch.holder.as_ref())?
                 {
-                    tx.set_binding_holder(&b.id, holder)?;
+                    return fail(tx, emit, &mut op, binding_in_use(&b.id));
                 }
                 settle_succeeded(tx, emit, &mut op, Code::AccessReady, value, now, retention)
                     .map(|()| (Ok(()), none()))

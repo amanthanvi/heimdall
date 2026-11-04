@@ -27,12 +27,80 @@ use super::ProjectionConfig;
 use crate::clients::ClientKind;
 use crate::fs::BoundedSource;
 
-/// Re-evaluate `aliases` statically against `record`.
+/// Re-evaluate `aliases` statically against `record`, as an interactive shell.
 #[must_use]
 pub fn observe(
     config: &ProjectionConfig,
     record: &ProjectionRecord,
     aliases: &[String],
+) -> Vec<AliasObservation> {
+    observe_under(config, record, aliases, &Invocation::Shell)
+}
+
+/// The invocation profiles a launch can use, by name (`Invocation::profile_name`), in
+/// the order [`observe_profiles`] reports them: `shell`, `exec` (any remote command,
+/// so Git over SSH and SCP) and `subsystem:sftp` (ADR-0007 §12.21 item 2, §12.25 item
+/// 1).
+#[must_use]
+pub fn profile_names() -> Vec<String> {
+    Invocation::consent_profiles()
+        .iter()
+        .map(Invocation::profile_name)
+        .collect()
+}
+
+/// ADR-0007 §12.25 item 1 (T01): `alias` observed under every invocation profile a
+/// launch can use, `Shell`, `Exec(None)` and `Subsystem("sftp")`, each with its name
+/// ([`profile_names`]), in that order. `None` for a profile the pass reported nothing
+/// for.
+#[must_use]
+pub fn observe_profiles(
+    config: &ProjectionConfig,
+    record: &ProjectionRecord,
+    alias: &str,
+) -> Vec<(String, Option<AliasObservation>)> {
+    Invocation::consent_profiles()
+        .iter()
+        .map(|invocation| {
+            let observation = observe_under(config, record, &[alias.to_owned()], invocation)
+                .into_iter()
+                .next();
+            (invocation.profile_name(), observation)
+        })
+        .collect()
+}
+
+/// [`observe`] under `invocation`. The local account for `%u` and `Match localuser`
+/// is the account database's (ADR-0007 §12.25 item 2, `doctor::local_account`), never
+/// `USER` or `USERNAME`; when it cannot be established, an alias whose configuration
+/// reads it is undetermined. Provenance is shown through `doctor::path_display`
+/// (§12.26 item 7).
+#[must_use]
+pub fn observe_under(
+    config: &ProjectionConfig,
+    record: &ProjectionRecord,
+    aliases: &[String],
+    invocation: &Invocation,
+) -> Vec<AliasObservation> {
+    observe_as(
+        config,
+        record,
+        aliases,
+        invocation,
+        crate::doctor::local_account(),
+    )
+}
+
+/// [`observe_under`] with the local account given: `None` is an account that cannot
+/// be established, so an alias whose configuration reads it is undetermined
+/// (ADR-0007 §12.25 item 2). [`observe_under`] passes `doctor::local_account`.
+#[must_use]
+pub fn observe_as(
+    config: &ProjectionConfig,
+    record: &ProjectionRecord,
+    aliases: &[String],
+    invocation: &Invocation,
+    local_user: Option<String>,
 ) -> Vec<AliasObservation> {
     let managed: Vec<&str> = record
         .items
@@ -62,25 +130,23 @@ pub fn observe(
         .selected(ClientKind::Ssh)
         .and_then(|c| c.version)
         .unwrap_or(OpenSshVersion::MINIMUM);
-    let local_user = config
-        .env
-        .get("USER")
-        .or_else(|| config.env.get("USERNAME"))
-        .and_then(|v| v.to_str())
-        .unwrap_or_default()
-        .to_owned();
+    // ADR-0007 §12.25 item 2 (T02): the account database, never the environment
+    // (`observe_under`), and never an empty name.
+    let local_user = local_user.filter(|n| !n.is_empty());
     aliases
         .iter()
         .map(|alias| {
             let query = Query {
                 host: alias.clone(),
                 user: None,
-                local_user: local_user.clone(),
+                local_user: local_user.clone().unwrap_or_default(),
                 client_version,
-                invocation: Invocation::Shell,
+                invocation: invocation.clone(),
             };
             let mut set = ConfigSet::new();
             let evaluation = evaluate(&mut set, &source, &roots, &query, &limits);
+            let account_unknown =
+                local_user.is_none() && crate::doctor::reads_local_account(&set, &evaluation);
             let is_managed = managed.contains(&alias.as_str());
             let behavior = behavior_of(&evaluation, config);
             let identity_selection = if is_managed {
@@ -89,7 +155,7 @@ pub fn observe(
             } else {
                 None
             };
-            AliasObservation {
+            let mut observation = AliasObservation {
                 alias: alias.clone(),
                 definition: if is_managed {
                     AliasDefinition::Managed
@@ -98,7 +164,12 @@ pub fn observe(
                 },
                 behavior,
                 identity_selection,
+            };
+            if account_unknown {
+                crate::doctor::mark_account_undetermined(&mut observation);
             }
+            crate::doctor::redisplay_observation(&mut observation, &config.paths.account_home);
+            observation
         })
         .collect()
 }
@@ -179,13 +250,10 @@ fn behavior_of(evaluation: &Evaluation, config: &ProjectionConfig) -> Vec<Direct
     ]
 }
 
-/// `~/…` under the account home, `/` separators.
+/// `~/…` under the account home (both canonicalized, ADR-0007 §12.26 item 7), `/`
+/// separators.
 fn display_path(path: &Path, home: &Path) -> String {
-    let shown = match path.strip_prefix(home) {
-        Ok(rest) if !home.as_os_str().is_empty() => format!("~/{}", rest.display()),
-        _ => path.display().to_string(),
-    };
-    shown.replace('\\', "/")
+    crate::doctor::path_display(path, home)
 }
 
 /// The held steps of `intent`, with their classification and fingerprints.
