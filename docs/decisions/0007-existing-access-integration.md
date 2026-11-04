@@ -3958,6 +3958,80 @@ T01–T04 are closed, with discriminating regressions. R01 is accepted.
    * Owner: the orchestrator, after wave 4 integrates, because W4-fix edits
      `crates/localenv/src/probe/**` concurrently.
 
+### 12.30 Rulings on the wave-4 escalations (orchestrator, 2026-11-03)
+
+Sources: the three wave-4 unit reports and the integrator's report (workflow
+`wf_e8039e4d-ddd`). The integrator's check.sh exited 0 twice, with 1623 tests passed. An
+orchestrator rerun of every test, without stopping at the first failure, gave 1623 passed and
+0 failed. One earlier orchestrator check.sh run had one failing test, unidentified because its
+log was deleted unread, and did not recur; the next full runs watch for it. Wave 4 delivered:
+* the CLI for setup, doctor, catalog and uninstall (U9);
+* the first TUI (U10);
+* §12.27 S01 and §12.28 items 3, 5, 6 and 7.
+
+No M02 command answers "not available in this build" any more.
+
+1. **A decided operation resumes in its own request's interaction mode (defect, fixed by
+   the orchestrator).**
+   * `Operations::decide` resumed every waiting operation with `interactive = false`. An
+     attended, interactive ensure that waited for the owner's approval was therefore
+     prepared as non-interactive. A real adapter then refused it (`INTERACTION_REQUIRED`,
+     `interaction_unknown`) right after the owner approved. U9 observed this in an
+     interactive `run`.
+   * Each waiter now resumes with the mode its own stored request asked for. A request
+     that cannot be read resumes non-interactive, which fails closed. Restart recovery
+     still leads non-interactive, because no caller is attending then.
+   * Regression: `model_operations::r1230_1_decided_operations_resume_with_their_own_interaction_mode`
+     (mutation-checked). The testkit fake records each `prepare` call's `interactive`
+     flag.
+   * U9's `a01_personal_profile_without_repository` returns to the plan's wording, an
+     undeclared key with one attended decision. Owner: W5-U11, with the exit suite.
+2. **§12.29 R01 is fixed by the orchestrator.**
+   * The authentication probe accepts either success path only when the adopted key file
+     still holds the recorded fingerprint.
+   * Regression: `probe::auth::tests::a_replaced_adopted_public_key_is_refused_before_anything_runs`,
+     mutation-checked.
+   * The pre-launch check's equivalent is `eligibility::tests::exclusive_needs_the_adopted_managed_entry`.
+3. **Ratified integrator edit (safety):** in debug builds, `testcfg::isolate_projection`
+   keeps a CLI-started test runtime off the account's real `~/.ssh`. With any test
+   variable set, it uses the scratch SSH home or no projection. Production is unchanged.
+4. **Wave-0 not-available helpers.** The helpers are retired with their dead-code
+   allowances. The two wave-0 tests are repurposed to assert that **no** M02 command
+   answers that text, so they are no longer vacuous. Owner: W5-U11.
+5. **A bare `heimdall` on a TTY opens the TUI** (overview §3). Without a TTY, or with
+   `--json`, it remains `status`. Owner: W5-U11.
+6. **A plan that reports a conflict but changes nothing is refused by the setup driver**
+   with `CONFIG_CONFLICT` and the conflict's reason. The CLI's refusal stays. A
+   `managed_file_edited` conflict is resolved by `rollback` (which keeps the edited P as
+   `ssh_config.hm-conflict-<gen>`, §5.5) or by `manual_mode`; `rerender` never
+   overwrites it. Owner: W5-U11.
+7. **The first-adoption restore column comes from the preview itself.** A first adoption's
+   `SetupPlan` carries its aliases, with an empty restore state for each (§5.1). The
+   `<state>/backups/ssh_config.<ts>.orig` copy of §5.5 is implemented. Owner: W5-U11.
+8. **The S01 refusal's `next.provider_interaction.kind`** is the refused pair's fresh
+   interaction kind, the same as the pre-launch check's. Where that kind is unknown, it
+   is `unknown`. The two paths are aligned. Owner: W5-U11.
+9. **No new `UnresolvedReason` for an unknown local account.** The doctor's finding
+   wording is enough. Recorded in §13.
+10. **The doctor's `config_files` listing and include-failure provenance** show the path
+    as written, through a written-path accessor on `ConfigSet` (§12.28 item 6 residual).
+    Owner: W5-U11.
+11. **API changes ratified:**
+    * W4-fix's removed and added probe/observe functions;
+    * `ProjectionWriter::observe` answering the fail-closed view combined over every
+      profile;
+    * `Query.local_user: Option<String>`;
+    * ratatui 0.30.2 and crossterm 0.29.0 entering the lock at their pins.
+12. **Additive CLI gaps:**
+    * `identity adopt --from-agent --fingerprint <fp>` chooses one listed identity;
+    * replaying `setup apply --request-id` after the projection changed stays
+      `REQUEST_CONFLICT`. That is correct; the CLI says so.
+    Owner: W5-U11.
+13. **Evidence-dependent partials** go to U11's records:
+    * the A35 matrix: executables, fingerprints and counts; the offered-key check, which
+      needs an sshd log of offered keys, through `HM_FIXTURE_SSHD_LOG`;
+    * the TUI's first-frame latency.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

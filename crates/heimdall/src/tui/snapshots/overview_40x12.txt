@@ -1,0 +1,12 @@
+[1 Over] 2 Dest  3 Prof  4 Acti  [!!]
+[!!] Needs attention
+Runtime: connected, read 5s ago
+Static pass: 10s ago
+> [!!] held: setup.apply op_held1 is hel
+  [!!] decision waiting: apply_projectio
+  [!!] decision waiting: declare_interac
+  [..] working: ensure op_run1 running
+  [ !] identity_selection_not_exclusive
+
+
+Enter open · r retry · k keep · R refres

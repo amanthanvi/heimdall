@@ -40,7 +40,7 @@
 //! | `HEIMDALL_TEST_PRE_EXEC_PAUSE` | Absolute FIFO path: after `launching` is written, the CLI opens it for reading and blocks until a writer opens it (or the test stops the process by exact PID). |
 //! | `HEIMDALL_TEST_PRE_CHECK_PAUSE` | Absolute FIFO path: after `bind` and Git resolution, before the pre-launch eligibility check, the CLI opens it for reading and reads until the writer closes it (so the test's own open returns once the CLI is paused, and closing releases it). |
 //! | `HEIMDALL_TEST_FORCE_EXEC_FAILURE` | `1`: the exec (Unix) fails after `launching` (`heimdall_launch::unix::TestHooks`). |
-//! | `HEIMDALL_TEST_SSH_HOME` | Absolute scratch account home for the CLI's static selection pass (`SshPaths::with_test_override`, system directory `<home>/etc-ssh`), so a test never reads the account's real `~/.ssh` or `/etc/ssh`. |
+//! | `HEIMDALL_TEST_SSH_HOME` | Absolute scratch account home for the CLI's static selection pass (`SshPaths::with_test_override`, system directory `<home>/etc-ssh`), so a test never reads the account's real `~/.ssh` or `/etc/ssh`. ⟨M02⟩ W4: a runtime started under any test variable wires its projection over this scratch home, or none without it, never the account's (`isolate_projection`). |
 //! | `HEIMDALL_TEST_CLOCK_OFFSET_S` | As above: the CLI's wall clock for the pre-launch check. |
 //!
 //! The fake adapter's credential reference carries a synthetic
@@ -246,7 +246,7 @@ pub fn home_refusal(requested: bool, home_explicit: bool) -> Option<&'static str
 }
 
 #[cfg(debug_assertions)]
-pub use enabled::prepare;
+pub use enabled::{isolate_projection, prepare};
 
 #[cfg(debug_assertions)]
 mod enabled {
@@ -282,8 +282,13 @@ mod enabled {
     use heimdall_domain::profile::ProfileDefinition;
     use heimdall_domain::scope::{AccessPair, Scope};
     use heimdall_domain::time::SyncStatus;
+    use heimdall_localenv::clients::{ClientsConfig, resolve_clients};
+    use heimdall_localenv::env::{Env, Platform};
+    use heimdall_localenv::local_query::LocalQueries;
+    use heimdall_localenv::paths::SshPaths;
+    use heimdall_localenv::projection::ProjectionConfig;
     use heimdall_runtime::Paths;
-    use heimdall_runtime::service::ServiceOptions;
+    use heimdall_runtime::service::{ProjectionWiring, ServiceOptions};
     use heimdall_testkit::{
         CANARY_PREFIX, FakeCredentialAdapter, FakeStep, ScriptedStageHook, ScriptedTimeSync,
     };
@@ -577,6 +582,58 @@ mod enabled {
         Ok(Some(TestSetup { _private: () }))
     }
 
+    /// ⟨M02⟩ W4 integration: a runtime started while any test variable is set
+    /// (the [`ALL_ENV`](super::ALL_ENV) set, or one of
+    /// [`LAUNCH_ENV`](super::LAUNCH_ENV), `HEIMDALL_TEST_SSH_HOME` included) never
+    /// wires the account's real SSH configuration (AGENTS.md: tests never use the
+    /// owner's `~/.ssh`). With `HEIMDALL_TEST_SSH_HOME` the projection uses that
+    /// scratch home (system directory `<home>/etc-ssh`), as the CLI's own static pass
+    /// does; without it no projection is wired, so setup answers
+    /// `driver_unavailable` and the existing-access adapters observe nothing (fail
+    /// closed). With no test variable set, `options` is left as given.
+    ///
+    /// # Errors
+    ///
+    /// A relative `HEIMDALL_TEST_SSH_HOME` (a usage error of the test harness).
+    pub fn isolate_projection(
+        options: &mut ServiceOptions,
+        paths: &Paths,
+        env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    ) -> Result<(), String> {
+        let any_launch = super::LAUNCH_ENV.iter().any(|n| env(n).is_some());
+        if !(super::requested_by(env) || any_launch) {
+            return Ok(());
+        }
+        options.projection = projection_wiring(paths, env)?;
+        Ok(())
+    }
+
+    /// The projection wiring of a test runtime (see [`isolate_projection`]): a
+    /// scratch configuration under `HEIMDALL_TEST_SSH_HOME`, or none. Never the
+    /// account's.
+    fn projection_wiring(
+        paths: &Paths,
+        env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    ) -> Result<ProjectionWiring, String> {
+        let Some(home) = env(super::SSH_HOME_ENV) else {
+            return Ok(ProjectionWiring::Disabled);
+        };
+        let home = absolute(super::SSH_HOME_ENV, home)?;
+        let ssh = SshPaths::with_test_override(home.clone(), home.join("etc-ssh"));
+        let captured = Env::capture();
+        let clients = resolve_clients(
+            &captured,
+            &ssh,
+            &ClientsConfig::default(),
+            LocalQueries::Enabled,
+        );
+        let mut config = ProjectionConfig::new(ssh, Platform::current(), paths.config_dir.clone());
+        config.env = captured;
+        config.clients = clients;
+        config.queries = LocalQueries::Enabled;
+        Ok(ProjectionWiring::Config(Box::new(config)))
+    }
+
     fn record_start(paths: &Paths) -> std::io::Result<()> {
         use std::io::Write as _;
         paths.ensure().map_err(|e| match e {
@@ -698,6 +755,61 @@ mod enabled {
             Self: 'async_trait,
         {
             self.inner.revoke(grant, now)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// ⟨M02⟩ W4 integration: a runtime started under the test configuration
+        /// never wires the account's real SSH configuration. With a scratch SSH home
+        /// its projection reads only that home; without one, no projection is wired.
+        #[test]
+        #[allow(clippy::unwrap_used)]
+        fn a_test_runtime_never_wires_the_accounts_ssh_configuration() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = Paths::under(&dir.path().join("heimdall"));
+            let scratch = dir.path().join("account");
+            let scratch_os = scratch.clone().into_os_string();
+            let home_only = |n: &str| (n == super::super::SSH_HOME_ENV).then(|| scratch_os.clone());
+            // `HEIMDALL_TEST_SSH_HOME` alone is not in `ALL_ENV`, so `prepare` does
+            // nothing for it; the isolation must still apply.
+            assert!(!super::super::requested_by(&home_only));
+            let mut options = ServiceOptions::production().unwrap();
+            assert_eq!(format!("{:?}", options.projection), "Account");
+            isolate_projection(&mut options, &paths, &home_only).unwrap();
+            match &options.projection {
+                ProjectionWiring::Config(c) => {
+                    assert_eq!(c.paths.account_home, scratch);
+                    assert_eq!(c.paths.user_config, scratch.join(".ssh").join("config"));
+                    assert_eq!(c.paths.system_dir, scratch.join("etc-ssh"));
+                }
+                other => panic!("expected the scratch configuration, got {other:?}"),
+            }
+
+            for name in super::super::ALL_ENV
+                .iter()
+                .chain(super::super::LAUNCH_ENV.iter())
+                .filter(|n| **n != super::super::SSH_HOME_ENV)
+            {
+                let one = |n: &str| (n == *name).then(|| "x".into());
+                let mut options = ServiceOptions::production().unwrap();
+                isolate_projection(&mut options, &paths, &one).unwrap();
+                assert_eq!(format!("{:?}", options.projection), "Disabled", "{name}");
+            }
+
+            let mut options = ServiceOptions::production().unwrap();
+            isolate_projection(&mut options, &paths, &|_| None).unwrap();
+            assert_eq!(
+                format!("{:?}", options.projection),
+                "Account",
+                "no test variable"
+            );
+
+            let relative = |n: &str| (n == super::super::SSH_HOME_ENV).then(|| "rel".into());
+            let mut options = ServiceOptions::production().unwrap();
+            assert!(isolate_projection(&mut options, &paths, &relative).is_err());
         }
     }
 }

@@ -630,3 +630,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - T01–T04 closed.
   - R01 (P1): the authentication probe accepts a replaced adopted public key.
   - ADR-0007 §12.29: I fix R01 after wave 4 integrates.
+- **M02 wave 4** (`wf_e8039e4d-ddd`): all 4 agents done.
+  - W4-fix: §12.27 S01; §12.28 items 3, 5, 6 and 7.
+  - W4-U9: the CLI for setup, doctor, catalog and uninstall.
+  - W4-U10: the first TUI.
+  - Integrator check.sh: 2× exit 0, 1623 passed. No command answers "not available".
+- Orchestrator fixes in the same commit:
+  - §12.29 R01: the auth probe binds the adopted key's fingerprint;
+  - §12.30 item 1: a decided operation resumes in its own request's interaction mode. This was a real defect: an interactive `run` was refused after approval.
+  - Both mutation-checked. The fixtures now record fingerprints, as production does.
+- My check.sh results:
+  - one earlier run had one failing test, unidentified because I deleted the log before reading it. It did not recur: a no-fail-fast rerun passed 1623/0. Lesson: keep logs until read.
+  - final run: exit 0, 1625 passed, 0 failed.
+- ADR-0007 §12.30 rules on the wave-4 escalations. The remaining items go to wave 5 (W5-U11, with the exit suite).

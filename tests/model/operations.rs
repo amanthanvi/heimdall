@@ -4168,6 +4168,57 @@ fn r138_assert_withdrawn(
     );
 }
 
+/// ADR-0007 §12.30 item 1 (the wave-4 escalation: an interactive `run` refused after
+/// the owner approved it). An attended decision resumes each waiting operation with the
+/// interaction mode its own stored request asked for: an interactive ensure is prepared
+/// interactively; a non-interactive one stays non-interactive. Before the fix every
+/// resumed operation was prepared non-interactively, so a real adapter refused an
+/// attended request whose key needs interaction.
+#[tokio::test]
+async fn r1230_1_decided_operations_resume_with_their_own_interaction_mode() {
+    let w = World::new().await;
+    // Interactive request: approval needed (h3 is outside the policy).
+    let mut interactive = approval_req("r1230-i", "r1230-work-i");
+    interactive.interaction = InteractionMode::Interactive;
+    let pending = err(w.ops.ensure(&attended(501), interactive.clone()).await);
+    assert_eq!(pending.code, Code::ApprovalRequired, "{pending:?}");
+    let before = w.fake.interactive_flags().len();
+    ok(decide(
+        &w,
+        &attended(501),
+        &decision_ref(&pending),
+        Verdict::Approve,
+    )
+    .await);
+    let flags = w.fake.interactive_flags();
+    assert_eq!(
+        flags.get(before..),
+        Some(&[true][..]),
+        "the approved interactive ensure is prepared interactively: {flags:?}"
+    );
+    ok(w.ops.ensure(&attended(501), interactive).await);
+
+    // Control: a non-interactive request stays non-interactive after the decision.
+    let pending = err(w
+        .ops
+        .ensure(&unattended(501), approval_req("r1230-n", "r1230-work-n"))
+        .await);
+    let before = w.fake.interactive_flags().len();
+    ok(decide(
+        &w,
+        &attended(501),
+        &decision_ref(&pending),
+        Verdict::Approve,
+    )
+    .await);
+    let flags = w.fake.interactive_flags();
+    assert_eq!(
+        flags.get(before..),
+        Some(&[false][..]),
+        "a non-interactive request stays non-interactive: {flags:?}"
+    );
+}
+
 /// An owner-approved h1+h3 grant (policy h1,h2; approved delta h3), active.
 async fn r138_approved(w: &World, rid: &str, work: &str) -> EnsureData {
     let pending = err(w
@@ -10725,12 +10776,17 @@ mod m02_integration {
             "mixed_mechanisms"
         );
         assert_eq!(native.inner.effect_count() + w.effects(), 0, "no effect");
-        // One mechanism alone resolves (h1 names the native identity).
+        // One mechanism alone resolves (h1 names the native identity). Its identity
+        // is undeclared, so the request lets the provider interact (ADR-0007 §12.27
+        // item 1: a request that requires none is refused at its commit).
         let one = ok(w
             .ops
             .ensure(
-                &unattended(501),
-                ensure_req("u0b-mm-1", "u0b-mm-1-work", &[("h1", "deploy")]),
+                &attended(501),
+                EnsureRequest {
+                    interaction: InteractionMode::Interactive,
+                    ..ensure_req("u0b-mm-1", "u0b-mm-1-work", &[("h1", "deploy")])
+                },
             )
             .await);
         assert_eq!(one.data.credential_mechanism, "native_agent");
@@ -11642,11 +11698,17 @@ mod m02_integration {
             Arc::new(NoStageHook),
         )
         .await;
+        // h1's selection is not exclusive with an uncleared file-backed alternative, so
+        // the request lets the provider interact (ADR-0007 §12.27 item 1: one that
+        // requires none is refused at its commit).
         let done = ok(w
             .ops
             .ensure(
-                &unattended(501),
-                ensure_req("u0b-3c", "u0b-3c-w", &both_pairs()),
+                &attended(501),
+                EnsureRequest {
+                    interaction: InteractionMode::Interactive,
+                    ..ensure_req("u0b-3c", "u0b-3c-w", &both_pairs())
+                },
             )
             .await);
         let facts = w
@@ -13040,14 +13102,14 @@ mod u02_sources_before_the_bound {
 
     /// A disposable fake agent in a scratch directory, and the adopted identity it
     /// holds (a key generated for this run; only its public line is used).
-    struct Agent {
-        _scratch: Scratch,
-        agent: FakeAgent,
-        endpoint: EndpointRef,
-        identity: IdentityRecord,
+    pub(super) struct Agent {
+        pub(super) _scratch: Scratch,
+        pub(super) agent: FakeAgent,
+        pub(super) endpoint: EndpointRef,
+        pub(super) identity: IdentityRecord,
     }
 
-    fn agent() -> Agent {
+    pub(super) fn agent() -> Agent {
         let scratch = Scratch::new().unwrap();
         let at = Endpoint::in_scratch(&scratch, "agent").unwrap();
         let key = FixtureKey::generate();
@@ -13093,7 +13155,7 @@ mod u02_sources_before_the_bound {
 
     /// The identity, the managed destination h1 naming it, and a live `none`
     /// declaration at its endpoint.
-    fn seed_native(store: &Store, a: &Agent) {
+    pub(super) fn seed_native(store: &Store, a: &Agent) {
         store
             .transaction(|tx| {
                 tx.upsert_identity(&a.identity)?;
@@ -13392,6 +13454,391 @@ mod u02_sources_before_the_bound {
             assert_eq!(a.agent.contact_count(), 0, "{stall:?}: never contacted");
             w.events();
         }
+    }
+}
+
+// =================================================================================
+// ⟨M02⟩ ADR-0007 §12.27 item 1 (review wave3c S01): the final activation of a request
+// that requires no interaction is checked against the store's fresh eligibility in the
+// commit transaction. The reviewer's interleaving, over the production
+// `NativeAgentAdapter` and the runtime's `RuntimeSources` on a real store: a
+// declaration withdrawn right after the adapter's snapshot captured its rows. The
+// disposable fake agent is never contacted (`prepare` only stats its endpoint).
+// =================================================================================
+
+mod s01_fresh_eligibility_at_commit {
+    use super::u02_sources_before_the_bound::{Agent, agent, seed_native};
+    use super::*;
+    use heimdall_adapters::integration::IntegrationSources;
+    use heimdall_adapters::native_agent::NativeAgentAdapter;
+    use heimdall_contract::catalog::DeclaredInteraction;
+    use heimdall_contract::doctor::{AliasDefinition, AliasObservation, ConfigProvenance};
+    use heimdall_contract::ids::IdentityId;
+    use heimdall_contract::provider::{
+        Certainty, IdentitiesOnly, IdentityBacking, IdentityEntry, IdentityEntryKind,
+        IdentityEntrySource, IdentitySelection, IdentitySelectionReport, InteractionKind,
+        ProviderInteractionRef, ProviderKind,
+    };
+    use heimdall_domain::catalog::{
+        DeclarationEndReason, DeclarationState, IdentityRecord, IdentitySource,
+        InteractionDeclaration, InteractionProfile,
+    };
+    use heimdall_localenv::clients::ClientInventory;
+    use heimdall_runtime::service::RuntimeSources;
+    use heimdall_testkit::agent::FixtureKey;
+
+    /// The runtime's sources, with the alias observation given (the projection is not
+    /// wired here) and, when `withdraw` names an identity, its declaration withdrawn
+    /// in the store right after the snapshot read the declaration rows: the snapshot
+    /// keeps the live row, the store no longer has it.
+    struct Withdrawing {
+        inner: RuntimeSources,
+        store: Arc<Store>,
+        observation: AliasObservation,
+        withdraw: Option<IdentityId>,
+        withdrawn: AtomicBool,
+    }
+
+    impl IntegrationSources for Withdrawing {
+        fn observe_aliases(&self, aliases: &[String]) -> Vec<AliasObservation> {
+            if aliases.contains(&self.observation.alias) {
+                vec![self.observation.clone()]
+            } else {
+                Vec::new()
+            }
+        }
+        fn catalog_identities(&self) -> Vec<IdentityRecord> {
+            self.inner.catalog_identities()
+        }
+        fn declaration(&self, identity: &IdentityId) -> Option<InteractionDeclaration> {
+            self.inner.declaration(identity)
+        }
+        fn declarations(
+            &self,
+            identities: &[IdentityId],
+        ) -> BTreeMap<IdentityId, InteractionDeclaration> {
+            let rows = self.inner.declarations(identities);
+            if let Some(id) = &self.withdraw
+                && !self.withdrawn.swap(true, Ordering::SeqCst)
+            {
+                let ended = self
+                    .store
+                    .transaction(|tx| {
+                        tx.end_interaction_declaration(
+                            id,
+                            None,
+                            DeclarationEndReason::OwnerWithdrawn,
+                            t0(),
+                        )
+                    })
+                    .unwrap();
+                assert!(ended.ended, "withdrawn after the snapshot read it");
+            }
+            rows
+        }
+        fn executables(&self) -> Vec<heimdall_contract::request::ConsumerExecutable> {
+            self.inner.executables()
+        }
+    }
+
+    /// An identity-selection entry: managed (P's line 3) or the user's (line 7).
+    fn entry(source: IdentityEntrySource, fingerprint: &str) -> IdentityEntry {
+        let (path, line) = if source == IdentityEntrySource::Managed {
+            ("~/.config/heimdall/ssh/heimdall.conf", 3)
+        } else {
+            ("~/.ssh/config", 7)
+        };
+        IdentityEntry {
+            kind: IdentityEntryKind::IdentityFile,
+            source,
+            provenance: Some(ConfigProvenance {
+                path_display: path.to_owned(),
+                line,
+            }),
+            certainty: Certainty::Determined,
+            fingerprint: Some(fingerprint.to_owned()),
+            backing: IdentityBacking::Agent,
+            cleared: None,
+        }
+    }
+
+    /// `h1`'s observation: the adopted key, and when `alternative` is given an
+    /// agent-backed user entry for it too (`not_exclusive`), under `IdentitiesOnly
+    /// yes`.
+    fn observation(adopted: &str, alternative: Option<&str>) -> AliasObservation {
+        let mut entries = vec![entry(IdentityEntrySource::Managed, adopted)];
+        if let Some(fp) = alternative {
+            entries.push(entry(IdentityEntrySource::User, fp));
+        }
+        AliasObservation {
+            alias: "h1".into(),
+            definition: AliasDefinition::Managed,
+            behavior: Vec::new(),
+            identity_selection: Some(IdentitySelectionReport {
+                selection: if alternative.is_some() {
+                    IdentitySelection::NotExclusive
+                } else {
+                    IdentitySelection::Exclusive
+                },
+                entries,
+                identities_only: IdentitiesOnly::DeterminedYes,
+            }),
+        }
+    }
+
+    /// A second identity at the same agent for `key` (generated for this run; only its
+    /// public line is used), adopted and declared `none`.
+    fn seed_alternative(store: &Store, a: &Agent, key: &FixtureKey) -> IdentityRecord {
+        let source = IdentitySource::NativeAgent {
+            endpoint: a.endpoint.clone(),
+        };
+        let public_key = key.public_line_without_comment();
+        let other = IdentityRecord {
+            id: IdentityId::from_random_bytes([0x45; 16]),
+            revision: 1,
+            interaction: InteractionProfile::default_for(&source, &public_key),
+            source,
+            public_key,
+            fingerprint: key.fingerprint(),
+            label: None,
+            adopted_at: shift(t0(), -86_400),
+            updated_at: shift(t0(), -86_400),
+        };
+        store
+            .transaction(|tx| {
+                tx.upsert_identity(&other)?;
+                tx.put_interaction_declaration(
+                    &other.id,
+                    0,
+                    &InteractionDeclaration {
+                        revision: 1,
+                        state: DeclarationState::Live,
+                        interaction: DeclaredInteraction::None,
+                        fingerprint: other.fingerprint.clone(),
+                        endpoint: a.endpoint.clone(),
+                        declared_at: shift(t0(), -3600),
+                        expires_at: shift(t0(), 30 * 60),
+                        decision: DecisionId::from_random_bytes([0x46; 16]),
+                        ended_at: None,
+                        end_reason: None,
+                    },
+                )
+            })
+            .unwrap();
+        other
+    }
+
+    /// A world whose adapters are the M01 fake and the production native adapter over
+    /// `sources`.
+    async fn world_with(sources: Arc<Withdrawing>, a: &Agent, w: &mut World) {
+        let native: Arc<dyn CredentialAdapter> = Arc::new(
+            NativeAgentAdapter::new("s01".into(), Some(a.endpoint.clone())).with_sources(sources),
+        );
+        w.ops = Operations::start(OperationsConfig {
+            adapters: vec![w.fake.clone() as Arc<dyn CredentialAdapter>, native],
+            ..w.config()
+        })
+        .await
+        .unwrap();
+    }
+
+    fn sources(
+        w: &World,
+        observation: AliasObservation,
+        withdraw: Option<IdentityId>,
+    ) -> Arc<Withdrawing> {
+        Arc::new(Withdrawing {
+            inner: RuntimeSources::new(
+                Arc::clone(&w.store),
+                env_id(),
+                None,
+                &ClientInventory::default(),
+            ),
+            store: Arc::clone(&w.store),
+            observation,
+            withdraw,
+            withdrawn: AtomicBool::new(false),
+        })
+    }
+
+    /// The refusal's shape (ADR-0007 §7): `INTERACTION_REQUIRED` with `reason`, the
+    /// provider resource, `next: interact` with the native agent and the refused pair's
+    /// fresh interaction `kind` (as the runtime's own readiness refusal names it), and
+    /// no `decision_ref`; then no binding for the work, and its grant never `active`.
+    fn assert_refused_at_commit(
+        w: &World,
+        e: &OpError,
+        reason: &str,
+        kind: InteractionKind,
+        work: &str,
+    ) {
+        assert_eq!(e.code, Code::InteractionRequired, "{}", e.message);
+        assert_eq!(e.reason.as_deref(), Some(reason), "{}", e.message);
+        assert_eq!(
+            e.next.provider_interaction,
+            Some(ProviderInteractionRef {
+                provider: ProviderKind::NativeAgent,
+                kind,
+            })
+        );
+        assert_eq!(
+            e.resource.as_ref().map(|r| r.kind.as_str()),
+            Some("provider")
+        );
+        assert!(e.next.decision_ref.is_none());
+        let rendered = serde_json::to_value(e.clone().into_envelope()).unwrap();
+        assert_eq!(rendered["data"]["error"]["reason"], reason);
+        let op = e.operation_id.clone().expect("the refused operation");
+        assert_eq!(w.op(&op).state, OperationState::Failed);
+        let grant = r1313_grant_of(w, &op);
+        let g = w
+            .store
+            .transaction(|tx| tx.grant(&grant))
+            .unwrap()
+            .expect("the grant");
+        assert_ne!(g.state, GrantState::Active, "never activated");
+        let bindings = w
+            .store
+            .transaction(|tx| tx.bindings_for_work(&env_id(), &WorkId::parse(work).unwrap()))
+            .unwrap();
+        assert!(bindings.is_empty(), "no binding: {bindings:?}");
+    }
+
+    /// The reviewer's `review_withdrawal_after_snapshot_still_activates_noninteractive_ensure`:
+    /// the adopted identity's declaration is withdrawn right after the snapshot read
+    /// it. The adapter accepts the snapshot's live row; the commit's fresh eligibility
+    /// shows the withdrawal, so the non-interactive ensure is `INTERACTION_REQUIRED`
+    /// (`interaction_unknown`), with no active grant and no binding. Control: with no
+    /// withdrawal the same ensure is `ACCESS_READY`, and an interactive ensure after
+    /// the withdrawal is not refused for it.
+    #[tokio::test]
+    async fn s01_declaration_withdrawn_after_the_snapshot_refuses_noninteractive_activation() {
+        let a = agent();
+        // Control: the same interleaving without the withdrawal activates.
+        let mut w = World::new().await;
+        seed_native(&w.store, &a);
+        let fp = a.identity.fingerprint.clone();
+        world_with(sources(&w, observation(&fp, None), None), &a, &mut w).await;
+        let ready = ok(w
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("s01-c", "s01-c-w", &[("h1", "deploy")]),
+            )
+            .await);
+        assert_eq!(ready.code, Code::AccessReady);
+        assert!(ready.data.consumer.pairs[0].noninteractive.eligible);
+
+        // The withdrawal after the snapshot.
+        let mut w = World::new().await;
+        seed_native(&w.store, &a);
+        let s = sources(&w, observation(&fp, None), Some(a.identity.id.clone()));
+        world_with(Arc::clone(&s), &a, &mut w).await;
+        let e = err(w
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("s01-w", "s01-w-w", &[("h1", "deploy")]),
+            )
+            .await);
+        assert!(
+            s.withdrawn.load(Ordering::SeqCst),
+            "the snapshot was read first"
+        );
+        assert_refused_at_commit(
+            &w,
+            &e,
+            "interaction_unknown",
+            InteractionKind::Unknown,
+            "s01-w-w",
+        );
+        let row = w
+            .store
+            .transaction(|tx| tx.interaction_declaration(&a.identity.id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.state, DeclarationState::Withdrawn);
+        assert!(e.entries.is_empty());
+
+        // An interactive request lets the provider interact: not refused for it.
+        let interactive = w
+            .ops
+            .ensure(
+                &attended(501),
+                EnsureRequest {
+                    interaction: InteractionMode::Interactive,
+                    ..ensure_req("s01-i", "s01-i-w", &[("h1", "deploy")])
+                },
+            )
+            .await;
+        assert_eq!(ok(interactive).code, Code::AccessReady);
+        assert_eq!(a.agent.contact_count(), 0, "never contacted");
+        w.events();
+    }
+
+    /// ADR-0007 §12.27 item 1, "a fallback clearance that no longer holds": `h1`'s
+    /// selection is not exclusive, its alternative an agent-backed identity at the same
+    /// agent, adopted and declared `none`, so the adapter clears it over its snapshot.
+    /// The alternative's declaration is withdrawn right after the snapshot read it: the
+    /// commit clears the selection again with the store's rows and refuses,
+    /// `fallback_identity_interaction`, naming the alternative's line, with no active
+    /// grant and no binding. Control: without the withdrawal it activates.
+    #[tokio::test]
+    async fn s01_fallback_clearance_that_no_longer_holds_refuses_noninteractive_activation() {
+        let a = agent();
+        let fp = a.identity.fingerprint.clone();
+        let key = FixtureKey::generate();
+        // Control.
+        let mut w = World::new().await;
+        seed_native(&w.store, &a);
+        let other = seed_alternative(&w.store, &a, &key);
+        let obs = observation(&fp, Some(&other.fingerprint));
+        world_with(sources(&w, obs.clone(), None), &a, &mut w).await;
+        let ready = ok(w
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("s01-fc", "s01-fc-w", &[("h1", "deploy")]),
+            )
+            .await);
+        assert_eq!(ready.code, Code::AccessReady);
+        assert_eq!(
+            ready.data.consumer.pairs[0].identity_selection,
+            IdentitySelection::NotExclusive
+        );
+
+        // The alternative's declaration withdrawn after the snapshot.
+        let mut w = World::new().await;
+        seed_native(&w.store, &a);
+        let other = seed_alternative(&w.store, &a, &key);
+        let s = sources(&w, obs, Some(other.id.clone()));
+        world_with(Arc::clone(&s), &a, &mut w).await;
+        let e = err(w
+            .ops
+            .ensure(
+                &unattended(501),
+                ensure_req("s01-f", "s01-f-w", &[("h1", "deploy")]),
+            )
+            .await);
+        assert!(s.withdrawn.load(Ordering::SeqCst));
+        // The adopted pair itself is still declared `none` (fresh).
+        assert_refused_at_commit(
+            &w,
+            &e,
+            "fallback_identity_interaction",
+            InteractionKind::None,
+            "s01-f-w",
+        );
+        assert_eq!(
+            e.entries,
+            vec![ConfigProvenance {
+                path_display: "~/.ssh/config".into(),
+                line: 7,
+            }]
+        );
+        assert!(e.message.contains("(~/.ssh/config:7)"), "{}", e.message);
+        assert_eq!(a.agent.contact_count(), 0, "never contacted");
+        w.events();
     }
 }
 

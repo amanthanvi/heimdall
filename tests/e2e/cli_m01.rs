@@ -1873,63 +1873,12 @@ fn usage_failures_keep_human_help_version_and_errors() {
 /// run_and_connect_parse_and_refuse_before_the_runtime` and `e2e_run_m02` cover them.
 #[test]
 fn w0_m02_cli_commands_report_not_available_and_never_panic() {
-    let argv_canary = format!("{}ARGV", heimdall_testkit::CANARY_PREFIX);
-    let lines: Vec<Vec<&str>> = vec![
-        vec!["setup"],
-        vec!["setup", "preview"],
-        vec!["setup", "preview", "--include-git"],
-        vec!["setup", "apply", "--include-git", "--request-id", "r1"],
-        vec!["setup", "rollback", "--keep-key-files"],
-        vec!["setup", "repair", "user_config_changed", "rerender"],
-        vec!["setup", "repair", "--operation", "op_x", "retry"],
-        vec!["setup", "repair", "--operation", "op_x", "keep"],
-        vec!["setup", "status"],
-        vec!["doctor"],
-        vec![
-            "doctor",
-            "--active-probe",
-            "agent,network",
-            "--allow-config-commands",
-            "--alias",
-            "a",
-            "--no-local-exec",
-            "--redact",
-        ],
-        vec!["tui"],
-        vec![
-            "destination",
-            "add",
-            "lab",
-            "--hostname",
-            "h.example",
-            "--port",
-            "22",
-        ],
-        vec!["destination", "add", "lab", "--observed"],
-        vec!["destination", "list"],
-        vec!["destination", "show", "lab"],
-        vec!["destination", "show", &argv_canary],
-        vec!["destination", "remove", "lab"],
-        vec!["identity", "list"],
-        vec!["identity", "adopt", "--pub", "k.pub"],
-        vec![
-            "identity",
-            "adopt",
-            "--from-agent",
-            "--active-probe",
-            "agent",
-        ],
-        vec!["identity", "declare-interaction", "idn_x", "none"],
-        vec!["identity", "withdraw-declaration", "idn_x"],
-        vec!["identity", "remove", "idn_x"],
-        vec!["profile", "create", "p", "--pair", "d:a"],
-        vec!["profile", "show", "p"],
-        vec!["profile", "add", "p", "--pair", "d:a"],
-        vec!["profile", "remove", "p"],
-        vec!["profile", "list"],
-        vec!["uninstall"],
-        vec!["uninstall", "--purge-state"],
-    ];
+    // ⟨M02⟩ W4-U9: `setup`, `doctor`, `destination`, `identity`, `profile` and
+    // `uninstall` are wired and leave this list (`e2e_cli_m02` covers them, with the
+    // argument canary).
+    // ⟨M02⟩ W4-U10: `tui` is wired and leaves it too (`e2e_tui_m02` covers its
+    // refusals before any terminal or runtime contact).
+    let lines: Vec<Vec<&str>> = Vec::new();
     let scratch = tempfile::tempdir().expect("scratch");
     for (i, line) in lines.iter().enumerate() {
         let home = scratch.path().join(format!("home-{i}"));

@@ -3537,6 +3537,176 @@ fn refused_entries(
     Vec::new()
 }
 
+/// ⟨M02⟩ The stable `INTERACTION_REQUIRED` reason of a fresh non-interactive
+/// eligibility reason (ADR-0007 §7's results table): `provider_interaction` and
+/// `fallback_identity_interaction` as they are; `interaction_unknown`, and any reason a
+/// newer domain adds, as `interaction_unknown` (the narrowing reading).
+fn eligibility_refusal_reason(reason: Option<&str>) -> &'static str {
+    use heimdall_contract::envelope::reason;
+    match reason {
+        Some(noninteractive_reason::PROVIDER_INTERACTION) => reason::PROVIDER_INTERACTION,
+        Some(noninteractive_reason::FALLBACK_IDENTITY_INTERACTION) => {
+            reason::FALLBACK_IDENTITY_INTERACTION
+        }
+        _ => reason::INTERACTION_UNKNOWN,
+    }
+}
+
+/// ⟨M02⟩ ADR-0007 §12.27 item 1 (S01): the final activation of a request that
+/// requires no interaction is checked against the store, in the commit's own
+/// transaction, before the grant is activated or its binding created. The adapter
+/// judged eligibility over a snapshot read before its bound (§12.23 item 2), so a
+/// declaration withdrawn, lapsed or changed since, or a fallback clearance that no
+/// longer holds, is seen here:
+///
+/// * `pairs` carry each pair's fresh eligibility ([`Facts::with_eligibility`], read
+///   in `tx`). The first pair that is not eligible refuses, with its fresh interaction
+///   and reason;
+/// * a pair the adapter cleared through its fallback clearance (a selection that is
+///   not `exclusive`) is cleared again over the selection the adapter evaluated, with
+///   the catalog identities and their declaration rows read in `tx`, under the one
+///   domain rule (`heimdall_domain::catalog::fallback_clearance`). A clearance that no
+///   longer holds refuses with `fallback_identity_interaction`, naming the uncleared
+///   entries' lines (§12.26 item 4).
+///
+/// The refusal is `INTERACTION_REQUIRED` with `next: interact` and the provider's
+/// interaction (never a `decision_ref`, spec §5.5), as `prepare_error` maps the
+/// adapter's own refusal. `None` when every pair still holds (or there is no pair).
+fn noninteractive_commit_refusal(
+    tx: &mut Txn<'_>,
+    pairs: &[PairIntegration],
+    mechanism: &str,
+    now: Timestamp,
+) -> heimdall_store::Result<Option<OpError>> {
+    let refused = match pairs.iter().find(|p| !p.noninteractive.eligible) {
+        Some(p) => Some((
+            p.interaction,
+            eligibility_refusal_reason(p.noninteractive.reason.as_deref()),
+            Vec::new(),
+        )),
+        None => fresh_fallback_refusal(tx, pairs, now)?,
+    };
+    let Some((kind, reason, entries)) = refused else {
+        return Ok(None);
+    };
+    let provider = existing_access_provider(mechanism).unwrap_or(ProviderKind::Unknown);
+    let mut error = OpError::from_adapter_for(
+        &AdapterError::InteractionRequired(InteractionRequirement::ProviderDialog),
+        PROVIDER_RESOURCE,
+    )
+    .with_resource(PROVIDER_RESOURCE, Some(mechanism.to_owned()))
+    .with_reason(reason)
+    .with_next(provider_interaction_next(
+        Code::InteractionRequired,
+        provider,
+        kind,
+    ));
+    if !entries.is_empty() {
+        let lines: Vec<String> = entries
+            .iter()
+            .map(|p| format!("{}:{}", p.path_display, p.line))
+            .collect();
+        error.message.push_str(&format!(
+            "; an identity ssh may also try is not cleared for use without interaction ({})",
+            lines.join(", ")
+        ));
+        error = error.with_entries(entries);
+    }
+    Ok(Some(error))
+}
+
+/// ⟨M02⟩ The fallback clearance half of [`noninteractive_commit_refusal`]: for each
+/// pair whose recorded selection is not `exclusive` (so its eligibility rested on a
+/// clearance), the clearance over the recorded report with fresh store facts. The
+/// first pair it no longer clears decides: its fresh interaction,
+/// `fallback_identity_interaction`, and its uncleared entries' provenance (each once,
+/// in entry order). A pair whose identity left the catalog, or that has no endpoint,
+/// is not cleared.
+fn fresh_fallback_refusal(
+    tx: &mut Txn<'_>,
+    pairs: &[PairIntegration],
+    now: Timestamp,
+) -> heimdall_store::Result<
+    Option<(
+        InteractionKind,
+        &'static str,
+        Vec<heimdall_contract::doctor::ConfigProvenance>,
+    )>,
+> {
+    use heimdall_contract::envelope::reason;
+    let mut catalog: Option<Vec<IdentityRecord>> = None;
+    for pair in pairs {
+        if pair.identity_selection == IdentitySelection::Exclusive {
+            continue;
+        }
+        let refused = |entries| {
+            Some((
+                pair.interaction,
+                reason::FALLBACK_IDENTITY_INTERACTION,
+                entries,
+            ))
+        };
+        let Some(identity) = tx.identity(&pair.identity)? else {
+            return Ok(refused(Vec::new()));
+        };
+        let Some(endpoint) = current_endpoint(&identity, pair.endpoint.as_ref()) else {
+            return Ok(refused(Vec::new()));
+        };
+        let report = match &pair.identity_selection_report {
+            Some(r) if r.selection == pair.identity_selection => r.clone(),
+            _ => selection_report(pair.identity_selection),
+        };
+        let identities = match &catalog {
+            Some(c) => c.clone(),
+            None => {
+                let c = tx.identities()?;
+                catalog = Some(c.clone());
+                c
+            }
+        };
+        let mut fresh: BTreeMap<heimdall_contract::ids::IdentityId, PairEligibility> =
+            BTreeMap::new();
+        for r in &identities {
+            let (e, _) = fresh_eligibility(tx, r, Some(&endpoint), now)?;
+            fresh.insert(r.id.clone(), e);
+        }
+        let eligibility_of = |id: &heimdall_contract::ids::IdentityId| -> PairEligibility {
+            fresh.get(id).cloned().unwrap_or_else(|| PairEligibility {
+                interaction: InteractionKind::Unknown,
+                basis: EvidenceBasis::Inferred,
+                declaration: None,
+                noninteractive: NoninteractiveEligibility {
+                    eligible: false,
+                    reason: Some(noninteractive_reason::INTERACTION_UNKNOWN.to_owned()),
+                },
+            })
+        };
+        let clearance = heimdall_domain::catalog::fallback_clearance(
+            &report,
+            &identities,
+            &eligibility_of,
+            &endpoint,
+            &identity.fingerprint,
+        );
+        if clearance.cleared {
+            continue;
+        }
+        let mut entries: Vec<heimdall_contract::doctor::ConfigProvenance> = Vec::new();
+        for p in clearance
+            .uncleared
+            .iter()
+            .filter_map(|i| report.entries.get(*i))
+            .filter_map(|e| e.provenance.clone())
+        {
+            if !entries.contains(&p) {
+                entries.push(p);
+            }
+        }
+        return Ok(refused(entries));
+    }
+    Ok(None)
+}
+
 // ---------------------------------------------------------------------------------
 // Work requests (ensure / delegate)
 // ---------------------------------------------------------------------------------
@@ -5094,6 +5264,18 @@ impl Operations {
             }
         }
         Err(internal("operation driver did not settle"))
+    }
+
+    /// Whether `id`'s stored request is an interactive ensure (ADR-0007 §12.30 item 1).
+    /// A delegation, any other kind, or a request that cannot be loaded or read is not.
+    async fn stored_request_is_interactive(&self, id: &OperationId) -> bool {
+        let Ok(st) = self.load_work(id).await else {
+            return false;
+        };
+        matches!(
+            st.request(),
+            Some(Request::Ensure(r)) if r.interaction == InteractionMode::Interactive
+        )
     }
 
     /// [`Self::lead`] behind a type-erased future, for the one place a drive
@@ -6985,6 +7167,13 @@ impl Operations {
             .and_then(|r| WorkSpec::from_request(&r, &env))
             .map(|s| s.required)
             .unwrap_or_default();
+        // ⟨M02⟩ ADR-0007 §12.27 item 1 (S01): whether the request requires no
+        // interaction, from the stored request too (an unreadable one is read as
+        // requiring none: fail closed).
+        let noninteractive = st
+            .request()
+            .and_then(|r| WorkSpec::from_request(&r, &env))
+            .is_none_or(|s| !s.interactive);
         let binding_id = crate::ids::new_binding_id()?;
         let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
@@ -7062,8 +7251,25 @@ impl Operations {
                             )),
                             // A04: the prepared facts meet every caller minimum.
                             Admission::Open if for_others => None,
-                            Admission::Open => unmet_minimum(&required, &facts, &g, bound)
-                                .map(|e| Refusal::new(e, Some(GrantEvent::PreparationFailed))),
+                            Admission::Open => {
+                                // ⟨M02⟩ ADR-0007 §12.27 item 1 (S01): a request that
+                                // requires no interaction holds against the store's
+                                // fresh eligibility, in this transaction, before the
+                                // grant is activated or its binding created.
+                                let ineligible = if noninteractive {
+                                    noninteractive_commit_refusal(
+                                        tx,
+                                        &facts.integration.pairs,
+                                        &mechanism,
+                                        now,
+                                    )?
+                                } else {
+                                    None
+                                };
+                                ineligible
+                                    .or_else(|| unmet_minimum(&required, &facts, &g, bound))
+                                    .map(|e| Refusal::new(e, Some(GrantEvent::PreparationFailed)))
+                            }
                         }
                     }
                 };
@@ -9818,7 +10024,16 @@ impl Operations {
         // first), under ONE overall bound for this request (⟨r2.5⟩ ADR-0006 §13.8
         // item 2): when it is reached the durable decision result is returned and
         // the work continues, every waiter's operation observable.
-        let resume: Vec<(OperationId, bool)> = resume.into_iter().map(|id| (id, false)).collect();
+        // ⟨M02⟩ ADR-0007 §12.30 item 1: each waiter resumes with the interaction mode
+        // its own stored request asked for. An interactive ensure that waited for this
+        // decision stays interactive (the owner just attended it); everything else,
+        // and a request that cannot be read, resumes non-interactive (fail closed).
+        let mut modes = Vec::with_capacity(resume.len());
+        for id in resume {
+            let interactive = self.stored_request_is_interactive(&id).await;
+            modes.push((id, interactive));
+        }
+        let resume: Vec<(OperationId, bool)> = modes;
         self.lead_all_bounded(&resume, self.inner.config.limits.max_wait)
             .await;
         let mut operation_state = None;

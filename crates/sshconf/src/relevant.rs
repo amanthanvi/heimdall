@@ -696,8 +696,9 @@ pub fn identity_selection(
 /// the `source` of that value's role ([`Value::role`]): `Managed` for P
 /// ([`crate::include::Roots::managed`]), `User` or `System` for the file's tree;
 /// a default identity is `Default`. `provenance` is the directive's file and line: the
-/// file's canonical path as [`Evaluation::files`] recorded it, shown with `~` for the
-/// account home and `/` separators, and the line; `None` for a default identity and for
+/// file's path as the configuration names it, as [`Evaluation::files`] recorded it
+/// (ADR-0007 §12.28 item 6), shown with `~` for the account home and `/` separators,
+/// and the line; `None` for a default identity and for
 /// a span the evaluation has no file for. Whether an entry is the adopted key is a
 /// separate question, answered by its path (below): an entry that names the adopted
 /// path but was read from the user's file is `User`, not `Managed`.

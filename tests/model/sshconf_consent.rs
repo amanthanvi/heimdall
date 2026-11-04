@@ -56,7 +56,7 @@ fn query(host: &str, invocation: Invocation) -> Query {
     Query {
         host: host.to_owned(),
         user: None,
-        local_user: "fixture".to_owned(),
+        local_user: Some("fixture".to_owned()),
         client_version: OpenSshVersion {
             major: 9,
             minor: 5,

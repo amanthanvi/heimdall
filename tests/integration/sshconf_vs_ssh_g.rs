@@ -205,7 +205,7 @@ impl Harness {
         let query = Query {
             host: alias.to_owned(),
             user: user.map(str::to_owned),
-            local_user: self.local_user.clone(),
+            local_user: Some(self.local_user.clone()).filter(|n| !n.is_empty()),
             client_version: self.version,
             invocation,
         };

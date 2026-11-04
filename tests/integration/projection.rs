@@ -3079,21 +3079,25 @@ fn observe_reads_localuser_from_the_account_database() {
     );
 }
 
-/// ADR-0007 §12.25 item 2 (T02): when the local account cannot be established
-/// (`observe_as` with `None`), an alias whose configuration reads it (`Match
-/// localuser`, whatever name it tests) is undetermined: its selection, `IdentitiesOnly`
-/// and every directive. The same configuration with the account named is determined,
-/// and a configuration that does not read the account is unaffected.
+/// ADR-0007 §12.28 item 3 (replacing §12.25 item 2's whole-configuration reading):
+/// when the local account cannot be established (`observe_as` with `None`), only the
+/// conditions that read it are undetermined. A `Match localuser` that guards nothing the
+/// selection reads leaves `work` exclusive with every directive as before; one that
+/// guards an `IdentityFile` leaves that entry, and so the selection, undetermined while
+/// `HostName`, `User` and `IdentitiesOnly` stay determined. With the account named, a
+/// rule for another name never applies.
 #[test]
-fn observe_with_the_account_unknown_is_undetermined_where_the_configuration_reads_it() {
+fn observe_with_the_account_unknown_leaves_only_what_reads_it_undetermined() {
     use heimdall_contract::doctor::DirectiveCertainty;
-    use heimdall_contract::provider::{IdentitiesOnly, IdentitySelection};
+    use heimdall_contract::provider::{Certainty, IdentitiesOnly, IdentitySelection};
     use heimdall_sshconf::eval::Invocation;
     let fx = Fx::new();
     std::fs::write(fx.user(), USER_TEXT).unwrap();
     let (_first, sink) = fx.adopt(&["work"]);
     let record = sink.record(&fx.env);
     let base = std::fs::read_to_string(fx.user()).unwrap();
+    let k2 = fx.home.root.join("k2.pub");
+    std::fs::write(&k2, format!("{}\n", synthetic_public_key())).unwrap();
     let observe = |account: Option<&str>| {
         heimdall_localenv::projection::observe::observe_as(
             &fx.config(),
@@ -3104,29 +3108,174 @@ fn observe_with_the_account_unknown_is_undetermined_where_the_configuration_read
         )
         .remove(0)
     };
-    let known = observe(None);
-    let report = known.identity_selection.clone().unwrap();
-    assert_eq!(report.selection, IdentitySelection::Exclusive, "unaffected");
+    let certainty = |o: &heimdall_contract::doctor::AliasObservation, name: &str| {
+        o.behavior
+            .iter()
+            .find(|d| d.directive == name)
+            .map(|d| d.certainty)
+            .unwrap()
+    };
+    let before = observe(None);
+    assert_eq!(
+        before.identity_selection.as_ref().unwrap().selection,
+        IdentitySelection::Exclusive,
+        "unaffected"
+    );
+    // A rule that guards nothing the selection reads: unaffected.
     std::fs::write(
         fx.user(),
         format!("{base}Match localuser hm-fixture-nobody\n    ForwardAgent yes\n"),
     )
     .unwrap();
     let unknown = observe(None);
+    assert_eq!(
+        unknown.identity_selection.as_ref().unwrap().selection,
+        IdentitySelection::Exclusive,
+        "only the affected conditions are undetermined"
+    );
+    assert_eq!(unknown.behavior, before.behavior);
+    // A rule that guards an `IdentityFile`: that entry is undetermined, nothing else.
+    std::fs::write(
+        fx.user(),
+        format!(
+            "{base}Match localuser hm-fixture-nobody\n    IdentityFile \"{}\"\n",
+            k2.display()
+        ),
+    )
+    .unwrap();
+    let unknown = observe(None);
     let report = unknown.identity_selection.clone().unwrap();
     assert_eq!(report.selection, IdentitySelection::Undetermined);
-    assert_eq!(report.identities_only, IdentitiesOnly::Undetermined);
-    assert!(
-        unknown
-            .behavior
-            .iter()
-            .all(|d| d.certainty == DirectiveCertainty::Undetermined)
+    assert_eq!(report.identities_only, IdentitiesOnly::DeterminedYes);
+    let k2_entries: Vec<_> = report
+        .entries
+        .iter()
+        .filter(|e| e.source == heimdall_contract::provider::IdentityEntrySource::User)
+        .collect();
+    assert_eq!(k2_entries.len(), 1, "{report:?}");
+    assert_eq!(k2_entries[0].certainty, Certainty::Undetermined);
+    for name in ["HostName", "User", "IdentitiesOnly"] {
+        assert_eq!(
+            certainty(&unknown, name),
+            DirectiveCertainty::Determined,
+            "{name}"
+        );
+    }
+    assert_eq!(
+        certainty(&unknown, "IdentityFile"),
+        DirectiveCertainty::Undetermined
     );
     let named = observe(Some("hm-fixture-account"));
     assert_eq!(
         named.identity_selection.unwrap().selection,
         IdentitySelection::Exclusive
     );
+}
+
+/// ADR-0007 §12.28 item 5: the projection observation the runtime's no-interaction
+/// readiness reads (`ProjectionWriter::observe`, `observe::observe`) covers `Shell`,
+/// `Exec(None)` and `Subsystem("sftp")`. An `IdentityFile` behind `Match sessiontype
+/// exec` (exec-only) or `Match sessiontype subsystem` (subsystem-only) leaves the shell
+/// alone exclusive, but the observation `observe` answers is not exclusive and lists
+/// the entry, so readiness must clear it. An `IdentityAgent` behind either makes that
+/// directive undetermined. The base configuration stays exclusive and determined.
+#[test]
+fn observe_combines_every_invocation_profile_for_readiness() {
+    use heimdall_app::ports::ProjectionWriter as _;
+    use heimdall_contract::doctor::DirectiveCertainty;
+    use heimdall_contract::provider::{IdentityEntrySource, IdentitySelection};
+    use heimdall_sshconf::eval::Invocation;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, sink) = fx.adopt(&["work"]);
+    let record = sink.record(&fx.env);
+    let base = std::fs::read_to_string(fx.user()).unwrap();
+    let k2 = fx.home.root.join("k2.pub");
+    std::fs::write(&k2, format!("{}\n", synthetic_public_key())).unwrap();
+    let writer = LocalProjection::new(fx.config());
+    let combined = || writer.observe(&record, &["work".to_owned()]).remove(0);
+    let shell = || {
+        heimdall_localenv::projection::observe::observe_under(
+            &fx.config(),
+            &record,
+            &["work".to_owned()],
+            &Invocation::Shell,
+        )
+        .remove(0)
+    };
+    let control = combined();
+    assert_eq!(
+        control.identity_selection.as_ref().unwrap().selection,
+        IdentitySelection::Exclusive
+    );
+    assert_eq!(control.behavior, shell().behavior, "alike in every profile");
+    for criterion in ["exec", "subsystem"] {
+        std::fs::write(
+            fx.user(),
+            format!(
+                "{base}Match sessiontype {criterion}\n    IdentityFile \"{}\"\n",
+                k2.display()
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            shell().identity_selection.unwrap().selection,
+            IdentitySelection::Exclusive,
+            "{criterion}: the shell alone is exclusive"
+        );
+        let all = combined();
+        let report = all.identity_selection.clone().unwrap();
+        assert_ne!(
+            report.selection,
+            IdentitySelection::Exclusive,
+            "{criterion}"
+        );
+        let user: Vec<_> = report
+            .entries
+            .iter()
+            .filter(|e| e.source == IdentityEntrySource::User)
+            .collect();
+        assert_eq!(user.len(), 1, "{criterion}: {report:?}");
+        let line = u32::try_from(base.lines().count() + 2).unwrap();
+        assert_eq!(user[0].provenance.as_ref().unwrap().line, line);
+        assert_eq!(
+            user[0].provenance.as_ref().unwrap().path_display,
+            "~/.ssh/config"
+        );
+        assert!(user[0].cleared.is_none(), "readiness clears it itself");
+        let file = all
+            .behavior
+            .iter()
+            .find(|d| d.directive == "IdentityFile")
+            .unwrap();
+        assert_eq!(
+            file.certainty,
+            DirectiveCertainty::Undetermined,
+            "{criterion}"
+        );
+        // An `IdentityAgent` override behind the criterion, before Heimdall's block.
+        std::fs::write(
+            fx.user(),
+            format!(
+                "Match sessiontype {criterion}\n    IdentityAgent \"{}\"\nMatch all\n{base}",
+                fx.home.root.join("other-agent.sock").display()
+            ),
+        )
+        .unwrap();
+        let agent = combined()
+            .behavior
+            .into_iter()
+            .find(|d| d.directive == "IdentityAgent")
+            .unwrap();
+        // The shell leaves it unset, the other profile sets it: undetermined.
+        assert_eq!(
+            agent.certainty,
+            DirectiveCertainty::Undetermined,
+            "{criterion}"
+        );
+        assert_eq!(agent.values.len(), 1, "{criterion}: {agent:?}");
+        assert!(agent.values[0].ends_with("other-agent.sock"), "{agent:?}");
+    }
 }
 
 /// ADR-0007 §12.25 item 2 (T02), preview (consent): a `ForwardAgent yes` behind `Match

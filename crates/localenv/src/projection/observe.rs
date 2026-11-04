@@ -3,15 +3,22 @@
 //!
 //! `observe` evaluates each alias statically (the U2 evaluator over the bounded,
 //! read-only configuration source; nothing executes), with P as the managed root so
-//! values read from P carry the managed role. `observe_held` runs the recovery
-//! engine's observation and decision without a sink: it reports the steps a restart
-//! would hold, with their classification and content fingerprints (M2-T03).
+//! values read from P carry the managed role, under every invocation profile a launch
+//! can use, combined into one observation that no profile is better than (ADR-0007
+//! §12.28 item 5): the runtime's no-interaction readiness reads it, so it clears a
+//! selection only when the CLI's pre-launch check would clear it in every profile.
+//! `observe_held` runs the recovery engine's observation and decision without a sink:
+//! it reports the steps a restart would hold, with their classification and content
+//! fingerprints (M2-T03).
 
 use std::path::Path;
 
 use heimdall_app::ports::{HeldStep, ReconcileError};
 use heimdall_contract::doctor::{
     AliasDefinition, AliasObservation, ConfigProvenance, DirectiveCertainty, DirectiveObservation,
+};
+use heimdall_contract::provider::{
+    Certainty, IdentitiesOnly, IdentityEntry, IdentitySelection, IdentitySelectionReport,
 };
 use heimdall_contract::setup::ProjectionItem;
 use heimdall_domain::operation::StageReceipt;
@@ -27,14 +34,170 @@ use super::ProjectionConfig;
 use crate::clients::ClientKind;
 use crate::fs::BoundedSource;
 
-/// Re-evaluate `aliases` statically against `record`, as an interactive shell.
+/// Re-evaluate `aliases` statically against `record` under every invocation profile
+/// a launch can use, `Shell`, `Exec(None)` and `Subsystem("sftp")`, each alias's
+/// observations combined by [`combine_profiles`] (ADR-0007 §12.28 item 5). This is what
+/// `ProjectionWriter::observe` answers, so the runtime's no-interaction readiness at
+/// `ensure` clears a selection under every profile, as the pre-launch check does
+/// (§12.25 item 1), for an API caller as for the CLI. The local account is the account
+/// database's ([`observe_under`]).
 #[must_use]
 pub fn observe(
     config: &ProjectionConfig,
     record: &ProjectionRecord,
     aliases: &[String],
 ) -> Vec<AliasObservation> {
-    observe_under(config, record, aliases, &Invocation::Shell)
+    observe_all_as(config, record, aliases, crate::doctor::local_account())
+}
+
+/// [`observe`] with the local account given (`None`: it cannot be established).
+#[must_use]
+pub fn observe_all_as(
+    config: &ProjectionConfig,
+    record: &ProjectionRecord,
+    aliases: &[String],
+    local_user: Option<String>,
+) -> Vec<AliasObservation> {
+    let per_profile: Vec<Vec<AliasObservation>> = Invocation::consent_profiles()
+        .iter()
+        .map(|invocation| observe_as(config, record, aliases, invocation, local_user.clone()))
+        .collect();
+    (0..aliases.len())
+        .filter_map(|i| {
+            let observations: Vec<&AliasObservation> =
+                per_profile.iter().filter_map(|p| p.get(i)).collect();
+            combine_profiles(&observations)
+        })
+        .collect()
+}
+
+/// ADR-0007 §12.28 item 5: one alias's observations under several invocation profiles
+/// as one observation that no profile is better than (fail closed). `None` without an
+/// observation.
+///
+/// * **Behaviour:** a directive every profile observes alike is kept; one the profiles
+///   observe differently is `undetermined`, with every profile's values and provenance
+///   (each once, in profile order), because which applies depends on the invocation.
+/// * **Identity selection:** `None` when no profile reports one. Otherwise `exclusive`
+///   only when every profile reports `exclusive`; `undetermined` when a profile reports
+///   none or `undetermined`; else `not_exclusive`. The entries are every profile's
+///   entries, each once (by kind, source, provenance, fingerprint and backing),
+///   `undetermined` where any profile has it undetermined, with no stored `cleared`
+///   (readiness evaluates clearance itself). `IdentitiesOnly` is kept when every
+///   profile reports the same value, else `undetermined`. So the fallback clearance
+///   over the combined report clears it only when it would clear every profile's: an
+///   exec-only or subsystem-only fallback identity is an alternative to clear.
+#[must_use]
+pub fn combine_profiles(observations: &[&AliasObservation]) -> Option<AliasObservation> {
+    let first = *observations.first()?;
+    let behavior = first
+        .behavior
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let all: Vec<&DirectiveObservation> = observations
+                .iter()
+                .filter_map(|o| o.behavior.get(i))
+                .filter(|o| o.directive == d.directive)
+                .collect();
+            if all.len() == observations.len() && all.iter().all(|o| *o == d) {
+                return d.clone();
+            }
+            let mut values = Vec::new();
+            let mut provenance = Vec::new();
+            for o in observations
+                .iter()
+                .flat_map(|o| o.behavior.iter().filter(|b| b.directive == d.directive))
+            {
+                for v in &o.values {
+                    if !values.contains(v) {
+                        values.push(v.clone());
+                    }
+                }
+                for p in &o.provenance {
+                    if !provenance.contains(p) {
+                        provenance.push(p.clone());
+                    }
+                }
+            }
+            DirectiveObservation {
+                directive: d.directive.clone(),
+                values,
+                certainty: DirectiveCertainty::Undetermined,
+                provenance,
+            }
+        })
+        .collect();
+    let reports: Vec<Option<&IdentitySelectionReport>> = observations
+        .iter()
+        .map(|o| o.identity_selection.as_ref())
+        .collect();
+    let identity_selection = if reports.iter().all(Option::is_none) {
+        None
+    } else {
+        Some(combine_reports(&reports))
+    };
+    Some(AliasObservation {
+        alias: first.alias.clone(),
+        definition: first.definition,
+        behavior,
+        identity_selection,
+    })
+}
+
+/// The identity selection part of [`combine_profiles`].
+fn combine_reports(reports: &[Option<&IdentitySelectionReport>]) -> IdentitySelectionReport {
+    let selection = if reports
+        .iter()
+        .any(|r| r.is_none_or(|r| r.selection == IdentitySelection::Undetermined))
+    {
+        IdentitySelection::Undetermined
+    } else if reports
+        .iter()
+        .all(|r| r.is_some_and(|r| r.selection == IdentitySelection::Exclusive))
+    {
+        IdentitySelection::Exclusive
+    } else {
+        IdentitySelection::NotExclusive
+    };
+    let present: Vec<&IdentitySelectionReport> = reports.iter().flatten().copied().collect();
+    let identities_only = match present.split_first() {
+        Some((first, rest))
+            if reports.iter().all(Option::is_some)
+                && rest
+                    .iter()
+                    .all(|r| r.identities_only == first.identities_only) =>
+        {
+            first.identities_only
+        }
+        _ => IdentitiesOnly::Undetermined,
+    };
+    let same = |a: &IdentityEntry, b: &IdentityEntry| {
+        a.kind == b.kind
+            && a.source == b.source
+            && a.provenance == b.provenance
+            && a.fingerprint == b.fingerprint
+            && a.backing == b.backing
+    };
+    let mut entries: Vec<IdentityEntry> = Vec::new();
+    for e in present.iter().flat_map(|r| r.entries.iter()) {
+        match entries.iter_mut().find(|x| same(x, e)) {
+            Some(x) => {
+                if e.certainty == Certainty::Undetermined {
+                    x.certainty = Certainty::Undetermined;
+                }
+            }
+            None => entries.push(IdentityEntry {
+                cleared: None,
+                ..e.clone()
+            }),
+        }
+    }
+    IdentitySelectionReport {
+        selection,
+        entries,
+        identities_only,
+    }
 }
 
 /// The invocation profiles a launch can use, by name (`Invocation::profile_name`), in
@@ -70,11 +233,12 @@ pub fn observe_profiles(
         .collect()
 }
 
-/// [`observe`] under `invocation`. The local account for `%u` and `Match localuser`
-/// is the account database's (ADR-0007 §12.25 item 2, `doctor::local_account`), never
-/// `USER` or `USERNAME`; when it cannot be established, an alias whose configuration
-/// reads it is undetermined. Provenance is shown through `doctor::path_display`
-/// (§12.26 item 7).
+/// `aliases` observed under `invocation` alone. The local account for `%u` and `Match
+/// localuser` is the account database's (ADR-0007 §12.25 item 2,
+/// `doctor::local_account`), never `USER` or `USERNAME`; when it cannot be
+/// established, only the conditions that read it are undetermined (§12.28 item 3).
+/// Provenance is shown through `doctor::path_display` (§12.26 item 7), each file as
+/// the configuration names it (§12.28 item 6).
 #[must_use]
 pub fn observe_under(
     config: &ProjectionConfig,
@@ -92,8 +256,8 @@ pub fn observe_under(
 }
 
 /// [`observe_under`] with the local account given: `None` is an account that cannot
-/// be established, so an alias whose configuration reads it is undetermined
-/// (ADR-0007 §12.25 item 2). [`observe_under`] passes `doctor::local_account`.
+/// be established, so the conditions that read it are undetermined (ADR-0007 §12.28
+/// item 3). [`observe_under`] passes `doctor::local_account`.
 #[must_use]
 pub fn observe_as(
     config: &ProjectionConfig,
@@ -131,7 +295,7 @@ pub fn observe_as(
         .and_then(|c| c.version)
         .unwrap_or(OpenSshVersion::MINIMUM);
     // ADR-0007 §12.25 item 2 (T02): the account database, never the environment
-    // (`observe_under`), and never an empty name.
+    // (`observe_under`), and never an empty name (§12.28 item 3).
     let local_user = local_user.filter(|n| !n.is_empty());
     aliases
         .iter()
@@ -139,14 +303,12 @@ pub fn observe_as(
             let query = Query {
                 host: alias.clone(),
                 user: None,
-                local_user: local_user.clone().unwrap_or_default(),
+                local_user: local_user.clone(),
                 client_version,
                 invocation: invocation.clone(),
             };
             let mut set = ConfigSet::new();
             let evaluation = evaluate(&mut set, &source, &roots, &query, &limits);
-            let account_unknown =
-                local_user.is_none() && crate::doctor::reads_local_account(&set, &evaluation);
             let is_managed = managed.contains(&alias.as_str());
             let behavior = behavior_of(&evaluation, config);
             let identity_selection = if is_managed {
@@ -165,9 +327,6 @@ pub fn observe_as(
                 behavior,
                 identity_selection,
             };
-            if account_unknown {
-                crate::doctor::mark_account_undetermined(&mut observation);
-            }
             crate::doctor::redisplay_observation(&mut observation, &config.paths.account_home);
             observation
         })

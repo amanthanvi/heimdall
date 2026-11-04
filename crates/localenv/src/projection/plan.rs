@@ -115,7 +115,7 @@ use heimdall_domain::projection::{
 };
 use heimdall_sshconf::consent;
 use heimdall_sshconf::edit::{self, BlockPosition, EditRefusal, FoundBlock, IncludeBlock};
-use heimdall_sshconf::eval::{Invocation, OpenSshVersion, Query, evaluate};
+use heimdall_sshconf::eval::{Invocation, OpenSshVersion, Query};
 use heimdall_sshconf::gitedit;
 use heimdall_sshconf::include::{ConfigSet, ConfigSource, Roots, SourceBytes, SourceError};
 use heimdall_sshconf::limits::Limits;
@@ -1747,12 +1747,12 @@ impl<'a> Builder<'a> {
         );
         roots.managed = Some(self.config.managed_ssh_path());
         // ADR-0007 §12.25 item 2 (T02): the account database, never the environment
-        // (`Builder::account`).
-        let local_user = self.account.clone();
+        // (`Builder::account`). §12.28 item 3: without it, only the conditions that
+        // read the account are undetermined, so a state they reach is not determined.
         let query = Query {
             host: alias.to_owned(),
             user: None,
-            local_user: local_user.clone().unwrap_or_default(),
+            local_user: self.account.clone(),
             client_version: self
                 .config
                 .clients
@@ -1763,26 +1763,7 @@ impl<'a> Builder<'a> {
             invocation: Invocation::Shell,
         };
         let mut set = ConfigSet::new();
-        let state = consent_behavior_state(&mut set, source, &roots, &query, &Limits::default());
-        if local_user.is_some() {
-            return state;
-        }
-        // The account cannot be established: undetermined when any profile's
-        // configuration reads it (never evaluated as an empty name).
-        let reads = Invocation::consent_profiles()
-            .into_iter()
-            .any(|invocation| {
-                let q = Query {
-                    invocation,
-                    ..query.clone()
-                };
-                let evaluation = evaluate(&mut set, source, &roots, &q, &Limits::default());
-                crate::doctor::reads_local_account(&set, &evaluation)
-            });
-        BehaviorState {
-            determined: state.determined && !reads,
-            ..state
-        }
+        consent_behavior_state(&mut set, source, &roots, &query, &Limits::default())
     }
 
     // --- the plan ---------------------------------------------------------------------

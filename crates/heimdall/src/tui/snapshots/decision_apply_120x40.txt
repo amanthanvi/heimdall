@@ -1,0 +1,40 @@
+Heimdall  1 Overview  2 Destinations  3 Profiles [4 Activity] [!!] Needs attention
+Pendi┌Owner decision dec_apply1 (apply_projection)────────────────────────────────────────────────────────────────┐
+> [!!│Recorded 09:00:00Z (30s ago) · expires 09:15:00Z (in 14m)                                                   │
+  [!!│Exactly what approve applies to:                                                                            │
+Opera│Intent apply · aliases 1 added, 0 changed, 0 removed · 2 file(s) · Git selection unchanged                  │
+  [!!│Plan digest aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                                │
+  [..│Before                              After                               Restore                             │
+     │~/.ssh/config:                      ~/.ssh/config:                      if its section were removed now:    │
+     │                                      # >>> heimdall managed include      alias:alpha                       │
+     │                                      Include ~/.config/heimdall/ssh_co     behavior 3f9c2d7e1b4a5c6d       │
+     │~/.config/heimdall/ssh_config:      ~/.config/heimdall/ssh_config:                                          │
+     │  Host alpha                          Host alpha                                                            │
+     │    HostName old.example.invalid        HostName alpha.example.invalid                                      │
+     │Heimdall cannot verify that this prompt was shown: a program running as your user could imitate it.         │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │                                                                                                            │
+     │Tab: deny instead · Esc: send nothing                                                                       │
+     │Approve? Type yes to confirm [y/N]: ye_                                                                     │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+type yes, Enter · Tab approve/deny · Esc cancel

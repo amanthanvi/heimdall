@@ -177,6 +177,10 @@ async fn serve(
         std::env::var_os(n)
     })
     .map_err(|m| Box::new(error(Code::UsageError, &m)))?;
+    // ⟨M02⟩ W4 integration: a test runtime never wires the account's SSH files.
+    #[cfg(debug_assertions)]
+    crate::testcfg::isolate_projection(&mut options, &paths, &|n| std::env::var_os(n))
+        .map_err(|m| Box::new(error(Code::UsageError, &m)))?;
     #[cfg(not(debug_assertions))]
     let _ = ctx;
 

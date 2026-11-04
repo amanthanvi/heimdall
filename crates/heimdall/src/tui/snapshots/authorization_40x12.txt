@@ -1,0 +1,12 @@
+ 1 Over [2 Dest] 3 Prof  4 Acti  [!!]
+2┌Authorize evaluate──────────────────┐
+>│The evaluate level for alpha runs   │p
+ │your configuration's commands with  │n
+ │whatever effects they have.         │
+ │Configuration commands the static   │
+ │pass found:                         │
+ │  ~/.ssh/config:12                  │
+ │Authorize? Type yes to confirm      │
+ │[y/N]: _                            │
+ └────────────────────────────────────┘
+type yes, Enter · Esc cancel

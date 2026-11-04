@@ -3328,6 +3328,74 @@ mod a11 {
         assert_refusal_entries(&out, &[5]);
     }
 
+    /// ADR-0007 §12.28 item 5: the runtime's own no-interaction readiness at `ensure`
+    /// reads a projection observation that covers `Shell`, `Exec(None)` and
+    /// `Subsystem("sftp")`, as the pre-launch check does (§12.25 item 1). With an
+    /// exec-only or a subsystem-only fallback in place before `run` (the shell alone
+    /// stays exclusive), the runtime refuses the `ensure` (its message, not the CLI's)
+    /// and names the fallback's line; nothing is launched and the agent is never
+    /// contacted. An API caller that uses `ensure` without the CLI's check (`access
+    /// ensure`) is refused the same way. Control: the base configuration launches.
+    #[test]
+    fn ensure_refuses_exec_only_and_subsystem_only_fallbacks() {
+        let (w, _) = World::single(true);
+        let base = std::fs::read_to_string(&w.home.user_config).unwrap();
+        let k2 = write_pub(&w, 1, "k2");
+        let line = u32::try_from(base.lines().count() + 2).unwrap();
+        for criterion in ["exec", "subsystem"] {
+            std::fs::write(
+                &w.home.user_config,
+                format!(
+                    "{base}Match sessiontype {criterion}\n    IdentityFile \"{}\"\n",
+                    k2.display()
+                ),
+            )
+            .unwrap();
+            let name = format!("ensure-{criterion}");
+            let out = w.run_cli(&w.run_args(&name, true, &[]), &[]);
+            assert_refused(&w, &name, &out, "fallback_identity_interaction");
+            let message = out.envelope()["data"]["error"]["message"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            assert!(
+                message.starts_with("the credential provider requires an interaction"),
+                "{criterion}: the runtime's refusal: {message}"
+            );
+            assert_refusal_entries(&out, &[line]);
+            // `access ensure`, with no pre-launch check: the runtime refuses too.
+            let work = format!("w-ensure-{criterion}");
+            let ensured = w.run_cli(
+                &os(&[
+                    "--json",
+                    "--non-interactive",
+                    "access",
+                    "ensure",
+                    "--profile",
+                    "work",
+                    "--work-id",
+                    &work,
+                    "--request-id",
+                    &work,
+                ]),
+                &[],
+            );
+            assert_eq!(ensured.code(), Some(3), "{criterion}: {}", ensured.stderr);
+            let env: Value =
+                serde_json::from_slice(&ensured.stdout).unwrap_or_else(|_| ensured.envelope());
+            assert_eq!(env["code"], "INTERACTION_REQUIRED", "{criterion}");
+            assert_eq!(
+                env["data"]["error"]["reason"], "fallback_identity_interaction",
+                "{criterion}"
+            );
+            assert_eq!(env["next"]["action"], "interact");
+            assert_eq!(w.agent.contact_count(), 0, "no agent contact");
+        }
+        std::fs::write(&w.home.user_config, &base).unwrap();
+        let out = w.run_cli(&w.run_args("ensure-base", true, &[]), &[]);
+        assert_launched(&w, "ensure-base", &out);
+    }
+
     /// A stub `ssh` that records its arguments and prints the 256 byte values.
     fn stub_ssh(w: &World) -> PathBuf {
         use std::os::unix::fs::PermissionsExt as _;

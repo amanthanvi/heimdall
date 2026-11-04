@@ -43,7 +43,7 @@ edition 2024, resolver 3. Highest MSRV in the direct set is rusqlite's 1.89.
 | tracing | 0.1.44 (`std`) | MIT | store, app, ipc, runtime, bin | structured local diagnostics (spec §13.6) | `log` (no spans/fields) |
 | tracing-subscriber | 0.3.23 (`fmt`, `std`; no `ansi`, no `env-filter`) | MIT | runtime | stderr/file sinks without ANSI (NO_COLOR semantics) | `env_logger` |
 | clap | 4.6.7 (`std`, `derive`, `help`, `usage`, `error-context`, `env`; no `color`) | MIT OR Apache-2.0 | bin | command tree, usage errors exit 2 | hand-written parser (prototype did this; production needs help/discovery breadth); `argh`/`lexopt` (no subcommand help depth) |
-| ratatui | 0.30.2 (`crossterm`, no default) | MIT | bin (M02-T05) | TUI (decided, ADR-0002/0004); declared now, enters the lock when the TUI crate consumes it | — (decision not reopened) |
+| ratatui | 0.30.2 (`crossterm`, no default) | MIT | bin (M02-T05) | TUI (decided, ADR-0002/0004); in the lock since M02 wave 4, consumed by `crates/heimdall/src/tui` (U10) | — (decision not reopened) |
 | crossterm | 0.29.0 | MIT | bin (M02-T05) | terminal backend; **watch item**: hang on terminal hang-up and `ESC[6n` query (REPORT.md §5) must be mitigated in the TUI unit | `termion` (no Windows); `termwiz` (heavier) |
 | etcetera | 0.11.0 | MIT OR Apache-2.0 | runtime | XDG dirs on every Unix (so the include path is `~/.config/heimdall/...` as in spec §10.1) and Known Folders on Windows | `directories` 6.0.0 (forces macOS `~/Library/...`, conflicting with the spec's proposed path) |
 | windows-sys | 0.61.2 (`Win32_Foundation`, `Win32_Security`, `Win32_Security_Authorization`, `Win32_Storage_FileSystem`, `Win32_System_IO`, `Win32_System_Pipes`, `Win32_System_Registry`, `Win32_System_Threading`, `Win32_System_WindowsProgramming`; ⟨M02⟩ `Win32_System_JobObjects`, `Win32_System_Console`, `Win32_UI_Shell`) | MIT OR Apache-2.0 | ipc, runtime (Windows only; runtime: `QueryInterruptTime` and the Session Manager `BootId` registry value, ADR-0005 §3.6); ⟨M02⟩ localenv `sys.rs` (Windows only): kill-on-close job objects for probes, the profile folder (account home, ADR-0007 F19), and, through the existing `Win32_Storage_FileSystem`, `ReplaceFileW`, `GetFileInformationByHandleEx`, `SetFileInformationByHandle`. `Win32_System_Console` is the dependency note's feature for the Windows launcher's console guard; U8 plans tokio's `ctrl_c`/`ctrl_break` (`crates/launch/Cargo.toml`), and any direct console call would go through `localenv::sys` (the only M02 `unsafe` module) | DACL/SDDL, impersonation, token query, `GetFileType`; same version tokio already carries; feature set is the one the prototype verified natively (REPORT.md §16) | `windows` crate (larger), `winapi` (unmaintained since 2020) |
@@ -62,8 +62,9 @@ edition 2024, resolver 3. Highest MSRV in the direct set is rusqlite's 1.89.
   * `rustix` dev-only features `pty`, `termios`, `process` for the pty tests of U8
     and U10 (same pinned 1.1.6; rejected: `portable-pty`, a second pty stack, and
     `nix`);
-  * `ratatui` 0.30.2 and `crossterm` 0.29.0 (already pinned above) enter the lock
-    when the TUI module (U10) consumes them.
+* ⟨M02, wave 4⟩ `ratatui` 0.30.2 and `crossterm` 0.29.0 (pinned above) entered the
+  lock with the TUI module (U10), at the pinned versions, with their transitive
+  packages.
 * Dev-only feature changes of the design-fix round: `heimdall-testkit` gained
   features `store` (ScriptedFaults) and `app` (FakeCredentialAdapter,
   ScriptedStageHook), both default-on; `heimdall-ipc`'s dev-dependency uses

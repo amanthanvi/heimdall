@@ -9,10 +9,9 @@
 //! `doctor`, `tui`, `destination`, `identity`, `profile` and `uninstall` carry
 //! their full M02 argument trees, each handled in its own file (`setup_cmd`,
 //! `connect_cmd`, `run_cmd`, `doctor_cmd`, `tui`, `catalog_cmd`, `uninstall_cmd`).
-//! Until the unit that owns a handler lands, the handler answers M01's "not
-//! available in this build" envelope ([`not_available`]: `USAGE_ERROR`, exit 2,
-//! effect `none`) without building an async runtime, reading the store or
-//! contacting the runtime (§5 item 4, fail-closed landing).
+//! Every handler is wired (⟨M02⟩ wave 4); none answers M01's "not available in
+//! this build" envelope ([`not_available`]) any more. The envelope and its wave-0
+//! tests stay until the orchestrator retires them (§5 item 4, fail-closed landing).
 //!
 //! Every command except `service run` and `schema` is a client of the runtime's
 //! control endpoint (overview §3); nothing here authorizes access. Effectful
@@ -751,18 +750,23 @@ fn usage(message: &str) -> Envelope<serde_json::Value> {
 }
 
 /// M01's "not available in this build" text, unchanged (m02-plan §5 item 4).
+// ⟨M02⟩ W4-U10: since `tui` is wired, no M02 handler answers this envelope any more;
+// the wave-0 acceptance tests still name it (integrator: remove with them).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const NOT_AVAILABLE_MESSAGE: &str =
     "this command is not available in this build (planned for M02)";
 
 /// The envelope a command answers until its unit lands: `USAGE_ERROR`, effect
 /// `none`, next `fix_request` (M01's envelope for `setup`, `connect`, `run`,
 /// `doctor` and `tui`).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn not_available_envelope() -> Envelope<serde_json::Value> {
     usage(NOT_AVAILABLE_MESSAGE)
 }
 
 /// Print [`not_available_envelope`] and return its exit code (2). Builds no async
 /// runtime, opens no store and never contacts the runtime.
+#[allow(dead_code)]
 pub(crate) fn not_available(ctx: &Ctx) -> ExitCode {
     let env = not_available_envelope();
     output::emit(&env, ctx.json);
@@ -841,13 +845,12 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         }
         Some(Command::Service(ServiceCommand::Status)) => return service_cmd::status(&ctx),
         Some(Command::Service(ServiceCommand::Stop)) => return service_cmd::stop(&ctx),
-        // M02 commands: each handler owns its command and, until its unit lands,
-        // answers `not_available` before any runtime contact.
+        // M02 commands: each handler owns its command (all wired in wave 4).
         Some(Command::Setup(args)) => return setup_cmd::run(&ctx, args),
         Some(Command::Connect(args)) => return connect_cmd::run(&ctx, args),
         Some(Command::Run(args)) => return run_cmd::run(&ctx, args),
         Some(Command::Doctor(args)) => return doctor_cmd::run(&ctx, args),
-        Some(Command::Tui) => return tui::run(&ctx),
+        Some(Command::Tui) => return tui::run(tui::TuiConfig::from_ctx(&ctx)),
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
@@ -1701,61 +1704,11 @@ mod tests {
     /// One command line per M02 command and action of the U0 clap tree (m02-plan
     /// U9 command list, U8 `run`/`connect`, U10 `tui`).
     const M02_COMMAND_LINES: &[&[&str]] = &[
-        &["setup"],
-        &["setup", "preview"],
-        &["setup", "preview", "--include-git"],
-        &["setup", "apply", "--include-git", "--request-id", "r1"],
-        &["setup", "rollback", "--keep-key-files"],
-        &["setup", "repair", "user_config_changed", "rerender"],
-        &["setup", "repair", "--operation", "op_x", "retry"],
-        &["setup", "repair", "--operation", "op_x", "keep"],
-        &["setup", "status"],
-        &["doctor"],
-        &[
-            "doctor",
-            "--active-probe",
-            "agent,network",
-            "--allow-config-commands",
-            "--alias",
-            "a",
-            "--alias",
-            "b",
-            "--no-local-exec",
-            "--redact",
-        ],
-        &["tui"],
-        &[
-            "destination",
-            "add",
-            "lab",
-            "--hostname",
-            "h.example",
-            "--port",
-            "22",
-        ],
-        &["destination", "add", "lab", "--observed"],
-        &["destination", "list"],
-        &["destination", "show", "lab"],
-        &["destination", "remove", "lab"],
-        &["identity", "list"],
-        &["identity", "adopt", "--pub", "k.pub"],
-        &[
-            "identity",
-            "adopt",
-            "--from-agent",
-            "--active-probe",
-            "agent",
-        ],
-        &["identity", "declare-interaction", "idn_x", "none"],
-        &["identity", "withdraw-declaration", "idn_x"],
-        &["identity", "remove", "idn_x"],
-        &["profile", "create", "p", "--pair", "d:a"],
-        &["profile", "show", "p"],
-        &["profile", "add", "p", "--pair", "d:a"],
-        &["profile", "remove", "p"],
-        &["profile", "list"],
-        &["uninstall"],
-        &["uninstall", "--purge-state"],
+        // ⟨M02⟩ W4-U9: `setup`, `doctor`, `destination`, `identity`, `profile` and
+        // `uninstall` are wired (their parse coverage is `setup_cmd::tests::
+        // u9_command_lines_parse`), so they leave this list.
+        // ⟨M02⟩ W4-U10: `tui` is wired and leaves it too (its refusals before any
+        // terminal or runtime contact are in `e2e_tui_m02`).
     ];
 
     /// `w0_m02_cli_commands_report_not_available_and_never_panic`, in-process form

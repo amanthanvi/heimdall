@@ -89,7 +89,7 @@ fn q(host: &str) -> Query {
     Query {
         host: host.to_owned(),
         user: None,
-        local_user: "fixture".to_owned(),
+        local_user: Some("fixture".to_owned()),
         client_version: OpenSshVersion {
             major: 10,
             minor: 3,
@@ -603,6 +603,224 @@ fn unreadable_include_makes_everything_after_it_undetermined_and_is_listed() {
     let ev = eval_user("Include missing.conf\nUser after\n", "box");
     assert!(ev.unresolved.is_empty());
     assert_eq!(det1(&ev, KnownKeyword::User).as_deref(), Some("after"));
+}
+
+// --- ADR-0007 §12.28 item 3: an unknown local account (`Query::local_user` `None`) ---
+
+/// `q(host)` with the local account unknown.
+fn q_no_account(host: &str) -> Query {
+    Query {
+        local_user: None,
+        ..q(host)
+    }
+}
+
+/// `Match localuser` and `Match user` (the remote user being the local account) are
+/// unknown without the account: a value behind them is undetermined, with every
+/// candidate. With the account named, each is decided. A value behind no such
+/// condition stays determined: only the affected conditions are undetermined, never the
+/// whole configuration.
+#[test]
+fn without_the_account_match_localuser_and_match_user_are_unknown_and_only_they() {
+    let text = "Host box\n    HostName decided.example\nMatch localuser fixture\n    \
+                IdentityFile ~/.ssh/k-local\nMatch user fixture\n    Port 2222\n\
+                Host *\n    ForwardAgent no\n";
+    let src = source().with_file(USER_CONFIG, text);
+    let known = eval_src(&src, &q("box"));
+    assert_eq!(
+        list(&known, KnownKeyword::IdentityFile),
+        vec![("~/.ssh/k-local".to_owned(), true)]
+    );
+    assert_eq!(det1(&known, KnownKeyword::Port).as_deref(), Some("2222"));
+    let other = eval_src(
+        &src,
+        &Query {
+            local_user: Some("someone-else".to_owned()),
+            ..q("box")
+        },
+    );
+    assert!(list(&other, KnownKeyword::IdentityFile).is_empty());
+    assert!(unset(&other, KnownKeyword::Port));
+
+    let unknown = eval_src(&src, &q_no_account("box"));
+    assert_eq!(
+        list(&unknown, KnownKeyword::IdentityFile),
+        vec![("~/.ssh/k-local".to_owned(), false)],
+        "behind Match localuser: may apply"
+    );
+    assert_eq!(
+        undet(&unknown, KnownKeyword::Port),
+        Some(vec!["2222".to_owned()]),
+        "behind Match user (no User, no -l): may apply"
+    );
+    // Unaffected: before and after, and not behind either condition.
+    assert_eq!(
+        det1(&unknown, KnownKeyword::Hostname).as_deref(),
+        Some("decided.example")
+    );
+    assert_eq!(
+        det1(&unknown, KnownKeyword::ForwardAgent).as_deref(),
+        Some("no")
+    );
+    // No read is recorded as unresolved, so the tree stays fully readable.
+    assert!(
+        unreadable_includes(&unknown).is_empty(),
+        "{:?}",
+        unknown.unresolved
+    );
+}
+
+/// `Match user` compares the remote user, which is the local account only while
+/// neither `-l` nor a `User` is in force: with either, it is decided without the
+/// account.
+#[test]
+fn without_the_account_match_user_is_decided_by_a_user_in_force() {
+    let text = "Host box\n    User deploy\nMatch user deploy\n    Port 2222\n";
+    let ev = eval_src(&source().with_file(USER_CONFIG, text), &q_no_account("box"));
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2222"));
+    let text = "Match user deploy\n    Port 2222\n";
+    let src = source().with_file(USER_CONFIG, text);
+    let given = eval_src(
+        &src,
+        &Query {
+            user: Some("deploy".to_owned()),
+            ..q_no_account("box")
+        },
+    );
+    assert_eq!(det1(&given, KnownKeyword::Port).as_deref(), Some("2222"));
+    let other = eval_src(
+        &src,
+        &Query {
+            user: Some("other".to_owned()),
+            ..q_no_account("box")
+        },
+    );
+    assert!(unset(&other, KnownKeyword::Port));
+    // `User` set only under an unknown condition: unset stays possible, so unknown.
+    let text = "Match localuser fixture\n    User deploy\nMatch user deploy\n    Port 2222\n";
+    let ev = eval_src(&source().with_file(USER_CONFIG, text), &q_no_account("box"));
+    assert_eq!(
+        undet(&ev, KnownKeyword::Port),
+        Some(vec!["2222".to_owned()])
+    );
+}
+
+/// The account is never taken to be an empty name: `Match localuser *` (which an
+/// empty name matches) and `Match !localuser *` are both unknown without it.
+#[test]
+fn without_the_account_the_name_is_never_empty() {
+    for line in ["Match localuser *", "Match !localuser *"] {
+        let text = format!("{line}\n    Port 2222\n");
+        let ev = eval_src(
+            &source().with_file(USER_CONFIG, text.as_str()),
+            &q_no_account("box"),
+        );
+        assert_eq!(
+            undet(&ev, KnownKeyword::Port),
+            Some(vec!["2222".to_owned()]),
+            "{line}"
+        );
+    }
+}
+
+/// `%u`, and `%r` while the remote user may be the local account, are unavailable
+/// without the account: an `Include` that names one is `TokenUnavailable` (and so not
+/// fully readable), with every value after it undetermined. With the account, or with
+/// a `User` in force for `%r`, the file is read.
+#[test]
+fn without_the_account_percent_u_and_percent_r_are_token_unavailable() {
+    let src = source()
+        .with_file(
+            USER_CONFIG,
+            "Host box\n    HostName decided.example\nInclude conf.d/%u.conf\n",
+        )
+        .with_file(format!("{USER_DIR}/conf.d/fixture.conf"), "Port 2222\n");
+    let known = eval_src(&src, &q("box"));
+    assert_eq!(det1(&known, KnownKeyword::Port).as_deref(), Some("2222"));
+    assert!(known.unresolved.is_empty(), "{:?}", known.unresolved);
+    let unknown = eval_src(&src, &q_no_account("box"));
+    assert!(has_reason(
+        &unknown,
+        &UnresolvedReason::TokenUnavailable('u')
+    ));
+    assert_eq!(unreadable_includes(&unknown).len(), 1);
+    assert!(undet(&unknown, KnownKeyword::Port).is_some());
+    assert_eq!(
+        det1(&unknown, KnownKeyword::Hostname).as_deref(),
+        Some("decided.example")
+    );
+
+    let src = source()
+        .with_file(USER_CONFIG, "Include conf.d/%r.conf\n")
+        .with_file(format!("{USER_DIR}/conf.d/fixture.conf"), "Port 2222\n")
+        .with_file(format!("{USER_DIR}/conf.d/deploy.conf"), "Port 2200\n");
+    let known = eval_src(&src, &q("box"));
+    assert_eq!(det1(&known, KnownKeyword::Port).as_deref(), Some("2222"));
+    let unknown = eval_src(&src, &q_no_account("box"));
+    assert!(has_reason(
+        &unknown,
+        &UnresolvedReason::TokenUnavailable('r')
+    ));
+    let given = eval_src(
+        &source()
+            .with_file(
+                USER_CONFIG,
+                "Host box\n    User deploy\nInclude conf.d/%r.conf\n",
+            )
+            .with_file(format!("{USER_DIR}/conf.d/deploy.conf"), "Port 2200\n"),
+        &q_no_account("box"),
+    );
+    assert_eq!(det1(&given, KnownKeyword::Port).as_deref(), Some("2200"));
+    assert!(given.unresolved.is_empty(), "{:?}", given.unresolved);
+}
+
+// --- ADR-0007 §12.28 item 6: files as the configuration names them ---
+
+/// `Evaluation::files` names each file by the path the configuration gives it, never
+/// its canonical form: a root by its root's path, an included file by the `Include`
+/// argument's match, so a file reached through a symlink (a linked include, or a
+/// linked root) is shown by the link's path. Spans of the included file resolve to it.
+#[test]
+fn files_are_named_as_written_not_canonicalized() {
+    let src = source()
+        .with_entry(
+            USER_CONFIG,
+            MemEntry::Symlink(PathBuf::from("/hm/real/config")),
+        )
+        .with_file(
+            "/hm/real/config",
+            "Include /hm/linked/extra.conf\nHost box\n    Port 2222\n",
+        )
+        .with_entry(
+            "/hm/linked/extra.conf",
+            MemEntry::Symlink(PathBuf::from("/hm/target/extra.conf")),
+        )
+        .with_file("/hm/target/extra.conf", "Host box\n    User from-extra\n");
+    let ev = eval_src(&src, &q("box"));
+    let user = match ev.values.get(&KnownKeyword::User) {
+        Some(Resolved::Determined(v)) => v.clone(),
+        other => panic!("{other:?}"),
+    };
+    let port = match ev.values.get(&KnownKeyword::Port) {
+        Some(Resolved::Determined(v)) => v.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        ev.files.get(&user.span.source).map(PathBuf::as_path),
+        Some(Path::new("/hm/linked/extra.conf")),
+        "the Include's path, not /hm/target/extra.conf"
+    );
+    assert_eq!(
+        ev.files.get(&port.span.source).map(PathBuf::as_path),
+        Some(Path::new(USER_CONFIG)),
+        "the root's path, not /hm/real/config"
+    );
+    for path in ev.files.values() {
+        assert!(
+            !path.starts_with("/hm/target") && !path.starts_with("/hm/real"),
+            "{path:?}"
+        );
+    }
 }
 
 #[test]

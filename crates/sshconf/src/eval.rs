@@ -89,7 +89,7 @@
 //! Argument syntax is checked only for presence, `Port` ranges and `HostName` tokens;
 //! the rest is ssh's (U3's corpus covers it).
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use crate::directive::{
@@ -189,8 +189,15 @@ pub struct Query {
     pub host: String,
     /// `-l`/`user@`, when given.
     pub user: Option<String>,
-    /// The local account name (for `%u` and `Match localuser`).
-    pub local_user: String,
+    /// The local account name (for `%u`, `%r` and `Match localuser`, and the remote
+    /// user `Match user` compares when neither `-l` nor a `User` is in force). `None`
+    /// when the account cannot be established (ADR-0007 §12.28 item 3): `Match
+    /// localuser` is then unknown, and so is `Match user` while the remote user may be
+    /// the local account; `%u` (and `%r` while it may be the local account) is
+    /// unavailable, so an `Include` that names it is `TokenUnavailable`. Only the
+    /// conditions that read the account are undetermined, never the whole
+    /// configuration, and the name is never taken to be empty.
+    pub local_user: Option<String>,
     /// The client that will read the configuration.
     pub client_version: OpenSshVersion,
     /// The invocation.
@@ -360,8 +367,13 @@ pub struct Evaluation {
     /// Retired keywords ssh accepts and ignores, in reading order, one entry per line
     /// (ADR-0007 §12.15 item 4). They have no effect on `values` or `accumulated`.
     pub ignored: Vec<Ignored>,
-    /// The canonical path of every file the walk read, by the id its spans carry, so a
-    /// caller can show `file:line` for a [`Span`] (ADR-0007 §3 item 3).
+    /// The path of every file the walk read, by the id its spans carry, so a caller
+    /// can show `file:line` for a [`Span`] (ADR-0007 §3 item 3). It is the path as the
+    /// configuration names it, never canonicalized (ADR-0007 §12.28 item 6): a root's
+    /// path ([`Roots`]) for a root, and for an included file the `Include` argument's
+    /// match (its expansion, `~` and tokens resolved, as ssh opens it). A file reached
+    /// through a symlink is therefore shown by the link's path, not the target's. When
+    /// two paths reach one file, the first the walk met.
     pub files: BTreeMap<SourceId, PathBuf>,
 }
 
@@ -391,6 +403,7 @@ pub fn evaluate(
     let mut w = Walker {
         source,
         query,
+        roots,
         first: BTreeMap::new(),
         proxy: Slot::Unset,
         acc: BTreeMap::new(),
@@ -742,16 +755,22 @@ impl<T: PartialEq> Slot<T> {
     /// The possible strings, with `default` for "unset" and `f` for each value
     /// (`None`: unknown).
     fn poss(&self, default: &str, f: impl Fn(&T) -> Option<String>) -> Poss {
+        self.poss_or(Some(default), f)
+    }
+
+    /// [`Slot::poss`] with a default that may itself be unknown (`None`).
+    fn poss_or(&self, default: Option<&str>, f: impl Fn(&T) -> Option<String>) -> Poss {
         let mut p = Poss::default();
+        let unset = || default.map(str::to_owned);
         match self {
-            Slot::Unset => p.add(Some(default.to_owned())),
+            Slot::Unset => p.add(unset()),
             Slot::Det(v) => p.add(f(v)),
             Slot::Undet { cands, open } => {
                 for v in cands {
                     p.add(f(v));
                 }
                 if *open {
-                    p.add(Some(default.to_owned()));
+                    p.add(unset());
                 }
             }
         }
@@ -804,11 +823,17 @@ struct Frame {
     /// (ADR-0007 §12.16 item 1), so the runtime's file is only one of the files a
     /// later `ssh` may read.
     include_cond: Tri,
+    /// The matches of this file's current `Include` argument not yet entered or
+    /// failed, in the walk's order: the path as written of the next file it enters
+    /// (ADR-0007 §12.28 item 6).
+    pending: VecDeque<PathBuf>,
 }
 
 struct Walker<'a> {
     source: &'a dyn ConfigSource,
     query: &'a Query,
+    /// The roots, whose paths name the root files as written.
+    roots: &'a Roots,
     first: BTreeMap<KnownKeyword, Slot<Value>>,
     proxy: Slot<(KnownKeyword, Value)>,
     acc: BTreeMap<KnownKeyword, Vec<Candidate>>,
@@ -830,7 +855,9 @@ impl IncludeVisitor for Walker<'_> {
         let single = |p: Poss| p.single().map(str::to_owned);
         match token {
             'd' => self.source.account_home().to_str().map(str::to_owned),
-            'u' => Some(self.query.local_user.clone()),
+            // ADR-0007 §12.28 item 3: an account that cannot be established is
+            // unavailable, never an empty name.
+            'u' => self.query.local_user.clone(),
             'n' => Some(self.query.host.clone()),
             'h' => single(self.match_host_poss()),
             'p' => single(self.slot_poss(KnownKeyword::Port, "22")),
@@ -844,9 +871,20 @@ impl IncludeVisitor for Walker<'_> {
 
     fn enter(&mut self, visit: &Visit) {
         self.visited.insert(visit.source);
+        // ADR-0007 §12.28 item 6: the path as written. A root is its root's path; an
+        // included file is the including file's next pending match (the walk enters
+        // or fails each match in order).
+        let written = if visit.depth == 0 {
+            match visit.origin {
+                Origin::User => self.roots.user.clone(),
+                Origin::System => self.roots.system.clone(),
+            }
+        } else {
+            self.frames.last_mut().and_then(|f| f.pending.pop_front())
+        };
         self.files
             .entry(visit.source)
-            .or_insert_with(|| visit.canonical.clone());
+            .or_insert_with(|| written.unwrap_or_else(|| visit.canonical.clone()));
         let ctx = match self.frames.last() {
             Some(parent) if visit.depth > 0 => Ctx {
                 cond: parent.cur.cond.and(parent.include_cond),
@@ -862,6 +900,7 @@ impl IncludeVisitor for Walker<'_> {
             ctx,
             role: visit.role,
             include_cond: Tri::True,
+            pending: VecDeque::new(),
         });
     }
 
@@ -882,6 +921,10 @@ impl IncludeVisitor for Walker<'_> {
         let reads_env = !env_names(&arg.written).is_empty();
         if let Some(f) = self.frames.last_mut() {
             f.include_cond = if reads_env { Tri::Unknown } else { Tri::True };
+            f.pending = arg.matches.as_ref().map_or_else(
+                |_| VecDeque::new(),
+                |m| m.iter().cloned().collect::<VecDeque<_>>(),
+            );
         }
         if reads_env {
             self.unresolve(UnresolvedReason::EnvironmentReference, span);
@@ -930,7 +973,13 @@ impl IncludeVisitor for Walker<'_> {
         self.opaque(span, cond_span, applies, visit.role);
     }
 
-    fn include_failed(&mut self, visit: &Visit, span: Span, _path: &Path, error: &IncludeError) {
+    fn include_failed(&mut self, visit: &Visit, span: Span, path: &Path, error: &IncludeError) {
+        // This match is not entered: it is no longer pending.
+        if let Some(f) = self.frames.last_mut()
+            && let Some(i) = f.pending.iter().position(|p| p == path)
+        {
+            f.pending.remove(i);
+        }
         if matches!(error, IncludeError::Unreadable(SourceError::NotFound)) {
             // Gone between the glob and the read: OpenSSH skips it too.
             return;
@@ -1166,9 +1215,11 @@ impl Walker<'_> {
                         "user" => self
                             .user_poss()
                             .test(|u| match_pattern_list(u, arg, false) == 1, Tri::Unknown),
-                        "localuser" => {
-                            Tri::of(match_pattern_list(&self.query.local_user, arg, false) == 1)
-                        }
+                        // ADR-0007 §12.28 item 3: unknown without the account.
+                        "localuser" => match &self.query.local_user {
+                            Some(local) => Tri::of(match_pattern_list(local, arg, false) == 1),
+                            None => Tri::Unknown,
+                        },
                         "localnetwork" => {
                             self.unresolve(UnresolvedReason::MatchLocalNetwork, d.span);
                             Tri::Unknown
@@ -1225,10 +1276,23 @@ impl Walker<'_> {
         }
     }
 
+    /// The remote user (`%r`, `Match user`): `-l` when given, otherwise the `User`
+    /// obtained so far, with the local account standing for "unset". Without the
+    /// account (ADR-0007 §12.28 item 3) "unset" is an unknown string.
     fn user_poss(&self) -> Poss {
         match &self.query.user {
             Some(u) => Poss::one(u.clone()),
-            None => self.slot_poss(KnownKeyword::User, &self.query.local_user),
+            None => {
+                let default = self.query.local_user.as_deref();
+                match self.first.get(&KnownKeyword::User) {
+                    None => {
+                        let mut p = Poss::default();
+                        p.add(default.map(str::to_owned));
+                        p
+                    }
+                    Some(slot) => slot.poss_or(default, first_arg),
+                }
+            }
         }
     }
 

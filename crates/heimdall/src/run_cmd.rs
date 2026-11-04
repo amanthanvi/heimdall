@@ -22,10 +22,10 @@
 //!    `INTERACTION_REQUIRED`, exit 3, with a `prelaunch_failed` record, naming the
 //!    uncleared entries' file and line in `data.error.entries`;
 //! 7. one `inspect bindings` confirming the binding is still `active` (ADR-0007
-//!    §12.24 item 2): a replayed `bind` returns its stored result, so a binding the
-//!    holder pass released since is refused here (`CREDENTIAL_EXPIRED`, reason
-//!    `binding_released`, `next: new_work`, a `prelaunch_failed` record; §12.26 item
-//!    3(a)) and never launched;
+//!    §12.24 item 2, `launch_flow::confirm_binding_active`): a replayed `bind` returns
+//!    its stored result, so a binding the holder pass released since is refused there
+//!    (`CREDENTIAL_EXPIRED`, reason `binding_released`, `next: new_work`, a
+//!    `prelaunch_failed` record; §12.26 item 3(a), §12.28 item 7) and never launched;
 //! 8. the launch: Unix `exec` after `launching`, Windows spawn and wait.
 //!
 //! The control session is closed and the async runtime shut down before step 8, so
@@ -41,8 +41,7 @@
 
 use std::ffi::OsString;
 
-use heimdall_contract::envelope::{EffectStatus, reason};
-use heimdall_contract::ids::{BindingId, ProfileId, RequestId, WorkId};
+use heimdall_contract::ids::{ProfileId, RequestId, WorkId};
 use heimdall_contract::request::{
     BindForm, BindRequest, EnsureData, EnsureRequest, LaunchBinding, ProcessHolder, Request,
     WaitMode,
@@ -133,24 +132,6 @@ fn check_argv_bound(argv: &[OsString]) -> Result<(), Failure> {
         ));
     }
     Ok(())
-}
-
-/// ADR-0007 §12.26 item 3(a): the active re-check's refusal of a binding that is no
-/// longer active (step 7) is `CREDENTIAL_EXPIRED`, `next: new_work`, effect `none`,
-/// the binding as the resource, with reason `binding_released`. Any other failure of
-/// the re-check (an `inspect` that cannot be read) is returned unchanged.
-fn released(failure: Failure, binding: &BindingId) -> Failure {
-    if failure.env.code != Code::CredentialExpired {
-        return failure;
-    }
-    let e = heimdall_app::OpError::new(
-        Code::CredentialExpired,
-        "the binding was released (its holder exited); nothing was launched, start new work",
-    )
-    .with_effect(EffectStatus::None)
-    .with_reason(reason::BINDING_RELEASED)
-    .with_resource("binding", Some(binding.to_string()));
-    Failure::of(output::error_value(e.into_envelope()))
 }
 
 fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, Refused> {
@@ -301,10 +282,11 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
                 return Err((Failure::ineligible(&refusal, provider, kind), Some(ids)));
             }
         }
-        // 7. The binding is still active (a replayed bind may name a released one).
+        // 7. The binding is still active (a replayed bind may name a released one;
+        // `confirm_binding_active` refuses it as `binding_released`).
         launch_flow::confirm_binding_active(&mut client, &data.binding_id)
             .await
-            .map_err(|f| (released(f, &data.binding_id), Some(ids.clone())))?;
+            .map_err(|f| (f, Some(ids.clone())))?;
         drop(client);
         let delta = EnvDelta::from_integration(&bound_data.consumer, &env, &git, platform);
         Ok(Prepared {

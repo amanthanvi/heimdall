@@ -1,0 +1,40 @@
+Heimdall  1 Overview [2 Destinations] 3 Profiles  4 Activity  [!!] Needs attention
+2 total · / to search (never probes)
+> [OK] alpha        managed  alpha.example.invalid:22 as fixture
+  [ !] beta         observed (defined in your configuration)
+
+
+
+
+
+
+
+
+
+
+
+
+     ┌Authorize evaluate──────────────────────────────────────────────────────────────────────────────────────────┐
+     │The evaluate level for alpha runs your configuration's commands with whatever effects they have.            │
+     │Configuration commands the static pass found:                                                               │
+     │  ~/.ssh/config:12                                                                                          │
+     │Without a typed yes the level is declined (config_commands_not_authorized) and nothing runs.                │
+     │Authorize? Type yes to confirm [y/N]: _                                                                     │
+     └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+type yes, Enter · Esc cancel

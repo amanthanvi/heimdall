@@ -321,6 +321,9 @@ mod fake_adapter {
         hangs: Hangs,
         /// ⟨M02⟩ Effects and revocations, in order.
         journal: Mutex<Vec<FakeEvent>>,
+        /// ⟨M02⟩ ADR-0007 §12.30 item 1: the `interactive` flag of every `prepare`
+        /// call, in order.
+        interactive_flags: Mutex<Vec<bool>>,
     }
 
     /// One ledger line: the effect token and the outcome the effect produced.
@@ -421,6 +424,7 @@ mod fake_adapter {
                 ledger: None,
                 hangs: Hangs::default(),
                 journal: Mutex::new(Vec::new()),
+                interactive_flags: Mutex::new(Vec::new()),
             })
         }
 
@@ -472,6 +476,12 @@ mod fake_adapter {
             self.hangs.late.load(Ordering::SeqCst)
         }
 
+        /// ⟨M02⟩ ADR-0007 §12.30 item 1: the `interactive` flag of every `prepare` call.
+        #[must_use]
+        pub fn interactive_flags(&self) -> Vec<bool> {
+            self.interactive_flags.lock().unwrap().clone()
+        }
+
         /// ⟨M02⟩ Effects and revocations, in order.
         #[must_use]
         pub fn journal(&self) -> Vec<FakeEvent> {
@@ -502,6 +512,7 @@ mod fake_adapter {
                 ledger: Some(path),
                 hangs: Hangs::default(),
                 journal: Mutex::new(Vec::new()),
+                interactive_flags: Mutex::new(Vec::new()),
             };
             adapter.refresh()?;
             Ok(Arc::new(adapter))
@@ -597,6 +608,7 @@ mod fake_adapter {
         }
 
         async fn prepare(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
+            self.interactive_flags.lock().unwrap().push(req.interactive);
             self.refreshed()?;
             if let Some(done) = self.effects.lock().unwrap().get(req.effect_token) {
                 return Ok(done.clone());

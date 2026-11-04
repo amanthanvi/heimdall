@@ -244,8 +244,9 @@ impl LocalContext {
 /// `LOGNAME`. `None` when the account cannot be established: a failed lookup, an empty
 /// name, and Windows, where this build has no account-database lookup. Every query
 /// builder (projection observe and preview, the pre-launch check, the probes and the
-/// doctor) then evaluates with no name and treats a configuration that reads the local
-/// account ([`reads_local_account`]) as undetermined, never as an empty name.
+/// doctor) then evaluates with `Query::local_user` `None`, never an empty name: only
+/// the conditions that read the account (`Match localuser`, `Match user` on the local
+/// account, `%u`, `%r`) are undetermined (ADR-0007 §12.28 item 3).
 #[must_use]
 pub fn local_account() -> Option<String> {
     #[cfg(unix)]
@@ -263,7 +264,9 @@ pub fn local_account() -> Option<String> {
 /// (`Match user` compares with the local account when no `User` is in force), or an
 /// `Include` argument with a `%u` or `%r` token. Read over every file the evaluation
 /// visited, whatever its sections' conditions, so a line in a section that does not
-/// apply still counts (the conservative reading).
+/// apply still counts (the conservative reading). It decides nothing (the evaluator
+/// leaves only the affected conditions undetermined, §12.28 item 3); the doctor uses it
+/// to say why a selection is undetermined.
 #[must_use]
 pub fn reads_local_account(set: &ConfigSet, evaluation: &Evaluation) -> bool {
     evaluation.files.keys().any(|id| {
@@ -284,23 +287,6 @@ pub fn reads_local_account(set: &ConfigSet, evaluation: &Evaluation) -> bool {
             })
         })
     })
-}
-
-/// ADR-0007 §12.25 item 2: `observation` as undetermined, because the local account
-/// cannot be established and the configuration reads it. Every directive is
-/// `undetermined`, and so are the identity selection (its `IdentitiesOnly` and each
-/// entry included), so nothing is cleared or consented to on its strength.
-pub fn mark_account_undetermined(observation: &mut AliasObservation) {
-    for d in &mut observation.behavior {
-        d.certainty = DirectiveCertainty::Undetermined;
-    }
-    if let Some(report) = observation.identity_selection.as_mut() {
-        report.selection = IdentitySelection::Undetermined;
-        report.identities_only = heimdall_contract::provider::IdentitiesOnly::Undetermined;
-        for e in &mut report.entries {
-            e.certainty = heimdall_contract::provider::Certainty::Undetermined;
-        }
-    }
 }
 
 /// ADR-0007 §12.26 item 7: `path` for display, `~/…` when it lies under the account
@@ -909,6 +895,7 @@ impl Doctor<'_> {
     fn observe(
         &self,
         set: &ConfigSet,
+        evaluation: &Evaluation,
         roots: &Roots,
         name: &str,
         r: &Resolved,
@@ -923,7 +910,8 @@ impl Doctor<'_> {
                 v.args.join(" ")
             }
         };
-        let prov = |v: &Value| provenance(self.ctx, set, roots, v.span);
+        // ADR-0007 §12.28 item 6: each file as the configuration names it.
+        let prov = |v: &Value| probe::provenance_in(self.ctx, set, evaluation, roots, v.span);
         match r {
             Resolved::Unset => DirectiveObservation {
                 directive: name.to_owned(),
@@ -949,6 +937,7 @@ impl Doctor<'_> {
     fn behavior(
         &self,
         set: &ConfigSet,
+        evaluation: &Evaluation,
         roots: &Roots,
         b: &RelevantBehavior,
     ) -> Vec<DirectiveObservation> {
@@ -960,7 +949,7 @@ impl Doctor<'_> {
             ("IdentityAgent", &b.identity_agent),
         ];
         for (n, r) in first {
-            out.push(self.observe(set, roots, n, r));
+            out.push(self.observe(set, evaluation, roots, n, r));
         }
         for (name, list) in [
             ("IdentityFile", &b.identity_files),
@@ -988,11 +977,11 @@ impl Doctor<'_> {
                 },
                 provenance: list
                     .iter()
-                    .map(|c| provenance(self.ctx, set, roots, c.value.span))
+                    .map(|c| probe::provenance_in(self.ctx, set, evaluation, roots, c.value.span))
                     .collect(),
             });
         }
-        out.push(self.observe(set, roots, "IdentitiesOnly", &b.identities_only));
+        out.push(self.observe(set, evaluation, roots, "IdentitiesOnly", &b.identities_only));
         fn proxy_values(p: &Proxy) -> Option<(String, &Value)> {
             match p {
                 Proxy::None => None,
@@ -1004,7 +993,9 @@ impl Doctor<'_> {
             ProxyResolution::Determined(p) => match proxy_values(p) {
                 Some((s, v)) => (
                     vec![s],
-                    vec![provenance(self.ctx, set, roots, v.span)],
+                    vec![probe::provenance_in(
+                        self.ctx, set, evaluation, roots, v.span,
+                    )],
                     DirectiveCertainty::Determined,
                 ),
                 None => (Vec::new(), Vec::new(), DirectiveCertainty::Unset),
@@ -1016,7 +1007,9 @@ impl Doctor<'_> {
                     match proxy_values(p) {
                         Some((s, v)) => {
                             vals.push(s);
-                            provs.push(provenance(self.ctx, set, roots, v.span));
+                            provs.push(probe::provenance_in(
+                                self.ctx, set, evaluation, roots, v.span,
+                            ));
                         }
                         None => vals.push("none".to_owned()),
                     }
@@ -1047,17 +1040,23 @@ impl Doctor<'_> {
             ("PKCS11Provider", &b.pkcs11_provider),
         ];
         for (n, r) in rest {
-            out.push(self.observe(set, roots, n, r));
+            out.push(self.observe(set, evaluation, roots, n, r));
         }
-        out.push(self.observe(set, roots, "SecurityKeyProvider", &b.security_key_provider));
+        out.push(self.observe(
+            set,
+            evaluation,
+            roots,
+            "SecurityKeyProvider",
+            &b.security_key_provider,
+        ));
         out
     }
 
     /// Statically evaluate one alias under `invocation`, with its findings. The local
     /// account comes from the account database (ADR-0007 §12.25 item 2): when it cannot
-    /// be established and the configuration reads it, the observation is undetermined
-    /// ([`mark_account_undetermined`]) with an `identity_selection_undetermined`
-    /// finding for an alias with a catalog identity.
+    /// be established, only the conditions that read it are undetermined (§12.28 item
+    /// 3), and an undetermined selection of a configuration that reads it says so in
+    /// its `identity_selection_undetermined` finding.
     fn alias(
         &mut self,
         alias: &str,
@@ -1070,12 +1069,12 @@ impl Doctor<'_> {
         let query = probe::query_with(ctx, alias, version, invocation);
         let mut set = ConfigSet::new();
         let evaluation = evaluate(&mut set, &source, &roots, &query, &ctx.limits);
-        let account_unknown = probe::account_undetermined(&query, &set, &evaluation);
+        let account_unknown = query.local_user.is_none() && reads_local_account(&set, &evaluation);
         let behavior = relevant(&evaluation);
         let catalog = ctx.catalog_alias(alias).cloned();
         let subj = || subject("destination", Some(alias));
         for u in &evaluation.unresolved {
-            let prov = provenance(ctx, &set, &roots, u.span);
+            let prov = probe::provenance_in(ctx, &set, &evaluation, &roots, u.span);
             match &u.reason {
                 UnresolvedReason::MatchExec | UnresolvedReason::MatchLocalNetwork => self.add(
                     finding::DYNAMIC_MATCH_UNRESOLVED,
@@ -1114,7 +1113,7 @@ impl Doctor<'_> {
             if match_exec.contains(&span) {
                 continue;
             }
-            let prov = provenance(ctx, &set, &roots, span);
+            let prov = probe::provenance_in(ctx, &set, &evaluation, &roots, span);
             self.add(
                 finding::EXECUTABLE_DIRECTIVE_PRESENT,
                 FindingSeverity::Info,
@@ -1127,7 +1126,7 @@ impl Doctor<'_> {
             );
         }
         for inv in &evaluation.invalid {
-            let prov = provenance(ctx, &set, &roots, inv.span);
+            let prov = probe::provenance_in(ctx, &set, &evaluation, &roots, inv.span);
             let code = if inv.reason == "byte_order_mark" {
                 finding::UNSUPPORTED_ENCODING
             } else {
@@ -1149,7 +1148,7 @@ impl Doctor<'_> {
                 matches!(a.to_ascii_lowercase().as_str(), "no" | "off" | "accept-new")
             })
         {
-            let prov = provenance(ctx, &set, &roots, v.span);
+            let prov = probe::provenance_in(ctx, &set, &evaluation, &roots, v.span);
             self.add(
                 finding::STRICT_HOST_KEY_CHECKING_WEAK,
                 FindingSeverity::Warning,
@@ -1169,7 +1168,8 @@ impl Doctor<'_> {
                 if entry.provenance.is_none()
                     && let Some(span) = span
                 {
-                    entry.provenance = Some(provenance(ctx, &set, &roots, span));
+                    entry.provenance =
+                        Some(probe::provenance_in(ctx, &set, &evaluation, &roots, span));
                 }
             }
             match report.selection {
@@ -1193,7 +1193,11 @@ impl Doctor<'_> {
                     subj(),
                     ProbeLevel::Static,
                     None,
-                    "which identities ssh offers for this alias depends on something static evaluation cannot decide",
+                    if account_unknown {
+                        "the configuration reads the local account name, which cannot be established from the account database, so the identities ssh offers for this alias are undetermined"
+                    } else {
+                        "which identities ssh offers for this alias depends on something static evaluation cannot decide"
+                    },
                     "review_config",
                     None,
                 ),
@@ -1234,7 +1238,7 @@ impl Doctor<'_> {
                     .and_then(|a| crate::agents::expand_agent_value(a, &source, &ctx.env))
                     .and_then(|s| crate::agents::locator_for(&s, ctx.platform));
                 if expanded.as_ref() != Some(endpoint) {
-                    let prov = provenance(ctx, &set, &roots, v.span);
+                    let prov = probe::provenance_in(ctx, &set, &evaluation, &roots, v.span);
                     self.add(
                         finding::IDENTITY_AGENT_OVERRIDDEN,
                         FindingSeverity::Warning,
@@ -1250,28 +1254,12 @@ impl Doctor<'_> {
             identity_report = Some(report);
         }
         self.known_host_static(alias, &behavior);
-        let has_identity = identity_report.is_some();
         let mut obs = AliasObservation {
             alias: alias.to_owned(),
             definition: catalog.map_or(AliasDefinition::UserOnly, |c| c.definition),
-            behavior: self.behavior(&set, &roots, &behavior),
+            behavior: self.behavior(&set, &evaluation, &roots, &behavior),
             identity_selection: identity_report,
         };
-        if account_unknown {
-            mark_account_undetermined(&mut obs);
-            if has_identity {
-                self.add(
-                    finding::IDENTITY_SELECTION_UNDETERMINED,
-                    FindingSeverity::Warning,
-                    subj(),
-                    ProbeLevel::Static,
-                    None,
-                    "the configuration reads the local account name, which cannot be established from the account database, so the identities ssh offers for this alias are undetermined",
-                    "review_config",
-                    None,
-                );
-            }
-        }
         redisplay_observation(&mut obs, &ctx.paths.account_home);
         (obs, evaluation)
     }
@@ -1669,13 +1657,13 @@ mod tests {
         let query = heimdall_sshconf::eval::Query {
             host: "alias".to_owned(),
             user: None,
-            local_user: String::new(),
+            local_user: None,
             client_version: OpenSshVersion::MINIMUM,
             invocation: Invocation::Shell,
         };
         let mut set = ConfigSet::new();
         let evaluation = evaluate(&mut set, &source, &roots, &query, &Limits::default());
-        probe::account_undetermined(&query, &set, &evaluation)
+        reads_local_account(&set, &evaluation)
     }
 
     /// ADR-0007 §12.25 item 2 (T02): with the local account not established, a
@@ -1706,46 +1694,6 @@ mod tests {
         ] {
             assert!(!reads(text), "{text:?}");
         }
-    }
-
-    /// ADR-0007 §12.25 item 2: an observation the local account leaves undetermined
-    /// has every directive, its selection, `IdentitiesOnly` and every entry
-    /// undetermined, so nothing clears it.
-    #[test]
-    fn an_account_undetermined_observation_clears_nothing() {
-        use heimdall_contract::provider::{
-            Certainty, IdentitiesOnly, IdentityEntry, IdentityEntryKind, IdentityEntrySource,
-            IdentitySelectionReport,
-        };
-        let mut o = AliasObservation {
-            alias: "a".to_owned(),
-            definition: AliasDefinition::Managed,
-            behavior: vec![DirectiveObservation {
-                directive: "HostName".to_owned(),
-                values: vec!["a.example.invalid".to_owned()],
-                certainty: DirectiveCertainty::Determined,
-                provenance: Vec::new(),
-            }],
-            identity_selection: Some(IdentitySelectionReport {
-                selection: IdentitySelection::Exclusive,
-                entries: vec![IdentityEntry {
-                    kind: IdentityEntryKind::IdentityFile,
-                    source: IdentityEntrySource::Managed,
-                    provenance: None,
-                    certainty: Certainty::Determined,
-                    fingerprint: Some("SHA256:fixture".to_owned()),
-                    backing: IdentityBacking::Agent,
-                    cleared: None,
-                }],
-                identities_only: IdentitiesOnly::DeterminedYes,
-            }),
-        };
-        mark_account_undetermined(&mut o);
-        assert_eq!(o.behavior[0].certainty, DirectiveCertainty::Undetermined);
-        let r = o.identity_selection.unwrap();
-        assert_eq!(r.selection, IdentitySelection::Undetermined);
-        assert_eq!(r.identities_only, IdentitiesOnly::Undetermined);
-        assert_eq!(r.entries[0].certainty, Certainty::Undetermined);
     }
 
     /// ADR-0007 §12.26 item 7: a home reached through a symlink (the configured home is

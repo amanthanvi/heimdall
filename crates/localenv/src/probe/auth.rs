@@ -154,12 +154,11 @@ fn noninteractive_refusal(
     // `IdentityAgent` of the invocation the probe runs (item 1; the pass evaluated
     // it) is the endpoint the adopted identity's declaration covers. A declaration
     // covers one endpoint only, so an unknown or different one refuses, exclusive
-    // selection or not; so does a pass the local account leaves undetermined (item 2).
+    // selection or not. Without the local account, a value behind a condition that
+    // reads it is undetermined in the pass (§12.28 item 3), so it clears nothing.
     let declared = identity.endpoint.as_ref().and_then(endpoint_of);
     let endpoint = match (effective_agent(ctx, pass), declared) {
-        (Some(effective), Some(declared)) if effective == declared && !pass.account_unknown => {
-            effective
-        }
+        (Some(effective), Some(declared)) if effective == declared => effective,
         _ => return Some(AuthRefusal::InteractionUnknown),
     };
     let source = BoundedSource::new(
@@ -167,6 +166,17 @@ fn noninteractive_refusal(
         ctx.local.env.clone(),
         ctx.local.limits,
     );
+    // ADR-0007 §12.29 item 1 (R01): either success path counts only for the adopted
+    // key. Exclusivity is established against the public-key file's path, so the file
+    // must still hold the key whose fingerprint the catalog recorded: a replaced, an
+    // unreadable or an unparsable file, or an identity with no recorded fingerprint,
+    // refuses before anything runs. The pre-launch check binds the same way
+    // (`heimdall_launch::eligibility`, the adopted managed entry's fingerprint).
+    let adopted_key = public_key(&source, &identity.public_key_path);
+    match (identity.fingerprint.as_deref(), adopted_key) {
+        (Some(recorded), Some(key)) if key.fingerprint == recorded => {}
+        _ => return Some(AuthRefusal::InteractionUnknown),
+    }
     let report = identity_selection(&pass.evaluation, &identity.public_key_path, &source);
     if report.selection == IdentitySelection::Exclusive
         || fallbacks_cleared(ctx, &endpoint, identity, &report, &source)
@@ -479,11 +489,20 @@ mod tests {
             definition: AliasDefinition::Managed,
             identity: Some(CatalogIdentity {
                 public_key_path: key.to_path_buf(),
-                fingerprint: None,
+                // As the catalog records it (§12.29 item 1): the adopted key's
+                // fingerprint, read from the file when the fixture adopts it.
+                fingerprint: Some(fingerprint_of(key)),
                 interaction,
                 endpoint: Some(EndpointLocator::UnixSocket(endpoint.to_path_buf())),
             }),
         }
+    }
+
+    /// The `SHA256:` fingerprint of the public key in the file at `path`.
+    fn fingerprint_of(path: &Path) -> String {
+        let text = std::fs::read_to_string(path).unwrap();
+        let encoded = text.split_ascii_whitespace().nth(1).unwrap();
+        crate::known_hosts::fingerprint(&crate::known_hosts::base64_decode(encoded).unwrap())
     }
 
     /// ADR-0007 §12.17 item 10 (W3b-gaps): the non-interactive authentication probe
@@ -658,7 +677,8 @@ mod tests {
                 definition: AliasDefinition::Managed,
                 identity: Some(CatalogIdentity {
                     public_key_path: adopted.clone(),
-                    fingerprint: None,
+                    // Recorded, as the catalog records it (§12.29 item 1).
+                    fingerprint: Some(fingerprint_of(&adopted)),
                     interaction: InteractionKind::None,
                     // Its declared endpoint is the alias's agent (ADR-0007 §12.25 item
                     // 3); its own record is not what clears it as an alternative.
@@ -761,6 +781,74 @@ mod tests {
         );
     }
 
+    /// ADR-0007 §12.29 item 1 (R01, the wave-3d review's probe): an exclusive selection
+    /// counts only for the adopted key. Replacing only the adopted public-key file keeps
+    /// the selection `exclusive` by path, and is refused before anything runs; so is an
+    /// unparsable file and an identity with no recorded fingerprint. The unchanged key
+    /// is the control.
+    #[test]
+    fn a_replaced_adopted_public_key_is_refused_before_anything_runs() {
+        let fx = Fx::new();
+        let adopted = fx.key("adopted", "ssh-ed25519", 21);
+        let agent = fx.agent.display().to_string();
+        fx.config(&fx.alias_block(Some(&agent), &adopted, true));
+        // The catalog records the adopted key's fingerprint before the replacement.
+        let catalog = vec![entry(ALIAS, &adopted, InteractionKind::None, &fx.agent)];
+
+        // Control: the unchanged key runs.
+        let mut ctx = fx.ctx(catalog.clone(), None);
+        let ran = with_stub(&fx, &mut ctx, "ran-unchanged");
+        let (record, why) = authenticate_observed(&ProbeContext::new(&ctx, true, false), ALIAS);
+        assert_eq!(why, None);
+        assert_eq!(record.outcome, ProbeOutcome::Ok, "{record:?}");
+        assert!(ran.exists(), "the stub ran for the adopted key");
+
+        // Replace only the file's contents with another key.
+        std::fs::write(
+            &adopted,
+            format!("{} fixture\n", synthetic("ssh-ed25519", 22)),
+        )
+        .unwrap();
+        let mut ctx = fx.ctx(catalog.clone(), None);
+        let pass = fx.pass(&ctx);
+        assert_eq!(
+            identity_selection(
+                &pass.evaluation,
+                &adopted,
+                &BoundedSource::new(ctx.paths.clone(), ctx.env.clone(), ctx.limits)
+            )
+            .selection,
+            IdentitySelection::Exclusive,
+            "the replaced file is still exclusive by path"
+        );
+        let ran = with_stub(&fx, &mut ctx, "ran-replaced");
+        let (record, why) = authenticate_observed(&ProbeContext::new(&ctx, true, false), ALIAS);
+        assert_eq!(why, Some(AuthRefusal::InteractionUnknown));
+        assert_eq!(record.outcome, ProbeOutcome::Refused);
+        assert_eq!(record.code, Some(Code::InteractionRequired));
+        assert!(!ran.exists(), "nothing ran for the replaced key");
+
+        // An unparsable file, and an identity with no recorded fingerprint, refuse too.
+        std::fs::write(&adopted, "not a public key\n").unwrap();
+        assert_eq!(
+            fx.refusal(&fx.ctx(catalog.clone(), None)),
+            Some(AuthRefusal::InteractionUnknown)
+        );
+        std::fs::write(
+            &adopted,
+            format!("{} fixture\n", synthetic("ssh-ed25519", 21)),
+        )
+        .unwrap();
+        let mut unrecorded = catalog;
+        if let Some(i) = unrecorded[0].identity.as_mut() {
+            i.fingerprint = None;
+        }
+        assert_eq!(
+            fx.refusal(&fx.ctx(unrecorded, None)),
+            Some(AuthRefusal::InteractionUnknown)
+        );
+    }
+
     /// ADR-0007 §12.25 item 1 (T01): the probe's static pass evaluates the invocation
     /// it runs (`exit 0`, an exec session), not the shell. An `IdentityFile` behind
     /// `Match sessiontype exec` or `Match command "exit 0"` is a fallback the shell
@@ -827,8 +915,9 @@ mod tests {
     /// ADR-0007 §12.25 item 2 (T02): `Match localuser` reads the account database,
     /// never the snapshot's `USER`. A fallback behind `Match localuser <the account>`
     /// is refused with `USER` unset and with `USER` naming another account; a rule
-    /// for that other name never applies. A pass the local account leaves undetermined
-    /// is refused.
+    /// for that other name never applies. ADR-0007 §12.28 item 3: a pass evaluated
+    /// without the account leaves either rule's `IdentityFile` undetermined, so both
+    /// are refused, while a configuration that does not read the account still passes.
     #[test]
     fn localuser_comes_from_the_account_database_not_the_environment() {
         let Some(account) = crate::doctor::local_account() else {
@@ -874,13 +963,29 @@ mod tests {
         }
         fx.config(&rule("hm-fixture-not-the-account"));
         assert_eq!(fx.refusal(&ctx(Some("hm-fixture-not-the-account"))), None);
+        // §12.28 item 3: the same pass with the account unknown (`local_user: None`).
+        let without_account = |c: &LocalContext| {
+            let mut pass = fx.pass(c);
+            let source = BoundedSource::new(c.paths.clone(), c.env.clone(), c.limits);
+            let query = heimdall_sshconf::eval::Query {
+                local_user: None,
+                ..super::super::query_with(c, ALIAS, None, pass.invocation.clone())
+            };
+            let mut set = heimdall_sshconf::include::ConfigSet::new();
+            pass.evaluation =
+                heimdall_sshconf::eval::evaluate(&mut set, &source, &pass.roots, &query, &c.limits);
+            noninteractive_refusal(&ProbeContext::new(c, true, false), ALIAS, &pass)
+        };
         let c = ctx(None);
-        let mut pass = fx.pass(&c);
-        assert!(!pass.account_unknown);
-        pass.account_unknown = true;
-        assert_eq!(
-            noninteractive_refusal(&ProbeContext::new(&c, true, false), ALIAS, &pass),
-            Some(AuthRefusal::InteractionUnknown)
-        );
+        for name in [account.as_str(), "hm-fixture-not-the-account"] {
+            fx.config(&rule(name));
+            assert_eq!(
+                without_account(&c),
+                Some(AuthRefusal::FallbackIdentityInteraction),
+                "a rule the unknown account may match"
+            );
+        }
+        fx.config(&block);
+        assert_eq!(without_account(&c), None, "nothing reads the account");
     }
 }

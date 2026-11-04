@@ -148,7 +148,8 @@ pub fn take(
     let tokens = move |t: char| -> Option<String> {
         match t {
             'h' | 'n' => Some(host.clone()),
-            'u' => Some(local_user.clone()),
+            // ADR-0007 §12.28 item 3: unavailable without the account.
+            'u' => local_user.clone(),
             'r' => user.clone(),
             _ => None,
         }
@@ -246,7 +247,7 @@ mod tests {
         Query {
             host: "a".to_owned(),
             user: None,
-            local_user: "u".to_owned(),
+            local_user: Some("u".to_owned()),
             client_version: OpenSshVersion::MINIMUM,
             invocation: Invocation::Shell,
         }

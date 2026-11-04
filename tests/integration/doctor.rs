@@ -961,7 +961,8 @@ impl Login {
             definition: AliasDefinition::Managed,
             identity: Some(CatalogIdentity {
                 public_key_path: self.key_pub.clone(),
-                fingerprint: None,
+                // Recorded, as the catalog records it (ADR-0007 §12.29 item 1).
+                fingerprint: Some(fingerprint_of(&self.key_pub)),
                 interaction,
                 endpoint: Some(EndpointLocator::UnixSocket(PathBuf::from(
                     self.agent.endpoint().locator(),
@@ -1090,7 +1091,8 @@ fn a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity
         definition: AliasDefinition::Managed,
         identity: Some(CatalogIdentity {
             public_key_path: key_pub.clone(),
-            fingerprint: None,
+            // Recorded, as the catalog records it (ADR-0007 §12.29 item 1).
+            fingerprint: Some(fingerprint_of(&key_pub)),
             interaction,
             endpoint: Some(EndpointLocator::UnixSocket(PathBuf::from(
                 agent.endpoint().locator(),
@@ -1175,7 +1177,8 @@ fn doctor_reads_localuser_from_the_account_database() {
             definition: AliasDefinition::Managed,
             identity: Some(CatalogIdentity {
                 public_key_path: key_pub.clone(),
-                fingerprint: None,
+                // Recorded, as the catalog records it (ADR-0007 §12.29 item 1).
+                fingerprint: Some(fingerprint_of(&key_pub)),
                 interaction: InteractionKind::None,
                 endpoint: None,
             }),
@@ -1216,6 +1219,78 @@ fn doctor_reads_localuser_from_the_account_database() {
         selections(&ctx(Some(other))),
         vec![IdentitySelection::Exclusive; 4]
     );
+    assert!(!fx.ssh_started());
+}
+
+/// ADR-0007 §12.28 item 6 for the doctor and the connect path that uses its static
+/// level (`doctor::alias_profiles`): an identity entry read from a file outside the
+/// account home is shown as the configuration names it, never in its canonical form.
+/// The file is included through a symlinked directory: every entry shows the link's
+/// path, in the passive doctor and in every profile.
+#[cfg(unix)]
+#[test]
+fn doctor_shows_a_file_outside_the_home_as_written() {
+    let fx = Fx::new();
+    let key_pub = fx.home.ssh_dir.join("adopted.pub");
+    FixtureKey::generate().write_public(&key_pub).unwrap();
+    let inherited = fx.home.ssh_dir.join("inherited.pub");
+    FixtureKey::generate().write_public(&inherited).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let real = outside.path().join("hm-fixture-real-dir");
+    std::fs::create_dir_all(&real).unwrap();
+    let link = outside.path().join("hm-fixture-link-dir");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    std::fs::write(
+        real.join("extra.conf"),
+        format!("Host {ALIAS}\n  IdentityFile {}\n", qp(&inherited)),
+    )
+    .unwrap();
+    let written = link.join("extra.conf");
+    fx.config(&format!(
+        "Include {}\nHost {ALIAS}\n  HostName 127.0.0.1\n  IdentityAgent none\n  IdentityFile {}\n  IdentitiesOnly yes\n",
+        qp(&written),
+        qp(&key_pub)
+    ));
+    let mut c = fx.ctx();
+    c.catalog = vec![CatalogAlias {
+        alias: ALIAS.to_owned(),
+        definition: AliasDefinition::Managed,
+        identity: Some(CatalogIdentity {
+            public_key_path: key_pub.clone(),
+            // Recorded, as the catalog records it (ADR-0007 §12.29 item 1).
+            fingerprint: Some(fingerprint_of(&key_pub)),
+            interaction: InteractionKind::None,
+            endpoint: None,
+        }),
+    }];
+    let mut request = DoctorRequest::passive();
+    request.aliases = Some(vec![ALIAS.to_owned()]);
+    request.local_queries = LocalQueries::Disabled;
+    let mut reports: Vec<_> = run(&c, &request)
+        .aliases
+        .into_iter()
+        .filter_map(|o| o.identity_selection)
+        .collect();
+    reports.extend(
+        heimdall_localenv::doctor::alias_profiles(&c, ALIAS)
+            .into_iter()
+            .filter_map(|(_, o)| o.identity_selection),
+    );
+    assert_eq!(reports.len(), 4);
+    let shown = written.display().to_string();
+    for report in &reports {
+        let included: Vec<_> = report
+            .entries
+            .iter()
+            .filter_map(|e| e.provenance.as_ref())
+            .filter(|p| !p.path_display.starts_with('~'))
+            .collect();
+        assert_eq!(included.len(), 1, "{report:?}");
+        assert_eq!(included[0].path_display, shown);
+        assert_eq!(included[0].line, 2);
+        let text = serde_json::to_string(report).unwrap();
+        assert!(!text.contains("hm-fixture-real-dir"), "{text}");
+    }
     assert!(!fx.ssh_started());
 }
 
@@ -1499,4 +1574,14 @@ fn doctor_reports_identity_selection_not_exclusive_with_remedy() {
         f.message
     );
     assert!(f.provenance.is_some());
+}
+
+/// The `SHA256:` fingerprint of the public key in the file at `path`, as the catalog
+/// records an adopted identity's (ADR-0007 §12.29 item 1).
+fn fingerprint_of(path: &Path) -> String {
+    let text = std::fs::read_to_string(path).unwrap();
+    let encoded = text.split_ascii_whitespace().nth(1).unwrap();
+    heimdall_localenv::known_hosts::fingerprint(
+        &heimdall_localenv::known_hosts::base64_decode(encoded).unwrap(),
+    )
 }

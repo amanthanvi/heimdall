@@ -1,0 +1,12 @@
+ 1 Over  2 Dest  3 Prof [4 Acti] [!!]
+Pending decisions
+> [!!] dec_apply1  apply_projection  exp
+  [!!] dec_declare1  declare_interaction
+Operations
+  [!!] op_held1  setup.apply  outcome_un
+  [..] op_run1  ensure  running
+
+
+
+
+Enter review · ? help · q quit

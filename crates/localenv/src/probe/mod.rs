@@ -214,10 +214,6 @@ pub struct StaticPass {
     /// The invocation it evaluated: the one the level's `ssh` child runs (ADR-0007
     /// §12.25 item 1).
     pub invocation: Invocation,
-    /// ADR-0007 §12.25 item 2: the local account cannot be established and the
-    /// configuration reads it ([`account_undetermined`]), so every value the pass
-    /// obtained is undetermined.
-    pub account_unknown: bool,
 }
 
 /// `span` as file:line (display form), for the files of `set` and the two roots.
@@ -252,6 +248,33 @@ pub fn provenance(
     }
 }
 
+/// [`provenance`] for a span of `evaluation`: its file named as the evaluation names it,
+/// the path the configuration gives it, never its canonical form (ADR-0007 §12.28 item
+/// 6); a span of a file the evaluation did not record falls back to [`provenance`].
+#[must_use]
+pub fn provenance_in(
+    local: &LocalContext,
+    set: &ConfigSet,
+    evaluation: &Evaluation,
+    roots: &Roots,
+    span: Span,
+) -> ConfigProvenance {
+    match evaluation.files.get(&span.source) {
+        Some(path) if span != USER_ROOT_SPAN && span != SYSTEM_ROOT_SPAN => {
+            let plain = local.paths.display(path);
+            ConfigProvenance {
+                path_display: if plain.starts_with('~') {
+                    plain
+                } else {
+                    crate::doctor::path_display(path, &local.paths.account_home)
+                },
+                line: span.line,
+            }
+        }
+        _ => provenance(local, set, roots, span),
+    }
+}
+
 /// The query for `alias` (interactive shell, no `-l`).
 #[must_use]
 pub fn query_for(local: &LocalContext, alias: &str, version: Option<OpenSshVersion>) -> Query {
@@ -259,9 +282,10 @@ pub fn query_for(local: &LocalContext, alias: &str, version: Option<OpenSshVersi
 }
 
 /// The query for `alias` under `invocation` (no `-l`). `local_user` is the account
-/// database's name (ADR-0007 §12.25 item 2, [`LocalContext::local_user`]); empty
-/// stands for an account that cannot be established, which [`account_undetermined`]
-/// reads as undetermined, never as an empty name.
+/// database's name (ADR-0007 §12.25 item 2, [`LocalContext::local_user`]), `None` for
+/// an account that cannot be established: the evaluator then leaves `Match localuser`,
+/// `Match user` on the local account, `%u` and `%r` undetermined, and only those
+/// (ADR-0007 §12.28 item 3).
 #[must_use]
 pub fn query_with(
     local: &LocalContext,
@@ -272,19 +296,10 @@ pub fn query_with(
     Query {
         host: alias.to_owned(),
         user: None,
-        local_user: local.local_user().unwrap_or_default(),
+        local_user: local.local_user(),
         client_version: version.unwrap_or(OpenSshVersion::MINIMUM),
         invocation,
     }
-}
-
-/// ADR-0007 §12.25 item 2: whether `evaluation` of `query` is undetermined for want of
-/// the local account: the account could not be established (an empty `local_user`,
-/// [`query_with`]) and the configuration reads it
-/// ([`crate::doctor::reads_local_account`]).
-#[must_use]
-pub fn account_undetermined(query: &Query, set: &ConfigSet, evaluation: &Evaluation) -> bool {
-    query.local_user.is_empty() && crate::doctor::reads_local_account(set, evaluation)
 }
 
 /// The invocation `ssh <options> <alias> <trailing>` runs (ADR-0007 §12.25 item 1): an
@@ -327,10 +342,9 @@ pub fn static_pass_for(
     let snapshot = snapshot::take(&source, &roots, &query, &local.limits);
     let executed = executing_constructs(&evaluation)
         .into_iter()
-        .map(|span| provenance(local, &set, &roots, span))
+        .map(|span| provenance_in(local, &set, &evaluation, &roots, span))
         .collect();
     let not_fully_readable = !unreadable_includes(&evaluation).is_empty();
-    let account_unknown = account_undetermined(&query, &set, &evaluation);
     StaticPass {
         evaluation,
         set,
@@ -339,7 +353,6 @@ pub fn static_pass_for(
         executed,
         not_fully_readable,
         invocation,
-        account_unknown,
     }
 }
 

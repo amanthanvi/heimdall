@@ -913,12 +913,12 @@ impl ConfigSource for ForcedSessionType<'_> {
 }
 
 /// The local account name for `%u` and `Match localuser`, read at run time and never
-/// logged; empty when unknown.
-fn local_user_name() -> String {
+/// logged; `None` when unknown, so the guard's evaluation leaves only the conditions
+/// that read it undetermined (ADR-0007 §12.28 item 3), never an empty name.
+fn local_user_name() -> Option<String> {
     ["USER", "USERNAME", "LOGNAME"]
         .iter()
         .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
-        .unwrap_or_default()
 }
 
 /// A path as the value of an ssh `-o Key=value` option: `%` doubled (token

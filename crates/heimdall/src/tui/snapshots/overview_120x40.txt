@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [!!] Needs attention
+[!!] Needs attention
+Runtime: connected; listings read 09:00:25Z (5s ago)
+Static pass: 09:00:20Z (10s ago); 2 destinations, 1 profiles, 1 identities
+> [!!] held: setup.apply op_held1 is held for you (a file it manages changed; nothing was moved). r retry · k keep
+  [!!] decision waiting: apply_projection dec_apply1 (Enter to review)
+  [!!] decision waiting: declare_interaction dec_declare1 (Enter to review)
+  [..] working: ensure op_run1 running
+  [ !] identity_selection_not_exclusive (beta): identity_selection_not_exclusive message
+
+  r retry: after you put the file back, Heimdall continues the held operation's own recovery under its approval
+  k keep: Heimdall moves and deletes nothing, closes the operation and lists what stays in place
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter open · r retry · k keep · R refresh · 1-4 views · ? help · q quit

@@ -24,12 +24,19 @@ heimdall-runtime = { workspace = true }
 # environment for the static selection pass, Git resolution and client discovery.
 heimdall-launch = { workspace = true }
 heimdall-localenv = { workspace = true }
+# ⟨M02⟩ U9 `doctor` and `setup status` read the store read-only (`Store::open_read_only`).
+heimdall-store = { workspace = true }
+# ⟨M02⟩ U9 `uninstall` finds a Heimdall include block left in the user file.
+heimdall-sshconf = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+# ⟨M02⟩ U10 `tui` (m02-plan U10): Ratatui with its crossterm backend, workspace-pinned
+# (docs/architecture/dependencies.md: enters the lock when the TUI consumes it).
+ratatui = { workspace = true }
 # M01-U9 test adapter wiring (m01-plan U9): the fake credential adapter, scripted
 # time sync and stage hook are referenced only from `src/testcfg.rs` under
 # `cfg(debug_assertions)` and only when a `HEIMDALL_TEST_*` variable is set. A
@@ -37,6 +44,13 @@ tracing = { workspace = true }
 # refuses the variables. Default features off (M02 wave-1 integrator finding B):
 # the U7 process fixtures (`fixtures`) stay out of the production build graph.
 heimdall-testkit = { workspace = true, default-features = false, features = ["app"] }
+
+[target.'cfg(unix)'.dependencies]
+# ⟨M02⟩ U10 `tui` (Unix): the terminal is read with `poll`/`read` and sized with
+# `tcgetwinsize`, and raw mode is set and restored with `tcgetattr`/`tcsetattr`, all
+# through rustix's safe wrappers (workspace-pinned), never through crossterm's event
+# source or `terminal::size()` (prototypes/rust/REPORT.md §5, §9 K16).
+rustix = { workspace = true, features = ["event", "termios"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -61,3 +75,16 @@ path = "../../tests/e2e/cli_m01.rs"
 [[test]]
 name = "e2e_run_m02"
 path = "../../tests/e2e/run_m02.rs"
+
+# M02-U9 CLI end-to-end suite (m02-plan U9: setup, doctor, catalog, uninstall; A01, A11,
+# A21, A22, A35) through the real binary against an in-process runtime.
+[[test]]
+name = "e2e_cli_m02"
+path = "../../tests/e2e/cli_m02.rs"
+
+# M02-U10 TUI end-to-end suite (m02-plan U10: search never probes, the connect handoff,
+# panic and hang-up restoration, no cursor query, the decision and authorization
+# confirmations, the Ctrl-Z job, first-frame latency) through the real binary on a pty.
+[[test]]
+name = "e2e_tui_m02"
+path = "../../tests/e2e/tui_m02.rs"

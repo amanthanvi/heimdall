@@ -469,7 +469,7 @@ fn command_text_with_shell_metacharacters_is_kept_raw_as_data() {
         let query = Query {
             host: "box".to_owned(),
             user: None,
-            local_user: "fixture".to_owned(),
+            local_user: Some("fixture".to_owned()),
             client_version: OpenSshVersion {
                 major: 10,
                 minor: 3,
@@ -517,7 +517,7 @@ fn a_hostile_retired_keyword_line_is_ignored_not_trusted() {
     let query = Query {
         host: "box".to_owned(),
         user: None,
-        local_user: "fixture".to_owned(),
+        local_user: Some("fixture".to_owned()),
         client_version: OpenSshVersion {
             major: 10,
             minor: 3,
@@ -690,7 +690,7 @@ proptest! {
         let query = Query {
             host: "box".to_owned(),
             user: None,
-            local_user: "fixture".to_owned(),
+            local_user: Some("fixture".to_owned()),
             client_version: OpenSshVersion { major: 10, minor: 3, portable: Some(1) },
             invocation: Invocation::Shell,
         };

@@ -1,0 +1,40 @@
+Heimdall [1 Overview] 2 Destinations  3 Profiles  4 Activity  [??] Checking
+[??] Checking
+Runtime: not running (ordinary ssh still works; S starts it)
+Static pass: running (reads your configuration; executes nothing)
+  Nothing needs you; nothing is running.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Enter open · r retry · k keep · R refresh · 1-4 views · ? help · q quit

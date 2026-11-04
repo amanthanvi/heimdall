@@ -332,11 +332,10 @@ pub(crate) async fn fresh_identities(client: &mut Client) -> Result<IdentitiesVi
 /// ADR-0007 §12.24 item 2: immediately before `launching`, one `inspect bindings`
 /// confirms that `binding` is still `active`. A replayed `bind` returns its stored
 /// result verbatim, so a binding the holder pass released since (its first holder
-/// exited) still reads `ACCESS_READY`; it is refused here with the code a `bind` of a
-/// released binding settles with, `CREDENTIAL_EXPIRED` (`next: new_work`), and nothing
-/// is launched. A binding the listing does not show (released bindings hold no
-/// reference, so they are not listed), or a listing that cannot be read, is refused the
-/// same way (fail closed).
+/// exited) still reads `ACCESS_READY`; it is refused here ([`binding_released`]), and
+/// nothing is launched. A binding the listing does not show (released bindings hold no
+/// reference, so they are not listed) is refused the same way (fail closed). A listing
+/// that cannot be read is refused with the `inspect` failure itself.
 pub(crate) async fn confirm_binding_active(
     client: &mut Client,
     binding: &BindingId,
@@ -354,14 +353,22 @@ pub(crate) async fn confirm_binding_active(
     if active {
         return Ok(());
     }
+    Err(binding_released(binding))
+}
+
+/// ADR-0007 §12.26 item 3(a), §12.28 item 7: the refusal of a binding that is no
+/// longer active, made where the re-check finds it: the code a `bind` of a released
+/// binding settles with, `CREDENTIAL_EXPIRED` (exit 4), `next: new_work`, effect `none`,
+/// the binding as the resource, reason `binding_released`.
+pub(crate) fn binding_released(binding: &BindingId) -> Failure {
     let e = heimdall_app::OpError::new(
         Code::CredentialExpired,
-        "the binding was released (its holder exited); nothing was launched, start new work"
-            .to_owned(),
+        "the binding was released (its holder exited); nothing was launched, start new work",
     )
     .with_effect(EffectStatus::None)
+    .with_reason(heimdall_contract::envelope::reason::BINDING_RELEASED)
     .with_resource("binding", Some(binding.to_string()));
-    Err(Failure::of(output::error_value(e.into_envelope())))
+    Failure::of(output::error_value(e.into_envelope()))
 }
 
 /// The environment's projection record (`inspect projections`), or an empty one.
@@ -759,6 +766,24 @@ mod tests {
         assert!(f.env.data["error"].get("entries").is_none());
     }
 
+    /// ADR-0007 §12.28 item 7: the re-check's refusal of a binding that is no longer
+    /// active is made in `launch_flow` (`confirm_binding_active` returns it): exit 4,
+    /// `CREDENTIAL_EXPIRED`, `next: new_work`, effect `none`, the binding as the
+    /// resource, reason `binding_released`.
+    #[test]
+    fn a_binding_that_is_no_longer_active_is_refused_as_binding_released() {
+        let binding = BindingId::from_random_bytes([7; 16]);
+        let f = binding_released(&binding);
+        assert_eq!(f.exit.as_i32(), 4);
+        assert_eq!(f.env.code, Code::CredentialExpired);
+        let error = &f.env.data["error"];
+        assert_eq!(error["reason"], "binding_released");
+        assert_eq!(error["effect_status"], "none");
+        assert_eq!(error["resource"]["kind"], "binding");
+        assert_eq!(error["resource"]["id"], binding.to_string());
+        assert_eq!(f.env.next.as_ref().unwrap().action, "new_work");
+    }
+
     /// A scratch layout for the static pass: the account's real home holds a segment
     /// that stands for the account name, and the configured home reaches it through a
     /// symlink (as `/var` reaches `/private/var` on macOS). P names the adopted key for
@@ -963,5 +988,69 @@ mod tests {
             ),
             "/hm-fixture-outside/x"
         );
+    }
+
+    /// ADR-0007 §12.28 item 6: a file outside the account home is shown in the
+    /// pre-launch check's entries as the configuration names it, never in its canonical
+    /// form. An `Include` of a file reached through a symlinked directory shows the
+    /// link's path, in every profile, and the refusal's entries and message carry it;
+    /// P, under Heimdall's configuration directory, shows its configured path (on macOS
+    /// the scratch directory lies under `/var`, whose canonical form is `/private/var`).
+    #[cfg(unix)]
+    #[test]
+    fn a_path_outside_the_home_is_shown_as_written_not_canonicalized() {
+        let outside = tempfile::tempdir().unwrap();
+        let real = outside.path().join("hm-fixture-real-dir");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = outside.path().join("hm-fixture-link-dir");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        std::fs::write(
+            real.join("extra.conf"),
+            "Host *\n  IdentityFile \"/hm-fixture-outside/k4.pub\"\n",
+        )
+        .unwrap();
+        let written = link.join("extra.conf");
+        let canonical = std::fs::canonicalize(&written).unwrap();
+        assert_ne!(
+            written, canonical,
+            "the fixture reaches the file through a link"
+        );
+        let l = Layout::new(&format!("Include \"{}\"\n", written.display()));
+        let s = l.selection();
+        let expected = [ConfigProvenance {
+            path_display: written.display().to_string(),
+            line: 2,
+        }];
+        assert_eq!(user_entries(&s.report), expected);
+        for p in &s.profiles {
+            assert_eq!(user_entries(&p.report), expected, "{}", p.profile);
+        }
+        // P's own entry: its configured path, not the canonical one.
+        let managed: Vec<String> = s
+            .report
+            .entries
+            .iter()
+            .filter(|e| e.source == heimdall_contract::provider::IdentityEntrySource::Managed)
+            .filter_map(|e| e.provenance.as_ref().map(|p| p.path_display.clone()))
+            .collect();
+        assert_eq!(
+            managed,
+            [l.config.managed_ssh_path().display().to_string()],
+            "P as configured"
+        );
+        let refusal = PrelaunchRefusal {
+            reason: PrelaunchReason::FallbackIdentityInteraction,
+            pair: 0,
+            entries: user_entries(&s.report),
+        };
+        let f = Failure::ineligible(
+            &refusal,
+            ProviderKind::NativeAgent,
+            InteractionKind::Unknown,
+        );
+        let text = serde_json::to_string(&f.env).unwrap();
+        assert!(text.contains(&format!("{}:2", written.display())), "{text}");
+        assert!(!text.contains(&canonical.display().to_string()), "{text}");
+        assert!(!text.contains("hm-fixture-real-dir"), "{text}");
     }
 }
