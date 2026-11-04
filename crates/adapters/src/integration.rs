@@ -2,10 +2,22 @@
 //! the core both existing-access adapters share.
 //!
 //! **`prepare` is local and passive.** It stats the agent endpoints (it never connects
-//! to them), reads the static identity selection of the managed aliases through
-//! [`IntegrationSources::observe_aliases`] (the runtime gives it the
+//! to them), takes the static identity selection of the managed aliases from its
+//! sources (the runtime's [`IntegrationSources::observe_aliases`] is the
 //! `ProjectionWriter::observe` handle, U5), applies the one eligibility and clearance
-//! rule ([`crate::state`]), and returns the integration:
+//! rule ([`crate::state`]), and returns the integration.
+//!
+//! ⟨M02⟩ **Two steps, one bound** (ADR-0007 §12.23 item 2, U02). The runtime first
+//! calls `CredentialAdapter::read_sources` outside `bounded_adapter_call`: every
+//! store and file read (`observe_aliases`, `catalog_identities`, `declarations`,
+//! `executables`) happens there, into an in-memory
+//! [`IntegrationSnapshot`](heimdall_app::ports::IntegrationSnapshot), which is itself
+//! an [`IntegrationSources`]. The bounded `prepare_from` then does only evaluation
+//! over that snapshot and one metadata call (`stat`) per endpoint; it waits on no lock
+//! and no other I/O, and nothing is detached past the bound. Residual: an endpoint
+//! `stat` on a hung network file system is not interruptible. `prepare` and
+//! `prepare_detailed` read their own sources first (the same two steps in one call,
+//! for direct callers; the runtime never bounds them). The integration is:
 //! * `environment`: `SSH_AUTH_SOCK` set to the endpoint only when every pair uses that
 //!   one endpoint; otherwise nothing is set and an `SSH_AUTH_SOCK` override from the
 //!   environment is reported (ADR-0007 §8);
@@ -39,9 +51,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use heimdall_app::ports::{
-    AdapterDescriptor, AdapterError, DetectContext, IdentityListing, InteractionRequirement,
-    ListedIdentity, LockContinuity, PrepareOutcome, PrepareRequest, ProbeBounds, ReconcileOutcome,
-    RevokeOutcome,
+    AdapterDescriptor, AdapterError, DetectContext, IdentityListing, IntegrationSnapshot,
+    InteractionRequirement, ListedIdentity, LockContinuity, PrepareOutcome, PreparePair,
+    PrepareRequest, ProbeBounds, ReconcileOutcome, RevokeOutcome,
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::{AliasDefinition, AliasObservation, DirectiveCertainty};
@@ -83,9 +95,14 @@ const MEMO_CAPACITY: usize = 256;
 
 /// What `prepare` reads besides its request. The runtime wiring (U5) implements it
 /// over the projection writer, the store and the client discovery. Every method is
-/// passive and bounded, and its default claims nothing, which fails closed: no
-/// observation leaves the selection `undetermined`, no declaration leaves a native key
-/// `unknown`, no catalog identity clears no fallback.
+/// passive, and its default claims nothing, which fails closed: no observation leaves
+/// the selection `undetermined`, no declaration leaves a native key `unknown`, no
+/// catalog identity clears no fallback.
+///
+/// ⟨M02⟩ ADR-0007 §12.23 item 2: a live implementation (the runtime's) may wait on the
+/// store or the file system, so it is read only in `read_sources`, outside the
+/// adapter bound. The bounded call evaluates over the in-memory
+/// [`IntegrationSnapshot`] built from it, which implements this trait too.
 pub trait IntegrationSources: Send + Sync {
     /// The static observation of `aliases` (`ProjectionWriter::observe` over the
     /// current projection record).
@@ -105,6 +122,18 @@ pub trait IntegrationSources: Send + Sync {
         None
     }
 
+    /// ⟨M02⟩ The declaration rows of `identities` that have one, in one read where
+    /// the source can (default: [`Self::declaration`] for each).
+    fn declarations(
+        &self,
+        identities: &[IdentityId],
+    ) -> BTreeMap<IdentityId, InteractionDeclaration> {
+        identities
+            .iter()
+            .filter_map(|id| self.declaration(id).map(|d| (id.clone(), d)))
+            .collect()
+    }
+
     /// The verified client executables the integration relies on.
     fn executables(&self) -> Vec<ConsumerExecutable> {
         Vec::new()
@@ -116,6 +145,74 @@ pub trait IntegrationSources: Send + Sync {
 pub struct NoSources;
 
 impl IntegrationSources for NoSources {}
+
+/// ⟨M02⟩ ADR-0007 §12.23 item 2: the in-memory snapshot as sources. Every method is a
+/// read of memory; nothing here waits on a lock or does I/O.
+impl IntegrationSources for IntegrationSnapshot {
+    fn observe_aliases(&self, aliases: &[String]) -> Vec<AliasObservation> {
+        self.observations
+            .iter()
+            .filter(|o| aliases.contains(&o.alias))
+            .cloned()
+            .collect()
+    }
+
+    fn catalog_identities(&self) -> Vec<IdentityRecord> {
+        self.identities.clone()
+    }
+
+    fn declaration(&self, identity: &IdentityId) -> Option<InteractionDeclaration> {
+        self.declarations.get(identity).cloned()
+    }
+
+    fn executables(&self) -> Vec<ConsumerExecutable> {
+        self.executables.clone()
+    }
+}
+
+/// The managed aliases of `pairs`, sorted and without duplicates.
+fn aliases_of(pairs: &[PreparePair]) -> Vec<String> {
+    pairs
+        .iter()
+        .filter_map(|p| p.alias.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// ⟨M02⟩ ADR-0007 §12.23 item 2: read everything `prepare` needs for `pairs` from
+/// `sources`, once: the aliases' observation (only when a pair has an alias), the
+/// catalog identities and the declaration rows of the pairs' and the catalog's
+/// identities (only when there is a pair), and the executables.
+#[must_use]
+pub fn snapshot_of(sources: &dyn IntegrationSources, pairs: &[PreparePair]) -> IntegrationSnapshot {
+    let aliases = aliases_of(pairs);
+    let observations = if aliases.is_empty() {
+        Vec::new()
+    } else {
+        sources.observe_aliases(&aliases)
+    };
+    let (identities, declarations) = if pairs.is_empty() {
+        (Vec::new(), BTreeMap::new())
+    } else {
+        let identities = sources.catalog_identities();
+        let ids: Vec<IdentityId> = pairs
+            .iter()
+            .map(|p| p.identity.id.clone())
+            .chain(identities.iter().map(|r| r.id.clone()))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let declarations = sources.declarations(&ids);
+        (identities, declarations)
+    };
+    IntegrationSnapshot {
+        observations,
+        identities,
+        declarations,
+        executables: sources.executables(),
+    }
+}
 
 /// One pair as `prepare` established it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -451,10 +548,21 @@ impl Core {
         self.memo.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// `prepare` (and `renew`): local, passive, synchronous. Remembers the outcome
-    /// for `reconcile`.
-    pub(crate) fn prepare(&self, req: &PrepareRequest<'_>) -> Result<Prepared, AdapterError> {
-        let prepared = self.establish(req)?;
+    /// ⟨M02⟩ ADR-0007 §12.23 item 2: this instance's sources read once for `pairs`
+    /// (store and file reads; never inside the adapter bound).
+    pub(crate) fn read_sources(&self, pairs: &[PreparePair]) -> IntegrationSnapshot {
+        snapshot_of(self.sources.as_ref(), pairs)
+    }
+
+    /// `prepare` (and `renew`) over `sources`: local, passive, synchronous, with no
+    /// read but `sources` and one endpoint `stat`. Remembers the outcome for
+    /// `reconcile`.
+    pub(crate) fn prepare(
+        &self,
+        req: &PrepareRequest<'_>,
+        sources: &dyn IntegrationSources,
+    ) -> Result<Prepared, AdapterError> {
+        let prepared = self.establish(req, sources)?;
         self.memo().put(
             (req.grant.id.clone(), req.effect_token.to_owned()),
             prepared.outcome.clone(),
@@ -462,7 +570,21 @@ impl Core {
         Ok(prepared)
     }
 
-    fn establish(&self, req: &PrepareRequest<'_>) -> Result<Prepared, AdapterError> {
+    /// `prepare` that reads this instance's sources first (both steps in one call,
+    /// for direct callers; the runtime bounds only [`Self::prepare`] over a snapshot).
+    pub(crate) fn prepare_reading(
+        &self,
+        req: &PrepareRequest<'_>,
+    ) -> Result<Prepared, AdapterError> {
+        let sources = self.read_sources(req.pairs);
+        self.prepare(req, &sources)
+    }
+
+    fn establish(
+        &self,
+        req: &PrepareRequest<'_>,
+        sources: &dyn IntegrationSources,
+    ) -> Result<Prepared, AdapterError> {
         let now = req.now;
         // One mechanism per grant (ADR-0007 §7): a pair of another mechanism never
         // reaches this adapter through the runtime; refuse it if it does.
@@ -500,25 +622,19 @@ impl Core {
         });
         let status = detect::passive_status(self.provider, presence, now);
         if presence != Some(EndpointPresence::Present) {
-            // Row 1 of the table; nothing else is read.
+            // Row 1 of the table; nothing else is evaluated.
             return Err(state::Refusal::EndpointAbsent {
                 provider: self.provider,
             }
             .adapter_error());
         }
 
-        // Static selection of the managed aliases, read once.
-        let aliases: Vec<String> = req
-            .pairs
-            .iter()
-            .filter_map(|p| p.alias.clone())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
+        // Static selection of the managed aliases, from the sources.
+        let aliases = aliases_of(req.pairs);
         let observations = if aliases.is_empty() {
             Vec::new()
         } else {
-            self.sources.observe_aliases(&aliases)
+            sources.observe_aliases(&aliases)
         };
         let by_alias: BTreeMap<&str, &AliasObservation> =
             observations.iter().map(|o| (o.alias.as_str(), o)).collect();
@@ -528,7 +644,7 @@ impl Core {
         let mut readiness = Vec::with_capacity(req.pairs.len());
         let mut overrides = Vec::new();
         for (p, endpoint) in req.pairs.iter().zip(endpoints.into_iter().flatten()) {
-            let declaration = self.sources.declaration(&p.identity.id);
+            let declaration = sources.declaration(&p.identity.id);
             let eligibility =
                 state::pair_eligibility(&p.identity, declaration.as_ref(), &endpoint, now);
             let observation = p.alias.as_deref().and_then(|a| by_alias.get(a).copied());
@@ -539,12 +655,12 @@ impl Core {
             let clearance = if selection.selection == IdentitySelection::Exclusive {
                 None
             } else {
-                let catalog = catalog.get_or_insert_with(|| self.sources.catalog_identities());
+                let catalog = catalog.get_or_insert_with(|| sources.catalog_identities());
                 let eligibility_of = |id: &IdentityId| -> PairEligibility {
                     match catalog.iter().find(|r| &r.id == id) {
                         Some(r) => state::pair_eligibility(
                             r,
-                            self.sources.declaration(id).as_ref(),
+                            sources.declaration(id).as_ref(),
                             r.source.endpoint().unwrap_or(&endpoint),
                             now,
                         ),
@@ -665,7 +781,7 @@ impl Core {
                 signing_endpoint: None,
                 ssh_config_include: None,
                 environment,
-                executables: self.sources.executables(),
+                executables: sources.executables(),
                 overrides,
                 pairs: details.iter().map(|d| d.pair.clone()).collect(),
             },

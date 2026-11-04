@@ -3817,6 +3817,57 @@ integrates.
      `crates/heimdall/src/connect_cmd.rs`, `crates/app/src/{holders,operations}.rs` (the
      holder registration only) and `tests/e2e/run_m02.rs` (the holder tests).
 
+### 12.26 Rulings on the wave-3c escalations (orchestrator, 2026-11-03)
+
+Sources: the two wave-3c unit reports and the integrator's report (workflow
+`wf_69e1c65c-1d4`). check.sh exited 0 twice, with 1502 tests passed and 0 failed. §12.23 U01
+and U02 are done, each with the reviewer's probe as a regression. §12.24 items 1, 3, 4
+(contract), 6 and 8 are done.
+
+1. **Ratified integrator edits:**
+   * `Txn::profiles()` in the store, with `inspect profiles` listing the catalog under
+     `items`, owner-only;
+   * the mechanical `entries: Vec::new()` literals;
+   * `ErrorDetail.entries` is filled on the envelope, not on `OpError`.
+2. **U02 extension (ratified):** `bounded_adapter_call` turns an answer that arrives after
+   its deadline into `OutcomeUnknown`.
+   * Residual closed: `CredentialAdapter::read_sources` and `prepare_from` lose their
+     default bodies, so every adapter must implement both. The testkit fake implements
+     them trivially.
+   * The source scan also checks the adapters' `prepare_from` for store and live-source
+     reads.
+   * Owner: W3d-holder.
+3. **§12.24 item 2, completed:**
+   * (a) A released binding is refused with `CREDENTIAL_EXPIRED`, `next: new_work`,
+     resource `binding`, and a new reason **`binding_released`**, added to the contract's
+     reason list. Owner: W3d-holder.
+   * (b) `connect` does not bind, so the active re-check applies to `run` only. §12.24
+     item 2 is amended.
+4. **§12.24 item 4: the runtime's own refusal names its line.** The no-interaction refusal
+   at `ensure` (`operations.rs` `interaction_refusal`) fills `ErrorDetail.entries` as the
+   CLI pre-launch refusal does. Owner: W3d-select, with a targeted edit to that function.
+   * m02-plan's wording is amended: the provenance is the refused `IdentityFile` line,
+     which may lie inside `Host *`, not the `Host *` line.
+5. **A changed managed alias always needs a decision, in manual mode too.** §5.2 already
+   says so: a new or changed managed alias always needs a decision. An inactive P is no
+   exception, because the owner's own Include later activates it without another decision.
+   Owner: W3d-select (`plan.rs`), with a regression.
+6. **`connect` with an observed alias** takes its static selection from the passive doctor
+   pass (no local queries). Accepted for M02. U9 may add an observed-alias mode to
+   `projection::observe`.
+7. **Privacy: refusal data never shows the account home's absolute path.**
+   * `path_display` canonicalizes both the path and the account home before stripping,
+     so a home behind a symlink is still shown as `~/…`.
+   * A path outside the home is shown as written in the configuration.
+   * Regression: a home reached through a symlink, with `/var` against `/private/var` as
+     on macOS. The user name never appears in `data.error.entries` or in the message.
+   * Owner: W3d-select.
+8. **Wave 3d** is therefore:
+   * **W3d-select:** §12.25 items 1–3 and items 4, 5 and 7 above;
+   * **W3d-holder:** §12.25 item 4 and items 2 and 3(a) above. It also owns
+     `crates/app/src/ports.rs`, `crates/adapters/src/**`, `crates/testkit/src/lib.rs` and
+     the contract reason module for those items.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

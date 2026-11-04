@@ -746,6 +746,12 @@ impl Txn<'_> {
         )
     }
 
+    /// ⟨M02⟩ ADR-0007 §12.24 item 1: every current profile definition, ordered by ID.
+    /// Removed definitions are not listed; their pinned snapshots are not definitions.
+    pub fn profiles(&mut self) -> Result<Vec<ProfileDefinition>> {
+        self.docs("SELECT record_json FROM profiles ORDER BY id", [])
+    }
+
     /// ⟨M02⟩ ADR-0007 §12.22 item 10: remove a profile's current definition; returns
     /// whether one was removed.
     ///

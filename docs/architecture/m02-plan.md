@@ -2087,7 +2087,7 @@ integrator flips the switch if the ruling differs.
         <scratch>/k2.pub` with no `k2` private file, so K2 is agent-backed. The fixture
         sshd rejects K1 and accepts K2, and the selection is `not_exclusive`;
       * non-interactive `run`: exit 3, `INTERACTION_REQUIRED`, reason
-        `fallback_identity_interaction`, naming the `Host *` line, with `prelaunch_failed`,
+        `fallback_identity_interaction`, naming the refused `IdentityFile` line (inside `Host *`; ADR-0007 §12.26 item 4), with `prelaunch_failed`,
         proxy delta 0 and askpass delta 0;
       * **controls:** with `--allow-provider-interaction` the child launches and the
         askpass delta is ≥ 1 (askpass `Deny`), so the fallback would have prompted. After

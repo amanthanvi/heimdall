@@ -26,20 +26,30 @@
 //! The recovery and fingerprint types a [`HeldStep`] carries live in
 //! `heimdall_domain::projection` (wave-0 verifier escalation E8): `heimdall-localenv`
 //! implements these ports, so the app cannot name its types.
+//!
+//! ⟨M02⟩ **Nothing that can block runs inside the bound** (ADR-0007 §12.23 item 2,
+//! U02). An adapter that reads the store or the file system for `prepare` reads it
+//! in [`CredentialAdapter::read_sources`], which the runtime calls on the blocking
+//! pool **before** `bounded_adapter_call`, in the same operation step. The result,
+//! an in-memory [`IntegrationSnapshot`], is handed to the bounded
+//! [`CredentialAdapter::prepare_from`], which only evaluates over it. Both have
+//! defaults (no sources; `prepare`), so an adapter that reads nothing is unchanged.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::AliasObservation;
-use heimdall_contract::ids::{AccountName, DestinationId, GrantId};
+use heimdall_contract::ids::{AccountName, DestinationId, GrantId, IdentityId};
 use heimdall_contract::provider::{
     CredentialAvailability, EndpointRef, ProviderKind, ProviderStatus,
 };
-use heimdall_contract::request::{Capability, ConsumerIntegration, RequiredCapabilities};
+use heimdall_contract::request::{
+    Capability, ConsumerExecutable, ConsumerIntegration, RequiredCapabilities,
+};
 use heimdall_contract::setup::{ConflictKind, PreviewIntent, ProjectionItem};
-use heimdall_domain::catalog::IdentityRecord;
+use heimdall_domain::catalog::{IdentityRecord, InteractionDeclaration};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::grant::GrantSnapshot;
 use heimdall_domain::holder::{HolderState, ProcessHolder};
@@ -162,6 +172,27 @@ pub struct PreparePair {
     pub alias: Option<String>,
 }
 
+/// ⟨M02⟩ ADR-0007 §12.23 item 2 (U02): everything an adapter's `prepare` reads
+/// besides its request, as an in-memory value. [`CredentialAdapter::read_sources`]
+/// builds it before the bound (store reads: catalog identities, declaration rows,
+/// executables; file reads: the static observation of the managed aliases), and
+/// [`CredentialAdapter::prepare_from`] evaluates over it inside the bound. Nothing in
+/// it is secret: public identity records, declarations, configuration observations
+/// and client paths. Empty claims nothing, which fails closed (no observation leaves
+/// a selection `undetermined`, no declaration leaves a native key `unknown`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IntegrationSnapshot {
+    /// The static observation of the request's managed aliases.
+    pub observations: Vec<AliasObservation>,
+    /// Every catalog identity (fallback clearance looks alternatives up here).
+    pub identities: Vec<IdentityRecord>,
+    /// The declaration row of each identity that has one (the pairs' and the
+    /// catalog's).
+    pub declarations: BTreeMap<IdentityId, InteractionDeclaration>,
+    /// The verified client executables the integration relies on.
+    pub executables: Vec<ConsumerExecutable>,
+}
+
 /// Prepared credential facts (spec §6.5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrepareOutcome {
@@ -238,6 +269,13 @@ pub const MIN_ADAPTER_CALL_TIMEOUT: Duration = Duration::from_secs(1);
 ///
 /// No signature changes for this contract; adapters whose effect can land after the
 /// drop are handed to M03 (m02-plan §8).
+///
+/// ⟨M02⟩ ADR-0007 §12.23 item 2 (U02): the runtime's one preparation call is
+/// [`Self::read_sources`] on the blocking pool, outside the bound, then
+/// [`Self::prepare_from`] inside it. An implementation keeps every store and file
+/// read in `read_sources`; inside the bound it evaluates over the snapshot and makes
+/// at most its own bounded, passive checks (the existing-access adapters: one
+/// endpoint `stat`).
 #[async_trait]
 pub trait CredentialAdapter: Send + Sync {
     /// Static declaration.
@@ -246,6 +284,30 @@ pub trait CredentialAdapter: Send + Sync {
     /// Prepare credentials for a grant. Idempotent per `effect_token`; must not
     /// extend `grant.deadline`.
     async fn prepare(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError>;
+
+    /// ⟨M02⟩ ADR-0007 §12.23 item 2: read what `prepare` needs besides its request
+    /// for `pairs` (store and file reads), **before** the bound. Synchronous: it may
+    /// wait on the store or a slow file system, which delays the operation's own step
+    /// as any store wait does and never the bounded call. The runtime calls it on the
+    /// blocking pool, never inside `bounded_adapter_call`. Default: nothing (an
+    /// adapter that reads no source).
+    fn read_sources(&self, pairs: &[PreparePair]) -> IntegrationSnapshot {
+        let _ = pairs;
+        IntegrationSnapshot::default()
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.23 item 2: `prepare` over `sources`, the snapshot
+    /// [`Self::read_sources`] returned for `req.pairs` in the same step. This is the
+    /// call the runtime bounds; it reads nothing that can block. Same contract as
+    /// `prepare` otherwise. Default: `prepare` (an adapter that reads no source).
+    async fn prepare_from(
+        &self,
+        req: PrepareRequest<'_>,
+        sources: &IntegrationSnapshot,
+    ) -> Result<PrepareOutcome, AdapterError> {
+        let _ = sources;
+        self.prepare(req).await
+    }
 
     /// Renew within the grant (never past its deadline or cutoff).
     async fn renew(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError>;

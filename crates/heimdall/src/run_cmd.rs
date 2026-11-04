@@ -15,10 +15,15 @@
 //! 6. under `--non-interactive` without `--allow-provider-interaction`, the pre-launch
 //!    eligibility check (`heimdall_launch::eligibility::check_noninteractive`) over a
 //!    fresh `inspect identities` and a fresh static selection; a refusal is
-//!    `INTERACTION_REQUIRED`, exit 3, with a `prelaunch_failed` record;
-//! 7. the launch: Unix `exec` after `launching`, Windows spawn and wait.
+//!    `INTERACTION_REQUIRED`, exit 3, with a `prelaunch_failed` record, naming the
+//!    uncleared entries' file and line in `data.error.entries`;
+//! 7. one `inspect bindings` confirming the binding is still `active` (ADR-0007
+//!    §12.24 item 2): a replayed `bind` returns its stored result, so a binding the
+//!    holder pass released since is refused here (`CREDENTIAL_EXPIRED`, a
+//!    `prelaunch_failed` record) and never launched;
+//! 8. the launch: Unix `exec` after `launching`, Windows spawn and wait.
 //!
-//! The control session is closed and the async runtime shut down before step 7, so
+//! The control session is closed and the async runtime shut down before step 8, so
 //! the child inherits neither. Every failure before launch writes `prelaunch_failed`
 //! (when a side channel is open) and is reported on stderr; stdout is the child's.
 //!
@@ -272,6 +277,10 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
                 return Err((Failure::ineligible(&refusal, provider, kind), Some(ids)));
             }
         }
+        // 7. The binding is still active (a replayed bind may name a released one).
+        launch_flow::confirm_binding_active(&mut client, &data.binding_id)
+            .await
+            .map_err(|f| (f, Some(ids.clone())))?;
         drop(client);
         let delta = EnvDelta::from_integration(&bound_data.consumer, &env, &git, platform);
         Ok(Prepared {

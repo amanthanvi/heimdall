@@ -824,6 +824,13 @@ impl Supervisor {
                         }
                     }
                 }
+                // ⟨M02⟩ ADR-0007 §12.24 item 3: the earliest pending decision deadline,
+                // so a setup or catalog operation waiting on it settles
+                // (`CREDENTIAL_EXPIRED`, `next: new_work`) at the tick right after it,
+                // never up to `max_idle_sleep` later.
+                for d in tx.pending_decisions()? {
+                    consider(d.expires_at);
+                }
                 Ok(earliest)
             })
         })

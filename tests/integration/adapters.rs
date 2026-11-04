@@ -1377,6 +1377,136 @@ async fn reconcile_answers_from_what_prepare_returned() {
 
 // --- what is never sent, and the drop contract -----------------------------------------
 
+/// The test sources behind a counter of every read (ADR-0007 §12.23 item 2).
+struct Counted {
+    inner: Sources,
+    reads: std::sync::atomic::AtomicUsize,
+}
+
+impl Counted {
+    fn read(&self) {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+    fn reads(&self) -> usize {
+        self.reads.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl IntegrationSources for Counted {
+    fn observe_aliases(&self, aliases: &[String]) -> Vec<AliasObservation> {
+        self.read();
+        self.inner.observe_aliases(aliases)
+    }
+    fn catalog_identities(&self) -> Vec<IdentityRecord> {
+        self.read();
+        self.inner.catalog_identities()
+    }
+    fn declaration(&self, identity: &IdentityId) -> Option<InteractionDeclaration> {
+        self.read();
+        self.inner.declaration(identity)
+    }
+    fn executables(&self) -> Vec<heimdall_contract::request::ConsumerExecutable> {
+        self.read();
+        self.inner.executables()
+    }
+}
+
+/// ADR-0007 §12.23 item 2 (U02), both adapters: `read_sources` makes every source
+/// read (the observation, the catalog, the declarations, the executables) into an
+/// in-memory snapshot; `prepare_from` over it reads no source at all and answers
+/// exactly what the self-reading `prepare` answers. An empty snapshot claims nothing
+/// (fail closed): the declared, exclusive key that is ready without interaction over
+/// its snapshot is refused on the no-interaction path over an empty one.
+#[tokio::test]
+async fn prepare_from_reads_nothing_but_its_snapshot() {
+    let key = FixtureKey::generate();
+    let f = fake(AgentMode::Normal, vec![key.clone()]);
+    let id = native_identity(1, &key, &f.endpoint);
+    let op_id = op_identity(2, &key, &f.endpoint);
+    let g = grant();
+    let scope = Scope::empty();
+    let req = required(false);
+    for (onepassword_adapter, identity) in [(false, &id), (true, &op_id)] {
+        let sources = Arc::new(Counted {
+            inner: Sources {
+                observations: vec![observation("h1", exclusive(&identity.fingerprint))],
+                identities: vec![id.clone(), op_id.clone()],
+                declarations: BTreeMap::from([(
+                    identity.id.clone(),
+                    declaration(identity, &f.endpoint, at(1800)),
+                )]),
+                ..Sources::default()
+            },
+            reads: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let adapter: Box<dyn CredentialAdapter> = if onepassword_adapter {
+            Box::new(
+                OnePasswordAdapter::new("u6".into(), Some(f.endpoint.clone()))
+                    .with_sources(sources.clone()),
+            )
+        } else {
+            Box::new(
+                NativeAgentAdapter::new("u6".into(), Some(f.endpoint.clone()))
+                    .with_sources(sources.clone()),
+            )
+        };
+        let pairs = [pair("h1", identity, Some("h1"))];
+        let snapshot = adapter.read_sources(&pairs);
+        let reads = sources.reads();
+        assert!(reads >= 4, "every source was read: {reads}");
+        assert_eq!(snapshot.observations.len(), 1);
+        assert_eq!(snapshot.identities.len(), 2);
+        assert!(snapshot.declarations.contains_key(&identity.id));
+        for interactive in [true, false] {
+            let before = sources.reads();
+            let from = adapter
+                .prepare_from(
+                    request(&g, &scope, &req, interactive, "t-from", &pairs),
+                    &snapshot,
+                )
+                .await;
+            assert_eq!(sources.reads(), before, "no source read inside the bound");
+            let direct = adapter
+                .prepare(request(&g, &scope, &req, interactive, "t-direct", &pairs))
+                .await;
+            assert!(sources.reads() > before, "prepare reads its own sources");
+            let reads_now = sources.reads();
+            assert_eq!(from, direct, "onepassword={onepassword_adapter}");
+            // The empty snapshot claims nothing.
+            let empty = adapter
+                .prepare_from(
+                    request(&g, &scope, &req, interactive, "t-empty", &pairs),
+                    &heimdall_app::ports::IntegrationSnapshot::default(),
+                )
+                .await;
+            assert_eq!(sources.reads(), reads_now);
+            match (onepassword_adapter, interactive) {
+                (false, false) => {
+                    assert_eq!(
+                        from.unwrap().availability,
+                        CredentialAvailability::CurrentOnly
+                    );
+                    assert!(matches!(empty, Err(AdapterError::InteractionRequired(_))));
+                }
+                (_, true) => {
+                    assert!(from.is_ok());
+                    let e = empty.unwrap();
+                    assert_eq!(e.integration.pairs[0].declaration, None);
+                    assert_eq!(
+                        e.integration.pairs[0].identity_selection,
+                        IdentitySelection::Undetermined
+                    );
+                }
+                (true, false) => {
+                    assert!(matches!(from, Err(AdapterError::InteractionRequired(_))));
+                    assert!(matches!(empty, Err(AdapterError::InteractionRequired(_))));
+                }
+            }
+        }
+    }
+    assert_eq!(f.agent.contact_count(), 0, "the agent is never contacted");
+}
+
 #[tokio::test]
 async fn adapters_never_send_sign_add_remove_lock_or_extension() {
     let key = FixtureKey::generate();

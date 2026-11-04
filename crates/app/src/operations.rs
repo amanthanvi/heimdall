@@ -223,8 +223,8 @@ use crate::ensure::{EnsureHandle, EnsureStage, EquivalenceKey, StageHook};
 use crate::error::{Completed, OpError, OpResult};
 use crate::events::{EventPublisher, SequencedEvent, decision_kind_name, visible_to};
 use crate::ports::{
-    AdapterError, CredentialAdapter, InteractionRequirement, LockContinuity, PrepareOutcome,
-    PreparePair, PrepareRequest, ReconcileOutcome,
+    AdapterError, CredentialAdapter, IntegrationSnapshot, InteractionRequirement, LockContinuity,
+    PrepareOutcome, PreparePair, PrepareRequest, ReconcileOutcome,
 };
 use crate::singleflight::{Flight, SingleFlight, follow};
 use crate::timegate::{SafeNow, TimeGate, TxnGate, uncertain};
@@ -292,18 +292,46 @@ pub const ADAPTER_CALL_TIMED_OUT: &str = "adapter call timed out";
 /// runs its existing arm for that answer, unchanged; nothing here decides cleanup
 /// ownership.
 ///
+/// ⟨M02⟩ ADR-0007 §12.23 item 2 (U02): an answer that arrives after the bound is
+/// not accepted either. A future that did not yield (synchronous work the timer
+/// could not interrupt) and returned past the deadline answers `OutcomeUnknown`
+/// exactly as a dropped one does, so the bound keeps its meaning whatever the call
+/// did. Every store and file read an adapter needs is made before the bound
+/// ([`crate::ports::CredentialAdapter::read_sources`]), so a conforming adapter
+/// answers within it.
+///
 /// # Errors
 /// The adapter's own error, or `OutcomeUnknown` when the bound elapsed.
 pub async fn bounded_adapter_call<T, F>(limit: Duration, call: F) -> Result<T, AdapterError>
 where
     F: std::future::Future<Output = Result<T, AdapterError>>,
 {
-    match tokio::time::timeout(limit, call).await {
+    let deadline = tokio::time::Instant::now() + limit;
+    match tokio::time::timeout_at(deadline, call).await {
+        Ok(_) if tokio::time::Instant::now() > deadline => Err(AdapterError::OutcomeUnknown(
+            ADAPTER_CALL_TIMED_OUT.to_owned(),
+        )),
         Ok(answer) => answer,
         Err(_) => Err(AdapterError::OutcomeUnknown(
             ADAPTER_CALL_TIMED_OUT.to_owned(),
         )),
     }
+}
+
+/// ⟨M02⟩ ADR-0007 §12.23 item 2 (U02): `adapter`'s
+/// [`CredentialAdapter::read_sources`] for `pairs`, on the blocking pool and awaited
+/// (never detached, never under the adapter bound), before the bounded
+/// `prepare_from` of the same step. A read that panicked claims nothing (an empty
+/// snapshot, which fails closed).
+async fn read_prepare_sources(
+    adapter: &Arc<dyn CredentialAdapter>,
+    pairs: &[PreparePair],
+) -> IntegrationSnapshot {
+    let adapter = Arc::clone(adapter);
+    let pairs = pairs.to_vec();
+    tokio::task::spawn_blocking(move || adapter.read_sources(&pairs))
+        .await
+        .unwrap_or_default()
 }
 
 /// Row cap for the event log trimmed by `tick` (in addition to the age bound).
@@ -4395,6 +4423,46 @@ fn identity_view(
     }))
 }
 
+/// ⟨M02⟩ ADR-0007 §12.24 item 1: one catalog destination as `inspect destinations`
+/// lists it: its ID, alias, revision, label and definition (`managed` or `observed`,
+/// the `heimdall_contract::doctor::AliasDefinition` names); a managed destination also
+/// carries the fields P renders (`hostname`, `port`, `account`, `identity_id`).
+/// Catalog fields only: no file is read.
+fn destination_view(d: &heimdall_domain::catalog::DestinationRecord) -> serde_json::Value {
+    use heimdall_contract::doctor::AliasDefinition;
+    let mut view = serde_json::json!({
+        "destination_id": d.id,
+        "alias": d.alias,
+        "revision": d.revision,
+        "label": d.label,
+        "updated_at": d.updated_at,
+    });
+    let (definition, rendered) = match &d.definition {
+        DestinationDefinition::Managed {
+            hostname,
+            port,
+            account,
+            identity,
+        } => (
+            AliasDefinition::Managed,
+            Some(serde_json::json!({
+                "hostname": hostname,
+                "port": port,
+                "account": account,
+                "identity_id": identity,
+            })),
+        ),
+        DestinationDefinition::Observed => (AliasDefinition::Observed, None),
+    };
+    if let serde_json::Value::Object(map) = &mut view {
+        map.insert("definition".to_owned(), serde_json::json!(definition));
+        if let Some(serde_json::Value::Object(fields)) = rendered {
+            map.extend(fields);
+        }
+    }
+    view
+}
+
 fn operation_view(op: &OperationRecord) -> serde_json::Value {
     serde_json::json!({
         "operation_id": op.id,
@@ -6192,20 +6260,29 @@ impl Operations {
             }
         };
         let interactive = interactive && spec.interactive;
-        // ⟨M02⟩ U0b row 24: the bound covers `prepare` alone, inside the slot and the
-        // preparing marker; a timed-out call answers `OutcomeUnknown` and takes the
-        // `mark_uncertain` arm below, after both are released.
+        // ⟨M02⟩ ADR-0007 §12.23 item 2 (U02): every input the call needs (catalog
+        // identities, declaration rows, executables, the projection observation) is
+        // read here, in this step and before the bound, on the blocking pool. A
+        // blocked store or a slow observation delays this step as any store wait
+        // does, never the bounded call.
+        let sources = read_prepare_sources(&adapter, &named).await;
+        // ⟨M02⟩ U0b row 24: the bound covers `prepare_from` alone, inside the slot and
+        // the preparing marker; a timed-out call answers `OutcomeUnknown` and takes
+        // the `mark_uncertain` arm below, after both are released.
         let result = bounded_adapter_call(
             self.adapter_limit(),
-            adapter.prepare(PrepareRequest {
-                grant: &grant,
-                scope: &grant.scope,
-                required: &spec.required,
-                interactive,
-                effect_token: &token,
-                now,
-                pairs: &named,
-            }),
+            adapter.prepare_from(
+                PrepareRequest {
+                    grant: &grant,
+                    scope: &grant.scope,
+                    required: &spec.required,
+                    interactive,
+                    effect_token: &token,
+                    now,
+                    pairs: &named,
+                },
+                &sources,
+            ),
         )
         .await;
         drop(slot);
@@ -7461,12 +7538,48 @@ impl Operations {
                 })
                 .await?
             }
-            InspectSubject::Profiles | InspectSubject::Destinations => {
-                warnings.push(Warning {
-                    code: "NOT_LISTED".to_owned(),
-                    message: "this runtime does not list this subject yet".to_owned(),
-                });
-                serde_json::json!({ "items": [] })
+            // ⟨M02⟩ ADR-0007 §12.24 item 1: the catalog's destinations, each with its
+            // alias and its definition (`managed`, with the rendered fields, or
+            // `observed`), read in one transaction, under the `items` key this subject
+            // always answered with. Owner role only, like the other catalog subjects
+            // (identities, projections, decisions).
+            InspectSubject::Destinations => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "items": [] })
+                } else {
+                    self.write(move |tx, _| {
+                        let items: Vec<serde_json::Value> =
+                            tx.destinations()?.iter().map(destination_view).collect();
+                        Ok(serde_json::json!({ "items": items }))
+                    })
+                    .await?
+                }
+            }
+            // ⟨M02⟩ ADR-0007 §12.24 item 1 (profiles): the catalog's current profile
+            // definitions, read in one transaction, under `items`. Owner role only, as
+            // for destinations.
+            InspectSubject::Profiles => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "items": [] })
+                } else {
+                    self.write(move |tx, _| {
+                        let items: Vec<serde_json::Value> = tx
+                            .profiles()?
+                            .iter()
+                            .map(|p| {
+                                serde_json::json!({
+                                    "profile_id": p.id,
+                                    "revision": p.revision,
+                                    "label": p.label,
+                                    "pairs": p.scope.pairs,
+                                    "capabilities": p.scope.capabilities,
+                                })
+                            })
+                            .collect();
+                        Ok(serde_json::json!({ "items": items }))
+                    })
+                    .await?
+                }
             }
             InspectSubject::Grants | InspectSubject::Bindings => {
                 let subject = req.subject;

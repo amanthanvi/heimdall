@@ -12567,13 +12567,29 @@ mod u0b_adapter_bound {
         );
     }
 
-    /// `u0b_every_adapter_call_is_bounded`: a source check over
-    /// `crates/app/src/operations.rs` outside `#[cfg(test)]`. Every `.prepare(`,
-    /// `.renew(`, `.reconcile(` and `.revoke(` call on an adapter is the argument of
-    /// a `bounded_adapter_call`, and there is at least one of each of the three the
-    /// runtime makes.
-    #[test]
-    fn u0b_every_adapter_call_is_bounded() {
+    /// A future that does not yield (synchronous work the timer cannot interrupt)
+    /// and answers after the bound is not accepted: `OutcomeUnknown`, as a dropped
+    /// call (ADR-0007 §12.23 item 2). A timely synchronous answer passes through.
+    #[tokio::test]
+    async fn u0b_bounded_adapter_call_refuses_an_answer_after_the_bound() {
+        let started = std::time::Instant::now();
+        let late: Result<(), AdapterError> = bounded_adapter_call(BOUND, async {
+            std::thread::sleep(BOUND * 2);
+            Ok(())
+        })
+        .await;
+        assert!(started.elapsed() >= BOUND * 2);
+        assert_eq!(
+            late,
+            Err(AdapterError::OutcomeUnknown(ADAPTER_CALL_TIMED_OUT.into()))
+        );
+        let prompt: Result<u8, AdapterError> = bounded_adapter_call(BOUND, async { Ok(7) }).await;
+        assert_eq!(prompt, Ok(7));
+    }
+
+    /// The production part of `crates/app/src/operations.rs` (before its
+    /// `#[cfg(test)]` module), each line cut at its `//` comment.
+    fn production_source() -> Vec<String> {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app/src/operations.rs");
         let source = std::fs::read_to_string(path).unwrap();
@@ -12581,11 +12597,67 @@ mod u0b_adapter_bound {
             .split("\n#[cfg(test)]")
             .next()
             .expect("production part");
-        let lines: Vec<&str> = production.lines().collect();
+        production
+            .lines()
+            .map(|l| l.split("//").next().unwrap_or("").to_owned())
+            .collect()
+    }
+
+    /// The byte spans of every `bounded_adapter_call(...)` call in `text`, from the
+    /// name to its matching `)` (string literals skipped; the definition excluded).
+    fn bounded_spans(text: &str) -> Vec<(usize, usize)> {
+        const NAME: &str = "bounded_adapter_call(";
+        let bytes = text.as_bytes();
+        let mut spans = Vec::new();
+        let mut from = 0;
+        while let Some(at) = text[from..].find(NAME) {
+            let start = from + at;
+            from = start + NAME.len();
+            if text[..start].ends_with("fn ") {
+                continue;
+            }
+            let (mut depth, mut i, mut in_str) = (0usize, start + NAME.len() - 1, false);
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'\\' if in_str => i += 1,
+                    b'"' => in_str = !in_str,
+                    b'(' if !in_str => depth += 1,
+                    b')' if !in_str => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            spans.push((start, i));
+        }
+        spans
+    }
+
+    /// `u0b_every_adapter_call_is_bounded`: a source check over
+    /// `crates/app/src/operations.rs` outside `#[cfg(test)]`. Every `.prepare(`,
+    /// `.prepare_from(`, `.renew(`, `.reconcile(` and `.revoke(` call on an adapter is
+    /// the argument of a `bounded_adapter_call`, and there is at least one of each of
+    /// the three the runtime makes. ⟨M02⟩ ADR-0007 §12.23 item 2: the runtime prepares
+    /// only through `prepare_from`, and builds its snapshot (`.read_sources(`, through
+    /// `read_prepare_sources(`) outside every `bounded_adapter_call(...)` span, before
+    /// the bounded `prepare_from` of the same step; no span holds a store, blocking-pool
+    /// or projection read.
+    #[test]
+    fn u0b_every_adapter_call_is_bounded() {
+        let lines = production_source();
         let mut found: BTreeMap<&str, usize> = BTreeMap::new();
-        for (n, line) in lines.iter().enumerate() {
-            let code = line.split("//").next().unwrap_or("");
-            for call in [".prepare(", ".renew(", ".reconcile(", ".revoke("] {
+        for (n, code) in lines.iter().enumerate() {
+            for call in [
+                ".prepare(",
+                ".prepare_from(",
+                ".renew(",
+                ".reconcile(",
+                ".revoke(",
+            ] {
                 if !code.contains(call) {
                     continue;
                 }
@@ -12597,12 +12669,12 @@ mod u0b_adapter_bound {
                     window.contains("bounded_adapter_call("),
                     "line {}: `{}` is not inside bounded_adapter_call",
                     n + 1,
-                    line.trim()
+                    code.trim()
                 );
                 *found.entry(call).or_default() += 1;
             }
         }
-        for call in [".prepare(", ".reconcile(", ".revoke("] {
+        for call in [".prepare_from(", ".reconcile(", ".revoke("] {
             assert!(
                 found.get(call).copied().unwrap_or(0) > 0,
                 "{call} found: {found:?}"
@@ -12610,7 +12682,448 @@ mod u0b_adapter_bound {
         }
         assert_eq!(found.get(".reconcile(").copied(), Some(4), "{found:?}");
         assert_eq!(found.get(".revoke(").copied(), Some(3), "{found:?}");
-        assert_eq!(found.get(".prepare(").copied(), Some(1), "{found:?}");
+        assert_eq!(found.get(".prepare_from(").copied(), Some(1), "{found:?}");
+        assert_eq!(found.get(".prepare(").copied(), None, "{found:?}");
+
+        // ADR-0007 §12.23 item 2: the snapshot is built outside the bound.
+        let text = lines.join("\n");
+        let spans = bounded_spans(&text);
+        assert_eq!(spans.len(), 8, "one span per adapter call: {spans:?}");
+        let inside = |at: usize| spans.iter().any(|&(a, b)| a <= at && at <= b);
+        let all =
+            |needle: &str| -> Vec<usize> { text.match_indices(needle).map(|(i, _)| i).collect() };
+        let reads = all(".read_sources(");
+        assert_eq!(reads.len(), 1, "one snapshot read: {reads:?}");
+        assert!(!inside(reads[0]), "read_sources inside a bound");
+        let builds: Vec<usize> = all("read_prepare_sources(")
+            .into_iter()
+            .filter(|&i| !text[..i].ends_with("fn "))
+            .collect();
+        assert_eq!(builds.len(), 1, "one snapshot per preparation: {builds:?}");
+        assert!(!inside(builds[0]), "the snapshot is built inside a bound");
+        let prepare = all(".prepare_from(")[0];
+        assert!(inside(prepare));
+        assert!(
+            builds[0] < prepare,
+            "the snapshot precedes the bounded call"
+        );
+        let between = &text[builds[0]..prepare];
+        assert_eq!(
+            between.matches("bounded_adapter_call(").count(),
+            1,
+            "the snapshot is read in the step of the bounded call it feeds"
+        );
+        for (a, b) in spans {
+            let span = &text[a..=b.min(text.len() - 1)];
+            for blocking in [
+                "read_sources",
+                "read_prepare_sources",
+                "spawn_blocking",
+                ".transaction(",
+                ".write(",
+                ".observe(",
+                "projection",
+            ] {
+                assert!(
+                    !span.contains(blocking),
+                    "`{blocking}` inside a bounded adapter call: {span}"
+                );
+            }
+        }
+    }
+}
+
+// =================================================================================
+// ⟨M02⟩ ADR-0007 §12.23 item 2 (review wave3a U02): nothing that can block runs
+// inside the adapter bound. The reviewer's two probes, over the production
+// `NativeAgentAdapter` and the runtime's `RuntimeSources` on a real store, with a
+// disposable fake agent in a scratch directory (never contacted: `prepare` only
+// stats its endpoint).
+// =================================================================================
+
+mod u02_sources_before_the_bound {
+    use super::u0b_adapter_bound::until;
+    use super::*;
+    use heimdall_adapters::integration::IntegrationSources;
+    use heimdall_adapters::native_agent::NativeAgentAdapter;
+    use heimdall_app::operations::{ADAPTER_CALL_TIMED_OUT, bounded_adapter_call};
+    use heimdall_app::ports::{AdapterError, PreparePair, PrepareRequest};
+    use heimdall_contract::catalog::DeclaredInteraction;
+    use heimdall_contract::doctor::AliasObservation;
+    use heimdall_contract::ids::{GrantId, IdentityId};
+    use heimdall_contract::provider::{EndpointKind, EndpointRef};
+    use heimdall_domain::catalog::{
+        DeclarationState, DestinationDefinition, DestinationRecord, IdentityRecord, IdentitySource,
+        InteractionDeclaration, InteractionProfile,
+    };
+    use heimdall_domain::grant::{AuthorizationSource, GrantSnapshot};
+    use heimdall_domain::policy::AuthorityGeneration;
+    use heimdall_domain::time::Deadline;
+    use heimdall_localenv::clients::ClientInventory;
+    use heimdall_runtime::service::RuntimeSources;
+    use heimdall_testkit::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey};
+    use heimdall_testkit::home::Scratch;
+
+    /// The adapter bound of these probes.
+    const BOUND: Duration = Duration::from_millis(500);
+    /// How long a source stalls (a store held by another thread, or a slow callback):
+    /// well past the bound.
+    const STALL: Duration = Duration::from_millis(1500);
+
+    /// A disposable fake agent in a scratch directory, and the adopted identity it
+    /// holds (a key generated for this run; only its public line is used).
+    struct Agent {
+        _scratch: Scratch,
+        agent: FakeAgent,
+        endpoint: EndpointRef,
+        identity: IdentityRecord,
+    }
+
+    fn agent() -> Agent {
+        let scratch = Scratch::new().unwrap();
+        let at = Endpoint::in_scratch(&scratch, "agent").unwrap();
+        let key = FixtureKey::generate();
+        let agent = FakeAgent::start(
+            at.clone(),
+            FakeAgentConfig {
+                keys: vec![key.clone()],
+                mode: AgentMode::Normal,
+            },
+        );
+        let endpoint = match &at {
+            Endpoint::UnixSocket(p) => EndpointRef {
+                kind: EndpointKind::UnixSocket,
+                locator: p.to_str().unwrap().to_owned(),
+            },
+            Endpoint::NamedPipe(n) => EndpointRef {
+                kind: EndpointKind::NamedPipe,
+                locator: n.clone(),
+            },
+        };
+        let source = IdentitySource::NativeAgent {
+            endpoint: endpoint.clone(),
+        };
+        let public_key = key.public_line_without_comment();
+        let identity = IdentityRecord {
+            id: IdentityId::from_random_bytes([0x42; 16]),
+            revision: 1,
+            interaction: InteractionProfile::default_for(&source, &public_key),
+            source,
+            public_key,
+            fingerprint: key.fingerprint(),
+            label: None,
+            adopted_at: shift(t0(), -86_400),
+            updated_at: shift(t0(), -86_400),
+        };
+        Agent {
+            _scratch: scratch,
+            agent,
+            endpoint,
+            identity,
+        }
+    }
+
+    /// The identity, the managed destination h1 naming it, and a live `none`
+    /// declaration at its endpoint.
+    fn seed_native(store: &Store, a: &Agent) {
+        store
+            .transaction(|tx| {
+                tx.upsert_identity(&a.identity)?;
+                tx.upsert_destination(&DestinationRecord {
+                    id: DestinationId::parse("h1").unwrap(),
+                    alias: "h1".into(),
+                    revision: 1,
+                    definition: DestinationDefinition::Managed {
+                        hostname: "h1.example.invalid".into(),
+                        port: None,
+                        account: AccountName::parse("deploy").unwrap(),
+                        identity: a.identity.id.clone(),
+                    },
+                    label: None,
+                    updated_at: t0(),
+                })?;
+                tx.put_interaction_declaration(
+                    &a.identity.id,
+                    0,
+                    &InteractionDeclaration {
+                        revision: 1,
+                        state: DeclarationState::Live,
+                        interaction: DeclaredInteraction::None,
+                        fingerprint: a.identity.fingerprint.clone(),
+                        endpoint: a.endpoint.clone(),
+                        declared_at: shift(t0(), -3600),
+                        expires_at: shift(t0(), 30 * 60),
+                        decision: DecisionId::from_random_bytes([0x43; 16]),
+                        ended_at: None,
+                        end_reason: None,
+                    },
+                )
+            })
+            .unwrap();
+    }
+
+    /// Another thread holds a store transaction for `STALL`. Returns once it holds
+    /// it, with the thread and a flag set just before it lets go.
+    fn hold_store(store: &Arc<Store>) -> (std::thread::JoinHandle<()>, Arc<AtomicBool>) {
+        let store = Arc::clone(store);
+        let released = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&released);
+        let (held, holding) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            store
+                .transaction(|_| {
+                    held.send(()).unwrap();
+                    std::thread::sleep(STALL);
+                    flag.store(true, Ordering::SeqCst);
+                    Ok(())
+                })
+                .unwrap();
+        });
+        holding.recv().unwrap();
+        (holder, released)
+    }
+
+    fn grant() -> GrantSnapshot {
+        GrantSnapshot {
+            id: GrantId::from_random_bytes([0x44; 16]),
+            environment: env_id(),
+            scope: Scope {
+                pairs: [pair("h1", "deploy")].into_iter().collect(),
+                capabilities: ssh_only(),
+            },
+            starts_at: t0(),
+            deadline: Deadline {
+                intent: DeadlineIntent::Duration("PT1H".into()),
+                resolved_at: t0(),
+                effective: shift(t0(), 3600),
+            },
+            parent: None,
+            source: AuthorizationSource::StandingPolicy {
+                revision: PolicyRevision(1),
+            },
+            generation: AuthorityGeneration(1),
+            state: GrantState::Preparing,
+            enforcement: EnforcementEvidence::unknown(),
+        }
+    }
+
+    fn pairs_of(a: &Agent) -> Vec<PreparePair> {
+        vec![PreparePair {
+            destination: DestinationId::parse("h1").unwrap(),
+            account: AccountName::parse("deploy").unwrap(),
+            identity: a.identity.clone(),
+            alias: Some("h1".into()),
+        }]
+    }
+
+    /// The reviewer's first probe (`review_runtime_store_wait_exceeds_timeout`): a
+    /// thread holds a store transaction while the runtime's sources are read. The
+    /// snapshot read waits for the store, before the bound; the bounded
+    /// `prepare_from` over the snapshot answers within the bound while the store is
+    /// still held, so it read nothing from it. The pre-fix shape (the live sources
+    /// read inside the bound, `prepare`) is late and answers `OutcomeUnknown`.
+    #[tokio::test]
+    async fn u02_store_contention_delays_the_snapshot_never_the_bounded_call() {
+        let a = agent();
+        let store = Arc::new(Store::open_in_memory(Arc::new(heimdall_store::NoFaults)).unwrap());
+        seed(&store);
+        seed_native(&store, &a);
+        let sources: Arc<dyn IntegrationSources> = Arc::new(RuntimeSources::new(
+            Arc::clone(&store),
+            env_id(),
+            None,
+            &ClientInventory::default(),
+        ));
+        let adapter = Arc::new(
+            NativeAgentAdapter::new("u02".into(), Some(a.endpoint.clone())).with_sources(sources),
+        );
+        let pairs = pairs_of(&a);
+        let g = grant();
+        let required = RequiredCapabilities::default();
+        let request = |token: &'static str| PrepareRequest {
+            grant: &g,
+            scope: &g.scope,
+            required: &required,
+            interactive: true,
+            effect_token: token,
+            now: t0(),
+            pairs: &pairs,
+        };
+
+        // 1. The snapshot waits for the store: outside the bound.
+        let (holder, released) = hold_store(&store);
+        let (ad, p) = (Arc::clone(&adapter), pairs.clone());
+        let snapshot = tokio::task::spawn_blocking(move || {
+            heimdall_app::ports::CredentialAdapter::read_sources(ad.as_ref(), &p)
+        })
+        .await
+        .unwrap();
+        assert!(
+            released.load(Ordering::SeqCst),
+            "the snapshot read waited for the store"
+        );
+        holder.join().unwrap();
+        assert!(snapshot.declarations.contains_key(&a.identity.id));
+        assert!(snapshot.identities.iter().any(|r| r.id == a.identity.id));
+
+        // 2. With the store held again, the bounded call over the snapshot answers
+        // within the bound and never waits for the store.
+        let (holder, released) = hold_store(&store);
+        let answer = bounded_adapter_call(
+            BOUND,
+            heimdall_app::ports::CredentialAdapter::prepare_from(
+                adapter.as_ref(),
+                request("u02-t1"),
+                &snapshot,
+            ),
+        )
+        .await;
+        assert!(
+            !released.load(Ordering::SeqCst),
+            "the bounded call did not wait for the store"
+        );
+        let outcome = answer.expect("answered within the bound");
+        assert_eq!(outcome.integration.pairs.len(), 1);
+        assert!(outcome.integration.pairs[0].declaration.is_some());
+        holder.join().unwrap();
+
+        // 3. The pre-fix shape: the live sources read inside the bound under the
+        // same contention. The answer comes after the bound and is not accepted.
+        let (holder, _released) = hold_store(&store);
+        let late = bounded_adapter_call(
+            BOUND,
+            heimdall_app::ports::CredentialAdapter::prepare(adapter.as_ref(), request("u02-t2")),
+        )
+        .await;
+        holder.join().unwrap();
+        assert_eq!(
+            late.map(|_| ()),
+            Err(AdapterError::OutcomeUnknown(ADAPTER_CALL_TIMED_OUT.into()))
+        );
+        assert_eq!(a.agent.contact_count(), 0, "the agent is never contacted");
+        assert_eq!(a.agent.connections(), 0);
+    }
+
+    /// How a [`Stalling`] source stalls.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Stall {
+        /// A deliberately slow callback (the reviewer's second probe).
+        Sleep,
+        /// Another thread holds the store, so the runtime's reads wait for it.
+        HoldStore,
+    }
+
+    /// The runtime's sources behind a stall at the alias observation (the first
+    /// callback a snapshot read makes).
+    struct Stalling {
+        inner: RuntimeSources,
+        store: Arc<Store>,
+        stall: Stall,
+        calls: AtomicUsize,
+        holders: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>>,
+    }
+
+    impl IntegrationSources for Stalling {
+        fn observe_aliases(&self, aliases: &[String]) -> Vec<AliasObservation> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            match self.stall {
+                Stall::Sleep => std::thread::sleep(STALL),
+                Stall::HoldStore => {
+                    let (holder, _) = hold_store(&self.store);
+                    self.holders.lock().unwrap().push(holder);
+                }
+            }
+            self.inner.observe_aliases(aliases)
+        }
+        fn catalog_identities(&self) -> Vec<IdentityRecord> {
+            self.inner.catalog_identities()
+        }
+        fn declaration(&self, identity: &IdentityId) -> Option<InteractionDeclaration> {
+            self.inner.declaration(identity)
+        }
+        fn declarations(
+            &self,
+            identities: &[IdentityId],
+        ) -> BTreeMap<IdentityId, InteractionDeclaration> {
+            self.inner.declarations(identities)
+        }
+        fn executables(&self) -> Vec<heimdall_contract::request::ConsumerExecutable> {
+            self.inner.executables()
+        }
+    }
+
+    /// The reviewer's second probe (a slow source callback) and the store-contention
+    /// probe through the real `Operations`, with the production adapter registered
+    /// over the runtime's sources and `adapter_call_timeout` = 500 ms. The stall
+    /// (1.5 s) happens while the snapshot is read, before the bound, so the bounded
+    /// `prepare_from` answers in time: the ensure succeeds (never `OUTCOME_UNKNOWN`),
+    /// and the adapter slot and the preparing marker are released. Before the fix the
+    /// stall ran inside the bound, and its late answer is `OutcomeUnknown`.
+    #[tokio::test]
+    async fn u02_slow_source_and_store_contention_stay_outside_the_bound() {
+        for stall in [Stall::Sleep, Stall::HoldStore] {
+            let a = agent();
+            let mut w = World::new().await;
+            seed_native(&w.store, &a);
+            let source = Arc::new(Stalling {
+                inner: RuntimeSources::new(
+                    Arc::clone(&w.store),
+                    env_id(),
+                    None,
+                    &ClientInventory::default(),
+                ),
+                store: Arc::clone(&w.store),
+                stall,
+                calls: AtomicUsize::new(0),
+                holders: std::sync::Mutex::new(Vec::new()),
+            });
+            let native: Arc<dyn CredentialAdapter> = Arc::new(
+                NativeAgentAdapter::new("u02".into(), Some(a.endpoint.clone()))
+                    .with_sources(source.clone()),
+            );
+            let limits = Limits {
+                adapter_call_timeout: BOUND,
+                ..Limits::default()
+            };
+            w.limits = limits;
+            w.ops = Operations::start(OperationsConfig {
+                adapters: vec![w.fake.clone() as Arc<dyn CredentialAdapter>, native],
+                ..w.config()
+            })
+            .await
+            .unwrap();
+            let req = EnsureRequest {
+                interaction: InteractionMode::Interactive,
+                ..ensure_req("u02-ops", "u02-ops-w", &[("h1", "deploy")])
+            };
+            let r = w.ops.ensure(&attended(501), req).await;
+            if let Err(e) = &r {
+                panic!("{stall:?}: expected success, got {}: {}", e.code, e.message);
+            }
+            let done = ok(r);
+            assert_eq!(done.code, Code::AccessReady, "{stall:?}");
+            assert!(
+                source.calls.load(Ordering::SeqCst) >= 1,
+                "{stall:?}: the stalling source was read"
+            );
+            until("the slot and the marker", || {
+                w.ops.available_adapter_slots() == limits.max_concurrent_adapter_calls
+                    && w.ops.preparing_operations().is_empty()
+            })
+            .await;
+            let ops = w.store.transaction(|tx| tx.open_operations()).unwrap();
+            assert!(
+                ops.iter()
+                    .all(|o| o.state != OperationState::OutcomeUnknown),
+                "{stall:?}"
+            );
+            assert_eq!(w.fake.effect_count(), 0, "the native adapter prepared");
+            for holder in source.holders.lock().unwrap().drain(..) {
+                holder.join().unwrap();
+            }
+            assert_eq!(a.agent.contact_count(), 0, "{stall:?}: never contacted");
+            w.events();
+        }
     }
 }
 
@@ -12857,6 +13370,74 @@ mod u0b_phase2 {
 
     fn record(w: &World, d: &DecisionId) -> DecisionRecord {
         w.store.transaction(|tx| tx.decision(d)).unwrap().unwrap()
+    }
+
+    /// ADR-0007 §12.23 item 1 (U01): a held repair proceeds only while it is still
+    /// runnable. Its start transaction moves a `queued` repair to `running` with its own
+    /// `setup.attempt` before anything touches the held operation (the control: one
+    /// reconcile of the held operation, then the repair settles). A repair found in any
+    /// other open state (here `outcome_unknown`, which no driver leaves a repair in)
+    /// records no attempt and never reaches the held operation: no writer call.
+    #[tokio::test]
+    async fn u01_held_repair_proceeds_only_while_runnable() {
+        use heimdall_app::setup::STAGE_SETUP_ATTEMPT;
+        for (n, state) in [
+            (0x51u8, OperationState::OutcomeUnknown),
+            (0x61u8, OperationState::Queued),
+        ] {
+            let mut w = World::new().await;
+            let held = seed_local(
+                &w,
+                n,
+                OperationKind::SetupApply,
+                OperationState::OutcomeUnknown,
+                LocalIntent::Setup(setup_intent(u64::from(n), apply_intent())),
+            );
+            let repair = seed_local(
+                &w,
+                n + 1,
+                OperationKind::SetupRepair,
+                state,
+                LocalIntent::Setup(setup_intent(
+                    u64::from(n) + 1,
+                    PreviewIntent::Repair {
+                        conflict: ConflictKind::ProjectionHeld,
+                        resolution: RepairResolution::RetryHeld,
+                        operation: Some(held.clone()),
+                    },
+                )),
+            );
+            let writer = CountingWriter::new(None, false);
+            // Restart recovery drives both.
+            with_writer(&mut w, &writer).await;
+            let attempts: Vec<StageReceipt> = w
+                .store
+                .transaction(|tx| tx.stage_receipts(&repair))
+                .unwrap()
+                .into_iter()
+                .filter(|r| r.stage == STAGE_SETUP_ATTEMPT)
+                .collect();
+            if state == OperationState::Queued {
+                assert_eq!(writer.reconciles(), 1, "the control reconciles once");
+                assert_eq!(
+                    writer.reconciles.lock().unwrap()[0].intent,
+                    apply_intent(),
+                    "the held operation's intent"
+                );
+                assert_eq!(attempts.len(), 1, "{attempts:?}");
+                assert!(matches!(
+                    attempts[0].effect,
+                    EffectReceipt::Attempted { .. }
+                ));
+                assert!(w.op(&repair).state.is_settled());
+            } else {
+                assert_eq!(writer.reconciles(), 0, "never reached the held operation");
+                assert!(attempts.is_empty(), "{attempts:?}");
+                assert_eq!(w.op(&repair).state, state);
+            }
+            assert_eq!(writer.applies(), 0);
+            assert_eq!(w.op(&held).state, OperationState::OutcomeUnknown);
+        }
     }
 
     /// A waiting setup operation with its pending `ApplyProjection` record.

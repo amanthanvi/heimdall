@@ -43,6 +43,7 @@
 //! so a test's `cleanup_pass` deletes what a rollback handed over exactly as the
 //! running supervisor does.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1002,8 +1003,11 @@ impl ProjectionWriter for CatalogProjection {
 
 /// ⟨M02⟩ What the existing-access adapters read (`IntegrationSources`, U6): the
 /// writer's static `observe` over the stored projection record, the catalog, the
-/// declaration rows and the verified client executables. Passive and bounded; a
-/// store failure claims nothing.
+/// declaration rows and the verified client executables. Passive; a store failure
+/// claims nothing. ⟨M02⟩ ADR-0007 §12.23 item 2: these reads wait on the store and
+/// the file system, so the operations read them only through the adapter's
+/// `read_sources`, on the blocking pool and before `bounded_adapter_call`; the bounded
+/// `prepare_from` sees only the in-memory snapshot.
 pub struct RuntimeSources {
     store: Arc<Store>,
     environment: EnvironmentId,
@@ -1054,6 +1058,24 @@ impl IntegrationSources for RuntimeSources {
 
     fn declaration(&self, identity: &IdentityId) -> Option<InteractionDeclaration> {
         read(&self.store, |tx| tx.interaction_declaration(identity)).flatten()
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.23 item 2: every row in one store transaction (a store
+    /// failure claims nothing).
+    fn declarations(
+        &self,
+        identities: &[IdentityId],
+    ) -> BTreeMap<IdentityId, InteractionDeclaration> {
+        read(&self.store, |tx| {
+            let mut rows = BTreeMap::new();
+            for id in identities {
+                if let Some(d) = tx.interaction_declaration(id)? {
+                    rows.insert(id.clone(), d);
+                }
+            }
+            Ok(rows)
+        })
+        .unwrap_or_default()
     }
 
     fn executables(&self) -> Vec<ConsumerExecutable> {

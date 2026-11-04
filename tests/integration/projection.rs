@@ -2860,20 +2860,60 @@ fn v01_manual_mode_unreadable_symlink_target_makes_affected_states_undetermined(
     assert_eq!(std::fs::read(&real).unwrap(), with_b);
 }
 
-/// V01 reading (§5.2 applies): the evaluation establishes whether the user
-/// configuration activates P. A manual first adoption under a symlinked configuration
-/// without B changes no alias's behaviour, so its states are determined and equal and
-/// no decision is needed; the plan still writes P and the key file.
+/// ADR-0007 §12.24 item 6 (the W3b-consent reading "a manual first adoption whose
+/// configuration does not activate P needs no decision" is rejected): a first adoption
+/// always needs a decision, manual mode included (§5.2). Under a symlinked
+/// configuration without B the alias's evaluated states are determined and equal (P is
+/// not in effect yet), but the owner's own Include then activates P without another
+/// Heimdall decision, so the plan needs one (`new_state`), shows the alias as added
+/// and records the consented states for `apply`. Re-adoption over an empty record (a
+/// rolled-back item) in manual mode needs one too. Controls: the same configuration
+/// with B, or with the owner's own Include of P, needs one as before.
 #[test]
-fn v01_manual_mode_without_b_changes_no_behaviour_and_needs_no_decision() {
+fn manual_first_adoption_without_b_still_needs_a_decision() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    use heimdall_domain::projection::ItemId;
     let fx = Fx::new();
     symlink_user_config(&fx, USER_TEXT.as_bytes());
     let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
     assert_eq!(plan.view.mode, SetupMode::Manual);
     assert!(plan.files.iter().any(|s| s.role == FileRole::ManagedSsh));
     assert!(plan.files.iter().any(|s| s.role == FileRole::Key));
-    assert!(!plan.view.consent.decision_required, "{:?}", reasons(&plan));
-    assert!(plan.consent.items.is_empty());
+    assert!(plan.files.iter().all(|s| s.role != FileRole::UserSsh));
+    assert!(plan.view.consent.decision_required, "{:?}", reasons(&plan));
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::NewState)]
+    );
+    let work = &plan.consent.items[&ItemId::alias("work")];
+    assert!(work.managed.determined && work.restore.determined);
+    assert_eq!(
+        work.managed.digest, work.restore.digest,
+        "P is not in effect yet: the evaluated states are equal"
+    );
+    assert_eq!(
+        plan.summary.as_ref().unwrap().added_aliases,
+        vec!["work".to_owned()]
+    );
+    // Re-adoption over an empty SSH record (a rolled-back item), still manual: the
+    // leftover consent does not count, and the decision is needed again.
+    let mut items = BTreeMap::new();
+    items.insert(ProjectionItem::Ssh, empty_record(2));
+    let again = ProjectionSpec {
+        environment: fx.env.clone(),
+        aliases: fx.spec(&["work"], None).aliases,
+        record: Some(ProjectionRecord {
+            environment: fx.env.clone(),
+            items,
+        }),
+        consent: plan.consent.clone(),
+    };
+    let plan = fx.preview(&again, &Fx::apply_intent());
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert_eq!(
+        reasons(&plan),
+        vec![("work".to_owned(), ConsentReasonKind::NewState)]
+    );
     // The same configuration with B (written by the owner, as manual mode asks) makes
     // the adoption need a decision.
     let fx = Fx::new();

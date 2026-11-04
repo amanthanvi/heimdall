@@ -197,6 +197,7 @@ fn decision_required(attended: bool) -> Envelope<serde_json::Value> {
             next: next.clone(),
             message: "an owner decision is required".into(),
             reason: None,
+            entries: Vec::new(),
         },
     );
     env.state = OperationState::AwaitingApproval;

@@ -98,7 +98,9 @@ impl Failure {
 
     /// The pre-launch eligibility refusal: `INTERACTION_REQUIRED`, exit 3, `next:
     /// interact` with the provider's interaction, never a `decision_ref` (spec §5.5),
-    /// naming each uncleared entry's file and line.
+    /// naming each uncleared entry's file and line in the message and, as data, in
+    /// `data.error.entries` (ADR-0007 §12.24 item 4; empty, so omitted, for the other
+    /// reasons).
     pub(crate) fn ineligible(
         refusal: &PrelaunchRefusal,
         provider: ProviderKind,
@@ -133,8 +135,11 @@ impl Failure {
                 provider_interaction: Some(ProviderInteractionRef { provider, kind }),
                 ..NextAction::for_code(Code::InteractionRequired)
             });
+        // ADR-0007 §12.24 item 4: the refused entries' file and line, as data.
+        let mut env = e.into_envelope();
+        env.data.error.entries = refusal.entries.clone();
         Failure {
-            env: output::error_value(e.into_envelope()),
+            env: output::error_value(env),
             exit: ExitCode::InteractionRequired,
         }
     }
@@ -319,6 +324,41 @@ pub(crate) async fn fresh_identities(client: &mut Client) -> Result<IdentitiesVi
     Ok(IdentitiesView { identities })
 }
 
+/// ADR-0007 §12.24 item 2: immediately before `launching`, one `inspect bindings`
+/// confirms that `binding` is still `active`. A replayed `bind` returns its stored
+/// result verbatim, so a binding the holder pass released since (its first holder
+/// exited) still reads `ACCESS_READY`; it is refused here with the code a `bind` of a
+/// released binding settles with, `CREDENTIAL_EXPIRED` (`next: new_work`), and nothing
+/// is launched. A binding the listing does not show (released bindings hold no
+/// reference, so they are not listed), or a listing that cannot be read, is refused the
+/// same way (fail closed).
+pub(crate) async fn confirm_binding_active(
+    client: &mut Client,
+    binding: &BindingId,
+) -> Result<(), Failure> {
+    let data = inspect(client, InspectSubject::Bindings).await?;
+    let active = data
+        .get("bindings")
+        .and_then(|v| v.as_array())
+        .is_some_and(|items| {
+            items.iter().any(|b| {
+                b.get("binding_id").and_then(|v| v.as_str()) == Some(binding.as_str())
+                    && b.get("state").and_then(|v| v.as_str()) == Some("active")
+            })
+        });
+    if active {
+        return Ok(());
+    }
+    let e = heimdall_app::OpError::new(
+        Code::CredentialExpired,
+        "the binding was released (its holder exited); nothing was launched, start new work"
+            .to_owned(),
+    )
+    .with_effect(EffectStatus::None)
+    .with_resource("binding", Some(binding.to_string()));
+    Err(Failure::of(output::error_value(e.into_envelope())))
+}
+
 /// The environment's projection record (`inspect projections`), or an empty one.
 pub(crate) async fn projection_record(client: &mut Client) -> Result<ProjectionRecord, Failure> {
     let environment = client.server().environment_id.clone();
@@ -421,8 +461,55 @@ pub(crate) fn fresh_selection(
         heimdall_localenv::projection::observe::observe(config, record, &[alias.to_owned()])
             .into_iter()
             .next();
+    selection_of(alias, observation.as_ref())
+}
+
+/// The fresh static selection of an **observed** alias, one the user's own
+/// configuration defines (ADR-0007 §12.24 item 1). `projection::observe` reports an
+/// identity selection only for P's aliases (it needs the adopted key file), so the
+/// alias is evaluated by the doctor's static level instead, as an observed catalog
+/// alias: passive, with local queries off, so nothing executes, no agent is contacted
+/// and only configuration and `.pub` files are read (the same evaluator, roots and
+/// managed root P as `observe`). Its placeholder identity names no key file, so every
+/// entry is reported with its own source, fingerprint, backing and provenance, and the
+/// check reads each one as an alternative the domain rule must clear.
+pub(crate) fn fresh_observed_selection(config: &ProjectionConfig, alias: &str) -> FreshSelection {
+    use heimdall_localenv::doctor::{CatalogAlias, CatalogIdentity, DoctorRequest, LocalContext};
+    let mut ctx = LocalContext::new(
+        config.paths.clone(),
+        config.env.clone(),
+        config.platform,
+        heimdall_localenv::clients::ClientsConfig::default(),
+        Default::default(),
+    );
+    ctx.managed_file = Some(config.managed_ssh_path());
+    ctx.catalog = vec![CatalogAlias {
+        alias: alias.to_owned(),
+        definition: heimdall_contract::doctor::AliasDefinition::Observed,
+        identity: Some(CatalogIdentity {
+            public_key_path: std::path::PathBuf::new(),
+            fingerprint: None,
+            interaction: InteractionKind::Unknown,
+            endpoint: None,
+        }),
+    }];
+    let mut request = DoctorRequest::passive();
+    request.aliases = Some(vec![alias.to_owned()]);
+    request.local_queries = heimdall_localenv::local_query::LocalQueries::Disabled;
+    let observation = heimdall_localenv::doctor::run(&ctx, &request)
+        .aliases
+        .into_iter()
+        .find(|o| o.alias == alias);
+    selection_of(alias, observation.as_ref())
+}
+
+/// A fresh selection from `alias`'s static observation; none is undetermined with no
+/// endpoint, which clears nothing. A stored clearance is never what the check reads.
+fn selection_of(
+    alias: &str,
+    observation: Option<&heimdall_contract::doctor::AliasObservation>,
+) -> FreshSelection {
     let mut report = observation
-        .as_ref()
         .and_then(|o| o.identity_selection.clone())
         .unwrap_or_else(undetermined);
     for entry in &mut report.entries {
@@ -431,7 +518,7 @@ pub(crate) fn fresh_selection(
     FreshSelection {
         alias: alias.to_owned(),
         report,
-        endpoint: observation.as_ref().and_then(identity_agent),
+        endpoint: observation.and_then(identity_agent),
     }
 }
 
@@ -589,4 +676,55 @@ fn exec(
     _hooks: &LaunchHooks,
 ) -> LaunchFailure {
     heimdall_launch::unix::exec_replace(program, args, delta, meta)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use heimdall_contract::doctor::ConfigProvenance;
+
+    /// ADR-0007 §12.24 item 4: the fallback refusal carries the refused entries' file
+    /// and line in `data.error.entries`, in order; a refusal without entries omits the
+    /// field.
+    #[test]
+    fn the_fallback_refusal_fills_error_entries() {
+        let at = |line: u32| ConfigProvenance {
+            path_display: "~/.ssh/config".to_owned(),
+            line,
+        };
+        let refusal = PrelaunchRefusal {
+            reason: PrelaunchReason::FallbackIdentityInteraction,
+            pair: 0,
+            entries: vec![at(5), at(9)],
+        };
+        let f = Failure::ineligible(
+            &refusal,
+            ProviderKind::NativeAgent,
+            InteractionKind::Unknown,
+        );
+        assert_eq!(f.exit, ExitCode::InteractionRequired);
+        let error = &f.env.data["error"];
+        assert_eq!(error["reason"], "fallback_identity_interaction");
+        assert_eq!(
+            error["entries"],
+            serde_json::json!([
+                {"path_display": "~/.ssh/config", "line": 5},
+                {"path_display": "~/.ssh/config", "line": 9},
+            ])
+        );
+        assert!(
+            error["message"]
+                .as_str()
+                .unwrap()
+                .contains("~/.ssh/config:5, ~/.ssh/config:9")
+        );
+        let none = PrelaunchRefusal {
+            reason: PrelaunchReason::InteractionUnknown,
+            pair: 0,
+            entries: Vec::new(),
+        };
+        let f = Failure::ineligible(&none, ProviderKind::NativeAgent, InteractionKind::Unknown);
+        assert!(f.env.data["error"].get("entries").is_none());
+    }
 }

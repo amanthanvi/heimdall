@@ -638,6 +638,7 @@ fn error_reasons_are_stable_snake_case_and_complete() {
         next: NextAction::for_code(Code::CapabilityUnavailable),
         message: "m".to_owned(),
         reason: None,
+        entries: Vec::new(),
     };
     let v = serde_json::to_value(Envelope::failed(None, detail.clone())).unwrap();
     assert!(v["data"]["error"].get("reason").is_none());

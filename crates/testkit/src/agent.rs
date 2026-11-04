@@ -261,6 +261,19 @@ impl FixtureKey {
     pub fn sign(&self, data: &[u8]) -> Option<Vec<u8>> {
         sign_encoded(&self.private, data)
     }
+
+    /// This key with `comment` in place of its canary comment: the same key material
+    /// and fingerprint (M02 wave 3c, additive). For a fixture whose client prints the
+    /// comment of a key an agent holds: `ssh` names it when the agent refuses a
+    /// signature (a confirm-constrained key whose askpass denies), so a canary comment
+    /// would trip `assert_no_canary` on the client's own output. `comment` must not be
+    /// secret.
+    #[must_use]
+    pub fn with_comment(&self, comment: &str) -> FixtureKey {
+        let mut private = self.private.clone();
+        private.set_comment(comment);
+        FixtureKey { private }
+    }
 }
 
 fn sign_encoded<K: ssh_key::SigningKey>(key: &K, data: &[u8]) -> Option<Vec<u8>> {

@@ -10,25 +10,42 @@
 //!    `%WINDIR%\System32\OpenSSH\ssh.exe` (ADR-0004 E6), resolved without a shell; its
 //!    path and SHA-256 are reported on stderr (R-SS-03);
 //! 4. under `--non-interactive` without `--allow-provider-interaction`, the pre-launch
-//!    eligibility check for the alias's identity (the adopted key the alias's managed
-//!    entry carries), from the command's first `inspect identities` to a fresh one
-//!    taken immediately before launch;
+//!    eligibility check for the alias's identity, from the command's first `inspect
+//!    identities` to a fresh one taken immediately before launch;
 //! 5. `exec` (Unix) or spawn and wait (Windows) of `ssh <alias>`, with no environment
 //!    addition.
 //!
-//! **Readings applied (fail closed).** The runtime answers `inspect destinations` with
-//! `NOT_LISTED` in this build (it does not list the catalog yet), so a destination is
-//! known when the listing names its alias, or, failing a listing, when the stored
-//! projection record lists it as a managed alias. An observed alias is therefore
-//! refused (`NOT_FOUND`) until the runtime lists destinations (escalated). On the
-//! no-interaction path an alias whose managed entry names no adopted identity is
-//! refused (`interaction_unknown`): which key ssh would use is not known.
+//! **Observed aliases (ADR-0007 §12.24 item 1).** `inspect destinations` lists the
+//! catalog: each destination with its alias and definition (`managed`, `observed`).
+//! A destination is known when the listing names its alias, whatever its definition;
+//! a runtime that does not list the catalog yet (`NOT_LISTED`, an empty listing) falls
+//! back to the stored projection record's managed aliases. An observed alias then goes
+//! through the same pre-launch check as a managed one; its fresh static selection is
+//! taken over the user's own configuration (`launch_flow::fresh_observed_selection`,
+//! the doctor's passive static level: nothing executes, no agent is contacted), since
+//! P has no section for it.
+//!
+//! **The alias's identity (fail closed).** The check needs the identity the launch
+//! relies on. For a managed alias it is the adopted key its managed entry carries. An
+//! observed alias has no managed entry; its identity is the adopted key named by
+//! fingerprint in the first of its own entries (in ssh's order) that names one. The
+//! check reads an observed alias's entries as alternatives, each cleared only by the
+//! one domain rule like any fallback, so it launches only when every entry is an
+//! agent-backed adopted key declared `none` at the alias's agent, under `IdentitiesOnly
+//! yes`. An alias whose entries name no adopted identity is refused
+//! (`interaction_unknown`): which key ssh would use is not known.
+//!
+//! `connect` binds nothing (its records name no operation or binding), so the
+//! binding re-check `run` does before `launching` (§12.24 item 2) has nothing to
+//! confirm here.
 
 use heimdall_contract::provider::IdentityEntrySource;
 use heimdall_contract::request::{InspectRequest, InspectSubject, Request};
 use heimdall_contract::setup::ProjectionItem;
 use heimdall_contract::{Code, ExitCode};
-use heimdall_launch::eligibility::{BoundPair, PrelaunchReason, PrelaunchRefusal, check_pairs};
+use heimdall_launch::eligibility::{
+    BoundPair, IdentitiesView, IdentityView, PrelaunchReason, PrelaunchRefusal, check_pairs,
+};
 use heimdall_launch::env::EnvDelta;
 use heimdall_launch::resolve::resolve_program;
 use heimdall_localenv::clients::{ClientKind, ClientsConfig, selected_path, sha256_file};
@@ -94,15 +111,15 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
         let mut client = connect_as(ctx, true, &[], interaction)
             .await
             .map_err(|e| Failure::of(output::error_value(*e)))?;
-        if !known_destination(&mut client, &alias).await? {
+        let Some(definition) = known_destination(&mut client, &alias).await? else {
             return Err(Failure::new(
                 Code::NotFound,
                 "unknown destination: the alias is not a managed or observed destination",
                 None,
             ));
-        }
+        };
         if check {
-            eligible(ctx, &mut client, &alias, &hooks).await?;
+            eligible(ctx, &mut client, &alias, definition, &hooks).await?;
         }
         Ok(())
     });
@@ -129,8 +146,48 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
     )
 }
 
-/// Whether `alias` is a known destination (module docs).
-async fn known_destination(client: &mut Client, alias: &str) -> Result<bool, Failure> {
+/// How the catalog defines a known destination (module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Definition {
+    /// Rendered into P (or a listing that names no definition: read strictly).
+    Managed,
+    /// Defined in the user's own configuration.
+    Observed,
+}
+
+/// The definition a listed destination names: `"definition": "observed"` or
+/// `"definition": {"kind": "observed", …}`. Anything else is read as managed, the
+/// stricter identity rule.
+fn definition_of(item: &serde_json::Value) -> Definition {
+    let definition = item.get("definition");
+    let kind = definition.and_then(|d| d.as_str()).or_else(|| {
+        definition
+            .and_then(|d| d.get("kind"))
+            .and_then(|k| k.as_str())
+    });
+    if kind == Some("observed") {
+        Definition::Observed
+    } else {
+        Definition::Managed
+    }
+}
+
+/// The destinations an `inspect destinations` answer lists (`destinations`, or
+/// `items` as an answer without the catalog has it).
+fn listed_items(data: &serde_json::Value) -> Vec<serde_json::Value> {
+    ["destinations", "items"]
+        .iter()
+        .find_map(|k| data.get(*k).and_then(|v| v.as_array()))
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// `alias`'s definition when it is a known destination, `None` otherwise (module
+/// docs).
+async fn known_destination(
+    client: &mut Client,
+    alias: &str,
+) -> Result<Option<Definition>, Failure> {
     let listed = client
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Destinations,
@@ -140,23 +197,57 @@ async fn known_destination(client: &mut Client, alias: &str) -> Result<bool, Fai
     if !listed.code.is_success() {
         return Err(Failure::of(listed));
     }
-    let items = listed
-        .data
-        .get("items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    if items
+    if let Some(item) = listed_items(&listed.data)
         .iter()
-        .any(|d| d.get("alias").and_then(|a| a.as_str()) == Some(alias))
+        .find(|d| d.get("alias").and_then(|a| a.as_str()) == Some(alias))
     {
-        return Ok(true);
+        return Ok(Some(definition_of(item)));
     }
     let record = launch_flow::projection_record(client).await?;
     Ok(record
         .items
         .get(&ProjectionItem::Ssh)
-        .is_some_and(|r| r.aliases.iter().any(|a| a == alias)))
+        .is_some_and(|r| r.aliases.iter().any(|a| a == alias))
+        .then_some(Definition::Managed))
+}
+
+/// The adopted identity the launch relies on (module docs): for a managed alias the
+/// one a managed entry carries; for an observed alias the first one its entries name.
+fn alias_identity<'v>(
+    identities: &'v IdentitiesView,
+    entries: &[heimdall_contract::provider::IdentityEntry],
+    definition: Definition,
+) -> Option<&'v IdentityView> {
+    entries
+        .iter()
+        .filter(|e| match definition {
+            Definition::Managed => e.source == IdentityEntrySource::Managed,
+            Definition::Observed => true,
+        })
+        .find_map(|e| {
+            let fingerprint = e.fingerprint.as_deref()?;
+            identities
+                .identities
+                .iter()
+                .find(|v| v.fingerprint == fingerprint)
+        })
+}
+
+/// The alias's fresh static selection: over P for a managed alias, over the user's own
+/// configuration for an observed one (`launch_flow::fresh_observed_selection`).
+async fn alias_selection(
+    client: &mut Client,
+    config: &heimdall_localenv::projection::ProjectionConfig,
+    alias: &str,
+    definition: Definition,
+) -> Result<heimdall_launch::eligibility::FreshSelection, Failure> {
+    Ok(match definition {
+        Definition::Managed => {
+            let record = launch_flow::projection_record(client).await?;
+            launch_flow::fresh_selection(config, &record, Some(alias))
+        }
+        Definition::Observed => launch_flow::fresh_observed_selection(config, alias),
+    })
 }
 
 /// The pre-launch check for the alias's identity (module docs).
@@ -164,18 +255,13 @@ async fn eligible(
     ctx: &Ctx,
     client: &mut Client,
     alias: &str,
+    definition: Definition,
     hooks: &testcfg::LaunchHooks,
 ) -> Result<(), Failure> {
     let config = launch_flow::static_config(ctx, hooks)?;
     let first = launch_flow::fresh_identities(client).await?;
-    let record = launch_flow::projection_record(client).await?;
-    let selection = launch_flow::fresh_selection(&config, &record, Some(alias));
-    let adopted = first.identities.iter().find(|v| {
-        selection.report.entries.iter().any(|e| {
-            e.source == IdentityEntrySource::Managed
-                && e.fingerprint.as_deref() == Some(v.fingerprint.as_str())
-        })
-    });
+    let selection = alias_selection(client, &config, alias, definition).await?;
+    let adopted = alias_identity(&first, &selection.report.entries, definition);
     let Some(view) = adopted else {
         let refusal = PrelaunchRefusal {
             reason: PrelaunchReason::InteractionUnknown,
@@ -188,8 +274,7 @@ async fn eligible(
     let bound = BoundPair::from_view(view, alias);
     launch_flow::pause(hooks.pre_check_pause.as_deref());
     let fresh = launch_flow::fresh_identities(client).await?;
-    let record = launch_flow::projection_record(client).await?;
-    let selection = launch_flow::fresh_selection(&config, &record, Some(alias));
+    let selection = alias_selection(client, &config, alias, definition).await?;
     check_pairs(
         std::slice::from_ref(&bound),
         &fresh,
@@ -200,4 +285,114 @@ async fn eligible(
         let (provider, kind) = launch_flow::refusal_provider(None, &fresh, Some(&bound.identity));
         Failure::ineligible(&refusal, provider, kind)
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use heimdall_contract::ids::IdentityId;
+    use heimdall_contract::provider::{
+        Certainty, IdentityBacking, IdentityEntry, IdentityEntryKind, InteractionKind,
+    };
+
+    #[test]
+    fn a_listed_destination_names_its_definition_and_anything_else_reads_managed() {
+        let v = |j: &str| serde_json::from_str::<serde_json::Value>(j).unwrap();
+        for (item, expected) in [
+            (
+                r#"{"alias":"a","definition":"observed"}"#,
+                Definition::Observed,
+            ),
+            (
+                r#"{"alias":"a","definition":{"kind":"observed"}}"#,
+                Definition::Observed,
+            ),
+            (
+                r#"{"alias":"a","definition":"managed"}"#,
+                Definition::Managed,
+            ),
+            (
+                r#"{"alias":"a","definition":{"kind":"managed","hostname":"h"}}"#,
+                Definition::Managed,
+            ),
+            (r#"{"alias":"a"}"#, Definition::Managed),
+            (
+                r#"{"alias":"a","definition":{"kind":"new"}}"#,
+                Definition::Managed,
+            ),
+        ] {
+            assert_eq!(definition_of(&v(item)), expected, "{item}");
+        }
+        assert_eq!(
+            listed_items(&v(r#"{"destinations":[{"alias":"a"}],"items":[]}"#)).len(),
+            1
+        );
+        assert_eq!(listed_items(&v(r#"{"items":[{"alias":"a"}]}"#)).len(), 1);
+        assert!(listed_items(&v(r#"{"profiles":[]}"#)).is_empty());
+    }
+
+    fn entry(source: IdentityEntrySource, fp: &str) -> IdentityEntry {
+        IdentityEntry {
+            kind: IdentityEntryKind::IdentityFile,
+            source,
+            provenance: None,
+            certainty: Certainty::Determined,
+            fingerprint: Some(fp.to_owned()),
+            backing: IdentityBacking::Agent,
+            cleared: None,
+        }
+    }
+
+    fn view(n: u8) -> IdentityView {
+        IdentityView {
+            identity: IdentityId::from_random_bytes([n; 16]),
+            fingerprint: format!("SHA256:fixture-{n}"),
+            endpoint: None,
+            interaction: InteractionKind::None,
+            declaration: None,
+        }
+    }
+
+    /// ADR-0007 §12.24 item 1: a managed alias relies on the adopted key its managed
+    /// entry carries; an observed alias on the first adopted key its own entries name.
+    #[test]
+    fn the_alias_identity_follows_the_definition() {
+        let identities = IdentitiesView {
+            identities: vec![view(1), view(2)],
+        };
+        let user = |n: u8| entry(IdentityEntrySource::User, &format!("SHA256:fixture-{n}"));
+        let managed = |n: u8| entry(IdentityEntrySource::Managed, &format!("SHA256:fixture-{n}"));
+        let id = |v: Option<&IdentityView>| v.map(|v| v.identity.clone());
+        // Managed: only a managed entry counts.
+        assert_eq!(
+            id(alias_identity(&identities, &[user(1)], Definition::Managed)),
+            None
+        );
+        assert_eq!(
+            id(alias_identity(
+                &identities,
+                &[user(1), managed(2)],
+                Definition::Managed
+            )),
+            Some(view(2).identity)
+        );
+        // Observed: the first entry that names an adopted key.
+        assert_eq!(
+            id(alias_identity(
+                &identities,
+                &[user(9), user(2), user(1)],
+                Definition::Observed
+            )),
+            Some(view(2).identity)
+        );
+        assert_eq!(
+            id(alias_identity(
+                &identities,
+                &[user(9)],
+                Definition::Observed
+            )),
+            None
+        );
+    }
 }

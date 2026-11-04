@@ -190,6 +190,26 @@
         }
       ]
     },
+    "ConfigProvenance": {
+      "description": "Where a configuration directive was read: a display path and a 1-based line.",
+      "type": "object",
+      "properties": {
+        "line": {
+          "description": "1-based line number.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "path_display": {
+          "description": "Display path (`~` for the home directory; `--redact` aware).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path_display",
+        "line"
+      ]
+    },
     "Cursor": {
       "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
       "type": "string"
@@ -254,6 +274,13 @@
         "effect_status": {
           "description": "Whether any external effect happened.",
           "$ref": "#/$defs/EffectStatus"
+        },
+        "entries": {
+          "description": "⟨M02⟩ ADR-0007 §12.24 item 4: the configuration entries the refusal concerns,\neach as its file's display path and 1-based line (a pre-launch fallback\nrefusal names the refused `IdentityFile` entries). Display paths and line\nnumbers only, never file content. Additive: omitted when empty, and a reader\nthat predates it reads an empty list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ConfigProvenance"
+          }
         },
         "message": {
           "description": "Human text; may change without breaking callers; never contains secrets.",

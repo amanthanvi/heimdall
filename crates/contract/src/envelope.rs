@@ -185,6 +185,13 @@ pub struct ErrorDetail {
     /// values are in [`reason`]). Readers tolerate unknown values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// ⟨M02⟩ ADR-0007 §12.24 item 4: the configuration entries the refusal concerns,
+    /// each as its file's display path and 1-based line (a pre-launch fallback
+    /// refusal names the refused `IdentityFile` entries). Display paths and line
+    /// numbers only, never file content. Additive: omitted when empty, and a reader
+    /// that predates it reads an empty list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entries: Vec<crate::doctor::ConfigProvenance>,
 }
 
 /// The `data` payload of an error envelope.
@@ -327,5 +334,28 @@ mod tests {
         // The emitted form always materializes `next`, so machine readers see the
         // explicit null rather than an omission (ADR-0006 §9).
         assert!(serialized.get("next").is_some());
+    }
+
+    /// ADR-0007 §12.24 item 4: `entries` is additive. A detail without it reads as
+    /// empty, an empty list is not emitted, and a filled one round-trips.
+    #[test]
+    fn error_entries_are_additive() {
+        let old = r#"{"code":"INTERACTION_REQUIRED","effect_status":"none","retryable":false,
+            "next":{"action":"interact"},"message":"m","reason":"fallback_identity_interaction"}"#;
+        let mut detail: ErrorDetail = serde_json::from_str(old).unwrap();
+        assert!(detail.entries.is_empty());
+        let v = serde_json::to_value(&detail).unwrap();
+        assert!(v.get("entries").is_none(), "{v}");
+        detail.entries = vec![crate::doctor::ConfigProvenance {
+            path_display: "~/.ssh/config".to_owned(),
+            line: 7,
+        }];
+        let v = serde_json::to_value(&detail).unwrap();
+        assert_eq!(
+            v["entries"],
+            serde_json::json!([{ "path_display": "~/.ssh/config", "line": 7 }])
+        );
+        let back: ErrorDetail = serde_json::from_value(v).unwrap();
+        assert_eq!(back, detail);
     }
 }

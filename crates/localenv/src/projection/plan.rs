@@ -73,6 +73,12 @@
 //! * *A managed alias without a key file* is refused (`PreviewError::Unavailable`),
 //!   and `include_target_glob` is listed as its own manual reason, besides
 //!   `unmanageable_file`.
+//!
+//! **Wave 3c (W3c-run; ADR-0007 §12.24 item 6).** A first adoption always needs a
+//! decision, manual mode included: an alias the plan adds to P that no live record
+//! consents to gets `new_state` even when its evaluated states are equal (a manual plan
+//! whose configuration does not include P yet), because the owner's own Include then
+//! activates P without another Heimdall decision.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -1552,8 +1558,10 @@ impl<'a> Builder<'a> {
     /// [`Builder::behavior`]). A consented state counts only for an item the
     /// projection record still manages, never for an empty record (§12.22 item 2), so
     /// a first adoption, or an alias added again after a rollback, always needs a
-    /// decision. When a manual plan could not read the user configuration, every
-    /// alias state is undetermined (§12.21 item 1).
+    /// decision: such an alias has a reason even when its states are equal, manual
+    /// mode included (§12.24 item 6, [`first_adoption_needs_decision`]). When a manual
+    /// plan could not read the user configuration, every alias state is undetermined
+    /// (§12.21 item 1).
     fn consent(&self) -> Decided {
         let (now, after) = self.affected_aliases();
         let affected: Vec<String> = now
@@ -1578,6 +1586,8 @@ impl<'a> Builder<'a> {
         let mut out = Decided::default();
         let mut items = Vec::new();
         let mut kept: Vec<(ItemId, BehaviorState, BehaviorState)> = Vec::new();
+        // Aliases the plan adds that no live record consents to (§12.24 item 6).
+        let mut first: BTreeSet<String> = BTreeSet::new();
         if !affected.is_empty() {
             let paths = &self.config.paths;
             let source =
@@ -1639,13 +1649,18 @@ impl<'a> Builder<'a> {
                 } else {
                     out.removed.push(name.clone());
                 }
+                let consented_states = ssh
+                    .filter(|r| r.aliases.contains(name))
+                    .and_then(|_| consented(&id));
+                if consented_states.is_none() && after.contains_key(name) && !now.contains_key(name)
+                {
+                    first.insert(name.clone());
+                }
                 items.push(consent::ConsentItem {
                     item: consent::ConsentItemId(name.clone()),
                     current,
                     after: after_state,
-                    consented: ssh
-                        .filter(|r| r.aliases.contains(name))
-                        .and_then(|_| consented(&id)),
+                    consented: consented_states,
                 });
             }
         }
@@ -1670,7 +1685,7 @@ impl<'a> Builder<'a> {
                 consented: managed(ProjectionItem::Git).and_then(|_| consented(&id)),
             });
         }
-        out.need = consent::classify(&items);
+        out.need = first_adoption_needs_decision(consent::classify(&items), &items, &first);
         // Placeholder decision: `apply` records the intent's approval in its place.
         let decision = DecisionId::from_random_bytes([0; 16]);
         for (id, managed_state, restore) in kept {
@@ -1955,6 +1970,35 @@ fn without_blocks(bytes: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+/// ADR-0007 §5.2 ("first adoption, and any new … managed alias, always need a
+/// decision"), manual mode included (§12.24 item 6): an alias the plan adds to P that no
+/// live record consents to always has a reason, `new_state` when the classification
+/// gave it none. A manual plan whose configuration does not activate P yet evaluates the
+/// same state before and after, but the owner's own Include then activates P without
+/// another Heimdall decision. `first` names those aliases; each reason keeps the item
+/// order of `items`.
+fn first_adoption_needs_decision(
+    classified: consent::ConsentNeed,
+    items: &[consent::ConsentItem],
+    first: &BTreeSet<String>,
+) -> consent::ConsentNeed {
+    let mut reasons = Vec::with_capacity(items.len());
+    for item in items {
+        if let Some(r) = classified.reasons.iter().find(|r| r.item == item.item) {
+            reasons.push(r.clone());
+        } else if first.contains(&item.item.0) {
+            reasons.push(consent::ConsentReason {
+                item: item.item.clone(),
+                kind: consent::ConsentReasonKind::NewState,
+            });
+        }
+    }
+    consent::ConsentNeed {
+        required: !reasons.is_empty(),
+        reasons,
+    }
 }
 
 /// The record of `item` when the projection record still manages it (ADR-0007 §12.22

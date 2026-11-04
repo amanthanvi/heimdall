@@ -579,3 +579,14 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - T03: the authentication probe accepts an exclusive key through an undeclared agent.
   - T04: overlapping runs share one holder.
   - ADR-0007 §12.25 rules on all four. Wave 3d (W3d-select, W3d-holder) runs after wave 3c.
+- **M02 wave 3c** (`wf_69e1c65c-1d4`): all 3 agents done.
+  - W3c-ops:
+    - U01: a held repair records its attempt first;
+    - U02: adapter inputs are snapshotted before the bound, and a late answer is OutcomeUnknown;
+    - inspect destinations lists the catalog; the integrator finished inspect profiles;
+    - the decision-deadline wake; `ErrorDetail.entries`; stale declarations reissued.
+  - W3c-run: connect with observed aliases, the replayed-bind re-check (run), filling entries, manual first adoption requiring a decision, and the 5 A27/A11 tests.
+  - Integrator check.sh: 2× exit 0, 1502 passed.
+  - ADR-0007 §12.26 rules on the escalations. Wave 3d:
+    - W3d-select: §12.25 T01–T03, refusal entries at ensure, a changed alias in manual mode, the privacy path_display fix;
+    - W3d-holder: T04, the `binding_released` reason, and no default for prepare_from/read_sources.

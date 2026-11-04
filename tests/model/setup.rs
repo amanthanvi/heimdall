@@ -234,6 +234,39 @@ struct Counting {
     after_preview: Mutex<Option<Arc<ArmedFault>>>,
     /// Rewrites each `ItemCommit`'s consent decision (the sink's check).
     tamper_consent: std::sync::atomic::AtomicBool,
+    /// ADR-0007 §12.23 item 1: the next `reconcile` stops at its entry, before the
+    /// inner writer runs, until released ([`Counting::pause_next_reconcile`]).
+    pause_reconcile: Mutex<Option<Pause>>,
+}
+
+/// One paused writer call: `entered` is set when the call reaches the pause; the call
+/// continues when the sender of `release` sends or is dropped (or after 30 s, so an
+/// abandoned test never hangs the blocking pool).
+struct Pause {
+    entered: Arc<std::sync::atomic::AtomicBool>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+impl Counting {
+    /// Pause the next `reconcile` at its entry. Returns the flag it sets when it is
+    /// paused and the sender that releases it.
+    fn pause_next_reconcile(
+        &self,
+    ) -> (
+        Arc<std::sync::atomic::AtomicBool>,
+        std::sync::mpsc::Sender<()>,
+    ) {
+        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = std::sync::mpsc::channel();
+        *self
+            .pause_reconcile
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Pause {
+            entered: entered.clone(),
+            release: rx,
+        });
+        (entered, tx)
+    }
 }
 
 impl ProjectionWriter for Counting {
@@ -273,6 +306,15 @@ impl ProjectionWriter for Counting {
         sink: &mut dyn StageSink,
     ) -> Result<ProjectionReconcile, ReconcileError> {
         self.reconciles.fetch_add(1, Ordering::SeqCst);
+        let pause = self
+            .pause_reconcile
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(p) = pause {
+            p.entered.store(true, Ordering::SeqCst);
+            let _ = p.release.recv_timeout(Duration::from_secs(30));
+        }
         self.inner.reconcile(intent, receipts, sink)
     }
     fn observe(&self, record: &ProjectionRecord, aliases: &[String]) -> Vec<AliasObservation> {
@@ -379,6 +421,7 @@ impl World {
             previews: AtomicUsize::new(0),
             after_preview: Mutex::new(None),
             tamper_consent: std::sync::atomic::AtomicBool::new(false),
+            pause_reconcile: Mutex::new(None),
         })
     }
 
@@ -1408,6 +1451,329 @@ async fn declaration_written_from_decision_fields_only_and_stale_on_endpoint_cha
     assert_eq!(rec.code, Some(Code::DecisionStale));
 }
 
+/// ADR-0007 §12.24 item 1: `inspect destinations` lists the catalog, under `items`,
+/// with no `NOT_LISTED` warning: each destination with its ID, alias and definition
+/// (`managed`, with the rendered fields, or `observed`). An alias rename keeps the ID,
+/// a removed destination leaves the list, and a caller that is not the owner lists
+/// nothing.
+#[tokio::test]
+async fn inspect_destinations_lists_the_catalog_with_alias_and_definition() {
+    use heimdall_contract::request::{InspectRequest, InspectSubject};
+    let w = World::new().await;
+    let identity = w.catalog_alpha().await;
+    w.catalog(
+        &attended(),
+        CatalogRequest::UpsertDestination {
+            destination: DestinationSpec {
+                id: DestinationId::parse("dst-user").unwrap(),
+                alias: "user-host".to_owned(),
+                definition: DestinationDefinitionSpec::Observed,
+                label: Some("defined by the user".to_owned()),
+            },
+            request_id: rid("r-dest-user"),
+        },
+    )
+    .await
+    .unwrap();
+    let list = |caller: Caller| {
+        let ops = w.ops.clone();
+        async move {
+            let r = ops
+                .inspect(
+                    &caller,
+                    InspectRequest {
+                        subject: InspectSubject::Destinations,
+                        preview: None,
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+            assert_no_canary(&r.data.to_string());
+            r.data["items"].as_array().unwrap().clone()
+        }
+    };
+    let items = list(attended()).await;
+    assert_eq!(items.len(), 2, "{items:?}");
+    let by_alias = |items: &[serde_json::Value], alias: &str| {
+        items.iter().find(|i| i["alias"] == alias).cloned()
+    };
+    let alpha = by_alias(&items, "alpha").unwrap();
+    assert_eq!(alpha["destination_id"], "dst-alpha");
+    assert_eq!(alpha["definition"], "managed");
+    assert_eq!(alpha["hostname"], "alpha.example.invalid");
+    assert_eq!(alpha["account"], "fixture");
+    assert_eq!(alpha["identity_id"], serde_json::json!(identity));
+    assert_eq!(alpha["revision"], 1);
+    let user = by_alias(&items, "user-host").unwrap();
+    assert_eq!(user["destination_id"], "dst-user");
+    assert_eq!(user["definition"], "observed");
+    assert_eq!(user["label"], "defined by the user");
+    assert!(user.get("hostname").is_none(), "{user}");
+    assert!(user.get("identity_id").is_none(), "{user}");
+
+    // A rename keeps the ID; a removal leaves the list.
+    w.catalog(
+        &attended(),
+        CatalogRequest::UpsertDestination {
+            destination: DestinationSpec {
+                id: DestinationId::parse("dst-user").unwrap(),
+                alias: "user-host-2".to_owned(),
+                definition: DestinationDefinitionSpec::Observed,
+                label: None,
+            },
+            request_id: rid("r-dest-user-2"),
+        },
+    )
+    .await
+    .unwrap();
+    w.catalog(
+        &attended(),
+        CatalogRequest::RemoveDestination {
+            id: DestinationId::parse("dst-alpha").unwrap(),
+            request_id: rid("r-dest-alpha-gone"),
+        },
+    )
+    .await
+    .unwrap();
+    let items = list(unattended()).await;
+    assert_eq!(items.len(), 1, "{items:?}");
+    let renamed = by_alias(&items, "user-host-2").unwrap();
+    assert_eq!(renamed["destination_id"], "dst-user");
+    assert_eq!(renamed["revision"], 2);
+    assert!(by_alias(&items, "alpha").is_none());
+    // Not the owner: nothing is listed.
+    assert!(list(limited()).await.is_empty());
+}
+
+/// ADR-0007 §12.24 item 1: `inspect profiles` lists the catalog's current profile
+/// definitions under `items`, with no `NOT_LISTED` warning: each with its ID, revision,
+/// label, pairs and capabilities. A new revision replaces the listed one, a removed
+/// definition leaves the list, and a caller that is not the owner lists nothing.
+#[tokio::test]
+async fn inspect_profiles_lists_the_catalog_definitions() {
+    use heimdall_contract::request::{InspectRequest, InspectSubject};
+    let w = World::new().await;
+    let list = |caller: Caller| {
+        let ops = w.ops.clone();
+        async move {
+            let r = ops
+                .inspect(
+                    &caller,
+                    InspectRequest {
+                        subject: InspectSubject::Profiles,
+                        preview: None,
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(r.warnings.is_empty(), "{:?}", r.warnings);
+            assert_no_canary(&r.data.to_string());
+            r.data["items"].as_array().unwrap().clone()
+        }
+    };
+    let find = |items: &[serde_json::Value], id: &str| {
+        items.iter().find(|i| i["profile_id"] == id).cloned()
+    };
+    let pair = |d: &str| AccessPairRef {
+        destination: DestinationId::parse(d).unwrap(),
+        account: AccountName::parse("fixture").unwrap(),
+    };
+    let upsert = |request: &str, pairs: Vec<AccessPairRef>, label: Option<&str>| {
+        CatalogRequest::UpsertProfile {
+            profile: ProfileSpec {
+                id: ProfileId::parse("listed").unwrap(),
+                pairs: pairs.into_iter().collect(),
+                label: label.map(str::to_owned),
+            },
+            request_id: rid(request),
+        }
+    };
+    let baseline = list(attended()).await.len();
+    assert!(find(&list(attended()).await, "listed").is_none());
+    w.catalog(
+        &attended(),
+        upsert("r-lp1", vec![pair("dst-alpha")], Some("listed profile")),
+    )
+    .await
+    .unwrap();
+    let items = list(attended()).await;
+    assert_eq!(items.len(), baseline + 1, "{items:?}");
+    let p = find(&items, "listed").unwrap();
+    assert_eq!(p["revision"], 1);
+    assert_eq!(p["label"], "listed profile");
+    assert_eq!(p["pairs"].as_array().unwrap().len(), 1, "{p}");
+    assert!(p["capabilities"].is_array(), "{p}");
+
+    // A new revision replaces the listed definition.
+    w.catalog(
+        &attended(),
+        upsert("r-lp2", vec![pair("dst-alpha"), pair("dst-beta")], None),
+    )
+    .await
+    .unwrap();
+    let items = list(unattended()).await;
+    assert_eq!(items.len(), baseline + 1, "{items:?}");
+    let p = find(&items, "listed").unwrap();
+    assert_eq!(p["revision"], 2);
+    assert_eq!(p["pairs"].as_array().unwrap().len(), 2, "{p}");
+    // Not the owner: nothing is listed.
+    assert!(list(limited()).await.is_empty());
+    // A removed definition leaves the list.
+    w.catalog(
+        &attended(),
+        CatalogRequest::RemoveProfile {
+            id: ProfileId::parse("listed").unwrap(),
+            request_id: rid("r-lp-rm"),
+        },
+    )
+    .await
+    .unwrap();
+    let items = list(attended()).await;
+    assert_eq!(items.len(), baseline, "{items:?}");
+    assert!(find(&items, "listed").is_none());
+}
+
+/// Move the authority generation (an environment write, ADR-0006 §13.7 item 5): every
+/// pending decision issued before it is stale at completion.
+fn move_generation(w: &World) {
+    use heimdall_domain::environment::{
+        EnvironmentKind, EnvironmentPermissions, EnvironmentRecord,
+    };
+    w.store
+        .transaction(|tx| {
+            tx.upsert_environment(&EnvironmentRecord {
+                id: env_id(),
+                device: heimdall_contract::ids::DeviceId::from_random_bytes([0x5f; 16]),
+                kind: EnvironmentKind::NativeSession,
+                label: None,
+                permissions: EnvironmentPermissions {
+                    automatic_activation: false,
+                    managed_signing: false,
+                    issuer_access: false,
+                },
+            })
+        })
+        .unwrap();
+}
+
+/// ADR-0007 §12.24 item 8: a catalog `DeclareInteraction` whose decision went stale
+/// (the authority generation moved, so completing it is `DECISION_STALE` and the record
+/// is `stale`) is reissued as the setup driver does. The replay of the request answers
+/// with a fresh pending record bound to the identity's **current** fingerprint and
+/// endpoint (the identity moved meanwhile), at the current generation; approving it
+/// writes the declaration from it.
+#[tokio::test]
+async fn stale_declaration_decision_is_reissued_bound_to_the_current_identity() {
+    let w = World::new().await;
+    let identity = w.adopt("r-adopt").await;
+    let (first, op) = declare_op(&w, &identity, "r-declare").await;
+    let stored = w
+        .store
+        .transaction(|tx| tx.identity(&identity))
+        .unwrap()
+        .unwrap();
+    let moved = EndpointRef {
+        kind: EndpointKind::UnixSocket,
+        locator: w.home.root.join("moved.sock").display().to_string(),
+    };
+    w.catalog(
+        &attended(),
+        CatalogRequest::AdoptIdentity {
+            identity: IdentitySpec {
+                source: IdentitySourceSpec::NativeAgent {
+                    endpoint: moved.clone(),
+                },
+                public_key: stored.public_key.clone(),
+                label: None,
+            },
+            request_id: rid("r-move"),
+        },
+    )
+    .await
+    .unwrap();
+    move_generation(&w);
+    let e = w.decide(&first, Verdict::Approve).await.unwrap_err();
+    assert_eq!(e.code, Code::DecisionStale, "{e:?}");
+    assert_eq!(w.op(&op).state, OperationState::AwaitingApproval);
+    assert!(
+        w.decisions().iter().all(|d| d.id.as_str() != first),
+        "the first record left pending"
+    );
+
+    // The replay reissues: a fresh record, bound to the identity as it is now.
+    let replay = w
+        .catalog(
+            &unattended(),
+            CatalogRequest::DeclareInteraction {
+                identity: identity.clone(),
+                interaction: DeclaredInteraction::None,
+                request_id: rid("r-declare"),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(replay.code, Code::InteractionRequired, "{replay:?}");
+    assert_eq!(replay.operation_id.as_ref(), Some(&op));
+    let fresh = replay.next.decision_ref.clone().unwrap();
+    assert_ne!(fresh, first);
+    let record = w
+        .decisions()
+        .into_iter()
+        .find(|d| d.id.as_str() == fresh)
+        .unwrap();
+    let current = w.store.transaction(|tx| tx.authority_generation()).unwrap();
+    assert_eq!(record.generation, current);
+    let DecisionKind::DeclareInteraction {
+        operation,
+        identity: named,
+        fingerprint,
+        endpoint,
+        interaction,
+        ..
+    } = &record.kind
+    else {
+        panic!("{record:?}")
+    };
+    assert_eq!(operation, &op);
+    assert_eq!(named, &identity);
+    assert_eq!(fingerprint, &stored.fingerprint);
+    assert_eq!(endpoint, &moved, "bound to the current endpoint");
+    assert_eq!(*interaction, DeclaredInteraction::None);
+    let naming = w
+        .decisions()
+        .iter()
+        .filter(|d| matches!(&d.kind, DecisionKind::DeclareInteraction { operation, .. } if *operation == op))
+        .count();
+    assert_eq!(naming, 1, "exactly one pending record names the operation");
+    // A second replay answers the same fresh record (no further reissue).
+    let again = w
+        .catalog(
+            &unattended(),
+            CatalogRequest::DeclareInteraction {
+                identity: identity.clone(),
+                interaction: DeclaredInteraction::None,
+                request_id: rid("r-declare"),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(again.next.decision_ref.as_deref(), Some(fresh.as_str()));
+
+    // Approving it writes the declaration from it.
+    w.decide(&fresh, Verdict::Approve).await.unwrap();
+    let rec = w.op(&op);
+    assert_eq!(rec.state, OperationState::Succeeded, "{:?}", rec.result);
+    let decl = w
+        .store
+        .transaction(|tx| tx.interaction_declaration(&identity))
+        .unwrap()
+        .unwrap();
+    assert_eq!(decl.endpoint, moved);
+    assert_eq!(decl.fingerprint, stored.fingerprint);
+    assert_eq!(decl.decision.as_str(), fresh);
+}
+
 fn open_setups(w: &World) -> Vec<OperationId> {
     w.store
         .transaction(|tx| tx.open_setup_operations(&env_id()))
@@ -2370,6 +2736,145 @@ async fn held_repair_retry_continues_and_keep_closes_without_moving() {
     assert_eq!(h.w.op(&h.op).state, OperationState::OutcomeUnknown);
 }
 
+/// Poll `f` every 5 ms until it holds; fails after 10 s.
+async fn until(what: &str, f: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !f() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// The repair the driver is running for `h` (the open setup operation that is not
+/// the held one).
+fn running_repair(h: &Held) -> OperationId {
+    let open = open_setups(&h.w);
+    let others: Vec<&OperationId> = open.iter().filter(|id| **id != h.op).collect();
+    assert_eq!(others.len(), 1, "{open:?}");
+    others[0].clone()
+}
+
+/// ADR-0007 §12.23 item 1 (review wave3a U01, the reviewer's probe). A held repair
+/// records its own `setup.attempt` and is `running` before the driver writes anything
+/// against the held operation. Paused just before the writer's reconcile, the repair
+/// can no longer be cancelled: `OUTCOME_UNKNOWN`, effect `unknown`, `next: reconcile`
+/// naming it, and nothing changes; it keeps its `setup_in_progress` blocker, so a second
+/// repair of the same held operation is refused while it runs. Released, the held
+/// operation completes and the repair is recorded as the repair that completed it.
+#[tokio::test]
+async fn held_repair_paused_before_the_writer_refuses_cancel_and_a_second_repair() {
+    use heimdall_contract::request::CancelRequest;
+    use heimdall_domain::operation::EffectReceipt;
+    let h = held(Hold::DisplacedMissing).await;
+    let (displaced, away) = h.stash.clone().unwrap();
+    std::fs::rename(&away, &displaced).unwrap();
+    let retry = held_plan(&h, RepairResolution::RetryHeld, &h.op)
+        .await
+        .unwrap();
+    let reconciles = h.w.writer.reconciles.load(Ordering::SeqCst);
+    let (entered, release) = h.w.writer.pause_next_reconcile();
+    let ops = h.w.ops.clone();
+    let digest = retry.plan_digest.clone();
+    let submitted = tokio::spawn(async move {
+        ops.setup(
+            &unattended(),
+            SetupRequest::Repair {
+                plan_digest: digest,
+                request_id: rid("r-retry"),
+            },
+        )
+        .await
+    });
+    until("the repair paused before the writer", || {
+        entered.load(Ordering::SeqCst)
+    })
+    .await;
+    let repair = running_repair(&h);
+    // The attempt is on the repair, before any receipt against the held operation.
+    let receipts = h.w.receipts(&repair);
+    assert!(
+        receipts
+            .iter()
+            .any(|r| r.stage == "setup.attempt"
+                && matches!(r.effect, EffectReceipt::Attempted { .. })),
+        "{receipts:?}"
+    );
+    assert_eq!(h.w.op(&repair).state, OperationState::Running);
+    let held_receipts = h.w.receipts(&h.op).len();
+
+    // Cancelling it is refused.
+    let e =
+        h.w.ops
+            .cancel(
+                &attended(),
+                CancelRequest {
+                    operation_id: repair.clone(),
+                },
+            )
+            .await
+            .unwrap_err();
+    scan(&Err::<(), _>(e.clone()));
+    assert_eq!(e.code, Code::OutcomeUnknown, "{e:?}");
+    assert_eq!(e.effect_status, EffectStatus::Unknown);
+    assert_eq!(e.next.action, "reconcile");
+    assert_eq!(e.next.operation_id.as_ref(), Some(&repair));
+    let r = h.w.op(&repair);
+    assert_eq!(r.state, OperationState::Running);
+    assert_eq!(r.cancellation, None);
+
+    // A second repair of the same held operation is refused while the first runs.
+    let second =
+        h.w.effect(&unattended(), "repair", &retry.plan_digest, "r-retry-2")
+            .await
+            .unwrap_err();
+    assert_eq!(second.code, Code::ConfigConflict, "{second:?}");
+    assert_eq!(second.reason.as_deref(), Some(reason::SETUP_IN_PROGRESS));
+    assert_eq!(open_setups(&h.w).len(), 2, "no third operation admitted");
+    assert_eq!(
+        h.w.receipts(&h.op).len(),
+        held_receipts,
+        "nothing written yet"
+    );
+
+    // Released: the held operation completes, recorded through the repair.
+    release.send(()).unwrap();
+    let done = submitted.await.unwrap().unwrap();
+    assert_eq!(done.code, Code::Ok, "{:?}", done.data);
+    assert_eq!(done.operation_id.as_ref(), Some(&repair));
+    assert_eq!(h.w.op(&h.op).state, OperationState::Succeeded);
+    let r = h.w.op(&repair);
+    assert_eq!(r.state, OperationState::Succeeded);
+    assert_eq!(r.code, Some(Code::Ok));
+    assert_eq!(r.cancellation, None);
+    assert!(open_setups(&h.w).is_empty());
+    assert_eq!(
+        h.w.writer.reconciles.load(Ordering::SeqCst),
+        reconciles + 1,
+        "one reconcile of the held operation"
+    );
+    assert!(
+        std::fs::read_to_string(h.w.p())
+            .unwrap()
+            .contains("Host beta")
+    );
+    // A cancellation now is idempotent and changes nothing.
+    let after =
+        h.w.ops
+            .cancel(
+                &attended(),
+                CancelRequest {
+                    operation_id: repair.clone(),
+                },
+            )
+            .await
+            .unwrap();
+    assert_eq!(after.state, OperationState::Succeeded);
+    h.w.events();
+}
+
 /// The plan, result, receipts and events of `h` hold no byte of the observed entries.
 fn assert_no_observed_content(h: &Held, plan: &SetupPlan, outputs: &[String]) {
     let mut all = vec![serde_json::to_string(plan).unwrap()];
@@ -2751,6 +3256,7 @@ async fn restart_reconciles_attempted_apply_never_reapplies_after_a_process_abor
             previews: AtomicUsize::new(0),
             after_preview: Mutex::new(None),
             tamper_consent: std::sync::atomic::AtomicBool::new(false),
+            pause_reconcile: Mutex::new(None),
         });
         let writer: Arc<dyn ProjectionWriter> = counting.clone();
         let _ops = paths.ops(&store, writer).await;
@@ -2803,6 +3309,60 @@ fn assert_expired(w: &World, op: &OperationId, decision: &str) {
     assert_eq!(error["next"]["action"], "new_work", "{error}");
     assert_eq!(error["resource"]["kind"], "decision", "{error}");
     assert_eq!(error["resource"]["id"], decision, "{error}");
+}
+
+/// ADR-0007 §12.24 item 3: the supervisor's next wake includes the earliest pending
+/// decision deadline, so an operation waiting on a decision expires at the tick right
+/// after it, never up to `max_idle_sleep` later. With nothing else due, the scheduler
+/// pass answers exactly the decision's `expires_at` (an earlier decision wins); after
+/// the deadline the pass expires the operation (`CREDENTIAL_EXPIRED`, `next:
+/// new_work`), and a deadline in the past is never a wake (no tight loop).
+#[tokio::test]
+async fn supervisor_wakes_at_the_earliest_pending_decision_deadline() {
+    use heimdall_runtime::supervisor::{Supervisor, SupervisorConfig};
+    let w = World::new().await;
+    let identity = w.catalog_alpha().await;
+    let sup = Supervisor::new(w.ops.clone(), SupervisorConfig::default())
+        .with_state(w.store.clone(), w.clock.clone());
+    assert_eq!(sup.scheduler_pass().await.unwrap(), None, "nothing is due");
+    let (op, decision) = apply_waiting(&w, "r-wake").await;
+    let first = w
+        .decisions()
+        .into_iter()
+        .find(|d| d.id.as_str() == decision)
+        .unwrap();
+    assert!(first.expires_at > t0());
+    assert_eq!(sup.scheduler_pass().await.unwrap(), Some(first.expires_at));
+    // A later decision does not move the wake; the earliest one is it.
+    w.clock.advance(Duration::from_secs(60));
+    let (_declaration_decision, _) = declare_op(&w, &identity, "r-wake-declare").await;
+    assert!(
+        w.decisions()
+            .iter()
+            .any(|d| d.expires_at > first.expires_at)
+    );
+    assert_eq!(sup.scheduler_pass().await.unwrap(), Some(first.expires_at));
+    // At the deadline the pass expires the operation; the next wake is the later
+    // decision's deadline, never one in the past.
+    advance_to(&w, first.expires_at);
+    let next = sup.scheduler_pass().await.unwrap();
+    assert_expired(&w, &op, &decision);
+    let later = w
+        .decisions()
+        .into_iter()
+        .map(|d| d.expires_at)
+        .filter(|t| *t > first.expires_at)
+        .min();
+    assert_eq!(next, later);
+    advance_to(&w, later.unwrap());
+    assert_eq!(sup.scheduler_pass().await.unwrap(), None);
+}
+
+/// Advance the virtual clock (wall and continuous together) to `t`.
+fn advance_to(w: &World, t: Timestamp) {
+    let now = heimdall_domain::time::Clock::wall(w.clock.as_ref());
+    let span = Duration::try_from(now.duration_until(t)).unwrap();
+    w.clock.advance(span);
 }
 
 /// ADR-0007 §12.22 item 9 (W3b-gaps): a setup operation in `awaiting_approval` whose

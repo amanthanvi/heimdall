@@ -38,6 +38,11 @@
 //!   operation, then calls `ProjectionWriter::apply` once with a [`StageSink`] that
 //!   writes each receipt in its own transaction. Once that receipt exists the driver
 //!   only ever calls `reconcile`, never a second `apply` (R-RT-05);
+//! * ⟨M02⟩ a held repair (`retry_held`, `keep_held`) records its **own**
+//!   `setup.attempt` in the transaction that starts it, and only while it is still
+//!   runnable, before anything is written against the held operation (ADR-0007 §12.23
+//!   item 1): a cancellation after that is `OUTCOME_UNKNOWN` with `next: reconcile`,
+//!   and the repair keeps its `setup_in_progress` blocker until it settles;
 //! * an operation in `awaiting_approval` whose decision passed its deadline expires
 //!   (ADR-0007 §12.22 item 9): `failed`, `CREDENTIAL_EXPIRED`, `next: new_work`, effect
 //!   `none`, through `crate::operations::expire_awaiting_local_in`, when the driver or
@@ -1889,8 +1894,12 @@ async fn drive_held_repair(
     resolution: RepairResolution,
     target: &OperationId,
 ) -> Result<(), OpError> {
-    if repair.state == OperationState::Queued || repair.state == OperationState::AwaitingApproval {
-        start_repair(ops, &repair.id).await?;
+    // ADR-0007 §12.23 item 1 (U01): the repair is running, with its own
+    // `setup.attempt`, before anything is written against the held operation; a
+    // repair that is no longer runnable (cancelled before it started, settled) does
+    // nothing.
+    if !start_repair(ops, &repair.id).await? {
+        return Ok(());
     }
     let held = load_setup(ops, target).await?;
     let (Some(held_intent), Some(held_receipts)) = (held.intent.clone(), held.receipts.clone())
@@ -1947,19 +1956,53 @@ async fn drive_held_repair(
     }
 }
 
-async fn start_repair(ops: &Operations, id: &OperationId) -> Result<(), OpError> {
+/// ADR-0007 §12.23 item 1 (U01): in **one** transaction, and only while the repair
+/// is still runnable (`queued`, or `running` again after a restart), move it to
+/// `running` and record its `setup.attempt` receipt (`Attempted`, adapter
+/// `config_projection/<environment>`, a fresh effect token) unless it already has
+/// one. Returns whether the repair may proceed.
+///
+/// It runs before any reconcile or closure receipt is written against the held
+/// operation, so from the moment the driver can touch the held operation the repair
+/// carries an attempt: a cancellation is then `OUTCOME_UNKNOWN` with `next:
+/// reconcile` (§12.22 item 1, `cancel_local_in`), and the repair stays an open setup
+/// operation, keeping its `setup_in_progress` blocker until it settles (a second
+/// repair of the same held operation is refused while it runs). A repair cancelled
+/// before this transaction (`cancelled`, effect `none`) is not runnable and nothing
+/// is done for it.
+async fn start_repair(ops: &Operations, id: &OperationId) -> Result<bool, OpError> {
     let id = id.clone();
+    let token = crate::ids::new_effect_token()?;
+    let environment = ops.environment().clone();
     let now = ops.local_narrowing_now().await;
     ops.local_write(move |tx, emit| {
         let Some(mut op) = tx.operation(&id)? else {
-            return Ok(());
+            return Ok(false);
         };
-        if op.state == OperationState::Queued {
-            local_op_to(&mut op, OperationEvent::Start, now)?;
-            tx.update_operation(&op)?;
-            emit.op(tx, &op)?;
+        match op.state {
+            OperationState::Queued => {
+                local_op_to(&mut op, OperationEvent::Start, now)?;
+                tx.update_operation(&op)?;
+                emit.op(tx, &op)?;
+            }
+            OperationState::Running => {}
+            _ => return Ok(false),
         }
-        Ok(())
+        if attempt_token(&tx.stage_receipts(&id)?).is_none() {
+            tx.append_stage_receipt(
+                &id,
+                &StageReceipt {
+                    stage: STAGE_SETUP_ATTEMPT.to_owned(),
+                    recorded_at: now,
+                    effect: EffectReceipt::Attempted {
+                        adapter: adapter_identity(&environment),
+                        effect_token: token,
+                    },
+                    local: None,
+                },
+            )?;
+        }
+        Ok(true)
     })
     .await
 }

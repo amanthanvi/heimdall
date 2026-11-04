@@ -247,6 +247,7 @@ fn refs(v: &[OsString]) -> Vec<&OsStr> {
     v.iter().map(OsString::as_os_str).collect()
 }
 
+#[cfg(unix)]
 fn launching_ids(records: &[RunRecord]) -> (Option<String>, Option<String>) {
     match records.first() {
         Some(RunRecord::Launching {
@@ -272,7 +273,6 @@ fn mkfifo(path: &Path) {
     );
 }
 
-#[cfg(unix)]
 /// Wait for `cond`, bounded.
 fn wait_for(what: &str, limit: Duration, mut cond: impl FnMut() -> bool) {
     let deadline = Instant::now() + limit;
@@ -1256,7 +1256,7 @@ mod terminal {
         panic!("exec failed: {err}");
     }
 
-    struct Pty {
+    pub(super) struct Pty {
         master: OwnedFd,
         slave: PathBuf,
         output: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
@@ -1279,7 +1279,7 @@ mod terminal {
     }
 
     impl Pty {
-        fn open() -> Pty {
+        pub(super) fn open() -> Pty {
             let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
             grantpt(&master).unwrap();
             unlockpt(&master).unwrap();
@@ -1332,25 +1332,32 @@ mod terminal {
             f.write_all(bytes).unwrap();
         }
 
-        /// `heimdall <args>` on this terminal.
-        fn start(&self, rig: &Rig, args: &[OsString]) -> Running {
+        /// The child-mode test entry's arguments, and its two variables for `args`.
+        fn child_args(&self, args: &[OsString]) -> (Vec<OsString>, String) {
             let args: Vec<String> = args
                 .iter()
                 .map(|a| a.to_str().unwrap().to_owned())
                 .collect();
             let json = serde_json::to_string(&args).unwrap();
+            let entry = os(&[
+                "--exact",
+                "terminal::pty_child",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "-q",
+            ]);
+            (entry, json)
+        }
+
+        /// `heimdall <args>` on this terminal.
+        fn start(&self, rig: &Rig, args: &[OsString]) -> Running {
+            let (entry, json) = self.child_args(args);
             let exe = std::env::current_exe().unwrap();
             let cmd = rig
                 .command_of(
                     exe.as_os_str(),
-                    &refs(&os(&[
-                        "--exact",
-                        "terminal::pty_child",
-                        "--ignored",
-                        "--nocapture",
-                        "--test-threads=1",
-                        "-q",
-                    ])),
+                    &refs(&entry),
                     &[(SLAVE, self.slave.as_os_str()), (ARGS, OsStr::new(&json))],
                 )
                 .stdin(Stdio::null())
@@ -1361,7 +1368,32 @@ mod terminal {
             Running(Some(cmd))
         }
 
-        fn transcript(&self) -> String {
+        /// `heimdall <args>` on this terminal with exactly the environment `env` (a
+        /// cleared environment otherwise) in `cwd`.
+        pub(super) fn start_env(
+            &self,
+            env: &[(OsString, OsString)],
+            cwd: &Path,
+            args: &[OsString],
+        ) -> Running {
+            let (entry, json) = self.child_args(args);
+            let mut cmd = Command::new(std::env::current_exe().unwrap());
+            cmd.args(&entry).env_clear().current_dir(cwd);
+            for (k, v) in env {
+                cmd.env(k, v);
+            }
+            let child = cmd
+                .env(SLAVE, &self.slave)
+                .env(ARGS, &json)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            Running(Some(child))
+        }
+
+        pub(super) fn transcript(&self) -> String {
             String::from_utf8_lossy(&self.output.lock().unwrap()).into_owned()
         }
     }
@@ -1420,63 +1452,186 @@ mod terminal {
 // R-RT-05: no blind relaunch
 // =================================================================================
 
-/// m02-plan U8 `run_retry_with_same_request_id_never_relaunches_automatically`
-/// (R-RT-05): a retry with the same request ID replays the same `ensure` and `bind`
-/// (the same operation and binding in `launching`) and launches once per explicit
-/// invocation; a runtime restart relaunches nothing, a child that failed is not
-/// retried, and the runtime never launches anything itself.
-#[test]
-fn run_retry_with_same_request_id_never_relaunches_automatically() {
-    let rig = Rig::new();
-    let count = rig.file("count");
+/// The operation and binding a `launching` or `prelaunch_failed` record names.
+fn record_ids(records: &[RunRecord]) -> (Option<String>, Option<String>) {
+    match records.first() {
+        Some(
+            RunRecord::Launching {
+                operation_id,
+                binding_id,
+                ..
+            }
+            | RunRecord::PrelaunchFailed {
+                operation_id,
+                binding_id,
+                ..
+            },
+        ) => (
+            operation_id.as_ref().map(ToString::to_string),
+            binding_id.as_ref().map(ToString::to_string),
+        ),
+        other => panic!("no launching or prelaunch_failed record: {other:?}"),
+    }
+}
+
+/// A binding's state in `inspect bindings`, or `absent` (a released binding holds no
+/// reference, so it is no longer listed).
+fn binding_state(rig: &Rig, binding: &str) -> String {
+    let out = rig.run(&["--json", "inspect", "bindings"]);
+    let env = serde_json::from_slice::<Value>(&out.stdout).unwrap();
+    env["data"]["bindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["binding_id"] == binding)
+        .map_or_else(
+            || "absent".to_owned(),
+            |b| b["state"].as_str().unwrap().to_owned(),
+        )
+}
+
+/// One `run --profile ops --request-id <request> --meta-file <meta> -- <shell script>`
+/// whose child appends a line to `count` and exits 7.
+fn counted_run(rig: &Rig, request: &str, meta: &Path, count: &Path) -> Out {
     let script = if cfg!(windows) {
         format!("echo x>> \"{}\" & exit 7", count.display())
     } else {
         format!("echo x >> '{}'; exit 7", count.display())
     };
-    let lines = || {
-        std::fs::read_to_string(&count)
-            .map(|t| t.lines().count())
-            .unwrap_or(0)
-    };
+    let mut a = os(&["--json", "run", "--profile", "ops", "--request-id", request]);
+    a.push("--meta-file".into());
+    a.push(meta.as_os_str().to_owned());
+    a.push("--".into());
+    a.extend(shell(&script));
+    rig.run_with(&refs(&a), &[])
+}
+
+fn line_count(path: &Path) -> usize {
+    std::fs::read_to_string(path)
+        .map(|t| t.lines().count())
+        .unwrap_or(0)
+}
+
+/// The refusal of a replayed `bind` whose binding the holder pass released (ADR-0007
+/// §12.24 item 2): `CREDENTIAL_EXPIRED`, exit 4, `next: new_work`, the binding named
+/// as the resource, and one `prelaunch_failed` record; nothing launched.
+fn assert_released_refusal(out: &Out, meta: &Path) {
+    assert_eq!(out.code(), Some(4), "{}", out.stderr);
+    let env = out.envelope();
+    assert_eq!(env["code"], "CREDENTIAL_EXPIRED", "{}", out.stderr);
+    assert_eq!(env["next"]["action"], "new_work");
+    assert_eq!(env["data"]["error"]["resource"]["kind"], "binding");
+    assert!(out.stdout.is_empty());
+    let recs = records(meta);
+    assert!(
+        matches!(recs.as_slice(), [RunRecord::PrelaunchFailed { .. }]),
+        "{recs:?}"
+    );
+    assert_eq!(
+        classify(&recs, PLATFORM),
+        LaunchClassification::NotLaunched {
+            code: Some(heimdall_contract::Code::CredentialExpired),
+            reason: None,
+        }
+    );
+}
+
+/// m02-plan U8 `run_retry_with_same_request_id_never_relaunches_automatically`
+/// (R-RT-05): a retry with the same request ID replays the same `ensure` and `bind`
+/// (the same operation and binding in every record) and launches at most once per
+/// explicit invocation; a runtime restart relaunches nothing, a child that failed is
+/// not retried, and the runtime never launches anything itself. The first invocation
+/// launches. A retry launches while the binding is still active; once the holder pass
+/// has released it (its holder, the first invocation, exited), the retry is refused
+/// before `launching` (ADR-0007 §12.24 item 2), which also launches nothing.
+#[test]
+fn run_retry_with_same_request_id_never_relaunches_automatically() {
+    let rig = Rig::new();
+    let count = rig.file("count");
     let mut ids = Vec::new();
+    let mut launched = 0;
     let mut invoke = |n: usize| {
         let meta = rig.file(&format!("meta-{n}.ndjson"));
-        let mut a = os(&[
-            "--json",
-            "run",
-            "--profile",
-            "ops",
-            "--request-id",
-            "req-rt05",
-        ]);
-        a.push("--meta-file".into());
-        a.push(meta.clone().into_os_string());
-        a.push("--".into());
-        a.extend(shell(&script));
-        let out = rig.run_with(&refs(&a), &[]);
-        assert_eq!(out.code(), Some(7), "{}", out.stderr);
-        ids.push(launching_ids(&records(&meta)));
+        let out = counted_run(&rig, "req-rt05", &meta, &count);
+        if out.code() == Some(7) {
+            assert!(matches!(
+                records(&meta).as_slice(),
+                [RunRecord::Launching { .. }]
+            ));
+            launched += 1;
+        } else {
+            assert!(n > 1, "the first invocation launches: {}", out.stderr);
+            assert_released_refusal(&out, &meta);
+        }
+        ids.push(record_ids(&records(&meta)));
+        launched
     };
-    invoke(1);
-    assert_eq!(lines(), 1);
-    invoke(2);
+    assert_eq!(invoke(1), 1);
+    assert_eq!(line_count(&count), 1);
+    let after_two = invoke(2);
     assert_eq!(
-        lines(),
-        2,
-        "one launch per explicit invocation, none of its own"
+        line_count(&count),
+        after_two,
+        "at most one launch per explicit invocation, none of its own"
     );
     // Restart the runtime: recovery relaunches nothing.
     let stop = rig.run(&["--json", "service", "stop"]);
     assert_eq!(stop.code(), Some(0), "{}", stop.stderr);
-    invoke(3);
+    let after_three = invoke(3);
     std::thread::sleep(Duration::from_millis(1500));
-    assert_eq!(lines(), 3, "a restart and a failed child relaunch nothing");
+    assert_eq!(
+        line_count(&count),
+        after_three,
+        "a restart and a failed child relaunch nothing"
+    );
     assert!(
         ids.iter().all(|i| *i == ids[0]),
         "the same bind replays: {ids:?}"
     );
     assert!(ids[0].0.is_some() && ids[0].1.is_some());
+}
+
+/// ADR-0007 §12.24 item 2 (regression): a retry with the same request ID replays the
+/// stored `bind` result (`ACCESS_READY`) even after the holder pass released the
+/// binding. `run` confirms with one `inspect bindings` that the binding is still active
+/// before writing `launching`, so the replay is refused (`CREDENTIAL_EXPIRED`, exit 4,
+/// a `prelaunch_failed` record naming the replayed operation and binding) and the child
+/// never starts; new work (another request ID) launches.
+#[test]
+fn run_replay_of_a_binding_the_holder_pass_released_is_refused_and_never_launched() {
+    let rig = Rig::new();
+    let count = rig.file("count");
+    let first = rig.file("first.ndjson");
+    let out = counted_run(&rig, "req-released", &first, &count);
+    assert_eq!(out.code(), Some(7), "{}", out.stderr);
+    assert_eq!(line_count(&count), 1);
+    let ids = record_ids(&records(&first));
+    let binding = ids.1.clone().unwrap();
+    // The first run's process (the holder) has exited: the holder pass (jittered,
+    // default interval 5 s) releases the binding.
+    wait_for("the holder pass", Duration::from_secs(30), || {
+        binding_state(&rig, &binding) != "active"
+    });
+    let replay = rig.file("replay.ndjson");
+    let out = counted_run(&rig, "req-released", &replay, &count);
+    assert_released_refusal(&out, &replay);
+    assert_eq!(
+        record_ids(&records(&replay)),
+        ids,
+        "the replayed operation and binding"
+    );
+    assert_eq!(
+        out.envelope()["data"]["error"]["resource"]["id"],
+        binding.as_str()
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(line_count(&count), 1, "never launched");
+    // New work launches with a new binding.
+    let fresh = rig.file("fresh.ndjson");
+    let out = counted_run(&rig, "req-released-new", &fresh, &count);
+    assert_eq!(out.code(), Some(7), "{}", out.stderr);
+    assert_eq!(line_count(&count), 2);
+    assert_ne!(record_ids(&records(&fresh)).1, ids.1);
 }
 
 // =================================================================================
@@ -1508,19 +1663,7 @@ fn holder_pass_releases_the_binding_once_the_run_exits() {
     });
     let (_, binding) = launching_ids(&records(&meta));
     let binding = binding.unwrap();
-    let state = |rig: &Rig| -> String {
-        let out = rig.run(&["--json", "inspect", "bindings"]);
-        let env = serde_json::from_slice::<Value>(&out.stdout).unwrap();
-        env["data"]["bindings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|b| b["binding_id"] == binding.as_str())
-            .map_or_else(
-                || "absent".to_owned(),
-                |b| b["state"].as_str().unwrap().to_owned(),
-            )
-    };
+    let state = |rig: &Rig| binding_state(rig, &binding);
     std::thread::sleep(Duration::from_secs(6));
     assert_eq!(state(&rig), "active", "the holder still runs");
     {
@@ -1779,9 +1922,13 @@ fn git_run_malformed_caller_git_config_count_injects_nothing() {
 /// decisions go through `Operations` with an attended owner caller, as the CLI's owner
 /// flow would; `run` and `connect` are always the binary. The identity's agent is a
 /// counting `FakeAgent` in scratch; the CLI's static selection pass reads the scratch
-/// home (`HEIMDALL_TEST_SSH_HOME`). The children run nothing that contacts an agent,
-/// so every "launched" is a marker file and every refusal also shows zero agent
-/// contacts.
+/// home (`HEIMDALL_TEST_SSH_HOME`). The marker-file cases run nothing that contacts an
+/// agent, so every "launched" is a marker file and every refusal also shows zero agent
+/// contacts. The cases through a real client (`SshWorld`) run `ssh`, `scp`, `sftp` and
+/// `git` with only the scratch isolation arguments, against the loopback fixture sshd;
+/// the confirm-constraint cases adopt their keys at a `CountingProxy` in front of U7's
+/// `DisposableSshAgent` with the counting askpass (`World::attach_real`), so every
+/// agent contact and every prompt is counted.
 ///
 /// **Restart label.** A "restart" here stops the in-process service (token, drain)
 /// and starts a new one over the same directories: an in-process reconstruction, as
@@ -1841,9 +1988,19 @@ mod a11 {
         home: ScratchHome,
         service: Option<Running>,
         agent: FakeAgent,
+        /// A real disposable `ssh-agent` behind a counting proxy, when the test adopts
+        /// its keys at the proxy instead of at the fake agent ([`World::attach_real`]).
+        real: Option<RealAgent>,
         keys: Vec<FixtureKey>,
         uid: u32,
         n: std::sync::atomic::AtomicU32,
+    }
+
+    /// U7's `DisposableSshAgent` (with the counting askpass) behind a `CountingProxy`;
+    /// identities adopted at the proxy's socket, so every agent contact is counted.
+    struct RealAgent {
+        agent: heimdall_testkit::agent::DisposableSshAgent,
+        proxy: heimdall_testkit::agent::CountingProxy,
     }
 
     fn rid(s: &str) -> RequestId {
@@ -1853,6 +2010,11 @@ mod a11 {
     impl World {
         /// A scratch home, one fake agent holding `keys` keys, the service started.
         fn new(keys: usize) -> World {
+            World::with_mode(keys, AgentMode::Normal)
+        }
+
+        /// [`new`](Self::new) with the fake agent in `mode`.
+        fn with_mode(keys: usize, mode: AgentMode) -> World {
             use std::os::unix::fs::MetadataExt as _;
             let home = ScratchHome::new();
             std::fs::create_dir_all(home.root.join("etc-ssh")).unwrap();
@@ -1861,7 +2023,7 @@ mod a11 {
                 Endpoint::in_scratch(home.scratch(), "agent").unwrap(),
                 FakeAgentConfig {
                     keys: keys.clone(),
-                    mode: AgentMode::Normal,
+                    mode,
                 },
             );
             let uid = std::fs::metadata(&home.root).unwrap().uid();
@@ -1869,6 +2031,7 @@ mod a11 {
                 home,
                 service: None,
                 agent,
+                real: None,
                 keys,
                 uid,
                 n: std::sync::atomic::AtomicU32::new(0),
@@ -1877,10 +2040,76 @@ mod a11 {
             w
         }
 
+        /// Start U7's disposable `ssh-agent` with the counting askpass (answer
+        /// `Approve`) and a counting proxy in front of it, in this world's scratch.
+        /// Identities adopted afterwards are adopted at the proxy's socket.
+        fn attach_real(&mut self) {
+            use heimdall_testkit::agent::{
+                AgentOptions, AskpassAnswer, CountingProxy, DisposableSshAgent,
+            };
+            let scratch = self.home.scratch();
+            let agent = DisposableSshAgent::start(
+                scratch,
+                AgentOptions {
+                    askpass_log: Some(self.home.root.join("askpass.log")),
+                    askpass_answer: AskpassAnswer::Approve,
+                },
+            )
+            .unwrap_or_else(|e| panic!("the disposable ssh-agent (hm-fixture-hook built?): {e}"));
+            let proxy = CountingProxy::start(
+                &agent.endpoint(),
+                Endpoint::in_scratch(scratch, "proxy").unwrap(),
+            );
+            self.real = Some(RealAgent { agent, proxy });
+        }
+
+        fn real(&self) -> &RealAgent {
+            self.real.as_ref().expect("attach_real first")
+        }
+
+        /// Add key `k` to the disposable agent, with a fixed comment that is not a
+        /// canary (`ssh` prints the comment of a key whose signature the agent refuses).
+        fn add_real_key(&self, k: usize, confirm: bool) {
+            use heimdall_testkit::agent::KeyConstraints;
+            self.real()
+                .agent
+                .add_key(
+                    &self.keys[k].with_comment(&format!("hm-fixture-k{k}")),
+                    KeyConstraints { confirm },
+                )
+                .unwrap();
+        }
+
+        /// ADR-0007 F23 (M2-R08): the confirm constraint is installed on this agent:
+        /// one signature through the proxy, askpass `Approve`, prompts exactly once.
+        fn verify_confirm_installed(&self, k: usize) {
+            let real = self.real();
+            let socket = match real.proxy.endpoint() {
+                Endpoint::UnixSocket(p) => p.clone(),
+                other => panic!("{other:?}"),
+            };
+            let control = real
+                .agent
+                .sign_control_through(&socket, &self.keys[k], b"hm-fixture U8 A11 control")
+                .unwrap();
+            assert!(control.signed, "{control:?}");
+            assert_eq!(control.askpass_delta, 1, "the confirm constraint is active");
+        }
+
+        /// The proxy's forwarded requests and the askpass invocations so far.
+        fn counts(&self) -> (usize, u32) {
+            let real = self.real();
+            (real.proxy.count(), real.agent.askpass_count())
+        }
+
         fn endpoint(&self) -> EndpointRef {
+            let locator = match &self.real {
+                Some(real) => real.proxy.endpoint().locator(),
+                None => self.agent.endpoint().locator(),
+            };
             EndpointRef {
                 kind: EndpointKind::UnixSocket,
-                locator: self.agent.endpoint().locator().to_str().unwrap().to_owned(),
+                locator: locator.to_str().unwrap().to_owned(),
             }
         }
 
@@ -2308,6 +2537,12 @@ mod a11 {
     impl Drop for World {
         fn drop(&mut self) {
             self.stop();
+            // Stop the disposable agent (exact PID) and its proxy before the scratch
+            // directory goes.
+            if let Some(mut real) = self.real.take() {
+                real.proxy.stop();
+                real.agent.stop();
+            }
         }
     }
 
@@ -2639,11 +2874,14 @@ mod a11 {
             .as_str()
             .unwrap()
             .to_owned();
-        // The `Host *` entry is line 5: the include block's four lines come first.
+        // The entry is its `IdentityFile` line, 5: the include block's three lines and
+        // `Host *` come first.
         assert!(
             message.contains(".ssh/config:5"),
             "names the line: {message}"
         );
+        // ADR-0007 §12.24 item 4: and in `data.error.entries`.
+        assert_refusal_entries(&out, &[5]);
     }
 
     /// m02-plan U8 `a11_fallback_cleared_when_alternative_adopted_and_declared_launches`:
@@ -2804,12 +3042,21 @@ mod a11 {
 
     impl SshWorld {
         fn new() -> SshWorld {
+            SshWorld::build(World::new(2), &[0], true)
+        }
+
+        /// The fixture over `w`: the fixture sshd accepting the keys `authorized`
+        /// (indices into `w.keys`), key 0 adopted at `w.endpoint()` for `alpha`, the
+        /// projection applied, and key 0 declared `none` when `declared`.
+        fn build(w: World, authorized: &[usize], declared: bool) -> SshWorld {
             use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
-            let w = World::new(2);
             let sshd = LoopbackSshd::start(
                 w.home.scratch(),
                 SshdConfig {
-                    authorized: vec![w.keys[0].public().clone()],
+                    authorized: authorized
+                        .iter()
+                        .map(|k| w.keys[*k].public().clone())
+                        .collect(),
                     ..SshdConfig::default()
                 },
             )
@@ -2834,7 +3081,9 @@ mod a11 {
             .unwrap();
             w.profile_as(&[&ALPHA], &account);
             w.project();
-            w.declare(&id);
+            if declared {
+                w.declare(&id);
+            }
             // The guard: in every invocation the alias's identities are scratch paths
             // and its agent is a fixture endpoint, so no client reaches the owner's
             // keys or agents.
@@ -2999,5 +3248,674 @@ mod a11 {
             "{accepted:?}"
         );
         assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
+    }
+
+    // -----------------------------------------------------------------------------
+    // Wave 3c (W3c-run): the U8 tests wave 3b did not write, and `connect` with an
+    // observed alias (ADR-0007 §12.24)
+    // -----------------------------------------------------------------------------
+
+    impl SshWorld {
+        /// `<ssh> <isolation arguments> alpha <remote…>`.
+        fn ssh_argv(&self, remote: &[&str]) -> Vec<OsString> {
+            let mut argv = vec![self.ssh.clone().into_os_string()];
+            argv.extend(self.w.home.isolation_args());
+            argv.push(ALPHA.alias.into());
+            argv.extend(os(remote));
+            argv
+        }
+
+        /// `heimdall --json [--non-interactive] run --profile work [flags] --meta-file
+        /// <name>.ndjson -- <argv>` in `cwd`, with the decoy agent as `SSH_AUTH_SOCK`
+        /// (a client that fell back to the session's agent would reach the decoy) and
+        /// `extra`.
+        fn run_in(
+            &self,
+            cwd: &Path,
+            name: &str,
+            flags: &[&str],
+            argv: &[OsString],
+            extra: &[(&str, &OsStr)],
+        ) -> Out {
+            let args = self.child_args(name, flags, argv);
+            let decoy = self.w.home.decoy_agent().endpoint().locator();
+            let mut all: Vec<(&str, &OsStr)> = vec![("SSH_AUTH_SOCK", decoy.as_os_str())];
+            all.extend_from_slice(extra);
+            finish(self.w.cli(&args, &all).current_dir(cwd).output().unwrap())
+        }
+
+        /// The arguments [`run_in`](Self::run_in) passes.
+        fn child_args(&self, name: &str, flags: &[&str], argv: &[OsString]) -> Vec<OsString> {
+            let mut args = os(&["--json", "--non-interactive", "run", "--profile", "work"]);
+            args.extend(os(flags));
+            args.push("--meta-file".into());
+            args.push(self.w.marker(&format!("{name}.ndjson")).into_os_string());
+            args.push("--".into());
+            args.extend(argv.iter().cloned());
+            args
+        }
+
+        fn run_child(&self, name: &str, flags: &[&str], argv: &[OsString]) -> Out {
+            self.run_in(&self.w.home.root, name, flags, argv, &[])
+        }
+
+        /// The run launched: one `launching` record naming the operation and binding.
+        fn assert_launched_record(&self, name: &str, out: &Out) {
+            match self.w.records(name).as_slice() {
+                [
+                    RunRecord::Launching {
+                        operation_id: Some(_),
+                        binding_id: Some(_),
+                        ..
+                    },
+                ] => {}
+                other => panic!("{name}: {other:?}: {}", out.stderr),
+            }
+        }
+
+        /// Every login the fixture sshd accepted used key `k`, and there was one.
+        fn assert_only_key(&self, k: usize) {
+            let accepted = self.sshd.accepted_log();
+            assert!(
+                !accepted.is_empty()
+                    && accepted
+                        .iter()
+                        .all(|a| a.fingerprint == self.w.keys[k].fingerprint()),
+                "{accepted:?}"
+            );
+        }
+    }
+
+    /// m02-plan U8 `a27_scp_and_sftp_binary_with_unicode_and_spaced_paths`: through
+    /// `heimdall --non-interactive run --profile work -- scp|sftp <isolation> …` against
+    /// the loopback fixture sshd (the adopted key at the fake agent, declared `none`), a
+    /// binary file (1 MiB pseudo-random plus all 256 byte values) goes up and back down
+    /// with `scp`, and up and down again with an `sftp` batch, between local and remote
+    /// paths with spaces and non-ASCII characters. Every copy is byte-identical; each run
+    /// is one `launching` record; the sshd accepted only the adopted key; the decoy
+    /// agent (`SSH_AUTH_SOCK`) was never contacted. The remote paths are absolute paths
+    /// in scratch: the non-root sshd runs as this account on this host.
+    #[test]
+    fn a27_scp_and_sftp_binary_with_unicode_and_spaced_paths() {
+        let s = SshWorld::new();
+        let root = s.w.home.root.clone();
+        let local_dir = root.join("local dir \u{fc}");
+        let remote_dir = root.join("remote dir \u{f8} \u{3b1}");
+        std::fs::create_dir(&local_dir).unwrap();
+        std::fs::create_dir(&remote_dir).unwrap();
+        let payload = binary_payload();
+        let local = local_dir.join("pay load \u{e9}.bin");
+        std::fs::write(&local, &payload).unwrap();
+        let isolation = s.w.home.isolation_args();
+        let program = |name: &str| {
+            heimdall_testkit::home::find_program(name)
+                .unwrap_or_else(|| panic!("{name} is not installed"))
+                .into_os_string()
+        };
+        let remote_arg = |p: &Path| OsString::from(format!("{}:{}", ALPHA.alias, p.display()));
+
+        // scp up, then back down to another local name.
+        let remote = remote_dir.join("up loaded \u{2713}.bin");
+        let mut argv = vec![program("scp")];
+        argv.extend(isolation.iter().cloned());
+        argv.push(local.clone().into_os_string());
+        argv.push(remote_arg(&remote));
+        let out = s.run_child("scp-up", &[], &argv);
+        assert_eq!(out.code(), Some(0), "{}", out.stderr);
+        s.assert_launched_record("scp-up", &out);
+        assert!(
+            std::fs::read(&remote).unwrap() == payload,
+            "scp up changed the bytes"
+        );
+        let back = local_dir.join("back again \u{2713}.bin");
+        let mut argv = vec![program("scp")];
+        argv.extend(isolation.iter().cloned());
+        argv.push(remote_arg(&remote));
+        argv.push(back.clone().into_os_string());
+        let out = s.run_child("scp-down", &[], &argv);
+        assert_eq!(out.code(), Some(0), "{}", out.stderr);
+        s.assert_launched_record("scp-down", &out);
+        assert!(
+            std::fs::read(&back).unwrap() == payload,
+            "scp down changed the bytes"
+        );
+
+        // sftp: put and get through a batch file (quoted paths).
+        let remote2 = remote_dir.join("via sftp \u{fc}.bin");
+        let local2 = local_dir.join("via sftp back \u{e9}.bin");
+        let batch = root.join("sftp batch");
+        std::fs::write(
+            &batch,
+            format!(
+                "put \"{}\" \"{}\"\nget \"{}\" \"{}\"\n",
+                local.display(),
+                remote2.display(),
+                remote2.display(),
+                local2.display()
+            ),
+        )
+        .unwrap();
+        let mut argv = vec![program("sftp")];
+        argv.extend(isolation.iter().cloned());
+        argv.push("-b".into());
+        argv.push(batch.into_os_string());
+        argv.push(ALPHA.alias.into());
+        let out = s.run_child("sftp", &[], &argv);
+        assert_eq!(out.code(), Some(0), "{}", out.stderr);
+        s.assert_launched_record("sftp", &out);
+        assert!(
+            std::fs::read(&remote2).unwrap() == payload,
+            "sftp put changed the bytes"
+        );
+        assert!(
+            std::fs::read(&local2).unwrap() == payload,
+            "sftp get changed the bytes"
+        );
+
+        s.assert_only_key(0);
+        assert!(
+            s.w.agent.contact_count() > 0,
+            "the logins used the fake agent"
+        );
+        assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
+    }
+
+    /// m02-plan U8 `a27_git_clone_and_push_over_ssh_with_binary_blob`: Git over SSH
+    /// through `heimdall --non-interactive run --profile work -- git …` against the
+    /// loopback fixture sshd. A commit holding a binary blob (1 MiB pseudo-random plus
+    /// all 256 byte values) is pushed to a bare repository, cloned back (the blob
+    /// byte-identical), and a second binary blob is pushed from the clone and read back
+    /// from the bare repository. Git runs with a scratch `HOME`, `GIT_CONFIG_NOSYSTEM=1`,
+    /// a scratch `GIT_CONFIG_GLOBAL`, and `GIT_SSH_COMMAND` = ssh with only the scratch
+    /// isolation arguments (`-F`, the known-hosts files, `BatchMode`); the repository
+    /// paths have spaces and non-ASCII characters. Each run is one `launching` record;
+    /// the sshd accepted only the adopted key; the decoy agent was never contacted.
+    #[test]
+    fn a27_git_clone_and_push_over_ssh_with_binary_blob() {
+        let s = SshWorld::new();
+        let root = s.w.home.root.clone();
+        let git_program = heimdall_testkit::home::find_program("git").expect("git");
+        let identity: [(&str, &str); 4] = [
+            ("GIT_AUTHOR_NAME", "hm fixture"),
+            ("GIT_AUTHOR_EMAIL", "fixture@example.invalid"),
+            ("GIT_COMMITTER_NAME", "hm fixture"),
+            ("GIT_COMMITTER_EMAIL", "fixture@example.invalid"),
+        ];
+        // Local Git work, directly (no SSH): the world's scratch environment only.
+        let git = |dir: &Path, args: &[&OsStr]| -> Vec<u8> {
+            let mut cmd = Command::new(&git_program);
+            cmd.args(args).env_clear().current_dir(dir);
+            for (k, v) in s.w.env() {
+                cmd.env(k, v);
+            }
+            for (k, v) in identity {
+                cmd.env(k, v);
+            }
+            let out = cmd.stdin(Stdio::null()).output().unwrap();
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            out.stdout
+        };
+        let bare = root.join("remote repo \u{fc}.git");
+        let src = root.join("src \u{f8}");
+        git(
+            &root,
+            &[
+                OsStr::new("init"),
+                OsStr::new("-q"),
+                OsStr::new("--bare"),
+                OsStr::new("-b"),
+                OsStr::new("main"),
+                bare.as_os_str(),
+            ],
+        );
+        git(
+            &root,
+            &[
+                OsStr::new("init"),
+                OsStr::new("-q"),
+                OsStr::new("-b"),
+                OsStr::new("main"),
+                src.as_os_str(),
+            ],
+        );
+        let payload = binary_payload();
+        std::fs::write(src.join("blob.bin"), &payload).unwrap();
+        git(&src, &[OsStr::new("add"), OsStr::new("blob.bin")]);
+        git(
+            &src,
+            &[
+                OsStr::new("commit"),
+                OsStr::new("-q"),
+                OsStr::new("-m"),
+                OsStr::new("binary one"),
+            ],
+        );
+
+        let mut words = vec![s.ssh.clone().into_os_string()];
+        words.extend(s.w.home.isolation_args());
+        let ssh_command = OsString::from(heimdall_testkit::home::sh_join(&words));
+        let mut extra: Vec<(&str, &OsStr)> = vec![
+            ("GIT_SSH_COMMAND", ssh_command.as_os_str()),
+            ("GIT_SSH_VARIANT", OsStr::new("ssh")),
+            ("GIT_TERMINAL_PROMPT", OsStr::new("0")),
+        ];
+        extra.extend(identity.iter().map(|(k, v)| (*k, OsStr::new(v))));
+        let remote = OsString::from(format!("{}:{}", ALPHA.alias, bare.display()));
+        let through = |cwd: &Path, name: &str, args: &[&OsStr]| {
+            let mut argv = vec![git_program.clone().into_os_string()];
+            argv.extend(args.iter().map(|a| a.to_os_string()));
+            let out = s.run_in(cwd, name, &[], &argv, &extra);
+            assert_eq!(out.code(), Some(0), "{name}: {}", out.stderr);
+            s.assert_launched_record(name, &out);
+        };
+
+        // Push, then read the blob from the bare repository.
+        through(
+            &src,
+            "push",
+            &[
+                OsStr::new("push"),
+                OsStr::new("-q"),
+                remote.as_os_str(),
+                OsStr::new("main"),
+            ],
+        );
+        let pushed = git(
+            &root,
+            &[
+                OsStr::new("--git-dir"),
+                bare.as_os_str(),
+                OsStr::new("cat-file"),
+                OsStr::new("blob"),
+                OsStr::new("main:blob.bin"),
+            ],
+        );
+        assert!(pushed == payload, "the pushed blob changed");
+
+        // Clone it back.
+        let dst = root.join("clone \u{e9}");
+        through(
+            &root,
+            "clone",
+            &[
+                OsStr::new("clone"),
+                OsStr::new("-q"),
+                remote.as_os_str(),
+                dst.as_os_str(),
+            ],
+        );
+        assert!(
+            std::fs::read(dst.join("blob.bin")).unwrap() == payload,
+            "the cloned blob changed"
+        );
+
+        // A second binary blob pushed from the clone (its `origin` is the alias).
+        let second: Vec<u8> = payload.iter().rev().map(|b| b ^ 0x5a).collect();
+        std::fs::write(dst.join("second.bin"), &second).unwrap();
+        git(&dst, &[OsStr::new("add"), OsStr::new("second.bin")]);
+        git(
+            &dst,
+            &[
+                OsStr::new("commit"),
+                OsStr::new("-q"),
+                OsStr::new("-m"),
+                OsStr::new("binary two"),
+            ],
+        );
+        through(
+            &dst,
+            "push-again",
+            &[
+                OsStr::new("push"),
+                OsStr::new("-q"),
+                OsStr::new("origin"),
+                OsStr::new("main"),
+            ],
+        );
+        let pushed = git(
+            &root,
+            &[
+                OsStr::new("--git-dir"),
+                bare.as_os_str(),
+                OsStr::new("cat-file"),
+                OsStr::new("blob"),
+                OsStr::new("main:second.bin"),
+            ],
+        );
+        assert!(pushed == second, "the second pushed blob changed");
+
+        s.assert_only_key(0);
+        assert!(
+            s.w.agent.contact_count() > 0,
+            "the logins used the fake agent"
+        );
+        assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
+    }
+
+    /// m02-plan U8 `a11_confirm_constrained_native_key_refused_before_agent_contact`
+    /// (M2-D05, M2-R08). U7's `DisposableSshAgent` holds key 0 added with confirmation,
+    /// behind a `CountingProxy`, with the counting askpass; key 0 is adopted at the
+    /// proxy (interaction `unknown`: the constraint is not passively visible, F23) and
+    /// not declared. The fixture sshd accepts key 0.
+    /// * **Installation verified first:** a signature through the proxy with askpass
+    ///   `Approve` prompts exactly once. The proxy and askpass counts are the baseline.
+    /// * Non-interactive `run -- ssh … alpha true`: exit 3, `INTERACTION_REQUIRED`,
+    ///   reason `interaction_unknown`, a `prelaunch_failed` record, and proxy and
+    ///   askpass deltas 0 (no agent contact at all).
+    /// * **Discriminating control:** the same `run` with `--allow-provider-interaction`
+    ///   launches, and with askpass `Deny` the askpass delta becomes ≥ 1 (nothing signs,
+    ///   the login fails): the refusal prevented a real prompt.
+    #[test]
+    fn a11_confirm_constrained_native_key_refused_before_agent_contact() {
+        use heimdall_testkit::agent::AskpassAnswer;
+        let mut w = World::new(2);
+        w.attach_real();
+        w.add_real_key(0, true);
+        w.verify_confirm_installed(0);
+        let s = SshWorld::build(w, &[0], false);
+        let base = s.w.counts();
+        let argv = s.ssh_argv(&["true"]);
+        let out = s.run_child("refused", &[], &argv);
+        assert_refused(&s.w, "refused", &out, "interaction_unknown");
+        assert_eq!(s.w.counts(), base, "proxy and askpass deltas are 0");
+        assert!(s.sshd.accepted_log().is_empty());
+
+        s.w.real()
+            .agent
+            .set_askpass_answer(AskpassAnswer::Deny)
+            .unwrap();
+        let out = s.run_child("prompted", &["--allow-provider-interaction"], &argv);
+        s.assert_launched_record("prompted", &out);
+        assert_ne!(out.code(), Some(0), "nothing signed: {}", out.stderr);
+        let (proxy, askpass) = s.w.counts();
+        assert!(proxy > base.0, "the child reached the agent");
+        assert!(
+            askpass > base.1,
+            "the launched child prompted: the refusal prevented a real prompt"
+        );
+        assert!(s.sshd.accepted_log().is_empty());
+        assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
+    }
+
+    /// ADR-0007 §12.24 item 4: a fallback refusal's `data.error.entries` name each
+    /// refused entry's file (the scratch user configuration, shown as `~/.ssh/config`)
+    /// and line, in order.
+    fn assert_refusal_entries(out: &Out, lines: &[u32]) {
+        let env = out.envelope();
+        let entries = env["data"]["error"]["entries"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no entries: {}", out.stderr));
+        let got: Vec<u32> = entries
+            .iter()
+            .map(|e| {
+                let path = e["path_display"].as_str().unwrap();
+                assert!(path.ends_with(".ssh/config"), "{path}");
+                u32::try_from(e["line"].as_u64().unwrap()).unwrap()
+            })
+            .collect();
+        assert_eq!(got, lines, "{}", out.stderr);
+    }
+
+    /// Replace the first occurrence of `from` in the scratch user configuration.
+    fn edit_user_config(w: &World, from: &str, to: &str) {
+        let text = std::fs::read_to_string(&w.home.user_config).unwrap();
+        assert!(text.contains(from), "{text}");
+        std::fs::write(&w.home.user_config, text.replacen(from, to, 1)).unwrap();
+    }
+
+    /// The 1-based line of the first line of the scratch user configuration equal to
+    /// `line` (trimmed).
+    fn user_config_line(w: &World, line: &str) -> u32 {
+        let text = std::fs::read_to_string(&w.home.user_config).unwrap();
+        let index = text
+            .lines()
+            .position(|l| l.trim() == line)
+            .unwrap_or_else(|| panic!("{line:?} not in {text}"));
+        u32::try_from(index + 1).unwrap()
+    }
+
+    /// m02-plan U8 `a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact`
+    /// (M2-R05; ADR-0007 §7). The disposable agent behind the counting proxy holds key
+    /// 0 ("K1", unconstrained, adopted for `alpha` and declared `none`) and key 1 ("K2",
+    /// added with confirmation, installation verified by the signing control). The user
+    /// file adds `Host *` / `IdentityFile <scratch>/k2.pub` with no private `k2`, so K2
+    /// is agent-backed and the selection is `not_exclusive`. The fixture sshd rejects K1
+    /// and accepts K2.
+    /// * Non-interactive `run`: exit 3, `INTERACTION_REQUIRED`, reason
+    ///   `fallback_identity_interaction`, a `prelaunch_failed` record, proxy and
+    ///   askpass deltas 0. With the entry in place before `run`, the runtime already
+    ///   refuses the `ensure` under the no-interaction hello (ADR-0007 §7; its error
+    ///   names no line). With the entry added after `bind` (during the pre-check pause),
+    ///   the CLI's pre-launch check refuses, naming the `Host *` section's entry (its
+    ///   `IdentityFile` line) with its file and line in the message and in
+    ///   `data.error.entries` (§12.24 item 4); deltas 0 again.
+    /// * Control: with `--allow-provider-interaction` the child launches and, askpass
+    ///   `Deny`, the askpass delta is ≥ 1: the fallback would have prompted.
+    /// * Control: narrowed to `Host * !alpha`, the selection is exclusive; the
+    ///   non-interactive `run` launches, the askpass delta is 0, and the login fails
+    ///   (K1 rejected, no fallback).
+    #[test]
+    fn a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact() {
+        use heimdall_testkit::agent::AskpassAnswer;
+        let mut w = World::new(2);
+        w.attach_real();
+        w.add_real_key(0, false);
+        w.add_real_key(1, true);
+        w.verify_confirm_installed(1);
+        let s = SshWorld::build(w, &[1], true);
+        let k2 = write_pub(&s.w, 1, "k2");
+        assert!(
+            !s.w.home.root.join("k2").exists(),
+            "agent-backed: no private file"
+        );
+        let fallback = format!("Host *\n    IdentityFile \"{}\"\n", k2.display());
+        let argv = s.ssh_argv(&["true"]);
+        let base = s.w.counts();
+
+        // The entry added after `bind`: the CLI's pre-launch check refuses and names it.
+        let decoy = s.w.home.decoy_agent().endpoint().locator();
+        let out = s.w.run_paused(
+            &s.child_args("late", &[], &argv),
+            &[("SSH_AUTH_SOCK", decoy.as_os_str())],
+            || append_user_config(&s.w, &fallback),
+        );
+        assert_refused(&s.w, "late", &out, "fallback_identity_interaction");
+        assert_eq!(s.w.counts(), base, "proxy and askpass deltas are 0");
+        // The entry's provenance is its `IdentityFile` line in the `Host *` section.
+        let entry_line = user_config_line(&s.w, &format!("IdentityFile \"{}\"", k2.display()));
+        assert_eq!(entry_line, user_config_line(&s.w, "Host *") + 1);
+        let message = out.envelope()["data"]["error"]["message"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            message.contains(&format!(".ssh/config:{entry_line}")),
+            "names the entry: {message}"
+        );
+        assert_refusal_entries(&out, &[entry_line]);
+        s.w.home.check_alias(ALPHA.alias).unwrap();
+
+        // The entry in place before `run`: refused all the same.
+        let out = s.run_child("refused", &[], &argv);
+        assert_refused(&s.w, "refused", &out, "fallback_identity_interaction");
+        assert_eq!(s.w.counts(), base, "proxy and askpass deltas are 0");
+
+        // Control 1: the fallback would have prompted.
+        s.w.real()
+            .agent
+            .set_askpass_answer(AskpassAnswer::Deny)
+            .unwrap();
+        let out = s.run_child("prompted", &["--allow-provider-interaction"], &argv);
+        s.assert_launched_record("prompted", &out);
+        assert_ne!(out.code(), Some(0), "nothing signed: {}", out.stderr);
+        let (_, askpass) = s.w.counts();
+        assert!(askpass > base.1, "the fallback prompted");
+        assert!(s.sshd.accepted_log().is_empty());
+
+        // Control 2: narrowed, exclusive, launched; no prompt and no fallback.
+        edit_user_config(&s.w, "Host *\n", &format!("Host * !{}\n", ALPHA.alias));
+        s.w.home.check_alias(ALPHA.alias).unwrap();
+        let before = s.w.counts();
+        let out = s.run_child("narrowed", &[], &argv);
+        s.assert_launched_record("narrowed", &out);
+        assert_eq!(
+            out.code(),
+            Some(255),
+            "K1 rejected, no fallback: {}",
+            out.stderr
+        );
+        assert_eq!(s.w.counts().1, before.1, "no prompt");
+        assert!(s.w.counts().0 > before.0, "the child used the agent");
+        assert!(s.sshd.accepted_log().is_empty());
+        assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
+    }
+
+    /// m02-plan U8 `a11_interactive_connect_succeeds_after_provider_approval`: on a pty,
+    /// interactive `heimdall connect alpha` (no `--non-interactive`) against the
+    /// loopback fixture sshd, the adopted key (not declared: interaction `unknown`)
+    /// served by a `FakeAgent` in `ApprovalPending` mode, as a provider's approval
+    /// dialog. The verified client on `PATH` is a wrapper that adds only the scratch
+    /// isolation arguments (no `BatchMode`: an interactive session) and a remote `echo`.
+    /// The login waits at the agent's signature until `release_pending()`, then
+    /// succeeds: ordinary interactive use stays first-class.
+    #[test]
+    fn a11_interactive_connect_succeeds_after_provider_approval() {
+        use heimdall_testkit::agent::msg;
+        use std::os::unix::fs::PermissionsExt as _;
+        let s = SshWorld::build(World::with_mode(2, AgentMode::ApprovalPending), &[0], false);
+        let marker = "hm-u8-connected-after-approval";
+        let dir = s.w.home.root.join("wrapper-bin");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut words = vec![s.ssh.clone().into_os_string()];
+        words.extend(s.w.home.interactive_isolation_args());
+        let wrapper = dir.join("ssh");
+        std::fs::write(
+            &wrapper,
+            format!(
+                "#!/bin/sh\nexec {} \"$@\" echo {marker}\n",
+                heimdall_testkit::home::sh_join(&words)
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut env: Vec<(OsString, OsString)> =
+            s.w.env().into_iter().filter(|(k, _)| k != "PATH").collect();
+        env.push((
+            "PATH".into(),
+            format!("{}:/usr/bin:/bin", dir.display()).into(),
+        ));
+        env.push((
+            "SSH_AUTH_SOCK".into(),
+            s.w.home.decoy_agent().endpoint().locator(),
+        ));
+        let pty = super::terminal::Pty::open();
+        let running = pty.start_env(&env, &s.w.home.root, &os(&["connect", ALPHA.alias]));
+        // The client asks the agent for the login signature; the provider holds it.
+        assert!(
+            s.w.agent.wait_until(Duration::from_secs(30), |a| {
+                a.log().iter().any(|c| c.msg_type == msg::SIGN_REQUEST)
+            }),
+            "no signing request: {}",
+            pty.transcript()
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(s.sshd.accepted_log().is_empty(), "held before approval");
+        assert!(!pty.transcript().contains(marker));
+        s.w.agent.release_pending();
+        let status = running.wait(Duration::from_secs(60));
+        assert_eq!(status.code(), Some(0), "{}", pty.transcript());
+        wait_for("the session's output", Duration::from_secs(10), || {
+            pty.transcript().contains(marker)
+        });
+        s.assert_only_key(0);
+        assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
+        assert_no_canary(&pty.transcript());
+    }
+
+    /// ADR-0007 §12.24 item 1 (`connect`'s side): the catalog lists an observed
+    /// destination `gamma` that the user's own configuration defines, and `connect
+    /// gamma` accepts it under the same pre-launch check as a managed alias. Through the
+    /// stub client (it records its arguments):
+    /// * interactive: launched (`ssh gamma`);
+    /// * non-interactive, `gamma` naming the adopted key 0 (declared `none`) at its
+    ///   agent under `IdentitiesOnly yes`: launched (every entry cleared);
+    /// * non-interactive without `IdentitiesOnly`: refused before launch,
+    ///   `fallback_identity_interaction`;
+    /// * non-interactive naming a key that is not adopted: refused, `interaction_unknown`;
+    /// * an alias the catalog does not list: `NOT_FOUND`.
+    #[test]
+    fn connect_accepts_an_observed_alias_the_catalog_lists_under_the_same_check() {
+        let (w, _) = World::single(true);
+        w.catalog(CatalogRequest::UpsertDestination {
+            destination: DestinationSpec {
+                id: DestinationId::parse("dst-gamma").unwrap(),
+                alias: "gamma".to_owned(),
+                definition: DestinationDefinitionSpec::Observed,
+                label: None,
+            },
+            request_id: w.next_id("dest"),
+        })
+        .unwrap();
+        let k0 = write_pub(&w, 0, "k0");
+        let k1 = write_pub(&w, 1, "k1");
+        let agent = w.endpoint().locator;
+        let gamma = |identity: &Path, only: bool| {
+            format!(
+                "Host gamma\n    HostName gamma.example.invalid\n    IdentityFile \"{}\"\n    IdentityAgent \"{agent}\"\n{}",
+                identity.display(),
+                if only { "    IdentitiesOnly yes\n" } else { "" }
+            )
+        };
+        let base = std::fs::read_to_string(&w.home.user_config).unwrap();
+        let set = |text: String| {
+            std::fs::write(&w.home.user_config, format!("{base}{text}")).unwrap();
+        };
+        let dir = stub_ssh(&w);
+        let path = OsString::from(format!("{}:/usr/bin:/bin", dir.display()));
+        let args_file = w.home.root.join("ssh-args");
+        let connect = |name: &str, ni: bool, alias: &str| {
+            let _ = std::fs::remove_file(&args_file);
+            let mut a = os(&["--json"]);
+            if ni {
+                a.push("--non-interactive".into());
+            }
+            a.extend(os(&["connect", alias, "--meta-file"]));
+            a.push(w.marker(&format!("{name}.ndjson")).into_os_string());
+            w.run_cli(&a, &[("PATH", path.as_os_str())])
+        };
+        set(gamma(&k0, true));
+        let out = connect("interactive", false, "gamma");
+        assert_eq!(out.code(), Some(0), "{}", out.stderr);
+        assert_eq!(std::fs::read(&args_file).unwrap(), b"gamma\0");
+        let out = connect("cleared", true, "gamma");
+        assert_eq!(out.code(), Some(0), "{}", out.stderr);
+        assert_eq!(std::fs::read(&args_file).unwrap(), b"gamma\0");
+        assert!(matches!(
+            w.records("cleared").as_slice(),
+            [RunRecord::Launching {
+                operation_id: None,
+                binding_id: None,
+                ..
+            }]
+        ));
+
+        set(gamma(&k0, false));
+        let out = connect("open", true, "gamma");
+        assert_refused(&w, "open", &out, "fallback_identity_interaction");
+        assert!(!args_file.exists(), "never launched");
+
+        set(gamma(&k1, true));
+        let out = connect("other-key", true, "gamma");
+        assert_refused(&w, "other-key", &out, "interaction_unknown");
+        assert!(!args_file.exists(), "never launched");
+
+        let out = connect("unlisted", false, "delta");
+        assert_eq!(out.code(), Some(2), "{}", out.stderr);
+        assert_eq!(out.envelope()["code"], "NOT_FOUND");
+        assert!(!args_file.exists());
     }
 }

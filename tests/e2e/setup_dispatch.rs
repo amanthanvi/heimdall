@@ -920,6 +920,45 @@ async fn e2e_catalog_then_ensure_bind_carry_pairs_and_selection() {
     );
 }
 
+/// ADR-0007 §12.24 item 1, through the real service and dispatcher: `inspect
+/// destinations` lists the catalog (no `NOT_LISTED` warning), each destination with
+/// its alias and definition; a managed one carries what P renders.
+#[tokio::test]
+async fn e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher() {
+    let rig = Rig::new();
+    let service = rig.existing_access().await;
+    let mut s = Session::setup_session(&service, InteractionMode::NonInteractive).await;
+    let endpoint = EndpointRef {
+        kind: EndpointKind::UnixSocket,
+        locator: rig
+            .home
+            .decoy_agent()
+            .endpoint()
+            .locator()
+            .to_str()
+            .unwrap()
+            .to_owned(),
+    };
+    let identity = adopt_and_alias(&mut s, endpoint).await;
+    let env = s
+        .request(Request::Inspect(InspectRequest {
+            subject: InspectSubject::Destinations,
+            preview: None,
+        }))
+        .await;
+    assert_eq!(env.code, Code::Ok, "{:?}", env.data);
+    assert!(env.warnings.is_empty(), "{:?}", env.warnings);
+    let items = env.data["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{:?}", env.data);
+    assert_eq!(items[0]["alias"], "alpha");
+    assert_eq!(items[0]["destination_id"], "dst-alpha");
+    assert_eq!(items[0]["definition"], "managed");
+    assert_eq!(items[0]["hostname"], "alpha.example.invalid");
+    assert_eq!(items[0]["identity_id"], serde_json::json!(identity));
+    assert_no_canary(&env.data.to_string());
+    assert_eq!(rig.home.decoy_agent().contact_count(), 0);
+}
+
 #[tokio::test]
 async fn declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher() {
     for (variant, restart) in [

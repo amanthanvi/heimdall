@@ -171,10 +171,17 @@ impl OpError {
             next: self.next.clone(),
             message: self.message.clone(),
             reason: self.reason.clone(),
+            // ⟨M02⟩ ADR-0007 §12.24 item 4: an application error names no
+            // configuration entry; a launcher that does sets `entries` on the detail
+            // it renders.
+            entries: Vec::new(),
         }
     }
 
-    /// Rebuild from a stored error detail (replay of a settled failure).
+    /// Rebuild from a stored error detail (replay of a settled failure). ⟨M02⟩ The
+    /// detail's `entries` are not carried: no stored application error names one
+    /// (the pre-launch refusals that do are rendered by the launcher, ADR-0007 §12.24
+    /// item 4).
     #[must_use]
     pub fn from_detail(detail: ErrorDetail, operation_id: Option<OperationId>) -> Self {
         Self {

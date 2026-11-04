@@ -142,6 +142,7 @@ pub fn negotiate(
                 next: NextAction::for_code(code),
                 message: message.to_owned(),
                 reason: None,
+                entries: Vec::new(),
             },
         ))
     };
@@ -384,6 +385,7 @@ fn error_envelope(code: Code, effect_status: EffectStatus, message: &str) -> Env
             next,
             message: message.to_owned(),
             reason: None,
+            entries: Vec::new(),
         },
     )
 }

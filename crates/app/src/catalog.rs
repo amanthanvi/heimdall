@@ -49,7 +49,15 @@
 //! whose decision passed its deadline expires (`CREDENTIAL_EXPIRED`, `next:
 //! new_work`; `crate::operations::expire_awaiting_local_in`): when the driver or a
 //! replay finds it, at a `decide` of the expired record, or at the supervisor's tick.
-//! A new request is new work; no fresh decision is issued.
+//! A new request is new work; no fresh decision is issued for an expired one.
+//!
+//! **Stale decision** (⟨M02⟩ ADR-0007 §12.24 item 8). A declaration still in
+//! `awaiting_approval` whose record left `pending` without its deadline passing (stale
+//! after a generation move) is reissued as the setup driver does: when the driver or
+//! a replay finds no live record, it creates a fresh pending `DeclareInteraction`
+//! record bound to the identity's **current** fingerprint and endpoint, at the current
+//! generation, and the replay answers with it. An identity that is gone or names no
+//! endpoint settles the operation failed instead, as a first declaration would.
 
 use std::collections::BTreeSet;
 
@@ -353,15 +361,7 @@ impl Operations {
         let (op, pending) = self
             .local_write(move |tx, _| {
                 let op = tx.operation(&id2)?;
-                let pending = tx
-                    .pending_decisions()?
-                    .into_iter()
-                    .rev()
-                    .find(|d| {
-                        matches!(&d.kind, DecisionKind::DeclareInteraction { operation, .. } if *operation == id2)
-                            && now < d.expires_at
-                    })
-                    .map(|d| d.id);
+                let pending = pending_declaration(tx, &id2, now)?;
                 Ok((op, pending))
             })
             .await?;
@@ -387,7 +387,8 @@ impl Operations {
                 .with_operation(op.id.clone())),
                 None => {
                     // ADR-0007 §12.22 item 9: no live decision. The driver expires the
-                    // operation when its decision passed its deadline; answer from
+                    // operation when its decision passed its deadline, and ⟨M02⟩
+                    // §12.24 item 8 issues a fresh one for a stale record; answer from
                     // the state it leaves.
                     if let Some(Err(e)) = self
                         .local_lead_bounded(id, LocalDriver::Catalog, self.limits().max_wait)
@@ -396,17 +397,30 @@ impl Operations {
                         return Err(e);
                     }
                     let id2 = id.clone();
-                    let state = self
-                        .local_write(move |tx, _| Ok(tx.operation(&id2)?.map(|o| o.state)))
+                    let now = self.local_narrowing_now().await;
+                    let (state, fresh) = self
+                        .local_write(move |tx, _| {
+                            let state = tx.operation(&id2)?.map(|o| o.state);
+                            Ok((state, pending_declaration(tx, &id2, now)?))
+                        })
                         .await?;
                     if state.is_some_and(|s| s != OperationState::AwaitingApproval) {
                         return Box::pin(self.catalog_respond(id, caller)).await;
                     }
-                    Err(OpError::new(
-                        Code::Accepted,
-                        "the declaration awaits a fresh decision; observe it",
-                    )
-                    .with_operation(op.id.clone()))
+                    match fresh {
+                        Some(d) => Err(local_approval_needed(
+                            caller.is_attended(),
+                            d.as_str(),
+                            "the interaction declaration needs the owner's attended decision",
+                        )
+                        .with_resource("decision", Some(d.to_string()))
+                        .with_operation(op.id.clone())),
+                        None => Err(OpError::new(
+                            Code::Accepted,
+                            "the declaration awaits a fresh decision; observe it",
+                        )
+                        .with_operation(op.id.clone())),
+                    }
                 }
             },
             OperationState::Failed | OperationState::Cancelled | OperationState::OutcomeUnknown => {
@@ -462,9 +476,25 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
         };
         if op.state == OperationState::AwaitingApproval {
             // ADR-0007 §12.22 item 9: waiting past its decision's deadline expires it;
-            // otherwise it keeps waiting for the owner.
-            local_expire_awaiting(tx, emit, &mut op, now, retention)?;
-            return Ok(());
+            // with a live decision it keeps waiting for the owner. ⟨M02⟩ §12.24 item 8:
+            // a declaration whose decision left `pending` without its deadline passing
+            // (stale after a generation move) gets a fresh one below, as the setup
+            // driver does, bound to the identity's current fingerprint and endpoint.
+            if local_expire_awaiting(tx, emit, &mut op, now, retention)?
+                || pending_declaration(tx, &op.id, now)?.is_some()
+            {
+                return Ok(());
+            }
+            let reissuable = matches!(
+                tx.recovery_intent(&id)?.and_then(|r| r.local),
+                Some(LocalIntent::Catalog(CatalogIntent {
+                    action: CatalogAction::DeclareInteraction { .. },
+                    approval: None,
+                }))
+            );
+            if !reissuable {
+                return Ok(());
+            }
         }
         if op.state.is_settled() {
             return Ok(());
@@ -547,6 +577,23 @@ pub(crate) async fn drive(ops: &Operations, id: &OperationId) -> Result<(), OpEr
         }
     })
     .await
+}
+
+/// The pending, unexpired `DeclareInteraction` record that names `op`, if any.
+fn pending_declaration(
+    tx: &mut Txn<'_>,
+    op: &OperationId,
+    now: Timestamp,
+) -> heimdall_store::Result<Option<DecisionId>> {
+    Ok(tx
+        .pending_decisions()?
+        .into_iter()
+        .rev()
+        .find(|d| {
+            matches!(&d.kind, DecisionKind::DeclareInteraction { operation, .. } if operation == op)
+                && now < d.expires_at
+        })
+        .map(|d| d.id))
 }
 
 fn refuse(
@@ -843,7 +890,14 @@ fn declare(
         )));
     };
     let Some(approval) = &intent.approval else {
-        if op.state != OperationState::Queued {
+        // A first decision (`queued`), or ⟨M02⟩ ADR-0007 §12.24 item 8 a fresh one for
+        // a declaration still `awaiting_approval` whose record went stale (the driver
+        // reaches this only when no live record names it): either way bound to the
+        // identity as it is now.
+        if !matches!(
+            op.state,
+            OperationState::Queued | OperationState::AwaitingApproval
+        ) {
             return Ok(Step::Refused(Box::new(OpError::new(
                 Code::DecisionStale,
                 "the declaration has no approval",

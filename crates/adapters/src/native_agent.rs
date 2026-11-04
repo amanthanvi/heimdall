@@ -7,8 +7,8 @@
 //! live owner declaration at the same endpoint makes it `none`, and a FIDO key is
 //! always `hardware_presence`. `refresh_dependency` is `none`.
 //!
-//! `prepare`, `renew`, `reconcile` and `revoke` never contact the agent; only
-//! `list_identities` (the explicit `agent` probe) does. Nothing here signs, adds,
+//! `prepare`, `prepare_from`, `renew`, `reconcile` and `revoke` never contact the
+//! agent; only `list_identities` (the explicit `agent` probe) does. Nothing here signs, adds,
 //! removes or locks a key. See [`crate::integration`] for what `prepare` returns and
 //! the drop contract in the crate documentation.
 
@@ -17,8 +17,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use heimdall_app::ports::{
     AdapterDescriptor, AdapterError, CredentialAdapter, DetectContext, IdentityListing,
-    LockContinuity, PrepareOutcome, PrepareRequest, ProbeBounds, ProviderProbe, ReconcileOutcome,
-    RevokeOutcome,
+    IntegrationSnapshot, LockContinuity, PrepareOutcome, PreparePair, PrepareRequest, ProbeBounds,
+    ProviderProbe, ReconcileOutcome, RevokeOutcome,
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::GrantId;
@@ -79,12 +79,27 @@ impl NativeAgentAdapter {
 
     /// `prepare` with each pair's full identity selection (ADR-0007 §12.14 item 6).
     /// Synchronous, local and passive; [`CredentialAdapter::prepare`] returns its
-    /// `outcome`.
+    /// `outcome`. It reads this instance's sources first (both steps of ADR-0007
+    /// §12.23 item 2 in one call), so it is never what the runtime bounds.
     ///
     /// # Errors
     /// [`AdapterError`] by ADR-0007 §7's table ([`crate::state::readiness`]).
     pub fn prepare_detailed(&self, req: &PrepareRequest<'_>) -> Result<Prepared, AdapterError> {
-        self.core.prepare(req)
+        self.core.prepare_reading(req)
+    }
+
+    /// ⟨M02⟩ [`Self::prepare_detailed`] over `sources`, a snapshot
+    /// [`CredentialAdapter::read_sources`] returned: evaluation and the endpoint
+    /// `stat` only (ADR-0007 §12.23 item 2).
+    ///
+    /// # Errors
+    /// As [`Self::prepare_detailed`].
+    pub fn prepare_detailed_from(
+        &self,
+        req: &PrepareRequest<'_>,
+        sources: &IntegrationSnapshot,
+    ) -> Result<Prepared, AdapterError> {
+        self.core.prepare(req, sources)
     }
 }
 
@@ -94,12 +109,30 @@ impl CredentialAdapter for NativeAgentAdapter {
         &self.core.descriptor
     }
 
+    /// Reads this instance's sources, then prepares (direct callers; the runtime
+    /// calls [`Self::read_sources`] and the bounded [`Self::prepare_from`]).
     async fn prepare(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
-        self.core.prepare(&req).map(|p| p.outcome)
+        self.core.prepare_reading(&req).map(|p| p.outcome)
     }
 
     async fn renew(&self, req: PrepareRequest<'_>) -> Result<PrepareOutcome, AdapterError> {
-        self.core.prepare(&req).map(|p| p.outcome)
+        self.core.prepare_reading(&req).map(|p| p.outcome)
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.23 item 2: every store and file read `prepare` needs, made
+    /// here, outside the adapter bound.
+    fn read_sources(&self, pairs: &[PreparePair]) -> IntegrationSnapshot {
+        self.core.read_sources(pairs)
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.23 item 2: evaluation over `sources` and the endpoint
+    /// `stat`, nothing else (the call the runtime bounds).
+    async fn prepare_from(
+        &self,
+        req: PrepareRequest<'_>,
+        sources: &IntegrationSnapshot,
+    ) -> Result<PrepareOutcome, AdapterError> {
+        self.core.prepare(&req, sources).map(|p| p.outcome)
     }
 
     async fn reconcile(
