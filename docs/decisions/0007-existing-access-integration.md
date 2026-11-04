@@ -3868,6 +3868,25 @@ and U02 are done, each with the reviewer's probe as a regression. §12.24 items 
      `crates/app/src/ports.rs`, `crates/adapters/src/**`, `crates/testkit/src/lib.rs` and
      the contract reason module for those items.
 
+### 12.27 Ruling on the wave-3c code review (orchestrator, 2026-11-03)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave3c.md` (Codex, independent, fix first).
+U01 and U02 are closed, with discriminating regressions. S01, a medium finding, is accepted.
+
+1. **S01: activation enforces fresh non-interactive eligibility.**
+   * In the final activation transaction, a request that requires no interaction is
+     refused with `INTERACTION_REQUIRED` when any pair's fresh store eligibility
+     (`Facts::with_eligibility`) is false. That includes a declaration withdrawn, lapsed or
+     changed after the adapter's snapshot, and a fallback clearance that no longer holds.
+   * The refusal comes before the grant is activated or its binding created. Its reason
+     and `next.provider_interaction` are those of the fresh eligibility (§7's results table).
+   * The snapshot design is kept: this is a check against the store inside the commit
+     transaction, not a read inside the adapter bound.
+   * Regression: the reviewer's withdrawal interleaving expects `INTERACTION_REQUIRED`, no
+     active grant and no binding.
+   * Owner: the orchestrator, after wave 3d integrates, because both wave-3d units edit
+     `operations.rs`.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

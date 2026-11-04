@@ -590,3 +590,11 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - ADR-0007 §12.26 rules on the escalations. Wave 3d:
     - W3d-select: §12.25 T01–T03, refusal entries at ensure, a changed alias in manual mode, the privacy path_display fix;
     - W3d-holder: T04, the `binding_released` reason, and no default for prepare_from/read_sources.
+- Wave 3c is committed as 6066df3e. My check.sh: exit 0, 1502 passed.
+- Running (2026-11-03):
+  - workflow `wf_04c83924-030`, wave 3d: W3d-select and W3d-holder, then an integrator;
+  - task M02-W3c-code-review: Codex, worktree at 6066df3e; it also re-checks U01 and U02.
+- M02 wave-3c code review (Codex; `tests/evidence/artifacts/review-m02-code/wave3c.md`): fix first.
+  - U01 and U02 closed.
+  - S01 (P2): a declaration withdrawn after the snapshot still lets a non-interactive ensure activate.
+  - ADR-0007 §12.27: I fix S01 after wave 3d integrates.
