@@ -615,3 +615,18 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - W4-fix: S01, ensure readiness over every profile, `local_user: Option`, paths as written, the binding_released cleanup;
     - W4-U9: CLI;
     - W4-U10: TUI.
+- Wave 3d is committed as d23a66c5. My check.sh: exit 0, 1526 passed.
+- Running (2026-11-03):
+  - workflow `wf_e8039e4d-ddd`, wave 4: W4-fix, W4-U9 (CLI) and W4-U10 (TUI), then an integrator. Base d23a66c5.
+  - task M02-W3d-code-review: Codex, worktree at d23a66c5; it also re-checks T01–T04.
+- After wave 4: wave 5, U11. That is the M02 exit suite and native evidence:
+  - macOS host;
+  - Linux devbox;
+  - Windows 11 PC through the scratch-directory harness;
+  - the compatibility matrix;
+  - evidence records.
+  Then the M02 exit record.
+- M02 wave-3d code review (Codex; `tests/evidence/artifacts/review-m02-code/wave3d.md`): fix first.
+  - T01–T04 closed.
+  - R01 (P1): the authentication probe accepts a replaced adopted public key.
+  - ADR-0007 §12.29: I fix R01 after wave 4 integrates.

@@ -3939,6 +3939,25 @@ Sources: the two wave-3d unit reports and the integrator's report (workflow
    * **W4-U10:** m02-plan U10, the first useful TUI, plus
      `tui_handoff_ctrl_z_stops_and_fg_resumes_as_one_job` (§12.24 item 9).
 
+### 12.29 Ruling on the wave-3d code review (orchestrator, 2026-11-03)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave3d.md` (Codex, independent, fix first).
+T01–T04 are closed, with discriminating regressions. R01 is accepted.
+
+1. **R01: an exclusive selection counts only for the adopted key.**
+   * The authentication probe accepts `Exclusive` only when the selected entry's
+     fingerprint, read from the public-key file at the probe, equals the adopted catalog
+     identity's recorded fingerprint, and the effective agent is its declared endpoint
+     (§12.25 item 3).
+   * A file that cannot be read or parsed, or a fingerprint that differs, refuses with
+     `interaction_unknown` before anything runs.
+   * The pre-launch check binds the same way. If it already does, that is confirmed by a
+     test.
+   * Regressions: replacing only the adopted public-key file, for managed and observed
+     aliases, refuses with no client run; the unchanged-key control runs.
+   * Owner: the orchestrator, after wave 4 integrates, because W4-fix edits
+     `crates/localenv/src/probe/**` concurrently.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
