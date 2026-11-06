@@ -4609,7 +4609,10 @@ mutation-checked the regression.
 **How the fixes were made.** Wave 6w ran as T3 units on the PC, natively, in a dev scratch at Medium integrity. Its patches were integrated in 491d8f5a, f0635b44 and 3fe6119f. The orchestrator ran check.sh on macOS for each, and every run exited 0. Most causes were Unix assumptions in tests: a `\\?\` canonical scratch root, `/bin/sh`, `/tmp/…`, `/` separators, Unix file-name rules, `cmd` quoting, LF-only output.
 
 1. **Displays use `/` on every platform.** This extends §12.26 item 7 to `paths::display_path`, and through it to Git origins and probe provenance. The w6-sshconf unit found one Windows doctor report mixing `~\.ssh\config` with `/` paths, and no contract specified the separator.
-2. **Dev and test builds keep line tables only** (`[profile.dev] debug = "line-tables-only"`). With full debug info, the MSVC program database of `heimdall-runtime`'s `model_operations` test binary exceeded the linker's limit (LNK1140). This happened in the native dry run at 3fe6119f. Release builds are unchanged.
+2. **The native Windows test build keeps line tables only.** With full debug info, the MSVC program database of `heimdall-runtime`'s `model_operations` test binary exceeded the linker's limit (LNK1140). This happened in the native dry run at 3fe6119f.
+   - **Scope:** the local runner sets `CARGO_PROFILE_DEV_DEBUG` and `CARGO_PROFILE_TEST_DEBUG` to `line-tables-only` for its own build. It records this as the host fact `build-debuginfo`, and its self-test checks it (E03).
+   - **Not workspace-wide:** a workspace-wide `[profile.dev]` setting was tried first (5111a09f) and reverted. It removed the v0 test-function names from the debug info of the Windows cross build, and `refresh-inventory.sh`'s `platform-tests.py` reads those names, so the inventory could no longer resolve `e2e_run_m02::windows_holder_*`. The cross builds and every other build keep full debug info.
+   - **Release builds:** unchanged.
 3. **Product defects fixed, each with a native regression:**
    - **Rooted Windows `IdentityFile`:** a rooted path (`/…`, no drive) is absolute, as Win32-OpenSSH treats it (`sshconf::relevant`).
    - **Agent locators:** `agents::locator_for` decides a Unix socket path by a leading `/`, not by the host's `Path::is_absolute`.

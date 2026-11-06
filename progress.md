@@ -862,3 +862,14 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - w6-projection, after the §12 rulings on `sys/quarantine.rs`: 10 of 10. Live pins drop DELETE and gain `FILE_LIST_DIRECTORY` (needed for the exclusion to apply). Removal uses a separate DELETE open, revalidated. The DACL check is kind-aware and exact. 4 Windows regressions, each mutation-checked. Patch fetched (sha256 104c13e3…).
   - A stale pending question on the projection thread had blocked it since 13:09; answering it started a superfluous run, which was interrupted.
 - New unit w6-ipc (Opus, PC): `ipc::windows` `accept` impersonates before the client has written (`ImpersonateNamedPipeClient` gives 1368), so a slow same-user client can be refused. The fix: identify only after the client's first write, bounded, without head-of-line blocking.
+- Wave 6w part 4 and the exit-build candidate (2026-11-06):
+  - w6-ipc (Opus, PC): Windows pipe clients are identified after their first write. Bounded, no head-of-line blocking, at most 64 pending; reproduced natively before the fix, 5 regressions mutation-checked. Recorded in ADR-0006 §13.21.
+  - The native dry run at 3fe6119f failed to link `model_operations` (LNK1140, MSVC PDB limit). A workspace `[profile.dev] debug = "line-tables-only"` (5111a09f) broke `refresh-inventory.sh`: the Windows cross build lost the v0 test-function names `platform-tests.py` reads. It is reverted. The Windows local runner alone now sets `CARGO_PROFILE_{DEV,TEST}_DEBUG=line-tables-only`, with host fact `build-debuginfo` and self-test E03 (ADR-0007 §12.43 item 2).
+  - Linux dry run at 3fe6119f on the devbox: exit 0, 1756 passed, 0 failed, canary 0.
+  - `required-inventory.json` was refreshed at the candidate tree (exit 0).
+- **M03 design gate closed** (ADR-0008 §17.14; m03-plan and ADR-0008 revision 6). Five review rounds:
+  - round 1: two reviewers, 42 findings;
+  - round 2: two reviewers;
+  - rounds 3, 4 and 5: targeted Codex checks with probes, per-shell fencing in containers, and executable models.
+  - Records: `tests/evidence/artifacts/review-m03-design/`.
+  - M03 wave 0 starts after the M02 exit.

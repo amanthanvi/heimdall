@@ -203,9 +203,14 @@ function Get-ProtectedMetadata([string]$Label, $Rules) {
 # The overrides of the toolchain environment (rustup-init and the Cargo builds). ADR-0007
 # §12.35 item 3 (N05): the toolchain homes and every temporary directory are in this run's
 # scratch (TEMP/TMP for Windows tools, TMPDIR for MSYS-style ones), and Git reads no user or
-# system configuration.
+# system configuration. ADR-0007 §12.43 item 2: the native MSVC test build keeps line tables
+# only (CARGO_PROFILE_DEV_DEBUG / CARGO_PROFILE_TEST_DEBUG); with full debug info the program
+# database of the largest test binary (heimdall-runtime `model_operations`) exceeds the MSVC
+# linker's limit (LNK1140). The cross builds on the build host keep full debug info, which
+# platform-tests.py reads test symbols from.
 function Get-ToolEnvironmentOverrides([string]$RustupHome, [string]$CargoHome, [string]$GitConfig, [string]$Tmp) {
-    return @{ RUSTUP_HOME = $RustupHome; CARGO_HOME = $CargoHome; GIT_CONFIG_NOSYSTEM = '1'; GIT_CONFIG_GLOBAL = $GitConfig; TEMP = $Tmp; TMP = $Tmp; TMPDIR = $Tmp }
+    return @{ RUSTUP_HOME = $RustupHome; CARGO_HOME = $CargoHome; GIT_CONFIG_NOSYSTEM = '1'; GIT_CONFIG_GLOBAL = $GitConfig; TEMP = $Tmp; TMP = $Tmp; TMPDIR = $Tmp
+        CARGO_PROFILE_DEV_DEBUG = 'line-tables-only'; CARGO_PROFILE_TEST_DEBUG = 'line-tables-only' }
 }
 
 # How many of the given files contain a carriage return (0 when every one is LF-only; a file
@@ -288,6 +293,7 @@ function Invoke-SelfTest([string]$OutDir) {
     $pb = New-Bundle @{ 'tests.txt' = ''; 'commands.txt' = ''; 'host.txt' = ''; 'build.txt' = ''; 'skipped.txt' = ''; 'canary-scan.txt' = '' } ([ordered]@{ commit = ('0' * 40); label = $pm.Label; exit = 0 })
     Check 'E02 a canary or a user name in the label is masked, counted, and absent from the serialized bundle (ADR-0007 §12.38 L02)' ($pm.Canaries -eq 1 -and -not $pm.Label.Contains('HEIMDALL_' + 'CANARY_') -and -not ($pm.Label -match '(?i)fixtureuser') -and -not $pb.Json.Contains('HEIMDALL_' + 'CANARY_') -and -not $pb.Json.Contains('labelvalue1'))
     Check 'E01 the toolchain environment keeps TEMP, TMP and TMPDIR in the run scratch (ADR-0007 §12.35 N05)' ($te['TEMP'] -eq 'S\tmp' -and $te['TMP'] -eq 'S\tmp' -and $te['TMPDIR'] -eq 'S\tmp' -and $te['RUSTUP_HOME'] -eq 'S\rustup' -and $te['CARGO_HOME'] -eq 'S\cargo')
+    Check 'E03 the native test build keeps line tables only (ADR-0007 §12.43 item 2, LNK1140)' ($te['CARGO_PROFILE_DEV_DEBUG'] -eq 'line-tables-only' -and $te['CARGO_PROFILE_TEST_DEBUG'] -eq 'line-tables-only')
     $lfDir = Join-Path ([System.IO.Path]::GetTempPath()) ('hm-selftest-eol-' + (New-RandomHex 4))
     New-Item -ItemType Directory -Path $lfDir | Out-Null
     [System.IO.File]::WriteAllBytes((Join-Path $lfDir 'lf.txt'), [byte[]](97, 10, 98, 10))
@@ -514,6 +520,7 @@ try {
     }
 
     # 3. The build.
+    Add-Fact 'build-debuginfo' 'line-tables-only (CARGO_PROFILE_DEV_DEBUG/CARGO_PROFILE_TEST_DEBUG; full debug info exceeds the MSVC PDB limit, LNK1140)'
     $r = Invoke-Bounded $cargo @('test', '--workspace', '--locked', '--no-run', '--message-format=json-render-diagnostics') $toolEnv $src 7200
     Add-Command $r.Code 'cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)'
     $bins = [System.Collections.Generic.List[object]]::new()
