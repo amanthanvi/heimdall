@@ -1534,6 +1534,124 @@ differs.
 
 ---
 
+### 17.1 Orchestrator rulings on the recommended answers and design review round 1 (2026-11-06)
+
+Under the owner's delegation (ADR-0004). Sources:
+- reviewer A (Codex GPT-6.1 Sol): `tests/evidence/artifacts/review-m03-design/round1-a-codex.md`, findings M03-R01–R15;
+- reviewer B (Opus 5.5): `round1-b-opus.md`, findings F01–F27.
+
+Both say "proceed after fixes". Every finding below is accepted, and the design fix (revision 2) applies each one. Where the reviewers proposed different fixes, the ruling chooses one.
+
+**Recommended answers.** Q1–Q5, Q8–Q10, Q13, Q15 and Q16 are accepted as recommended, with the amendments below. Q6, Q7, Q11, Q12, Q14 and Q17 are amended as follows:
+
+- **Q6:** per item 5.
+- **Q7:** only for the same approved target and effect, with safe elapsed time and the item 6 fencing.
+- **Q11:** 90 days at most. The verification becomes invalid earlier on a change of destination, account, host key, CA or client, or on contrary evidence. The supervisor re-verifies before the window lapses (F27); re-verification uses the managed credential and changes nothing remotely.
+- **Q12:** replaced by item 10.
+- **Q14:** per item 13.
+- **Q17:** per item 14.
+
+The plan-level questions are accepted with amendments:
+
+- **P1 and P2:** accepted, conditional on item 12.
+- **P3:** accepted. Linux evidence stays blocked until measured.
+- **P4:** authorized. The download is pinned by digest into scratch, and the cleanup is exact.
+- **P5 and P6:** accepted.
+- **P7:** accepted with F25: `remote_stdout_max` is 512 KiB. Every limit is derived with its serialization overhead.
+- **P8 and P9:** accepted. Round 2 re-reviews the fixed design.
+
+1. **One linearization point for signing and revocation (R01, F12; blocker).** Every grant has a signing gate.
+   - **Sign request:** it holds the gate shared from a fresh authorization read, through the signature, to the moment the response bytes enter the connection's outbound buffer. That enqueue is the linearized effect.
+   - **Revocation, cutoff and every authority change that narrows a grant:** each takes the gate exclusively before its tombstone or record commit. It holds the gate until the keys are destroyed.
+   - **Bound:** signing is bounded (P7), so a narrowing waits at most that bound. An in-flight signature either is enqueued before the commit, or is refused.
+   - **Tests:** a deterministic test pauses a signer right after authorization, revokes, resumes, and asserts the refusal. A second test asserts that no signature is enqueued after the revocation is acknowledged. Uncontrolled interleavings are added on top, never instead.
+   - **Scope:** re-issue racing revocation and a lock is in the linearization model too (F24).
+2. **Remote steps are bound to the approved target (R02; blocker).**
+   - **Approval:** the decision covers the destination's approved route, as Heimdall's evaluator determines it: HostName, Port, User and the proxy chain. It also covers the approved host key.
+   - **Each step:** before it is dispatched, the route is evaluated again, and any difference refuses the step (`route_changed`, a decision needed). The step pins `HostName`, `Port` and `User` with `-o`. It sets `HostKeyAlias` and `UserKnownHostsFile` to a Heimdall-written file that holds exactly the approved key, with `StrictHostKeyChecking=yes`.
+   - **Account overrides:** an override that differs from the catalog account is refused.
+   - **Disclosures:** the configuration-execution disclosures (ADR-0007 D5) stay, and are reported separately from target identity.
+   - **Test context:** ADR-0007 §9 item 1 is about tests isolating the configuration under test. A product step pinning its approved target is a different matter, and is not affected.
+3. **The negative verification proves refusal by the pinned server (R03, F01; blocker).** It passes only when the same run shows all of the following:
+   - the server version line;
+   - the approved host key matched;
+   - the negative certificate offered and not accepted, in the `-v` trace;
+   - a publickey authentication failure at the end.
+
+   Anything else is `verification_inconclusive`: transport errors, host-trust errors, startup errors, `MaxStartups` and resets. Tests stop sshd, close the port, and hit `MaxStartups` between the positive and negative attempts and during the negative one. Each must end inconclusive, never verified.
+4. **Maintenance uses an explicit existing-access invocation (R04).** Rotation, removal, rollback and reconcile run with the catalog's existing-access identity pinned on the command line, plus the item 2 pins:
+   - `IdentityAgent` or `IdentityFile`, and `IdentitiesOnly=yes`;
+   - `CertificateFile=none`;
+   - `ControlMaster=no` and `ControlPath=none`.
+
+   This invocation is shown in the preview and covered by the decision. Tests rotate and remove with every managed binding released and the issuer unavailable.
+5. **Re-verification never removes anything (R05, F06b).** The first verification's rollback stays under the enrollment decision. A later re-verification behaves as follows:
+   - **unreachable or inconclusive:** the record stays `verified` with its existing freshness, and a doctor finding is reported;
+   - **failure:** the record goes to `held` (`principals_not_enforced`). Grants under that CA for that pair are degraded. Removal needs its own `RemoveEnrollment` decision.
+6. **Remote mutations are fenced (R06).**
+   - **Lock:** each remote mutation takes an atomic per-account lock beside the registry, with the step's token. The marker check, the mutation, the read-back and the release all happen under it.
+   - **Busy:** a script that cannot take the lock reports `busy` and changes nothing.
+   - **Stale lock:** a stale lock is broken only by reconcile, after the old step's hard deadline, by an atomic rename aside and a re-read.
+   - **Locally:** each enrollment has one outstanding step at a time.
+   - **After a timeout:** a read that finds the marker absent never, by itself, authorizes a redispatch.
+   - **Test:** a first script survives its timeout and resumes after reconcile. It must not produce a duplicate or a lost line.
+7. **The enrollment state table is reconciled before it is frozen (R07, F06).**
+   - add `verifying → held` and `outcome_unknown → withdrawn`;
+   - `remove_unknown` keeps the removal's purpose: explicit removal versus a failed enrollment's rollback;
+   - add `→ abandoned` from `outcome_unknown`, `remove_unknown` and `rollback_pending`;
+   - give the system form its own path and decision (item 11);
+   - CA retirement requires every enrollment of that CA to be final or abandoned;
+   - every documented recovery path gets a test, not only every pair in the table.
+8. **Windows connection control (R08, F02).**
+   - **Process ownership:** the binding's holder and the controlled connection process are separate records. On Windows, a managed launch puts the child in a job object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. It records the child's PID and creation time durably as the owned connection, before strict control is advertised; registration failure fails closed.
+   - **Earlier "no job object" note:** the design fix checks the rationale for the M02 "no job object" note (`launch/windows.rs:5`, ADR-0007 §8). If it conflicts, it escalates rather than overriding.
+   - **`connect`:** its ensure/bind/ownership flow is designed explicitly.
+   - **Native test:** revoking makes the exact `ssh.exe` PID exit, and the launcher's death with ssh still alive is tested too.
+9. **Lock events latch (R09).** The lock source carries a monotonic lock epoch and a latched "lock observed" flag. The flag clears only when the revocation pass acknowledges that epoch. The current state is carried separately. A test locks and unlocks while the consumer is paused.
+10. **Remote residuals after expiry (R10; replaces Q12).** Nominal certificate expiry is accounted for automatically, at local safe time. Bounded remote completion is a separate thing. The verification step measures the destination's clock, records the offset, the round trip and the time, and the obligation clears at `valid_before` plus that offset, the round trip and a drift allowance of 100 ppm of the age.
+
+    Without a measurement, the residual is reported as `nominally_expired` with `destination_clock: unmeasured`. It never shows as cleared. It blocks nothing else. A slow-server-clock case is tested.
+11. **Ceremonies, retirement, foreign removal, uninstall (R11, R12, F07, F08).**
+    - **Ceremony:** it prepares the exact encrypted backup bytes before their digest is registered. It then writes and verifies those bytes exclusively.
+    - **Retirement:** it is a durable transition. Issuance is disabled first, then the key is unloaded, then deleted. Restart completes it idempotently, and a failure between any two steps is tested.
+    - **Foreign removal:** the target carries the full public removal descriptor: local alias, bundle destination ID, account, marker, CA public key, `line_sha256` and registry path and form. The decision and the request hash cover it. The line is rebuilt and hash-checked before connecting. Foreign removals live in their own table, with no foreign key to `issuers`. A redacted bundle is refused clearly. A test runs from a second installation with a different catalog.
+    - **System form:** it gets a separate manual removal and re-verification workflow, and is never reported as removed automatically.
+    - **Uninstall:** a purge that keeps remote enrollments needs a fresh bundle first. The fate of the K_ca store item is specified. `--replace-orphan` warns and cross-checks a bundle, and offers restore (`restored_without_log`).
+12. **The dependency graph and the preparation contract (R13).**
+    - **Crate graph:** the design fix draws the production crate graph and checks it against the Cargo manifests. Shared pure enrollment types go below `app`, or are injected through ports; no cycle is allowed.
+    - **Preparation contract:** the M02 preparation contract (`ports.rs:185`, `:298`) is extended explicitly. Its inputs gain what U6 needs. A managed effect driver is defined for reserve/publish and materialization. M02's contract is not weakened silently.
+    - **New pieces with owners:** raw host-key support (known-host observations keep fingerprints today) and a read-only issuance check.
+    - **Time assessment:** a read-only time assessment that does not write the high-water mark (F21), tested on `open_read_only`.
+    - **Interface ownership:** the `SecretStore` trait is U0's (F23). `StoreKind::ScratchTest` stays out of the public schema.
+13. **Claims and capability reports (F03, F10, F11; Q14).**
+    - **Claim content:** a claim records the build profile and the store kind, and test-store evidence never satisfies a product-store claim. macOS lock continuity stays `not_verified` until a release-profile run on the login keychain (B3).
+    - **Remote revocation:** `revocation.remote` is gated exactly like `enforcement.revocation`, so it reads `unknown` until a claim exists.
+    - **`verified_server_principals`:** it may come from the pair's own runtime verification. That is per-pair runtime evidence, labelled with its time, and amends ADR-0005 §7.4 row 1.
+    - **The A10 worker test:** it is renamed to what it checks. Each platform records what a same-user worker can actually do, with a positive control. `issuer_isolation: same_user_process` stays.
+14. **Existing access that cannot enroll in M03 (F13; Q17).** The catalog's existing access stays agent-held or key-file. A password-only account cannot enroll in M03; this is disclosed (`existing_access_kind_unsupported`) and handed to a later milestone if the spec requires it.
+    - Q17's mechanism stands for provider interaction, passphrase prompts and hardware keys, and the test is renamed.
+    - `Enrollment::{Step, StepResult, Reconcile}` need the owner role, and a re-append needs an attended session (F20).
+15. **Behaviour while the projection is pending, and rotation (F04, F05).**
+    - **Pending projection:** `ensure` resolves to the existing mechanism, says so and advises `setup_apply`. Only a request that requires managed capabilities fails with `projection_pending`.
+    - **E5:** the preference and the projection are touched only when the pair is not already managed and applied.
+    - **Removal:** only grants under the removed CA are degraded, and only when no verified enrollment remains for the pair. The preference records a set of issuing CAs. Early removal is allowed, with the preview's warning.
+    - **Test:** `rotation_keeps_ensure_working_per_account`.
+16. **Owned masters (R15, F16).** Each pair slot gets a stable, generation-protected multiplex path inside the approved projection. Enabling masters is widening and needs an apply. Restart, replacement and cleanup are defined. A test runs two successive bindings through ordinary ssh.
+17. **Evidence and the lock procedure (F09, F14, F26, R14, F22).**
+    - **Disjoint pairs:** each grant in the lock procedure has its own pairs.
+    - **Which grant authenticated:** confirmed by the certificate key ID in the sshd log.
+    - **Post-unlock checks:** they depend on the remaining deadline.
+    - **Background work:** "allow background work once" is scoped to one boot. The attended time confirmation after a reboot is counted as a chore and shown in the TUI. Reboot and logout rows stay blocked on B12.
+    - **Lowest-row rule:** the exit mapping states which records are `blocked` under it (A03 and A09 at least) and what that makes M03's exit status.
+    - **Backup interop test:** it drives `ssh-keygen` through a PTY, so the passphrase is never in argv.
+    - **ptrace test:** `PR_SET_DUMPABLE` gets a dumpable positive control.
+18. **Minor rulings (F15, F17–F19, F25).**
+    - **F15:** revoke results list the owned connections, each with a `closing` state, and say that ordinary-ssh connections through P are not closed. The deadline wording depends on exclusive identity selection.
+    - **F17:** the purpose check uses the account of the pair named by the presented certificate, and refuses the plain K_env key.
+    - **F18:** a `pending` credential instance is marked `destroyed` at start, and its reservations stay counted.
+    - **F19:** the lock disclosure is conditional, and states R-UX-03's saved limits. Linux `revoke_on_lock` is labelled unverified until B11.
+    - **F25:** `StepResult.stdout` is at most 512 KiB.
+
 ## 18. Consequences
 
 * **New crates:**

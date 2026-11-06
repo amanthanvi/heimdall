@@ -831,3 +831,8 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
 - I fixed the wave-5g review's R01–R03 (ADR-0007 §12.42; review record `review-m02-code/wave5g.md`).
 - The selftest's L06, L15, L62 and W20 now follow `build_host_paths`. 1f5b8156 had broken them; it was pushed without a full check.sh, a lapse. Lesson: run check.sh before pushing any change to the harness inputs.
 - **M03-T00 design, draft 1** (author: Opus xhigh, worktree; self-reviewed only): `docs/architecture/m03-plan.md` (1963 lines; U0, U0b and U1–U13, waves 0–6) and ADR-0008 (proposed; D1–D13; Q1–Q17 and P1–P9 with recommended answers). Next: two independent design reviews (Codex Sol; Opus) at the commit holding the draft, then rulings and a design fix.
+- M03 design review round 1, two independent reviews, both "proceed after fixes":
+  - A (Codex Sol): 3 blockers and 12 majors (M03-R01–R15). Record: `tests/evidence/artifacts/review-m03-design/round1-a-codex.md`.
+  - B (Opus): 1 blocker, 13 majors and 13 minors (F01–F27). Record: `round1-b-opus.md`.
+  - Where they converge: the negative verification can pass on a transport failure; sign and revoke have no linearization point; Windows strict close hits the launcher, not ssh.exe; gaps in the state table; foreign removal; the master ControlPath against P.
+  - Rulings: ADR-0008 §17.1, items 1–18; the Q and P answers are accepted with amendments. Next: design fix revision 2 by the author thread, then a round-2 re-review.
