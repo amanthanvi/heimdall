@@ -192,6 +192,14 @@ function Protect-BundleFiles([hashtable]$Raw, $Rules) {
 }
 
 # ---------------------------------------------------------------------------------------------
+# ADR-0007 §12.38 item 2 (L02): the bundle's metadata is protected like the file bodies
+# (redacted, canaries counted and masked, leaks counted), so nothing reaches bundle.json
+# unprotected and every finding counts toward the run's result.
+function Get-ProtectedMetadata([string]$Label, $Rules) {
+    $p = Protect-BundleFiles @{ label = $Label } $Rules
+    return [pscustomobject]@{ Label = $p.Files['label']; Canaries = $p.Canaries; Leaks = $p.Leaks }
+}
+
 # The overrides of the toolchain environment (rustup-init and the Cargo builds). ADR-0007
 # §12.35 item 3 (N05): the toolchain homes and every temporary directory are in this run's
 # scratch (TEMP/TMP for Windows tools, TMPDIR for MSYS-style ones), and Git reads no user or
@@ -247,6 +255,10 @@ function Invoke-SelfTest([string]$OutDir) {
     $files = (Protect-BundleFiles $files $rules).Files
     Check 'R09 every result file is protected (the host name in host.txt too)' ($files['host.txt'].Contains('on <winhost>'))
     $te = Get-ToolEnvironmentOverrides 'S\rustup' 'S\cargo' 'S\empty.gitconfig' 'S\tmp'
+    $canaryLabel = 'run ' + ('HEIMDALL_' + 'CANARY_') + 'labelvalue1 for fixtureuser'
+    $pm = Get-ProtectedMetadata $canaryLabel $rules
+    $pb = New-Bundle @{ 'tests.txt' = ''; 'commands.txt' = ''; 'host.txt' = ''; 'build.txt' = ''; 'skipped.txt' = ''; 'canary-scan.txt' = '' } ([ordered]@{ commit = ('0' * 40); label = $pm.Label; exit = 0 })
+    Check 'E02 a canary or a user name in the label is masked, counted, and absent from the serialized bundle (ADR-0007 §12.38 L02)' ($pm.Canaries -eq 1 -and -not $pm.Label.Contains('HEIMDALL_' + 'CANARY_') -and -not ($pm.Label -match '(?i)fixtureuser') -and -not $pb.Json.Contains('HEIMDALL_' + 'CANARY_') -and -not $pb.Json.Contains('labelvalue1'))
     Check 'E01 the toolchain environment keeps TEMP, TMP and TMPDIR in the run scratch (ADR-0007 §12.35 N05)' ($te['TEMP'] -eq 'S\tmp' -and $te['TMP'] -eq 'S\tmp' -and $te['TMPDIR'] -eq 'S\tmp' -and $te['RUSTUP_HOME'] -eq 'S\rustup' -and $te['CARGO_HOME'] -eq 'S\cargo')
     $meta = [ordered]@{ commit = ('0' * 40); label = 'windows-selftest'; started_at = '2026-11-06T00:00:00Z'; finished_at = '2026-11-06T00:00:01Z'; exit = 101 }
     $b = New-Bundle $files $meta
@@ -656,13 +668,15 @@ fi
     $raw = @{ 'tests.txt' = $tests.ToString(); 'commands.txt' = $commands.ToString(); 'host.txt' = $hostFacts.ToString();
         'build.txt' = $build.ToString(); 'skipped.txt' = $skipped.ToString(); 'canary-scan.txt' = '' }
     $p = Protect-BundleFiles $raw $rules
+    $m = Get-ProtectedMetadata $Label $rules
+    $canaryTotal = $p.Canaries + $m.Canaries
+    $leakTotal = $p.Leaks + $m.Leaks
     $files = $p.Files
-    $files['canary-scan.txt'] = "canary-prefix occurrences in saved output: $($p.Canaries) (values masked before the bundle was written)`n"
-    $files['commands.txt'] += Format-CommandLine $(if ($p.Canaries -eq 0) { 0 } else { 1 }) "canary-prefix scan over saved output (count = $($p.Canaries))"
-    $files['commands.txt'] += Format-CommandLine $(if ($p.Leaks -eq 0) { 0 } else { 1 }) "leak scan: saved files still naming a host, a user or a home ($($p.Leaks))"
-    if ($p.Canaries -ne 0 -or $p.Leaks -ne 0) { $overall = 1 }
-    # ADR-0007 §12.35 item 3 (N03): the metadata is redacted with the same rules as the files.
-    $meta = [ordered]@{ commit = $Commit; label = (Invoke-Redaction $Label $rules); started_at = $started; finished_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'); exit = $overall }
+    $files['canary-scan.txt'] = "canary-prefix occurrences in saved output and metadata: $canaryTotal (values masked before the bundle was written)`n"
+    $files['commands.txt'] += Format-CommandLine $(if ($canaryTotal -eq 0) { 0 } else { 1 }) "canary-prefix scan over saved output and metadata (count = $canaryTotal)"
+    $files['commands.txt'] += Format-CommandLine $(if ($leakTotal -eq 0) { 0 } else { 1 }) "leak scan: saved files and metadata still naming a host, a user or a home ($leakTotal)"
+    if ($canaryTotal -ne 0 -or $leakTotal -ne 0) { $overall = 1 }
+    $meta = [ordered]@{ commit = $Commit; label = $m.Label; started_at = $started; finished_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'); exit = $overall }
     $b = New-Bundle $files $meta
     [System.IO.File]::WriteAllText((Join-Path $bundleDir 'bundle.json'), $b.Json, [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::WriteAllText((Join-Path $bundleDir 'bundle.b64'), $b.Text, [System.Text.UTF8Encoding]::new($false))

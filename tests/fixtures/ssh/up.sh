@@ -28,7 +28,12 @@ if docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then BASE_PREEXISTING=1; 
 log "pulling base $BASE_IMAGE (preexisting=$BASE_PREEXISTING)"
 docker pull "$BASE_IMAGE" 2>&1 | sed 's/^/  /'
 BASE_ID="$(docker image inspect "$BASE_IMAGE" --format '{{.Id}}')"
-if docker image inspect "$IMAGE" >/dev/null 2>&1; then die "image $IMAGE already exists; run down.sh"; fi
+# ADR-0007 §12.38 item 1 (L01): another run created the image meanwhile; nothing of this run's
+# exists yet beyond the pulled base image, so this is a refusal (3), never a partial start.
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  printf '[%s] ERROR: %s\n' "$(ts)" "image $IMAGE already exists (created meanwhile); run down.sh" >&2
+  exit 3
+fi
 
 # --- build (context excludes runtime/ so no key material enters the build) -------------
 CTX="$(mktemp -d "${TMPDIR:-/tmp}/hm-m00t03-ctx.XXXXXX")"

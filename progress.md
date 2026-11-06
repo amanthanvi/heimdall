@@ -741,3 +741,22 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - The hung test binary (PID 28481, from W5d-app's first check.sh, blocked on the old N02 FIFO test) was stopped by exact PID. Its two orphaned scratch dirs were removed by path.
   - check.sh: the W5d integrator ran it twice and I ran it once, all exit 0, 1744 passed, 0 failed.
   - ADR-0007 §12.36 rules on the 5e escalations; §12.37 on the 5d escalations, defining wave 5f (W5f-git: doctor own value, `git_user_value_shadowed`, rollback finds B_git where written, the diff doc). No native scenario expects `git_ssh_command_present`.
+- Waves 5d and 5e are committed as ee09084a. My check.sh: exit 0, 1744 passed.
+- Running (2026-11-06):
+  - workflow `wf_ebca271f-51b`, wave 5f (W5f-git, Sonnet);
+  - task M02-W5de-code-review: Codex, worktree at ee09084a. It covers the P01/P02 and N01–N05 fixes and wave 5d.
+- Then the exit build:
+  1. refresh-inventory.sh;
+  2. run-macos.sh;
+  3. run-linux.sh on the devbox;
+  4. run-windows-local.ps1 through a T3 agent on the PC, then import-windows-bundle.py;
+  5. m02-evidence.py --write;
+  6. matrix, exit record, progress.
+- M02 wave-5d/5e code review (Codex; `tests/evidence/artifacts/review-m02-code/wave5de.md`): fix first, L01–L04, all harness and importer.
+  - P02, N01, N02, N05, the removal summaries and the Git re-preview are closed.
+  - I fixed L01–L04 (ADR-0007 §12.38), each mutation-checked:
+    - L01: the Docker fallback is opt-in, under an exclusive lock;
+    - L02: the runner protects its metadata;
+    - L03: only exact profile components are exempt;
+    - L04: the CLI read is bounded.
+  - Harness self-test: 274 passed, 0 failed.

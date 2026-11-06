@@ -1017,7 +1017,7 @@ check "M23 macos: the scratch directory is removed after it" mac_scratch_gone "$
 
 new_world mac-docker
 make_fake_root "$S/repo"
-extra_env=(HM_ST_SSHD=fail)
+extra_env=(HM_ST_SSHD=fail HM_DOCKER_FALLBACK=1)
 harness "$S/repo" run-macos.sh "$O"
 check "M12 macos: a fixture sshd that cannot start -> the Docker fixtures are started on 127.0.0.1 and passed as HM_FIXTURE_SSHD_*" \
     bash -c '[ "$1" = 0 ] && grep -q "^env fixture_port=24242$" "$2" && grep -q "^env fixture_host=127.0.0.1$" "$2" && grep -q "^env fixture_key=set$" "$2"' _ "$rc" "$O/check.txt"
@@ -1028,7 +1028,7 @@ check "M14 macos: the unavailable sshd and the fixture fallback are recorded" \
 
 new_world mac-docker-unconfirmed
 make_fake_root "$S/repo"
-extra_env=(HM_ST_SSHD=fail HM_ST_DOWN=silent)
+extra_env=(HM_ST_SSHD=fail HM_ST_DOWN=silent HM_DOCKER_FALLBACK=1)
 harness "$S/repo" run-macos.sh "$O"
 check "M15 macos: a down.sh that does not print CLEANUP CONFIRMED -> nonzero exit, recorded as exit 1" \
     bash -c '[ "$1" != 0 ] && grep -q "^exit 1: tests/fixtures/ssh/down.sh (exit 0) printed CLEANUP CONFIRMED" "$2"' _ "$rc" "$O/commands.txt"
@@ -1042,7 +1042,7 @@ check "M16 macos: HM_DOCKER_FALLBACK=0 never starts the Docker fixtures; the tes
 
 new_world mac-docker-up-fails
 make_fake_root "$S/repo"
-extra_env=(HM_ST_SSHD=fail HM_ST_UP_RC=7)
+extra_env=(HM_ST_SSHD=fail HM_ST_UP_RC=7 HM_DOCKER_FALLBACK=1)
 harness "$S/repo" run-macos.sh "$O"
 check "M17 macos: up.sh failing stops the run with its exit code, and down.sh still cleans up" \
     bash -c '[ "$1" = 7 ] && grep -q "^down (stub)" "$2" && grep -q "^exit 7: tests/fixtures/ssh/up.sh" "$3"' _ "$rc" "$L" "$O/commands.txt"
@@ -1051,10 +1051,34 @@ new_world mac-docker-already-up
 make_fake_root "$S/repo"
 mkdir -p "$S/repo/tests/fixtures/ssh/runtime"
 : >"$S/repo/tests/fixtures/ssh/runtime/other-run-sentinel"
-extra_env=(HM_ST_SSHD=fail HM_ST_UP_RC=3)
+extra_env=(HM_ST_SSHD=fail HM_ST_UP_RC=3 HM_DOCKER_FALLBACK=1)
 harness "$S/repo" run-macos.sh "$O"
 check "M17b macos (ADR-0007 §12.33 P01): up.sh refusing pre-existing fixtures (exit 3) -> exit 3, no down.sh, the other run's fixtures untouched, recorded as blocked" \
     bash -c '[ "$1" = 3 ] && ! grep -q "^down" "$2" && [ -e "$3/tests/fixtures/ssh/runtime/other-run-sentinel" ] && grep -q "^blocked: the Docker fixtures already exist" "$4/blocked.txt" && grep -q "already exist (another run.s): left untouched, run blocked" "$4/commands.txt"' _ "$rc" "$L" "$S/repo" "$O"
+
+new_world mac-docker-default-off
+make_fake_root "$S/repo"
+extra_env=(HM_ST_SSHD=fail)
+harness "$S/repo" run-macos.sh "$O"
+check "M16b macos (ADR-0007 §12.38 L01): by default a fixture sshd that cannot start never starts Docker; no up.sh, no down.sh, no lock" \
+    bash -c '! grep -q "^up (stub)" "$1/up.txt" 2>/dev/null && ! grep -q "^down" "$2" && [ ! -e "$3/tests/fixtures/ssh/runtime" ] && [ ! -e "$3/tests/fixtures/ssh/runtime.owner.lock" ] && grep -q "^env fixture_port=unset$" "$4"' _ "$O" "$L" "$S/repo" "$O/check.txt"
+
+new_world mac-docker-locked
+make_fake_root "$S/repo"
+mkdir -p "$S/repo/tests/fixtures/ssh/runtime.owner.lock"
+mkdir -p "$S/repo/tests/fixtures/ssh/runtime"
+: >"$S/repo/tests/fixtures/ssh/runtime/other-run-sentinel"
+extra_env=(HM_ST_SSHD=fail HM_DOCKER_FALLBACK=1)
+harness "$S/repo" run-macos.sh "$O"
+check "M17c macos (ADR-0007 §12.38 L01): a held ownership lock blocks the run (exit 3), runs neither up.sh nor down.sh, and leaves the lock and the other run's fixtures in place" \
+    bash -c '[ "$1" = 3 ] && ! grep -q "^down" "$2" && [ -d "$3/tests/fixtures/ssh/runtime.owner.lock" ] && [ -e "$3/tests/fixtures/ssh/runtime/other-run-sentinel" ] && grep -q "^blocked: another run holds the Docker fixture lock" "$4/blocked.txt"' _ "$rc" "$L" "$S/repo" "$O"
+
+new_world mac-docker-lock-released
+make_fake_root "$S/repo"
+extra_env=(HM_ST_SSHD=fail HM_DOCKER_FALLBACK=1)
+harness "$S/repo" run-macos.sh "$O"
+check "M17d macos (ADR-0007 §12.38 L01): a run that started the fixtures releases its lock after its teardown" \
+    bash -c '[ "$1" = 0 ] && grep -q "^down (stub)" "$2" && [ ! -e "$3/tests/fixtures/ssh/runtime.owner.lock" ] && grep -q "^exit 0: release the Docker fixture ownership lock" "$4/commands.txt"' _ "$rc" "$L" "$S/repo" "$O"
 
 new_world mac-canary
 make_fake_root "$S/repo"

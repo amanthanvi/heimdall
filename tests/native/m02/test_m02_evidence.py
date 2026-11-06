@@ -1023,6 +1023,12 @@ class WindowsBundle(unittest.TestCase):
             "a Windows home path": make_bundle({"build.txt": "at C:\\Users\\someone\\src\n"}),
             "a WSL view of a Windows home": make_bundle({"build.txt": "at /mnt/c/Users/someone/x\n"}),
             "a macOS home path": make_bundle({"build.txt": "at /Users/someone/x\n"}),
+            # ADR-0007 §12.38 item 3 (L03): a personal name that merely starts with a system one.
+            "a Windows profile named like Public": make_bundle({"build.txt": "at C:\\Users\\Public-Alice\\src\n"}),
+            "a Windows profile named like Default": make_bundle({"build.txt": "at C:/Users/Default.Bob/src\n"}),
+            "a WSL view of such a profile": make_bundle({"build.txt": "at /mnt/c/Users/Public.Alice/x\n"}),
+            "a macOS home named like Shared": make_bundle({"build.txt": "at /Users/Shared-Alice/x\n"}),
+            "a label naming such a profile": make_bundle(label="from C:\\Users\\Default-Bob"),
             "no commands": make_bundle({"commands.txt": "\n"}),
         }
         for why, text in cases.items():
@@ -1038,6 +1044,39 @@ class WindowsBundle(unittest.TestCase):
                               "/home/<wsluser>/z and /hm/home/fixture and /mnt/c/Users/<winuser>/w\n"}
         dest, _, _ = wb.import_bundle(make_bundle(files), "exit-ok", self.root)
         self.assertTrue((dest / "build.txt").exists())
+
+    def test_exact_system_profiles_stay_accepted(self):
+        files = {"build.txt": "C:\\Users\\Public\\a and C:/Users/Default/b and /mnt/c/Users/Public/c "
+                              "and /Users/Shared/d and C:\\Users\\All Users\\e\n"}
+        dest, _, _ = wb.import_bundle(make_bundle(files), "exit-sys", self.root)
+        self.assertTrue((dest / "build.txt").exists())
+
+    def test_the_cli_reads_at_most_the_bound_plus_one(self):
+        # ADR-0007 §12.38 item 4 (L04): the command line never reads a report whole before the
+        # bound is checked; it asks the open file for at most MAX_REPORT + 1 bytes.
+        import builtins
+        import unittest.mock
+        big = Path(self.tmp.name) / "big.txt"
+        big.write_bytes(b"x" * 4096)
+        asked = []
+        real_open = builtins.open
+
+        def spy_open(path, mode="r", *a, **k):
+            f = real_open(path, mode, *a, **k)
+            if str(path) == str(big):
+                real_read = f.read
+
+                def read(n=-1):
+                    asked.append(n)
+                    return real_read(n)
+                f.read = read
+            return f
+        with unittest.mock.patch.object(wb, "MAX_REPORT", 1024), \
+                unittest.mock.patch("builtins.open", spy_open):
+            rc = wb.main(["--bundle", str(big), "--label", "exit-big", "--artifacts-root", str(self.root)])
+        self.assertEqual(rc, 1)
+        self.assertEqual(asked, [1025], "exactly one bounded read of MAX_REPORT + 1 bytes")
+        self.assertFalse((self.root / "exit-big").exists())
 
     def test_decompression_is_bounded_and_stops_early(self):
         # ADR-0007 §12.35 item 3 (N04): a small payload that inflates past the bound is refused

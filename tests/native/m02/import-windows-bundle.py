@@ -58,11 +58,15 @@ _SENSITIVE = (
     (re.compile(r"HEIMDALL_CANARY_"), "a canary prefix"),
     (re.compile(r"S-1-(5-21|12-1)-\d"), "an unmasked user or domain SID"),
     (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"), "private-key armor"),
-    (re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+(?!<|Public\b|Default\b|Default User\b|All Users\b)[^\\/\s\"'<>]+"),
+    # ADR-0007 §12.38 item 3 (L03): only an exact system profile component is exempt (followed
+    # by a separator, a quote, whitespace or the end), never a personal name that starts with it.
+    (re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+(?!<|(?:Public|Default|Default User|All Users)(?=[\\/\s\"'<>]|$))[^\\/\s\"'<>]+"),
      "an unredacted Windows home path"),
-    (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|Public\b|Default\b)[^/\s\"'<>]+"), "an unredacted Windows home path"),
+    (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|(?:Public|Default|Default User|All Users)(?=[/\s\"'<>]|$))[^/\s\"'<>]+"),
+     "an unredacted Windows home path"),
     (re.compile(r"(?<![\w/.-])/home/(?!<)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
-    (re.compile(r"(?<![\w/.-])/Users/(?!<|Shared\b)[A-Za-z0-9._-]+"), "an unredacted macOS home path"),
+    # The macOS form never follows a drive letter's colon: C:/Users/... is the Windows rule's.
+    (re.compile(r"(?<![\w/.:-])/Users/(?!<|Shared(?=[/\s\"'<>]|$))[A-Za-z0-9._-]+"), "an unredacted macOS home path"),
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
 
@@ -238,6 +242,19 @@ def import_bundle(text, label, artifacts_root, config=None, commit=None):
     return dest, digest, n
 
 
+def read_report(path):
+    """The report text, reading at most MAX_REPORT + 1 bytes from the open file (ADR-0007 §12.38
+    item 4, L04): a larger report is refused before it is decoded or held whole."""
+    with open(path, "rb") as f:
+        data = f.read(MAX_REPORT + 1)
+    if len(data) > MAX_REPORT:
+        raise Refused("the report is larger than the bundle bound")
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise Refused(f"the report is not UTF-8: {e}") from None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     ap.add_argument("--bundle", required=True, help="report or bundle.b64 holding the bundle")
@@ -247,10 +264,13 @@ def main(argv=None):
     ap.add_argument("--artifacts-root", default=str(ROOT / "tests" / "evidence" / "artifacts" / "m02"))
     a = ap.parse_args(argv)
     try:
-        text = Path(a.bundle).read_text(encoding="utf-8", errors="strict")
-    except (OSError, UnicodeDecodeError) as e:
+        text = read_report(a.bundle)
+    except OSError as e:
         print(f"import: cannot read the bundle: {e}", file=sys.stderr)
         return 2
+    except Refused as e:
+        print(f"import refused (nothing written): {e}", file=sys.stderr)
+        return 1
     try:
         dest, digest, n = import_bundle(text, a.label, a.artifacts_root, a.config, a.commit)
     except Refused as e:

@@ -5,8 +5,12 @@
 #
 # Usage: tests/native/m02/run-macos.sh <artifact-dir>
 #   HM_BUILD_ONLY        1 = `cargo test --workspace --no-run` and the binaries' hashes only
-#   HM_DOCKER_FALLBACK   0 = never start the Docker fixtures (default 1: only when the
-#                        fixture sshd cannot run here)
+#   HM_DOCKER_FALLBACK   1 = when the fixture sshd cannot run here, start the shared M00
+#                        Docker fixtures instead (default 0: never; ADR-0007 §12.38 item 1).
+#                        Opt in only on a host where no other task uses those fixtures: the
+#                        harness takes an exclusive lock (tests/fixtures/ssh/runtime.owner.lock)
+#                        and tears down only what it started, but a non-M02 caller of up.sh
+#                        does not take that lock.
 #
 # Steps:
 #   1. A scratch directory /tmp/hm-m02-macos.XXXXXX (mktemp, mode 700), removed exactly at
@@ -43,9 +47,11 @@ set -euo pipefail
 
 out=${1:?usage: run-macos.sh <artifact-dir>}
 build_only=${HM_BUILD_ONLY:-0}
-docker_fallback=${HM_DOCKER_FALLBACK:-1}
+docker_fallback=${HM_DOCKER_FALLBACK:-0}
+lock_held=0
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
+owner_lock="$repo/tests/fixtures/ssh/runtime.owner.lock"
 # shellcheck source=tests/native/m02/lib.sh
 . "$here/lib.sh"
 # shellcheck source=tests/native/m02/remote-lib.sh
@@ -65,12 +71,16 @@ cleanup() {
     local rc=$?
     set +e
     hm2_sshd_stop
-    if [ "$docker_up" = 1 ]; then
+    if [ "$docker_up" = 1 ] && [ "$lock_held" = 1 ]; then
         bash "$repo/tests/fixtures/ssh/down.sh" >"$scratch/down.txt" 2>&1
         drc=$?
         grep -q '^CLEANUP CONFIRMED$' "$scratch/down.txt" && cc=0 || cc=1
         m02_record "$commands" "tests/fixtures/ssh/down.sh (exit $drc) printed CLEANUP CONFIRMED" "$cc"
         [ "$cc" = 0 ] || rc=1
+    fi
+    if [ "$lock_held" = 1 ]; then
+        rmdir -- "$owner_lock"
+        m02_record "$commands" "release the Docker fixture ownership lock" "$?"
     fi
     rm -rf -- "$scratch"
     [ ! -e "$scratch" ]
@@ -115,6 +125,15 @@ else
     echo "fixture-sshd-preflight=unavailable: $HM2_SSHD_WHY" >>"$facts"
     m02_record "$commands" "fixture sshd preflight (non-root, 127.0.0.1): unavailable" 1
     if [ "$docker_fallback" = 1 ]; then
+        # ADR-0007 §12.38 item 1 (L01): exclusive ownership first (an atomic mkdir), held until
+        # cleanup. A lock that exists means another run owns the fixtures: touch nothing.
+        if ! mkdir -- "$owner_lock" 2>/dev/null; then
+            echo "fixture-sshd=blocked: another run holds the Docker fixture lock; nothing touched" >>"$facts"
+            echo "blocked: another run holds the Docker fixture lock; nothing touched" >"$out/blocked.txt"
+            m02_record "$commands" "Docker fixture lock held by another run: nothing touched, run blocked" 3
+            exit 3
+        fi
+        lock_held=1
         set +e
         bash "$repo/tests/fixtures/ssh/up.sh" >"$scratch/up.txt" 2>&1
         urc=$?

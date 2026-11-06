@@ -4503,6 +4503,14 @@ the harness and the importer, are accepted and fixed by the orchestrator.
    component). `Public-Alice` and `Default.Bob` are rejected.
 4. **L04:** the importer's command line reads at most `MAX_REPORT + 1` bytes from the open
    file and refuses more, before decoding. A CLI-level regression checks the amount read.
+5. *Done by the orchestrator, 2026-11-06.* Each fix was mutation-checked, and the harness
+   self-test gives 274 passed, 0 failed.
+   * L01: self-test cases M16b, M17b, M17c and M17d. M17c fails with a non-exclusive lock.
+   * L02: runner self-test check E02.
+   * L03 and L04: `test_m02_evidence.WindowsBundle`. The word-boundary form fails the
+     Public/Default cases, and an unbounded read fails the CLI test.
+   * The macOS home rule no longer matches a drive-letter path, so `C:/Users/...` is judged
+     by the Windows rule only, a gap the new tests found.
 
 ## 13. Consequences
 
