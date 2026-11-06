@@ -13,6 +13,19 @@
 //! and requires the SID to equal the owner's. `GetNamedPipeClientProcessId` is
 //! metadata only.
 //!
+//! Identification waits for the client's first write (W6). `ConnectNamedPipe`
+//! completes when the client opens the pipe, and Windows refuses
+//! `ImpersonateNamedPipeClient` with `ERROR_CANNOT_IMPERSONATE` until data has been
+//! read from the pipe when the client opened without a static security context
+//! (default `CreateFileW` flags, observed natively). Every client of both endpoints
+//! writes first (the control hello, the ssh-agent request), so each connected
+//! instance is identified only once it is readable: the reactor has completed a read
+//! into the instance's own buffer, which the caller then reads first, so no client
+//! byte is consumed or reordered. The wait is bounded by [`FIRST_WRITE_WAIT`]; a
+//! client still silent then is disconnected and never treated as verified. Each
+//! connection is identified on its own task, so a silent or slow client never holds
+//! up `accept` for others; at most [`MAX_PENDING_IDENTIFICATIONS`] wait at once.
+//!
 //! Client: `ClientOptions::security_qos_flags(SECURITY_IDENTIFICATION |
 //! SECURITY_SQOS_PRESENT)` so a rogue server cannot impersonate the client beyond
 //! identification. Before opening, the path is classified: it must normalize
@@ -47,9 +60,11 @@ use std::path::Path;
 use std::ptr;
 use std::time::Duration;
 
+use tokio::io::Interest;
 use tokio::net::windows::named_pipe::{
     ClientOptions, NamedPipeClient, NamedPipeServer, PipeMode, ServerOptions,
 };
+use tokio::task::JoinSet;
 use windows_sys::Win32::Foundation::{
     ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_LOCAL, ERROR_SUCCESS, HANDLE, LocalFree,
 };
@@ -94,6 +109,36 @@ const CONNECT_BUSY_BACKOFF: Duration = Duration::from_millis(25);
 /// case-insensitively).
 const PIPE_PREFIXES: [&str; 2] = [r"\\.\pipe\", r"\\?\pipe\"];
 
+/// How long a connected client may take to send its first bytes before it is
+/// disconnected unidentified (W6). Equal to the control hello deadline
+/// (`HELLO_TIMEOUT_MS`): a control client silent this long is already out of time,
+/// and an ssh-agent client writes its request as soon as it opens.
+pub const FIRST_WRITE_WAIT: Duration =
+    Duration::from_millis(heimdall_contract::ipc::HELLO_TIMEOUT_MS);
+
+/// Connected instances waiting for their client's first write at once. While this
+/// many wait, `accept` stops taking new connections (the waiting instance stays
+/// listening, so the name stays held) until one is identified or times out. Equal
+/// to the runtime's per-endpoint connection bound (`MAX_CONTROL_CONNECTIONS`).
+pub const MAX_PENDING_IDENTIFICATIONS: usize = heimdall_contract::ipc::MAX_CONTROL_CONNECTIONS;
+
+/// A connection whose identification finished: verified (`Some`), or refused and
+/// already disconnected (`None`).
+type Identified = Option<(NamedPipeServer, PeerIdentity)>;
+
+/// What `accept` holds across calls (behind the listener's mutex, so a cancelled
+/// `accept` loses nothing).
+#[derive(Debug, Default)]
+struct AcceptState {
+    /// The instance waiting for the next client. Kept here while `accept` waits so a
+    /// cancelled `accept` never closes the last instance (which would free the name
+    /// for another principal to claim).
+    waiting: Option<NamedPipeServer>,
+    /// Connected instances being identified, one task each. Dropping the listener
+    /// aborts them, which closes their instances.
+    identifying: JoinSet<Identified>,
+}
+
 /// A named-pipe endpoint that creates a fresh instance per accepted client.
 #[derive(Debug)]
 pub struct Listener {
@@ -103,10 +148,9 @@ pub struct Listener {
     /// The SID granted by the instance DACL. Always `owner_sid` outside tests; the
     /// SID-mismatch tests split the two to exercise the post-connect check.
     dacl_sid: String,
-    /// The instance waiting for the next client. Kept here while `accept` waits so a
-    /// cancelled `accept` never closes the last instance (which would free the name
-    /// for another principal to claim).
-    pending: tokio::sync::Mutex<Option<NamedPipeServer>>,
+    /// [`FIRST_WRITE_WAIT`] outside tests (which shorten it).
+    first_write_wait: Duration,
+    state: tokio::sync::Mutex<AcceptState>,
 }
 
 impl Listener {
@@ -149,52 +193,88 @@ impl Listener {
             name: name.to_owned(),
             owner_sid: owner_sid.to_owned(),
             dacl_sid: dacl_sid.to_owned(),
-            pending: tokio::sync::Mutex::new(Some(first)),
+            first_write_wait: FIRST_WRITE_WAIT,
+            state: tokio::sync::Mutex::new(AcceptState {
+                waiting: Some(first),
+                identifying: JoinSet::new(),
+            }),
         })
+    }
+
+    /// Tests only: a shorter first-write bound.
+    #[cfg(test)]
+    fn with_first_write_wait(mut self, wait: Duration) -> Self {
+        self.first_write_wait = wait;
+        self
     }
 
     /// Wait for a client, verify its SID, and pre-create the next instance.
     ///
-    /// Clients whose token is not the owner's (different user, anonymous, network
-    /// logon) are disconnected and the wait continues; only verified clients are
-    /// returned. Cancel-safe: dropping the future keeps the waiting instance.
+    /// A connected client is identified only after its first write has been read
+    /// into the instance (module docs, W6), within [`FIRST_WRITE_WAIT`]; its bytes
+    /// are then returned to the caller unconsumed and in order. Clients that stay
+    /// silent past the bound, and clients whose token is not the owner's (different
+    /// user, anonymous, network logon), are disconnected and the wait continues;
+    /// only verified clients are returned. Identification runs per connection on
+    /// its own task, so one silent client never delays another. Cancel-safe:
+    /// dropping the future keeps the waiting instance and every connection still
+    /// being identified.
     pub async fn accept(&self) -> io::Result<(NamedPipeServer, PeerIdentity)> {
-        let owner = ExpectedOwner::Sid(self.owner_sid.clone());
-        let mut slot = self.pending.lock().await;
+        let mut state = self.state.lock().await;
         loop {
-            if slot.is_none() {
-                *slot = Some(create_instance(&self.name, &self.dacl_sid, false)?);
+            if state.waiting.is_none() {
+                state.waiting = Some(create_instance(&self.name, &self.dacl_sid, false)?);
             }
-            let outcome = match slot.as_ref() {
-                Some(waiting) => waiting.connect().await,
-                None => continue,
+            let AcceptState {
+                waiting,
+                identifying,
+            } = &mut *state;
+            let room = identifying.len() < MAX_PENDING_IDENTIFICATIONS;
+            let event = tokio::select! {
+                // Finished identifications first: a verified client is not kept
+                // waiting behind new connections.
+                biased;
+                Some(done) = identifying.join_next(), if !identifying.is_empty() => {
+                    Event::Identified(done)
+                }
+                outcome = async {
+                    match waiting.as_ref() {
+                        Some(instance) => instance.connect().await,
+                        None => Ok(()),
+                    }
+                }, if room => Event::Connected(outcome),
             };
-            // Keep an instance listening before the used one leaves the slot. If the
-            // replacement cannot be created, the used instance stays in the slot (a
-            // connected instance is picked up again by the next `accept`).
-            let next = create_instance(&self.name, &self.dacl_sid, false)?;
-            let Some(connected) = slot.replace(next) else {
-                continue;
-            };
-            match outcome {
-                Ok(()) => {}
-                // The client closed between its open and our connect: discard.
-                Err(err) if err.raw_os_error() == Some(ERROR_NO_DATA as i32) => continue,
-                Err(err) => return Err(err),
-            }
-            let checked = client_sid(&connected).and_then(|sid| {
-                let peer = PeerIdentity::Windows {
-                    sid,
-                    pid: client_pid(&connected),
-                };
-                verify_peer(&peer, &owner).map(|_| peer)
-            });
-            match checked {
-                Ok(peer) => return Ok((connected, peer)),
-                Err(reason) => {
-                    tracing::warn!(endpoint = self.kind.name(), %reason, "named-pipe client refused");
-                    // Best effort: dropping the instance closes it either way.
-                    let _ = connected.disconnect();
+            match event {
+                Event::Identified(Ok(Some(verified))) => return Ok(verified),
+                // Refused (already disconnected by its task).
+                Event::Identified(Ok(None)) => {}
+                Event::Identified(Err(err)) => {
+                    if err.is_panic() {
+                        std::panic::resume_unwind(err.into_panic());
+                    }
+                    // Aborted: only on runtime shutdown; the instance is closed.
+                }
+                Event::Connected(outcome) => {
+                    // Keep an instance listening before the used one leaves the
+                    // slot. If the replacement cannot be created, the used instance
+                    // stays in the slot (a connected instance is picked up again by
+                    // the next `accept`).
+                    let next = create_instance(&self.name, &self.dacl_sid, false)?;
+                    let Some(connected) = state.waiting.replace(next) else {
+                        continue;
+                    };
+                    match outcome {
+                        Ok(()) => {}
+                        // The client closed between its open and our connect: discard.
+                        Err(err) if err.raw_os_error() == Some(ERROR_NO_DATA as i32) => continue,
+                        Err(err) => return Err(err),
+                    }
+                    state.identifying.spawn(identify(
+                        connected,
+                        self.kind,
+                        ExpectedOwner::Sid(self.owner_sid.clone()),
+                        self.first_write_wait,
+                    ));
                 }
             }
         }
@@ -207,6 +287,55 @@ impl Listener {
     }
 }
 
+/// What one turn of the `accept` loop observed.
+enum Event {
+    Identified(Result<Identified, tokio::task::JoinError>),
+    Connected(io::Result<()>),
+}
+
+/// Identify one connected instance (W6): wait, at most `wait`, until the client's
+/// first write has been read into the instance, then check the client SID against
+/// `owner`. Refused and silent clients are disconnected here and yield `None`; a
+/// verified client yields its instance, with the bytes read so far still buffered
+/// in it for the caller.
+async fn identify(
+    connected: NamedPipeServer,
+    kind: EndpointKind,
+    owner: ExpectedOwner,
+    wait: Duration,
+) -> Identified {
+    let checked = match tokio::time::timeout(wait, connected.ready(Interest::READABLE)).await {
+        // Readable: data (or the client's close) has been read. Only now does the
+        // client token exist for a default-flags client; a client that closed
+        // without writing fails the impersonation and is refused.
+        Ok(Ok(_)) => client_sid(&connected).and_then(|sid| {
+            let peer = PeerIdentity::Windows {
+                sid,
+                pid: client_pid(&connected),
+            };
+            verify_peer(&peer, &owner).map(|_| peer)
+        }),
+        Ok(Err(err)) => {
+            tracing::debug!(kind = ?err.kind(), "named-pipe readiness failed");
+            Err(PeerRejected::Unavailable)
+        }
+        // Still silent at the bound: never identified, so refused.
+        Err(_elapsed) => {
+            tracing::debug!("no first write within the identification bound");
+            Err(PeerRejected::Unavailable)
+        }
+    };
+    match checked {
+        Ok(peer) => Some((connected, peer)),
+        Err(reason) => {
+            tracing::warn!(endpoint = kind.name(), %reason, "named-pipe client refused");
+            // Best effort: dropping the instance closes it either way.
+            let _ = connected.disconnect();
+            None
+        }
+    }
+}
+
 /// Read the connected client's user SID at identification level.
 ///
 /// Refuses (`PeerRejected::Remote`) a client that connected over the network, as
@@ -214,6 +343,10 @@ impl Listener {
 /// connection (`GetNamedPipeClientComputerNameW` answers `ERROR_PIPE_LOCAL` for a
 /// local client), not on the client's logon type: a same-user process in a local
 /// session that was itself opened over SSH is still a local pipe client.
+///
+/// Call it only after data from the client has been read (W6): before that, a
+/// client that opened with default flags has no token to impersonate and the
+/// answer is `Unavailable`. [`Listener::accept`] does this.
 pub fn client_sid(server: &NamedPipeServer) -> Result<String, PeerRejected> {
     if connection_is_remote(server.as_raw_handle())? {
         return Err(PeerRejected::Remote);
@@ -836,7 +969,13 @@ mod tests {
         assert_eq!(listener.kind(), EndpointKind::Control);
 
         for round in 0..2 {
-            let (accepted, client) = tokio::join!(listener.accept(), connect(Path::new(&name)));
+            // The client writes first, as every client of both endpoints does;
+            // identification waits for that write (W6).
+            let (accepted, client) = tokio::join!(listener.accept(), async {
+                let mut client = connect(Path::new(&name)).await?;
+                client.write_all(canary.as_bytes()).await?;
+                io::Result::Ok(client)
+            });
             let (mut server, peer) = accepted.unwrap();
             let mut client = client.unwrap();
             assert_eq!(
@@ -855,7 +994,6 @@ mod tests {
             assert_eq!(connection_is_remote(server.as_raw_handle()), Ok(false));
 
             // Both directions carry bytes unchanged.
-            client.write_all(canary.as_bytes()).await.unwrap();
             let mut got = vec![0u8; canary.len()];
             server.read_exact(&mut got).await.unwrap();
             assert_eq!(got, canary.as_bytes());
@@ -1004,6 +1142,8 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(1500), listener.accept()),
             async {
                 let mut client = connect(Path::new(&name)).await?;
+                // Write first so the SID check runs (W6), then see the refusal.
+                client.write_all(&FIRST_FRAME).await?;
                 let mut byte = [0u8; 1];
                 client.read(&mut byte).await
             }
@@ -1035,15 +1175,15 @@ mod tests {
         let name = unique_pipe("control");
         let listener = Listener::bind(&name, EndpointKind::Control, &sid).unwrap();
         for owner in [ServerOwner::CurrentUser, ServerOwner::Sid(sid.clone())] {
-            let (accepted, client) = tokio::join!(
-                listener.accept(),
-                connect_with_owner(Path::new(&name), owner.clone())
-            );
+            let (accepted, client) = tokio::join!(listener.accept(), async {
+                let mut client = connect_with_owner(Path::new(&name), owner.clone()).await?;
+                client.write_all(b"ping").await?;
+                io::Result::Ok(client)
+            });
             let (mut server, peer) = accepted.unwrap();
-            let mut client = client.unwrap_or_else(|e| panic!("{owner:?}: {e}"));
+            let client = client.unwrap_or_else(|e| panic!("{owner:?}: {e}"));
             assert_eq!(handle_owner_sid(client.as_raw_handle()).unwrap(), sid);
             assert!(matches!(peer, PeerIdentity::Windows { .. }));
-            client.write_all(b"ping").await.unwrap();
             let mut got = [0u8; 4];
             server.read_exact(&mut got).await.unwrap();
             assert_eq!(&got, b"ping");
@@ -1065,12 +1205,286 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied, "{err}");
         assert_eq!(err.raw_os_error(), None, "not the owner check: {err}");
         assert!(!err.to_string().contains(&sid), "error text names a SID");
-        let (accepted, client) = tokio::join!(
-            listener.accept(),
-            connect_with_owner(Path::new(&name), ServerOwner::CurrentUser)
-        );
+        let (accepted, client) = tokio::join!(listener.accept(), async {
+            let mut client = connect_with_owner(Path::new(&name), ServerOwner::CurrentUser).await?;
+            client.write_all(&FIRST_FRAME).await?;
+            io::Result::Ok(client)
+        });
         accepted.unwrap();
         client.unwrap();
+    }
+
+    /// A valid first frame on the signing endpoint: ssh-agent `REQUEST_IDENTITIES`.
+    const FIRST_FRAME: [u8; 5] = [0, 0, 0, 1, 11];
+
+    /// How a test client opens the pipe.
+    #[derive(Debug, Clone, Copy)]
+    enum ClientOpen {
+        /// `CreateFileW` without `SECURITY_SQOS_PRESENT` (testkit's
+        /// `AgentConnection`, and any ssh client that opens the agent pipe with
+        /// default flags): the server can impersonate only after a read.
+        DefaultFlags,
+        /// `SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION`, as [`connect`] opens.
+        Identification,
+    }
+
+    /// A blocking client on its own thread: open (retrying `ERROR_PIPE_BUSY`), wait
+    /// `delay`, write `payload` (nothing when empty), then read once. Returns what
+    /// the read produced (`Ok(empty)` on end of stream), or the open/write/read
+    /// error.
+    fn spawn_client(
+        name: &str,
+        open: ClientOpen,
+        delay: Duration,
+        payload: Vec<u8>,
+    ) -> std::thread::JoinHandle<io::Result<Vec<u8>>> {
+        use std::io::Read as _;
+        let name = name.to_owned();
+        std::thread::spawn(move || {
+            let mut options = OpenOptions::new();
+            options.read(true).write(true);
+            if let ClientOpen::Identification = open {
+                options.security_qos_flags(SECURITY_IDENTIFICATION);
+            }
+            let mut attempts = 0;
+            let mut pipe = loop {
+                match options.open(&name) {
+                    Ok(pipe) => break pipe,
+                    Err(err)
+                        if err.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) && attempts < 80 =>
+                    {
+                        attempts += 1;
+                        std::thread::sleep(Duration::from_millis(25));
+                    }
+                    Err(err) => return Err(err),
+                }
+            };
+            std::thread::sleep(delay);
+            if !payload.is_empty() {
+                pipe.write_all(&payload)?;
+            }
+            let mut reply = vec![0u8; 16];
+            let n = pipe.read(&mut reply)?;
+            reply.truncate(n);
+            Ok(reply)
+        })
+    }
+
+    async fn join_client(
+        client: std::thread::JoinHandle<io::Result<Vec<u8>>>,
+    ) -> io::Result<Vec<u8>> {
+        tokio::task::spawn_blocking(move || client.join().unwrap())
+            .await
+            .unwrap()
+    }
+
+    /// W6 regression: a same-user client that opens, pauses 200 ms, then writes its
+    /// first frame is accepted with the owner SID, and its bytes reach the caller
+    /// unchanged and in order (including a first write larger than one internal
+    /// read buffer). Before the fix the listener impersonated right after
+    /// `ConnectNamedPipe`, before any data had been read, and a default-flags
+    /// client was refused with `ERROR_CANNOT_IMPERSONATE` (1368) and disconnected.
+    #[tokio::test(flavor = "current_thread")]
+    async fn client_that_writes_late_is_accepted_with_bytes_intact() {
+        let sid = current_user_sid().unwrap();
+        let large: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
+        for open in [ClientOpen::DefaultFlags, ClientOpen::Identification] {
+            for payload in [FIRST_FRAME.to_vec(), large.clone()] {
+                let name = unique_pipe("signing");
+                let listener = Listener::bind(&name, EndpointKind::Signing, &sid).unwrap();
+                let client = spawn_client(&name, open, Duration::from_millis(200), payload.clone());
+                let accepted = tokio::time::timeout(Duration::from_secs(3), listener.accept())
+                    .await
+                    .unwrap_or_else(|_| panic!("{open:?}: late-writing client not accepted"));
+                let (mut server, peer) = accepted.unwrap();
+                assert_eq!(
+                    peer,
+                    PeerIdentity::Windows {
+                        sid: sid.clone(),
+                        pid: Some(std::process::id()),
+                    },
+                    "{open:?}"
+                );
+                let mut got = vec![0u8; payload.len()];
+                tokio::time::timeout(Duration::from_secs(2), server.read_exact(&mut got))
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert!(got == payload, "{open:?}: first bytes changed");
+                server.write_all(b"ok").await.unwrap();
+                assert_eq!(join_client(client).await.unwrap(), b"ok", "{open:?}");
+            }
+        }
+    }
+
+    /// W6: a client that connects and stays silent does not hold up `accept` for a
+    /// client that writes promptly; the prompt client is returned well inside the
+    /// identification bound, and it is the prompt client (its bytes), not the
+    /// silent one.
+    #[tokio::test(flavor = "current_thread")]
+    async fn silent_client_does_not_block_a_prompt_client() {
+        let sid = current_user_sid().unwrap();
+        for open in [ClientOpen::DefaultFlags, ClientOpen::Identification] {
+            let name = unique_pipe("signing");
+            let listener = Listener::bind(&name, EndpointKind::Signing, &sid).unwrap();
+            let silent = spawn_client(&name, open, Duration::ZERO, Vec::new());
+            // Let the silent client take the first instance before the prompt one.
+            let early = tokio::time::timeout(Duration::from_millis(150), listener.accept()).await;
+            assert!(early.is_err(), "{open:?}: a silent client was returned");
+            let started = std::time::Instant::now();
+            let prompt = spawn_client(&name, open, Duration::ZERO, FIRST_FRAME.to_vec());
+            let (mut server, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                .await
+                .unwrap_or_else(|_| panic!("{open:?}: prompt client blocked"))
+                .unwrap();
+            let mut got = [0u8; FIRST_FRAME.len()];
+            tokio::time::timeout(Duration::from_secs(1), server.read_exact(&mut got))
+                .await
+                .unwrap_or_else(|_| panic!("{open:?}: the silent client was returned"))
+                .unwrap();
+            assert_eq!(got, FIRST_FRAME, "{open:?}");
+            assert!(started.elapsed() < Duration::from_secs(2), "{open:?}");
+            server.write_all(b"ok").await.unwrap();
+            assert_eq!(join_client(prompt).await.unwrap(), b"ok", "{open:?}");
+            // Closing the listener ends the silent client's connection too.
+            drop(server);
+            drop(listener);
+            let silent = tokio::time::timeout(Duration::from_secs(10), join_client(silent))
+                .await
+                .unwrap_or_else(|_| panic!("{open:?}: silent client never released"));
+            assert!(
+                matches!(&silent, Ok(bytes) if bytes.is_empty()) || silent.is_err(),
+                "{open:?}: silent client received data"
+            );
+        }
+    }
+
+    /// W6 bound: a client that stays silent past the first-write bound is
+    /// disconnected after the bound (not before), is never returned as verified,
+    /// and the listener still serves the next client.
+    #[tokio::test(flavor = "current_thread")]
+    async fn silent_client_is_refused_after_the_bound_and_listener_keeps_waiting() {
+        let sid = current_user_sid().unwrap();
+        let bound = Duration::from_millis(400);
+        for open in [ClientOpen::DefaultFlags, ClientOpen::Identification] {
+            let name = unique_pipe("control");
+            let listener = Listener::bind(&name, EndpointKind::Control, &sid)
+                .unwrap()
+                .with_first_write_wait(bound);
+            let started = std::time::Instant::now();
+            let silent = spawn_client(&name, open, Duration::ZERO, Vec::new());
+            let accepted =
+                tokio::time::timeout(Duration::from_millis(1500), listener.accept()).await;
+            assert!(accepted.is_err(), "{open:?}: a silent client was returned");
+            let released = join_client(silent).await;
+            let waited = started.elapsed();
+            match released {
+                Ok(bytes) => assert!(bytes.is_empty(), "{open:?}: refused client got data"),
+                Err(err) => assert!(
+                    [
+                        Some(ERROR_PIPE_NOT_CONNECTED as i32),
+                        Some(ERROR_BROKEN_PIPE as i32)
+                    ]
+                    .contains(&err.raw_os_error()),
+                    "{open:?}: {err}"
+                ),
+            }
+            assert!(
+                waited >= bound - Duration::from_millis(50),
+                "{open:?}: disconnected before the bound ({waited:?})"
+            );
+            // An instance is still waiting: the next client is served.
+            let prompt = spawn_client(&name, open, Duration::ZERO, FIRST_FRAME.to_vec());
+            let (mut server, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
+                .await
+                .unwrap_or_else(|_| panic!("{open:?}: no instance left after refusal"))
+                .unwrap();
+            let mut got = [0u8; FIRST_FRAME.len()];
+            server.read_exact(&mut got).await.unwrap();
+            assert_eq!(got, FIRST_FRAME, "{open:?}");
+            server.write_all(b"ok").await.unwrap();
+            assert_eq!(join_client(prompt).await.unwrap(), b"ok", "{open:?}");
+        }
+    }
+
+    /// W6 cancel safety: an `accept` dropped while a connected client is still
+    /// being identified loses nothing; the next `accept` returns that client, with
+    /// its bytes, once it writes.
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_accept_keeps_a_connection_being_identified() {
+        let sid = current_user_sid().unwrap();
+        let name = unique_pipe("signing");
+        let listener = Listener::bind(&name, EndpointKind::Signing, &sid).unwrap();
+        let client = spawn_client(
+            &name,
+            ClientOpen::DefaultFlags,
+            Duration::from_millis(400),
+            FIRST_FRAME.to_vec(),
+        );
+        // Connects, starts identifying, then is cancelled before the client writes.
+        let first = tokio::time::timeout(Duration::from_millis(150), listener.accept()).await;
+        assert!(first.is_err(), "returned before the client wrote");
+        assert_eq!(listener.state.lock().await.identifying.len(), 1);
+        let (mut server, peer) = tokio::time::timeout(Duration::from_secs(3), listener.accept())
+            .await
+            .expect("the connection was lost with the cancelled accept")
+            .unwrap();
+        assert!(matches!(peer, PeerIdentity::Windows { sid: ref s, .. } if *s == sid));
+        let mut got = [0u8; FIRST_FRAME.len()];
+        server.read_exact(&mut got).await.unwrap();
+        assert_eq!(got, FIRST_FRAME);
+        server.write_all(b"ok").await.unwrap();
+        assert_eq!(join_client(client).await.unwrap(), b"ok");
+    }
+
+    /// W6 bound on concurrent identifications: with the pending set full of silent
+    /// clients, a further client is not lost; it is served once the silent ones
+    /// time out, and the name keeps answering meanwhile.
+    #[tokio::test(flavor = "current_thread")]
+    async fn full_identification_set_defers_but_does_not_drop_new_clients() {
+        let sid = current_user_sid().unwrap();
+        let name = unique_pipe("signing");
+        let listener = Listener::bind(&name, EndpointKind::Signing, &sid)
+            .unwrap()
+            .with_first_write_wait(Duration::from_millis(1500));
+        let silent: Vec<_> = (0..MAX_PENDING_IDENTIFICATIONS)
+            .map(|_| {
+                spawn_client(
+                    &name,
+                    ClientOpen::Identification,
+                    Duration::ZERO,
+                    Vec::new(),
+                )
+            })
+            .collect();
+        let early = tokio::time::timeout(Duration::from_millis(1000), listener.accept()).await;
+        assert!(early.is_err(), "a silent client was returned");
+        assert_eq!(
+            listener.state.lock().await.identifying.len(),
+            MAX_PENDING_IDENTIFICATIONS
+        );
+        let prompt = spawn_client(
+            &name,
+            ClientOpen::DefaultFlags,
+            Duration::ZERO,
+            FIRST_FRAME.to_vec(),
+        );
+        let (mut server, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+            .await
+            .expect("the deferred client was never served")
+            .unwrap();
+        let mut got = [0u8; FIRST_FRAME.len()];
+        server.read_exact(&mut got).await.unwrap();
+        assert_eq!(got, FIRST_FRAME);
+        server.write_all(b"ok").await.unwrap();
+        assert_eq!(join_client(prompt).await.unwrap(), b"ok");
+        for client in silent {
+            let released = join_client(client).await;
+            assert!(
+                matches!(&released, Ok(bytes) if bytes.is_empty()) || released.is_err(),
+                "a silent client received data"
+            );
+        }
     }
 
     /// E14: an expectation that is not a literal SID, and a path outside the pipe

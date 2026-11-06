@@ -4628,10 +4628,10 @@ mutation-checked the regression.
    - **The WSL fixture sshd's stop:** it matches the retitled daemon (` -f <cfg> `) and can report `still-running`. The cb16c2d6 run's `fixture-sshd-at-end=mismatch` left that sshd running; w6-fixtures found it and stopped it by its exact PID.
    - **The local runner's clone:** it keeps `core.autocrlf=false` in the clone's own configuration, records it in host.txt, and stops if a sampled file holds a CR. Git for Windows' system configuration on the PC sets `autocrlf=true`.
    - **`HM_FIXTURE_SSHD_USER`:** not needed. No Windows test uses the harness sshd today; every `LoopbackSshd::start` caller is `cfg(unix)`. It becomes needed if those tests are ungated on Windows.
-6. **Open, and being fixed: the Windows pipe listener identifies a client before the client has written.**
+6. **Fixed (w6-ipc, ADR-0006 §13.21): the Windows pipe listener identified a client before the client had written.**
    - **The defect:** `ipc::windows` `accept` calls `ImpersonateNamedPipeClient` right after `ConnectNamedPipe`, which completes when the client opens the pipe. A same-user client that writes slightly later can therefore be refused (1368).
    - **The ruling:** identify a client only after its first write. The wait is bounded, and a silent client never blocks other clients.
-   - **Status:** unit w6-ipc is fixing this, natively. The M02 exit build waits for it.
+   - **Status:** fixed by unit w6-ipc. A native reproduction failed before the fix (1368 for a default-flags client that writes late; a silent SQOS client was "verified") and passed after it. There are five new Windows tests; each fails with the readiness wait removed. Native results: `heimdall-ipc` 37 passed, the adversarial frame suites passed, `integration_runtime` 52 passed.
 
 ## 13. Consequences
 

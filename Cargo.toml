@@ -143,6 +143,13 @@ unimplemented = "warn"
 # todo!("M02-Uxx ..."); wave 3b removed the last one, so the lint denies again.
 todo = "deny"
 
+# Dev and test builds keep line tables only: panic locations and backtraces still name
+# functions and lines, while full debug info made the MSVC program database of the largest
+# test binary (heimdall-runtime `model_operations`) exceed the linker's limit (LNK1140,
+# native Windows dry run at 3fe6119f; ADR-0007 §12.43 item 2). Release builds are unchanged.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 opt-level = "z"
 lto = true

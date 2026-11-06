@@ -1352,6 +1352,26 @@ store-wide claim counter.
    is processed by the supervisor in the same process. M01 adapters are fakes, so no
    real adapter can hang.
 
+### 13.21 Ruling on Windows client identification timing (orchestrator, 2026-11-06)
+
+**Source:** wave 6w unit w6-ipc, native on the Windows 11 PC (ADR-0007 §12.43 item 6).
+
+§2.1 says the Windows server identifies each client "per connection". It did not say when.
+
+**What was observed natively.**
+- `ConnectNamedPipe` completes when the client opens the pipe.
+- A client opened without SQOS uses dynamic context tracking, so `ImpersonateNamedPipeClient` fails with `ERROR_CANNOT_IMPERSONATE` (1368) until data from that client has been read.
+- A client opened with SQOS identification could be "verified" before it had sent anything.
+
+**Ruling.** On Windows, the server identifies a client only after the client's first write has been read into the instance. Concretely:
+- **No consumption:** identification waits for readability, and the client's bytes are delivered unchanged and in order.
+- **Bounded wait:** the wait is bounded by `FIRST_WRITE_WAIT`, equal to the hello timeout (5 s). A client still silent at the bound is disconnected and refused, never returned as verified.
+- **No head-of-line blocking:** each connection is identified in its own task. A silent client never delays another client.
+- **Bounded concurrency:** at most `MAX_PENDING_IDENTIFICATIONS` connections (equal to `MAX_CONTROL_CONNECTIONS`) wait to be identified at once. While that many are pending, no new connection is taken, but the waiting instance stays listening.
+- **Existing checks unchanged:** remote clients are refused, an owner SID mismatch is refused, and a failed `RevertToSelf` aborts.
+
+Every Heimdall endpoint protocol is client-first: the control hello, the signing hello and the ssh-agent request. A future server-first protocol on Windows would need a different identification design, and this ruling must be reopened for it.
+
 ## 14. ⟨rev2⟩ Change log and substrate added by revision 2
 
 ### 14.1 Recovery intent and stage receipts (review F05; ruling 5)
