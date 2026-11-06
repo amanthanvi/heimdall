@@ -254,6 +254,9 @@ mod world {
                 }
             }
             env.push(("USERPROFILE".into(), home.as_os_str().to_owned()));
+            // In-box OpenSSH exits 255 before logging when ProgramData is absent.
+            // Keep that required directory in the disposable fixture home too.
+            env.push(("ProgramData".into(), home.as_os_str().to_owned()));
         } else {
             env.push(("PATH".into(), "/usr/bin:/bin".into()));
         }

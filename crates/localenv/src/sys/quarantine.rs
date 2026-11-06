@@ -31,7 +31,7 @@
 //! | [`handle_identity`] | Windows | `GetFileInformationByHandleEx(FileIdInfo)` | an open handle borrowed for the call; a correctly sized `FILE_ID_INFO` |
 //! | `fsentry` (Windows) | Windows | `CreateFileW`, `CreateDirectoryW`, `MoveFileExW`, `GetFileInformationByHandle`, `GetFileInformationByHandleEx(FileBasicInfo, FileAttributeTagInfo)`, `GetFinalPathNameByHandleW`, `FlushFileBuffers` | every returned handle is owned by an `OwnedHandle`/`File` and closed exactly once; buffers are sized for the call |
 //! | `fsentry` (Windows) | Windows | `GetSecurityInfo(SE_FILE_OBJECT)`, `ConvertSidToStringSidW`, `ConvertSecurityDescriptorToStringSecurityDescriptorW`, `ConvertStringSecurityDescriptorToSecurityDescriptorW`, `LocalFree` | each `LocalAlloc`ed result is freed exactly once, after the last pointer into it is used |
-//! | [`QuarantineDir::remove_verified`], [`QuarantineDir::rmdir_if_empty`] | Windows | `SetFileInformationByHandle` with a POSIX-semantics delete disposition | only on a handle opened in the quarantine with `FILE_FLAG_OPEN_REPARSE_POINT`, no write or delete sharing, and whose file ID and digest were just checked (or, for the directory, its own pinned handle) |
+//! | [`QuarantineDir::remove_verified`], [`QuarantineDir::rmdir_if_empty`] | Windows | `SetFileInformationByHandle` with a POSIX-semantics delete disposition | only on a handle opened in the quarantine with `FILE_FLAG_OPEN_REPARSE_POINT`, no write or delete sharing, and whose file ID and digest were just checked (or, for the directory, a separate removal handle revalidated against the released pin) |
 
 use super::SysError;
 use heimdall_domain::projection::{FileIdentity, Sha256Hex};
@@ -448,7 +448,7 @@ impl QuarantineDir {
         source: IdentitySource,
     ) -> Result<Option<Self>, QuarantineError> {
         let path = parent.join(QUARANTINE_NAME);
-        let handle = match fsentry::win::open_dir_pinned(&path, true) {
+        let handle = match fsentry::win::open_dir_pinned(&path, false) {
             Ok(h) => h,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(QuarantineError::Sys(sys_err("CreateFileW", &e))),
@@ -578,16 +578,40 @@ impl QuarantineDir {
         Ok(())
     }
 
-    /// Remove the quarantine directory itself when it is empty, through its own
-    /// pinned handle (a non-empty directory refuses the disposition); never removes an
-    /// entry.
+    /// Remove the quarantine directory itself when it is empty; never removes an
+    /// entry. Release this pin before opening with DELETE, which must fail while
+    /// another pin is held. The removal handle must still name this same, valid
+    /// quarantine: a substituted entry is never removed.
     ///
     /// # Errors
-    /// [`SysError`].
+    /// [`SysError`], including a sharing violation while another pin is held.
     pub fn rmdir_if_empty(self) -> Result<bool, SysError> {
-        match Self::disposition(std::os::windows::io::AsRawHandle::as_raw_handle(
-            &self.handle,
-        )) {
+        let identity = fsentry::win::meta(&self.handle)
+            .map_err(|e| sys_err("GetFileInformationByHandle", &e))?
+            .identity;
+        drop(self.handle);
+        Self::remove_empty_at(&self.path, &identity)
+    }
+
+    /// The separately opened removal handle must retain the released pin's identity
+    /// and quarantine validation. DELETE is requested only here, never by a live pin.
+    fn remove_empty_at(path: &std::path::Path, identity: &FileIdentity) -> Result<bool, SysError> {
+        let handle = match fsentry::win::open_dir_pinned(path, true) {
+            Ok(handle) => handle,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(sys_err("CreateFileW", &e)),
+        };
+        let meta =
+            fsentry::win::meta(&handle).map_err(|e| sys_err("GetFileInformationByHandle", &e))?;
+        if meta.identity != *identity
+            || meta.kind != fsentry::Kind::Directory
+            || !meta.owned
+            || !fsentry::win::dacl_is_owner_only(&handle)
+                .map_err(|e| sys_err("GetSecurityInfo", &e))?
+        {
+            return Ok(false);
+        }
+        match Self::disposition(std::os::windows::io::AsRawHandle::as_raw_handle(&handle)) {
             Ok(()) => Ok(true),
             Err(e) if fsentry::win::is_dir_not_empty(&e) => Ok(false),
             Err(e) => Err(sys_err("SetFileInformationByHandle", &e)),
@@ -1059,10 +1083,11 @@ pub(crate) mod fsentry {
             BY_HANDLE_FILE_INFORMATION, CREATE_NEW, CreateDirectoryW, CreateFileW, DELETE,
             FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
             FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-            FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-            FILE_SHARE_WRITE, FileBasicInfo, FileIdInfo, GetFileInformationByHandle,
-            GetFileInformationByHandleEx, GetFinalPathNameByHandleW, MOVEFILE_WRITE_THROUGH,
-            MoveFileExW, OPEN_EXISTING, READ_CONTROL, REPLACEFILE_WRITE_THROUGH, ReplaceFileW,
+            FILE_ID_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, FileBasicInfo, FileIdInfo,
+            GetFileInformationByHandle, GetFileInformationByHandleEx, GetFinalPathNameByHandleW,
+            MOVEFILE_WRITE_THROUGH, MoveFileExW, OPEN_EXISTING, READ_CONTROL,
+            REPLACEFILE_WRITE_THROUGH, ReplaceFileW,
         };
 
         use super::{EntryMeta, IdentitySource, Kind};
@@ -1134,9 +1159,13 @@ pub(crate) mod fsentry {
 
         /// Open a directory without following a reparse point and **without delete
         /// sharing**, so it cannot be renamed or removed while the handle is held.
-        /// `delete` adds `DELETE` access (for the quarantine's own removal).
+        /// Ordinary pins pass `false`: DELETE is unnecessary and makes two pins
+        /// incompatible. `true` is only for the separate removal open, after the
+        /// ordinary pin closes; it must fail while any other pin remains.
         pub(crate) fn open_dir_pinned(path: &Path, delete: bool) -> io::Result<OwnedHandle> {
-            let mut access = FILE_READ_ATTRIBUTES | READ_CONTROL;
+            // Metadata-only opens do not enforce sharing exclusions on Windows.
+            // Directory read access makes the no-delete-sharing pin effective.
+            let mut access = FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL;
             if delete {
                 access |= DELETE;
             }
@@ -1260,8 +1289,14 @@ pub(crate) mod fsentry {
         }
 
         /// Whether the object's DACL is exactly the owner-only DACL Heimdall creates:
-        /// protected, one ACE granting full access to the process user.
+        /// protected, one ACE granting full access to the process user, with directory
+        /// inheritance flags only for a directory. The kind comes from this handle.
         pub(crate) fn dacl_is_owner_only(handle: &OwnedHandle) -> io::Result<bool> {
+            let directory = match meta(handle)?.kind {
+                Kind::Directory => true,
+                Kind::Regular => false,
+                Kind::Symlink | Kind::Other => return Ok(false),
+            };
             let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
             // SAFETY: the handle is open for the call; only the DACL is requested and
             // the descriptor out-pointer is valid.
@@ -1303,7 +1338,7 @@ pub(crate) mod fsentry {
             drop(text_alloc);
             drop(descriptor);
             let sid = current_sid()?;
-            Ok(sddl? == owner_only_dacl(sid, true))
+            Ok(sddl? == owner_only_dacl(sid, directory))
         }
 
         /// The protected owner-only DACL: one ACE granting full access to the process
@@ -1634,5 +1669,113 @@ mod tests {
         for bad in ["", ".", "..", "a/b", "a\0b", &"x".repeat(256)] {
             assert!(!fsentry::is_component(bad), "{bad:?}");
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod windows_tests {
+    use super::*;
+    use std::os::windows::io::OwnedHandle;
+    use std::path::PathBuf;
+
+    fn snapshot() -> (tempfile::TempDir, PathBuf) {
+        let scratch = tempfile::tempdir().unwrap();
+        let source = scratch.path().join("config");
+        std::fs::write(&source, b"Host fixture\n").unwrap();
+        let saved = crate::projection::apply::snapshot_original(
+            &source,
+            &scratch.path().join("backups"),
+            "ssh_config",
+            None,
+            heimdall_contract::Timestamp::now(),
+        )
+        .unwrap();
+        let crate::projection::apply::Snapshot::Written(path) = saved else {
+            panic!("the first snapshot is written");
+        };
+        (scratch, path)
+    }
+
+    #[test]
+    fn live_quarantine_pins_coexist_and_prevent_removal() {
+        let scratch = tempfile::tempdir().unwrap();
+        let first = QuarantineDir::open_or_create(scratch.path()).unwrap();
+        let second = QuarantineDir::open_existing_at(scratch.path(), IdentitySource::Native)
+            .unwrap()
+            .unwrap();
+        let path = scratch.path().join(QUARANTINE_NAME);
+        let before = fsentry::win::meta(&second.handle).unwrap().identity;
+        let error = first.rmdir_if_empty().unwrap_err();
+        assert_eq!(error.call, "CreateFileW");
+        assert_eq!(error.detail, "os error 32");
+        assert!(path.is_dir(), "the live pin keeps the empty quarantine");
+        assert_eq!(std::fs::read_dir(&path).unwrap().count(), 0);
+        assert!(
+            fsentry::win::meta(&second.handle).unwrap().identity == before,
+            "the pinned directory is unchanged"
+        );
+        let rename = std::fs::rename(&path, scratch.path().join("moved")).unwrap_err();
+        assert_eq!(
+            rename.raw_os_error(),
+            Some(32),
+            "rename sharing stays denied"
+        );
+        assert!(second.rmdir_if_empty().unwrap());
+        assert!(!path.exists(), "removal succeeds after the last pin closes");
+    }
+
+    #[test]
+    fn quarantine_removal_preserves_a_substituted_directory() {
+        let scratch = tempfile::tempdir().unwrap();
+        let original = QuarantineDir::open_or_create(scratch.path()).unwrap();
+        let identity = fsentry::win::meta(&original.handle).unwrap().identity;
+        let path = scratch.path().join(QUARANTINE_NAME);
+        drop(original);
+        let retained = scratch.path().join("original");
+        std::fs::rename(&path, &retained).unwrap();
+        let replacement = QuarantineDir::open_or_create(scratch.path()).unwrap();
+        drop(replacement);
+        assert!(
+            !QuarantineDir::remove_empty_at(&path, &identity).unwrap(),
+            "the removal open cannot acquire ownership of a substituted directory"
+        );
+        assert!(path.is_dir(), "the replacement is retained");
+        assert!(retained.is_dir(), "the original is retained");
+    }
+
+    #[test]
+    fn product_snapshot_file_passes_its_own_dacl_check() {
+        let (scratch, path) = snapshot();
+        let handle = OwnedHandle::from(std::fs::File::open(&path).unwrap());
+        assert!(fsentry::win::dacl_is_owner_only(&handle).unwrap());
+        let reused = crate::projection::apply::snapshot_original(
+            &scratch.path().join("config"),
+            &scratch.path().join("backups"),
+            "ssh_config",
+            None,
+            heimdall_contract::Timestamp::now(),
+        )
+        .unwrap();
+        assert!(
+            matches!(reused, crate::projection::apply::Snapshot::Exists(saved) if saved == path),
+            "the product accepts its previously written snapshot"
+        );
+    }
+
+    #[test]
+    fn snapshot_file_with_an_extra_ace_is_refused() {
+        let (_scratch, path) = snapshot();
+        let grant = std::process::Command::new("icacls")
+            .arg(&path)
+            .args(["/grant", "*S-1-5-32-545:(R)"])
+            .output()
+            .unwrap();
+        assert!(grant.status.success(), "fixture-only extra ACE was added");
+        let handle = OwnedHandle::from(std::fs::File::open(&path).unwrap());
+        assert!(
+            !fsentry::win::dacl_is_owner_only(&handle).unwrap(),
+            "an extra ACE is never accepted as owner-only"
+        );
     }
 }

@@ -195,6 +195,11 @@ impl Forward {
         self.path().join(&self.staged.name)
     }
 
+    /// D after a forward exchange (Windows keeps a separate backup name).
+    fn displaced_path(&self) -> PathBuf {
+        self.path().join(self.step.displaced_name.as_ref().unwrap())
+    }
+
     fn exchange(&self) -> Exchanged {
         replace::exchange_at(
             &self.handle,
@@ -1030,8 +1035,9 @@ fn remove_verified_identity_and_content_mismatch_outcomes() {
 }
 
 /// The residual window (ADR-0007 §5.9 item 1): `AfterSettleCheck` fires between the
-/// final check and the removal; a write there is lost with the entry, and nothing
-/// claims otherwise. A write just before the final check is kept.
+/// final check and the removal. On Unix a write there is lost with the entry; on
+/// Windows the checked delete handle denies the writer's open. A write just before
+/// the final check is kept (tested by the content-mismatch cases above).
 #[test]
 fn remove_verified_hook_marks_the_residual_window() {
     let f = Forward::new();
@@ -1044,7 +1050,18 @@ fn remove_verified_hook_marks_the_residual_window() {
     );
     let target = qdir.join(&s1);
     let hook = At::new(ReplacePoint::AfterSettleCheck, move || {
-        write_in_place(&target, WRITER)
+        #[cfg(unix)]
+        write_in_place(&target, WRITER);
+        #[cfg(windows)]
+        {
+            let err = fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&target)
+                .unwrap_err();
+            assert_eq!(err.raw_os_error(), Some(32), "write sharing is denied");
+            assert_eq!(fs::read(&target).unwrap(), NEW, "checked bytes unchanged");
+        }
     });
     let out = q
         .remove_verified_with(&s1, &f.expected_s, HookAt::new(Some(&hook), 0))
@@ -1056,7 +1073,7 @@ fn remove_verified_hook_marks_the_residual_window() {
     );
     assert!(
         !qdir.join(&s1).exists(),
-        "the residual write is lost with the entry"
+        "the checked entry is removed after the hook"
     );
 }
 
@@ -1292,7 +1309,7 @@ fn race_symlink_substitution_at_boundary_is_held() {
         RestoreOutcome::Held(HoldReason::ThirdWriter, _)
     ));
     assert_eq!(read(g.path(), "config"), NEW);
-    assert_eq!(fs::read(g.staged_path()).unwrap(), OLD);
+    assert_eq!(fs::read(g.displaced_path()).unwrap(), OLD);
 }
 
 /// A create is a no-replace rename: a writer that creates the file first wins, and
@@ -1360,17 +1377,21 @@ fn restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing() {
         other => panic!("expected active_entry_modified, got {other:?}"),
     }
     assert_eq!(read(f.path(), "config"), WRITER);
-    assert_eq!(fs::read(f.staged_path()).unwrap(), OLD);
+    assert_eq!(fs::read(f.displaced_path()).unwrap(), OLD);
     // A third writer replaced the displaced entry.
     let g = Forward::new();
     g.exchange();
-    rename_replace(g.path(), &g.staged.name, b"third\n");
+    rename_replace(
+        g.path(),
+        g.step.displaced_name.as_deref().unwrap(),
+        b"third\n",
+    );
     assert!(matches!(
         g.restore(&g.v()),
         RestoreOutcome::Held(HoldReason::ThirdWriter, _)
     ));
     assert_eq!(read(g.path(), "config"), NEW);
-    assert_eq!(fs::read(g.staged_path()).unwrap(), b"third\n");
+    assert_eq!(fs::read(g.displaced_path()).unwrap(), b"third\n");
     // A third writer replaced the active entry.
     let k = Forward::new();
     k.exchange();
@@ -1380,7 +1401,7 @@ fn restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing() {
         RestoreOutcome::Held(HoldReason::ThirdWriter, _)
     ));
     assert_eq!(read(k.path(), "config"), b"third\n");
-    assert_eq!(fs::read(k.staged_path()).unwrap(), OLD);
+    assert_eq!(fs::read(k.displaced_path()).unwrap(), OLD);
 }
 
 /// `restore_with`: the receipt callback runs after the content check and before the
@@ -1406,7 +1427,7 @@ fn edit_after_restore_check_is_kept_in_quarantine_never_deleted() {
         Err(RestoreFailure::BeforeExchange("store unavailable"))
     );
     assert_eq!(read(f.path(), "config"), NEW);
-    assert_eq!(fs::read(f.staged_path()).unwrap(), OLD);
+    assert_eq!(fs::read(f.displaced_path()).unwrap(), OLD);
     // The edit lands after the check.
     let order = Mutex::new(Vec::<&str>::new());
     let config = f.path().join("config");
@@ -1512,7 +1533,7 @@ fn restore_with_names_in_a_fresh_handle() {
         Ok(RestoreOutcome::Held(HoldReason::Unmatched, _))
     ));
     assert_eq!(read(g.path(), "config"), NEW);
-    assert_eq!(fs::read(g.staged_path()).unwrap(), OLD);
+    assert_eq!(fs::read(g.displaced_path()).unwrap(), OLD);
 }
 
 // --- observation (reconcile and held previews) -------------------------------------
@@ -1923,11 +1944,15 @@ fn observe_fingerprint_records_digests_and_metadata_only() {
         other => panic!("{other:?}"),
     }
     assert_eq!(fp.slot, None);
-    assert!(
-        fp.aside
-            .iter()
-            .all(|a| matches!(a, EntryFingerprint::Present { .. }))
-    );
+    // Before exchange S is present. Windows also observes the separate displaced
+    // name, which does not exist until ReplaceFileW moves D there.
+    assert!(matches!(fp.aside[0], EntryFingerprint::Present { .. }));
+    if cfg!(windows) {
+        assert_eq!(fp.aside.len(), 2);
+        assert_eq!(fp.aside[1], EntryFingerprint::Absent);
+    } else {
+        assert_eq!(fp.aside.len(), 1);
+    }
     let big = vec![b'a'; READ_MAX + 1];
     write(f.path(), "config", &big);
     let fp = replace::observe_fingerprint(&f.handle, &f.step, &st);
