@@ -544,6 +544,12 @@ pub fn expand(
 /// pinned manual's (`FULL`), or none of `${VAR}` and the `%` tokens for a client
 /// observed to take them literally (OpenSSH 9.6p1 for `User`, `SetEnv` and
 /// `Include`; [`crate::client`]).
+///
+/// It is the reading a walk **opens files by**, not a claim about the client. For a
+/// client whose behaviour the observations do not settle, the walk reads `FULL` and the
+/// evaluator treats the argument as undetermined, because the literal path is another
+/// file the client may read ([`crate::client::behaviour_unknown`], ADR-0007 §12.35
+/// item 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Expansion {
     /// `${VAR}` is expanded (when [`directive::expands_env`]); otherwise `$`, `{` and

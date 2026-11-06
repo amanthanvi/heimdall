@@ -21,6 +21,13 @@
 //! Per origin, the count is the larger of the two sources' counts; an entry reached
 //! through `includeIf` is `conditional`.
 //!
+//! **Heimdall's own value** (ADR-0007 §12.34 item 8): once the Git item is applied, the
+//! global file's B_git includes P_git, which holds one `core.sshCommand`.
+//! [`observe_global`] counts it like any other value, which is what the doctor reports.
+//! [`observe_global_for`] takes P_git's path and splits that one occurrence out as
+//! [`GitGlobalObservation::own_values`], so a setup preview does not take Heimdall's own
+//! value for a user's.
+//!
 //! **`[I]` observed on Apple Git 2.54 (M02-W2-U3) and on git 2.43.0 (M02 wave 5c, the
 //! same plain-Git script on both: `tests/evidence/artifacts/m02/git-2.43/`, identical
 //! output apart from the version line):** `git config --global` reads only
@@ -101,8 +108,19 @@ pub struct GitGlobalObservation {
     /// redirects it: manual mode, `git_global_redirected`).
     pub file: Option<GlobalFileResolution>,
     /// Every `core.sshCommand` occurrence in the system and global scopes, includes
-    /// and conditional includes counted.
+    /// and conditional includes counted. From [`observe_global_for`], without the
+    /// occurrences that are [`Self::own_values`].
     pub values: Vec<GitValueObservation>,
+    /// ADR-0007 §12.34 item 8, additive: the occurrences that are Heimdall's own P_git
+    /// as B_git includes it, split out of [`Self::values`] by [`observe_global_for`].
+    /// An occurrence is Heimdall's own only when the managed file was counted exactly
+    /// once in all (no second key, no second path to it, not from the system file) and
+    /// that one is global and was not reached through an `includeIf`. Always empty from
+    /// [`observe_global`], which counts every occurrence in `values`. Whether the
+    /// include that reaches the file is B_git, intact and naming that file, is the
+    /// caller's to establish from the global file's bytes: until it has, these
+    /// occurrences are present values like any other.
+    pub own_values: Vec<GitValueObservation>,
     /// The overriding variables that are set (`GIT_SSH_COMMAND`, `GIT_SSH`,
     /// `GIT_CONFIG_GLOBAL` …); names only.
     pub env_overrides: Vec<&'static str>,
@@ -119,7 +137,8 @@ impl GitGlobalObservation {
     /// read or a home it could not establish (`git_config_unreadable`, fail closed),
     /// `GIT_CONFIG_GLOBAL` (`git_global_redirected`), any `core.sshCommand` in the system
     /// or global scopes, conditional or not (`git_ssh_command_present`). Whether Git's
-    /// default is the bundled MSYS client is the caller's last check.
+    /// default is the bundled MSYS client is the caller's last check. Only
+    /// [`Self::values`] counts: [`Self::own_values`] is the caller's to judge.
     #[must_use]
     pub fn not_applicable_reason(&self) -> Option<&'static str> {
         if !self.unreadable.is_empty() {
@@ -549,12 +568,87 @@ fn system_file(
     }
 }
 
-/// Observe the system and global Git configuration.
+/// Observe the system and global Git configuration. Every `core.sshCommand` occurrence
+/// is in [`GitGlobalObservation::values`], Heimdall's own P_git included; the doctor
+/// reports what the configuration says. A setup preview uses [`observe_global_for`].
 #[must_use]
 pub fn observe_global(
     env: &Env,
     clients: &ClientInventory,
     queries: LocalQueries,
+) -> GitGlobalObservation {
+    observe(env, clients, queries, None)
+}
+
+/// ADR-0007 §12.34 item 8, additive: [`observe_global`], with the occurrences that are
+/// Heimdall's own `managed` file (P_git) split out into
+/// [`GitGlobalObservation::own_values`]. Once the Git item is applied, B_git includes
+/// P_git, and P_git holds a `core.sshCommand`: counted as a user value, Heimdall's own
+/// value made every later preview `git_ssh_command_present`, so an update or a
+/// re-render could never be planned. Only a `managed` file counted exactly once in all,
+/// globally and outside any `includeIf`, is split out: a second path to the same file
+/// (a user's own include, a conditional include, the system file) or a second key in it
+/// is not B_git's value and stays in `values`, as does every value in any other file. A
+/// `managed` file that does not exist splits nothing.
+#[must_use]
+pub fn observe_global_for(
+    env: &Env,
+    clients: &ClientInventory,
+    queries: LocalQueries,
+    managed: &Path,
+) -> GitGlobalObservation {
+    observe(env, clients, queries, Some(managed))
+}
+
+/// The origin string an observation reports for the file at `path` (`file:` and the
+/// canonical path, `~` for Git's home), as [`GitValueObservation::origin_display`] shows
+/// it. `None` when the path cannot be resolved (it does not exist).
+#[must_use]
+pub fn origin_of(env: &Env, path: &Path) -> Option<String> {
+    let canonical = crate::fs::canonical_path(path).ok()?;
+    Some(format!(
+        "file:{}",
+        display_origin(git_home(env).as_deref(), &canonical)
+    ))
+}
+
+fn display_origin(home: Option<&Path>, path: &Path) -> String {
+    home.map_or_else(
+        || path.to_string_lossy().into_owned(),
+        |h| display_path(h, path),
+    )
+}
+
+/// Split Heimdall's own occurrence out of `values`: `(own, rest)`. `own` is the file's
+/// origin as [`origin_of`] gives it. The file's occurrences are Heimdall's own only when
+/// the file was counted exactly once, over every scope, include path and key, and that
+/// one is global and unconditional. A second key (another value, so another group), a
+/// second path to the file, an `includeIf` or the system file is not B_git's value:
+/// nothing is split out and every occurrence stays in `rest`.
+fn split_own(
+    mut values: Vec<GitValueObservation>,
+    own: &str,
+) -> (Vec<GitValueObservation>, Vec<GitValueObservation>) {
+    let of_file = |v: &GitValueObservation| v.origin_display.as_deref() == Some(own);
+    let reached: u32 = values
+        .iter()
+        .filter(|v| of_file(v))
+        .fold(0, |n, v| n.saturating_add(v.count));
+    // `reached == 1` makes the one group's count 1.
+    let one = values
+        .iter()
+        .position(|v| of_file(v) && v.scope == GitScope::Global && !v.conditional);
+    match one {
+        Some(i) if reached == 1 => (vec![values.remove(i)], values),
+        _ => (Vec::new(), values),
+    }
+}
+
+fn observe(
+    env: &Env,
+    clients: &ClientInventory,
+    queries: LocalQueries,
+    managed: Option<&Path>,
 ) -> GitGlobalObservation {
     let git = clients.selected(ClientKind::Git).map(|c| c.path.clone());
     let home = git_home(env);
@@ -619,13 +713,7 @@ pub fn observe_global(
                                 Some(p) => {
                                     let p = crate::fs::canonical_path(Path::new(p))
                                         .unwrap_or_else(|_| PathBuf::from(p));
-                                    format!(
-                                        "file:{}",
-                                        home.as_deref().map_or_else(
-                                            || p.to_string_lossy().into_owned(),
-                                            |h| display_path(h, &p)
-                                        )
-                                    )
+                                    format!("file:{}", display_origin(home.as_deref(), &p))
                                 }
                                 None => origin,
                             };
@@ -646,6 +734,10 @@ pub fn observe_global(
     }
     occurrences.extend(merge_extra(&occurrences, queried));
     let values = group(&occurrences);
+    let (own_values, values) = match managed.and_then(|m| origin_of(env, m)) {
+        Some(own) => split_own(values, &own),
+        None => (Vec::new(), values),
+    };
     unreadable.sort();
     unreadable.dedup();
     let default_ssh = match (git.as_deref(), queries) {
@@ -655,6 +747,7 @@ pub fn observe_global(
     GitGlobalObservation {
         file: resolve_global_file(env),
         values,
+        own_values,
         env_overrides,
         default_ssh,
         unreadable,

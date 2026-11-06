@@ -4387,6 +4387,94 @@ N01–N05 are accepted.
        the label check the label cases fail, and with unbounded inflating the bound test
        fails.
 
+### 12.36 Rulings on the wave-5e escalations (orchestrator, 2026-11-06)
+
+Sources: the two wave-5e unit reports (workflow `wf_485f9ce9-99c`). N01 and N02 are implemented,
+with regressions that the units mutation-checked (5 and 10 mutants).
+
+1. **Per-fact gating (ratified, stricter than §12.35 item 1's wording).** A client row that
+   records nothing for a fact does not settle it. So `%` in `Include`, `User` or `SetEnv`
+   on OpenSSH 10.3p1 is undetermined until a corpus run on 10.3p1 records it; the Windows
+   local-mode run includes that corpus test. `${VAR}` on 10.3p1 stays determined as
+   expanding, because that fact is recorded.
+2. **An Include made opaque by unknown client behaviour** follows the environment-dependent
+   Include exactly (ratified).
+   * The opaque point appears in `executing_constructs`, so an authorization prompt says
+     that an unread part may run commands.
+   * `unreadable_includes` does not list it, and a `Match exec` inside the unread file is
+     not recorded.
+   * That residual is the same as for `${VAR}`, and is stated in §13.
+3. **`User u%h` on a client observed to expand tokens** stays determined as written. The
+   value is deterministic per alias, and the digest binds it as written. Not a defect.
+4. **N02 details (ratified):**
+   * the refused entry is named in the writer's error, and the item outcome carries
+     `unmanageable_file`;
+   * the copy is made relative to the validated directory handle (create-new, then a
+     no-replace rename) instead of the path-based `create_owner_only_exclusive`. That is
+     stronger, and amends §12.32 item 2. A state directory on a filesystem without a
+     no-replace rename refuses the edit (`unmanageable_file`), which is recorded in the
+     matrix;
+   * refusal is per item: an invalid `gitconfig.*.orig` refuses only the Git item;
+   * an existing snapshot must also have one link, and every matching entry must be valid.
+5. **Process hygiene:** a test binary from a unit's earlier run, blocked on a since-fixed
+   FIFO test, was found by exact PID, parent and start time, and stopped by the
+   orchestrator. Its cargo parent finished its remaining targets.
+6. **e2e fixture:** `tests/e2e/cli_m02.rs` `plant_backup` creates its planted snapshot with
+   mode 0600, so later tests that edit the user file are not refused by N02. Fixed at
+   integration.
+
+### 12.37 Rulings on the wave-5d escalations; wave 5f (orchestrator, 2026-11-06)
+
+Sources: the two wave-5d unit reports and the integrator's report (workflow `wf_fee3f6a2-e53`).
+check.sh exited 0 twice, with 1744 tests passed and 0 failed.
+* §12.34 item 7: a removal of Heimdall's own file is one summary line,
+  `~ removed <name>: <N> lines, sha256 <hex>`. Owner files are shown whole, and only they
+  count toward the bound. A rollback and an uninstall over a 94 KB P apply.
+* §12.34 item 6: the `state_dir` guard is in place, with one reviewed passive exception,
+  `launch_flow::static_config`, which its test confines to read-only callers. Ratified.
+* §12.34 item 8: done; Heimdall's own P_git value no longer blocks a re-preview.
+
+1. **Doctor and Heimdall's own Git value.**
+   * The doctor uses `observe_global_for` with P_git's path. A value reached once through
+     an intact B_git is Heimdall's own: it is reported as the projection's Git selection,
+     never as `git_ssh_command_present`.
+   * A user value elsewhere is still reported, with its origin.
+   * Owner: W5f-git.
+2. **`git_user_value_shadowed` is emitted** (m02-plan U4,
+   `git_xdg_created_after_apply_shadowed_value_reported`; §5.6).
+   * When Heimdall's own value is the effective one (Git's last occurrence wins) and a
+     user `core.sshCommand` exists in another global file, the doctor reports
+     `git_user_value_shadowed` with both origins. Their values are never shown, only
+     digests, as the observation records them.
+   * When the user's value wins, the item is `not_applicable` as before.
+   * The named test asserts the finding.
+   * Owner: W5f-git.
+3. **A rollback finds B_git where it was written.**
+   * `plan_git_rollback` reads the Git item's projection record for the path of the file
+     its B_git step wrote, and plans the removal there.
+   * When the record names no path, for a record written before this change, both global
+     files are searched, and exactly one intact block with Heimdall's marker must exist;
+     otherwise the item is manual mode.
+   * Regression: B_git in `~/.gitconfig`, the XDG file created after the apply, then a
+     rollback, after which `~/.gitconfig` is byte for byte the original.
+   * Owner: W5f-git.
+4. **Documentation:**
+   * `contract::setup::FileChange.diff`'s doc comment, and so the exported schema
+     description, states the summary-line form for a removal of Heimdall's own file
+     (W5f-git, regenerating the schemas).
+   * §5.1, §5.6 and §5.8 are amended here (item 5).
+   * The matrix records the summary lines and the new Git behaviour with the exit record.
+5. **Amendments:**
+   * §5.1: a removal of Heimdall's own file is shown as a summary line.
+   * §5.6, Applicability: P_git's own value, reached once through an intact B_git, does
+     not make the item not applicable.
+   * §5.8: the Git update arm obeys `managed_file_edited`. A rollback preview checks the
+     global Git file's manageability and reports `unmanageable_file` as a manual reason
+     with a problem finding.
+6. **Native scenario expectations:** the orchestrator checks `tests/native/m02/**` for a
+   scenario that expects a second `setup --include-git` to report `git_ssh_command_present`,
+   before the exit-build runs.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
@@ -4431,6 +4519,9 @@ N01–N05 are accepted.
   `config_tree_changed` (§6). ⟨r5⟩ It also records Git's lock holder K, and that a lock
   left after a crash on a filesystem without birth time is the owner's to remove.
 * ⟨r5⟩ The runtime bounds every real adapter call (`Limits.adapter_call_timeout`, §7).
+* ⟨§12.36 item 2⟩ Residual: an `Include` that is opaque, because it needs `${VAR}` or
+  because the client's `%` behaviour is unknown, is not read. A `Match exec` inside it is not
+  listed by file and line; the authorization prompt lists the opaque point instead.
 * ⟨§12.34 items 3 and 6⟩ Deferred to M03 with a decision:
   * `agents::identity_agent_references` expands `Include` regardless of the client, so the
     doctor may list an extra candidate agent endpoint. It grants nothing.

@@ -4823,7 +4823,10 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
         // ⟨M02⟩ U0b row 2: the plan digest, the summary counts, the whole diff and the
         // restore column. The diff is never cut: a plan whose full diff exceeds
         // `MAX_DIFF_BYTES` is refused before a decision exists (`plan_too_large`,
-        // ADR-0007 §12.32 item 5; ADR-0006 §3.1).
+        // ADR-0007 §12.32 item 5; ADR-0006 §3.1). What counts is the changes to the
+        // owner's files and the content of Heimdall's own files that is created or
+        // changed; the removal of Heimdall's own files is one summary line each, which
+        // does not (§12.34 item 7; `setup::diff_exceeds_bound`).
         DecisionKind::ApplyProjection {
             operation,
             plan_digest,

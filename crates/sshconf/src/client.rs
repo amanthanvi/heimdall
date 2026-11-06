@@ -11,18 +11,26 @@
 //! reading. An unknown version is passed as [`OpenSshVersion::MINIMUM`] (the callers'
 //! fallback), which no observation names, so it is strict too.
 //!
-//! The strictest reading differs per gate:
+//! The strictest reading differs per gate (ADR-0007 §12.35 item 1 amends "strictest"):
 //!
-//! * a `Match` criterion or a keyword that some observed client refuses is
-//!   **refused** ([`accepts_match_criterion`], [`knows_keyword`]) unless the version is
-//!   at least the lowest one observed to accept it. A refused construct makes the file
-//!   invalid for that client: the evaluator records the line in `Evaluation::invalid`
-//!   and decides nothing from it (§12.32 item 11 (a));
-//! * `${VAR}` and the `%` tokens in `User`, `SetEnv` and `Include` are **expanded**
-//!   ([`expands_env`], [`expands_tokens`]) unless the exact version was observed to
-//!   take them literally. The expanding reading is the strict one for `${VAR}`: a value
-//!   that reads the environment is undetermined, which admits the literal value too
-//!   (§12.32 item 11 (b)).
+//! * a gate of the first kind, where a construct is refused or accepted, takes the
+//!   reading that **refuses**: a `Match` criterion or a keyword that some observed
+//!   client refuses is refused ([`accepts_match_criterion`], [`knows_keyword`]) unless
+//!   the version is at least the lowest one observed to accept it. A refused construct
+//!   makes the file invalid for that client: the evaluator records the line in
+//!   `Evaluation::invalid` and decides nothing from it (§12.32 item 11 (a));
+//! * a gate of the second kind, where the two behaviours give **different results**,
+//!   makes the affected value **undetermined**, never one of the two readings:
+//!   `${VAR}` and the `%` tokens in `User`, `SetEnv` and `Include`. A client observed
+//!   to take them literally ([`expands_env`], [`expands_tokens`] are `false`) or to
+//!   expand them has an established answer, and the value is determined as that client
+//!   reads it. For any client whose behaviour the observations do not settle
+//!   ([`behaviour_unknown`]: a version not in [`OBSERVED_CLIENTS`], and a version whose
+//!   row records nothing for that fact), the evaluator reads the expanding reading but
+//!   records the argument as unresolved (reason `client_behaviour_unknown`) and adds an
+//!   opaque point for an `Include`, or makes the `User` or `SetEnv` value undetermined
+//!   (§12.35 item 1). Picking either reading would be unsound: expanding `%h` selects a
+//!   different file than the literal reading, not a stricter one.
 //!
 //! **Default identities** (§12.32 item 12, amending §12.17 item 9).
 //! [`DEFAULT_IDENTITIES`] is the union of every observed client's list and the pinned
@@ -229,36 +237,87 @@ pub fn knows_keyword(keyword: KnownKeyword, version: OpenSshVersion) -> bool {
     }
 }
 
+/// The recorded `${VAR}` behaviour of exactly this version for `User`, `SetEnv` and
+/// `Include`: `Some(true)` expands, `Some(false)` literal, `None` not established.
+fn env_fact(version: OpenSshVersion) -> Option<bool> {
+    observed(version).and_then(|c| c.env_in_user_setenv_include)
+}
+
+/// The recorded `%` token behaviour of exactly this version for `User`, `SetEnv` and
+/// `Include` (as [`env_fact`]).
+fn tokens_fact(version: OpenSshVersion) -> Option<bool> {
+    observed(version).and_then(|c| c.tokens_in_user_setenv_include)
+}
+
 /// Whether a client of `version` expands `${VAR}` in `keyword`'s arguments: the pinned
 /// set ([`directive::expands_env`]), except that `User`, `SetEnv` and `Include` are
 /// literal for a version observed to take them literally (OpenSSH 9.6p1). Any other
-/// version, an unknown one included, expands them: the strict reading, under which a
-/// value that reads the environment is undetermined (§12.32 item 11 (b)).
+/// version, an unknown one included, is **read** as expanding: the reading the
+/// evaluator walks, under which a value that reads the environment is undetermined
+/// (§12.32 item 11 (b)). Whether the version settles that answer is
+/// [`behaviour_unknown`].
 #[must_use]
 pub fn expands_env(keyword: KnownKeyword, version: OpenSshVersion) -> bool {
     if !directive::expands_env(keyword) {
         return false;
     }
-    !(GATED_EXPANSION_KEYWORDS.contains(&keyword)
-        && observed(version).and_then(|c| c.env_in_user_setenv_include) == Some(false))
+    !(GATED_EXPANSION_KEYWORDS.contains(&keyword) && env_fact(version) == Some(false))
 }
 
 /// Whether a client of `version` expands `%` tokens (and `%%`) in `keyword`'s
 /// arguments: the pinned set ([`directive::expands_tokens`]), except that `User`,
 /// `SetEnv` and `Include` are literal for a version observed to take them literally
-/// (OpenSSH 9.6p1). Any other version expands them, as every observed expanding
-/// client does.
+/// (OpenSSH 9.6p1). Any other version is **read** as expanding, as every observed
+/// expanding client does; that is the reading the evaluator walks, not a claim that
+/// the client does so. Whether the version settles the answer is [`behaviour_unknown`].
 #[must_use]
 pub fn expands_tokens(keyword: KnownKeyword, version: OpenSshVersion) -> bool {
     if !directive::expands_tokens(keyword) {
         return false;
     }
-    !(GATED_EXPANSION_KEYWORDS.contains(&keyword)
-        && observed(version).and_then(|c| c.tokens_in_user_setenv_include) == Some(false))
+    !(GATED_EXPANSION_KEYWORDS.contains(&keyword) && tokens_fact(version) == Some(false))
 }
 
-/// The expansions a client of `version` applies to an `Include` argument
-/// ([`expands_env`] and [`expands_tokens`] for `Include`).
+/// Whether `text` holds a construct whose result depends on whether the client expands
+/// it: any `%` (a token, `%%`, or one a client refuses) or a well-formed `${…}`.
+fn has_expandable(text: &str, tokens: bool, env: bool) -> bool {
+    (tokens && text.contains('%')) || (env && !crate::eval::env_names(text).is_empty())
+}
+
+/// Whether the observations leave open how a client of `version` reads `args` as
+/// `keyword`'s arguments, so that the two possible readings give different results
+/// (ADR-0007 §12.35 item 1).
+///
+/// True only for `User`, `SetEnv` and `Include` (the keywords of
+/// [`GATED_EXPANSION_KEYWORDS`]), only when an argument holds `%` or `${…}`, and only
+/// for the fact the version's row does not record: a version not in
+/// [`OBSERVED_CLIENTS`] settles neither, and a row with `None` for one fact settles the
+/// other only. A construct without either expansion reads the same on every client,
+/// and a keyword outside the gated set is read as the manual says on every client.
+///
+/// The evaluator reads the expanding reading ([`expands_env`], [`expands_tokens`]) and,
+/// when this is true, makes the value undetermined: an `Include` argument is recorded
+/// as unresolved with reason `client_behaviour_unknown` and adds an opaque point, and a
+/// `User` or `SetEnv` value applies under an unknown condition.
+#[must_use]
+pub fn behaviour_unknown<'a>(
+    keyword: KnownKeyword,
+    args: impl IntoIterator<Item = &'a str>,
+    version: OpenSshVersion,
+) -> bool {
+    if !GATED_EXPANSION_KEYWORDS.contains(&keyword) {
+        return false;
+    }
+    let tokens = directive::expands_tokens(keyword) && tokens_fact(version).is_none();
+    let env = directive::expands_env(keyword) && env_fact(version).is_none();
+    (tokens || env) && args.into_iter().any(|a| has_expandable(a, tokens, env))
+}
+
+/// The expansions a client of `version` is **read** as applying to an `Include`
+/// argument ([`expands_env`] and [`expands_tokens`] for `Include`): the files the walk
+/// opens. For a version whose behaviour is not established the walk still opens the
+/// expanded path, and the evaluator marks the argument undetermined
+/// ([`behaviour_unknown`]) because the client may read the literal path instead.
 #[must_use]
 pub fn include_expansion(version: OpenSshVersion) -> Expansion {
     Expansion {
@@ -400,6 +459,54 @@ mod tests {
             assert!(expands_env(k, v(9, 6, 1)), "{k:?}");
         }
         assert!(!expands_env(KnownKeyword::Port, v(10, 5, 1)));
+    }
+
+    /// §12.35 item 1: the behaviour is unknown exactly where the observations do not
+    /// settle the fact for the construct the argument holds. Each side of every
+    /// boundary: observed expanding and observed literal are settled; a version between
+    /// the observations, below them, and the unknown one are not; a row that records
+    /// one fact settles that fact only.
+    #[test]
+    fn behaviour_is_unknown_only_where_the_observations_do_not_settle_it() {
+        let unobserved = [v(9, 5, 2), v(9, 7, 1), v(9, 6, 2), v(10, 0, 1), v(11, 0, 1)];
+        for k in GATED_EXPANSION_KEYWORDS {
+            for arg in ["a%hb", "%%", "%", "a${V}b"] {
+                for settled in [v(9, 6, 1), v(10, 5, 1)] {
+                    assert!(
+                        !behaviour_unknown(k, [arg], settled),
+                        "{k:?} {arg} {settled:?}"
+                    );
+                }
+                for version in unobserved.into_iter().chain([MINIMUM]) {
+                    assert!(
+                        behaviour_unknown(k, [arg], version),
+                        "{k:?} {arg} {version:?}"
+                    );
+                }
+            }
+            // 10.3p1 records `${VAR}` (expanding) and nothing for `%`.
+            assert!(!behaviour_unknown(k, ["a${V}b"], v(10, 3, 1)), "{k:?}");
+            assert!(behaviour_unknown(k, ["a%hb"], v(10, 3, 1)), "{k:?}");
+            assert!(
+                behaviour_unknown(k, ["a${V}b", "x"], MINIMUM),
+                "{k:?}: any argument"
+            );
+            // No expandable construct: every client reads it the same way.
+            for arg in ["plain", "a$b", "a{b}", "${", "a${b"] {
+                for version in [v(9, 6, 1), v(10, 5, 1), v(10, 3, 1), MINIMUM] {
+                    assert!(!behaviour_unknown(k, [arg], version), "{k:?} {arg}");
+                }
+            }
+            assert!(!behaviour_unknown(k, [], MINIMUM));
+        }
+        // A keyword outside the gated set is read as the manual says on every client.
+        for k in [
+            KnownKeyword::IdentityFile,
+            KnownKeyword::IdentityAgent,
+            KnownKeyword::Port,
+        ] {
+            assert!(!behaviour_unknown(k, ["a%hb${V}"], MINIMUM), "{k:?}");
+        }
     }
 
     #[test]

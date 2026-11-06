@@ -1197,6 +1197,56 @@ mod tests {
         assert!(shown.contains("recorded request"), "{shown}");
     }
 
+    /// ADR-0007 §12.34 item 7: the owner who is asked to approve a rollback (or an
+    /// uninstall, which is the same flow) is shown the removal of each of Heimdall's own
+    /// files as a removal with its name, line count and SHA-256, and the owner's file
+    /// change whole; not the raw writer line, not the removed content.
+    #[test]
+    fn a_rollback_prompt_shows_heimdalls_own_files_as_removals() {
+        let sha = "cd".repeat(32);
+        let rollback = Envelope::ok(serde_json::json!({
+            "plan_digest": digest(),
+            "intent": {"kind": "rollback", "keep_key_files": false, "items": ["ssh"]},
+            "mode": "automatic",
+            "files": [
+                {"role": "user_ssh", "path_display": "~/.ssh/config",
+                 "before_sha256": "11".repeat(32), "after_sha256": "22".repeat(32),
+                 "diff": "-# >>> heimdall managed include\n-Include ~/.config/heimdall/ssh_config\n"},
+                {"role": "managed_ssh", "path_display": "~/.config/heimdall/ssh_config",
+                 "before_sha256": sha, "diff": format!("~ removed ssh_config: 4321 lines, sha256 {sha}\n")},
+            ],
+            "aliases": [],
+            "consent": {"decision_required": true, "reasons": [{"item": "alpha", "kind": "exposes_inherited"}]},
+            "unaffected_names_checked": 0,
+        }));
+        let mut s = Recorder::new()
+            .answer("setup.preview", rollback)
+            .answer("setup.rollback", approval(Code::ApprovalRequired))
+            .answer("inspect", listing(&digest()));
+        let mut p = script(&[Answer::No]);
+        let out = block_on(setup_flow(
+            &mut s,
+            &mut p,
+            &tty(),
+            &rollback_intent(false),
+            rid(),
+        ));
+        assert_eq!(out.exit, ExitCode::InteractionRequired);
+        assert_eq!(p.shown.len(), 1);
+        let shown = &p.shown[0];
+        assert!(
+            shown.contains(&format!(
+                "    removes Heimdall's own file ssh_config: 4321 lines, sha256 {sha}\n"
+            )),
+            "{shown}"
+        );
+        assert!(
+            shown.contains("    -Include ~/.config/heimdall/ssh_config\n"),
+            "{shown}"
+        );
+        assert!(!shown.contains("\n    ~ removed"), "{shown}");
+    }
+
     /// Any answer but `yes` (no, end of input, Ctrl-C, timeout, unreadable) sends
     /// nothing more and exits 3 `INTERACTION_REQUIRED` with the decision reference.
     #[test]

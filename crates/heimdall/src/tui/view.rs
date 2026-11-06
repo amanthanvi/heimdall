@@ -1322,7 +1322,8 @@ fn prompt_line(verb: &str, input: &str) -> Line<'static> {
 }
 
 /// The diff's before and after lines, file by file: each file's heading starts on the
-/// same row in both columns, so the side-by-side form lines up.
+/// same row in both columns, so the side-by-side form lines up. The removal of one of
+/// Heimdall's own files is its summary line, in the before column.
 fn diff_columns(diff: &str) -> (Vec<String>, Vec<String>) {
     let (mut before, mut after) = (Vec::new(), Vec::new());
     let level = |b: &mut Vec<String>, a: &mut Vec<String>| {
@@ -1335,6 +1336,10 @@ fn diff_columns(diff: &str) -> (Vec<String>, Vec<String>) {
             level(&mut before, &mut after);
             before.push(format!("{}:", clean(path)));
             after.push(format!("{}:", clean(path)));
+        } else if let Some(text) = crate::output::own_removal_text(line) {
+            // ADR-0007 §12.34 item 7: a file of Heimdall's own that the plan removes is one
+            // summary line (name, line count, SHA-256), under Before: what is going away.
+            before.push(format!("  {}", clean(&text)));
         } else if let Some(l) = line.strip_prefix('-') {
             before.push(format!("  {}", clean(l)));
         } else if let Some(l) = line.strip_prefix('+') {
@@ -2321,6 +2326,76 @@ mod tests {
                 .any(|r| r.contains("Before") && r.contains("After")),
             "{rows:#?}"
         );
+    }
+
+    /// The SHA-256 of a removed file in the fixtures below.
+    const OWN_SHA: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    /// A rollback's diff text as the writer builds it (ADR-0007 §12.34 item 7): the
+    /// owner's file whole, P and a key file as one summary line each.
+    fn rollback_diff() -> String {
+        format!(
+            "--- ~/.ssh/config\n-# >>> heimdall managed include\n-Include ~/.config/heimdall/ssh_config\n-# <<< heimdall managed include\n--- ~/.config/heimdall/ssh_config\n~ removed ssh_config: 1234 lines, sha256 {OWN_SHA}\n--- ~/.config/heimdall/keys/abc.pub\n~ removed abc.pub: 1 line, sha256 {OWN_SHA}\n"
+        )
+    }
+
+    /// ADR-0007 §12.34 item 7: the before and after columns of a rollback's diff. The
+    /// removal of a file of Heimdall's own is one line under Before, said as a removal
+    /// (name, line count, SHA-256); the After column has nothing under it; the owner's file
+    /// is whole.
+    #[test]
+    fn a_removed_file_of_heimdalls_own_is_a_summary_line_under_before() {
+        let (before, after) = diff_columns(&rollback_diff());
+        assert_eq!(
+            before,
+            [
+                "~/.ssh/config:".to_owned(),
+                "  # >>> heimdall managed include".to_owned(),
+                "  Include ~/.config/heimdall/ssh_config".to_owned(),
+                "  # <<< heimdall managed include".to_owned(),
+                "~/.config/heimdall/ssh_config:".to_owned(),
+                format!("  removes Heimdall's own file ssh_config: 1234 lines, sha256 {OWN_SHA}"),
+                "~/.config/heimdall/keys/abc.pub:".to_owned(),
+                format!("  removes Heimdall's own file abc.pub: 1 line, sha256 {OWN_SHA}"),
+            ]
+        );
+        assert!(
+            after.iter().all(|l| l.is_empty() || l.ends_with(':')),
+            "nothing is added: {after:?}"
+        );
+    }
+
+    /// The same diff in the decision modal, at 120×40 and 40×12: every summary line is
+    /// readable in full (never cut) and is not the writer's raw mark.
+    #[test]
+    fn a_rollback_decision_shows_the_summary_lines_in_full() {
+        for (w, h) in SIZES {
+            let mut app = populated();
+            let d = app
+                .catalog
+                .decisions
+                .iter_mut()
+                .find(|d| d.id == "dec_apply1")
+                .unwrap();
+            d.request["diff_text"] = serde_json::json!(rollback_diff());
+            press(&mut app, &[Key::Char('4'), Key::Enter]);
+            let everything = read_everything(&app, w, h);
+            let text = squash(&everything.concat());
+            for must in [
+                format!("removes Heimdall's own file ssh_config: 1234 lines, sha256 {OWN_SHA}"),
+                format!("removes Heimdall's own file abc.pub: 1 line, sha256 {OWN_SHA}"),
+                "Include ~/.config/heimdall/ssh_config".to_owned(),
+            ] {
+                assert!(
+                    text.contains(&squash(&must)),
+                    "{w}x{h}: {must:?} is not readable in full: {everything:#?}"
+                );
+            }
+            assert!(
+                !text.contains(&squash("~ removed")),
+                "{w}x{h}: the raw mark is not shown"
+            );
+        }
     }
 
     fn inventory(n: usize) -> Vec<String> {

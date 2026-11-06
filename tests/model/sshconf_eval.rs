@@ -2710,7 +2710,223 @@ fn w5c_include_variables_and_tokens_are_literal_only_for_9_6p1() {
     };
     assert_eq!(at(CLIENT_9_6P1).as_deref(), Some("2965"));
     assert_eq!(at(ACCEPTING_CLIENT).as_deref(), Some("2962"));
-    assert_eq!(at(OpenSshVersion::MINIMUM).as_deref(), Some("2962"));
+    // ADR-0007 §12.35 item 1 (N01): the unknown version is neither reading. It used to
+    // return the expanded file's port as determined, which omits the literal file the
+    // 9.6p1 client reads.
+    assert_eq!(at(OpenSshVersion::MINIMUM), None);
+    let ev = eval_src(&tokens, &qv("tok-x", OpenSshVersion::MINIMUM));
+    assert!(has_reason(&ev, &UnresolvedReason::ClientBehaviourUnknown));
+}
+
+/// ADR-0007 §12.35 item 1 (N01), the reviewer's `inc-%h.conf` case. The literal file
+/// `inc-%h.conf` (read by 9.6p1) sets port 2965 and a `ProxyCommand`; the expanded file
+/// `inc-tok-x.conf` (read by 10.5p1) sets port 2962 and no proxy. Each observed client
+/// keeps its own answer, determined; a client the observations do not settle (the unknown
+/// version, one between 9.6p1 and 10.5p1, one below) may read either file, so the
+/// evaluation is undetermined: the argument is unresolved with `client_behaviour_unknown`,
+/// the expanded file's port is a candidate and an opaque point stands for the literal
+/// file (its port and its `ProxyCommand`).
+#[test]
+fn n01_token_include_is_undetermined_unless_the_client_is_settled() {
+    let src = source()
+        .with_file(USER_CONFIG, "Include /hm/inc/inc-%h.conf\n")
+        .with_file("/hm/inc/inc-tok-x.conf", "Host tok-x\n    Port 2962\n")
+        .with_file(
+            "/hm/inc/inc-%h.conf",
+            "Host tok-x\n    Port 2965\n    ProxyCommand hm-literal-proxy %h %p\n",
+        );
+    let at = |version| eval_src(&src, &qv("tok-x", version));
+    let determined = |ev: &Evaluation| behavior_state(&relevant(ev)).determined;
+
+    // The observed clients stay determined, each with what it reads.
+    let ev = at(CLIENT_9_6P1);
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2965"));
+    assert_eq!(
+        det1(&ev, KnownKeyword::ProxyCommand).as_deref(),
+        Some("hm-literal-proxy %h %p")
+    );
+    assert!(!has_reason(&ev, &UnresolvedReason::ClientBehaviourUnknown));
+    assert!(determined(&ev), "{:?}", ev.unresolved);
+    let ev = at(ACCEPTING_CLIENT);
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2962"));
+    assert!(unset(&ev, KnownKeyword::ProxyCommand));
+    assert!(!has_reason(&ev, &UnresolvedReason::ClientBehaviourUnknown));
+    assert!(determined(&ev), "{:?}", ev.unresolved);
+
+    // Unsettled: the unknown version, between the observations, below them, and 10.3p1
+    // (its row records `${VAR}` but nothing for `%`).
+    let between = |major, minor, portable| OpenSshVersion {
+        major,
+        minor,
+        portable: Some(portable),
+    };
+    for version in [
+        OpenSshVersion::MINIMUM,
+        between(9, 7, 1),
+        between(9, 6, 2),
+        V_10_0P1,
+        between(10, 4, 1),
+        between(9, 5, 2),
+        V_10_3P1,
+        V_11_0P1,
+    ] {
+        let ev = at(version);
+        assert_eq!(det1(&ev, KnownKeyword::Port), None, "{version:?}");
+        let ports = undet(&ev, KnownKeyword::Port).unwrap_or_default();
+        assert!(ports.contains(&"2962".to_owned()), "{version:?}: {ports:?}");
+        assert!(
+            ports.contains(&String::new()),
+            "{version:?}: the opaque point stands for the literal file: {ports:?}"
+        );
+        let proxy = undet(&ev, KnownKeyword::ProxyCommand);
+        assert_eq!(proxy, Some(vec![String::new()]), "{version:?}");
+        assert!(!determined(&ev), "{version:?}");
+        let at_include: Vec<_> = ev
+            .unresolved
+            .iter()
+            .filter(|u| u.reason == UnresolvedReason::ClientBehaviourUnknown)
+            .map(|u| u.span.line)
+            .collect();
+        assert_eq!(at_include, [1], "{version:?}: {:?}", ev.unresolved);
+        assert_eq!(
+            UnresolvedReason::ClientBehaviourUnknown.as_str(),
+            "client_behaviour_unknown"
+        );
+        // The opaque point may run anything, so the probes list it as an executing
+        // construct (fail closed).
+        assert!(
+            executing_constructs(&ev).iter().any(|s| s.line == 1),
+            "{version:?}"
+        );
+    }
+}
+
+/// ADR-0007 §12.35 item 1: `${VAR}` in an `Include` is undetermined on an unsettled
+/// client with the new reason as well as `environment_reference`, and a client
+/// observed to expand it has only `environment_reference`; an `Include` without `%` or
+/// `${…}` reads the same on every client and stays determined; one under a false section
+/// is read parse only and adds no opaque value.
+#[test]
+fn n01_include_without_an_expandable_construct_stays_determined_and_a_false_section_hides_it() {
+    let plain = source()
+        .with_file(USER_CONFIG, "Include /hm/inc/plain.conf\n")
+        .with_file("/hm/inc/plain.conf", "Host box\n    Port 2970\n");
+    for version in [
+        OpenSshVersion::MINIMUM,
+        CLIENT_9_6P1,
+        ACCEPTING_CLIENT,
+        V_10_3P1,
+    ] {
+        let ev = eval_src(&plain, &qv("box", version));
+        assert_eq!(
+            det1(&ev, KnownKeyword::Port).as_deref(),
+            Some("2970"),
+            "{version:?}"
+        );
+        assert!(
+            !has_reason(&ev, &UnresolvedReason::ClientBehaviourUnknown),
+            "{version:?}"
+        );
+    }
+    let var = source()
+        .with_file(USER_CONFIG, "Include /hm/inc/${HM_V}.conf\n")
+        .with_file("/hm/inc/hmexpanded.conf", "Host box\n    Port 2971\n")
+        .with_env("HM_V", "hmexpanded");
+    for version in [OpenSshVersion::MINIMUM, V_10_0P1] {
+        let ev = eval_src(&var, &qv("box", version));
+        assert!(has_reason(&ev, &UnresolvedReason::ClientBehaviourUnknown));
+        assert!(has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+        assert_eq!(det1(&ev, KnownKeyword::Port), None, "{version:?}");
+    }
+    for version in [ACCEPTING_CLIENT, V_10_3P1] {
+        let ev = eval_src(&var, &qv("box", version));
+        assert!(!has_reason(&ev, &UnresolvedReason::ClientBehaviourUnknown));
+        assert!(has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+    }
+    // Under a false section the include is parse only: no value is added, so the later
+    // determined value stays determined.
+    let hidden = source()
+        .with_file(
+            USER_CONFIG,
+            "Host nomatch\n    Include /hm/inc/inc-%h.conf\nHost box\n    Port 2972\n",
+        )
+        .with_file("/hm/inc/inc-box.conf", "Host box\n    Port 2973\n");
+    let ev = eval_src(&hidden, &qv("box", OpenSshVersion::MINIMUM));
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2972"));
+}
+
+/// ADR-0007 §12.35 item 1: `%` tokens or `${VAR}` in `User` and `SetEnv` make the value
+/// undetermined on a client the observations do not settle, with the new reason. 9.6p1
+/// takes them literally (determined as written, no reason); 10.5p1 is observed to expand
+/// them and Heimdall keeps the value as written, as before; 10.3p1's row records
+/// `${VAR}` only, so `%` is unsettled there and `${VAR}` is not. `IdentityFile` is
+/// not gated.
+#[test]
+fn n01_user_and_setenv_tokens_are_undetermined_unless_the_client_is_settled() {
+    let text = "Host box\n    User u%h\n    SetEnv HMSET=%h\n    IdentityFile ~/.ssh/id_%h\n";
+    let src = source().with_file(USER_CONFIG, text);
+    let reason_lines = |ev: &Evaluation| -> Vec<u32> {
+        ev.unresolved
+            .iter()
+            .filter(|u| u.reason == UnresolvedReason::ClientBehaviourUnknown)
+            .map(|u| u.span.line)
+            .collect()
+    };
+    for version in [CLIENT_9_6P1, ACCEPTING_CLIENT] {
+        let ev = eval_src(&src, &qv("box", version));
+        assert_eq!(det1(&ev, KnownKeyword::User).as_deref(), Some("u%h"));
+        assert_eq!(det1(&ev, KnownKeyword::SetEnv).as_deref(), Some("HMSET=%h"));
+        assert!(reason_lines(&ev).is_empty(), "{version:?}");
+    }
+    for version in [
+        OpenSshVersion::MINIMUM,
+        V_10_0P1,
+        V_10_3P1,
+        V_11_0P1,
+        OpenSshVersion {
+            major: 9,
+            minor: 6,
+            portable: Some(2),
+        },
+    ] {
+        let ev = eval_src(&src, &qv("box", version));
+        assert_eq!(det1(&ev, KnownKeyword::User), None, "{version:?}");
+        assert_eq!(
+            undet(&ev, KnownKeyword::User),
+            Some(vec!["u%h".to_owned()]),
+            "{version:?}"
+        );
+        assert_eq!(det1(&ev, KnownKeyword::SetEnv), None, "{version:?}");
+        assert_eq!(
+            undet(&ev, KnownKeyword::SetEnv),
+            Some(vec!["HMSET=%h".to_owned()]),
+            "{version:?}"
+        );
+        assert_eq!(reason_lines(&ev), [2, 3], "{version:?}: not IdentityFile");
+        // The ungated keyword is read as the manual says: determined entry.
+        assert_eq!(
+            list(&ev, KnownKeyword::IdentityFile),
+            vec![("~/.ssh/id_%h".to_owned(), true)],
+            "{version:?}"
+        );
+    }
+    // `${VAR}`: 10.3p1 records it as expanding (no new reason, still an environment
+    // reference); the unknown version gets both reasons.
+    let vars = source().with_file(USER_CONFIG, "Host box\n    User u${HM_V}\n");
+    let ev = eval_src(&vars, &qv("box", V_10_3P1));
+    assert!(reason_lines(&ev).is_empty());
+    assert!(has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+    let ev = eval_src(&vars, &qv("box", OpenSshVersion::MINIMUM));
+    assert_eq!(reason_lines(&ev), [2]);
+    assert!(has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+    // A user from the command line wins and is never read from the file (F1), so the
+    // unsettled `%` in `User` decides nothing and is not reported.
+    let query = Query {
+        user: Some("cli".to_owned()),
+        ..qv("box", OpenSshVersion::MINIMUM)
+    };
+    let ev = eval_src(&src, &query);
+    assert_eq!(reason_lines(&ev), [3], "{:?}", ev.unresolved);
 }
 
 /// §12.32 item 11 (c): the first-pass and final-pass cases of the recorded runs

@@ -89,9 +89,10 @@ use heimdall_contract::ids::{EnvironmentId, IdentityId, OperationId, RequestId};
 use heimdall_contract::provider::ProbeLevel;
 use heimdall_contract::request::RequiredCapabilities;
 use heimdall_contract::setup::{
-    ConflictKind, ConsentNeed, ConsentReasonKind, FileOutcome, FileOutcomeState, ItemOutcomeKind,
-    PlanDigest, PreviewIntent, ProjectionFileRole, ProjectionItem, RemainingArtifact,
-    RemainingArtifactKind, RepairResolution, SetupMode, SetupPlan, SetupRequest, SetupResult,
+    ConflictKind, ConsentNeed, ConsentReasonKind, FileChange, FileOutcome, FileOutcomeState,
+    ItemOutcomeKind, PlanDigest, PreviewIntent, ProjectionFileRole, ProjectionItem,
+    RemainingArtifact, RemainingArtifactKind, RepairResolution, SetupMode, SetupPlan, SetupRequest,
+    SetupResult,
 };
 use heimdall_contract::{Code, OperationState, Timestamp};
 use heimdall_domain::catalog::{DestinationDefinition, IdentityRecord};
@@ -459,15 +460,52 @@ fn summary_of(plan: &ProjectionPlan) -> ProjectionSummary {
     })
 }
 
-/// ⟨M02⟩ ADR-0007 §12.32 item 5: whether `plan`'s full diff does not fit
+/// The most a summary line of a removed file of Heimdall's own can be (its name, a line
+/// count and a SHA-256 are a few hundred bytes). A removal whose `diff` is longer is not a
+/// summary, so it is shown whole and counts: nothing but a summary is exempt.
+const OWN_REMOVAL_SUMMARY_MAX: usize = 1 << 10;
+
+/// Whether `f` removes one of Heimdall's own files (P, P_git, a key file) and shows it as
+/// the writer's summary line, not the removed content (ADR-0007 §12.34 item 7). A file that
+/// is created or changed, however it is Heimdall's, shows its diff whole and counts.
+fn removes_own_file(f: &FileChange) -> bool {
+    matches!(
+        f.role,
+        ProjectionFileRole::ManagedSsh
+            | ProjectionFileRole::KeyFile
+            | ProjectionFileRole::GitManaged
+    ) && f.before_sha256.is_some()
+        && f.after_sha256.is_none()
+        && f.diff.len() <= OWN_REMOVAL_SUMMARY_MAX
+}
+
+/// ⟨M02⟩ ADR-0007 §12.32 item 5, §12.34 item 7: whether `plan`'s diff does not fit
 /// [`ProjectionSummary::MAX_DIFF_TEXT`] (`MAX_DIFF_BYTES`). Both texts a client can be sent
 /// count: the plan's files' diffs together (what the preview shows and the decision
 /// summary falls back to) and the writer's own summary text (which has a path header per
 /// file).
+///
+/// What does **not** count is the removal of Heimdall's own files: each is a summary line
+/// ([`OWN_REMOVAL_SUMMARY_MAX`] at most; its content was shown in full when the owner
+/// approved it), so a rollback or an uninstall is never blocked by the size of a file
+/// Heimdall wrote. The changes to the files the owner owns, and to Heimdall's own files
+/// that are created or changed, are shown whole and alone count. A plan whose such changes
+/// exceed the bound is still refused.
 fn diff_exceeds_bound(plan: &ProjectionPlan) -> bool {
-    let shown: usize = plan.view.files.iter().map(|f| f.diff.len()).sum();
+    let mut shown = 0_usize;
+    // The summary text's share of those removals: a `--- <path>` heading and the line.
+    let mut summarized = 0_usize;
+    for f in &plan.view.files {
+        if removes_own_file(f) {
+            summarized += "--- ".len() + f.path_display.len() + 1 + f.diff.len();
+        } else {
+            shown += f.diff.len();
+        }
+    }
     shown > ProjectionSummary::MAX_DIFF_TEXT
-        || plan.summary.as_ref().is_some_and(|s| !s.within_bounds())
+        || plan.summary.as_ref().is_some_and(|s| {
+            s.diff_text.len().saturating_sub(summarized) > ProjectionSummary::MAX_DIFF_TEXT
+        })
 }
 
 /// A plan whose full diff does not fit: refused before anything is journaled or written,
@@ -2481,6 +2519,128 @@ mod tests {
         assert_eq!(summary_of(&over).diff_text.len(), max + 10);
         let over = plan_with(&[1], Some(max + 10));
         assert_eq!(summary_of(&over).diff_text.len(), max + 10);
+    }
+
+    /// A file change of `role` that has a file before (`before`) and after (`after`), with
+    /// a diff of `n` bytes.
+    fn change_of(role: ProjectionFileRole, before: bool, after: bool, n: usize) -> FileChange {
+        FileChange {
+            role,
+            path_display: "~/f".to_owned(),
+            before_sha256: before.then(|| "a".repeat(64)),
+            after_sha256: after.then(|| "b".repeat(64)),
+            diff: "x".repeat(n),
+        }
+    }
+
+    /// `plan_with`'s plan, over these changes and the writer's summary text built the way
+    /// the writer builds it (a `--- <path>` heading, then the diff, per change).
+    fn plan_of(changes: Vec<FileChange>) -> ProjectionPlan {
+        let mut plan = plan_with(&[], None);
+        let text: String = changes
+            .iter()
+            .map(|c| format!("--- {}\n{}", c.path_display, c.diff))
+            .collect();
+        plan.view.files = changes;
+        plan.summary = Some(ProjectionSummary {
+            intent: SummaryIntent::Rollback,
+            added_aliases: Vec::new(),
+            changed_aliases: Vec::new(),
+            removed_aliases: Vec::new(),
+            files: Vec::new(),
+            git: false,
+            restore: Vec::new(),
+            diff_text: text,
+        });
+        plan
+    }
+
+    /// ADR-0007 §12.34 item 7: the removal of Heimdall's own files (P, P_git, a key file)
+    /// is a summary line that does not count toward the bound; the changes to the owner's
+    /// files, and to Heimdall's own files that are created or changed, are shown whole and
+    /// alone count. So a rollback is never refused for the size of a file Heimdall wrote,
+    /// while a too-large owner-file change still is. Only a summary is exempt: a removal
+    /// whose text is longer than a summary line is content and counts.
+    #[test]
+    fn only_owner_files_and_whole_diffs_count_toward_the_bound() {
+        use ProjectionFileRole as R;
+        let max = ProjectionSummary::MAX_DIFF_TEXT;
+        let cap = OWN_REMOVAL_SUMMARY_MAX;
+        let heading = "--- ~/f\n".len();
+        // The owner's file fills the bound exactly; the summary lines of the three kinds of
+        // Heimdall's own removal beside it do not add to it, in the files or in the text.
+        for role in [R::ManagedSsh, R::KeyFile, R::GitManaged] {
+            let plan = plan_of(vec![
+                change_of(R::UserSsh, true, true, max - heading),
+                change_of(role, true, false, 200),
+                change_of(role, true, false, cap),
+            ]);
+            assert!(!diff_exceeds_bound(&plan), "{role:?} summary is exempt");
+            // The same removal as content (one byte past a summary) counts: refused.
+            let plan = plan_of(vec![
+                change_of(R::UserSsh, true, true, max - cap),
+                change_of(role, true, false, cap + 1),
+            ]);
+            assert!(
+                diff_exceeds_bound(&plan),
+                "{role:?}: only a summary is exempt"
+            );
+        }
+        // The owner's files count, removal or change, at exactly the bound and one over.
+        for role in [R::UserSsh, R::GitInclude] {
+            for (before, after) in [(true, false), (true, true), (false, true)] {
+                let at = plan_of(vec![change_of(role, before, after, max - heading)]);
+                assert!(!diff_exceeds_bound(&at), "{role:?} at the bound fits");
+                let over = plan_of(vec![change_of(role, before, after, max + 1)]);
+                assert!(diff_exceeds_bound(&over), "{role:?} one over is refused");
+                // A summary-sized removal beside the owner's file is exempt, but an owner's
+                // file that is a summary's size is still the owner's: it counts.
+                let beside = plan_of(vec![
+                    change_of(role, before, after, max - heading),
+                    change_of(R::ManagedSsh, true, false, 200),
+                ]);
+                assert!(!diff_exceeds_bound(&beside), "{role:?}");
+                let small = plan_of(vec![
+                    change_of(role, before, after, 200),
+                    change_of(R::KeyFile, true, false, 200),
+                ]);
+                assert!(!diff_exceeds_bound(&small));
+            }
+            let together = plan_of(vec![
+                change_of(R::UserSsh, true, true, max / 2),
+                change_of(role, true, true, max / 2 + 1),
+            ]);
+            assert!(diff_exceeds_bound(&together), "the owner's changes add up");
+        }
+        // Heimdall's own file that is created or changed is shown whole, so it counts,
+        // whatever its size.
+        for (before, after) in [(false, true), (true, true)] {
+            let plan = plan_of(vec![change_of(R::ManagedSsh, before, after, max + 1)]);
+            assert!(diff_exceeds_bound(&plan), "created or changed P counts");
+            let plan = plan_of(vec![change_of(R::ManagedSsh, before, after, 200)]);
+            assert!(!diff_exceeds_bound(&plan));
+        }
+        // A rollback of P, key files and P_git beside owner changes that fit, fits ...
+        let rollback = plan_of(vec![
+            change_of(R::UserSsh, true, true, max / 2),
+            change_of(R::ManagedSsh, true, false, 300),
+            change_of(R::KeyFile, true, false, 300),
+            change_of(R::GitInclude, true, true, max / 4),
+            change_of(R::GitManaged, true, false, 300),
+        ]);
+        assert!(!diff_exceeds_bound(&rollback));
+        // ... but a too-large owner-file change beside them is still refused, by the files
+        // and by the writer's text alone.
+        let mut refused = rollback.clone();
+        refused.view.files[0].diff = "x".repeat(max + 1);
+        assert!(diff_exceeds_bound(&refused));
+        let mut refused = rollback.clone();
+        let summary = refused.summary.as_mut().unwrap();
+        summary.diff_text.push_str(&"x".repeat(max));
+        assert!(
+            diff_exceeds_bound(&refused),
+            "the writer's text counts what is not a removal"
+        );
     }
 
     /// ADR-0007 §12.22 item 3 (W3b-gaps): only outcomes whose every unapplied item

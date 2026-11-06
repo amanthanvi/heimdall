@@ -1095,6 +1095,270 @@ async fn a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_
     assert_eq!(w.writer.applies.load(Ordering::SeqCst), 0);
 }
 
+/// The runtime's writer, but the first file of a plan with `role` carries `pad` more bytes
+/// of diff (and of the writer's summary text): a file the real writer would never show
+/// that large, in the place the bound is applied.
+struct PaddedFile {
+    inner: Arc<dyn ProjectionWriter>,
+    role: heimdall_contract::setup::ProjectionFileRole,
+    pad: usize,
+}
+
+impl ProjectionWriter for PaddedFile {
+    fn preview(
+        &self,
+        spec: &ProjectionSpec,
+        intent: &PreviewIntent,
+    ) -> Result<ProjectionPlan, PreviewError> {
+        let mut plan = self.inner.preview(spec, intent)?;
+        let extra = format!("-{}\n", "x".repeat(self.pad.saturating_sub(2)));
+        if let Some(f) = plan.view.files.iter_mut().find(|f| f.role == self.role) {
+            f.diff.push_str(&extra);
+        }
+        if let Some(s) = plan.summary.as_mut() {
+            s.diff_text.push_str(&extra);
+        }
+        Ok(plan)
+    }
+    fn apply(
+        &self,
+        intent: &SetupIntent,
+        sink: &mut dyn StageSink,
+    ) -> Result<ProjectionReceipt, ReconcileError> {
+        self.inner.apply(intent, sink)
+    }
+    fn reconcile(
+        &self,
+        intent: &SetupIntent,
+        receipts: &[StageReceipt],
+        sink: &mut dyn StageSink,
+    ) -> Result<ProjectionReconcile, ReconcileError> {
+        self.inner.reconcile(intent, receipts, sink)
+    }
+    fn observe(&self, record: &ProjectionRecord, aliases: &[String]) -> Vec<AliasObservation> {
+        self.inner.observe(record, aliases)
+    }
+    fn observe_held(
+        &self,
+        intent: &SetupIntent,
+        receipts: &[StageReceipt],
+    ) -> Result<Vec<HeldStep>, ReconcileError> {
+        self.inner.observe_held(intent, receipts)
+    }
+}
+
+impl World {
+    /// `count` more managed aliases `<prefix>000..` with long host names, on `identity`.
+    async fn long_aliases(&self, identity: &IdentityId, prefix: &str, count: usize) {
+        let label = "a".repeat(60);
+        for i in 0..count {
+            let alias = format!("{prefix}{i:03}");
+            self.catalog(
+                &attended(),
+                CatalogRequest::UpsertDestination {
+                    destination: DestinationSpec {
+                        id: DestinationId::parse(&format!("dst-{alias}")).unwrap(),
+                        alias: alias.clone(),
+                        definition: DestinationDefinitionSpec::Managed {
+                            hostname: format!("{label}.{label}.{label}.{alias}.example.invalid"),
+                            port: None,
+                            account: AccountName::parse("fixture").unwrap(),
+                            identity: identity.clone(),
+                        },
+                        label: None,
+                    },
+                    request_id: rid(&format!("r-dest-{alias}")),
+                },
+            )
+            .await
+            .unwrap();
+        }
+    }
+
+    /// A World whose P is far over `MAX_DIFF_BYTES` although no single apply's diff was
+    /// (three applies of 80 long aliases each, every one approved): the way P gets past the
+    /// bound is growth in steps. Returns the owner's original user file.
+    async fn with_a_p_well_over_the_bound() -> (World, Vec<u8>) {
+        use heimdall_contract::setup::MAX_DIFF_BYTES;
+        let w = World::new().await;
+        std::fs::write(w.user(), "Host other\n    User fixture\n").unwrap();
+        let original = std::fs::read(w.user()).unwrap();
+        let identity = w.adopt("r-adopt-big").await;
+        for (n, prefix) in ["a", "b", "c"].into_iter().enumerate() {
+            w.long_aliases(&identity, prefix, 80).await;
+            let (op, _) = w.apply_approved(&format!("r-apply-big-{n}")).await;
+            assert_eq!(w.op(&op).state, OperationState::Succeeded);
+        }
+        let p = std::fs::metadata(w.p()).unwrap().len();
+        assert!(
+            usize::try_from(p).unwrap() > MAX_DIFF_BYTES + MAX_DIFF_BYTES / 4,
+            "P is {p} bytes"
+        );
+        (w, original)
+    }
+}
+
+fn rollback_ssh() -> PreviewIntent {
+    PreviewIntent::Rollback {
+        keep_key_files: false,
+        items: [ProjectionItem::Ssh].into_iter().collect(),
+    }
+}
+
+/// ADR-0007 §12.34 item 7: a rollback is never blocked by the size of what Heimdall wrote.
+/// P is well over `MAX_DIFF_BYTES` (it grew past it across approved applies); the rollback
+/// is previewed with P and the key file as one summary line each (name, line count,
+/// SHA-256 of the removed content) and the owner's file change whole, within the bound,
+/// and applies: the user file is back to its original bytes, the record is empty and the
+/// files of Heimdall's own are handed to the cleaner.
+#[tokio::test]
+async fn a_rollback_of_a_p_well_over_the_bound_is_previewed_and_applied() {
+    use heimdall_contract::setup::{MAX_DIFF_BYTES, ProjectionFileRole as Role};
+    use heimdall_localenv::projection::plan::OwnRemoval;
+    let (w, original) = World::with_a_p_well_over_the_bound().await;
+    let p_bytes = std::fs::read(w.p()).unwrap();
+    let plan = w.preview(rollback_ssh()).await.unwrap();
+    let diff_of = |role: Role| -> Vec<String> {
+        plan.files
+            .iter()
+            .filter(|f| f.role == role)
+            .map(|f| f.diff.clone())
+            .collect()
+    };
+    assert_eq!(
+        diff_of(Role::ManagedSsh),
+        [OwnRemoval::of("ssh_config", &p_bytes).to_string()],
+        "P is one summary line"
+    );
+    let keys = diff_of(Role::KeyFile);
+    assert_eq!(keys.len(), 1, "the one key file: {keys:?}");
+    assert!(OwnRemoval::parse(keys[0].trim_end()).is_some(), "{keys:?}");
+    let user = diff_of(Role::UserSsh);
+    assert_eq!(user.len(), 1);
+    assert!(
+        user[0].contains("-# >>> heimdall managed include")
+            && user[0].lines().all(|l| l.starts_with('-')),
+        "the owner's file is whole: {}",
+        user[0]
+    );
+    let shown: usize = plan.files.iter().map(|f| f.diff.len()).sum();
+    assert!(shown < MAX_DIFF_BYTES, "{shown}");
+    assert!(
+        p_bytes.len() > 2 * shown,
+        "P alone was far more than all of it"
+    );
+    let done = w
+        .effect(
+            &unattended(),
+            "rollback",
+            &plan.plan_digest,
+            "r-rollback-big",
+        )
+        .await
+        .unwrap();
+    assert_eq!(done["__code"], serde_json::json!("OK"), "{done}");
+    assert_eq!(std::fs::read(w.user()).unwrap(), original, "byte-for-byte");
+    let record = w.record().unwrap();
+    let ssh = &record.items[&ProjectionItem::Ssh];
+    assert!(ssh.files.is_empty() && ssh.aliases.is_empty(), "{ssh:?}");
+    let resources = w
+        .store
+        .transaction(|tx| tx.projection_resources(&env_id()))
+        .unwrap();
+    assert!(!resources.is_empty());
+    assert!(resources.iter().all(|r| r.desired == ResourceState::Absent));
+}
+
+/// ADR-0007 §12.34 item 7: only the changes to the owner's files count toward the bound.
+/// A rollback whose owner-file change is one byte past `MAX_DIFF_BYTES` is still refused
+/// (`plan_too_large`, effect `none`, before anything is journaled or written), the preview
+/// and an apply of a plan previewed before alike; the same change at exactly the bound
+/// fits and applies, although the summary lines of the files of Heimdall's own that the
+/// rollback removes (P, the key file) are beside it: they do not count.
+#[tokio::test]
+async fn a_rollback_is_refused_for_its_owner_file_change_alone() {
+    use heimdall_contract::setup::{MAX_DIFF_BYTES, ProjectionFileRole as Role};
+    let mut w = World::new().await;
+    w.catalog_alpha().await;
+    std::fs::write(w.user(), "Host other\n    User fixture\n").unwrap();
+    let original = std::fs::read(w.user()).unwrap();
+    w.apply_approved("r-apply").await;
+    let fitting = w.preview(rollback_ssh()).await.unwrap();
+    let user_len: usize = fitting
+        .files
+        .iter()
+        .filter(|f| f.role == Role::UserSsh)
+        .map(|f| f.diff.len())
+        .sum();
+    let beside: usize = fitting
+        .files
+        .iter()
+        .filter(|f| f.role != Role::UserSsh)
+        .map(|f| f.diff.len())
+        .sum();
+    assert!(user_len > 0 && beside > 0, "{user_len} {beside}");
+    // The owner's change plus `extra` more bytes of it.
+    let restart = |w: &World, extra: usize| {
+        let padded: Arc<dyn ProjectionWriter> = Arc::new(PaddedFile {
+            inner: w.writer.clone(),
+            role: Role::UserSsh,
+            pad: extra,
+        });
+        OperationsConfig {
+            projection: Some(padded),
+            ..World::config_of(&w.store, &w.clock, &w.sync, &w.writer, w.limits)
+        }
+    };
+    // One byte past the bound: refused, nothing journaled or written.
+    w.ops = Operations::start(restart(&w, MAX_DIFF_BYTES - user_len + 1))
+        .await
+        .unwrap();
+    let counts = |w: &World| w.store.transaction(|tx| tx.table_counts()).unwrap();
+    let (rows, tree) = (counts(&w), w.tree());
+    let refused = |e: &OpError| {
+        assert_eq!(e.code, Code::CapabilityUnavailable, "{e:?}");
+        assert_eq!(e.reason.as_deref(), Some(reason::PLAN_TOO_LARGE), "{e:?}");
+        assert_eq!(e.effect_status, EffectStatus::None, "{e:?}");
+        assert!(e.operation_id.is_none(), "nothing is admitted: {e:?}");
+    };
+    refused(&w.preview(rollback_ssh()).await.unwrap_err());
+    refused(
+        &w.effect(
+            &unattended(),
+            "rollback",
+            &fitting.plan_digest,
+            "r-rollback-owner",
+        )
+        .await
+        .unwrap_err(),
+    );
+    assert_eq!(counts(&w), rows, "nothing was journaled");
+    assert_eq!(w.tree(), tree, "nothing was written");
+    // Exactly the bound: the owner's change alone fills it, with the removals' summary
+    // lines beside it (`beside` bytes that would not fit if they counted).
+    w.ops = Operations::start(restart(&w, MAX_DIFF_BYTES - user_len))
+        .await
+        .unwrap();
+    let plan = w.preview(rollback_ssh()).await.unwrap();
+    let total: usize = plan.files.iter().map(|f| f.diff.len()).sum();
+    assert_eq!(
+        total,
+        MAX_DIFF_BYTES + beside,
+        "the bound plus the summaries"
+    );
+    let done = w
+        .effect(
+            &unattended(),
+            "rollback",
+            &plan.plan_digest,
+            "r-rollback-fits",
+        )
+        .await
+        .unwrap();
+    assert_eq!(done["__code"], serde_json::json!("OK"), "{done}");
+    assert_eq!(std::fs::read(w.user()).unwrap(), original, "byte-for-byte");
+}
+
 #[tokio::test]
 async fn rollback_to_consented_restore_needs_no_decision() {
     let w = World::new().await;

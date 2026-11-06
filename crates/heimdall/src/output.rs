@@ -277,6 +277,22 @@ fn behaviour_column(v: &serde_json::Value) -> String {
     out
 }
 
+/// How a plan's diff line says that one of Heimdall's own files (P, P_git, a key file) is
+/// removed (ADR-0007 §12.34 item 7): the file's name, its number of lines and the SHA-256
+/// of the removed content, instead of the content. `None` when `line` is not that
+/// summary line (a diff line, or a path heading).
+#[must_use]
+pub(crate) fn own_removal_text(line: &str) -> Option<String> {
+    let r = heimdall_localenv::projection::plan::OwnRemoval::parse(line)?;
+    Some(format!(
+        "removes Heimdall's own file {}: {} line{}, sha256 {}",
+        r.name,
+        r.lines,
+        if r.lines == 1 { "" } else { "s" },
+        r.sha256
+    ))
+}
+
 /// A setup plan (`SetupPlan` wire form) for the owner: the mode and its reasons, every
 /// file with its diff, every affected alias with its before, after and **restore**
 /// columns, the consent need and the findings (ADR-0007 §5.1, §5.2).
@@ -319,6 +335,9 @@ pub fn render_plan(plan: &serde_json::Value) -> String {
         let diff = s(f, "diff");
         if !diff.is_empty() {
             for line in diff.lines() {
+                // ADR-0007 §12.34 item 7: the removal of one of Heimdall's own files is a
+                // summary line, said as such; everything else is the diff, whole.
+                let line = own_removal_text(line).unwrap_or_else(|| line.to_owned());
                 out.push_str(&format!("    {line}\n"));
             }
         }
@@ -623,6 +642,53 @@ mod tests {
             w(Code::NotFound, OperationState::Failed, None),
             ExitCode::Usage
         );
+    }
+
+    /// ADR-0007 §12.34 item 7: a plan that removes files of Heimdall's own shows each as
+    /// a removal with its name, line count and SHA-256 (not the raw writer line, not the
+    /// content); the owner's file is its diff, whole.
+    #[test]
+    fn a_plan_shows_a_removed_file_of_heimdalls_own_as_a_removal() {
+        let sha = "ab".repeat(32);
+        let plan = serde_json::json!({
+            "intent": {"kind": "rollback"},
+            "mode": "automatic",
+            "plan_digest": "plan_x",
+            "files": [
+                {
+                    "role": "user_ssh",
+                    "path_display": "~/.ssh/config",
+                    "before_sha256": "11".repeat(32),
+                    "after_sha256": "22".repeat(32),
+                    "diff": "-# >>> heimdall managed include\n-Include ~/.config/heimdall/ssh_config\n",
+                },
+                {
+                    "role": "managed_ssh",
+                    "path_display": "~/.config/heimdall/ssh_config",
+                    "before_sha256": sha,
+                    "diff": format!("~ removed ssh_config: 1234 lines, sha256 {sha}\n"),
+                },
+                {
+                    "role": "key_file",
+                    "path_display": "~/.config/heimdall/keys/k.pub",
+                    "before_sha256": sha,
+                    "diff": format!("~ removed k.pub: 1 line, sha256 {sha}\n"),
+                },
+            ],
+        });
+        let text = render_plan(&plan);
+        for line in [
+            "    -# >>> heimdall managed include\n".to_owned(),
+            "    -Include ~/.config/heimdall/ssh_config\n".to_owned(),
+            format!("    removes Heimdall's own file ssh_config: 1234 lines, sha256 {sha}\n"),
+            format!("    removes Heimdall's own file k.pub: 1 line, sha256 {sha}\n"),
+        ] {
+            assert!(text.contains(&line), "{line:?} is missing from\n{text}");
+        }
+        assert!(!text.contains("~ removed"), "{text}");
+        // A line that merely looks like it is a diff line like any other.
+        assert!(own_removal_text("-~ removed x: 1 line, sha256 00").is_none());
+        assert!(own_removal_text("~ removed x: 1 line, sha256 short").is_none());
     }
 
     #[test]

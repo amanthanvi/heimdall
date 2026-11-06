@@ -23,8 +23,8 @@ use heimdall_contract::setup::{GitFileResolution, GitGlobalFileKind};
 use heimdall_localenv::clients::{ClientInventory, ClientsConfig, resolve_clients};
 use heimdall_localenv::env::Env;
 use heimdall_localenv::git::{
-    GitGlobalObservation, observe_global, parse_origin_values, parse_scope_value,
-    resolve_global_file, resolve_run_selection, value_digest,
+    GitGlobalObservation, observe_global, observe_global_for, origin_of, parse_origin_values,
+    parse_scope_value, resolve_global_file, resolve_run_selection, value_digest,
 };
 use heimdall_localenv::local_query::LocalQueries;
 use heimdall_localenv::paths::SshPaths;
@@ -52,6 +52,11 @@ impl GitHome {
         let git = find_program("git").expect("git on PATH");
         let mut vars = BTreeMap::new();
         vars.insert("GIT_CONFIG_NOSYSTEM".to_owned(), OsString::from("1"));
+        // Never the runner's XDG directory, whatever it exports (M02 wave 5d).
+        vars.insert(
+            "XDG_CONFIG_HOME".to_owned(),
+            home.join(".config").into_os_string(),
+        );
         GitHome {
             _scratch: scratch,
             root,
@@ -107,6 +112,16 @@ impl GitHome {
 
     fn observe(&self) -> GitGlobalObservation {
         observe_global(&self.env(), &self.inventory(), LocalQueries::Enabled)
+    }
+
+    /// [`Self::observe`] with `managed` as Heimdall's own P_git (ADR-0007 §12.34 item 8).
+    fn observe_for(&self, managed: &Path) -> GitGlobalObservation {
+        observe_global_for(
+            &self.env(),
+            &self.inventory(),
+            LocalQueries::Enabled,
+            managed,
+        )
     }
 
     /// Run the local `git` with exactly this test's environment.
@@ -609,4 +624,250 @@ fn git_unreadable_include_makes_item_not_applicable() {
         "the depth bound was not enforced"
     );
     assert_eq!(obs.not_applicable_reason(), Some("git_config_unreadable"));
+}
+
+// --- Heimdall's own value (ADR-0007 §12.34 item 8, M02 wave 5d) -------------------------
+
+/// Heimdall's P_git as the writer renders it, in shape: one `core.sshCommand`.
+const OWN_FILE: &str =
+    "# heimdall managed git configuration (fixture)\n[core]\n\tsshCommand = \"'/usr/bin/ssh'\"\n";
+
+/// `p` as a Git configuration path value: forward slashes, which Git reads on every
+/// platform (a backslash is an escape in a quoted value).
+fn git_path(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
+/// The block B_git, in shape: a marked unconditional `[include]` naming `managed`.
+fn include_of(managed: &Path) -> String {
+    format!(
+        "# >>> heimdall managed include (id hm-0123456789abcdef); fixture\n[include]\n\tpath = \"{}\"\n# <<< heimdall managed include (id hm-0123456789abcdef)\n",
+        git_path(managed)
+    )
+}
+
+/// After the Git item is applied, B_git includes P_git, which holds Heimdall's own
+/// `core.sshCommand`. `observe_global_for` splits it out; `observe_global` (the
+/// doctor's) still counts it, as it always has.
+#[test]
+fn git_own_value_through_the_include_is_split_out_of_values() {
+    let h = GitHome::new();
+    let managed = h.write("heimdall/gitconfig", OWN_FILE);
+    h.write(".gitconfig", &include_of(&managed));
+
+    let obs = h.observe_for(&managed);
+    assert!(obs.values.is_empty(), "{:?}", obs.values);
+    assert_eq!(obs.own_values.len(), 1, "{:?}", obs.own_values);
+    let own = &obs.own_values[0];
+    assert_eq!(
+        (own.scope, own.count, own.conditional),
+        (GitScope::Global, 1, false)
+    );
+    assert_eq!(own.origin_display, origin_of(&h.env(), &managed));
+    assert!(
+        own.origin_display
+            .as_deref()
+            .is_some_and(|o| o.starts_with("file:~") && o.ends_with("gitconfig")),
+        "inside Git's home the origin is shown with `~`: {:?}",
+        own.origin_display
+    );
+    assert_eq!(own.value_sha256, value_digest("'/usr/bin/ssh'"));
+    assert_eq!(obs.not_applicable_reason(), None, "{obs:?}");
+
+    // The doctor's observation reports what the configuration says, own value included.
+    let plain = h.observe();
+    assert_eq!(plain.values.len(), 1, "{:?}", plain.values);
+    assert!(plain.own_values.is_empty());
+    assert_eq!(
+        plain.not_applicable_reason(),
+        Some("git_ssh_command_present")
+    );
+    assert_eq!(
+        plain.values[0], *own,
+        "the same occurrence, only classified"
+    );
+}
+
+/// The managed file outside Git's home is shown by its canonical path; a managed file
+/// that does not exist splits nothing out and has no origin.
+#[test]
+fn git_own_value_outside_home_and_absent_managed_file() {
+    let h = GitHome::new();
+    let dir = h.root.join("cfg");
+    std::fs::create_dir_all(&dir).unwrap();
+    let managed = dir.join("gitconfig");
+    std::fs::write(&managed, OWN_FILE).unwrap();
+    h.write(".gitconfig", &include_of(&managed));
+    let obs = h.observe_for(&managed);
+    assert!(
+        obs.values.is_empty() && obs.own_values.len() == 1,
+        "{obs:?}"
+    );
+    let origin = origin_of(&h.env(), &managed);
+    assert_eq!(obs.own_values[0].origin_display, origin);
+    assert!(
+        origin.is_some_and(|o| !o.starts_with("file:~")),
+        "outside Git's home the origin is the whole path"
+    );
+
+    // The file is gone: the include reaches nothing, and nothing is split out.
+    let gone = h.root.join("cfg").join("never-written");
+    assert_eq!(origin_of(&h.env(), &gone), None);
+    let obs = h.observe_for(&gone);
+    assert!(
+        obs.values.len() == 1 && obs.own_values.is_empty(),
+        "{obs:?}"
+    );
+}
+
+/// A value in any other file stays a user value beside Heimdall's own: in the global
+/// file after B_git (what `git config --global` writes), in the XDG file created after
+/// the apply (the `git_user_value_shadowed` residual, which wins over B_git in
+/// `~/.gitconfig`), and in the system file.
+#[test]
+fn git_user_value_elsewhere_stays_a_value_beside_the_own_one() {
+    // (label, files, expected user-value origin, expected scope)
+    type Setup = fn(&mut GitHome, &Path);
+    let cases: [(&str, Setup, &str, GitScope); 3] = [
+        (
+            "after B_git in the same global file",
+            |h, managed| {
+                h.write(
+                    ".gitconfig",
+                    &format!("{}[core]\n\tsshCommand = user-after\n", include_of(managed)),
+                );
+            },
+            ".gitconfig",
+            GitScope::Global,
+        ),
+        (
+            "XDG file created after the apply",
+            |h, managed| {
+                h.write(".gitconfig", &include_of(managed));
+                h.write(".config/git/config", "[core]\n\tsshCommand = user-xdg\n");
+            },
+            ".config/git/config",
+            GitScope::Global,
+        ),
+        (
+            "system file",
+            |h, managed| {
+                h.write(".gitconfig", &include_of(managed));
+                h.system_file("[core]\n\tsshCommand = user-system\n");
+            },
+            "",
+            GitScope::System,
+        ),
+    ];
+    for (label, setup, origin, scope) in cases {
+        let mut h = GitHome::new();
+        let managed = h.write("heimdall/gitconfig", OWN_FILE);
+        setup(&mut h, &managed);
+        let obs = h.observe_for(&managed);
+        assert_eq!(obs.own_values.len(), 1, "{label}: {obs:?}");
+        assert_eq!(obs.values.len(), 1, "{label}: {obs:?}");
+        assert_eq!(obs.values[0].scope, scope, "{label}");
+        assert_eq!(obs.values[0].count, 1, "{label}");
+        if !origin.is_empty() {
+            assert_eq!(
+                obs.values[0].origin_display,
+                origin_of(&h.env(), &h.home.join(origin)),
+                "{label}"
+            );
+        }
+        assert_ne!(
+            obs.values[0].origin_display, obs.own_values[0].origin_display,
+            "{label}"
+        );
+        assert_eq!(
+            obs.not_applicable_reason(),
+            Some("git_ssh_command_present"),
+            "{label}: a user value still makes the item not applicable"
+        );
+    }
+}
+
+/// Only B_git's one unconditional global path to the file is Heimdall's own. A second
+/// path to the file, a conditional one, one from the system file, or a second key in it
+/// is not, and stays a value (fail closed).
+#[test]
+fn git_own_file_reached_any_other_way_stays_a_value() {
+    type Setup = fn(&mut GitHome, &Path);
+    let cases: [(&str, Setup, GitScope, bool, u32); 4] = [
+        (
+            "included twice",
+            |h, managed| {
+                h.write(
+                    ".gitconfig",
+                    &format!(
+                        "{}[include]\n\tpath = \"{}\"\n",
+                        include_of(managed),
+                        git_path(managed)
+                    ),
+                );
+            },
+            GitScope::Global,
+            false,
+            2,
+        ),
+        (
+            "only through includeIf",
+            |h, managed| {
+                std::fs::create_dir_all(h.home.join("work")).unwrap();
+                h.write(
+                    ".gitconfig",
+                    &format!(
+                        "[includeIf \"gitdir:@HOME@/work/\"]\n\tpath = \"{}\"\n",
+                        git_path(managed)
+                    ),
+                );
+            },
+            GitScope::Global,
+            true,
+            1,
+        ),
+        (
+            "included by the system file",
+            |h, managed| {
+                h.system_file(&format!("[include]\n\tpath = \"{}\"\n", git_path(managed)));
+            },
+            GitScope::System,
+            false,
+            1,
+        ),
+        (
+            "a second key in the file",
+            |h, managed| {
+                h.write(".gitconfig", &include_of(managed));
+                std::fs::write(
+                    managed,
+                    format!("{OWN_FILE}[core]\n\tsshCommand = a-second-one\n"),
+                )
+                .unwrap();
+            },
+            GitScope::Global,
+            false,
+            2,
+        ),
+    ];
+    for (label, setup, scope, conditional, count) in cases {
+        let mut h = GitHome::new();
+        let managed = h.write("heimdall/gitconfig", OWN_FILE);
+        setup(&mut h, &managed);
+        let obs = h.observe_for(&managed);
+        assert!(obs.own_values.is_empty(), "{label}: {obs:?}");
+        let total: u32 = obs.values.iter().map(|v| v.count).sum();
+        assert_eq!(total, count, "{label}: {obs:?}");
+        assert!(
+            obs.values
+                .iter()
+                .all(|v| v.scope == scope && v.conditional == conditional),
+            "{label}: {obs:?}"
+        );
+        assert_eq!(
+            obs.not_applicable_reason(),
+            Some("git_ssh_command_present"),
+            "{label}"
+        );
+    }
 }

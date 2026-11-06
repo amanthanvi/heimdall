@@ -4,7 +4,11 @@
 //! names are random and fixed in the plan. A plan beyond the content bounds is
 //! refused (`PreviewError::TooLarge`, `projection_too_large`). The diffs are whole: the
 //! preview never cuts one (ADR-0007 §12.32 item 5); the application refuses a plan whose
-//! full diff exceeds `MAX_DIFF_BYTES` (`plan_too_large`).
+//! full diff exceeds `MAX_DIFF_BYTES` (`plan_too_large`). The one exception is the removal
+//! of a file of Heimdall's own (P, P_git, a key file), which the diff shows as a single
+//! summary line ([`OwnRemoval`]: name, line count, SHA-256; ADR-0007 §12.34 item 7), so
+//! that a rollback is never refused for the size of a file the owner already approved.
+//! Changes to the files the owner owns are always whole.
 //!
 //! **Reproducible digests** (ADR-0007 §12.18 item 3). The marker of a block a plan
 //! inserts (B, B_git) is derived from the proposed generation, the target file's role
@@ -134,7 +138,7 @@ use super::git::{GlobalFileCheck, check_global_file, lock_holder};
 use super::replace::{self, DirHandle, Quarantine, ReplaceRefusal};
 use crate::clients::ClientKind;
 use crate::fs::BoundedSource;
-use crate::git::{DefaultGitSsh, observe_global};
+use crate::git::{DefaultGitSsh, observe_global, observe_global_for, origin_of};
 use crate::materialize::{PublicKeyLine, public_key_bytes};
 
 /// Bytes read of one file the preview inspects (the §5.3 bound).
@@ -938,7 +942,16 @@ impl<'a> Builder<'a> {
             ));
             return Ok(());
         }
-        let obs = observe_global(&self.config.env, &self.config.clients, self.config.queries);
+        // ADR-0007 §12.34 item 8 (1): Heimdall's own P_git, which B_git includes once the
+        // item is applied, is not a user's `core.sshCommand`. The observation splits it
+        // out; it is judged below, once the global file's blocks are known.
+        let p_git_path = self.config.managed_git_path();
+        let obs = observe_global_for(
+            &self.config.env,
+            &self.config.clients,
+            self.config.queries,
+            &p_git_path,
+        );
         let before = GitSshSelection {
             source: GitSshSource::Default,
             scope: None,
@@ -974,6 +987,27 @@ impl<'a> Builder<'a> {
         let global = file.path.clone();
         let global_bytes = self.read(FileRole::GitInclude, &global)?;
         let blocks = gitedit::find_blocks(global_bytes.as_deref().unwrap_or_default());
+        // ADR-0007 §12.34 item 8 (1): P_git's one value is Heimdall's own only when it
+        // is reached through B_git, which is then the global file's one block, intact
+        // and naming P_git. Anything else (no block, an edited or a duplicated one, one
+        // that names another file) leaves a `core.sshCommand` in a file Heimdall did
+        // not link in: a present value, as before (fail closed).
+        if !obs.own_values.is_empty()
+            && !self.names_include(&blocks, global_bytes.as_deref(), &p_git_path)?
+        {
+            let mut change = not_applicable(finding::GIT_SSH_COMMAND_PRESENT, before);
+            change.previous_values = obs.values.iter().chain(&obs.own_values).cloned().collect();
+            self.git = Some(change);
+            return Ok(());
+        }
+        // A managed file that no longer holds what the record says Heimdall wrote was
+        // edited: it is never overwritten (`managed_file_edited`), as for P (§5.8). The
+        // update arm below is reachable only now that Heimdall's own value no longer
+        // blocks the item.
+        if self.managed_edited(FileRole::GitManaged, &p_git_path)? {
+            self.conflict(ConflictKind::ManagedFileEdited, None);
+            return Ok(());
+        }
         // ADR-0007 §5.3 item 9, §5.6: a global file the writer will not touch (its
         // directory or the file fails a step-1 or step-2 check) is manual mode for the
         // Git item, decided here as the SSH user file is, not at apply, where the
@@ -1005,7 +1039,6 @@ impl<'a> Builder<'a> {
         if p_git.bytes().len() > bounds::GIT_MANAGED_MAX {
             return Err(PreviewError::TooLarge);
         }
-        let p_git_path = self.config.managed_git_path();
         let p_git_step = self.whole_step(FileRole::GitManaged, &p_git_path, p_git)?;
         let mut steps: Vec<FileStep> = Vec::new();
         let mut include_change = None;
@@ -1091,20 +1124,12 @@ impl<'a> Builder<'a> {
         // after the rollback it is a user value, when one remains (it already wins), or
         // Git's default.
         // P_git's own value, by its origin as the observation shows origins (the
-        // canonical path, `~` for Git's home).
-        let p_git_origin = crate::fs::canonical_path(&p_git_path).ok().map(|c| {
-            crate::git::git_home(&self.config.env).map_or_else(
-                || c.to_string_lossy().into_owned(),
-                |h| crate::paths::display_path(&h, &c),
-            )
-        });
-        let user_value = obs.values.iter().find(|v| {
-            let origin = v
-                .origin_display
-                .as_deref()
-                .map(|o| o.strip_prefix("file:").unwrap_or(o));
-            origin.is_none() || origin != p_git_origin.as_deref()
-        });
+        // canonical path, `~` for Git's home): `origin_of`, the one definition.
+        let p_git_origin = origin_of(&self.config.env, &p_git_path);
+        let user_value = obs
+            .values
+            .iter()
+            .find(|v| v.origin_display.is_none() || v.origin_display != p_git_origin);
         let default = GitSshSelection {
             source: GitSshSource::Default,
             scope: None,
@@ -1140,6 +1165,28 @@ impl<'a> Builder<'a> {
             return Ok(());
         };
         let blocks = gitedit::find_blocks(&bytes);
+        // ADR-0007 §5.3 item 9, §12.34 item 8 (2): the writer refuses a global file, or
+        // the directory holding it, that fails a step-1 or step-2 check, and refuses the
+        // whole operation before its first commit point, the SSH item's rollback with it.
+        // A rollback that edits the global file is therefore checked here, as the apply
+        // is, with the writer's own check: otherwise the owner approves a rollback that
+        // the apply then refuses. A file Heimdall will not touch is manual mode for the
+        // Git item, as the SSH user file is on a rollback: nothing is planned for the
+        // item (B_git stays, and P_git with it), and the owner removes the block by hand.
+        if !blocks.is_empty() {
+            match check_global_file(&global, Some(&bytes)) {
+                GlobalFileCheck::Manageable => {}
+                GlobalFileCheck::Unmanageable => {
+                    self.manual_unmanageable_git(&global);
+                    return Ok(());
+                }
+                GlobalFileCheck::Changed => {
+                    return Err(PreviewError::Unavailable(
+                        "the global Git file changed while it was read".to_owned(),
+                    ));
+                }
+            }
+        }
         let mut steps = Vec::new();
         match blocks.as_slice() {
             [] => {}
@@ -1180,6 +1227,53 @@ impl<'a> Builder<'a> {
         }
         self.steps.extend(steps);
         Ok(())
+    }
+
+    /// Whether `blocks` of the global file `bytes` are B_git as Heimdall renders it for
+    /// `p_git_path`: exactly one block, and its bytes are what [`render::render_git_include_block`]
+    /// gives for its own marker, P_git's absolute path and its own line ending. A block
+    /// that is edited, duplicated, absent or names another file is not.
+    fn names_include(
+        &self,
+        blocks: &[FoundBlock],
+        bytes: Option<&[u8]>,
+        p_git_path: &Path,
+    ) -> Result<bool, PreviewError> {
+        let ([only], Some(bytes)) = (blocks, bytes) else {
+            return Ok(false);
+        };
+        if !only.intact {
+            return Ok(false);
+        }
+        let target = self.absolute_path(p_git_path)?;
+        let expected =
+            render::render_git_include_block(&only.marker, &target, block_newline(bytes, only))
+                .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?;
+        Ok(bytes.get(only.range.clone()) == Some(expected.as_slice()))
+    }
+
+    /// A rollback over a global Git file the writer will not touch (`unmanageable_file`,
+    /// ADR-0007 §12.34 item 8 (2)): manual mode, and a `problem` finding so that a plan
+    /// that changes nothing is refused before admission, not approved and then refused.
+    fn manual_unmanageable_git(&mut self, global: &Path) {
+        self.manual(manual_reason::UNMANAGEABLE_FILE);
+        let message = format!(
+            "{} cannot be edited by Heimdall; remove its include block by hand",
+            self.display(global)
+        );
+        self.findings.push(Finding {
+            code: manual_reason::UNMANAGEABLE_FILE.to_owned(),
+            severity: FindingSeverity::Problem,
+            subject: ResourceRef {
+                kind: "projection".to_owned(),
+                id: None,
+            },
+            level: ProbeLevel::Static,
+            provenance: None,
+            message,
+            next: NextAction::for_code(Code::ConfigConflict),
+            reason: Some(manual_reason::UNMANAGEABLE_FILE.to_owned()),
+        });
     }
 
     /// The `git_lock` step for `global` (ADR-0007 §5.7 "The `git_lock` step").
@@ -1502,12 +1596,21 @@ impl<'a> Builder<'a> {
             FileRole::GitManaged => ProjectionFileRole::GitManaged,
             FileRole::GitLock => return,
         };
+        // ADR-0007 §12.34 item 7: the removal of one of Heimdall's own files (P, P_git, a
+        // key file) is one summary line; every other change shows its diff whole.
+        let diff = match (before, after) {
+            (Some(removed), None) if is_own_file(role) => {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                OwnRemoval::of(name, removed).to_string()
+            }
+            _ => line_diff(before.unwrap_or_default(), after.unwrap_or_default()),
+        };
         self.changes.push(FileChange {
             role,
             path_display: self.display(path),
             before_sha256: before.map(|b| Sha256Hex::of(b).to_string()),
             after_sha256: after.map(|b| Sha256Hex::of(b).to_string()),
-            diff: line_diff(before.unwrap_or_default(), after.unwrap_or_default()),
+            diff,
         });
     }
 
@@ -2270,7 +2373,8 @@ fn read_file(path: &Path) -> Result<Option<Vec<u8>>, PreviewError> {
 /// A line diff: removed lines with `-`, added lines with `+`, the common prefix and
 /// suffix omitted. Display only. It is never cut: a diff beyond
 /// [`heimdall_contract::setup::MAX_DIFF_BYTES`] makes the application refuse the plan
-/// (`plan_too_large`, ADR-0007 §12.32 item 5), so no client is shown part of a diff.
+/// (`plan_too_large`, ADR-0007 §12.32 item 5), so no client is shown part of a diff. (The
+/// removal of a file of Heimdall's own is not a line diff: [`OwnRemoval`].)
 fn line_diff(before: &[u8], after: &[u8]) -> String {
     let b: Vec<&[u8]> = before.split_inclusive(|c| *c == b'\n').collect();
     let a: Vec<&[u8]> = after.split_inclusive(|c| *c == b'\n').collect();
@@ -2299,16 +2403,110 @@ fn line_diff(before: &[u8], after: &[u8]) -> String {
 
 /// Every change's diff under its path header, whole (ADR-0007 §12.32 item 5): the decision
 /// summary's `diff_text`. The application refuses a plan whose text exceeds
-/// [`ProjectionSummary::MAX_DIFF_TEXT`] before it is shown or journaled.
+/// [`ProjectionSummary::MAX_DIFF_TEXT`] before it is shown or journaled; the summary lines
+/// of removed files of Heimdall's own ([`OwnRemoval`]) are not counted (§12.34 item 7).
 fn full_diff(changes: &[FileChange]) -> String {
     let mut out = String::new();
     for c in changes {
-        out.push_str("--- ");
+        out.push_str(FILE_HEADER_PREFIX);
         out.push_str(&c.path_display);
         out.push('\n');
         out.push_str(&c.diff);
     }
     out
+}
+
+/// What starts a file's heading line in the decision summary's text ([`full_diff`]).
+const FILE_HEADER_PREFIX: &str = "--- ";
+
+/// Whether `role` is a file of Heimdall's own (P, a key file, P_git), as against the
+/// files the owner owns (the user SSH configuration, the global Git file).
+#[must_use]
+pub fn is_own_file(role: ProjectionFileRole) -> bool {
+    matches!(
+        role,
+        ProjectionFileRole::ManagedSsh
+            | ProjectionFileRole::KeyFile
+            | ProjectionFileRole::GitManaged
+    )
+}
+
+/// ADR-0007 §12.34 item 7: the diff of a plan that **removes** one of Heimdall's own files
+/// (P, P_git, a key file) is this one line, not the removed content, so a rollback or an
+/// uninstall is never refused for the size of a file whose content the owner was shown in
+/// full when they approved it. Files the owner owns are always shown in full.
+///
+/// The line is `~ removed <name>: <lines> lines, sha256 <hex>`: the file's name, its
+/// number of lines and the SHA-256 of the removed content. Clients render it as the
+/// removal of a file of Heimdall's own ([`OwnRemoval::parse`] reads it back); every line of
+/// a real diff starts with `-` or `+`, so the mark cannot be mistaken for content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OwnRemoval {
+    /// The file's name (no directory).
+    pub name: String,
+    /// How many lines the removed content has.
+    pub lines: usize,
+    /// SHA-256 of the removed content, lowercase hex.
+    pub sha256: String,
+}
+
+impl OwnRemoval {
+    /// What starts the line.
+    pub const MARK: &'static str = "~ removed ";
+
+    /// The summary of removing `name`, whose content is `content`.
+    #[must_use]
+    pub fn of(name: &str, content: &[u8]) -> Self {
+        let breaks = content.iter().filter(|b| **b == b'\n').count();
+        let unterminated = usize::from(content.last().is_some_and(|b| *b != b'\n'));
+        Self {
+            // The name is a file name of Heimdall's own; a control character is never in
+            // one, but nothing here can start a second line.
+            name: name
+                .chars()
+                .map(|c| if c.is_control() { '?' } else { c })
+                .collect(),
+            lines: breaks + unterminated,
+            sha256: Sha256Hex::of(content).to_string(),
+        }
+    }
+
+    /// The summary [`OwnRemoval`]'s `Display` wrote as `line` (without its newline), if it
+    /// is one.
+    #[must_use]
+    pub fn parse(line: &str) -> Option<Self> {
+        let rest = line.strip_prefix(Self::MARK)?;
+        let (name, tail) = rest.rsplit_once(": ")?;
+        let (count, sha256) = tail.split_once(", sha256 ")?;
+        let lines = count
+            .strip_suffix(" lines")
+            .or_else(|| count.strip_suffix(" line"))?
+            .parse()
+            .ok()?;
+        let digest = sha256.len() == 64
+            && sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        digest.then(|| Self {
+            name: name.to_owned(),
+            lines,
+            sha256: sha256.to_owned(),
+        })
+    }
+}
+
+impl std::fmt::Display for OwnRemoval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let unit = if self.lines == 1 { "line" } else { "lines" };
+        writeln!(
+            f,
+            "{}{}: {} {unit}, sha256 {}",
+            Self::MARK,
+            self.name,
+            self.lines,
+            self.sha256
+        )
+    }
 }
 
 #[cfg(test)]
@@ -2514,5 +2712,78 @@ mod tests {
             consent::ConsentReasonKind::GitSelectionChanged
         );
         assert!(live_item(&spec, ProjectionItem::Git).is_none());
+    }
+}
+
+/// ADR-0007 §12.34 item 7: the summary line of a removed file of Heimdall's own.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod own_removal {
+    use super::*;
+
+    #[test]
+    fn counts_lines_and_reads_back_what_it_wrote() {
+        for (content, lines) in [
+            (&b""[..], 0),
+            (b"\n", 1),
+            (b"x", 1),
+            (b"a\nb\n", 2),
+            (b"a\nb", 2),
+            (b"a\n\nb\n", 3),
+        ] {
+            let r = OwnRemoval::of("ssh_config", content);
+            assert_eq!(r.lines, lines, "{content:?}");
+            assert_eq!(r.sha256, Sha256Hex::of(content).to_string());
+            let text = r.to_string();
+            assert!(text.starts_with("~ removed ssh_config: "), "{text}");
+            assert!(
+                text.ends_with('\n') && text.matches('\n').count() == 1,
+                "{text:?}"
+            );
+            assert_eq!(OwnRemoval::parse(text.trim_end_matches('\n')), Some(r));
+        }
+        let one = OwnRemoval::of("k.pub", b"ssh-ed25519 AAAA\n").to_string();
+        assert!(one.contains(": 1 line, sha256 "), "{one}");
+    }
+
+    #[test]
+    fn a_name_never_starts_a_second_line_and_may_hold_a_colon() {
+        let r = OwnRemoval::of("a\nb\u{1b}c", b"x");
+        assert_eq!(r.name, "a?b?c");
+        let colon = OwnRemoval::of("odd: name", b"x\n");
+        assert_eq!(OwnRemoval::parse(colon.to_string().trim_end()), Some(colon));
+    }
+
+    #[test]
+    fn only_the_exact_line_parses() {
+        let ok = format!("~ removed p: 3 lines, sha256 {}", "0f".repeat(32));
+        assert!(OwnRemoval::parse(&ok).is_some());
+        for bad in [
+            format!("-~ removed p: 3 lines, sha256 {}", "0f".repeat(32)),
+            format!("+~ removed p: 3 lines, sha256 {}", "0f".repeat(32)),
+            format!("~ removed p: x lines, sha256 {}", "0f".repeat(32)),
+            format!("~ removed p: 3 rows, sha256 {}", "0f".repeat(32)),
+            format!("~ removed p: 3 lines, sha256 {}", "0F".repeat(32)),
+            format!("~ removed p: 3 lines, sha256 {}", "0f".repeat(31)),
+            "~ removed p: 3 lines".to_owned(),
+            "~ removed p".to_owned(),
+            "--- ~/p".to_owned(),
+        ] {
+            assert_eq!(OwnRemoval::parse(&bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_heimdalls_own_roles_are_own_files() {
+        use ProjectionFileRole as R;
+        for (role, own) in [
+            (R::ManagedSsh, true),
+            (R::KeyFile, true),
+            (R::GitManaged, true),
+            (R::UserSsh, false),
+            (R::GitInclude, false),
+        ] {
+            assert_eq!(is_own_file(role), own, "{role:?}");
+        }
     }
 }

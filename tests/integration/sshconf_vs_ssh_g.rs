@@ -1047,7 +1047,8 @@ fn include_tokens_follow_the_client() {
         ],
     );
     assert!(evaluation.invalid.is_empty(), "{:?}", evaluation.invalid);
-    if let Some(row) = client::observed(h.version).and_then(|r| r.tokens_in_user_setenv_include) {
+    let recorded = client::observed(h.version).and_then(|r| r.tokens_in_user_setenv_include);
+    if let Some(row) = recorded {
         assert_eq!(
             row,
             seen_expanded,
@@ -1055,13 +1056,45 @@ fn include_tokens_follow_the_client() {
             h.client()
         );
     }
-    // Never laxer: the port Heimdall determines is the one this client uses.
-    assert_eq!(
-        heimdall_port,
-        ssh_port,
-        "{}: heimdall expands {heimdall_expands}, the client {seen_expanded}",
-        h.client()
-    );
+    let unsettled = evaluation
+        .unresolved
+        .iter()
+        .any(|u| u.reason == heimdall_sshconf::eval::UnresolvedReason::ClientBehaviourUnknown);
+    if recorded.is_some() {
+        // A client whose row records the behaviour is settled: determined, and never
+        // laxer: the port Heimdall determines is the one this client uses.
+        assert!(!unsettled, "{}", h.client());
+        assert_eq!(
+            heimdall_port,
+            ssh_port,
+            "{}: heimdall expands {heimdall_expands}, the client {seen_expanded}",
+            h.client()
+        );
+    } else {
+        // ADR-0007 §12.35 item 1: a client the observations do not settle may read
+        // either file, so Heimdall is undetermined (the reason recorded), never one of
+        // the two readings. It stays sound: the port this client uses is a candidate,
+        // or an opaque candidate stands for it.
+        assert!(
+            unsettled,
+            "{}: no client_behaviour_unknown for an unrecorded client",
+            h.client()
+        );
+        let Resolved::Undetermined(candidates) = &behavior.port else {
+            panic!(
+                "{}: an unsettled Include gave {:?}",
+                h.client(),
+                behavior.port
+            );
+        };
+        assert!(
+            candidates
+                .iter()
+                .any(|v| v.args.is_empty() || v.args.first() == Some(&ssh_port)),
+            "{}: ssh used {ssh_port}, candidates {candidates:?}",
+            h.client()
+        );
+    }
 }
 
 /// ADR-0007 §12.15 item 6 `[I]` facts, settled on this client by comparing the

@@ -732,3 +732,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - N02: an invalid backup entry suppresses the snapshot.
   - N03–N05: bundle-import and Windows-runner gaps.
   - ADR-0007 §12.35. N01 and N02 go to wave 5e (`wf_485f9ce9-99c`, Sonnet); I fixed N03–N05, mutation-checked, harness self-test 271/0.
+- Near-miss: fce9a06b was pushed before its pre-commit scan finished, because the scan crashed on a regex error and the commit was a separate line rather than chained after it.
+  - The post-push scan is clean: only synthetic `someone` paths, which are rejection-test inputs.
+  - Lesson: chain the commit after the scan with `&&`, and make the scan exit nonzero on any finding.
+- **Waves 5d and 5e** integrated:
+  - 5d: summarized own-file removals so rollback is never blocked by size; the state_dir guard test; the Git re-preview after apply; rollback-preview manageability.
+  - 5e: N01, an unknown-version Include `%`/`${VAR}` is opaque; N02, only a valid existing snapshot counts.
+  - The hung test binary (PID 28481, from W5d-app's first check.sh, blocked on the old N02 FIFO test) was stopped by exact PID. Its two orphaned scratch dirs were removed by path.
+  - check.sh: the W5d integrator ran it twice and I ran it once, all exit 0, 1744 passed, 0 failed.
+  - ADR-0007 §12.36 rules on the 5e escalations; §12.37 on the 5d escalations, defining wave 5f (W5f-git: doctor own value, `git_user_value_shadowed`, rollback finds B_git where written, the diff doc). No native scenario expects `git_ssh_command_present`.

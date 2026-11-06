@@ -7017,6 +7017,190 @@ fn the_preview_never_cuts_a_diff() {
     );
 }
 
+/// ADR-0007 §12.34 item 7: a rollback is never blocked by the size of what Heimdall wrote.
+/// P is well over `MAX_DIFF_BYTES` (250 long aliases, and Git's P_git beside it); the
+/// rollback's preview shows each removal of Heimdall's own file (P, P_git, every key file)
+/// as one summary line (name, line count, SHA-256 of the removed content, not the content),
+/// and the changes to the owner's files (the user SSH configuration, the global Git file)
+/// whole. Everything the preview carries fits the bound, and the rollback applies: both of
+/// the owner's files are back to their original bytes and the cleaner removes Heimdall's.
+#[test]
+fn a_rollback_of_a_p_well_over_the_bound_shows_summaries_and_applies() {
+    use heimdall_contract::setup::{MAX_DIFF_BYTES, ProjectionFileRole as Role};
+    use heimdall_localenv::clients::{ClientCandidate, ClientInventory, ClientKind, ClientSource};
+    use heimdall_localenv::env::Env;
+    use heimdall_localenv::local_query::LocalQueries;
+    use heimdall_localenv::projection::plan::OwnRemoval;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let git = heimdall_testkit::home::find_program("git").expect("git is installed");
+    let system = fx.home.root.join("gitconfig-system");
+    std::fs::write(&system, b"").unwrap();
+    let global = fx.home.git_home.join(".gitconfig");
+    std::fs::write(&global, b"[user]\n\tname = Scratch\n").unwrap();
+    let mut config = fx.config();
+    config.env = Env::from_vars([
+        ("HOME", fx.home.git_home.display().to_string()),
+        (
+            "XDG_CONFIG_HOME",
+            fx.home.git_home.join(".config").display().to_string(),
+        ),
+        ("GIT_CONFIG_SYSTEM", system.display().to_string()),
+    ]);
+    config.queries = LocalQueries::Enabled;
+    let candidate = |kind, path| ClientCandidate {
+        kind,
+        path,
+        source: ClientSource::Path,
+        version: None,
+        sha256: None,
+        selected: true,
+    };
+    config.clients = ClientInventory {
+        candidates: vec![
+            candidate(ClientKind::Git, git),
+            candidate(ClientKind::Ssh, PathBuf::from("/usr/bin/ssh")),
+        ],
+    };
+    config.test.git_item_any_default = true;
+    let writer = LocalProjection::new(config);
+    let (user_before, git_before) = (
+        std::fs::read(fx.user()).unwrap(),
+        std::fs::read(&global).unwrap(),
+    );
+    // Adopt: 250 aliases with long host names, and the Git item.
+    let names: Vec<String> = (0..250).map(|i| format!("host{i:03}")).collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut spec = fx.spec(&refs, None);
+    for a in &mut spec.aliases {
+        let label = "a".repeat(60);
+        a.hostname = format!("{label}.{label}.{label}.{}.example.invalid", a.alias);
+    }
+    let intent = PreviewIntent::Apply { include_git: true };
+    let plan = writer.preview(&spec, &intent).unwrap();
+    let sink = Sink::default();
+    let applied = writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
+    assert!(
+        applied
+            .items
+            .iter()
+            .all(|i| matches!(i, ItemOutcome::Applied { .. })),
+        "{applied:?}"
+    );
+    let p_bytes = std::fs::read(fx.p()).unwrap();
+    let p_git = fx.home.config_dir.join("gitconfig");
+    let p_git_bytes = std::fs::read(&p_git).unwrap();
+    assert!(
+        p_bytes.len() > MAX_DIFF_BYTES + MAX_DIFF_BYTES / 4,
+        "P is {} bytes",
+        p_bytes.len()
+    );
+    let user_applied = std::fs::read(fx.user()).unwrap();
+    let git_applied = std::fs::read(&global).unwrap();
+    assert_ne!(user_applied, user_before);
+    assert_ne!(git_applied, git_before);
+
+    // The rollback's preview.
+    let record = sink.record(&fx.env);
+    let rollback = PreviewIntent::Rollback {
+        keep_key_files: false,
+        items: [ProjectionItem::Ssh, ProjectionItem::Git]
+            .into_iter()
+            .collect(),
+    };
+    let rb = writer
+        .preview(&fx.spec(&[], Some(record.clone())), &rollback)
+        .unwrap();
+    let file = |role: Role| -> Vec<&heimdall_contract::setup::FileChange> {
+        rb.view.files.iter().filter(|f| f.role == role).collect()
+    };
+    let own = |f: &heimdall_contract::setup::FileChange, name: &str, content: &[u8]| {
+        assert_eq!(f.before_sha256, Some(Sha256Hex::of(content).to_string()));
+        assert_eq!(f.after_sha256, None, "the file is removed");
+        assert_eq!(f.diff, OwnRemoval::of(name, content).to_string());
+        assert!(
+            f.diff.len() < 256 && f.diff.matches('\n').count() == 1,
+            "{}",
+            f.diff
+        );
+    };
+    let [p] = file(Role::ManagedSsh)[..] else {
+        panic!("one change to P: {:?}", rb.view.files);
+    };
+    own(p, "ssh_config", &p_bytes);
+    assert!(p.diff.contains("lines, sha256 "), "{}", p.diff);
+    assert!(!p.diff.contains("Host host"), "no content of P: {}", p.diff);
+    let [pg] = file(Role::GitManaged)[..] else {
+        panic!("one change to P_git: {:?}", rb.view.files);
+    };
+    own(pg, "gitconfig", &p_git_bytes);
+    let keys = file(Role::KeyFile);
+    assert_eq!(keys.len(), 250, "every key file is one line");
+    for k in &keys {
+        let name = k.path_display.rsplit('/').next().unwrap();
+        let bytes = std::fs::read(fx.home.config_dir.join("keys").join(name)).unwrap();
+        own(k, name, &bytes);
+        assert_eq!(OwnRemoval::parse(k.diff.trim_end()).unwrap().lines, 1);
+    }
+    // The owner's files: whole, every line of what leaves.
+    for (role, applied, original) in [
+        (Role::UserSsh, &user_applied, &user_before),
+        (Role::GitInclude, &git_applied, &git_before),
+    ] {
+        let [f] = file(role)[..] else {
+            panic!(
+                "one change to the owner's file {role:?}: {:?}",
+                rb.view.files
+            );
+        };
+        assert_eq!(f.before_sha256, Some(Sha256Hex::of(applied).to_string()));
+        assert_eq!(f.after_sha256, Some(Sha256Hex::of(original).to_string()));
+        assert!(
+            !f.diff.is_empty() && f.diff.lines().all(|l| l.starts_with('-')),
+            "{}",
+            f.diff
+        );
+        let text = String::from_utf8_lossy(applied);
+        for l in f.diff.lines() {
+            assert!(text.contains(&l[1..]), "{l:?} was in the file");
+        }
+        assert!(OwnRemoval::parse(f.diff.lines().next().unwrap()).is_none());
+    }
+    let shown: usize = rb.view.files.iter().map(|f| f.diff.len()).sum();
+    assert!(
+        shown < MAX_DIFF_BYTES,
+        "what the preview carries fits the bound: {shown}"
+    );
+    assert!(
+        p_bytes.len() > 3 * shown / 2,
+        "P alone was more than all of it"
+    );
+
+    // Applied: the owner's files are back to the bytes they had.
+    let r = writer.apply(&rb.intent(), &mut Sink::default()).unwrap();
+    assert!(
+        r.items
+            .iter()
+            .all(|i| matches!(i, ItemOutcome::Applied { .. })),
+        "{r:?}"
+    );
+    assert_eq!(
+        std::fs::read(fx.user()).unwrap(),
+        user_before,
+        "byte-for-byte"
+    );
+    assert_eq!(std::fs::read(&global).unwrap(), git_before, "byte-for-byte");
+    // The cleaner removes Heimdall's files.
+    let cleaner = ProjectionCleaner::new(writer.config().clone());
+    for item in [ProjectionItem::Ssh, ProjectionItem::Git] {
+        for l in &record.items[&item].files {
+            block_on(cleaner.delete(&resource(&fx.env, l, 1))).unwrap();
+            assert!(!Path::new(&l.path).exists(), "{} removed", l.path);
+        }
+    }
+    assert!(!fx.p().exists() && !p_git.exists());
+}
+
 /// ADR-0007 §5.5 "Snapshots" (§12.30 item 7): `snapshot_original` copies the original
 /// bytes once, owner-only, as `<name>.<YYYYMMDDTHHMMSSZ>.orig` in a 0700 `backups`
 /// directory it creates; a later call keeps that snapshot and writes nothing; an absent
@@ -7082,4 +7266,378 @@ fn snapshot_original_copies_the_original_once_owner_only() {
     std::os::unix::fs::symlink(fx.user(), &link).unwrap();
     assert!(snapshot_original(&link, &other, "ssh_config", None, now).is_err());
     assert!(!other.exists());
+}
+
+// --- ADR-0007 §12.35 item 2 (N02): an existing snapshot must be a valid one ---------------
+
+/// `chmod` to exactly `mode`, whatever the umask.
+fn snap_chmod(path: &Path, mode: u32) {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// A directory with exactly `mode`.
+fn snap_mkdir(path: &Path, mode: u32) {
+    std::fs::create_dir(path).unwrap();
+    snap_chmod(path, mode);
+}
+
+/// A file with exactly `mode`.
+fn snap_file(path: &Path, bytes: &[u8], mode: u32) {
+    std::fs::write(path, bytes).unwrap();
+    snap_chmod(path, mode);
+}
+
+/// Kind (with the link count of a file), mode and bytes (a link's target) of an entry.
+type SnapTree = BTreeMap<String, (String, u32, Vec<u8>)>;
+
+/// Everything under `dir` without following a link: kind, mode, link target or bytes.
+fn snap_tree(dir: &Path) -> SnapTree {
+    fn go(dir: &Path, prefix: &str, out: &mut SnapTree) {
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in rd {
+            let e = e.unwrap();
+            let name = format!("{prefix}/{}", e.file_name().to_string_lossy());
+            let m = std::fs::symlink_metadata(e.path()).unwrap();
+            let mode = m.permissions().mode() & 0o7777;
+            if m.is_dir() {
+                out.insert(name.clone(), ("dir".into(), mode, Vec::new()));
+                go(&e.path(), &name, out);
+            } else if m.file_type().is_symlink() {
+                let to = std::fs::read_link(e.path()).unwrap();
+                out.insert(
+                    name,
+                    (
+                        "link".into(),
+                        mode,
+                        to.to_string_lossy().into_owned().into(),
+                    ),
+                );
+            } else if m.is_file() {
+                let bytes = std::fs::read(e.path()).unwrap_or_default();
+                out.insert(name, (format!("file{}", m.nlink()), mode, bytes));
+            } else {
+                // A FIFO is never opened: that would wait for a writer.
+                out.insert(name, ("other".into(), mode, Vec::new()));
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    go(dir, "", &mut out);
+    out
+}
+
+/// The snapshot name every invalid-entry case plants.
+const SNAP_FAKE: &str = "ssh_config.fake.orig";
+
+/// A snapshot as the writer makes it: a regular file with exactly 0600.
+const SNAP_SEED: &str = "ssh_config.20200102T030405Z.orig";
+
+/// What an apply over a state directory prepared by `prepare` leaves: the item
+/// outcomes, with the whole scratch tree (the owner's files, Heimdall's files and the
+/// state directory) before and after.
+type SnapRun = (
+    Vec<ItemOutcome>,
+    Sink,
+    (BTreeMap<String, Entry>, SnapTree),
+    (BTreeMap<String, Entry>, SnapTree),
+);
+
+fn snap_apply_after(fx: &Fx, prepare: impl FnOnce(&Fx)) -> SnapRun {
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let plan = fx.preview(&fx.spec(&["alpha", "beta"], None), &Fx::apply_intent());
+    prepare(fx);
+    let before = (fx.tree(), snap_tree(&fx.home.state_dir));
+    let sink = Sink::default();
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut sink.clone())
+        .unwrap();
+    let after = (fx.tree(), snap_tree(&fx.home.state_dir));
+    (r.items, sink, before, after)
+}
+
+/// The refusal of §12.35 item 2: the item is not applied (`unmanageable_file`) before
+/// its first edit, nothing is staged, and the owner's file, Heimdall's files and the
+/// state directory are exactly as they were.
+fn snap_assert_refused(label: &str, fx: &Fx, run: &SnapRun) {
+    let (items, sink, before, after) = run;
+    assert_eq!(
+        items,
+        &vec![ItemOutcome::NotApplied {
+            item: ProjectionItem::Ssh,
+            reason: Some(ConflictKind::UnmanageableFile)
+        }],
+        "{label}"
+    );
+    assert_eq!(after, before, "{label}: nothing was written");
+    assert_eq!(
+        std::fs::read(fx.user()).unwrap(),
+        USER_TEXT.as_bytes(),
+        "{label}: the user file is untouched"
+    );
+    assert!(!fx.p().exists(), "{label}");
+    assert!(
+        sink.file_phases(0).is_empty(),
+        "{label}: no step was staged: {:?}",
+        sink.kinds()
+    );
+}
+
+/// N02, the reviewer's first case and its relatives: an entry named like a snapshot that
+/// is not a regular, owner-owned file of mode exactly 0600 with one link is no snapshot
+/// and never stands in for one. Each case refuses the item before the first edit; the
+/// user file, Heimdall's files and the state directory are untouched.
+#[test]
+fn an_existing_entry_that_is_not_a_valid_snapshot_refuses_the_edit_before_it() {
+    type Prepare = fn(&Fx);
+    let cases: &[(&str, Prepare)] = &[
+        ("a directory (the reviewer's case)", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            snap_mkdir(&fx.backups().join(SNAP_FAKE), 0o700);
+        }),
+        ("a symlink to a valid-looking file", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            let real = fx.home.state_dir.join("real");
+            snap_file(&real, b"a bystander\n", 0o600);
+            std::os::unix::fs::symlink(&real, fx.backups().join(SNAP_FAKE)).unwrap();
+        }),
+        ("a symlink to a directory", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            let real = fx.home.state_dir.join("real");
+            snap_mkdir(&real, 0o700);
+            std::os::unix::fs::symlink(&real, fx.backups().join(SNAP_FAKE)).unwrap();
+        }),
+        ("a dangling symlink", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            std::os::unix::fs::symlink("nowhere", fx.backups().join(SNAP_FAKE)).unwrap();
+        }),
+        ("a file with mode 0644", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o644);
+        }),
+        ("a file with mode 0660 (group-writable)", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o660);
+        }),
+        ("a file with mode 0666", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o666);
+        }),
+        ("a file with mode 0400", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o400);
+        }),
+        ("a file with mode 0700", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o700);
+        }),
+        ("a hard-linked file with mode 0600", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            let other = fx.home.state_dir.join("other-name");
+            snap_file(&other, b"x\n", 0o600);
+            std::fs::hard_link(&other, fx.backups().join(SNAP_FAKE)).unwrap();
+        }),
+        ("a FIFO", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            let made = std::process::Command::new("mkfifo")
+                .arg(fx.backups().join(SNAP_FAKE))
+                .status()
+                .unwrap();
+            assert!(made.success());
+        }),
+        ("a valid snapshot beside an invalid one", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            snap_file(
+                &fx.backups().join(SNAP_SEED),
+                b"an earlier original\n",
+                0o600,
+            );
+            snap_mkdir(&fx.backups().join(SNAP_FAKE), 0o700);
+        }),
+    ];
+    for (label, prepare) in cases {
+        let fx = Fx::new();
+        let run = snap_apply_after(&fx, prepare);
+        snap_assert_refused(label, &fx, &run);
+    }
+}
+
+/// N02, the reviewer's second case and its relatives: `backups` itself is opened without
+/// following a link and must be an owner-owned directory that group and others cannot
+/// write. A symlink (to a directory holding such an entry or not, or dangling), a
+/// non-directory and a group- or other-writable directory refuse the item before the
+/// first edit, the symlink's target included untouched.
+#[test]
+fn a_backups_directory_that_is_not_a_private_directory_refuses_the_edit() {
+    type Prepare = fn(&Fx);
+    let cases: &[(&str, Prepare)] = &[
+        (
+            "a symlink to a directory holding the entry (the reviewer's case)",
+            |fx| {
+                let real = fx.home.state_dir.join("elsewhere");
+                snap_mkdir(&real, 0o700);
+                snap_file(&real.join(SNAP_FAKE), b"not an original\n", 0o600);
+                std::os::unix::fs::symlink(&real, fx.backups()).unwrap();
+            },
+        ),
+        ("a symlink to an empty directory", |fx| {
+            let real = fx.home.state_dir.join("elsewhere");
+            snap_mkdir(&real, 0o700);
+            std::os::unix::fs::symlink(&real, fx.backups()).unwrap();
+        }),
+        ("a dangling symlink", |fx| {
+            std::os::unix::fs::symlink("nowhere", fx.backups()).unwrap();
+        }),
+        ("a regular file", |fx| {
+            snap_file(&fx.backups(), b"not a directory\n", 0o600);
+        }),
+        ("a group-writable directory", |fx| {
+            snap_mkdir(&fx.backups(), 0o770);
+        }),
+        ("an other-writable directory", |fx| {
+            snap_mkdir(&fx.backups(), 0o707);
+        }),
+        ("a world-writable directory", |fx| {
+            snap_mkdir(&fx.backups(), 0o777);
+        }),
+    ];
+    for (label, prepare) in cases {
+        let fx = Fx::new();
+        let run = snap_apply_after(&fx, prepare);
+        snap_assert_refused(label, &fx, &run);
+    }
+}
+
+/// N02: a valid existing snapshot (a regular file of mode exactly 0600, one link, owned
+/// by the user, in a directory group and others cannot write) is accepted. The item
+/// applies, the existing copy is kept byte for byte and no second copy is made, whatever
+/// the directory's other bits (0700, or the readable 0755).
+#[test]
+fn a_valid_existing_snapshot_is_accepted_and_no_second_copy_is_made() {
+    for dir_mode in [0o700, 0o755] {
+        let fx = Fx::new();
+        let (items, _, _, _) = snap_apply_after(&fx, |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            snap_file(
+                &fx.backups().join(SNAP_SEED),
+                b"an earlier original\n",
+                0o600,
+            );
+            snap_chmod(&fx.backups(), dir_mode);
+        });
+        assert!(
+            matches!(items.as_slice(), [ItemOutcome::Applied { .. }]),
+            "{dir_mode:o}: {items:?}"
+        );
+        let taken = fx.snapshots("ssh_config");
+        assert_eq!(taken, [fx.backups().join(SNAP_SEED)], "{dir_mode:o}");
+        assert_eq!(std::fs::read(&taken[0]).unwrap(), b"an earlier original\n");
+        assert_eq!(
+            std::fs::read_dir(fx.backups()).unwrap().count(),
+            1,
+            "{dir_mode:o}: no second copy, no staging file"
+        );
+        assert_ne!(
+            std::fs::read(fx.user()).unwrap(),
+            USER_TEXT.as_bytes(),
+            "{dir_mode:o}: the item edited the user file"
+        );
+    }
+}
+
+/// N02 on the function itself: it refuses an invalid entry or an unsafe `backups` with
+/// an error that names the entry (never the directory's path), copies nothing and makes
+/// nothing; a valid existing snapshot is `Exists` whatever its timestamp; an invalid
+/// entry of another snapshot name (`gitconfig.*`) does not stand in for the SSH
+/// configuration's, nor block it. The `gitconfig` name follows the same rules.
+#[test]
+fn snapshot_original_refuses_an_invalid_entry_naming_it_and_accepts_a_valid_one() {
+    use heimdall_localenv::projection::apply::{Snapshot, snapshot_original};
+    let now: heimdall_contract::Timestamp = "2026-11-03T09:08:07.654Z".parse().unwrap();
+    for name in ["ssh_config", "gitconfig"] {
+        let fx = Fx::new();
+        std::fs::write(fx.user(), USER_TEXT).unwrap();
+        let backups = fx.backups();
+        let fake = format!("{name}.fake.orig");
+        snap_mkdir(&backups, 0o700);
+        snap_mkdir(&backups.join(&fake), 0o700);
+        let before = snap_tree(&fx.home.state_dir);
+        let refusal = snapshot_original(fx.user(), &backups, name, None, now).unwrap_err();
+        let text = refusal.to_string();
+        assert!(text.contains(&fake), "{name}: the entry is named: {text}");
+        assert!(
+            !text.contains(fx.home.state_dir.to_str().unwrap()),
+            "{name}: no path of the state directory: {text}"
+        );
+        assert_eq!(
+            snap_tree(&fx.home.state_dir),
+            before,
+            "{name}: nothing made"
+        );
+
+        // The other name's entry neither stands in for this one nor blocks it.
+        let other = if name == "ssh_config" {
+            "gitconfig"
+        } else {
+            "ssh_config"
+        };
+        let made = snapshot_original(fx.user(), &backups, other, None, now).unwrap();
+        let expected = backups.join(format!("{other}.20261103T090807Z.orig"));
+        assert_eq!(made, Snapshot::Written(expected.clone()), "{name}");
+        assert_eq!(std::fs::read(&expected).unwrap(), USER_TEXT.as_bytes());
+        assert_eq!(
+            std::fs::metadata(&expected).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+        // It still refuses the first, now beside a valid snapshot of its own name.
+        assert!(snapshot_original(fx.user(), &backups, name, None, now).is_err());
+
+        // A valid existing snapshot of any timestamp is kept.
+        let fx = Fx::new();
+        std::fs::write(fx.user(), USER_TEXT).unwrap();
+        let backups = fx.backups();
+        snap_mkdir(&backups, 0o700);
+        let seed = backups.join(format!("{name}.20200102T030405Z.orig"));
+        snap_file(&seed, b"an earlier original\n", 0o600);
+        assert_eq!(
+            snapshot_original(fx.user(), &backups, name, None, now).unwrap(),
+            Snapshot::Exists(seed.clone()),
+            "{name}"
+        );
+        assert_eq!(std::fs::read(&seed).unwrap(), b"an earlier original\n");
+        assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 1, "{name}");
+
+        // A link, a non-directory and a writable directory are no `backups`.
+        for (label, make) in [
+            ("a symlink", 0u8),
+            ("a regular file", 1),
+            ("a group-writable directory", 2),
+            ("an other-writable directory", 3),
+        ] {
+            let fx = Fx::new();
+            std::fs::write(fx.user(), USER_TEXT).unwrap();
+            let backups = fx.backups();
+            match make {
+                0 => {
+                    let real = fx.home.state_dir.join("elsewhere");
+                    snap_mkdir(&real, 0o700);
+                    snap_file(&real.join(&fake), b"x\n", 0o600);
+                    std::os::unix::fs::symlink(&real, &backups).unwrap();
+                }
+                1 => snap_file(&backups, b"x\n", 0o600),
+                2 => snap_mkdir(&backups, 0o770),
+                _ => snap_mkdir(&backups, 0o707),
+            }
+            let before = snap_tree(&fx.home.state_dir);
+            let refusal = snapshot_original(fx.user(), &backups, name, None, now);
+            assert!(refusal.is_err(), "{name}, {label}: {refusal:?}");
+            assert_eq!(
+                snap_tree(&fx.home.state_dir),
+                before,
+                "{name}, {label}: nothing made"
+            );
+        }
+    }
 }

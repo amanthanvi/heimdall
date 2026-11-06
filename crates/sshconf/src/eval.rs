@@ -60,7 +60,16 @@
 //!   the line still recorded; a keyword of the pinned table the client does not know is
 //!   an unknown keyword to it; `${VAR}` and `%` tokens in `User`, `SetEnv` and
 //!   `Include` are literal for a client observed to take them literally, so such a
-//!   value reads no variable and an `Include` globs its text as written.
+//!   value reads no variable and an `Include` globs its text as written. For a client
+//!   whose handling of them is not established (a version not in
+//!   [`client::OBSERVED_CLIENTS`], or a row that records nothing for that fact) the two
+//!   readings give different results, so the value is **undetermined**, not one of the
+//!   readings (ADR-0007 §12.35 item 1, [`client::behaviour_unknown`]): an `Include`
+//!   argument with `%` or `${VAR}` is recorded as unresolved, reason
+//!   [`UnresolvedReason::ClientBehaviourUnknown`], its expanded matches are read under
+//!   an unknown condition and an opaque point stands for the literal file, as for an
+//!   environment reference; a `User` or `SetEnv` value with either applies under an
+//!   unknown condition with the same reason.
 //!
 //! **Source role** (ADR-0007 §5.2, §12.15 item 3). Every [`Value`] carries the role of
 //! the file it was read from: [`SourceRole::Managed`] for P, the Heimdall-owned file
@@ -308,6 +317,12 @@ pub enum UnresolvedReason {
     /// implicit `~/.ssh/` of a relative user `Include`) follows a `HOME` that is not the
     /// account home. Stable name `environment_reference`.
     EnvironmentReference,
+    /// `%` tokens or `${VAR}` in an `Include`, `User` or `SetEnv` argument, on a client
+    /// whose handling of them the observations do not settle ([`crate::client`]): a
+    /// client that takes them literally and one that expands them give different
+    /// results, so the affected value is undetermined and an `Include` adds an opaque
+    /// point (ADR-0007 §12.35 item 1). Stable name `client_behaviour_unknown`.
+    ClientBehaviourUnknown,
 }
 
 impl UnresolvedReason {
@@ -326,6 +341,7 @@ impl UnresolvedReason {
             UnresolvedReason::EnvUnset(_) => "env_unset",
             UnresolvedReason::TokenUnavailable(_) => "token_unavailable",
             UnresolvedReason::EnvironmentReference => "environment_reference",
+            UnresolvedReason::ClientBehaviourUnknown => "client_behaviour_unknown",
         }
     }
 }
@@ -655,7 +671,7 @@ fn host_patterns_unknown(pats: &[(bool, &str)]) -> Tri {
 // --- expansion helpers ----------------------------------------------------------------
 
 /// The names of every `${NAME}` in `s`.
-fn env_names(s: &str) -> Vec<&str> {
+pub(crate) fn env_names(s: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut rest = s;
     while let Some(i) = rest.find("${") {
@@ -933,8 +949,19 @@ impl IncludeVisitor for Walker<'_> {
         // that takes `${…}` literally there (§12.32 item 11 (b)) globs the text as
         // written, which reads no variable.
         let reads_env = self.include_expansion().env && !env_names(&arg.written).is_empty();
+        // ADR-0007 §12.35 item 1: `%` tokens or `${VAR}` that a client whose behaviour
+        // is not established may take literally name a file this walk (which reads the
+        // expanding reading) does not open, and the two give different results. The
+        // matches this walk reads are one candidate, under an unknown condition, and an
+        // opaque point stands for the other file, as for an environment reference.
+        let unsettled = client::behaviour_unknown(
+            KnownKeyword::Include,
+            [arg.written.as_str()],
+            self.query.client_version,
+        );
+        let uncertain = reads_env || unsettled;
         if let Some(f) = self.frames.last_mut() {
-            f.include_cond = if reads_env { Tri::Unknown } else { Tri::True };
+            f.include_cond = if uncertain { Tri::Unknown } else { Tri::True };
             f.pending = arg.matches.as_ref().map_or_else(
                 |_| VecDeque::new(),
                 |m| m.iter().cloned().collect::<VecDeque<_>>(),
@@ -943,9 +970,12 @@ impl IncludeVisitor for Walker<'_> {
         if reads_env {
             self.unresolve(UnresolvedReason::EnvironmentReference, span);
         }
+        if unsettled {
+            self.unresolve(UnresolvedReason::ClientBehaviourUnknown, span);
+        }
         let error = match &arg.matches {
             Ok(_) => {
-                if reads_env {
+                if uncertain {
                     self.opaque(span, cond_span, cond, visit.role);
                 }
                 return;
@@ -1439,6 +1469,17 @@ impl Walker<'_> {
                 .is_some_and(|a| a.starts_with('$') && a != "$SSH_AUTH_SOCK")
         {
             self.unresolve(UnresolvedReason::EnvironmentReference, d.span);
+            t = Tri::Unknown;
+        }
+        // ADR-0007 §12.35 item 1: a `User` or `SetEnv` whose `%` tokens or `${VAR}` this
+        // client may take literally or expand gives two different values, so it is
+        // undetermined. A client observed either way has a settled answer.
+        if client::behaviour_unknown(
+            kw,
+            d.args.iter().map(String::as_str),
+            self.query.client_version,
+        ) {
+            self.unresolve(UnresolvedReason::ClientBehaviourUnknown, d.span);
             t = Tri::Unknown;
         }
         t

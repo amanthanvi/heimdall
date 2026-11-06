@@ -1785,6 +1785,46 @@ mod json {
             "no absolute home path: {shown}"
         );
     }
+
+    /// ADR-0007 §12.34 item 7: an uninstall is never blocked by the size of what Heimdall
+    /// wrote. P grew past `MAX_DIFF_BYTES` in three approved applies of 80 long aliases each
+    /// (no single diff was over the bound); the uninstall's rollback shows P as a summary
+    /// line, applies, restores the user file byte for byte and removes P.
+    #[test]
+    fn uninstall_over_a_p_well_beyond_the_diff_bound_rolls_back_and_restores() {
+        use heimdall_contract::setup::MAX_DIFF_BYTES;
+        let w = World::new(1);
+        w.home.write_user_config(USER).unwrap();
+        let bytes = std::fs::read(&w.home.user_config).unwrap();
+        let id = w.adopt(0);
+        let label = "a".repeat(60);
+        for prefix in ["a", "b", "c"] {
+            for i in 0..80 {
+                let alias = format!("{prefix}{i:03}");
+                let host = format!("{label}.{label}.{label}.{alias}.example.invalid");
+                w.managed(&alias, &host, None, "fixture", &id);
+            }
+            w.project();
+        }
+        let p = std::fs::metadata(w.p()).unwrap().len();
+        assert!(
+            usize::try_from(p).unwrap() > MAX_DIFF_BYTES + MAX_DIFF_BYTES / 4,
+            "P is {p} bytes"
+        );
+        assert_ne!(std::fs::read(&w.home.user_config).unwrap(), bytes);
+        let out = ni(&w, &["uninstall"]);
+        assert_eq!(out.code, Some(0), "{out:?}");
+        let env = out.json();
+        assert_envelope_valid(&env);
+        assert_ne!(out.reason(), "plan_too_large", "{env}");
+        assert_eq!(
+            std::fs::read(&w.home.user_config).unwrap(),
+            bytes,
+            "restored byte for byte"
+        );
+        assert!(!w.p().exists(), "P removed");
+        assert_eq!(env["data"]["runtime_stopped"], true, "{env}");
+    }
 }
 
 #[cfg(unix)]

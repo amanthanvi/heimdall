@@ -122,6 +122,8 @@ use super::replace::{
 use super::{ProjectionConfig, ReplacePoint};
 use crate::clients::ClientKind;
 use crate::local_query::LocalQueries;
+use crate::sys::IdentitySource;
+use crate::sys::fsentry::{self, EntryMeta, Kind};
 
 /// Iterations of one item's recovery loop before it is reported held (`unmatched`).
 /// Every iteration performs at most one action; a correct item needs a few per step.
@@ -185,10 +187,7 @@ pub(super) fn held_steps(
     Ok(out)
 }
 
-// --- the original's snapshot (ADR-0007 §5.5) --------------------------------------------
-
-/// The longest file a snapshot copies (the §5.3 read bound).
-const SNAPSHOT_MAX: u64 = 1 << 20;
+// --- the original's snapshot (ADR-0007 §5.5, §12.35 item 2) -------------------------------
 
 /// The snapshot name of the user's SSH configuration
 /// (`<state>/backups/ssh_config.<UTC timestamp>.orig`; ADR-0007 §5.5).
@@ -203,7 +202,7 @@ pub const GIT_SNAPSHOT_NAME: &str = "gitconfig";
 pub enum Snapshot {
     /// The original's bytes were copied to this new file.
     Written(PathBuf),
-    /// A snapshot of this name was taken before an earlier first edit; it is never
+    /// A valid snapshot of this name was taken before an earlier first edit; it is never
     /// replaced, and nothing was written.
     Exists(PathBuf),
     /// The file does not exist: there is no original to copy.
@@ -218,26 +217,36 @@ pub enum Snapshot {
 /// can recover it by hand. Heimdall never restores a snapshot automatically, and only
 /// `uninstall --purge-state` deletes one.
 ///
-/// * The first edit is the one with no `<name>.*.orig` in `backups` yet: an existing
-///   snapshot is kept as it is ([`Snapshot::Exists`]) and nothing is written.
-/// * `file` must be a regular file (never followed through a link) of at most 1 MiB;
-///   an absent file has no original ([`Snapshot::Absent`]). With `expected` (the plan's
-///   base digest, lowercase hex), bytes with another digest write nothing
+/// * `backups` is opened without following a link (§12.35 item 2) and must be a
+///   directory owned by the current user that group and others cannot write (Unix; on
+///   Windows it inherits the state directory's ACL). A symbolic link, a non-directory, a
+///   foreign owner or a group- or other-writable directory refuses, and nothing is
+///   read from or written to it.
+/// * The first edit is the one with no `<name>.*.orig` in `backups` yet. An existing
+///   snapshot is kept as it is ([`Snapshot::Exists`]) and nothing is written, but it
+///   counts only as a *valid* one: a regular file of the current user with one link and
+///   mode exactly 0600 (a protected owner-only DACL on Windows), opened without following
+///   a link. Every entry of that name must be valid; any other (a directory, a link, a
+///   file with another mode, owner or link count) refuses the copy with an error that
+///   names the entry, so a lookalike can never stand in for the original.
+/// * `file` is read without following a link (an absent file has no original,
+///   [`Snapshot::Absent`]) and must be a regular file of at most 1 MiB. With `expected`
+///   (the plan's base digest, lowercase hex), bytes with another digest write nothing
 ///   ([`Snapshot::Changed`]).
-/// * `backups` is created when missing (0700 on Unix; on Windows it inherits the state
-///   directory's ACL) and must be a real directory; the copy is created new and
-///   owner-only through `sys::create_owner_only_exclusive` (0600 on Unix; a protected
-///   owner-only DACL on Windows), synced, and renamed into place from a dot-named
-///   staging file, so a reader never sees a
-///   partial snapshot. Nothing is ever removed or replaced: a staging
-///   file a failed or raced copy leaves behind stays (production code unlinks nothing
-///   outside the quarantine) and, being dot-named, is never taken for a snapshot.
+/// * `backups` is created when missing (0700 on Unix). The copy is created new and
+///   owner-only relative to the directory that was validated (0600 on Unix; a protected
+///   owner-only DACL on Windows), synced, and moved into place by a no-replace rename
+///   from a dot-named staging file, so a reader never sees a partial snapshot and no
+///   entry is ever replaced. Nothing is ever removed: a staging file a failed or raced
+///   copy leaves behind stays (production code unlinks nothing outside the quarantine)
+///   and, being dot-named, is never taken for a snapshot.
 /// * The timestamp is the UTC second of `now` as `YYYYMMDDTHHMMSSZ` (no `:`, which
 ///   Windows names cannot hold).
 ///
 /// # Errors
 /// Any I/O failure (the caller then submits nothing), an over-long file, a file that is
-/// not regular, or a `backups` that is not a directory.
+/// not regular, an unsafe `backups`, or an entry of `backups` that is named like a
+/// snapshot and is not a valid one. The messages name an entry by its name only.
 pub fn snapshot_original(
     file: &Path,
     backups: &Path,
@@ -245,79 +254,307 @@ pub fn snapshot_original(
     expected: Option<&str>,
     now: Timestamp,
 ) -> std::io::Result<Snapshot> {
-    use std::io::{Read as _, Write as _};
-    let invalid =
-        |what: &str| std::io::Error::new(std::io::ErrorKind::InvalidInput, what.to_owned());
-    if let Some(existing) = existing_snapshot(backups, name)? {
-        return Ok(Snapshot::Exists(existing));
-    }
-    let meta = match std::fs::symlink_metadata(file) {
-        Ok(m) => m,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Snapshot::Absent),
+    use std::io::Write as _;
+    let mut dir = match SnapshotDir::open(backups) {
+        Ok(dir) => {
+            dir.require_private()?;
+            Some(dir)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(e),
     };
-    if !meta.file_type().is_file() {
-        return Err(invalid("the file to snapshot is not a regular file"));
+    if let Some(dir) = &dir
+        && let Some(existing) = existing_snapshot(dir, backups, name)?
+    {
+        return Ok(Snapshot::Exists(existing));
     }
-    let mut bytes = Vec::new();
-    std::fs::File::open(file)?
-        .take(SNAPSHOT_MAX + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > SNAPSHOT_MAX {
-        return Err(invalid("the file to snapshot exceeds the read bound"));
-    }
+    let Some(bytes) = read_original(file)? else {
+        return Ok(Snapshot::Absent);
+    };
     if expected.is_some_and(|d| Sha256Hex::of(&bytes).as_str() != d) {
         return Ok(Snapshot::Changed);
     }
-    match std::fs::symlink_metadata(backups) {
-        Ok(m) if m.file_type().is_dir() => {}
-        Ok(_) => return Err(invalid("the backups path is not a directory")),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(false);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::DirBuilderExt as _;
-                builder.mode(0o700);
+    let dir = match dir.take() {
+        Some(dir) => dir,
+        None => {
+            let dir = SnapshotDir::create(backups)?;
+            // A first edit that raced this one may have created the directory and copied.
+            if let Some(existing) = existing_snapshot(&dir, backups, name)? {
+                return Ok(Snapshot::Exists(existing));
             }
-            builder.create(backups)?;
+            dir
         }
-        Err(e) => return Err(e),
-    }
+    };
     let stamp = snapshot_stamp(now);
-    let target = backups.join(format!("{name}.{stamp}.orig"));
-    let staging = backups.join(format!(".{name}.{stamp}.orig.tmp"));
-    // Unix 0600 with `O_NOFOLLOW`; Windows a protected owner-only DACL (§5.5).
-    let mut out = crate::sys::create_owner_only_exclusive(&staging)?;
+    let target = format!("{name}.{stamp}.orig");
+    let staging = format!(".{name}.{stamp}.orig.tmp");
+    // Unix 0600 with `O_EXCL|O_NOFOLLOW`; Windows a protected owner-only DACL (§5.5).
+    let mut out = fsentry::create_new(dir.dir(), &staging, 0o600)?;
     out.write_all(&bytes)?;
     out.sync_all()?;
     drop(out);
-    if std::fs::symlink_metadata(&target).is_ok() {
-        // Another first edit's copy landed meanwhile: it is kept.
-        return Ok(Snapshot::Exists(target));
+    match fsentry::rename_noreplace(dir.dir(), &staging, dir.dir(), &target) {
+        Ok(()) => Ok(Snapshot::Written(backups.join(&target))),
+        // Another first edit's copy landed under this very name meanwhile: it is kept,
+        // if it is a valid one.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            existing_snapshot(&dir, backups, name)?
+                .map(Snapshot::Exists)
+                .ok_or(e)
+        }
+        Err(e) => Err(e),
     }
-    std::fs::rename(&staging, &target)?;
-    Ok(Snapshot::Written(target))
 }
 
-/// The first `<name>.*.orig` in `backups` (sorted), if any; a missing directory has none.
-fn existing_snapshot(backups: &Path, name: &str) -> std::io::Result<Option<PathBuf>> {
-    let prefix = format!("{name}.");
-    let mut found: Vec<PathBuf> = match std::fs::read_dir(backups) {
-        Ok(rd) => rd
-            .filter_map(Result::ok)
-            .filter(|e| {
-                e.file_name()
-                    .to_str()
-                    .is_some_and(|n| n.starts_with(&prefix) && n.ends_with(".orig"))
+/// A refusal of the snapshot; `what` names an entry by its name only, never a path.
+fn snapshot_refusal(what: impl Into<String>) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, what.into())
+}
+
+/// A directory opened without following a link, whose names are resolved relative to
+/// it (the way `replace::DirHandle` resolves them): the backups directory, and the
+/// directory of the file to copy.
+struct SnapshotDir {
+    #[cfg(unix)]
+    fd: std::os::fd::OwnedFd,
+    /// Windows: held open without delete sharing, so it cannot be renamed or removed
+    /// meanwhile; names are resolved under its final path.
+    #[cfg(windows)]
+    _pin: std::os::windows::io::OwnedHandle,
+    #[cfg(windows)]
+    final_path: PathBuf,
+    meta: EntryMeta,
+}
+
+impl SnapshotDir {
+    /// Open `path` as a directory without following a link (Unix
+    /// `O_DIRECTORY|O_NOFOLLOW`; Windows `FILE_FLAG_OPEN_REPARSE_POINT`), whatever its
+    /// owner and mode. A missing directory is `NotFound`.
+    fn open(path: &Path) -> std::io::Result<Self> {
+        #[cfg(unix)]
+        {
+            let fd = match fsentry::open_dir_path(path) {
+                Ok(fd) => fd,
+                // `O_DIRECTORY|O_NOFOLLOW` on a link is `ELOOP` on Linux and `ENOTDIR` on
+                // macOS: the entry itself says which it is.
+                Err(e) => {
+                    return Err(match std::fs::symlink_metadata(path) {
+                        Ok(m) if m.file_type().is_symlink() => {
+                            snapshot_refusal("a symbolic link where a directory must be")
+                        }
+                        Ok(m) if !m.file_type().is_dir() => {
+                            snapshot_refusal("a file where a directory must be")
+                        }
+                        _ => e,
+                    });
+                }
+            };
+            let meta = fsentry::fstat(&fd, IdentitySource::Native)?;
+            Ok(Self { fd, meta })
+        }
+        #[cfg(windows)]
+        {
+            let pin = fsentry::win::open_dir_pinned(path, false)?;
+            let meta = fsentry::win::meta(&pin)?;
+            match meta.kind {
+                Kind::Directory => {}
+                Kind::Symlink => {
+                    return Err(snapshot_refusal(
+                        "a symbolic link or reparse point where a directory must be",
+                    ));
+                }
+                Kind::Regular | Kind::Other => {
+                    return Err(snapshot_refusal("a file where a directory must be"));
+                }
+            }
+            let final_path = fsentry::win::final_path(&pin)?;
+            Ok(Self {
+                _pin: pin,
+                final_path,
+                meta,
             })
-            .map(|e| e.path())
-            .collect(),
+        }
+    }
+
+    /// Create the missing backups directory (0700 on Unix; on Windows it inherits the
+    /// state directory's ACL), then open and check it like an existing one, so a
+    /// directory that a racing creator made first is held to the same rules.
+    fn create(path: &Path) -> std::io::Result<Self> {
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt as _;
+            builder.mode(0o700);
+        }
+        match builder.create(path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+        let dir = Self::open(path)?;
+        dir.require_private()?;
+        Ok(dir)
+    }
+
+    /// What names resolve against.
+    fn dir(&self) -> fsentry::Dir<'_> {
+        #[cfg(unix)]
+        {
+            std::os::fd::AsFd::as_fd(&self.fd)
+        }
+        #[cfg(windows)]
+        {
+            &self.final_path
+        }
+    }
+
+    /// The rules of the backups directory (§12.35 item 2): owned by the current user
+    /// and, on Unix, usable by its owner and writable by neither group nor others.
+    fn require_private(&self) -> std::io::Result<()> {
+        if let Some(problem) = private_directory_problem(&self.meta) {
+            return Err(snapshot_refusal(format!(
+                "the backups directory is {problem}"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The names in the directory that look like a snapshot of `name`
+    /// (`<name>.*.orig`; a name that is not UTF-8 is matched by its lossy form), sorted.
+    fn snapshot_names(&self, name: &str) -> std::io::Result<Vec<std::ffi::OsString>> {
+        let prefix = format!("{name}.");
+        let looks_like_one = |n: &std::ffi::OsStr| {
+            let text = n.to_string_lossy();
+            text.starts_with(&prefix) && text.ends_with(".orig")
+        };
+        let mut found = Vec::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt as _;
+            for entry in rustix::fs::Dir::read_from(&self.fd)? {
+                let n = std::ffi::OsString::from_vec(entry?.file_name().to_bytes().to_vec());
+                if looks_like_one(&n) {
+                    found.push(n);
+                }
+            }
+        }
+        #[cfg(windows)]
+        {
+            for entry in std::fs::read_dir(&self.final_path)? {
+                let n = entry?.file_name();
+                if looks_like_one(&n) {
+                    found.push(n);
+                }
+            }
+        }
+        found.sort();
+        Ok(found)
+    }
+}
+
+/// Why `meta` is no backups directory, or `None` when it is one (§12.35 item 2).
+fn private_directory_problem(meta: &EntryMeta) -> Option<&'static str> {
+    if meta.kind != Kind::Directory {
+        Some("not a directory")
+    } else if !meta.owned {
+        Some("owned by another user")
+    } else if cfg!(unix) && meta.perm & 0o022 != 0 {
+        Some("writable by group or others")
+    } else if cfg!(unix) && meta.perm & 0o700 != 0o700 {
+        Some("not usable by its owner")
+    } else {
+        None
+    }
+}
+
+/// Whether `meta` is a valid snapshot (§12.35 item 2): a regular file of the current
+/// user with one link and, on Unix, mode exactly 0600.
+fn is_valid_snapshot(meta: &EntryMeta) -> bool {
+    meta.kind == Kind::Regular
+        && meta.owned
+        && meta.nlink == 1
+        && (!cfg!(unix) || meta.perm == 0o600)
+}
+
+/// The first valid `<name>.*.orig` in `dir` (sorted), if any; no entry of that name
+/// is not a valid snapshot. A name that vanishes meanwhile is no entry.
+///
+/// # Errors
+/// An entry of that name that is not a valid snapshot, named, or an I/O failure.
+fn existing_snapshot(
+    dir: &SnapshotDir,
+    backups: &Path,
+    name: &str,
+) -> std::io::Result<Option<PathBuf>> {
+    let mut first = None;
+    for entry in dir.snapshot_names(name)? {
+        let invalid = |why: &str| {
+            snapshot_refusal(format!(
+                "the backups directory holds {entry:?}, which is not a valid snapshot ({why})"
+            ))
+        };
+        let Some(text) = entry.to_str() else {
+            return Err(invalid("its name is not valid text"));
+        };
+        let found = fsentry::inspect(dir.dir(), text, IdentitySource::Native)
+            .map_err(|e| invalid(&format!("it cannot be inspected: {:?}", e.kind())))?;
+        let Some((meta, handle)) = found else {
+            continue;
+        };
+        if !is_valid_snapshot(&meta) {
+            return Err(invalid(
+                "a snapshot is a regular file of the current user with one link and mode 0600",
+            ));
+        }
+        #[cfg(windows)]
+        {
+            let owner_only = handle.is_some_and(|f| {
+                fsentry::win::dacl_is_owner_only(&std::os::windows::io::OwnedHandle::from(f))
+                    .unwrap_or(false)
+            });
+            if !owner_only {
+                return Err(invalid("a snapshot has a protected owner-only ACL"));
+            }
+        }
+        #[cfg(not(windows))]
+        drop(handle);
+        first.get_or_insert(entry);
+    }
+    Ok(first.map(|n| backups.join(n)))
+}
+
+/// The original's bytes, read without following a link; `None` when the file is absent.
+///
+/// # Errors
+/// A file that is not regular (a link included), one longer than 1 MiB, or an I/O
+/// failure.
+fn read_original(file: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    let (Some(parent), Some(leaf)) = (file.parent(), file.file_name().and_then(|n| n.to_str()))
+    else {
+        return Err(snapshot_refusal("the file to snapshot has no directory"));
+    };
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    let dir = match SnapshotDir::open(parent) {
+        Ok(dir) => dir,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
-    found.sort();
-    Ok(found.into_iter().next())
+    let Some((meta, handle)) = fsentry::inspect(dir.dir(), leaf, IdentitySource::Native)? else {
+        return Ok(None);
+    };
+    let (Kind::Regular, Some(handle)) = (meta.kind, handle) else {
+        return Err(snapshot_refusal(
+            "the file to snapshot is not a regular file",
+        ));
+    };
+    fsentry::read_bounded(&handle)?
+        .map(Some)
+        .ok_or_else(|| snapshot_refusal("the file to snapshot exceeds the read bound"))
 }
 
 /// `now`'s UTC second as `YYYYMMDDTHHMMSSZ`.
@@ -918,7 +1155,10 @@ impl<'a> Run<'a> {
     /// computed from, so the stale-base refusal is a precondition of the edit: a file
     /// that is gone or holds other bytes refuses with the base's conflict
     /// (`user_config_changed`), and a copy that cannot be made with `unmanageable_file`;
-    /// either way the step is not staged.
+    /// either way the step is not staged. The copy cannot be made when `backups` is not
+    /// a private directory or holds an entry named like a snapshot that is not a valid
+    /// one (§12.35 item 2); [`snapshot_original`] names that entry in its error, which
+    /// the item outcome (a [`ConflictKind`] only) cannot carry.
     fn snapshot_before_edit(&self, step: &FileStep) -> Result<(), ConflictKind> {
         let name = match step.role {
             FileRole::UserSsh => SSH_SNAPSHOT_NAME,
@@ -2891,4 +3131,88 @@ fn create_owner_only_dir(dir: &Path) -> Result<(), String> {
         b.mode(0o700);
     }
     b.create(dir).map_err(|e| format!("{:?}", e.kind()))
+}
+
+/// The snapshot rules of ADR-0007 §12.35 item 2 that a fixture cannot build without
+/// privileges (another owner), and the ones it can, on the metadata alone.
+#[cfg(test)]
+mod snapshot_rules {
+    use super::{EntryMeta, Kind, is_valid_snapshot, private_directory_problem};
+    use heimdall_domain::projection::FileIdentity;
+
+    fn meta(kind: Kind, owned: bool, nlink: u64, perm: u32) -> EntryMeta {
+        EntryMeta {
+            identity: FileIdentity::Unix {
+                dev: 1,
+                ino: 1,
+                birth: None,
+            },
+            kind,
+            owned,
+            nlink,
+            len: 0,
+            perm,
+            changed_ns: 0,
+        }
+    }
+
+    #[test]
+    fn a_snapshot_is_a_regular_owned_single_link_file_of_mode_0600() {
+        assert!(is_valid_snapshot(&meta(Kind::Regular, true, 1, 0o600)));
+        for (label, m) in [
+            ("a foreign owner", meta(Kind::Regular, false, 1, 0o600)),
+            ("a directory", meta(Kind::Directory, true, 1, 0o600)),
+            ("a link", meta(Kind::Symlink, true, 1, 0o600)),
+            ("a FIFO or device", meta(Kind::Other, true, 1, 0o600)),
+            ("a second link", meta(Kind::Regular, true, 2, 0o600)),
+        ] {
+            assert!(!is_valid_snapshot(&m), "{label}");
+        }
+    }
+
+    /// Unix permission bits (Windows has an owner-only ACL check instead).
+    #[cfg(unix)]
+    #[test]
+    fn a_snapshot_has_exactly_mode_0600() {
+        for mode in [0o644, 0o640, 0o660, 0o666, 0o400, 0o700, 0o4600, 0o1600] {
+            assert!(
+                !is_valid_snapshot(&meta(Kind::Regular, true, 1, mode)),
+                "{mode:o}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_backups_directory_is_an_owned_directory() {
+        assert_eq!(
+            private_directory_problem(&meta(Kind::Directory, true, 2, 0o700)),
+            None
+        );
+        for (label, m) in [
+            ("a foreign owner", meta(Kind::Directory, false, 2, 0o700)),
+            ("a regular file", meta(Kind::Regular, true, 1, 0o700)),
+            ("a link", meta(Kind::Symlink, true, 1, 0o700)),
+        ] {
+            assert!(private_directory_problem(&m).is_some(), "{label}");
+        }
+    }
+
+    /// Unix permission bits: group and others may read but not write.
+    #[cfg(unix)]
+    #[test]
+    fn the_backups_directory_is_not_writable_by_group_or_others() {
+        for ok in [0o700, 0o750, 0o755] {
+            assert_eq!(
+                private_directory_problem(&meta(Kind::Directory, true, 2, ok)),
+                None,
+                "{ok:o}"
+            );
+        }
+        for bad in [0o770, 0o707, 0o777, 0o720, 0o702, 0o500, 0o000] {
+            assert!(
+                private_directory_problem(&meta(Kind::Directory, true, 2, bad)).is_some(),
+                "{bad:o}"
+            );
+        }
+    }
 }

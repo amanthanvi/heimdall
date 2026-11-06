@@ -547,7 +547,10 @@ impl Canon {
 /// that reads the environment is undetermined in the evaluation (reason
 /// `environment_reference`), so it enters as written, never expanded, and its state is
 /// never determined: two runtimes whose variables differ give equal digests, and
-/// consent is never reused across them. `IdentityAgent SSH_AUTH_SOCK`, `IdentityAgent
+/// consent is never reused across them. A `User`, `SetEnv` or `Include` whose `%` tokens
+/// or `${VAR}` the selected client may take literally or expand (reason
+/// `client_behaviour_unknown`, ADR-0007 §12.35 item 1) is undetermined in the same way,
+/// so its state is never determined either. `IdentityAgent SSH_AUTH_SOCK`, `IdentityAgent
 /// $SSH_AUTH_SOCK` and an unset `IdentityAgent` enter as one determined value of role
 /// `default` (the default agent), wherever they are written.
 #[must_use]
@@ -1100,6 +1103,13 @@ pub fn executing_constructs(evaluation: &Evaluation) -> Vec<Span> {
 /// and records `IncludeUnreadable` as well for an `Include` whose `${VAR}` is unset and
 /// for an `Include` whose `~` follows a `HOME` that is not the account home (ADR-0007
 /// §12.17 item 9), so neither file is read.
+///
+/// An `Include` whose expansion depends on client behaviour that is not established
+/// (`client_behaviour_unknown`, ADR-0007 §12.35 item 1) is **not** listed, as an
+/// environment-dependent `Include` is not: the files this evaluator expands are read,
+/// and the opaque point stands for the other file (listed by [`executing_constructs`]).
+/// The same reason is also recorded for a `User` or `SetEnv` value, which is no
+/// `Include`, so the reason alone cannot tell the two apart.
 #[must_use]
 pub fn unreadable_includes(evaluation: &Evaluation) -> Vec<Unresolved> {
     evaluation

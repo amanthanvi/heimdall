@@ -91,3 +91,8 @@ path = "../../tests/integration/projection.rs"
 [[test]]
 name = "integration_projection_git"
 path = "../../tests/integration/projection_git.rs"
+
+# W5d-app (ADR-0007 §12.34 item 6): the guard on writing `ProjectionConfig` constructors.
+[[test]]
+name = "integration_projection_state_dir_guard"
+path = "../../tests/integration/projection_state_dir_guard.rs"

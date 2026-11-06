@@ -32,6 +32,7 @@ use std::sync::{Arc, Mutex, Once, PoisonError};
 use heimdall_app::ports::{
     ItemOutcome, ProjectionReceipt, ProjectionWriter, ReconcileError, SinkError, StageSink,
 };
+use heimdall_contract::doctor::FindingSeverity;
 use heimdall_contract::ids::{AccountName, DestinationId, EnvironmentId, IdentityId, OperationId};
 use heimdall_contract::setup::{ConflictKind, GitApplicability, PreviewIntent, ProjectionItem};
 use heimdall_domain::operation::{
@@ -39,7 +40,7 @@ use heimdall_domain::operation::{
     SettleConflictFound, SettleSource, SettledDisposition, StageReceipt,
 };
 use heimdall_domain::projection::{
-    FileRole, FileStep, ItemCommit, ManagedAliasSpec, ProjectionPlan, ProjectionRecord,
+    Base, FileRole, FileStep, ItemCommit, ManagedAliasSpec, ProjectionPlan, ProjectionRecord,
     ProjectionSpec, SetupIntent, Sha256Hex, StepContentView, Target,
 };
 use heimdall_localenv::clients::{ClientCandidate, ClientInventory, ClientKind, ClientSource};
@@ -2509,5 +2510,518 @@ fn git_xdg_created_after_apply_shadowed_value_reported() {
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
         Some("'/usr/bin/ssh'")
+    );
+}
+
+// --- Heimdall's own value after the apply; the rollback's manageability check --------------
+//
+// ADR-0007 §12.34 item 8 (M02 wave 5d). Every test here runs in the `Fx` scratch world
+// above: scratch `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_SYSTEM`, `GIT_CONFIG_GLOBAL`
+// unset, every `git` process on `env_clear`.
+
+impl Fx {
+    /// A writer whose verified `ssh` client is at `client` (the path P_git renders).
+    fn writer_with_client(&self, client: &str) -> LocalProjection {
+        let mut c = self.config();
+        for candidate in &mut c.clients.candidates {
+            if candidate.kind == ClientKind::Ssh {
+                candidate.path = PathBuf::from(client);
+            }
+        }
+        LocalProjection::new(c)
+    }
+}
+
+const GIT_APPLY: PreviewIntent = PreviewIntent::Apply { include_git: true };
+
+/// Apply the Git item (and SSH) once. Returns the spec it applied, the intent and the
+/// receipts: `again(&spec, …)` is the spec of a later preview that has the record.
+fn applied_once(fx: &Fx) -> (ProjectionSpec, SetupIntent, Sink) {
+    let spec = fx.spec(None);
+    let plan = fx.writer().preview(&spec, &GIT_APPLY).unwrap();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(
+        git.applicability,
+        GitApplicability::Applicable,
+        "the Git item is not offered: {:?}",
+        git.reason
+    );
+    let intent = plan.intent();
+    let sink = Sink::default();
+    let r = fx.writer().apply(&intent, &mut sink.clone()).unwrap();
+    assert!(applied_git(&r.items), "{r:?} {:?}", sink.kinds());
+    (spec, intent, sink)
+}
+
+fn again(fx: &Fx, spec: &ProjectionSpec, intent: &SetupIntent, sink: &Sink) -> ProjectionSpec {
+    let mut next = spec.clone();
+    next.record = Some(record_of(fx, intent, sink));
+    next
+}
+
+fn git_steps(plan: &ProjectionPlan) -> Vec<FileRole> {
+    plan.files
+        .iter()
+        .filter(|s| s.role.item() == ProjectionItem::Git)
+        .map(|s| s.role)
+        .collect()
+}
+
+/// After the Git item is applied, B_git includes P_git, which holds Heimdall's own
+/// `core.sshCommand`. A preview that took that for a user's value reported
+/// `git_ssh_command_present`, so no update or re-render could ever be planned. Here the
+/// item stays applicable: unchanged, there is nothing to write; with a changed verified
+/// client path an update of P_git alone (the Git commit step, no lock, B_git not
+/// touched) is planned, applies, and Git then selects the new client; with an alias
+/// changed the Git item is still offered and SSH is updated.
+#[test]
+fn git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present() {
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (spec, intent, sink) = applied_once(&fx);
+    let global_after_apply = std::fs::read(fx.global()).unwrap();
+    let p_git_before = std::fs::read(fx.p_git()).unwrap();
+    let spec = again(&fx, &spec, &intent, &sink);
+
+    // Unchanged inputs: applicable, nothing to write.
+    let plan = fx.writer().preview(&spec, &GIT_APPLY).unwrap();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(git.applicability, GitApplicability::Applicable, "{git:?}");
+    assert_eq!(git.reason, None);
+    assert!(git.previous_values.is_empty());
+    assert!(plan.files.is_empty(), "{:?}", plan.files);
+
+    // An alias changed: the Git item is still offered and plans nothing for Git (P_git
+    // renders only the client path); SSH is updated.
+    let mut renamed = spec.clone();
+    renamed.aliases[0].hostname = "elsewhere.example.invalid".to_owned();
+    let plan = fx.writer().preview(&renamed, &GIT_APPLY).unwrap();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(git.applicability, GitApplicability::Applicable, "{git:?}");
+    assert_eq!(git.reason, None);
+    assert!(git_steps(&plan).is_empty(), "{:?}", git_steps(&plan));
+    assert!(
+        plan.files.iter().any(|s| s.role == FileRole::ManagedSsh),
+        "the alias change is an SSH update"
+    );
+
+    // The verified client moved: P_git alone is updated, as the Git commit step.
+    let moved = "/opt/heimdall-fixture/bin/ssh";
+    let writer = fx.writer_with_client(moved);
+    let plan = writer.preview(&spec, &GIT_APPLY).unwrap();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(git.applicability, GitApplicability::Applicable, "{git:?}");
+    assert_eq!(git.reason, None);
+    assert!(git.include_block.is_none(), "B_git is not planned again");
+    assert!(git.managed_file.is_some(), "P_git's change is shown");
+    assert_eq!(git_steps(&plan), vec![FileRole::GitManaged]);
+    let update = step_ref(&plan.intent(), FileRole::GitManaged).clone();
+    assert!(update.commit, "P_git is the Git item's commit step");
+    assert_eq!(
+        update.base,
+        Base::Present {
+            sha256: Sha256Hex::of(&p_git_before)
+        },
+        "the update replaces the P_git that was written"
+    );
+    let update_intent = plan.intent();
+    let sink2 = Sink::default();
+    let r = writer.apply(&update_intent, &mut sink2.clone()).unwrap();
+    assert!(applied_git(&r.items), "{r:?} {:?}", sink2.kinds());
+    assert_eq!(
+        fx.effective_ssh_command().as_deref(),
+        Some("'/opt/heimdall-fixture/bin/ssh'"),
+        "Git now selects the moved client"
+    );
+    assert_ne!(std::fs::read(fx.p_git()).unwrap(), p_git_before);
+    assert_eq!(
+        std::fs::read(fx.global()).unwrap(),
+        global_after_apply,
+        "an update does not touch the global file"
+    );
+    assert!(!fx.lock().exists(), "no lock was taken");
+    assert!(leftovers(&fx).is_empty(), "{:?}", leftovers(&fx));
+}
+
+/// The control for the above: a `core.sshCommand` that is not Heimdall's own P_git, added
+/// after the apply, still makes the item `not_applicable` (`git_ssh_command_present`),
+/// and the plan lists that value, not Heimdall's. Both placements the owner can use are
+/// covered: after B_git in the same global file (what `git config --global` writes), and
+/// in an XDG file created after the apply, which Git reads first, so Heimdall's include
+/// wins over it (the `git_user_value_shadowed` residual: the value is still observed).
+#[test]
+fn git_user_value_added_after_apply_still_makes_the_item_not_applicable() {
+    type Setup = fn(&Fx);
+    let cases: [(&str, Setup, &str, &str); 2] = [
+        (
+            "after B_git in the global file",
+            |fx| {
+                assert!(
+                    fx.git(&["config", "--global", "core.sshCommand", "ssh -v"])
+                        .status
+                        .success()
+                );
+            },
+            "ssh -v",
+            ".gitconfig",
+        ),
+        (
+            "XDG file created after the apply",
+            |fx| {
+                let xdg = fx.xdg_dir().join("git").join("config");
+                create_owner_only_dir_all(xdg.parent().unwrap());
+                write_private(&xdg, b"[core]\n\tsshCommand = ssh -q\n");
+            },
+            "ssh -q",
+            "git/config",
+        ),
+    ];
+    for (label, add, value, file) in cases {
+        let fx = Fx::new();
+        std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+        let (spec, intent, sink) = applied_once(&fx);
+        add(&fx);
+        let tree = fx.tree();
+        let spec = again(&fx, &spec, &intent, &sink);
+        // Even with a client change, which would otherwise be an update.
+        let plan = fx
+            .writer_with_client("/opt/heimdall-fixture/bin/ssh")
+            .preview(&spec, &GIT_APPLY)
+            .unwrap();
+        let git = plan.view.git.clone().unwrap();
+        assert_eq!(
+            git.applicability,
+            GitApplicability::NotApplicable,
+            "{label}: {git:?}"
+        );
+        assert_eq!(
+            git.reason.as_deref(),
+            Some("git_ssh_command_present"),
+            "{label}"
+        );
+        assert!(
+            git_steps(&plan).is_empty(),
+            "{label}: {:?}",
+            git_steps(&plan)
+        );
+        assert_eq!(
+            git.previous_values.len(),
+            1,
+            "{label}: {:?}",
+            git.previous_values
+        );
+        let v = &git.previous_values[0];
+        assert_eq!(
+            v.value_sha256,
+            heimdall_localenv::git::value_digest(value),
+            "{label}"
+        );
+        let origin = v.origin_display.as_deref().unwrap();
+        assert!(origin.ends_with(file), "{label}: {origin}");
+        assert_ne!(
+            Some(origin),
+            heimdall_localenv::git::origin_of(&Env::from_vars(fx.git_env()), &fx.p_git())
+                .as_deref(),
+            "{label}: Heimdall's own value is not listed"
+        );
+        assert_eq!(fx.tree(), tree, "{label}: a preview writes nothing");
+    }
+}
+
+/// P_git is Heimdall's own only while it holds what Heimdall wrote, and only when B_git
+/// links it in. Otherwise the update arm would overwrite the owner's file, or a
+/// `core.sshCommand` that Heimdall did not link in would pass for Heimdall's.
+#[test]
+fn git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own() {
+    // An edited P_git (one key, another value) is Heimdall's file but not what it wrote:
+    // never overwritten (`managed_file_edited`, as for P).
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (spec, intent, sink) = applied_once(&fx);
+    let spec = again(&fx, &spec, &intent, &sink);
+    std::fs::write(fx.p_git(), b"[core]\n\tsshCommand = edited\n").unwrap();
+    let edited = std::fs::read(fx.p_git()).unwrap();
+    let plan = fx
+        .writer_with_client("/opt/heimdall-fixture/bin/ssh")
+        .preview(&spec, &GIT_APPLY)
+        .unwrap();
+    assert!(git_steps(&plan).is_empty(), "{:?}", git_steps(&plan));
+    assert!(
+        plan.view
+            .findings
+            .iter()
+            .any(|f| f.reason.as_deref() == Some("managed_file_edited")),
+        "{:?}",
+        plan.view.findings
+    );
+    assert_eq!(
+        std::fs::read(fx.p_git()).unwrap(),
+        edited,
+        "a preview writes nothing"
+    );
+
+    // A second key in P_git is a value Heimdall did not write.
+    std::fs::write(
+        fx.p_git(),
+        b"[core]\n\tsshCommand = one\n\tsshCommand = two\n",
+    )
+    .unwrap();
+    let plan = fx.writer().preview(&spec, &GIT_APPLY).unwrap();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(git.applicability, GitApplicability::NotApplicable);
+    assert_eq!(git.reason.as_deref(), Some("git_ssh_command_present"));
+    assert!(git_steps(&plan).is_empty());
+
+    // B_git edited: P_git is no longer linked by Heimdall's block, so its value is a
+    // present value (the edit is the owner's to resolve; nothing is overwritten).
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (spec, intent, sink) = applied_once(&fx);
+    let spec = again(&fx, &spec, &intent, &sink);
+    let text = std::fs::read_to_string(fx.global()).unwrap();
+    std::fs::write(fx.global(), text.replacen("\tpath = ", "\tpath =  ", 1)).unwrap();
+    let plan = fx.writer().preview(&spec, &GIT_APPLY).unwrap();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(
+        git.applicability,
+        GitApplicability::NotApplicable,
+        "{git:?}"
+    );
+    assert_eq!(git.reason.as_deref(), Some("git_ssh_command_present"));
+    assert!(git_steps(&plan).is_empty());
+
+    // The owner's own include of P_git, with no Heimdall block: not B_git, so its value
+    // is present, and the owner's file at that path is not overwritten.
+    let fx = Fx::new();
+    std::fs::create_dir_all(fx.home.config_dir.clone()).unwrap();
+    std::fs::write(fx.p_git(), b"[core]\n\tsshCommand = theirs\n").unwrap();
+    std::fs::write(
+        fx.global(),
+        format!("[include]\n\tpath = \"{}\"\n", fx.p_git().display()),
+    )
+    .unwrap();
+    let plan = fx.plan();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(
+        git.applicability,
+        GitApplicability::NotApplicable,
+        "{git:?}"
+    );
+    assert_eq!(git.reason.as_deref(), Some("git_ssh_command_present"));
+    assert!(git_steps(&plan).is_empty());
+    assert_eq!(
+        std::fs::read(fx.p_git()).unwrap(),
+        b"[core]\n\tsshCommand = theirs\n"
+    );
+}
+
+/// ADR-0007 §5.3 item 9, §12.34 item 8 (2). The writer refuses a global Git file, or its
+/// directory, that fails a step-1 or step-2 check, and refuses the whole operation
+/// before its first commit point. The apply's preview already says so
+/// (`unmanageable_file`); the rollback's preview must too, or the owner approves a
+/// rollback that the apply then refuses. A Git-only rollback plans nothing and says why
+/// (a `problem` finding with the reason, which the setup driver refuses before
+/// admission); with SSH in the same rollback, SSH is still rolled back and the Git item
+/// is left whole, B_git and P_git together.
+#[test]
+fn git_rollback_over_a_global_file_the_writer_would_refuse_plans_nothing_for_git() {
+    type Setup = fn(&Fx);
+    let cases: [(&str, Setup); 4] = [
+        ("global file group-writable", |fx| {
+            chmod(&fx.global(), 0o664)
+        }),
+        ("global file writable by others", |fx| {
+            chmod(&fx.global(), 0o606)
+        }),
+        ("home directory group-writable", |fx| {
+            chmod(fx.home_dir(), 0o775)
+        }),
+        ("global file hard-linked", |fx| {
+            std::fs::hard_link(fx.global(), fx.home_dir().join("gitconfig-second-link")).unwrap();
+        }),
+    ];
+    for (label, mutate) in cases {
+        let fx = Fx::new();
+        std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+        let (spec, intent, sink) = applied_once(&fx);
+        let spec = again(&fx, &spec, &intent, &sink);
+        let git_only = PreviewIntent::Rollback {
+            keep_key_files: true,
+            items: [ProjectionItem::Git].into_iter().collect(),
+        };
+        let both = PreviewIntent::Rollback {
+            keep_key_files: true,
+            items: [ProjectionItem::Ssh, ProjectionItem::Git]
+                .into_iter()
+                .collect(),
+        };
+        // The control: the file as the writer accepts it is rolled back by a plan that
+        // edits it.
+        let plan = fx.writer().preview(&spec, &git_only).unwrap();
+        assert!(
+            git_steps(&plan).contains(&FileRole::GitInclude),
+            "{label}: the control plans B_git's removal"
+        );
+        assert!(plan.view.manual_reasons.is_empty(), "{label}");
+
+        mutate(&fx);
+        let tree = fx.tree();
+        let plan = fx.writer().preview(&spec, &git_only).unwrap();
+        assert!(plan.files.is_empty(), "{label}: {:?}", plan.files);
+        assert_eq!(
+            plan.view.manual_reasons,
+            vec!["unmanageable_file".to_owned()],
+            "{label}"
+        );
+        let problems: Vec<_> = plan
+            .view
+            .findings
+            .iter()
+            .filter(|f| f.severity == FindingSeverity::Problem)
+            .collect();
+        assert_eq!(problems.len(), 1, "{label}: {:?}", plan.view.findings);
+        assert_eq!(
+            problems[0].reason.as_deref(),
+            Some("unmanageable_file"),
+            "{label}"
+        );
+        assert_eq!(fx.tree(), tree, "{label}: a preview writes nothing");
+
+        // With SSH in the same rollback, SSH goes and the Git item is left whole.
+        let plan = fx.writer().preview(&spec, &both).unwrap();
+        assert!(
+            git_steps(&plan).is_empty(),
+            "{label}: {:?}",
+            git_steps(&plan)
+        );
+        assert!(
+            plan.files.iter().any(|s| s.role == FileRole::UserSsh),
+            "{label}: SSH is rolled back"
+        );
+        let rb = plan.intent();
+        let receipt = fx.writer().apply(&rb, &mut Sink::default()).unwrap();
+        assert!(applied_ssh(&receipt.items), "{label}: {receipt:?}");
+        assert!(
+            std::fs::read_to_string(fx.global())
+                .unwrap()
+                .contains("heimdall managed include"),
+            "{label}: B_git stays"
+        );
+        assert!(fx.p_git().exists(), "{label}: P_git stays with B_git");
+        assert!(!fx.lock().exists(), "{label}: Git's lock was not taken");
+        assert!(leftovers(&fx).is_empty(), "{label}: {:?}", leftovers(&fx));
+    }
+}
+
+// --- ADR-0007 §12.35 item 2 (N02): the Git file's snapshot follows the same rules ---------
+
+/// The names in `dir` that start with `prefix`, sorted.
+fn snapshot_names(dir: &Path, prefix: &str) -> Vec<String> {
+    let mut found: Vec<String> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with(prefix))
+                .collect()
+        })
+        .unwrap_or_default();
+    found.sort();
+    found
+}
+
+/// `gitconfig.<timestamp>.orig` is held to the rules of `ssh_config.<timestamp>.orig`
+/// (§5.5, §12.35 item 2). An entry of that name that is a directory or a symlink, or a
+/// file that is not exactly 0600, refuses the Git item before its first edit
+/// (`unmanageable_file`): the global Git file, P_git and Git's lock are untouched, while
+/// the SSH item, which has a valid snapshot of its own, applies. A valid existing
+/// snapshot is accepted, kept byte for byte, and no second copy is made.
+#[test]
+fn the_git_snapshot_follows_the_same_rules_as_the_ssh_one() {
+    use std::os::unix::fs::{PermissionsExt as _, symlink};
+    let original: &[u8] = b"[user]\n\tname = Scratch\n";
+    let apply_with_state = |fx: &Fx, prepare: &dyn Fn(&Path)| {
+        write_private(&fx.global(), original);
+        let backups = fx.home.state_dir.join("backups");
+        create_owner_only_dir_all(&backups);
+        prepare(&backups);
+        let writer = LocalProjection::new(fx.config().with_state_dir(fx.home.state_dir.clone()));
+        let plan = writer.preview(&fx.spec(None), &GIT_APPLY).unwrap();
+        let git = plan.view.git.clone().unwrap();
+        assert_eq!(git.applicability, GitApplicability::Applicable);
+        let sink = Sink::default();
+        let r = writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
+        (backups, r.items)
+    };
+
+    type Prepare = fn(&Path);
+    let invalid: &[(&str, Prepare)] = &[
+        ("a directory", |b| {
+            std::fs::create_dir(b.join("gitconfig.fake.orig")).unwrap();
+        }),
+        ("a symlink to a regular file", |b| {
+            let real = b.parent().unwrap().join("real");
+            write_private(&real, b"a bystander\n");
+            symlink(&real, b.join("gitconfig.fake.orig")).unwrap();
+        }),
+        ("a file with mode 0644", |b| {
+            write_private(&b.join("gitconfig.fake.orig"), b"x\n");
+            chmod(&b.join("gitconfig.fake.orig"), 0o644);
+        }),
+        ("a file with mode 0400", |b| {
+            write_private(&b.join("gitconfig.fake.orig"), b"x\n");
+            chmod(&b.join("gitconfig.fake.orig"), 0o400);
+        }),
+    ];
+    for (label, prepare) in invalid {
+        let fx = Fx::new();
+        let (backups, items) = apply_with_state(&fx, prepare);
+        assert_eq!(
+            git_outcome(&items),
+            ItemOutcome::NotApplied {
+                item: ProjectionItem::Git,
+                reason: Some(ConflictKind::UnmanageableFile)
+            },
+            "{label}: {items:?}"
+        );
+        assert!(
+            applied_ssh(&items),
+            "{label}: SSH has its own snapshot: {items:?}"
+        );
+        assert_eq!(
+            std::fs::read(fx.global()).unwrap(),
+            original,
+            "{label}: the global Git file is untouched"
+        );
+        assert!(!fx.p_git().exists(), "{label}");
+        assert!(!fx.lock().exists(), "{label}: Git's lock was not taken");
+        assert_eq!(
+            snapshot_names(&backups, "gitconfig."),
+            ["gitconfig.fake.orig"],
+            "{label}: no gitconfig snapshot was made beside the invalid entry"
+        );
+        assert_eq!(snapshot_names(&backups, "ssh_config.").len(), 1, "{label}");
+        assert!(leftovers(&fx).is_empty(), "{label}: {:?}", leftovers(&fx));
+    }
+
+    // A valid existing snapshot is accepted and no second copy is made.
+    let fx = Fx::new();
+    let (backups, items) = apply_with_state(&fx, &|b| {
+        let seed = b.join("gitconfig.20200102T030405Z.orig");
+        write_private(&seed, b"an earlier original\n");
+    });
+    assert!(applied_git(&items), "{items:?}");
+    assert_eq!(
+        snapshot_names(&backups, "gitconfig."),
+        ["gitconfig.20200102T030405Z.orig"]
+    );
+    let seed = backups.join("gitconfig.20200102T030405Z.orig");
+    assert_eq!(std::fs::read(&seed).unwrap(), b"an earlier original\n");
+    assert_eq!(
+        std::fs::metadata(&seed).unwrap().permissions().mode() & 0o7777,
+        0o600
+    );
+    assert_ne!(
+        std::fs::read(fx.global()).unwrap(),
+        original,
+        "the item edited the global Git file"
     );
 }
