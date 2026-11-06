@@ -2356,6 +2356,95 @@ the recommended answer, behind one switch the integrator can flip.
    - a Windows lock-continuity claim can be earned by a release build on DPAPI with `HEIMDALL_HOME` in scratch. The claim records the product store (`dpapi`) and the release profile.
 6. **The exit status under the lowest-row rule.** M03 may exit as M01 did. Every record must be `verified`, except rows blocked only on named owner inputs, which stay `blocked` with `blocked_on`. The exit record lists each such row, and no claim is widened to cover it.
 
+### 17.4 Orchestrator rulings on design review round 2 (2026-11-06)
+
+Sources:
+- reviewer A (Codex Sol): `review-m03-design/round2-a-codex.md`, R2-01–R2-09, verdict "another design round";
+- reviewer B (Opus): `round2-b-opus.md`, M03-R2-01–R2-18, verdict "ready after fixes".
+
+Below, "A" refers to reviewer A's IDs and "B" to reviewer B's. Every finding is accepted, and revision 3 applies each one. Only the fixed findings are re-checked afterwards.
+
+1. **The approved host key is the only trust source (A R2-01; blocker).** Every remote step pins:
+   - `KnownHostsCommand=none`, `VerifyHostKeyDNS=no`, `UpdateHostKeys=no` and `CheckHostIP=no`;
+   - `HostKeyAlgorithms`, limited to the approved key's algorithm;
+   - `GlobalKnownHostsFile`, set to an empty Heimdall file;
+   - `UserKnownHostsFile` (the approved key only), `HostKeyAlias` and `StrictHostKeyChecking=yes`.
+
+   The design lists every ssh option that can affect host trust, and states why each pin covers it. A wrong-key fixture with an inherited `KnownHostsCommand` (and, separately, an inherited known-hosts file) must be refused before any remote mutation.
+2. **Fencing is proven termination, never a lock taken away from a live writer (A R2-02 blocker; B R2-04, R2-10, R2-11).**
+   - **Lock records the holder:** the lock records the holding shell's PID and its start identity (`ps -o lstart= -p $$`, or the platform equivalent named per target shell).
+   - **Breaking a lock:** a lock is broken only after the holder is proven gone: the PID is absent, or present with a different start identity. Age alone is never enough.
+   - **Terminating the holder:** after the step's not-after, reconcile may stop the exact holder (TERM, then KILL, which also ends a stopped process). It proves the holder is gone, then breaks the lock. If it cannot prove that, the step stays `busy` or uncertain. After a bounded number of attempts this needs manual recovery, and is never redispatched.
+   - **Other enrollments' locks:** a lock that carries another enrollment's token is `busy` for every other enrollment.
+   - **Not-after:** each mutating script carries an absolute remote not-after (B R2-04), and checks it when taking the lock and immediately before the write.
+   - **Holder alive past its not-after:** it can still be paused between that check and the write. The termination rule above, not the clock check, is what fences it.
+   - **Local process lifetime:**
+     - `SshStepRunner` ties ssh's lifetime to the CLI: a process group plus a parent-death signal where available, and a job object on Windows.
+     - A record that leaves an uncertain append for `withdrawn` or `abandoned` keeps a "possible late write" residual until an inspect after the not-after shows absence.
+   - **Script hardening:**
+     - each script is wrapped in a function called on its last line, so a truncated script does nothing (B R2-10);
+     - each script runs `export LC_ALL=C` (B R2-14).
+   - **Deadlines across a reboot (B R2-11):** they persist wall time and boot ID, and after a reboot they pass on safe wall time.
+   - **Test:** a writer paused just before its write must pass the no-duplicate, no-loss test.
+3. **Bootstrapping the registry directory (A R2-03).**
+   - When the registry's directory is absent, a journaled bootstrap step creates it first: mode 0700, owner checked, no reparse point or symlink.
+   - That step is shown in the approved plan, and the lock is taken afterwards.
+   - A missing parent has its own exit code, distinct from `busy`.
+4. **Maintenance uses a concrete existing-access endpoint (A R2-04).**
+   - The endpoint (agent socket or pipe path, or key file) is resolved from the catalog identity record, never from the current process's `SSH_AUTH_SOCK`.
+   - It is shown and approved.
+   - It is refused if it is, or resolves to, any Heimdall managed endpoint (runtime directory prefix plus the signer's endpoint registry).
+   - A test runs maintenance from inside a managed `run` context and asserts zero managed signatures.
+5. **Enrollment state recovery (A R2-05; B R2-05, R2-06).**
+   - **Cancelling manual removal:** it returns to the state and evidence the removal began from, which are persisted.
+   - **System trust:** once the owner may have installed system trust, the inventory entry stays (uncertain, held or abandoned) until absence is verified.
+   - **Leaving `held`:**
+     - an evidence-based hold can move to `reverifying`, driven by the owner;
+     - a host-key change needs a decision that re-approves the target, with the new key shown as a diff;
+     - alternatively, a `RemoveEnrollment` that carries a freshly evaluated target.
+   - **Re-enrollment:** `abandoned` is outside the uniqueness rule. Re-enrollment uses a new marker, and the old residual stays listed.
+   - **Retrying the initial verification:** it runs under the still-open `enrollment.apply`, through reconcile. Once that approval has lapsed, a failure goes to `held`, and removal needs `RemoveEnrollment`.
+   - **Tests:** every path above is in `enrollment_recovery_paths_each_tested`.
+6. **The signing gate, completed (A R2-06; B R2-01, R2-03).**
+   - **Permit expiry:** the permit carries an absolute expiry: the earliest of the wall deadline, the continuous budget and the admission limits. Release is refused at enqueue once the expiry, or the safe-time predicate, fails.
+   - **Signing bound:** `KeyVault::sign` runs under a budget. Overrunning it expires the permit, so nothing is released.
+   - **Wave 0:** the gate bodies are written by U0b phase 1, and U10 only wires them.
+   - **Lock order:** gates are acquired ancestor-first, then by grant ID. Creating a delegation holds the parent's gate shared until the child's first install, and the revoker re-reads the descendants after taking the gates, until the set is stable.
+   - **Order within a narrowing:** keys are destroyed and identities unlisted while the gate is held. Processes are closed after it is released.
+   - **No gate, no narrowing:** a narrowing never proceeds without its gates. Bounded holders bound its wait.
+   - **Deterministic tests:**
+     - a request crossing D after the fresh read, with no edit to state;
+     - delegation during revocation;
+     - two concurrent cascades.
+7. **Connections Heimdall owns stay in the foreground (A R2-07).**
+   - Product-generated invocations pin `ForkAfterAuthentication=no`.
+   - `run ssh` with `-f` (or a conflicting option) is refused for an owned connection.
+   - Tests cover inherited configuration and an explicit `-f`.
+8. **Ordering registration against revocation (A R2-08; B R2-12).**
+   - **Windows:** the child is registered while still suspended, under the gate or a transaction ordered with grant ending. Registration for an ended or unsafe grant is refused. A revocation that falls between registration and resume kills the child, through the job object.
+   - **Unix:** the owned-connection row is written at bind, with the expected image, and the image is verified before any signal.
+   - **Tests:** pauses on both sides of registration and resume.
+9. **Interfaces and the crate graph (A R2-09; B R2-02, R2-17).**
+   - **Verification lifecycle:** each operation's verification key gets its full lifecycle through a factory/effect port: create, register the public key, install the certificate, and clean up on drop.
+   - **Permit guard:** `ipc` defines an opaque permit guard, which `app` fills.
+   - **Enrollment plan:** its preconditions and digest move into `heimdall-registry` (or `domain`), and `enroll` keeps only I/O.
+   - **The `crate-graph` check:** it resolves package names, and includes optional and target-specific dependencies. Its mutant fixtures are a cycle and an `ipc → app` edge.
+   - **U9:** it gets one port signature, the operations bodies go to U0b, and the wave is fixed.
+10. **Foreign removal (B R2-07).**
+    - It reuses the removal sub-machine and the §6.7 reconcile, keyed by marker.
+    - It requires exact equality of the evaluated HostName and Port, otherwise it fails with `bundle_host_mismatch`.
+    - The bundle carries a canonical `registry {path, resolved_by}`.
+    - A lost-reply test is added.
+11. **Verification evidence (B R2-08, R2-09, R2-13).**
+    - **`principals_not_enforced` fixture:** an account-form line that lists both principals, written at a pause hook once the nonce is known. The system form uses an echoing `AuthorizedPrincipalsCommand`, and the bare line stays a separate `verification_failed` test.
+    - **Trace patterns:** keyed by upstream release family (portable and Win32), each with its recorded version ranges.
+    - **Re-verification:** a client or CA change that is not contrary evidence triggers a prompt re-verify. An unrecorded family gives a doctor finding that names it.
+    - **Destination clock skew:** a skew beyond the validity allowance, known from E2's offset, is `verification_inconclusive` (`destination_clock_skew`), with no rollback.
+12. **Minor rulings (B R2-15, R2-16, R2-18).**
+    - **R2-15:** release builds refuse the M03 test variables with exit 2, and the test is renamed.
+    - **R2-16:** the text is synced with §17.3, and every blocked record is listed: B3, B11 and B12 included.
+    - **R2-18:** the enrollment result, the apply preview, the doctor and the TUI all disclose that ordinary `ssh <alias>` works only while a binding holds the slot (`slot_free`, with the command to fix it). Auto-activation stays M05.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

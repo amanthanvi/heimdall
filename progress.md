@@ -837,3 +837,8 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Where they converge: the negative verification can pass on a transport failure; sign and revoke have no linearization point; Windows strict close hits the launcher, not ssh.exe; gaps in the state table; foreign removal; the master ControlPath against P.
   - Rulings: ADR-0008 §17.1, items 1–18; the Q and P answers are accepted with amendments. Next: design fix revision 2 by the author thread, then a round-2 re-review.
 - M03 design revision 2 (author thread, same context): every §17.1 ruling applied and marked ⟨r2⟩. The plan is now 207 KB and ADR-0008 197 KB, each with a change log. A pure `heimdall-registry` crate and the `TargetEvaluator` and `ManagedEffects` ports remove the app/enroll cycle; a new check.sh step, `crate-graph`, enforces the absence of cycles. Q18–Q21 are ruled in ADR-0008 §17.3 (each default accepted; the exit rule is as for M01). Next: a round-2 re-review (two fresh independent reviewers).
+- M03 design review round 2:
+  - A (Codex): another round, 2 blockers (A R2-01: an inherited `KnownHostsCommand` defeats the approved-key pin, reproduced by a loopback probe; A R2-02: the stale-lock protocol lets an old writer append, reproduced by a scratch model) and 7 majors.
+  - B (Opus): ready after fixes, 9 majors and 9 minors (among them `principals_not_enforced` unproducible by its fixture, reproduced by a loopback probe).
+  - Records: `round2-{a-codex,b-opus}.md`. Rulings: ADR-0008 §17.4, items 1–12.
+  - Next: revision 3, then a targeted re-check of the R2 findings only.
