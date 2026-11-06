@@ -843,3 +843,9 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Records: `round2-{a-codex,b-opus}.md`. Rulings: ADR-0008 §17.4, items 1–12.
   - Next: revision 3, then a targeted re-check of the R2 findings only.
 - M03 design revision 3 (author thread): every §17.4 ruling applied (⟨r3⟩); plan 248 KB, ADR-0008 263 KB. It adds the host-trust option table (`NoHostAuthenticationForLocalhost=no` added after checking the pinned sources), the start-identity table per target shell, a symlink lock, a ready handshake and `ApproveTargetChange`. Q22–Q25 ruled in ADR-0008 §17.6 (each default accepted). Next: a targeted re-check of the round-2 findings (Codex).
+- M03 design round-3 targeted re-check (Codex): ready after fixes.
+  - Blocker R3-01: the dash group probe syntax error was read as "gone", and the reproduction lost a write.
+  - Majors: R3-02 expiry during the enqueue wait; R3-03 gate order when the set grows; R3-04 foreign removal absent from the frozen table.
+  - Minor: R3-05.
+  - Every other round-2 finding was confirmed closed, the host-key cases by probe.
+  - Record: `round3-recheck-codex.md`. Rulings: ADR-0008 §17.7. Next: revision 4, then a re-check of R3 only, with the fencing probes on each shell.

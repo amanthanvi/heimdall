@@ -2950,6 +2950,34 @@ recommended default, behind one switch.
 
    The windows revision 3 discloses as residuals stay disclosed: PID reuse within 1 s on BSD/macOS, process-group reuse between check and signal, and lock atomicity on network file systems. Each is reported, and none is claimed closed.
 
+### 17.7 Orchestrator rulings on the round-3 re-check (2026-11-06)
+
+Source: `tests/evidence/artifacts/review-m03-design/round3-recheck-codex.md`. Every finding is accepted, and revision 4 applies each one. Afterwards only these findings are re-checked, with the fencing probes run again on each target shell.
+
+1. **R3-01, blocker: a gone group must be proven by agreement, never inferred from a failure.**
+   - **The probe itself:** the group probe uses the POSIX form `kill -s 0 -- -PGID`.
+   - **A control:** before the target is probed, the same command runs against the probing shell's own group (`kill -s 0 -- -$$`), which must exit 0.
+   - **When the target counts as gone:** only when the control succeeds, the target probe fails, **and** `ps -A -o pgid=` lists no process with that group ID. Two independent methods must agree.
+   - **Unproven:** a syntax error, a permission failure, any disagreement between the two methods, or any unrecognized result means `unproven`, never gone.
+   - **Tests:** the leader-absent case with a live mutation child is a required fencing test, run on every target shell (dash, bash as `sh`, BusyBox ash, and the macOS/BSD `sh`).
+2. **R3-02: expiry is checked at the moment of release.**
+   - **Capacity first:** outbound capacity for the complete frame is reserved first. Expiry cancels the wait for capacity.
+   - **Then the check:** `may_release()` runs immediately before an enqueue that cannot wait. That enqueue is the linearized effect.
+   - **Test:** a deterministic test crosses the deadline after the release check, while the enqueue is blocked, and asserts nothing is released.
+3. **R3-03: gates are always held in global order.**
+   - When re-reading the descendants grows the set, the narrowing releases every gate and reacquires the whole set in global order, then re-validates.
+   - Delegation needs the parent's gate held shared, so once the root is held exclusively the set cannot grow again. One reacquisition round therefore suffices, and the design states this.
+   - The overall wait bound is `(rounds + 1) × signing_gate_max_wait`.
+   - **Test:** the H/L interleaving from the re-check.
+4. **R3-04: foreign removal in the frozen state table.**
+   - **Admission:** `RemoveEnrollment` on a foreign record (`planned → removing`) is part of the frozen transition contract and its golden.
+   - **System form:** foreign records in the system form use the §6.9 manual removal states.
+   - **Before freezing:** approval, denial, a lost reply, held recovery and the system-form route are each tested.
+5. **R3-05: the proposed target belongs to the verification operation.**
+   - The verification operation carries the proposed target, and that attempt's pins come from it.
+   - The approved target is replaced atomically only on a verification pass.
+   - On failure or an inconclusive result, the approved target is unchanged and the record stays `held`. The table says so.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):
