@@ -3212,6 +3212,29 @@ one switch.
    - shell rows whose behaviour is only inferred from documentation. These are settled by the per-shell tests; a shell that fails them leaves the fence `unproven`, which means manual recovery. That is safe.
 5. **Fixtures:** the bash-as-`sh` and BusyBox `ash` shell containers each get a MANIFEST row, built from pinned images by digest on the build host.
 
+### 17.10 Orchestrator rulings on the round-4 re-check (2026-11-06)
+
+**Source:** `tests/evidence/artifacts/review-m03-design/round4-recheck-codex.md`. The re-check found no blocker. Every finding is accepted, and revision 5 applies each one.
+
+**Gate:** once revision 5 is in, the design gate closes after one last targeted check of R4-01 and R4-02 only.
+
+1. **R4-01: pending admission is authoritative.**
+   - **Where it is checked:** the pending check moves into the fresh authorization read, under the gate. It is repeated after any awaited gate acquisition, and again in the release check, so a request that passed only the early pre-check is refused.
+   - **Coverage:** pending covers descendants through an ancestor-pending check. A grant is pending when it, or any ancestor, is marked.
+   - **Round 1:** coverage is extended to newly discovered descendants before round 1 releases any gate.
+   - **The bound:** it is re-derived from these rules and stated with its assumptions.
+   - **Tests:** deterministic tests for both traces in the re-check.
+2. **R4-02: foreign system-form removals keep their residual.**
+   - **Abandoning:** `manual_removal_pending` for a foreign record gains an explicit `→ abandoned` event, which keeps `pending_until_line_removed`.
+   - **Cancelling:** a cancel after `ca_not_held` returns to `manual_removal_pending`, or to the held foreign record, and never to `planned` or `withdrawn`. A residual that is known and unresolved is never discarded.
+   - **Golden:** both paths go in `foreign_removal_paths_golden`.
+3. **R4-03: revocation timestamps.**
+   - **Where:** `RevokeData` gains `requested_at` and `committed_at` in the frozen contract and its golden.
+   - **When each is taken:** `committed_at` is taken in the tombstone transaction, separately from any later cleanup.
+   - **Replay:** a replay returns the original values.
+4. **R4-04: exit 44 means "no unlock".** An unproven decision authorizes no further signal. Any termination signal already sent is kept in the result and in the audit record, so exit 44 is never read as "nothing was signalled".
+5. **BusyBox `ash`:** its fence stays `unproven`, so recovery is manual. The shell table records the observed reason: `ps -p` is unsupported, and `kill` rejects `--`. Automatic recovery is never claimed for BusyBox.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

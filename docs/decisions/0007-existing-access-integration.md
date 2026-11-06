@@ -4602,6 +4602,37 @@ mutation-checked the regression.
    the owner into `~/.gitconfig` (the XDG file put back) is found only by the search. A
    mutant that skips the search when the recorded file holds no block now fails.
 
+### 12.43 Rulings on wave 6w, the first native Windows run (orchestrator, 2026-11-06)
+
+**Source.** The M02 exit build at cb16c2d6 ran natively on the Windows 11 PC for the first time (`tests/evidence/artifacts/m02/exit-cb16c2d6/windows/`). 56 tests failed in 12 binaries.
+
+**How the fixes were made.** Wave 6w ran as T3 units on the PC, natively, in a dev scratch at Medium integrity. Its patches were integrated in 491d8f5a, f0635b44 and 3fe6119f. The orchestrator ran check.sh on macOS for each, and every run exited 0. Most causes were Unix assumptions in tests: a `\\?\` canonical scratch root, `/bin/sh`, `/tmp/…`, `/` separators, Unix file-name rules, `cmd` quoting, LF-only output.
+
+1. **Displays use `/` on every platform.** This extends §12.26 item 7 to `paths::display_path`, and through it to Git origins and probe provenance. The w6-sshconf unit found one Windows doctor report mixing `~\.ssh\config` with `/` paths, and no contract specified the separator.
+2. **Dev and test builds keep line tables only** (`[profile.dev] debug = "line-tables-only"`). With full debug info, the MSVC program database of `heimdall-runtime`'s `model_operations` test binary exceeded the linker's limit (LNK1140). This happened in the native dry run at 3fe6119f. Release builds are unchanged.
+3. **Product defects fixed, each with a native regression:**
+   - **Rooted Windows `IdentityFile`:** a rooted path (`/…`, no drive) is absolute, as Win32-OpenSSH treats it (`sshconf::relevant`).
+   - **Agent locators:** `agents::locator_for` decides a Unix socket path by a leading `/`, not by the host's `Path::is_absolute`.
+   - **Quarantine pins (`sys/quarantine.rs`, §5.3):**
+     - Live pins of the quarantine open without DELETE, so two pins coexist.
+     - They open with `FILE_LIST_DIRECTORY`; observed natively, a metadata-only open does not enforce the no-delete-sharing exclusion.
+     - Removing the quarantine closes the pin and then opens with DELETE separately. It revalidates identity, kind, owner and the exact DACL before deleting.
+   - **Owner-only DACL check:** it compares against the form for the handle's own kind (a file has no `OICI`). Before this, setup rejected its own snapshot file.
+4. **Test-only changes, each recorded with its native evidence:**
+   - **Windows run records:** a run is recorded as `launching, spawned, exited`, the §8 Windows sequence.
+   - **Displaced names:** the projection tests read Windows' displaced names.
+   - **Residual window:** the residual-window test asserts the sharing violation (os error 32) that a held checked-delete handle causes.
+   - **Counting proxy:** a silent pipe client is not counted on Windows. It cannot be identified before it writes (`ERROR_CANNOT_IMPERSONATE`, 1368).
+   - **Testkit hook:** it disinherits its standard handles, as `runtime` already does.
+5. **Harness changes:**
+   - **The WSL fixture sshd's stop:** it matches the retitled daemon (` -f <cfg> `) and can report `still-running`. The cb16c2d6 run's `fixture-sshd-at-end=mismatch` left that sshd running; w6-fixtures found it and stopped it by its exact PID.
+   - **The local runner's clone:** it keeps `core.autocrlf=false` in the clone's own configuration, records it in host.txt, and stops if a sampled file holds a CR. Git for Windows' system configuration on the PC sets `autocrlf=true`.
+   - **`HM_FIXTURE_SSHD_USER`:** not needed. No Windows test uses the harness sshd today; every `LoopbackSshd::start` caller is `cfg(unix)`. It becomes needed if those tests are ungated on Windows.
+6. **Open, and being fixed: the Windows pipe listener identifies a client before the client has written.**
+   - **The defect:** `ipc::windows` `accept` calls `ImpersonateNamedPipeClient` right after `ConnectNamedPipe`, which completes when the client opens the pipe. A same-user client that writes slightly later can therefore be refused (1368).
+   - **The ruling:** identify a client only after its first write. The wait is bounded, and a silent client never blocks other clients.
+   - **Status:** unit w6-ipc is fixing this, natively. The M02 exit build waits for it.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
