@@ -29,11 +29,17 @@
 //!   re-reads the user file and nothing writes it; an unchanged projection plans no
 //!   file;
 //! * `apply` with the Git item: P_git, then the lock holder K and the B_git splice
-//!   (the Git commit step) at the top of the first-read global file;
+//!   (the Git commit step) at the top of the first-read global file. B_git is looked for
+//!   first where the Git item's record says it was written (ADR-0007 §12.39 item 3), so
+//!   that an XDG file created after the apply does not hide it; only P_git changes when
+//!   B_git is there already;
 //! * `rollback`: the splice that removes B (the commit step), then P and the key files
 //!   as target-absent steps for the cleaner, each with its recorded digest as base (a
 //!   P whose content is no longer that is kept as `ssh_config.hm-conflict-<gen>` once
-//!   the rollback committed, §5.5); for Git, K, the B_git removal and P_git;
+//!   the rollback committed, §5.5); for Git, K, the B_git removal and P_git. The Git
+//!   selection a rollback changes is Heimdall's value to the user's when a user value
+//!   sits before B_git in Git's read order (ADR-0007 §12.39 item 4), which needs a
+//!   decision;
 //! * `repair rerender`: as `apply` over the recorded items;
 //! * `repair remove_duplicate_markers`: keep the first block that is Heimdall's exact B
 //!   before the first section, remove one other exact B (one splice per intent);
@@ -138,7 +144,7 @@ use super::git::{GlobalFileCheck, check_global_file, lock_holder};
 use super::replace::{self, DirHandle, Quarantine, ReplaceRefusal};
 use crate::clients::ClientKind;
 use crate::fs::BoundedSource;
-use crate::git::{DefaultGitSsh, observe_global, observe_global_for, origin_of};
+use crate::git::{DefaultGitSsh, observe_global, observe_global_for, origin_of, winning_origin};
 use crate::materialize::{PublicKeyLine, public_key_bytes};
 
 /// Bytes read of one file the preview inspects (the §5.3 bound).
@@ -984,8 +990,24 @@ impl<'a> Builder<'a> {
             self.git = Some(not_applicable("verified_client_unavailable", before));
             return Ok(());
         };
-        let global = file.path.clone();
-        let global_bytes = self.read(FileRole::GitInclude, &global)?;
+        // ADR-0007 §12.39 item 3 (the twin of the rollback's §12.37 item 3): B_git is looked
+        // for where it was written, which is the file the Git item's record names, not
+        // necessarily Git's first-read file now. After B_git went into `~/.gitconfig`
+        // because no XDG file existed, an XDG file created later is the first-read file
+        // while B_git stays where it is; looking only in the first-read file found no
+        // block, took P_git's value (reached through the block that was not found) for a
+        // user's, and reported `git_ssh_command_present` for Heimdall's own value.
+        let (global, global_bytes) = match self.locate_b_git(&file.path)? {
+            BGitSearch::At(path, bytes) => (path, Some(bytes)),
+            // No file holds a block and the first-read file does not exist: it is created.
+            BGitSearch::Nothing => (file.path.clone(), None),
+            BGitSearch::Ambiguous => {
+                self.manual_b_git_duplicated();
+                self.git = Some(not_applicable(manual_reason::MARKER_DUPLICATED, before));
+                return Ok(());
+            }
+        };
+        self.note(FileRole::GitInclude, &global, global_bytes.as_deref());
         let blocks = gitedit::find_blocks(global_bytes.as_deref().unwrap_or_default());
         // ADR-0007 §12.34 item 8 (1): P_git's one value is Heimdall's own only when it
         // is reached through B_git, which is then the global file's one block, intact
@@ -1121,8 +1143,7 @@ impl<'a> Builder<'a> {
         let p_git_path = self.config.managed_git_path();
         let obs = observe_global(&self.config.env, &self.config.clients, self.config.queries);
         // §5.2 for the Git item: with B_git in effect the selection is P_git's value;
-        // after the rollback it is a user value, when one remains (it already wins), or
-        // Git's default.
+        // after the rollback it is a user value, when one remains, or Git's default.
         // P_git's own value, by its origin as the observation shows origins (the
         // canonical path, `~` for Git's home): `origin_of`, the one definition.
         let p_git_origin = origin_of(&self.config.env, &p_git_path);
@@ -1139,6 +1160,11 @@ impl<'a> Builder<'a> {
                 DefaultGitSsh::Undetermined => GitSshClassification::Undetermined,
             },
         };
+        let heimdall = GitSshSelection {
+            source: GitSshSource::Config,
+            scope: Some(GitScope::Global),
+            classification: GitSshClassification::VerifiedClient,
+        };
         let selection = match user_value {
             Some(v) => {
                 let user = GitSshSelection {
@@ -1146,27 +1172,33 @@ impl<'a> Builder<'a> {
                     scope: Some(v.scope),
                     classification: GitSshClassification::Other,
                 };
-                (user.clone(), user)
+                // ADR-0007 §12.39 item 4. A user value that comes after B_git in Git's read
+                // order already wins, so removing B_git changes nothing (§5.6 "Rollback").
+                // One that comes before it (an XDG file created after the apply while B_git
+                // is in `~/.gitconfig`, or the system file) loses to Heimdall's value, and
+                // the rollback exposes it: the effective value changes from Heimdall's to
+                // the user's, a change the owner has not consented to (§5.2). Who wins is
+                // established as the doctor does, `git config --show-origin` (the last
+                // occurrence): `winning_origin`. When that cannot be established (local
+                // queries off, or the query failed) the reading that needs a decision is
+                // taken: Heimdall's value is the effective one.
+                let user_wins =
+                    winning_origin(&self.config.env, &self.config.clients, self.config.queries)
+                        .is_some_and(|won| Some(&won) != p_git_origin.as_ref());
+                if user_wins {
+                    (user.clone(), user)
+                } else {
+                    (heimdall, user)
+                }
             }
-            None => (
-                GitSshSelection {
-                    source: GitSshSource::Config,
-                    scope: Some(GitScope::Global),
-                    classification: GitSshClassification::VerifiedClient,
-                },
-                default,
-            ),
+            None => (heimdall, default),
         };
         // ADR-0007 §12.37 item 3: B_git is removed from the file its own step wrote, which
         // the Git item's record names. Git's first-read file is not that file once an XDG
         // file has been created after the apply (B_git stays in `~/.gitconfig`), and a
         // rollback that looked only at the first-read file would remove P_git and leave
         // B_git behind, including a file that no longer exists.
-        let recorded = live_item(self.spec, ProjectionItem::Git)
-            .and_then(|r| r.include_file.as_deref())
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute());
-        let (global, bytes) = match recorded {
+        let (global, bytes) = match self.recorded_include_file() {
             // A file that is gone holds no block: P_git alone is removed.
             Some(path) => {
                 let bytes = read_file(&path)?.unwrap_or_default();
@@ -1176,12 +1208,7 @@ impl<'a> Builder<'a> {
                 BGitSearch::At(path, bytes) => (path, bytes),
                 BGitSearch::Nothing => return Ok(()),
                 BGitSearch::Ambiguous => {
-                    self.manual_git(
-                        manual_reason::MARKER_DUPLICATED,
-                        "Heimdall's include block is in more than one place in the global Git \
-                         files; remove the blocks by hand"
-                            .to_owned(),
-                    );
+                    self.manual_b_git_duplicated();
                     return Ok(());
                 }
             },
@@ -1298,6 +1325,48 @@ impl<'a> Builder<'a> {
             next: NextAction::for_code(Code::ConfigConflict),
             reason: Some(reason.to_owned()),
         });
+    }
+
+    /// The absolute path of the file the Git item's record says B_git was written into
+    /// (`ItemRecord::include_file`, ADR-0007 §12.37 item 3, §12.39 item 1). `None` for a
+    /// record that names none (written before the record carried it, or an item the
+    /// record does not manage) and for a path that is not absolute.
+    fn recorded_include_file(&self) -> Option<PathBuf> {
+        live_item(self.spec, ProjectionItem::Git)
+            .and_then(|r| r.include_file.as_deref())
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    }
+
+    /// ADR-0007 §12.39 item 3: where B_git is for a Git apply or re-render, the twin of the
+    /// rollback's lookup. The file the record names is used when it still holds a block.
+    /// Otherwise (the record names none, or the file it names is gone or holds no block,
+    /// for example because the owner moved the block) both global files are searched as
+    /// [`Self::search_b_git`] does, so that a block the owner moved to the other global
+    /// file is found and a second one is never inserted beside it. `resolved` is the
+    /// first-read file; with no block anywhere B_git goes there
+    /// ([`BGitSearch::At`] when it exists, [`BGitSearch::Nothing`] when it is to be
+    /// created).
+    fn locate_b_git(&self, resolved: &Path) -> Result<BGitSearch, PreviewError> {
+        if let Some(path) = self.recorded_include_file()
+            && let Some(bytes) = read_file(&path)?
+            && !gitedit::find_blocks(&bytes).is_empty()
+        {
+            return Ok(BGitSearch::At(path, bytes));
+        }
+        self.search_b_git(Some(resolved))
+    }
+
+    /// Manual mode for a Git item whose Heimdall block cannot be told apart from another
+    /// (`marker_duplicated`, ADR-0007 §12.37 item 3): more than one block in the global
+    /// Git files, in one file or in two.
+    fn manual_b_git_duplicated(&mut self) {
+        self.manual_git(
+            manual_reason::MARKER_DUPLICATED,
+            "Heimdall's include block is in more than one place in the global Git files; \
+             remove the blocks by hand"
+                .to_owned(),
+        );
     }
 
     /// ADR-0007 §12.37 item 3: where B_git is for a record that names no file (one

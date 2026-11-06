@@ -928,8 +928,12 @@ value, or an environment override, still wins at run time (§8).
 **Rollback** removes B_git under the lock, only when its bytes equal the recorded block (else
 `marker_edited`), and then P_git through the cleaner. ⟨r5⟩ It holds the lock through K and
 follows the replace transitions above, with a splice that removes B_git. A value the user
-added later survives byte-for-byte. Because that value already wins, removing B_git then
-changes no effective selection, and §5.2 needs no decision.
+added later survives byte-for-byte. ⟨§12.39, §12.41⟩ When that value is read after B_git,
+it already wins, so removing B_git changes no effective selection and §5.2 needs no decision.
+When Heimdall's value is the effective one (the user's value is shadowed, for example in an
+XDG file created after the apply), or when the winner cannot be established, the rollback
+changes Git's effective value and needs a decision. The rollback removes B_git from the file
+its step wrote (`ItemRecord.include_file`, §12.37 item 3).
 
 **Partial application.** The SSH and Git items have separate commit points. If the Git item
 fails after the SSH item committed, SSH stays applied and the result is `partial` with the
@@ -4553,6 +4557,28 @@ wave-5f Rust changes are sound, and L01, L02 and L04 are closed.
    *Fixed by the orchestrator, 2026-11-06*: regressions in `test_m02_evidence.WindowsBundle`,
    which fail with whitespace allowed.
 
+### 12.41 Rulings on the wave-5g escalations (orchestrator, 2026-11-06)
+
+Source: the wave-5g unit report (workflow `wf_d87f0ae7-de4`). check.sh exited 0 twice, with 1760
+tests passed and 0 failed. §12.39 items 3 and 4 are done, each mutation-checked (9 mutants).
+
+1. **The apply searches when the recorded file holds no block (ratified).** If the owner moved
+   B_git, or its file is gone, the re-preview searches both global files with the §12.37
+   item 3 fallback, rather than inserting a second block beside the moved one.
+2. **The rollback trusts the recorded file (accepted as a residual).** When the recorded file
+   no longer holds a block, the rollback removes P_git alone. A block the owner moved to the
+   other global file stays there, and Git skips an include whose file is missing. Recorded
+   in §13.
+3. **A first adoption reuses one Heimdall-marked block found in the other global file
+   (ratified).** This applies only when that block is intact, with the bytes rendered for
+   P_git; it is used where it is instead of inserting a second.
+4. **§5.6 Rollback is amended** to state the shadowed case (done in §5.6 above).
+5. **Residuals recorded in §13:**
+   * the update arm does not detect an intact-shaped B_git whose target was edited to
+     another file, when Heimdall's value is not reached;
+   * a user value only in a conditional include that `git config` does not follow outside a
+     repository is read conservatively, and requires a decision.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
@@ -4597,6 +4623,14 @@ wave-5f Rust changes are sound, and L01, L02 and L04 are closed.
   `config_tree_changed` (§6). ⟨r5⟩ It also records Git's lock holder K, and that a lock
   left after a crash on a filesystem without birth time is the owner's to remove.
 * ⟨r5⟩ The runtime bounds every real adapter call (`Limits.adapter_call_timeout`, §7).
+* ⟨§12.41⟩ Git residuals, for M03:
+  * a rollback whose recorded file no longer holds B_git, because the owner moved the block,
+    removes P_git alone and leaves the moved block. Git skips the missing include, and the
+    owner removes the block;
+  * an intact-shaped B_git whose include target was edited to another file is not detected
+    by the update arm while Heimdall's value is not reached, so the doctor then shows no
+    Heimdall value;
+  * a user value only in a conditional include is read conservatively.
 * ⟨§12.36 item 2⟩ Residual: an `Include` that is opaque, because it needs `${VAR}` or
   because the client's `%` behaviour is unknown, is not read. A `Match exec` inside it is not
   listed by file and line; the authorization prompt lists the opaque point instead.

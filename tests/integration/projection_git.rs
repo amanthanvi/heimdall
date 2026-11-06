@@ -3511,3 +3511,520 @@ fn git_rollback_without_a_recorded_file_searches_both_global_files() {
     assert!(applied_git(&r.items), "{r:?}");
     assert_eq!(std::fs::read(fx.global()).unwrap(), original);
 }
+
+// --- a re-preview finds B_git where it was written; the rollback sees the shadowed case --------
+//
+// ADR-0007 §12.39 items 3 and 4 (M02 wave 5g). Same `Fx` scratch world as above.
+
+/// Create the XDG file with `bytes`, as the writer accepts it (owner-only directory and file).
+fn create_xdg(fx: &Fx, bytes: &[u8]) -> PathBuf {
+    let xdg = fx.xdg_dir().join("git").join("config");
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, bytes);
+    xdg
+}
+
+/// `spec` with the Git item's record not naming a file (a record written before it did).
+fn without_include_file(spec: &ProjectionSpec) -> ProjectionSpec {
+    let mut spec = spec.clone();
+    spec.record
+        .as_mut()
+        .unwrap()
+        .items
+        .get_mut(&ProjectionItem::Git)
+        .unwrap()
+        .include_file = None;
+    spec
+}
+
+const MOVED_CLIENT: &str = "/opt/heimdall-fixture/bin/ssh";
+
+/// The Git item of `spec` is applicable, and a preview with the verified client moved plans
+/// an update of P_git alone (the Git commit step: no lock, no B_git) while one with nothing
+/// changed plans nothing at all. Returns the updating plan.
+fn assert_update_or_noop(fx: &Fx, spec: &ProjectionSpec, label: &str) -> ProjectionPlan {
+    let tree = fx.tree();
+    let plan = fx.writer().preview(spec, &GIT_APPLY).unwrap();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(
+        git.applicability,
+        GitApplicability::Applicable,
+        "{label}: {git:?}"
+    );
+    assert_eq!(git.reason, None, "{label}");
+    assert!(git.previous_values.is_empty(), "{label}");
+    assert!(plan.files.is_empty(), "{label}: {:?}", plan.files);
+    assert!(plan.view.manual_reasons.is_empty(), "{label}");
+
+    let plan = fx
+        .writer_with_client(MOVED_CLIENT)
+        .preview(spec, &GIT_APPLY)
+        .unwrap();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(
+        git.applicability,
+        GitApplicability::Applicable,
+        "{label}: {git:?}"
+    );
+    assert!(git.include_block.is_none(), "{label}: B_git is not planned");
+    assert_eq!(git_steps(&plan), vec![FileRole::GitManaged], "{label}");
+    assert!(
+        step_ref(&plan.intent(), FileRole::GitManaged).commit,
+        "{label}: P_git is the Git item's commit step"
+    );
+    assert_eq!(fx.tree(), tree, "{label}: a preview writes nothing");
+    plan
+}
+
+/// ADR-0007 §12.39 item 3, the regression. B_git went into `~/.gitconfig` because no XDG
+/// file existed. The owner then created the XDG file with no `core.sshCommand` in it, so
+/// it is now Git's first-read file while B_git stays where the step wrote it. A second
+/// `setup --include-git` looked for B_git only in the XDG file, found none, took P_git's
+/// value (which B_git includes, and which Git still reads through it) for a user's and
+/// reported `git_ssh_command_present`. It now looks where the record says: nothing to
+/// write when nothing changed, an update of P_git alone when the verified client moved,
+/// and neither file is touched by it.
+#[test]
+fn git_reapply_finds_b_git_in_the_recorded_file_after_an_xdg_file_appears() {
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (spec, intent, sink) = applied_once(&fx);
+    let xdg = create_xdg(&fx, b"[user]\n\tname = Xdg\n");
+    // The setup of the regression: the XDG file is the first-read file now.
+    let env = Env::from_vars(fx.git_env());
+    assert_eq!(
+        heimdall_localenv::git::resolve_global_file(&env)
+            .unwrap()
+            .path,
+        xdg
+    );
+    let spec = again(&fx, &spec, &intent, &sink);
+    assert_eq!(
+        spec.record.as_ref().unwrap().items[&ProjectionItem::Git]
+            .include_file
+            .as_deref(),
+        fx.global().to_str()
+    );
+    let (global_bytes, xdg_bytes) = (
+        std::fs::read(fx.global()).unwrap(),
+        std::fs::read(&xdg).unwrap(),
+    );
+    let p_git_before = std::fs::read(fx.p_git()).unwrap();
+
+    let plan = assert_update_or_noop(&fx, &spec, "recorded");
+    let update = plan.intent();
+    let writer = fx.writer_with_client(MOVED_CLIENT);
+    let sink2 = Sink::default();
+    let r = writer.apply(&update, &mut sink2.clone()).unwrap();
+    assert!(applied_git(&r.items), "{r:?} {:?}", sink2.kinds());
+    assert_eq!(
+        fx.effective_ssh_command().as_deref(),
+        Some("'/opt/heimdall-fixture/bin/ssh'"),
+        "Git now selects the moved client"
+    );
+    assert_ne!(std::fs::read(fx.p_git()).unwrap(), p_git_before);
+    assert_eq!(std::fs::read(fx.global()).unwrap(), global_bytes);
+    assert_eq!(std::fs::read(&xdg).unwrap(), xdg_bytes);
+    assert!(!fx.lock().exists(), "no lock was taken");
+    assert!(leftovers(&fx).is_empty(), "{:?}", leftovers(&fx));
+}
+
+/// The control for the above: a user `core.sshCommand` in either global file keeps the item
+/// `not_applicable` (`git_ssh_command_present`), with only the user's value listed. In the
+/// XDG file created after the apply it loses to Heimdall's (B_git is read after it); with
+/// B_git in the XDG file and the value in `~/.gitconfig` it wins. Presence, not who wins,
+/// decides applicability (§5.6).
+#[test]
+fn git_reapply_with_a_user_value_in_either_global_file_stays_not_applicable() {
+    type Setup = fn(&Fx) -> PathBuf;
+    let cases: [(&str, Setup, Setup, &str); 2] = [
+        (
+            "XDG value created after the apply (B_git in ~/.gitconfig)",
+            |fx| fx.global(),
+            |fx| create_xdg(fx, b"[core]\n\tsshCommand = ssh -q\n"),
+            "ssh -q",
+        ),
+        (
+            "~/.gitconfig value after an apply into the XDG file",
+            |fx| create_xdg(fx, b"[user]\n\tname = Xdg\n"),
+            |fx| {
+                write_private(&fx.global(), b"[core]\n\tsshCommand = ssh -v\n");
+                fx.global()
+            },
+            "ssh -v",
+        ),
+    ];
+    for (label, before_apply, add, value) in cases {
+        let fx = Fx::new();
+        if before_apply(&fx) == fx.global() {
+            std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+        }
+        let (spec, intent, sink) = applied_once(&fx);
+        let user_file = add(&fx);
+        let spec = again(&fx, &spec, &intent, &sink);
+        let tree = fx.tree();
+        let plan = fx
+            .writer_with_client(MOVED_CLIENT)
+            .preview(&spec, &GIT_APPLY)
+            .unwrap();
+        let git = plan.view.git.clone().unwrap();
+        assert_eq!(
+            git.applicability,
+            GitApplicability::NotApplicable,
+            "{label}: {git:?}"
+        );
+        assert_eq!(
+            git.reason.as_deref(),
+            Some("git_ssh_command_present"),
+            "{label}"
+        );
+        assert!(git_steps(&plan).is_empty(), "{label}");
+        assert_eq!(
+            git.previous_values.len(),
+            1,
+            "{label}: {:?}",
+            git.previous_values
+        );
+        assert_eq!(
+            git.previous_values[0].value_sha256,
+            heimdall_localenv::git::value_digest(value),
+            "{label}"
+        );
+        assert_eq!(
+            git.previous_values[0].origin_display,
+            heimdall_localenv::git::origin_of(&Env::from_vars(fx.git_env()), &user_file),
+            "{label}: only the user's value is listed"
+        );
+        assert_eq!(fx.tree(), tree, "{label}: a preview writes nothing");
+    }
+}
+
+/// The record decides: when it names a file that holds a block, that block is B_git, whatever
+/// else the other global file holds. A second Heimdall-marked block there (a copy the owner
+/// made, whose include no longer reaches P_git) does not make the re-preview ambiguous and
+/// is not touched. A record that names a file that no longer holds a block (the owner moved
+/// the block into the other global file) is searched for as if it named none, so the moved
+/// block is found and a second one is not inserted beside it.
+#[test]
+fn git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved() {
+    // A copy of the block in the XDG file that does not reach P_git.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (spec, intent, sink) = applied_once(&fx);
+    let with_block = std::fs::read_to_string(fx.global()).unwrap();
+    let p_git = fx.p_git();
+    let copy = with_block.replace(p_git.to_str().unwrap(), "/nonexistent-fixture/gitconfig");
+    assert_ne!(copy, with_block, "the copy names another file");
+    let xdg = create_xdg(&fx, copy.as_bytes());
+    let spec = again(&fx, &spec, &intent, &sink);
+    let _ = assert_update_or_noop(&fx, &spec, "recorded file over a copy");
+    assert_eq!(
+        std::fs::read(&xdg).unwrap(),
+        copy.as_bytes(),
+        "the copy is not touched"
+    );
+
+    // The block moved into the XDG file; ~/.gitconfig is what it was before the apply.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let original = std::fs::read(fx.global()).unwrap();
+    let (spec, intent, sink) = applied_once(&fx);
+    let moved = std::fs::read(fx.global()).unwrap();
+    let xdg = create_xdg(&fx, &moved);
+    std::fs::write(fx.global(), &original).unwrap();
+    let spec = again(&fx, &spec, &intent, &sink);
+    assert_eq!(
+        spec.record.as_ref().unwrap().items[&ProjectionItem::Git]
+            .include_file
+            .as_deref(),
+        fx.global().to_str(),
+        "the record still names ~/.gitconfig"
+    );
+    let _ = assert_update_or_noop(&fx, &spec, "block moved");
+    assert_eq!(std::fs::read(&xdg).unwrap(), moved);
+    assert_eq!(std::fs::read(fx.global()).unwrap(), original);
+}
+
+/// A record written before it named the file (`include_file` is `None`): both global files
+/// are searched, as the rollback does (§12.39 items 2 and 3). Exactly one block in total is
+/// used where it is. A single edited block that no longer reaches P_git is the
+/// `marker_edited` conflict, and no second block is inserted into the first-read file. More
+/// than one block, in the two files, cannot be told apart: manual mode with
+/// `marker_duplicated`, nothing planned for Git. No block at all puts B_git in the
+/// first-read file, as a first adoption does.
+#[test]
+fn git_reapply_without_a_recorded_file_searches_both_global_files() {
+    use heimdall_contract::setup::SetupMode;
+    let applied_with_xdg = || {
+        let fx = Fx::new();
+        std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+        let original = std::fs::read(fx.global()).unwrap();
+        let (spec, intent, sink) = applied_once(&fx);
+        let spec = again(&fx, &spec, &intent, &sink);
+        assert_eq!(
+            without_include_file(&spec).record.unwrap().items[&ProjectionItem::Git].include_file,
+            None
+        );
+        (fx, without_include_file(&spec), original)
+    };
+
+    // Exactly one block (in ~/.gitconfig; the XDG file appeared later without one).
+    let (fx, spec, _) = applied_with_xdg();
+    let xdg = create_xdg(&fx, b"[user]\n\tname = Xdg\n");
+    let (global_bytes, xdg_bytes) = (
+        std::fs::read(fx.global()).unwrap(),
+        std::fs::read(&xdg).unwrap(),
+    );
+    let plan = assert_update_or_noop(&fx, &spec, "one block");
+    let r = fx
+        .writer_with_client(MOVED_CLIENT)
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    assert_eq!(std::fs::read(fx.global()).unwrap(), global_bytes);
+    assert_eq!(std::fs::read(&xdg).unwrap(), xdg_bytes);
+
+    // One edited block that no longer reaches P_git: the conflict, not a second block.
+    let (fx, spec, _) = applied_with_xdg();
+    let xdg = create_xdg(&fx, b"[user]\n\tname = Xdg\n");
+    let text = std::fs::read_to_string(fx.global()).unwrap();
+    let edited = text
+        .replace(
+            fx.p_git().to_str().unwrap(),
+            "/nonexistent-fixture/gitconfig",
+        )
+        .replacen("\tpath = ", "\tpath =  ", 1);
+    std::fs::write(fx.global(), &edited).unwrap();
+    let tree = fx.tree();
+    let plan = fx.writer().preview(&spec, &GIT_APPLY).unwrap();
+    assert!(git_steps(&plan).is_empty(), "{:?}", git_steps(&plan));
+    assert!(
+        plan.view.findings.iter().any(|f| f.code == "marker_edited"
+            && f.severity == FindingSeverity::Problem
+            && f.reason.as_deref() == Some("marker_edited")),
+        "{:?}",
+        plan.view.findings
+    );
+    assert_eq!(fx.tree(), tree, "a preview writes nothing");
+    assert_eq!(std::fs::read(&xdg).unwrap(), b"[user]\n\tname = Xdg\n");
+
+    // Two blocks, one in each file, neither reaching P_git: manual mode.
+    let (fx, spec, _) = applied_with_xdg();
+    let text = std::fs::read_to_string(fx.global()).unwrap();
+    let unreaching = text.replace(
+        fx.p_git().to_str().unwrap(),
+        "/nonexistent-fixture/gitconfig",
+    );
+    std::fs::write(fx.global(), &unreaching).unwrap();
+    create_xdg(&fx, unreaching.as_bytes());
+    let tree = fx.tree();
+    let plan = fx.writer().preview(&spec, &GIT_APPLY).unwrap();
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert_eq!(plan.view.manual_reasons, ["marker_duplicated"]);
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(git.applicability, GitApplicability::NotApplicable);
+    assert_eq!(git.reason.as_deref(), Some("marker_duplicated"));
+    assert!(git_steps(&plan).is_empty(), "{:?}", git_steps(&plan));
+    assert!(
+        plan.view
+            .findings
+            .iter()
+            .any(|f| f.code == "marker_duplicated" && f.severity == FindingSeverity::Problem),
+        "{:?}",
+        plan.view.findings
+    );
+    assert_eq!(fx.tree(), tree, "a preview writes nothing");
+
+    // No block anywhere (the owner removed it): B_git goes into the first-read file, with
+    // the record's file and without it.
+    for with_record_file in [false, true] {
+        let (fx, spec, original) = applied_with_xdg();
+        let spec = if with_record_file {
+            let mut named = spec.clone();
+            named
+                .record
+                .as_mut()
+                .unwrap()
+                .items
+                .get_mut(&ProjectionItem::Git)
+                .unwrap()
+                .include_file = fx.global().to_str().map(str::to_owned);
+            named
+        } else {
+            spec
+        };
+        let xdg = create_xdg(&fx, b"[user]\n\tname = Xdg\n");
+        std::fs::write(fx.global(), &original).unwrap();
+        let plan = fx.writer().preview(&spec, &GIT_APPLY).unwrap();
+        let git = plan.view.git.clone().unwrap();
+        assert_eq!(
+            git.applicability,
+            GitApplicability::Applicable,
+            "{with_record_file}: {git:?}"
+        );
+        assert_eq!(
+            Path::new(&step_ref(&plan.intent(), FileRole::GitInclude).path),
+            xdg,
+            "{with_record_file}: B_git goes into the first-read file"
+        );
+    }
+}
+
+/// ADR-0007 §12.39 item 4, the regression. B_git is in `~/.gitconfig` (no XDG file existed at
+/// the apply), and the owner later put a `core.sshCommand` in the XDG file, or in the system
+/// file: Git reads it before Heimdall's include, so Heimdall's value is the effective one.
+/// A rollback removes B_git, and the effective value changes from Heimdall's to the user's,
+/// a change the owner never consented to: it needs a decision (`git_selection_changed`).
+/// Treating it as "no change" was not fail-closed. The controls: no user value (the
+/// ordinary rollback, back to the state the owner consented to) and a user value that
+/// already wins (read after B_git) need none. With local queries off nobody can say who
+/// wins, and the reading that needs a decision is taken.
+#[test]
+fn git_rollback_in_the_shadowed_case_needs_a_decision() {
+    use heimdall_contract::setup::ConsentReasonKind;
+    type Setup = fn(&Fx);
+    struct Case {
+        label: &'static str,
+        before_apply: Setup,
+        after_apply: Setup,
+        queries: LocalQueries,
+        /// The value Git selects after the apply and the owner's change.
+        effective: &'static str,
+        decision: bool,
+    }
+    let nothing: Setup = |_| {};
+    let home_file: Setup = |fx| std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let xdg_file: Setup = |fx| {
+        create_xdg(fx, b"[user]\n\tname = Xdg\n");
+    };
+    let xdg_value: Setup = |fx| {
+        create_xdg(fx, b"[core]\n\tsshCommand = ssh -q\n");
+    };
+    let system_value: Setup =
+        |fx| std::fs::write(&fx.system, b"[core]\n\tsshCommand = ssh -s\n").unwrap();
+    let appended_value: Setup = |fx| {
+        assert!(
+            fx.git(&["config", "--global", "core.sshCommand", "ssh -v"])
+                .status
+                .success()
+        );
+    };
+    let home_value: Setup = |fx| write_private(&fx.global(), b"[core]\n\tsshCommand = ssh -v\n");
+    let heimdall = "'/usr/bin/ssh'";
+    let cases = [
+        Case {
+            label: "no user value",
+            before_apply: home_file,
+            after_apply: nothing,
+            queries: LocalQueries::Enabled,
+            effective: heimdall,
+            decision: false,
+        },
+        Case {
+            label: "shadowed by an XDG file created after the apply",
+            before_apply: home_file,
+            after_apply: xdg_value,
+            queries: LocalQueries::Enabled,
+            effective: heimdall,
+            decision: true,
+        },
+        Case {
+            label: "shadowed by the system file",
+            before_apply: home_file,
+            after_apply: system_value,
+            queries: LocalQueries::Enabled,
+            effective: heimdall,
+            decision: true,
+        },
+        Case {
+            label: "shadowed, local queries off",
+            before_apply: home_file,
+            after_apply: xdg_value,
+            queries: LocalQueries::Disabled,
+            effective: heimdall,
+            decision: true,
+        },
+        Case {
+            label: "a user value after B_git wins",
+            before_apply: home_file,
+            after_apply: appended_value,
+            queries: LocalQueries::Enabled,
+            effective: "ssh -v",
+            decision: false,
+        },
+        Case {
+            label: "B_git in the XDG file, the value in ~/.gitconfig wins",
+            before_apply: xdg_file,
+            after_apply: home_value,
+            queries: LocalQueries::Enabled,
+            effective: "ssh -v",
+            decision: false,
+        },
+        Case {
+            label: "the same, local queries off",
+            before_apply: xdg_file,
+            after_apply: home_value,
+            queries: LocalQueries::Disabled,
+            effective: "ssh -v",
+            decision: true,
+        },
+    ];
+    let rollback = PreviewIntent::Rollback {
+        keep_key_files: true,
+        items: [ProjectionItem::Git].into_iter().collect(),
+    };
+    for case in cases {
+        let fx = Fx::new();
+        (case.before_apply)(&fx);
+        let plan = fx.plan();
+        let intent = plan.intent();
+        let sink = Sink::default();
+        let r = fx.writer().apply(&intent, &mut sink.clone()).unwrap();
+        assert!(applied_git(&r.items), "{}: {r:?}", case.label);
+        let mut spec = fx.spec(Some(record_of(&fx, &intent, &sink)));
+        spec.consent = plan.consent.clone();
+        (case.after_apply)(&fx);
+        assert_eq!(
+            fx.effective_ssh_command().as_deref(),
+            Some(case.effective),
+            "{}: the fixture is the world it claims",
+            case.label
+        );
+
+        let mut config = fx.config();
+        config.queries = case.queries;
+        let tree = fx.tree();
+        let rb = LocalProjection::new(config)
+            .preview(&spec, &rollback)
+            .unwrap();
+        assert!(
+            git_steps(&rb).contains(&FileRole::GitInclude),
+            "{}: the rollback removes B_git",
+            case.label
+        );
+        assert_eq!(
+            rb.view.consent.decision_required, case.decision,
+            "{}: {:?}",
+            case.label, rb.view.consent
+        );
+        let git_reasons: Vec<ConsentReasonKind> = rb
+            .view
+            .consent
+            .reasons
+            .iter()
+            .filter(|r| r.item == "git")
+            .map(|r| r.kind)
+            .collect();
+        assert_eq!(
+            git_reasons,
+            if case.decision {
+                vec![ConsentReasonKind::GitSelectionChanged]
+            } else {
+                vec![]
+            },
+            "{}",
+            case.label
+        );
+        assert_eq!(fx.tree(), tree, "{}: a preview writes nothing", case.label);
+    }
+}

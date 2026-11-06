@@ -767,3 +767,23 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - check.sh: the unit ran it twice and I ran it once, all exit 0, 1755 passed.
   - ADR-0007 §12.39 defines wave 5g (W5g-git: the re-preview uses the recorded file; rollback consent sees the shadowed case).
 - I fixed §12.38 L01–L04 (74f63f7f) and corrected the importer's macOS rule after the automated security review (3b0154c5).
+- Wave 5f is committed as a961f4d5. My check.sh: exit 0, 1755 passed.
+- Running (2026-11-06):
+  - workflow `wf_d87f0ae7-de4`, wave 5g (W5g-git, Sonnet);
+  - task M02-W5f-code-review: Codex, worktree at a961f4d5. It covers 5f and the L01–L04 fixes.
+- Exit-build runbook, after 5g:
+  1. check.sh, then commit;
+  2. refresh-inventory.sh, then commit and push: that commit is the exit build E;
+  3. in parallel:
+     - macOS: run-macos.sh;
+     - devbox: run-linux.sh;
+     - Windows: a T3 agent on the PC (project "No project" scratch) clones E into scratch A and runs `pwsh -File A\tests\native\m02\run-windows-local.ps1 -Commit E -ScratchRoot B`, then returns bundle.b64 between markers and removes A;
+  4. import-windows-bundle.py;
+  5. m02-evidence.py --config <artifacts>/runs.json --write;
+  6. matrix, M02 exit record and progress.
+- **Wave 5g** (`wf_d87f0ae7-de4`):
+  - the Git re-preview finds B_git through the recorded file, with the search fallback;
+  - rollback consent sees the shadowed case.
+  - check.sh: the unit ran it twice and I ran it once, all exit 0, 1760 passed.
+  - ADR-0007 §12.41 ratifies it, amends §5.6 Rollback, and records three Git residuals for M03 in §13.
+- I fixed the wave-5f review's K01 (cb5139e4).
