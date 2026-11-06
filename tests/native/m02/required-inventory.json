@@ -84,9 +84,9 @@
     "A11": {
       "tests": {
         "e2e_cli_m02": [
-          "ssh::a35_wrong_key_exclusive_selection_fails_without_fallback",
-          "unix::a11_cli_listing_lapse_recorded_only_when_runtime_running",
-          "unix::a11_noninteractive_errors_exit_codes"
+          "json::a11_cli_listing_lapse_recorded_only_when_runtime_running",
+          "json::a11_noninteractive_errors_exit_codes",
+          "ssh::a35_wrong_key_exclusive_selection_fails_without_fallback"
         ],
         "e2e_run_m02": [
           "a11::a11_confirm_constrained_native_key_refused_before_agent_contact",
@@ -138,8 +138,8 @@
     "A21": {
       "tests": {
         "e2e_cli_m02": [
+          "json::a21_cli_doctor_json_validates_against_schema",
           "unix::a21_cli_allow_config_commands_prompt_text_and_typed_yes",
-          "unix::a21_cli_doctor_json_validates_against_schema",
           "unix::a21_cli_inert_config_still_prompts_for_allow_config_commands",
           "unix::a21_cli_inventory_wording_never_claims_completeness"
         ],
@@ -213,6 +213,12 @@
           "projection::tests::setup_intent_content_wire_forms"
         ],
         "heimdall_sshconf-unit": [
+          "client::tests::default_identities_are_exactly_the_union_of_clients_and_manuals",
+          "client::tests::default_identities_per_client_are_kept_as_data",
+          "client::tests::expansion_is_literal_only_where_observed",
+          "client::tests::keywords_follow_the_observed_boundary",
+          "client::tests::match_criteria_follow_the_observed_boundary",
+          "client::tests::observations_are_unique_per_version",
           "eval::tests::env_names_lists_every_variable",
           "eval::tests::patterns_follow_openssh",
           "eval::tests::three_valued_slot_keeps_every_candidate_that_may_apply",
@@ -307,6 +313,11 @@
           "a22_update_user_edit_after_p_exchange_restores_generation_n",
           "a22_update_user_edit_after_p_post_validation_restores_generation_n",
           "a22_user_edit_between_preview_and_apply_conflicts_user_config_changed",
+          "a_created_user_file_or_a_missing_state_dir_takes_no_snapshot",
+          "a_resumed_operation_snapshots_before_the_user_file_step",
+          "a_snapshot_that_cannot_be_made_leaves_the_item_unwritten",
+          "a_stale_user_file_refuses_the_apply_and_takes_no_snapshot",
+          "a_user_file_that_changes_before_the_copy_is_not_snapshotted_or_edited",
           "child_process_writer_entry",
           "consent_first_adoption_needs_a_decision_and_records_the_consented_states",
           "consent_plan_affecting_no_item_needs_no_decision",
@@ -334,6 +345,9 @@
           "settlement_order::a22_settlement_never_precedes_item_committed",
           "snapshot_original_copies_the_original_once_owner_only",
           "splice_applies_only_to_validated_base",
+          "the_preview_never_cuts_a_diff",
+          "the_writer_snapshots_the_global_git_file_before_its_first_edit",
+          "the_writer_snapshots_the_original_user_file_before_its_first_edit",
           "v01_manual_mode_active_b_in_symlinked_user_config_changed_alias_needs_decision",
           "v01_manual_mode_repair_with_active_b_and_changed_alias_needs_decision",
           "v01_manual_mode_unreadable_symlink_target_makes_affected_states_undetermined",
@@ -351,6 +365,8 @@
           "git_existing_core_sshcommand_in_system_or_global_makes_item_not_applicable",
           "git_first_adoption_previews_reproduce_their_plan_digest",
           "git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed",
+          "git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask",
+          "git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies",
           "git_include_applied_under_lock_and_rollback_restores_bytes",
           "git_item_not_offered_without_bundled_msys_default",
           "git_lock_held_by_git_is_git_config_locked_nothing_written",
@@ -411,9 +427,11 @@
           "corpus_retired_keywords_are_accepted_by_the_client",
           "corpus_unsupported_syntax_loads_and_matches_ssh_g",
           "final_pass_case_canonical_and_parse_only_facts_match_ssh_g",
+          "gated_match_criteria_and_keywords_follow_the_client",
           "include_state_is_restored_after_included_file",
           "include_target_with_glob_metacharacters_is_refused_before_any_edit",
           "include_tilde_follows_home_and_is_undetermined_under_another_home",
+          "include_tokens_follow_the_client",
           "s01_env_expansion_keywords_match_the_client",
           "sessiontype_in_force_matches_ssh_g"
         ],
@@ -429,7 +447,8 @@
           "m02::open_read_only_refuses_newer_reports_older_and_never_writes",
           "m02::prepared_facts_and_binding_holders_round_trip",
           "m02::projection_resource_generation_and_identity_cas",
-          "m02::recovery_intent_local_is_add_only_and_never_beside_resolved"
+          "m02::recovery_intent_local_is_add_only_and_never_beside_resolved",
+          "m02::table_counts_count_every_row_of_the_purged_tables_without_writing"
         ],
         "model_operations": [
           "u0b_phase2::u0b_setup_admission_goes_through_insert_setup_operation"
@@ -447,9 +466,11 @@
         ],
         "model_setup": [
           "a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_driver",
+          "a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled",
           "apply_after_base_change_is_config_conflict_and_nothing_written",
           "apply_executes_exactly_the_decided_plan_digest",
           "apply_requires_decision_attended_and_unattended",
+          "apply_through_operations_snapshots_the_original_user_file",
           "catalog_alias_rename_keeps_destination_id",
           "changed_plan_same_request_is_request_conflict",
           "crash_during_setup_admission_leaves_no_blocker",
@@ -560,6 +581,14 @@
           "unaffected_names_keep_their_behaviour",
           "unknown_keyword_is_invalid_unless_ignore_unknown_covers_it",
           "unreadable_include_makes_everything_after_it_undetermined_and_is_listed",
+          "w5c_default_identities_cover_every_clients_list",
+          "w5c_exec_after_a_refused_criterion_is_still_listed",
+          "w5c_first_and_final_pass_match_the_recorded_runs_on_both_clients",
+          "w5c_gated_match_criteria_are_invalid_where_the_client_refuses_them",
+          "w5c_include_variables_and_tokens_are_literal_only_for_9_6p1",
+          "w5c_keywords_unknown_to_the_client_are_unknown_keywords",
+          "w5c_recorded_sessiontype_files_are_refused_for_9_6p1_only",
+          "w5c_user_and_setenv_variables_are_literal_only_for_9_6p1",
           "without_the_account_match_localuser_and_match_user_are_unknown_and_only_they",
           "without_the_account_match_user_is_decided_by_a_user_in_force",
           "without_the_account_percent_u_and_percent_r_are_token_unavailable",
@@ -654,6 +683,7 @@
           "a27_signal_death_preserved",
           "a27_sigpipe_ignored_by_caller_is_reset_limitation_recorded",
           "terminal::a27_ctrl_c_reaches_child_once",
+          "terminal::a27_ctrl_c_reaches_child_once_when_the_runner_ignores_sigint",
           "terminal::a27_resize_reaches_child"
         ],
         "heimdall_launch-unit": [
@@ -854,7 +884,7 @@
     "T06": {
       "tests": {
         "e2e_cli_m02": [
-          "unix::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items",
+          "json::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items",
           "unix::uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses"
         ],
         "wsl_ordinary_ssh": [
@@ -945,19 +975,7 @@
       "linux",
       "macos"
     ],
-    "e2e_cli_m02::unix::a11_cli_listing_lapse_recorded_only_when_runtime_running": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::unix::a11_noninteractive_errors_exit_codes": [
-      "linux",
-      "macos"
-    ],
     "e2e_cli_m02::unix::a21_cli_allow_config_commands_prompt_text_and_typed_yes": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::unix::a21_cli_doctor_json_validates_against_schema": [
       "linux",
       "macos"
     ],
@@ -974,10 +992,6 @@
       "macos"
     ],
     "e2e_cli_m02::unix::a22_cli_setup_conflict_then_repair": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::unix::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items": [
       "linux",
       "macos"
     ],
@@ -1129,6 +1143,10 @@
       "macos"
     ],
     "e2e_run_m02::terminal::a27_ctrl_c_reaches_child_once": [
+      "linux",
+      "macos"
+    ],
+    "e2e_run_m02::terminal::a27_ctrl_c_reaches_child_once_when_the_runner_ignores_sigint": [
       "linux",
       "macos"
     ],
@@ -1586,6 +1604,26 @@
       "linux",
       "macos"
     ],
+    "integration_projection::a_created_user_file_or_a_missing_state_dir_takes_no_snapshot": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::a_resumed_operation_snapshots_before_the_user_file_step": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::a_snapshot_that_cannot_be_made_leaves_the_item_unwritten": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::a_stale_user_file_refuses_the_apply_and_takes_no_snapshot": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::a_user_file_that_changes_before_the_copy_is_not_snapshotted_or_edited": [
+      "linux",
+      "macos"
+    ],
     "integration_projection::child_process_writer_entry": [
       "linux",
       "macos"
@@ -1694,6 +1732,18 @@
       "linux",
       "macos"
     ],
+    "integration_projection::the_preview_never_cuts_a_diff": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::the_writer_snapshots_the_global_git_file_before_its_first_edit": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::the_writer_snapshots_the_original_user_file_before_its_first_edit": [
+      "linux",
+      "macos"
+    ],
     "integration_projection::v01_manual_mode_active_b_in_symlinked_user_config_changed_alias_needs_decision": [
       "linux",
       "macos"
@@ -1751,6 +1801,14 @@
       "macos"
     ],
     "integration_projection_git::git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies": [
       "linux",
       "macos"
     ],
@@ -1876,6 +1934,10 @@
       "linux",
       "macos"
     ],
+    "model_setup::a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled": [
+      "linux",
+      "macos"
+    ],
     "model_setup::apply_after_base_change_is_config_conflict_and_nothing_written": [
       "linux",
       "macos"
@@ -1885,6 +1947,10 @@
       "macos"
     ],
     "model_setup::apply_requires_decision_attended_and_unattended": [
+      "linux",
+      "macos"
+    ],
+    "model_setup::apply_through_operations_snapshots_the_original_user_file": [
       "linux",
       "macos"
     ],
@@ -2065,5 +2131,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "1e912184918d1673417ae3aba996f779fb9cf3e851b68994c1f9d57d35f90b80"
+  "sources_sha256": "34abdb42ba241ed60236ef1a0a2a272ee51b51dfba799216e9dacf255ba6f313"
 }

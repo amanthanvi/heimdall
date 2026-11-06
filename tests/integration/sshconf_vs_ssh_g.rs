@@ -20,6 +20,17 @@
 //! the message; it is never hidden. Observations specific to one client (the
 //! `[I]` facts of ADR-0007 §12.15 item 6) are asserted for the client this test runs
 //! on and recorded for the evidence step.
+//!
+//! **Version gates** (ADR-0007 §12.15 item 4, §12.32 items 11 and 12). Where clients
+//! differ, Heimdall reads the client's version through `heimdall_sshconf::client`,
+//! whose boundaries come from this test on each client. A client listed in
+//! `client::OBSERVED_CLIENTS` must behave as its row says and Heimdall must agree with
+//! it exactly. A client the observations do not settle may find Heimdall **stricter**
+//! (it refuses a construct the client loads, or treats as environment-dependent a value
+//! the client takes literally): that is recorded (`heimdall_stricter`) so the boundary
+//! can move with evidence, and does not fail. Heimdall being **laxer** than any client
+//! always fails. The default identities a client prints must all be in
+//! `client::DEFAULT_IDENTITIES` (the superset rule, §12.32 item 12).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
 
@@ -33,7 +44,8 @@ use heimdall_localenv::env::{Env, Platform};
 use heimdall_localenv::fs::BoundedSource;
 use heimdall_localenv::local_query::{run_version, version_text};
 use heimdall_localenv::paths::SshPaths;
-use heimdall_sshconf::directive::{Keyword, KnownKeyword, expands_env};
+use heimdall_sshconf::client;
+use heimdall_sshconf::directive::{Keyword, KnownKeyword};
 use heimdall_sshconf::edit::{IncludeBlock, plan_insert};
 use heimdall_sshconf::eval::{Evaluation, Invocation, OpenSshVersion, Query, Resolved, evaluate};
 use heimdall_sshconf::include::{ConfigSet, Roots};
@@ -82,7 +94,8 @@ impl Harness {
 
     /// Copy the U1 corpus into `<scratch>/corpus`, replacing `@CORPUS_DIR@`.
     fn copy_corpus(&self) -> PathBuf {
-        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/sshconf/corpus");
+        // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+        let src = heimdall_testkit::repo::repo_path("tests/fixtures/sshconf/corpus");
         let dst = self.root.join("corpus");
         copy_tree(&src, &dst, &dst.to_string_lossy());
         dst
@@ -375,15 +388,14 @@ fn expected(
     m
 }
 
-/// ssh's default identity files (F20 [S01]), as `ssh -G` prints them.
-const S01_DEFAULT_IDENTITIES: &[&str] = &[
-    "~/.ssh/id_rsa",
-    "~/.ssh/id_ecdsa",
-    "~/.ssh/id_ecdsa_sk",
-    "~/.ssh/id_ed25519",
-    "~/.ssh/id_ed25519_sk",
-    "~/.ssh/id_mldsa44_ed25519",
-];
+/// Whether `printed` (as `ssh -G` prints an `identityfile`) is one of the default
+/// identities Heimdall considers: the union over every client and the pinned manuals
+/// (`client::DEFAULT_IDENTITIES`, ADR-0007 §12.32 item 12).
+fn is_heimdall_default(printed: &str) -> bool {
+    printed
+        .strip_prefix("~/.ssh/")
+        .is_some_and(|name| client::DEFAULT_IDENTITIES.contains(&name))
+}
 
 /// Compare one alias; returns the disagreements (empty when equal).
 fn compare_alias(
@@ -423,12 +435,10 @@ fn compare_alias_invoked(
         let equal = match *k {
             "hostname" => got.len() == 1 && got[0].eq_ignore_ascii_case(&v[0]),
             "identityfile" if v.is_empty() => {
-                // No IdentityFile configured: ssh adds its defaults (F20), and only
-                // names from S01's default list.
-                !got.is_empty()
-                    && got
-                        .iter()
-                        .all(|g| S01_DEFAULT_IDENTITIES.contains(&g.as_str()))
+                // No IdentityFile configured: ssh adds its defaults (F20), each one a
+                // name Heimdall's union list has (§12.32 item 12). The first and the
+                // final pass add the same list (diagnosed on 9.6p1, §12.32 item 11 (c)).
+                !got.is_empty() && got.iter().all(|g| is_heimdall_default(g))
             }
             _ => got == *v,
         };
@@ -440,10 +450,7 @@ fn compare_alias_invoked(
     // (F20, settled per client).
     if !behavior.identity_files.is_empty() {
         let got = printed.get("identityfile").cloned().unwrap_or_default();
-        if got
-            .iter()
-            .any(|g| S01_DEFAULT_IDENTITIES.contains(&g.as_str()))
-        {
+        if got.iter().any(|g| is_heimdall_default(g)) {
             diffs.push(format!(
                 "a default identity was added to a configured list: {got:?}"
             ));
@@ -523,26 +530,52 @@ fn corpus_identity_list_matches_ssh_g() {
             ("ident-files-none", None),
         ],
     );
-    // The default list itself (F20): an alias with no IdentityFile prints only S01
-    // defaults; which of them this client adds is recorded.
+    // The default list itself (F20, ADR-0007 §12.32 item 12): an alias with no
+    // IdentityFile prints only names of Heimdall's union list, and a client with a
+    // recorded list prints exactly that list (the data the matrix cites).
     let h = Harness::new();
     let corpus = h.copy_corpus();
     let (_, printed, _) = h.ssh_g(&corpus.join("basic.conf"), "alpha", None, &[]);
     let got = printed.get("identityfile").cloned().unwrap_or_default();
-    let missing: Vec<&str> = S01_DEFAULT_IDENTITIES
+    let names: Vec<&str> = got
         .iter()
-        .copied()
-        .filter(|d| !got.iter().any(|g| g == d))
+        .map(|g| g.strip_prefix("~/.ssh/").unwrap_or(g))
         .collect();
+    let recorded = client::default_identities_of(h.version);
     h.record(
         "corpus_identity_list_matches_ssh_g",
         "default_identities",
         &[
             ("printed", got.join(",")),
-            ("s01_defaults_not_printed", missing.join(",")),
+            (
+                "recorded_for_this_client",
+                recorded.map_or_else(|| "none".to_owned(), |l| l.join(",")),
+            ),
+            (
+                "not_in_heimdall_union",
+                names
+                    .iter()
+                    .filter(|n| !client::DEFAULT_IDENTITIES.contains(n))
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
         ],
     );
     assert!(!got.is_empty());
+    assert!(
+        got.iter().all(|g| is_heimdall_default(g)),
+        "{}: a default identity outside client::DEFAULT_IDENTITIES: {got:?}",
+        h.client()
+    );
+    if let Some(recorded) = recorded {
+        assert_eq!(
+            names,
+            recorded,
+            "{}: the recorded default list differs",
+            h.client()
+        );
+    }
 }
 
 #[test]
@@ -777,12 +810,37 @@ fn bom_and_crlf_acceptance() {
     }
 }
 
-/// ADR-0007 §12.15 item 4: each keyword `directive::expands_env` names, checked on this
-/// client where `ssh -G` prints the value after expansion. `IdentityFile`,
-/// `CertificateFile` and `KnownHostsCommand` are printed before expansion (ssh expands
-/// them when it uses them) and `UserKnownHostsFile` is overridden by the isolation
-/// option, so for those `-G` cannot tell and the observation says so. `Include` is
-/// observed through its effect.
+/// How one version-gated fact compares (ADR-0007 §12.32 item 11; module documentation).
+/// `observed` is this exact client's row in `client::OBSERVED_CLIENTS`, `heimdall`
+/// Heimdall's reading for this version, `seen` what the client did, and `strict` the
+/// reading the gate takes when the observations do not settle a version. `Ok(true)`:
+/// Heimdall is stricter than an unobserved client (recorded, not a failure).
+fn judge(observed: Option<bool>, heimdall: bool, seen: bool, strict: bool) -> Result<bool, String> {
+    if let Some(row) = observed
+        && row != seen
+    {
+        return Err(format!(
+            "the recorded row says {row}, the client did {seen}"
+        ));
+    }
+    if heimdall == seen {
+        Ok(false)
+    } else if heimdall == strict && observed.is_none() {
+        Ok(true)
+    } else {
+        Err(format!("heimdall {heimdall}, the client {seen}"))
+    }
+}
+
+/// ADR-0007 §12.15 item 4, §12.32 item 11 (b): each keyword the pinned manual says
+/// expands `${VAR}`, checked on this client where `ssh -G` prints the value after
+/// expansion, against Heimdall's reading for this client's version
+/// (`client::expands_env`). `IdentityFile`, `CertificateFile` and `KnownHostsCommand`
+/// are printed before expansion (ssh expands them when it uses them) and
+/// `UserKnownHostsFile` is overridden by the isolation option, so for those `-G` cannot
+/// tell and the observation says so. `Include` is observed through its effect.
+/// OpenSSH 9.6p1 takes `User`, `SetEnv` and `Include` literally; 10.3p1 and 10.5p1
+/// expand them.
 #[test]
 fn s01_env_expansion_keywords_match_the_client() {
     let h = Harness::new();
@@ -814,6 +872,16 @@ fn s01_env_expansion_keywords_match_the_client() {
             Some(_) => "other",
         }
     };
+    let row = client::observed(h.version);
+    let gated_row = row.and_then(|r| r.env_in_user_setenv_include);
+    let observed_for = |kw: KnownKeyword| -> Option<bool> {
+        if client::GATED_EXPANSION_KEYWORDS.contains(&kw) {
+            gated_row
+        } else {
+            // Not gated: every client expands it, as the pinned manual says.
+            Some(true)
+        }
+    };
     let observable: &[(KnownKeyword, &str)] = &[
         (KnownKeyword::User, "user"),
         (KnownKeyword::SetEnv, "setenv"),
@@ -826,20 +894,22 @@ fn s01_env_expansion_keywords_match_the_client() {
     let mut disagreements = Vec::new();
     for (kw, key) in observable {
         let seen = observe(key);
+        let heimdall = client::expands_env(*kw, h.version);
+        let verdict = judge(observed_for(*kw), heimdall, seen == "expanded", true);
         h.record(
             "s01_env_expansion_keywords_match_the_client",
             kw.as_str(),
             &[
                 ("dump", seen.to_owned()),
-                ("heimdall_expands_env", expands_env(*kw).to_string()),
+                ("heimdall_expands_env", heimdall.to_string()),
+                (
+                    "heimdall_stricter",
+                    verdict.clone().unwrap_or(false).to_string(),
+                ),
             ],
         );
-        if expands_env(*kw) != (seen == "expanded") {
-            disagreements.push(format!(
-                "{}: heimdall {} client {seen}",
-                kw.as_str(),
-                expands_env(*kw)
-            ));
+        if let Err(why) = verdict {
+            disagreements.push(format!("{}: {why} ({seen})", kw.as_str()));
         }
     }
     for (kw, key) in [
@@ -853,12 +923,22 @@ fn s01_env_expansion_keywords_match_the_client() {
             kw.as_str(),
             &[
                 ("dump", observe(key).to_owned()),
-                ("heimdall_expands_env", expands_env(kw).to_string()),
+                (
+                    "heimdall_expands_env",
+                    client::expands_env(kw, h.version).to_string(),
+                ),
                 ("note", "not observable through ssh -G".to_owned()),
             ],
         );
     }
     let include_expanded = printed.get("port") == Some(&vec!["2950".to_owned()]);
+    let heimdall_include = client::include_expansion(h.version).env;
+    let verdict = judge(
+        observed_for(KnownKeyword::Include),
+        heimdall_include,
+        include_expanded,
+        true,
+    );
     h.record(
         "s01_env_expansion_keywords_match_the_client",
         "Include",
@@ -872,27 +952,46 @@ fn s01_env_expansion_keywords_match_the_client() {
                 }
                 .to_owned(),
             ),
+            ("heimdall_expands_env", heimdall_include.to_string()),
             (
-                "heimdall_expands_env",
-                expands_env(KnownKeyword::Include).to_string(),
+                "heimdall_stricter",
+                verdict.clone().unwrap_or(false).to_string(),
             ),
         ],
     );
-    if expands_env(KnownKeyword::Include) != include_expanded {
-        disagreements.push("Include".to_owned());
+    if let Err(why) = verdict {
+        disagreements.push(format!("Include: {why}"));
     }
-    // Heimdall's own Include expansion reaches the same file, as a candidate only: a
-    // path that reads a variable names the runtime's file, which a later ssh may not
-    // read, so the values it brings are undetermined (ADR-0007 §12.16 item 1).
     let (evaluation, behavior) = h.heimdall(&file, "env-x", None, &env);
-    match &behavior.port {
-        Resolved::Undetermined(vs) => assert!(
-            vs.iter()
-                .any(|v| v.args.first().map(String::as_str) == Some("2950")),
-            "{vs:?}"
-        ),
-        other => panic!("an environment-dependent Include gave {other:?}"),
+    if heimdall_include {
+        // Heimdall's own Include expansion reaches the same file, as a candidate only:
+        // a path that reads a variable names the runtime's file, which a later ssh may
+        // not read, so the values it brings are undetermined (ADR-0007 §12.16 item 1).
+        match &behavior.port {
+            Resolved::Undetermined(vs) => assert!(
+                vs.iter()
+                    .any(|v| v.args.first().map(String::as_str) == Some("2950")),
+                "{vs:?}"
+            ),
+            other => panic!("an environment-dependent Include gave {other:?}"),
+        }
+    } else {
+        // A client that takes the Include literally globs `${HM_CORPUS_VAR}.conf`,
+        // which no file matches: the port is the default, determined.
+        assert_eq!(behavior.port, Resolved::Unset, "{}", h.client());
+        assert_eq!(printed.get("port"), Some(&vec!["22".to_owned()]));
     }
+    // The User and SetEnv this client reads literally are determined as written.
+    if !client::expands_env(KnownKeyword::User, h.version) {
+        assert_eq!(
+            first_arg(&behavior.user).as_deref(),
+            Some("u${HM_CORPUS_VAR}"),
+            "{}",
+            h.client()
+        );
+    }
+    // IdentityAgent (and the other ungated keywords) still read the variable on every
+    // client: undetermined.
     assert!(
         evaluation
             .unresolved
@@ -902,6 +1001,65 @@ fn s01_env_expansion_keywords_match_the_client() {
     assert!(
         disagreements.is_empty(),
         "{}: {disagreements:?}",
+        h.client()
+    );
+}
+
+/// ADR-0007 §12.32 item 11 (b), the `%` tokens of `Include` (found with the 9.6p1
+/// diagnosis): `Include <scratch>/inc-%h.conf` names `inc-tok-x.conf` on a client that
+/// expands tokens there and the file literally named `inc-%h.conf` on one that does not
+/// (9.6p1). Heimdall must read the file this client reads. `User u%h` is recorded only:
+/// a token-expanding client prints the expanded user, while `Match user` still reads the
+/// value as written (observed on 10.5p1), which is what Heimdall evaluates.
+#[test]
+fn include_tokens_follow_the_client() {
+    let h = Harness::new();
+    h.write("inc-tok-x.conf", "Host tok-x\n  Port 2962\n");
+    h.write("inc-%h.conf", "Host tok-x\n  Port 2965\n");
+    let file = h.write("tok_include.conf", "Include @SCRATCH@/inc-%h.conf\n");
+    let (exit, printed, stderr) = h.ssh_g(&file, "tok-x", None, &[]);
+    assert_eq!(exit, 0, "{stderr}");
+    let ssh_port = printed.get("port").map(|v| v.join(",")).unwrap_or_default();
+    let (evaluation, behavior) = h.heimdall(&file, "tok-x", None, &[]);
+    let heimdall_port = first_arg(&behavior.port).unwrap_or_else(|| "22".to_owned());
+    let seen_expanded = ssh_port == "2962";
+    let heimdall_expands = client::include_expansion(h.version).tokens;
+    let user_file = h.write("tok_user.conf", "Host tok-x\n  User u%h\n");
+    let (_, user_printed, _) = h.ssh_g(&user_file, "tok-x", None, &[]);
+    h.record(
+        "include_tokens_follow_the_client",
+        "tok-x",
+        &[
+            ("ssh_g_port", ssh_port.clone()),
+            ("client_expands_include_tokens", seen_expanded.to_string()),
+            (
+                "heimdall_expands_include_tokens",
+                heimdall_expands.to_string(),
+            ),
+            ("heimdall_port", heimdall_port.clone()),
+            (
+                "ssh_g_user_for_u%h",
+                user_printed
+                    .get("user")
+                    .map(|v| v.join(","))
+                    .unwrap_or_default(),
+            ),
+        ],
+    );
+    assert!(evaluation.invalid.is_empty(), "{:?}", evaluation.invalid);
+    if let Some(row) = client::observed(h.version).and_then(|r| r.tokens_in_user_setenv_include) {
+        assert_eq!(
+            row,
+            seen_expanded,
+            "{}: the recorded row differs",
+            h.client()
+        );
+    }
+    // Never laxer: the port Heimdall determines is the one this client uses.
+    assert_eq!(
+        heimdall_port,
+        ssh_port,
+        "{}: heimdall expands {heimdall_expands}, the client {seen_expanded}",
         h.client()
     );
 }
@@ -988,6 +1146,11 @@ fn final_pass_case_canonical_and_parse_only_facts_match_ssh_g() {
 /// `shell` one does not) and a `SessionType subsystem` case, for a shell invocation;
 /// then both again under `-s`, where the command line's session type comes first and
 /// the `SessionType` lines take no effect. Each is compared with this client's `ssh -G`.
+///
+/// ADR-0007 §12.32 item 11 (a): a client that refuses `Match sessiontype` (9.6p1:
+/// "Unsupported Match attribute", exit 255) refuses these files, and Heimdall must
+/// report each such line invalid (`unsupported_match_criterion`) for it, deciding
+/// nothing from it.
 #[test]
 fn sessiontype_in_force_matches_ssh_g() {
     let h = Harness::new();
@@ -1016,13 +1179,63 @@ fn sessiontype_in_force_matches_ssh_g() {
         ("sessiontype_none_dash_s", &reviewer, &sftp, "22"),
         ("sessiontype_subsystem_dash_s", &subsystem, &sftp, "2203"),
     ];
+    let heimdall_accepts = client::accepts_match_criterion("sessiontype", h.version);
+    let row = client::observed(h.version).and_then(|r| r.match_criteria[1]);
     let mut all = Vec::new();
     for (name, file, invocation, port) in cases {
+        let (exit, _, stderr) = h.ssh_g_invoked(file, "box", None, &[], invocation);
+        let client_accepts = exit == 0;
+        let (evaluation, behavior) =
+            h.heimdall_invoked(file, "box", None, &[], (*invocation).clone());
+        let refused_lines = evaluation
+            .invalid
+            .iter()
+            .filter(|i| i.reason == "unsupported_match_criterion")
+            .count();
+        let verdict = judge(row, heimdall_accepts, client_accepts, false);
+        h.record(
+            name,
+            "box",
+            &[
+                ("ssh_g_exit", exit.to_string()),
+                ("client_accepts", client_accepts.to_string()),
+                ("heimdall_accepts", heimdall_accepts.to_string()),
+                ("heimdall_refused_lines", refused_lines.to_string()),
+                (
+                    "heimdall_stricter",
+                    verdict.clone().unwrap_or(false).to_string(),
+                ),
+            ],
+        );
+        if let Err(why) = verdict {
+            all.push(format!("{name}: {why}: {stderr}"));
+            continue;
+        }
+        if !client_accepts {
+            assert!(
+                stderr.contains("Unsupported Match attribute sessiontype"),
+                "{name}: {stderr}"
+            );
+        }
+        if !heimdall_accepts {
+            // Invalid for this client: both Match lines, and nothing they guard is
+            // determined.
+            if refused_lines != 2 {
+                all.push(format!(
+                    "{name}: heimdall refused {refused_lines} lines: {:?}",
+                    evaluation.invalid
+                ));
+            }
+            if matches!(behavior.port, Resolved::Determined(_))
+                || matches!(behavior.hostname, Resolved::Determined(_))
+            {
+                all.push(format!("{name}: a refused section decided {behavior:?}"));
+            }
+            continue;
+        }
         let diffs = compare_alias_invoked(&h, name, file, "box", None, invocation);
         all.extend(diffs.into_iter().map(|d| format!("{name}: {d}")));
         // The evaluator's own answer, so a client that agreed by accident is noticed.
-        let (evaluation, behavior) =
-            h.heimdall_invoked(file, "box", None, &[], (*invocation).clone());
         let got = first_arg(&behavior.port).unwrap_or_else(|| "22".to_owned());
         if got != *port || !matches!(behavior.hostname, Resolved::Unset) {
             all.push(format!(
@@ -1050,6 +1263,102 @@ fn sessiontype_in_force_matches_ssh_g() {
             ),
         ],
     );
+    assert!(
+        all.is_empty(),
+        "disagreements on {}:\n{}",
+        h.client(),
+        all.join("\n")
+    );
+}
+
+/// ADR-0007 §12.32 item 11 (a), every gated construct against this client: the
+/// `Match` criteria `command`, `sessiontype` and `version` (`client::GATED_MATCH_CRITERIA`)
+/// and the keywords `RefuseConnection`, `VersionAddendum` and `WarnWeakCrypto`
+/// (`client::GATED_KEYWORDS`), which OpenSSH 9.6p1 refuses ("Unsupported Match
+/// attribute", "Bad configuration option"). Whether ssh loads the file is compared with
+/// whether Heimdall reports it invalid for this version, under the rule of the module
+/// documentation. A keyword is probed under a `Host` that never matches (ssh checks the
+/// name wherever the line is), and once more under `IgnoreUnknown`, which a client that
+/// does not know the keyword honours.
+#[test]
+fn gated_match_criteria_and_keywords_follow_the_client() {
+    let h = Harness::new();
+    let row = client::observed(h.version);
+    let mut all = Vec::new();
+    let mut check =
+        |name: &str, text: String, observed: Option<bool>, heimdall: bool, alias: &str| {
+            let file = h.write(&format!("{name}.conf"), &text);
+            let (exit, _, stderr) = h.ssh_g(&file, alias, None, &[]);
+            let (evaluation, _) = h.heimdall(&file, alias, None, &[]);
+            let client_accepts = exit == 0;
+            let heimdall_valid = evaluation.invalid.is_empty();
+            let verdict = judge(observed, heimdall, client_accepts, false);
+            h.record(
+                "gated_match_criteria_and_keywords_follow_the_client",
+                name,
+                &[
+                    ("ssh_g_exit", exit.to_string()),
+                    ("heimdall_accepts", heimdall.to_string()),
+                    ("heimdall_invalid", (!heimdall_valid).to_string()),
+                    (
+                        "heimdall_stricter",
+                        verdict.clone().unwrap_or(false).to_string(),
+                    ),
+                ],
+            );
+            if let Err(why) = verdict {
+                all.push(format!("{name}: {why}: {stderr}"));
+            }
+            // The gate is what the evaluator applies.
+            if heimdall_valid != heimdall {
+                all.push(format!(
+                    "{name}: gate {heimdall}, evaluation invalid {:?}",
+                    evaluation.invalid
+                ));
+            }
+        };
+    for (i, criterion) in client::GATED_MATCH_CRITERIA.iter().enumerate() {
+        let arg = match *criterion {
+            "version" => "OpenSSH_*",
+            "sessiontype" => "shell",
+            _ => "hm-corpus-cmd",
+        };
+        check(
+            &format!("match_{criterion}"),
+            format!("Match {criterion} {arg}\n    Port 2317\n"),
+            row.and_then(|r| r.match_criteria[i]),
+            client::accepts_match_criterion(criterion, h.version),
+            "box",
+        );
+    }
+    for (i, keyword) in client::GATED_KEYWORDS.iter().enumerate() {
+        let value = match keyword {
+            KnownKeyword::VersionAddendum => "none",
+            _ => "no",
+        };
+        let observed = row.and_then(|r| r.keywords[i]);
+        let knows = client::knows_keyword(*keyword, h.version);
+        check(
+            &format!("kw_{}", keyword.as_str()),
+            format!("Host hm-corpus-nomatch\n    {} {value}\n", keyword.as_str()),
+            observed,
+            knows,
+            "box",
+        );
+        // IgnoreUnknown covers a keyword the client does not know, and is harmless
+        // for one it knows: the file loads either way.
+        check(
+            &format!("kw_{}_ignored", keyword.as_str()),
+            format!(
+                "IgnoreUnknown {}\nHost hm-corpus-nomatch\n    {} {value}\n",
+                keyword.as_str().to_ascii_lowercase(),
+                keyword.as_str()
+            ),
+            Some(true),
+            true,
+            "box",
+        );
+    }
     assert!(
         all.is_empty(),
         "disagreements on {}:\n{}",

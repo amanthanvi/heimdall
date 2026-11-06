@@ -434,22 +434,11 @@ fn managed_file_edited_resolutions() -> &'static str {
     "the edited managed file is never overwritten, by a rerender either; resolve it with a rollback, which keeps the edited file as ssh_config.hm-conflict-<generation>"
 }
 
-/// The longest prefix of `text` within `max` bytes, at a character boundary.
-fn bounded(text: &str, max: usize) -> String {
-    if text.len() <= max {
-        return text.to_owned();
-    }
-    let mut end = max;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_owned()
-}
-
 /// The decision summary: the plan's, or one built from its view when the writer gave
-/// none; the diff is always within its bound.
+/// none. Its diff is whole: [`plan_for`] refused every plan whose full diff does not fit
+/// ([`diff_exceeds_bound`]), so nothing is cut here (ADR-0007 §12.32 item 5).
 fn summary_of(plan: &ProjectionPlan) -> ProjectionSummary {
-    let mut summary = plan.summary.clone().unwrap_or_else(|| {
+    plan.summary.clone().unwrap_or_else(|| {
         let view = &plan.view;
         let intent = match view.intent {
             PreviewIntent::Rollback { .. } => SummaryIntent::Rollback,
@@ -467,9 +456,32 @@ fn summary_of(plan: &ProjectionPlan) -> ProjectionSummary {
             restore: Vec::new(),
             diff_text: diff,
         }
-    });
-    summary.diff_text = bounded(&summary.diff_text, ProjectionSummary::MAX_DIFF_TEXT);
-    summary
+    })
+}
+
+/// ⟨M02⟩ ADR-0007 §12.32 item 5: whether `plan`'s full diff does not fit
+/// [`ProjectionSummary::MAX_DIFF_TEXT`] (`MAX_DIFF_BYTES`). Both texts a client can be sent
+/// count: the plan's files' diffs together (what the preview shows and the decision
+/// summary falls back to) and the writer's own summary text (which has a path header per
+/// file).
+fn diff_exceeds_bound(plan: &ProjectionPlan) -> bool {
+    let shown: usize = plan.view.files.iter().map(|f| f.diff.len()).sum();
+    shown > ProjectionSummary::MAX_DIFF_TEXT
+        || plan.summary.as_ref().is_some_and(|s| !s.within_bounds())
+}
+
+/// A plan whose full diff does not fit: refused before anything is journaled or written,
+/// so that no client is ever sent a truncated diff (ADR-0007 §12.32 item 5; ADR-0006 §3.1).
+fn plan_too_large() -> OpError {
+    OpError::new(
+        Code::CapabilityUnavailable,
+        format!(
+            "the plan's full diff exceeds {} bytes; a diff is never shown cut, so the plan is refused and nothing was journaled or written",
+            ProjectionSummary::MAX_DIFF_TEXT
+        ),
+    )
+    .with_reason(reason::PLAN_TOO_LARGE)
+    .with_effect(EffectStatus::None)
 }
 
 /// The held error (ADR-0007 §5.7 outcome H; §12.17 item 6): `OUTCOME_UNKNOWN`, reason
@@ -670,6 +682,10 @@ async fn plan_for(
     let plan = blocking(move || w.preview(&spec, &i))
         .await?
         .map_err(preview_error)?;
+    // ADR-0007 §12.32 item 5: before the plan is shown, remembered or admitted.
+    if diff_exceeds_bound(&plan) {
+        return Err(plan_too_large());
+    }
     Ok(Planned {
         plan,
         repair_target: None,
@@ -2384,6 +2400,87 @@ mod tests {
 
     fn not_applied(item: ProjectionItem, reason: Option<ConflictKind>) -> ItemOutcome {
         ItemOutcome::NotApplied { item, reason }
+    }
+
+    /// A plan with one file change per diff, and a writer summary of `summary` bytes (or
+    /// none).
+    fn plan_with(diffs: &[usize], summary: Option<usize>) -> ProjectionPlan {
+        use heimdall_contract::setup::{ConsentNeed, FileChange, ProjectionFileRole, SetupPlan};
+        ProjectionPlan {
+            view: SetupPlan {
+                plan_digest: PlanDigest::from_sha256([1; 32]),
+                intent: PreviewIntent::Apply { include_git: false },
+                mode: SetupMode::Automatic,
+                manual_reasons: Vec::new(),
+                files: diffs
+                    .iter()
+                    .map(|n| FileChange {
+                        role: ProjectionFileRole::ManagedSsh,
+                        path_display: "~/p".to_owned(),
+                        before_sha256: None,
+                        after_sha256: None,
+                        diff: "+".repeat(*n),
+                    })
+                    .collect(),
+                git: None,
+                aliases: Vec::new(),
+                consent: ConsentNeed {
+                    decision_required: false,
+                    reasons: Vec::new(),
+                },
+                unaffected_names_checked: 0,
+                findings: Vec::new(),
+            },
+            generation: 1,
+            consent: heimdall_domain::projection::ConsentRecord::default(),
+            files: Vec::new(),
+            summary: summary.map(|n| ProjectionSummary {
+                intent: SummaryIntent::Apply,
+                added_aliases: Vec::new(),
+                changed_aliases: Vec::new(),
+                removed_aliases: Vec::new(),
+                files: Vec::new(),
+                git: false,
+                restore: Vec::new(),
+                diff_text: "+".repeat(n),
+            }),
+        }
+    }
+
+    /// ADR-0007 §12.32 item 5: a diff of exactly `MAX_DIFF_BYTES` fits and is carried
+    /// whole; one byte more, in the files' diffs together or in the writer's summary, is
+    /// refused (`CAPABILITY_UNAVAILABLE`, `plan_too_large`, effect `none`); and a
+    /// summary built from a fitting plan is never cut.
+    #[test]
+    fn a_diff_is_refused_one_byte_over_the_bound_and_never_cut() {
+        let max = ProjectionSummary::MAX_DIFF_TEXT;
+        assert!(!diff_exceeds_bound(&plan_with(&[], None)));
+        assert!(!diff_exceeds_bound(&plan_with(&[max], None)));
+        assert!(!diff_exceeds_bound(&plan_with(&[max - 10, 10], Some(max))));
+        assert!(diff_exceeds_bound(&plan_with(&[max + 1], None)));
+        assert!(
+            diff_exceeds_bound(&plan_with(&[max - 10, 11], None)),
+            "the files' diffs count together"
+        );
+        assert!(
+            diff_exceeds_bound(&plan_with(&[10], Some(max + 1))),
+            "so does the writer's own summary text"
+        );
+        let e = plan_too_large();
+        assert_eq!(e.code, Code::CapabilityUnavailable);
+        assert_eq!(e.reason.as_deref(), Some(reason::PLAN_TOO_LARGE));
+        assert_eq!(e.effect_status, EffectStatus::None);
+        // A fitting plan's summary carries every byte of its diff.
+        let fitting = plan_with(&[max / 2, max / 2], None);
+        assert_eq!(summary_of(&fitting).diff_text.len(), max / 2 * 2);
+        let with_summary = plan_with(&[1], Some(max));
+        assert_eq!(summary_of(&with_summary).diff_text.len(), max);
+        // `plan_for` is what refuses an oversize plan; `summary_of` itself never cuts one
+        // (a silent cut here once hid the rest of a diff from the owner's decision).
+        let over = plan_with(&[max + 10], None);
+        assert_eq!(summary_of(&over).diff_text.len(), max + 10);
+        let over = plan_with(&[1], Some(max + 10));
+        assert_eq!(summary_of(&over).diff_text.len(), max + 10);
     }
 
     /// ADR-0007 §12.22 item 3 (W3b-gaps): only outcomes whose every unapplied item

@@ -85,17 +85,38 @@ fn user_roots() -> Roots {
     .with_managed(MANAGED)
 }
 
+/// OpenSSH 10.5p1, a client observed to accept every construct the version gates
+/// cover (`heimdall_sshconf::client::OBSERVED_CLIENTS`; ADR-0007 §12.32 item 11). The
+/// gates themselves are tested at their boundaries below.
+const ACCEPTING_CLIENT: OpenSshVersion = OpenSshVersion {
+    major: 10,
+    minor: 5,
+    portable: Some(1),
+};
+
+/// OpenSSH 9.6p1, the devbox client: refuses `Match command`/`sessiontype`/`version`,
+/// takes `${VAR}` and `%` literally in `User`, `SetEnv` and `Include`.
+const CLIENT_9_6P1: OpenSshVersion = OpenSshVersion {
+    major: 9,
+    minor: 6,
+    portable: Some(1),
+};
+
 fn q(host: &str) -> Query {
     Query {
         host: host.to_owned(),
         user: None,
         local_user: Some("fixture".to_owned()),
-        client_version: OpenSshVersion {
-            major: 10,
-            minor: 3,
-            portable: Some(1),
-        },
+        client_version: ACCEPTING_CLIENT,
         invocation: Invocation::Shell,
+    }
+}
+
+/// [`q`] for another client version.
+fn qv(host: &str, client_version: OpenSshVersion) -> Query {
+    Query {
+        client_version,
+        ..q(host)
     }
 }
 
@@ -2391,6 +2412,457 @@ fn include_tilde_follows_home_only_when_home_is_the_account_home() {
     assert!(!home_matches(Path::new(""), Path::new(HOME)));
     assert!(!home_matches(Path::new("hm/home"), Path::new(HOME)));
     assert!(!home_matches(Path::new("/hm/home/."), Path::new("")));
+}
+
+// --- W5c-sshconf: ADR-0007 §12.32 items 11 and 12 (client version gates) -------------------
+
+const V_10_0P1: OpenSshVersion = OpenSshVersion {
+    major: 10,
+    minor: 0,
+    portable: Some(1),
+};
+const V_10_3P1: OpenSshVersion = OpenSshVersion {
+    major: 10,
+    minor: 3,
+    portable: Some(1),
+};
+const V_11_0P1: OpenSshVersion = OpenSshVersion {
+    major: 11,
+    minor: 0,
+    portable: Some(1),
+};
+
+fn eval_user_v(text: &str, host: &str, version: OpenSshVersion) -> Evaluation {
+    eval_src(&source().with_file(USER_CONFIG, text), &qv(host, version))
+}
+
+fn invalid_reasons(ev: &Evaluation) -> Vec<String> {
+    ev.invalid.iter().map(|i| i.reason.clone()).collect()
+}
+
+/// §12.32 item 11 (a), both sides of each boundary: `Match command`, `sessiontype` and
+/// `version` make the line invalid (`unsupported_match_criterion`) and decide nothing
+/// on 9.6p1 (recorded: "Unsupported Match attribute", exit 255), on a version between
+/// the observations, below them, and for the unknown version (`MINIMUM`); they are
+/// evaluated on 10.5p1 and later. `sessiontype` alone was recorded on 10.3p1.
+#[test]
+fn w5c_gated_match_criteria_are_invalid_where_the_client_refuses_them() {
+    let cases = [
+        ("command", "Match !command hm-cmd\n    Port 2318\n"),
+        ("sessiontype", "Match sessiontype shell\n    Port 2318\n"),
+        ("version", "Match version OpenSSH_*\n    Port 2318\n"),
+    ];
+    for (criterion, text) in cases {
+        for version in [CLIENT_9_6P1, OpenSshVersion::MINIMUM, V_10_0P1] {
+            let ev = eval_user_v(text, "box", version);
+            assert_eq!(
+                invalid_reasons(&ev),
+                ["unsupported_match_criterion"],
+                "{criterion} {version:?}"
+            );
+            assert_eq!(
+                det1(&ev, KnownKeyword::Port),
+                None,
+                "{criterion} {version:?}"
+            );
+            assert_eq!(
+                undet(&ev, KnownKeyword::Port),
+                Some(vec!["2318".to_owned()]),
+                "{criterion} {version:?}: nothing decided"
+            );
+        }
+        for version in [ACCEPTING_CLIENT, V_11_0P1] {
+            let ev = eval_user_v(text, "box", version);
+            assert!(ev.invalid.is_empty(), "{criterion} {version:?}");
+            assert_eq!(
+                det1(&ev, KnownKeyword::Port).as_deref(),
+                Some("2318"),
+                "{criterion} {version:?}"
+            );
+        }
+        let at_10_3 = eval_user_v(text, "box", V_10_3P1);
+        assert_eq!(
+            at_10_3.invalid.is_empty(),
+            criterion == "sessiontype",
+            "{criterion} on 10.3p1"
+        );
+    }
+    // The other criteria load on 9.6p1 (recorded) and are decided there.
+    let ev = eval_user_v(
+        "Match host box originalhost box user * localuser * all\n    Port 2319\n",
+        "box",
+        CLIENT_9_6P1,
+    );
+    assert_eq!(
+        invalid_reasons(&ev),
+        ["bad_match_condition"],
+        "all must stand alone"
+    );
+    let ev = eval_user_v(
+        "Match host box originalhost box localuser fixture\n    Port 2319\nTag t\nMatch tagged t\n    User tagged\n",
+        "box",
+        CLIENT_9_6P1,
+    );
+    assert!(ev.invalid.is_empty(), "{:?}", ev.invalid);
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2319"));
+    assert_eq!(det1(&ev, KnownKeyword::User).as_deref(), Some("tagged"));
+}
+
+/// §12.32 item 11 (a): the recorded 9.6p1 files (`sessiontype_none.conf` and
+/// `sessiontype_subsystem.conf`, each refused with "2 bad configuration options"): both
+/// `Match sessiontype` lines are invalid for 9.6p1 and neither section decides
+/// anything, under every invocation; on 10.5p1 they evaluate as before (`ssh -G`
+/// printed port 2202 and 2203).
+#[test]
+fn w5c_recorded_sessiontype_files_are_refused_for_9_6p1_only() {
+    let none = "SessionType none\nMatch sessiontype shell\n    HostName wrong.example\nMatch sessiontype none\n    Port 2202\n";
+    let subsystem = "SessionType subsystem\nMatch sessiontype subsystem\n    Port 2203\nMatch sessiontype shell\n    Port 2204\n";
+    for invocation in Invocation::consent_profiles() {
+        for text in [none, subsystem] {
+            let src = source().with_file(USER_CONFIG, text);
+            let mut query = qv("box", CLIENT_9_6P1);
+            query.invocation = invocation.clone();
+            let ev = eval_src(&src, &query);
+            assert_eq!(
+                invalid_reasons(&ev),
+                ["unsupported_match_criterion", "unsupported_match_criterion"],
+                "{invocation:?}"
+            );
+            assert_eq!(det1(&ev, KnownKeyword::Port), None, "{invocation:?}");
+            assert_eq!(det1(&ev, KnownKeyword::Hostname), None, "{invocation:?}");
+        }
+    }
+    let ev = eval_user(none, "box");
+    assert!(ev.invalid.is_empty());
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2202"));
+    assert_eq!(det1(&ev, KnownKeyword::Hostname), None);
+    let ev = eval_user(subsystem, "box");
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2203"));
+}
+
+/// §12.32 item 11 (a): ssh stops evaluating a line at the criterion it refuses, but a
+/// client that accepts it (an unknown version may) runs a later `exec`, so every later
+/// `exec` that no prior false criterion skips is still listed.
+#[test]
+fn w5c_exec_after_a_refused_criterion_is_still_listed() {
+    let ev = eval_user_v(
+        "Match sessiontype shell exec \"hm-never-run\"\n    Port 2320\n",
+        "box",
+        CLIENT_9_6P1,
+    );
+    assert_eq!(invalid_reasons(&ev), ["unsupported_match_criterion"]);
+    assert_eq!(listed_lines(&ev), [1]);
+    let ev = eval_user_v(
+        "Match version OpenSSH_* !exec \"hm-never-run\"\n    Port 2320\n",
+        "box",
+        OpenSshVersion::MINIMUM,
+    );
+    assert_eq!(listed_lines(&ev), [1]);
+    // A prior false criterion skips the command on every client.
+    let ev = eval_user_v(
+        "Match host nomatch sessiontype shell exec \"hm-never-run\"\n    Port 2320\n",
+        "box",
+        CLIENT_9_6P1,
+    );
+    assert!(listed_lines(&ev).is_empty());
+    // The same lines on an accepting client: listed as before.
+    let ev = eval_user(
+        "Match sessiontype shell exec \"hm-never-run\"\n    Port 2320\n",
+        "box",
+    );
+    assert!(ev.invalid.is_empty());
+    assert_eq!(listed_lines(&ev), [1]);
+}
+
+/// §12.32 item 11 (a), keywords: 9.6p1 does not know `RefuseConnection`,
+/// `VersionAddendum` or `WarnWeakCrypto` (recorded: "Bad configuration option"), so a
+/// line with one is invalid (`unknown_keyword`) wherever it is, unless `IgnoreUnknown`
+/// covers it, and never sets a value; 10.5p1 knows them. An unknown version is strict.
+#[test]
+fn w5c_keywords_unknown_to_the_client_are_unknown_keywords() {
+    let keywords = [
+        (KnownKeyword::RefuseConnection, "yes"),
+        (KnownKeyword::VersionAddendum, "none"),
+        (KnownKeyword::WarnWeakCrypto, "no"),
+    ];
+    for (kw, value) in keywords {
+        let text = format!("Host box\n    {} {value}\n", kw.as_str());
+        let elsewhere = format!("Host nomatch\n    {} {value}\n", kw.as_str());
+        for version in [CLIENT_9_6P1, OpenSshVersion::MINIMUM, V_10_3P1] {
+            for t in [&text, &elsewhere] {
+                let ev = eval_user_v(t, "box", version);
+                assert_eq!(
+                    invalid_reasons(&ev),
+                    ["unknown_keyword"],
+                    "{kw:?} {version:?}"
+                );
+                assert!(!ev.values.contains_key(&kw), "{kw:?} {version:?}");
+            }
+            let ignored = format!("IgnoreUnknown {}\n{text}", kw.as_str().to_ascii_lowercase());
+            let ev = eval_user_v(&ignored, "box", version);
+            assert!(ev.invalid.is_empty(), "{kw:?} {version:?}: ignored");
+            assert!(!ev.values.contains_key(&kw), "{kw:?} {version:?}");
+        }
+        let ev = eval_user_v(&text, "box", ACCEPTING_CLIENT);
+        assert!(ev.invalid.is_empty(), "{kw:?}");
+        assert_eq!(det1(&ev, kw).as_deref(), Some(value), "{kw:?}");
+    }
+}
+
+/// §12.32 item 11 (b), both sides: `User u${HM_V}` and `SetEnv HMSET=${HM_V}` are
+/// literal, and so determined as written, on 9.6p1 (recorded: `user u${HM_CORPUS_VAR}`)
+/// and environment references (undetermined) on every other version: 10.3p1 and
+/// 10.5p1 (recorded expanding), one between the observations, and the unknown version.
+/// `IdentityAgent ${HM_V}` reads the variable on every client.
+#[test]
+fn w5c_user_and_setenv_variables_are_literal_only_for_9_6p1() {
+    let text =
+        "Host box\n    User u${HM_V}\n    SetEnv HMSET=${HM_V}\n    IdentityAgent ${HM_V}/a.sock\n";
+    let src = source()
+        .with_file(USER_CONFIG, text)
+        .with_env("HM_V", "hmexpanded");
+    let ev = eval_src(&src, &qv("box", CLIENT_9_6P1));
+    assert_eq!(det1(&ev, KnownKeyword::User).as_deref(), Some("u${HM_V}"));
+    assert_eq!(
+        det1(&ev, KnownKeyword::SetEnv).as_deref(),
+        Some("HMSET=${HM_V}")
+    );
+    assert_eq!(det1(&ev, KnownKeyword::IdentityAgent), None);
+    let env_lines: Vec<u32> = ev
+        .unresolved
+        .iter()
+        .filter(|u| u.reason == UnresolvedReason::EnvironmentReference)
+        .map(|u| u.span.line)
+        .collect();
+    assert_eq!(env_lines, [4], "only IdentityAgent reads the variable");
+    for version in [
+        ACCEPTING_CLIENT,
+        V_10_3P1,
+        V_10_0P1,
+        OpenSshVersion::MINIMUM,
+        OpenSshVersion {
+            major: 9,
+            minor: 6,
+            portable: Some(2),
+        },
+    ] {
+        let ev = eval_src(&src, &qv("box", version));
+        assert_eq!(det1(&ev, KnownKeyword::User), None, "{version:?}");
+        assert_eq!(
+            undet(&ev, KnownKeyword::User),
+            Some(vec!["u${HM_V}".to_owned()]),
+            "{version:?}"
+        );
+        assert_eq!(det1(&ev, KnownKeyword::SetEnv), None, "{version:?}");
+        let env_lines: BTreeSet<u32> = ev
+            .unresolved
+            .iter()
+            .filter(|u| u.reason == UnresolvedReason::EnvironmentReference)
+            .map(|u| u.span.line)
+            .collect();
+        assert_eq!(env_lines, BTreeSet::from([2, 3, 4]), "{version:?}");
+    }
+}
+
+/// §12.32 item 11 (b), `Include`: with `HM_V=hmexpanded`, `Include /hm/inc/${HM_V}.conf`
+/// reads the file literally named `${HM_V}.conf`, determined, on 9.6p1 (recorded: the
+/// variable is not expanded, port 22 with no such file), and on every other version
+/// reads `hmexpanded.conf` under an unknown condition plus an opaque point. The `%`
+/// tokens likewise (recorded: `inc-%h.conf` is literal on 9.6p1, `inc-tok-x.conf` on
+/// 10.5p1).
+#[test]
+fn w5c_include_variables_and_tokens_are_literal_only_for_9_6p1() {
+    let src = source()
+        .with_file(USER_CONFIG, "Include /hm/inc/${HM_V}.conf\n")
+        .with_file("/hm/inc/hmexpanded.conf", "Host box\n    Port 2950\n")
+        .with_file("/hm/inc/${HM_V}.conf", "Host box\n    Port 2951\n")
+        .with_env("HM_V", "hmexpanded");
+    let ev = eval_src(&src, &qv("box", CLIENT_9_6P1));
+    assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), Some("2951"));
+    assert!(!has_reason(&ev, &UnresolvedReason::EnvironmentReference));
+    for version in [ACCEPTING_CLIENT, V_10_3P1, OpenSshVersion::MINIMUM] {
+        let ev = eval_src(&src, &qv("box", version));
+        let port = undet(&ev, KnownKeyword::Port).unwrap_or_default();
+        assert!(port.contains(&"2950".to_owned()), "{version:?}: {port:?}");
+        assert!(!port.contains(&"2951".to_owned()), "{version:?}: {port:?}");
+        assert!(
+            has_reason(&ev, &UnresolvedReason::EnvironmentReference),
+            "{version:?}"
+        );
+    }
+    // Without the literal file, 9.6p1 includes nothing: the default port, determined.
+    let bare = source()
+        .with_file(USER_CONFIG, "Include /hm/inc/${HM_V}.conf\n")
+        .with_file("/hm/inc/hmexpanded.conf", "Host box\n    Port 2950\n")
+        .with_env("HM_V", "hmexpanded");
+    let ev = eval_src(&bare, &qv("box", CLIENT_9_6P1));
+    assert_eq!(ev.values.get(&KnownKeyword::Port), None);
+    // Tokens.
+    let tokens = source()
+        .with_file(USER_CONFIG, "Include /hm/inc/inc-%h.conf\n")
+        .with_file("/hm/inc/inc-tok-x.conf", "Host tok-x\n    Port 2962\n")
+        .with_file("/hm/inc/inc-%h.conf", "Host tok-x\n    Port 2965\n");
+    let at = |version| {
+        det1(
+            &eval_src(&tokens, &qv("tok-x", version)),
+            KnownKeyword::Port,
+        )
+    };
+    assert_eq!(at(CLIENT_9_6P1).as_deref(), Some("2965"));
+    assert_eq!(at(ACCEPTING_CLIENT).as_deref(), Some("2962"));
+    assert_eq!(at(OpenSshVersion::MINIMUM).as_deref(), Some("2962"));
+}
+
+/// §12.32 item 11 (c): the first-pass and final-pass cases of the recorded runs
+/// (`case.conf`, `final_case.conf`, `final.conf`, `parseonly.conf` and the
+/// `IdentityFile` cases) printed the same values on 9.6p1 and 10.5p1, and the evaluator
+/// gives those values for both versions. The only `IdentityFile` difference is the
+/// default list, which item 12 covers.
+#[test]
+fn w5c_first_and_final_pass_match_the_recorded_runs_on_both_clients() {
+    struct Case {
+        text: &'static str,
+        host: &'static str,
+        port: Option<&'static str>,
+        user: Option<&'static str>,
+        hostname: Option<&'static str>,
+        identity_files: &'static [&'static str],
+    }
+    let cases = [
+        Case {
+            text: "Host MixedCase\n  Port 2901\nHost mixedcase\n  Port 2911\n",
+            host: "MixedCase",
+            port: Some("2901"),
+            user: None,
+            hostname: None,
+            identity_files: &[],
+        },
+        Case {
+            text: "Host MixedCase\n  Port 2901\nHost mixedcase\n  Port 2911\n",
+            host: "mixedcase",
+            port: Some("2911"),
+            user: None,
+            hostname: None,
+            identity_files: &[],
+        },
+        Case {
+            text: "Match final\n  Port 2912\nHost mixedcase\n  User final-lower-host\n",
+            host: "MixedCase",
+            port: Some("2912"),
+            user: Some("final-lower-host"),
+            hostname: None,
+            identity_files: &[],
+        },
+        Case {
+            text: "Host fin-a\n  HostName first.example\nMatch final\n  HostName second.example\n  Port 2902\nMatch canonical\n  User canon-user\nHost fin-b\n  Port 2903\n",
+            host: "fin-a",
+            port: Some("2902"),
+            user: Some("canon-user"),
+            hostname: Some("first.example"),
+            identity_files: &[],
+        },
+        Case {
+            text: "Host fin-a\n  HostName first.example\nMatch final\n  HostName second.example\n  Port 2902\nMatch canonical\n  User canon-user\nHost fin-b\n  Port 2903\n",
+            host: "fin-b",
+            port: Some("2903"),
+            user: Some("canon-user"),
+            hostname: None,
+            identity_files: &[],
+        },
+        Case {
+            text: "Host idf\n  IdentityFile /nonexistent/hm-corpus/first\nMatch final\n  IdentityFile /nonexistent/hm-corpus/final\n",
+            host: "idf",
+            port: None,
+            user: None,
+            hostname: None,
+            identity_files: &[
+                "/nonexistent/hm-corpus/first",
+                "/nonexistent/hm-corpus/final",
+            ],
+        },
+        Case {
+            text: "Match final\n  IdentityFile /nonexistent/hm-corpus/final_only\n",
+            host: "idf",
+            port: None,
+            user: None,
+            hostname: None,
+            identity_files: &["/nonexistent/hm-corpus/final_only"],
+        },
+        Case {
+            text: "Host idf\n  IdentityFile /nonexistent/hm-corpus/same\nMatch final\n  IdentityFile /nonexistent/hm-corpus/same\n",
+            host: "idf",
+            port: None,
+            user: None,
+            hostname: None,
+            identity_files: &["/nonexistent/hm-corpus/same"],
+        },
+        Case {
+            text: "Host idn\n  IdentityFile none\n  IdentityFile /nonexistent/hm-corpus/after_none\n",
+            host: "idn",
+            port: None,
+            user: None,
+            hostname: None,
+            identity_files: &["none", "/nonexistent/hm-corpus/after_none"],
+        },
+        Case {
+            text: "Match final\n  Port 2913\n",
+            host: "idf",
+            port: Some("2913"),
+            user: None,
+            hostname: None,
+            identity_files: &[],
+        },
+    ];
+    for version in [CLIENT_9_6P1, ACCEPTING_CLIENT] {
+        for c in &cases {
+            let ev = eval_user_v(c.text, c.host, version);
+            let what = format!("{} {version:?}", c.host);
+            assert!(ev.invalid.is_empty(), "{what}");
+            assert_eq!(det1(&ev, KnownKeyword::Port).as_deref(), c.port, "{what}");
+            assert_eq!(det1(&ev, KnownKeyword::User).as_deref(), c.user, "{what}");
+            assert_eq!(
+                det1(&ev, KnownKeyword::Hostname).as_deref(),
+                c.hostname,
+                "{what}"
+            );
+            let ids: Vec<String> = list(&ev, KnownKeyword::IdentityFile)
+                .into_iter()
+                .map(|(a, determined)| {
+                    assert!(determined, "{what}");
+                    a
+                })
+                .collect();
+            assert_eq!(ids, c.identity_files, "{what}");
+        }
+    }
+}
+
+/// §12.32 item 12: 9.6p1 adds `id_xmss` and `id_dsa` to its defaults (recorded), which
+/// the six-name list lacked, so a key there was never reported. The union list reports
+/// each default key that exists, whatever client printed it, with its fingerprint.
+#[test]
+fn w5c_default_identities_cover_every_clients_list() {
+    for (seed, name) in [
+        (21u8, "id_xmss"),
+        (22, "id_dsa"),
+        (23, "id_mldsa44_ed25519"),
+    ] {
+        let src = source()
+            .with_file(USER_CONFIG, "Host box\n    User u\n")
+            .with_file(
+                format!("{USER_DIR}/{name}.pub"),
+                synthetic_pub(seed, "default"),
+            );
+        for version in [CLIENT_9_6P1, ACCEPTING_CLIENT, OpenSshVersion::MINIMUM] {
+            let ev = eval_src(&src, &qv("box", version));
+            let report = identity_selection(&ev, &adopted_path("box"), &src);
+            assert_eq!(report.entries.len(), 1, "{name} {version:?}: {report:?}");
+            assert_eq!(report.entries[0].source, IdentityEntrySource::Default);
+            assert!(report.entries[0].fingerprint.is_some(), "{name}");
+            assert_eq!(report.selection, IdentitySelection::NotExclusive);
+        }
+    }
+    assert!(heimdall_sshconf::client::DEFAULT_IDENTITIES.len() >= 8);
 }
 
 // --- properties ---------------------------------------------------------------------------

@@ -2153,7 +2153,15 @@ mod lock_claim_order {
 // --- user values -------------------------------------------------------------------------
 
 fn apply_git(fx: &Fx) -> (SetupIntent, Sink) {
-    let intent = fx.plan().intent();
+    let plan = fx.plan();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(
+        git.applicability,
+        GitApplicability::Applicable,
+        "the Git item is not offered: {:?}",
+        git.reason
+    );
+    let intent = plan.intent();
     let sink = Sink::default();
     let r = fx.writer().apply(&intent, &mut sink.clone()).unwrap();
     assert!(applied_git(&r.items), "{r:?} {:?}", sink.kinds());
@@ -2270,13 +2278,44 @@ fn git_user_set_after_include_wins() {
     assert_eq!(fx.effective_ssh_command().as_deref(), Some("ssh -4"));
 }
 
+/// `create_dir_all` that gives every directory it creates mode 0700 whatever the process
+/// umask. The writer refuses a directory that group or others can write to
+/// (ADR-0007 §5.3 step 1), and a session umask of 0002 (user-private groups, the
+/// devbox's default) makes a plain `create_dir_all` produce 0775 directories. A fixture
+/// that must produce a directory the writer accepts creates it this way (§12.32 item
+/// 13: the test failed on the devbox for this reason and no other).
+fn create_owner_only_dir_all(path: &Path) {
+    use std::os::unix::fs::DirBuilderExt as _;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+        .unwrap();
+    let mode = std::fs::metadata(path).unwrap().mode() & 0o777;
+    assert_eq!(mode, 0o700, "the fixture directory is owner-only");
+}
+
+/// `std::fs::set_permissions` with an exact mode.
+fn chmod(path: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// Write a file the writer accepts (mode 0600) whatever the process umask: a plain
+/// `std::fs::write` of a new file is 0664 under a umask of 0002, which the writer
+/// refuses (ADR-0007 §5.3 step 2).
+fn write_private(path: &Path, bytes: &[u8]) {
+    std::fs::write(path, bytes).unwrap();
+    chmod(path, 0o600);
+}
+
 #[test]
 fn git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win()
  {
     let fx = Fx::new();
     let xdg = fx.xdg_dir().join("git").join("config");
-    std::fs::create_dir_all(xdg.parent().unwrap()).unwrap();
-    std::fs::write(&xdg, b"[user]\n\tname = Xdg\n").unwrap();
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, b"[user]\n\tname = Xdg\n");
     std::fs::write(fx.global(), b"[user]\n\temail = scratch@example.invalid\n").unwrap();
     let (intent, _sink) = apply_git(&fx);
     assert_eq!(
@@ -2323,6 +2362,134 @@ fn git_both_global_files_present_include_goes_to_first_read_file_and_later_user_
     assert!(shown.trim_end().ends_with("ssh -x"), "{shown}");
 }
 
+/// ADR-0007 §5.3 item 9, §5.6, §12.32 item 13. The writer refuses a global Git file, or
+/// the directory holding it, that fails a step-1 or step-2 check (a group or other write
+/// bit, a link, a second hard link), and refuses the whole operation before the first
+/// commit point, the SSH item with it. The preview must therefore not offer the Git item
+/// over such a file: the Git item is `not_applicable` with `unmanageable_file`, names the
+/// file, plans nothing for Git, and the SSH item still applies.
+///
+/// This is what the devbox showed. Its session umask is 0002, so the `~/.config/git`
+/// the test made with `create_dir_all` was 0775: the preview said "applicable" and the
+/// apply refused both items. Git 2.43 was not involved, so each case here also runs
+/// under whatever umask the harness has.
+#[test]
+fn git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies() {
+    type Setup = fn(&Fx);
+    let cases: [(&str, Setup); 6] = [
+        ("xdg directory group-writable", |fx| {
+            let xdg = fx.xdg_dir().join("git").join("config");
+            create_owner_only_dir_all(xdg.parent().unwrap());
+            write_private(&xdg, b"[user]\n\tname = Xdg\n");
+            chmod(xdg.parent().unwrap(), 0o775);
+        }),
+        ("xdg directory writable by others", |fx| {
+            let xdg = fx.xdg_dir().join("git").join("config");
+            create_owner_only_dir_all(xdg.parent().unwrap());
+            write_private(&xdg, b"[user]\n\tname = Xdg\n");
+            chmod(xdg.parent().unwrap(), 0o707);
+        }),
+        ("home directory group-writable", |fx| {
+            chmod(fx.home_dir(), 0o775);
+        }),
+        ("global file group-writable", |fx| {
+            chmod(&fx.global(), 0o664);
+        }),
+        ("global file a symlink", |fx| {
+            let real = fx.home_dir().join("dotfiles-gitconfig");
+            std::fs::rename(fx.global(), &real).unwrap();
+            std::os::unix::fs::symlink(&real, fx.global()).unwrap();
+        }),
+        ("global file hard-linked", |fx| {
+            std::fs::hard_link(fx.global(), fx.home_dir().join("gitconfig-second-link")).unwrap();
+        }),
+    ];
+    for (label, setup) in cases {
+        let fx = Fx::new();
+        setup(&fx);
+        let tree = fx.tree();
+        let plan = fx.plan();
+        let git = plan.view.git.clone().unwrap();
+        assert_eq!(
+            git.applicability,
+            GitApplicability::NotApplicable,
+            "{label}"
+        );
+        assert_eq!(git.reason.as_deref(), Some("unmanageable_file"), "{label}");
+        assert!(
+            git.global_file.is_some(),
+            "{label}: the plan names the file that cannot be managed"
+        );
+        assert!(
+            git.include_block.is_none() && git.managed_file.is_none(),
+            "{label}: nothing is planned for Git"
+        );
+        assert!(
+            plan.files
+                .iter()
+                .all(|s| s.role.item() != ProjectionItem::Git),
+            "{label}: no Git step"
+        );
+        assert_eq!(fx.tree(), tree, "{label}: a preview writes nothing");
+
+        // The SSH item is not sunk by the Git item's file.
+        let intent = plan.intent();
+        let sink = Sink::default();
+        let receipt = fx.writer().apply(&intent, &mut sink.clone()).unwrap();
+        assert!(
+            receipt.items.iter().any(|o| matches!(
+                o,
+                ItemOutcome::Applied {
+                    item: ProjectionItem::Ssh,
+                    ..
+                }
+            )),
+            "{label}: {receipt:?} {:?}",
+            sink.kinds()
+        );
+        assert!(
+            receipt.items.iter().all(|o| !matches!(
+                o,
+                ItemOutcome::Applied {
+                    item: ProjectionItem::Git,
+                    ..
+                } | ItemOutcome::NotApplied {
+                    item: ProjectionItem::Git,
+                    ..
+                }
+            )),
+            "{label}: the Git item is not part of the operation: {receipt:?}"
+        );
+        assert!(!fx.p_git().exists(), "{label}: P_git was not written");
+        assert!(!fx.lock().exists(), "{label}: Git's lock was not taken");
+        let global = std::fs::read_to_string(fx.global()).unwrap_or_default();
+        assert!(
+            !global.contains("heimdall managed include"),
+            "{label}: no include block"
+        );
+    }
+}
+
+/// The control for the case above: the same fixtures with owner-only directories and
+/// files are offered, applied and rolled back by the Git item, so the refusal is the
+/// mode and the link, not the fixture.
+#[test]
+fn git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask() {
+    let fx = Fx::new();
+    let xdg = fx.xdg_dir().join("git").join("config");
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, b"[user]\n\tname = Xdg\n");
+    let plan = fx.plan();
+    let git = plan.view.git.clone().unwrap();
+    assert_eq!(git.applicability, GitApplicability::Applicable);
+    assert_eq!(git.reason, None);
+    let (intent, _sink) = apply_git(&fx);
+    assert_eq!(
+        Path::new(&step_ref(&intent, FileRole::GitInclude).path),
+        xdg
+    );
+}
+
 /// Only `~/.gitconfig` existed at apply; the owner then creates the XDG file with a
 /// value. Git reads the XDG file first, so Heimdall's include (in `~/.gitconfig`) wins,
 /// as disclosed. The doctor finding `git_user_value_shadowed` is U3's/U5's and is not
@@ -2337,8 +2504,8 @@ fn git_xdg_created_after_apply_shadowed_value_reported() {
         fx.global()
     );
     let xdg = fx.xdg_dir().join("git").join("config");
-    std::fs::create_dir_all(xdg.parent().unwrap()).unwrap();
-    std::fs::write(&xdg, b"[core]\n\tsshCommand = ssh -q\n").unwrap();
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, b"[core]\n\tsshCommand = ssh -q\n");
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
         Some("'/usr/bin/ssh'")

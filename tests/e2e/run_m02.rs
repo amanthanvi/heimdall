@@ -273,6 +273,41 @@ fn mkfifo(path: &Path) {
     );
 }
 
+/// Open `fifo` for writing, waiting at most `limit` for its reader: the process under
+/// test opens it for reading at a pause point. A blocking open would wait forever when
+/// that process exits first (a refusal before the pause), and hang the whole run; here a
+/// non-blocking open is retried (`ENXIO` while no reader has it open), and an exited
+/// `child` or the deadline fails the test instead (ADR-0007 §12.32 item 10).
+#[cfg(unix)]
+fn open_fifo_for_writing(fifo: &Path, child: &mut Child, limit: Duration) -> std::fs::File {
+    use rustix::fs::{Mode, OFlags};
+    let deadline = Instant::now() + limit;
+    loop {
+        match rustix::fs::open(
+            fifo,
+            OFlags::WRONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            Ok(fd) => {
+                // Blocking again for the writes that follow.
+                let flags = rustix::fs::fcntl_getfl(&fd).unwrap();
+                rustix::fs::fcntl_setfl(&fd, flags - OFlags::NONBLOCK).unwrap();
+                return std::fs::File::from(fd);
+            }
+            Err(rustix::io::Errno::NXIO) => {}
+            Err(e) => panic!("opening the pause FIFO for writing: {e}"),
+        }
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("the process under test exited ({status}) before it opened the pause FIFO");
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the process under test did not open the pause FIFO within {limit:?}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 /// Wait for `cond`, bounded.
 fn wait_for(what: &str, limit: Duration, mut cond: impl FnMut() -> bool) {
     let deadline = Instant::now() + limit;
@@ -556,6 +591,52 @@ fn a27_kill_between_launching_and_exec_is_indeterminate_never_launched() {
     assert!(!marker.exists());
 }
 
+/// ADR-0007 §12.32 item 10: opening a pause FIFO for writing is bounded. A process that
+/// exits without ever opening it (as a heimdall refused before its pause would) fails the
+/// open at once, naming the exit, instead of blocking the run forever; a reader that comes
+/// lets it open.
+#[cfg(unix)]
+#[test]
+fn pause_fifo_open_is_bounded_when_the_process_exits_first() {
+    let rig = Rig::new();
+    let fifo = rig.file("pause");
+    mkfifo(&fifo);
+    let mut gone = Command::new("/bin/sh")
+        .args(["-c", "exit 3"])
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = Instant::now();
+    let opened = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        open_fifo_for_writing(&fifo, &mut gone, Duration::from_secs(60))
+    }));
+    let message = match opened {
+        Ok(_) => panic!("a FIFO without a reader opened"),
+        Err(e) => e
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+            .unwrap_or_default(),
+    };
+    assert!(message.contains("exited"), "{message}");
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+    let mut reader = Command::new("/bin/sh")
+        .args(["-c", &format!("cat '{}' >/dev/null", fifo.display())])
+        .stdin(Stdio::null())
+        .spawn()
+        .unwrap();
+    drop(open_fifo_for_writing(
+        &fifo,
+        &mut reader,
+        Duration::from_secs(30),
+    ));
+    assert!(reader.wait().unwrap().success());
+}
+
 /// Run `heimdall` under `/bin/sh` so its descriptor 3 is the pipe this test reads
 /// (`3>&1`), with stdout redirected to stderr's sink.
 #[cfg(unix)]
@@ -603,7 +684,11 @@ fn a27_exec_failure_with_failed_meta_write_is_indeterminate() {
     BufReader::new(stdout).read_line(&mut line).unwrap();
     // The reader is gone before the exec fails.
     let launching: RunRecord = serde_json::from_str(line.trim_end()).unwrap();
-    drop(std::fs::OpenOptions::new().write(true).open(&fifo).unwrap());
+    drop(open_fifo_for_writing(
+        &fifo,
+        child.child(),
+        Duration::from_secs(30),
+    ));
     let mut stderr = String::new();
     child
         .child()
@@ -1259,12 +1344,26 @@ mod terminal {
         rustix::stdio::dup2_stderr(&tty).unwrap();
         drop(tty);
         let args: Vec<String> = serde_json::from_str(&args).unwrap();
-        let err = Command::new(bin()).args(args).exec();
+        // The session starts with the default terminal signals, whatever the test runner
+        // ignored (ADR-0007 §12.32 item 9; `heimdall_testkit::term`).
+        heimdall_testkit::term::default_terminal_signals_for_exec().unwrap();
+        // The binary under test is the one the parent passed (ADR-0007 §12.32 item 10);
+        // the variable itself is not part of heimdall's environment.
+        let program = bin();
+        let err = Command::new(program)
+            .args(args)
+            .env_remove("HEIMDALL_E2E_BIN")
+            .exec();
         panic!("exec failed: {err}");
     }
 
+    /// A pseudo-terminal. It holds a descriptor of its slave for its whole life (ADR-0007
+    /// §12.32 item 6): macOS forgets a pty's window size when the last descriptor of its
+    /// slave closes, so without it the child would open a terminal of no size. Both
+    /// descriptors are close-on-exec, so no other test's child inherits them.
     pub(super) struct Pty {
         master: OwnedFd,
+        slave_fd: Option<OwnedFd>,
         slave: PathBuf,
         output: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
         stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -1273,6 +1372,9 @@ mod terminal {
     impl Drop for Pty {
         fn drop(&mut self) {
             self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            // With no slave descriptor left once the child has gone, the drain's read
+            // returns, so its thread sees `stop` and ends.
+            self.slave_fd = None;
         }
     }
 
@@ -1288,15 +1390,23 @@ mod terminal {
     impl Pty {
         pub(super) fn open() -> Pty {
             let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+            rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC).unwrap();
             grantpt(&master).unwrap();
             unlockpt(&master).unwrap();
             let name = ptsname(&master, Vec::new()).unwrap();
+            let slave = PathBuf::from(std::ffi::OsStr::from_bytes(name.as_bytes()));
+            let slave_fd = rustix::fs::open(
+                &slave,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap();
             let output = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             // Drain the terminal's output so the child never blocks on it, until the
             // Pty is dropped. The master reads end-of-file or EIO while no slave is
-            // open (before the child opens it, and after it exits), so neither ends
-            // the drain: an exiting child's close waits for its output to drain.
+            // open (after the child exits and the Pty dropped its own), so that does not
+            // end the drain: an exiting child's close waits for its output to drain.
             let reader = master.try_clone().unwrap();
             let sink = std::sync::Arc::clone(&output);
             let done = std::sync::Arc::clone(&stop);
@@ -1313,7 +1423,8 @@ mod terminal {
             });
             let pty = Pty {
                 master,
-                slave: PathBuf::from(std::ffi::OsStr::from_bytes(name.as_bytes())),
+                slave_fd: Some(slave_fd),
+                slave,
                 output,
                 stop,
             };
@@ -1321,16 +1432,16 @@ mod terminal {
             pty
         }
 
-        /// `TIOCSWINSZ` through the slave (macOS refuses it on the master); the kernel
-        /// signals the terminal's foreground process group.
+        /// `TIOCSWINSZ` through the held slave descriptor (macOS refuses it on the
+        /// master); the kernel signals the terminal's foreground process group.
         fn resize(&self, rows: u16, cols: u16) {
-            let slave = rustix::fs::open(
-                &self.slave,
-                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY,
-                rustix::fs::Mode::empty(),
-            )
-            .unwrap();
-            tcsetwinsize(&slave, size(rows, cols)).unwrap();
+            tcsetwinsize(self.slave_fd.as_ref().unwrap(), size(rows, cols)).unwrap();
+        }
+
+        /// The window size the terminal has now, read through the held slave.
+        pub(super) fn size(&self) -> (u16, u16) {
+            let w = rustix::termios::tcgetwinsize(self.slave_fd.as_ref().unwrap()).unwrap();
+            (w.ws_row, w.ws_col)
         }
 
         fn write(&self, bytes: &[u8]) {
@@ -1359,13 +1470,24 @@ mod terminal {
 
         /// `heimdall <args>` on this terminal.
         fn start(&self, rig: &Rig, args: &[OsString]) -> Running {
+            self.start_bin(rig, OsStr::new(&bin()), args)
+        }
+
+        /// `<program> <args>` on this terminal, `program` standing for the binary under
+        /// test. The child mode's environment is cleared, so the binary is passed to it
+        /// explicitly (`HEIMDALL_E2E_BIN`; ADR-0007 §12.32 item 10).
+        fn start_bin(&self, rig: &Rig, program: &OsStr, args: &[OsString]) -> Running {
             let (entry, json) = self.child_args(args);
             let exe = std::env::current_exe().unwrap();
             let cmd = rig
                 .command_of(
                     exe.as_os_str(),
                     &refs(&entry),
-                    &[(SLAVE, self.slave.as_os_str()), (ARGS, OsStr::new(&json))],
+                    &[
+                        (SLAVE, self.slave.as_os_str()),
+                        (ARGS, OsStr::new(&json)),
+                        ("HEIMDALL_E2E_BIN", program),
+                    ],
                 )
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -1389,9 +1511,39 @@ mod terminal {
             for (k, v) in env {
                 cmd.env(k, v);
             }
+            // The binary under test, passed explicitly (ADR-0007 §12.32 item 10).
             let child = cmd
+                .env("HEIMDALL_E2E_BIN", bin())
                 .env(SLAVE, &self.slave)
                 .env(ARGS, &json)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            Running(Some(child))
+        }
+
+        /// [`Pty::start`], with the child mode started the way a runner that ignores the
+        /// terminal signals starts it: a shell sets SIGINT, SIGQUIT and SIGHUP to
+        /// `SIG_IGN` (a background job of a non-interactive shell gets the first two so,
+        /// `nohup` the third) and execs it, so it inherits them ignored.
+        fn start_from_a_runner_ignoring_signals(&self, rig: &Rig, args: &[OsString]) -> Running {
+            let (entry, json) = self.child_args(args);
+            let exe = std::env::current_exe().unwrap();
+            let mut argv = os(&["-c", "trap '' INT QUIT HUP; exec \"$@\"", "sh"]);
+            argv.push(exe.into_os_string());
+            argv.extend(entry);
+            let child = rig
+                .command_of(
+                    OsStr::new("/bin/sh"),
+                    &refs(&argv),
+                    &[
+                        (SLAVE, self.slave.as_os_str()),
+                        (ARGS, OsStr::new(&json)),
+                        ("HEIMDALL_E2E_BIN", OsStr::new(&bin())),
+                    ],
+                )
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -1411,6 +1563,23 @@ mod terminal {
     /// terminal reaches the child exactly once, and the status is the child's.
     #[test]
     fn a27_ctrl_c_reaches_child_once() {
+        ctrl_c_case(false);
+    }
+
+    /// ADR-0007 §12.32 item 9, the cause of the intermittent native failure of
+    /// [`a27_ctrl_c_reaches_child_once`] ("heimdall did not finish"): its runner ignored
+    /// SIGINT (a test binary started as a background job of a non-interactive shell gets
+    /// it ignored), every process of the pty session inherited that through `exec`, and
+    /// a non-interactive `/bin/sh` cannot trap a signal ignored on entry, so the `^C`
+    /// reached nobody. The session now starts with the default terminal signals, as a
+    /// terminal emulator's does; this case starts the child mode from a runner that
+    /// ignores them.
+    #[test]
+    fn a27_ctrl_c_reaches_child_once_when_the_runner_ignores_sigint() {
+        ctrl_c_case(true);
+    }
+
+    fn ctrl_c_case(runner_ignores_signals: bool) {
         let rig = Rig::new();
         let pty = Pty::open();
         let hits = rig.file("int");
@@ -1420,7 +1589,12 @@ mod terminal {
             hits.display(),
             ready.display()
         );
-        let running = pty.start(&rig, &run_args(None, &os(&["/bin/sh", "-c", &script])));
+        let args = run_args(None, &os(&["/bin/sh", "-c", &script]));
+        let running = if runner_ignores_signals {
+            pty.start_from_a_runner_ignoring_signals(&rig, &args)
+        } else {
+            pty.start(&rig, &args)
+        };
         wait_for("the child", Duration::from_secs(30), || ready.exists());
         pty.write(b"\x03");
         let status = running.wait(Duration::from_secs(30));
@@ -1431,6 +1605,37 @@ mod terminal {
             "exactly once"
         );
         assert_no_canary(&pty.transcript());
+    }
+
+    /// ADR-0007 §12.32 items 6 and 10: the child mode runs the binary its parent names
+    /// (its environment is cleared, so it cannot fall back on the parent's
+    /// `HEIMDALL_E2E_BIN`; a native run copies the binaries elsewhere), and the program
+    /// sees the window size the pty was opened with (24×80: the Pty holds its slave, so
+    /// macOS keeps the size). A stub stands for the binary under test.
+    #[test]
+    fn pty_child_runs_the_named_binary_at_the_pty_size() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let rig = Rig::new();
+        let pty = Pty::open();
+        assert_eq!(pty.size(), (24, 80));
+        let seen = rig.file("seen");
+        let stub = rig.file("stub-heimdall");
+        std::fs::write(
+            &stub,
+            format!(
+                "#!/bin/sh\nprintf '%s|' \"$*\" > '{0}'\nstty size >> '{0}'\n",
+                seen.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let running = pty.start_bin(&rig, stub.as_os_str(), &os(&["probe", "one"]));
+        let status = running.wait(Duration::from_secs(30));
+        assert_eq!(status.code(), Some(0), "{}", pty.transcript());
+        assert_eq!(
+            std::fs::read_to_string(&seen).unwrap().trim(),
+            "probe one|24 80"
+        );
     }
 
     /// m02-plan U8 `a27_resize_reaches_child` (Unix pty): `TIOCSWINSZ` on the
@@ -1696,7 +1901,7 @@ fn holder_pass_releases_the_binding_once_the_run_exits() {
     let meta = rig.file("meta.ndjson");
     let script = format!("read x < '{}'", fifo.display());
     let args = run_args(Some(&meta), &os(&["/bin/sh", "-c", &script]));
-    let running = Running(Some(
+    let mut running = Running(Some(
         rig.command(&refs(&args), &[])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1714,7 +1919,7 @@ fn holder_pass_releases_the_binding_once_the_run_exits() {
     assert_eq!(state(&rig), "active", "the holder still runs");
     {
         use std::io::Write as _;
-        let mut w = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+        let mut w = open_fifo_for_writing(&fifo, running.child(), Duration::from_secs(30));
         writeln!(w, "go").unwrap();
     }
     let status = running.wait(Duration::from_secs(30));
@@ -1754,7 +1959,7 @@ fn t04_overlapping_runs_of_one_binding_refuse_the_second_and_keep_the_first_hold
     args.push(first_meta.as_os_str().to_owned());
     args.push("--".into());
     args.extend(os(&["/bin/sh", "-c", &script]));
-    let first = Running(Some(
+    let mut first = Running(Some(
         rig.command(&refs(&args), &[])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1788,7 +1993,7 @@ fn t04_overlapping_runs_of_one_binding_refuse_the_second_and_keep_the_first_hold
     );
     {
         use std::io::Write as _;
-        let mut w = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+        let mut w = open_fifo_for_writing(&fifo, first.child(), Duration::from_secs(30));
         writeln!(w, "go").unwrap();
     }
     let status = first.wait(Duration::from_secs(30));
@@ -2641,14 +2846,14 @@ mod a11 {
             let mut all: Vec<(&str, &OsStr)> =
                 vec![("HEIMDALL_TEST_PRE_CHECK_PAUSE", fifo.as_os_str())];
             all.extend_from_slice(extra);
-            let child = self
+            let mut child = self
                 .cli(args, &all)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()
                 .unwrap();
             // The open returns once the CLI is paused; closing it releases the CLI.
-            let w = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+            let w = open_fifo_for_writing(&fifo, &mut child, Duration::from_secs(60));
             during();
             drop(w);
             finish(child.wait_with_output().unwrap())

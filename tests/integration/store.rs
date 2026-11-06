@@ -5332,4 +5332,91 @@ mod m02 {
         assert_eq!(admit(&s, &next, None), SetupAdmitted::Inserted);
         assert_eq!(rows_of(&s, &next.0), (true, true, true));
     }
+
+    /// ADR-0007 §12.32 item 7 (Q01): `Txn::table_counts` counts every row of each table a
+    /// purge of the state discards, whatever the row's state (an ended grant, a decided
+    /// decision, a finished operation all count), including the audit events and the
+    /// idempotency records the earlier counts left out. A store opened read-only counts
+    /// the same and the file is left byte for byte as it was.
+    #[test]
+    fn table_counts_count_every_row_of_the_purged_tables_without_writing() {
+        use heimdall_store::ext::TableCounts;
+        let dir = tempfile::tempdir().unwrap();
+        let db = file_db(dir.path());
+        let env = env_id(7);
+        {
+            let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
+            assert_eq!(
+                s.transaction(|tx| tx.table_counts()).unwrap(),
+                TableCounts::default(),
+                "a fresh store counts nothing"
+            );
+            s.transaction(|tx| {
+                for n in 1..=3 {
+                    let (op, idem) = simple_op(n);
+                    tx.insert_operation(&op, &idem)?;
+                }
+                let (mut finished, _) = simple_op(1);
+                succeed(&mut finished, plus(t0(), 30));
+                tx.update_operation(&finished)?;
+                // A live grant and an ended one: both are rows a purge discards.
+                tx.insert_grant(&grant(1, None, plus(t0(), 3600), GrantState::Active))?;
+                tx.insert_grant(&grant(2, None, plus(t0(), 60), GrantState::Revoked))?;
+                // A pending decision and a decided one.
+                tx.insert_decision(&decision(1, 0))?;
+                tx.insert_decision(&decision(2, 0))?;
+                tx.complete_decision(&decision(2, 0).id, Verdict::Approve, plus(t0(), 60))?;
+                tx.upsert_destination(&destination(1, "work", 1))?;
+                tx.upsert_destination(&destination(2, "home", 1))?;
+                tx.upsert_destination(&destination(3, "lab", 1))?;
+                tx.upsert_identity(&identity(1, 1))?;
+                tx.upsert_identity(&identity(2, 1))?;
+                tx.upsert_profile(&profile_def(1, &[("h1", "u1")]))?;
+                for i in 0..4i64 {
+                    tx.append_event(&event(
+                        &env,
+                        EventType::OperationStateChanged,
+                        None,
+                        plus(t0(), i * 60),
+                    ))?;
+                }
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(
+                s.transaction(|tx| tx.table_counts()).unwrap(),
+                TableCounts {
+                    operations: 3,
+                    grants: 2,
+                    decisions: 2,
+                    identities: 2,
+                    destinations: 3,
+                    profiles: 1,
+                    events: 4,
+                    idempotency: 3,
+                }
+            );
+        }
+        let before = std::fs::read(&db).unwrap();
+        let ro = Store::open_read_only(&db, Arc::new(NoFaults)).unwrap();
+        let counted = ro.transaction(|tx| tx.table_counts()).unwrap();
+        assert_eq!(
+            (
+                counted.operations,
+                counted.grants,
+                counted.decisions,
+                counted.identities + counted.destinations + counted.profiles,
+                counted.events,
+                counted.idempotency
+            ),
+            (3, 2, 2, 6, 4, 3),
+            "a read-only store counts the same rows"
+        );
+        drop(ro);
+        assert_eq!(
+            std::fs::read(&db).unwrap(),
+            before,
+            "counting wrote nothing"
+        );
+    }
 }

@@ -42,8 +42,10 @@ use heimdall_testkit::sshd::{AcceptedKey, LoopbackSshd, SshdConfig};
 
 const T: Duration = Duration::from_secs(5);
 
+/// This package's hook program, or the copy a native harness names (`HM_FIXTURE_HOOK`;
+/// ADR-0007 §12.32 item 3).
 fn hook() -> HookBinary {
-    HookBinary::at(env!("CARGO_BIN_EXE_hm-fixture-hook"))
+    HookBinary::locate_or(env!("CARGO_BIN_EXE_hm-fixture-hook")).unwrap()
 }
 
 fn fake(scratch: &Scratch, name: &str, mode: AgentMode, keys: &[FixtureKey]) -> FakeAgent {

@@ -208,7 +208,7 @@ use heimdall_domain::operation::{
 use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
 use heimdall_domain::principal::CallerContext;
 use heimdall_domain::profile::ProfileSnapshot;
-use heimdall_domain::projection::{ProjectionApproval, ProjectionSummary};
+use heimdall_domain::projection::ProjectionApproval;
 use heimdall_domain::revocation::{
     CleanupIntent, DEFAULT_ROUND_CAP, PendingRemoteRevocation, RearmedEffect, RemoteObligation,
     RemotePendingReason, RevocationCause, Tombstone,
@@ -4820,9 +4820,10 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
         DecisionKind::ConfirmTime { observed_wall, .. } => {
             serde_json::json!({ "observed_wall": observed_wall })
         }
-        // ⟨M02⟩ U0b row 2: the plan digest, the summary counts, the bounded diff
-        // and the restore column (ADR-0006 §3.1 bounds the text an attended client
-        // shows).
+        // ⟨M02⟩ U0b row 2: the plan digest, the summary counts, the whole diff and the
+        // restore column. The diff is never cut: a plan whose full diff exceeds
+        // `MAX_DIFF_BYTES` is refused before a decision exists (`plan_too_large`,
+        // ADR-0007 §12.32 item 5; ADR-0006 §3.1).
         DecisionKind::ApplyProjection {
             operation,
             plan_digest,
@@ -4837,7 +4838,7 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
             "files": summary.files.len(),
             "git": summary.git,
             "restore": summary.restore,
-            "diff_text": bounded_text(&summary.diff_text, ProjectionSummary::MAX_DIFF_TEXT),
+            "diff_text": summary.diff_text,
         }),
         DecisionKind::DeclareInteraction {
             operation,
@@ -4866,18 +4867,6 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
         "expired": now >= d.expires_at,
         "request": action,
     })
-}
-
-/// `text` cut to at most `max` bytes at a character boundary.
-fn bounded_text(text: &str, max: usize) -> &str {
-    if text.len() <= max {
-        return text;
-    }
-    let mut end = max;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
 }
 
 /// Facts the issuer supplies with a certificate request (ADR-0005 §3.5 refusal
@@ -11229,6 +11218,44 @@ mod tests {
             mechanism: "fake".into(),
             instance: "1".into(),
         }
+    }
+
+    /// ADR-0007 §12.32 item 5: a decision's request carries the summary's diff whole. It
+    /// was once cut to `MAX_DIFF_BYTES` here without a word; a plan whose diff does not
+    /// fit is now refused before a decision exists, so this never has to cut.
+    #[test]
+    fn a_projection_decision_shows_its_whole_diff() {
+        use heimdall_contract::ids::DecisionId;
+        use heimdall_domain::policy::AuthorityGeneration;
+        use heimdall_domain::projection::{ProjectionSummary, SummaryIntent};
+        let diff = format!(
+            "{}\n+the line past the bound\n",
+            "+x".repeat(ProjectionSummary::MAX_DIFF_TEXT)
+        );
+        let record = DecisionRecord {
+            id: DecisionId::from_random_bytes([4; 16]),
+            kind: DecisionKind::ApplyProjection {
+                operation: OperationId::from_random_bytes([5; 16]),
+                plan_digest: heimdall_contract::setup::PlanDigest::from_sha256([6; 32]),
+                summary: ProjectionSummary {
+                    intent: SummaryIntent::Apply,
+                    added_aliases: Vec::new(),
+                    changed_aliases: Vec::new(),
+                    removed_aliases: Vec::new(),
+                    files: Vec::new(),
+                    git: false,
+                    restore: Vec::new(),
+                    diff_text: diff.clone(),
+                },
+            },
+            generation: AuthorityGeneration(0),
+            created_at: "2026-10-02T00:00:00Z".parse().unwrap(),
+            expires_at: "2026-10-02T00:15:00Z".parse().unwrap(),
+            state: DecisionState::Pending,
+            decided_at: None,
+        };
+        let view = decision_view(&record, "2026-10-02T00:00:01Z".parse().unwrap());
+        assert_eq!(view["request"]["diff_text"].as_str(), Some(diff.as_str()));
     }
 
     #[test]

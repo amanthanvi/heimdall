@@ -161,26 +161,41 @@ m02_stage() {
         cp "$s/skips.tsv" "$s/stage/skips.tsv"
 }
 
-# m02_redact SRC DST [VALUE LABEL]...: replace every VALUE (and its doubled-backslash
-# and forward-slash forms, and /mnt/<drive>/... for a Windows path) with LABEL,
-# case-insensitively, longest first. Domain SIDs and non-loopback IPv4 addresses are
-# masked too. Values shorter than two characters are ignored.
+# m02_redact SRC DST [[--word] VALUE LABEL]...: replace every VALUE (and its
+# doubled-backslash and forward-slash forms, and /mnt/<drive>/... for a Windows path) with
+# LABEL, case-insensitively, longest first. A pair after `--word` (host names: ADR-0007
+# §12.32 item 10) is replaced only as a whole word, never inside another word (a short host
+# name inside "macOS" or a crate name stays); every other value is replaced wherever it
+# occurs. Domain SIDs and non-loopback IPv4 addresses are masked too. Values shorter than
+# two characters are ignored.
 m02_redact() {
     python3 -I - "$@" <<'PY'
 import re, sys
 src, dst, rest = sys.argv[1], sys.argv[2], sys.argv[3:]
-pairs = list(zip(rest[0::2], rest[1::2]))
+pairs = []
+i = 0
+while i < len(rest):
+    word = rest[i] == "--word"
+    if word:
+        i += 1
+    if i + 1 >= len(rest):
+        sys.exit("m02_redact: VALUE without LABEL")
+    pairs.append((rest[i], rest[i + 1], word))
+    i += 2
 text = open(src, encoding="utf-8", errors="replace").read()
 forms = []
-for value, label in pairs:
+for value, label, word in pairs:
     if not value or len(value) < 2:
         continue
     for form in {value, value.replace("\\", "\\\\"), value.replace("\\", "/")}:
-        forms.append((form, label))
+        forms.append((form, label, word))
     if len(value) > 2 and value[1] == ":" and value[0].isalpha():
-        forms.append(("/mnt/" + value[0].lower() + value[2:].replace("\\", "/"), label))
-for form, label in sorted(forms, key=lambda p: len(p[0]), reverse=True):
-    text = re.sub(re.escape(form), label, text, flags=re.IGNORECASE)
+        forms.append(("/mnt/" + value[0].lower() + value[2:].replace("\\", "/"), label, word))
+for form, label, word in sorted(forms, key=lambda p: len(p[0]), reverse=True):
+    pattern = re.escape(form)
+    if word:
+        pattern = r"(?<![A-Za-z0-9_])" + pattern + r"(?![A-Za-z0-9_])"
+    text = re.sub(pattern, lambda m: label, text, flags=re.IGNORECASE)
 text = re.sub(r"S-1-5-21(-\d+){2,4}", "S-1-5-21-<redacted>", text)
 def addr(m):
     a = m.group(0)
@@ -199,17 +214,85 @@ m02_canary_scan() {
     echo "$hits"
 }
 
-# m02_leak_scan OUT VALUE...: print the number of saved artifacts under OUT that still
-# contain one of the VALUEs (home paths, user and host names of two characters or
-# more), never the value itself. Returns 0 only when that number is 0.
+# m02_leak_scan OUT [[--word] VALUE]...: print the number of saved artifacts under OUT
+# that still contain one of the VALUEs (home paths, user and host names of two characters
+# or more), case-insensitively, never the value itself. A VALUE after `--word` counts only
+# as a whole word, as m02_redact replaces it. Returns 0 only when that number is 0.
 m02_leak_scan() {
-    local out=$1 v n=0 f
-    shift
-    for v in "$@"; do
-        [ ${#v} -ge 2 ] || continue
-        f=$(grep -r -l -i -F -- "$v" "$out" 2>/dev/null | wc -l | tr -d ' ')
-        n=$((n + f))
-    done
-    echo "$n"
-    [ "$n" = 0 ]
+    python3 -I - "$@" <<'PY'
+import os, re, sys
+out, rest = sys.argv[1], sys.argv[2:]
+values = []
+i = 0
+while i < len(rest):
+    word = rest[i] == "--word"
+    if word:
+        i += 1
+    if i < len(rest):
+        values.append((rest[i], word))
+    i += 1
+pats = []
+for v, word in values:
+    if len(v) < 2:
+        continue
+    p = re.escape(v.encode("utf-8", "surrogateescape"))
+    if word:
+        p = rb"(?<![A-Za-z0-9_])" + p + rb"(?![A-Za-z0-9_])"
+    pats.append(re.compile(p, re.IGNORECASE))
+n = 0
+for dp, _, fns in os.walk(out):
+    for f in fns:
+        try:
+            data = open(os.path.join(dp, f), "rb").read()
+        except OSError:
+            continue
+        n += sum(1 for p in pats if p.search(data))
+print(n)
+sys.exit(0 if n == 0 else 1)
+PY
+}
+
+# M02_REPO_DIRS: the repository directories the tests read through HM_REPO_ROOT (ADR-0007
+# §12.32 item 3; heimdall_testkit::repo): the schemas and examples, the contract golden
+# files, the decision records, the fixtures, and the crates (the sources the static scans
+# read and the TUI snapshots). Every *.rs under tests/ goes too (the testkit's scan that no
+# test reads the compile-time root), the evidence artifacts excepted.
+M02_REPO_DIRS="crates schemas docs/decisions tests/contracts tests/fixtures"
+
+# m02_stage_repo ROOT DIR: DIR/repo, a tree of symbolic links to the regular files of
+# M02_REPO_DIRS under ROOT and to every *.rs under ROOT/tests (never a `target`, `.git`,
+# `node_modules` or `tests/evidence` directory, never a symbolic link), for one `tar -h`
+# stream next to the binaries. Prints the number of files. The native harnesses set
+# HM_REPO_ROOT to where it lands on the target.
+m02_stage_repo() {
+    # shellcheck disable=SC2086  # M02_REPO_DIRS is a fixed word list
+    python3 -I - "$1" "$2" $M02_REPO_DIRS <<'PY'
+import os, sys
+root, dest, dirs = sys.argv[1], sys.argv[2], sys.argv[3:]
+skip = {"target", ".git", "node_modules", "__pycache__"}
+files = set()
+def walk(rel, only_rs=False):
+    base = os.path.join(root, rel)
+    for dp, dns, fns in os.walk(base):
+        dns[:] = sorted(d for d in dns if d not in skip
+                        and os.path.relpath(os.path.join(dp, d), root) != os.path.join("tests", "evidence")
+                        and not os.path.islink(os.path.join(dp, d)))
+        for f in fns:
+            p = os.path.join(dp, f)
+            if os.path.islink(p) or not os.path.isfile(p):
+                continue
+            if only_rs and not f.endswith(".rs"):
+                continue
+            files.add(os.path.relpath(p, root))
+for d in dirs:
+    walk(d)
+walk("tests", only_rs=True)
+if not files:
+    sys.exit("m02_stage_repo: nothing to stage")
+for rel in sorted(files):
+    link = os.path.join(dest, "repo", rel)
+    os.makedirs(os.path.dirname(link), exist_ok=True)
+    os.symlink(os.path.join(root, rel), link)
+print(len(files))
+PY
 }

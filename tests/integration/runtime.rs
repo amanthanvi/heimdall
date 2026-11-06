@@ -283,7 +283,8 @@ fn config_errors_never_echo_values() {
 }
 
 fn schema_file() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/configuration/config.schema.json")
+    // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+    heimdall_testkit::repo::repo_path("schemas/configuration/config.schema.json")
 }
 
 /// The checked-in `schemas/configuration/config.schema.json` is exactly the

@@ -825,8 +825,9 @@ pub fn expands_tokens(keyword: KnownKeyword) -> bool {
 /// only (the caller checks that the argument is one). The S01 entries of `User`,
 /// `SetEnv` and `RevokedHostKeys` also say that they accept environment variables, so
 /// they are included (the pinned text wins over F7's shorter quotation). An older
-/// client may expand fewer and take `${…}` literally there; that difference is
-/// per client version and the U3 corpus comparison settles it.
+/// client may expand fewer and take `${…}` literally there: OpenSSH 9.6p1 does so for
+/// `User`, `SetEnv` and `Include`. The evaluator asks [`crate::client::expands_env`],
+/// which gates this set on the client version (ADR-0007 §12.32 item 11 (b)).
 #[must_use]
 pub fn expands_env(keyword: KnownKeyword) -> bool {
     use KnownKeyword as K;

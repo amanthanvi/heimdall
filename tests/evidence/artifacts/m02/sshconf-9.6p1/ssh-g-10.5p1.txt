@@ -1,0 +1,2377 @@
+### ssh-V: OpenSSH_10.5p1, LibreSSL 3.3.6
+### case=corpus_basic file=corpus/basic.conf args=alpha env=none exit=0
+user corpus-alpha
+hostname alpha.corpus.example
+port 2201
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_basic file=corpus/basic.conf args=x.corpus.example env=none exit=0
+user corpus-wild
+hostname x.corpus.example
+port 2202
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_basic file=corpus/basic.conf args=bad.corpus.example env=none exit=0
+user corpus-default
+hostname 192.0.2.10
+port 2299
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_basic file=corpus/basic.conf args=beta env=none exit=0
+user corpus-default
+hostname beta.corpus.example
+port 2299
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_basic file=corpus/basic.conf args=gamma1 env=none exit=0
+user corpus-default
+hostname gamma1
+port 2203
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_basic file=corpus/basic.conf args=gamma-excluded env=none exit=0
+user corpus-default
+hostname gamma-excluded
+port 2299
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_basic file=corpus/basic.conf args=delta env=none exit=0
+user corpus-default
+hostname delta.corpus.example
+port 2205
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_basic file=corpus/basic.conf args=-l corpus-explicit anything.example env=none exit=0
+user corpus-explicit
+hostname anything.example
+port 2204
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_identity file=corpus/identity.conf args=ident-one env=none exit=0
+user <local>
+hostname ident-one
+port 22
+identitiesonly yes
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/id_one
+identityfile /nonexistent/hm-corpus/id_shared
+certificatefile /nonexistent/hm-corpus/id_shared-cert.pub
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_identity file=corpus/identity.conf args=ident-spaced env=none exit=0
+user <local>
+hostname ident-spaced
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/id_shared
+identityfile /nonexistent/hm corpus/id spaced
+identityfile /nonexistent/hm-corpus/id-ïdentité
+certificatefile /nonexistent/hm-corpus/id_shared-cert.pub
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_identity file=corpus/identity.conf args=ident-percent env=none exit=0
+user <local>
+hostname ident-percent
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+identityagent /nonexistent/hm-corpus/agent%.sock
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/id_shared
+identityfile /nonexistent/hm-corpus/100%%/id
+certificatefile /nonexistent/hm-corpus/id_shared-cert.pub
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_identity file=corpus/identity.conf args=ident-pipe env=none exit=0
+user <local>
+hostname ident-pipe
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+identityagent //./pipe/hm-corpus-agent
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/id_shared
+certificatefile /nonexistent/hm-corpus/id_shared-cert.pub
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_identity file=corpus/identity.conf args=ident-pipe-quoted env=none exit=0
+user <local>
+hostname ident-pipe-quoted
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+identityagent //./pipe/hm corpus agent
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/id_shared
+certificatefile /nonexistent/hm-corpus/id_shared-cert.pub
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_identity file=corpus/identity.conf args=ident-agent-none env=none exit=0
+user <local>
+hostname ident-agent-none
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+identityagent none
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/id_shared
+certificatefile /nonexistent/hm-corpus/id_shared-cert.pub
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_identity file=corpus/identity.conf args=ident-files-none env=none exit=0
+user <local>
+hostname ident-files-none
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/id_shared
+identityfile none
+certificatefile /nonexistent/hm-corpus/id_shared-cert.pub
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_nested file=corpus/nested.conf args=nested-after env=none exit=0
+user <local>
+hostname nested-after
+port 2401
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_nested file=corpus/nested.conf args=nested-level1 env=none exit=0
+user <local>
+hostname nested-level1
+port 2411
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_nested file=corpus/nested.conf args=nested-glob env=none exit=0
+user corpus-upper
+hostname first.corpus.example
+port 2421
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_nested file=corpus/nested.conf args=nested-deep env=none exit=0
+user <local>
+hostname nested-deep
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_include_state file=corpus/include-state.conf args=state-alpha env=none exit=0
+user <local>
+hostname state-alpha
+port 2501
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_include_state file=corpus/include-state.conf args=state-other env=none exit=0
+user <local>
+hostname state-other
+port 2599
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_unsupported file=corpus/unsupported.conf args=unsupported env=none exit=0
+user <local>
+hostname unsupported
+port 2701
+identitiesonly no
+kbdinteractiveauthentication no
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_retired file=corpus/retired.conf args=retired env=none exit=0
+user <local>
+hostname retired
+port 2801
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-hash env=none exit=0
+user <local>
+hostname a#b
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-quote env=none exit=0
+user u v
+hostname lex-quote
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-equals env=none exit=0
+user =eq
+hostname lex-equals
+port 2290
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-escape env=none exit=0
+user a b
+hostname lex-escape
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-unknown-escape env=none exit=0
+user a\nb
+hostname lex-unknown-escape
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-command env=none exit=0
+user <local>
+hostname lex-command
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+remotecommand echo '$X'  "q"  # c
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-command-bare env=none exit=0
+user <local>
+hostname lex-command-bare
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+remotecommand echo $X
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-command-equals env=none exit=0
+user <local>
+hostname lex-command-equals
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+remotecommand echo '$X'
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_lexer file=corpus/lexer.conf args=lex-command-escapes env=none exit=0
+user <local>
+hostname lex-command-escapes
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+remotecommand echo "a b" c\ d # tail
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=corpus_bom file=corpus/bom.conf args=bom-check env=none exit=255
+stderr: <scratch>/corpus/bom.conf: line 1: Bad configuration option: \357\273\277#
+stderr: <scratch>/corpus/bom.conf: terminating, 1 bad configuration options
+### case=corpus_crlf file=corpus/crlf.conf args=crlf-check env=none exit=0
+user <local>
+hostname crlf-check
+port 2601
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=s01_env file=cases/env.conf args=env-x env=HM_CORPUS_VAR=hmexpanded exit=0
+user uhmexpanded
+hostname env-x
+port 2950
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+controlpath /nonexistent/hm-corpus/hmexpanded/cp
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+identityagent /nonexistent/hm-corpus/hmexpanded/agent
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+knownhostscommand /bin/echo ${HM_CORPUS_VAR}
+localforward /nonexistent/hm-corpus/hmexpanded/l.sock /nonexistent/hm-corpus/hmexpanded/r.sock
+remoteforward /nonexistent/hm-corpus/hmexpanded/rf.sock /nonexistent/hm-corpus/hmexpanded/rl.sock
+identityfile /nonexistent/hm-corpus/${HM_CORPUS_VAR}/id
+certificatefile /nonexistent/hm-corpus/${HM_CORPUS_VAR}/cert
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys /nonexistent/hm-corpus/hmexpanded/revoked
+setenv HMSET=hmexpanded
+### case=env_user file=cases/env_user.conf args=env-x env=HM_CORPUS_VAR=hmexpanded exit=0
+user uhmexpanded
+hostname env-x
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=env_setenv file=cases/env_setenv.conf args=env-x env=HM_CORPUS_VAR=hmexpanded exit=0
+user <local>
+hostname env-x
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+setenv HMSET=hmexpanded
+### case=env_include file=cases/env_include.conf args=env-x env=HM_CORPUS_VAR=hmexpanded exit=0
+user <local>
+hostname env-x
+port 2950
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=env_include_top file=cases/env_include_top.conf args=env-x env=HM_CORPUS_VAR=hmexpanded exit=0
+user <local>
+hostname env-x
+port 2950
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=s01_env_unset file=cases/env.conf args=env-x env=none exit=255
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: <scratch>/cases/env.conf line 5: Bad forwarding specification.
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: <scratch>/cases/env.conf line 6: Bad forwarding specification.
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: <scratch>/cases/env.conf line 9: Invalid environment expansion /nonexistent/hm-corpus/${HM_CORPUS_VAR}/agent.
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: <scratch>/cases/env.conf line 13: Unable to expand user config file '<scratch>/cases/${HM_CORPUS_VAR}.conf'
+stderr: <scratch>/cases/env.conf: terminating, 3 bad configuration options
+### case=env_user_unset file=cases/env_user.conf args=env-x env=none exit=255
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: invalid environment variable expansion
+### case=env_setenv_unset file=cases/env_setenv.conf args=env-x env=none exit=255
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: invalid environment variable expansion
+### case=env_include_unset file=cases/env_include.conf args=env-x env=none exit=0
+user <local>
+hostname env-x
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+stderr: vdollar_percent_expand: env var ${HM_CORPUS_VAR} has no value
+stderr: <scratch>/cases/env_include.conf line 2: Unable to expand user config file '<scratch>/cases/${HM_CORPUS_VAR}.conf'
+### case=tok_user file=cases/tok_user.conf args=tok-x env=none exit=0
+user utok-x
+hostname tok-x
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=tok_user_pct file=cases/tok_user_pct.conf args=tok-x env=none exit=0
+user u%h
+hostname tok-x
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=tok_match_user file=cases/tok_match_user.conf args=tok-x env=none exit=0
+user utok-x
+hostname tok-x
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=tok_setenv file=cases/tok_setenv.conf args=tok-x env=none exit=0
+user <local>
+hostname tok-x
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+setenv HMSET=tok-x
+### case=tok_include file=cases/tok_include.conf args=tok-x env=none exit=0
+user <local>
+hostname tok-x
+port 2962
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=tok_include_d file=cases/tok_include_d.conf args=tok-x env=none exit=0
+user <local>
+hostname tok-x
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=host_pattern_case_first_pass file=cases/case.conf args=MixedCase env=none exit=0
+user <local>
+hostname mixedcase
+port 2901
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=host_pattern_case_first_pass_lower file=cases/case.conf args=mixedcase env=none exit=0
+user <local>
+hostname mixedcase
+port 2911
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=host_pattern_case_final_pass file=cases/final_case.conf args=MixedCase env=none exit=0
+user final-lower-host
+hostname mixedcase
+port 2912
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_final_and_canonical file=cases/final.conf args=fin-a env=none exit=0
+user canon-user
+hostname first.example
+port 2902
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=hostname_not_set_again_in_final_pass file=cases/final.conf args=fin-b env=none exit=0
+user canon-user
+hostname fin-b
+port 2903
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=parse_only_include_under_false_section file=cases/parseonly.conf args=target env=none exit=0
+user target-user
+hostname target
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=parse_only_include_is_still_checked file=cases/parsebad.conf args=target env=none exit=255
+stderr: <scratch>/cases/bad.conf: line 2: Bad configuration option: nosuchkeywordhm
+stderr: <scratch>/cases/bad.conf: terminating, 1 bad configuration options
+### case=id_first_and_final file=cases/id_first_and_final.conf args=idf env=none exit=0
+user <local>
+hostname idf
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/first
+identityfile /nonexistent/hm-corpus/final
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=id_final_only file=cases/id_final_only.conf args=idf env=none exit=0
+user <local>
+hostname idf
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/final_only
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=id_final_dup file=cases/id_final_dup.conf args=idf env=none exit=0
+user <local>
+hostname idf
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile /nonexistent/hm-corpus/same
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=id_none file=cases/id_none.conf args=idn env=none exit=0
+user <local>
+hostname idn
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile none
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=id_none_then file=cases/id_none_then.conf args=idn env=none exit=0
+user <local>
+hostname idn
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile none
+identityfile /nonexistent/hm-corpus/after_none
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=final_only_port file=cases/final_only_port.conf args=idf env=none exit=0
+user <local>
+hostname idf
+port 2913
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=sessiontype_none_shell file=cases/sessiontype_none.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2202
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype none
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=sessiontype_subsystem_shell file=cases/sessiontype_subsystem.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2203
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype subsystem
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=sessiontype_none_dash_s file=cases/sessiontype_none.conf args=-s box sftp env=none exit=0
+user <local>
+hostname box
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype subsystem
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=sessiontype_subsystem_dash_s file=cases/sessiontype_subsystem.conf args=-s box sftp env=none exit=0
+user <local>
+hostname box
+port 2203
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype subsystem
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=sessiontype_negated file=cases/sessiontype_negated.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2212
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=sessiontype_second file=cases/sessiontype_second.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2213
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=sessiontype_under_false file=cases/sessiontype_under_false.conf args=box env=none exit=0
+user <local>
+hostname box
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_all file=cases/match_all.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2301
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_canonical file=cases/match_canonical.conf args=box env=none exit=0
+user <local>
+hostname box
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_final file=cases/match_final.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2303
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_host file=cases/match_host.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2310
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_originalhost file=cases/match_originalhost.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2311
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_user file=cases/match_user.conf args=box env=none exit=0
+user <local>
+hostname box
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_localuser file=cases/match_localuser.conf args=box env=none exit=0
+user <local>
+hostname box
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_localnetwork file=cases/match_localnetwork.conf args=box env=none exit=0
+user <local>
+hostname box
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_tagged file=cases/match_tagged.conf args=box env=none exit=0
+user <local>
+hostname box
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_command file=cases/match_command.conf args=box env=none exit=0
+user <local>
+hostname box
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_version file=cases/match_version.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2317
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=match_sessiontype file=cases/match_sessiontype.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2318
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_sessiontype_line file=cases/kw_sessiontype_line.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2320
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype none
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_tag file=cases/kw_tag.conf args=box env=none exit=0
+user <local>
+hostname box
+port 2321
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+tag hmtag
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_AddKeysToAgent file=kw/AddKeysToAgent.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/AddKeysToAgent.conf line 2: unsupported option
+stderr: <scratch>/kw/AddKeysToAgent.conf: terminating, 1 bad configuration options
+### case=kw_AddressFamily file=kw/AddressFamily.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/AddressFamily.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/AddressFamily.conf: terminating, 1 bad configuration options
+### case=kw_BatchMode file=kw/BatchMode.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/BatchMode.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/BatchMode.conf: terminating, 1 bad configuration options
+### case=kw_BindAddress file=kw/BindAddress.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_BindInterface file=kw/BindInterface.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_CASignatureAlgorithms file=kw/CASignatureAlgorithms.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/CASignatureAlgorithms.conf line 2: Bad key types 'hmprobe'.
+stderr: <scratch>/kw/CASignatureAlgorithms.conf: terminating, 1 bad configuration options
+### case=kw_CanonicalDomains file=kw/CanonicalDomains.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_CanonicalizeFallbackLocal file=kw/CanonicalizeFallbackLocal.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/CanonicalizeFallbackLocal.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/CanonicalizeFallbackLocal.conf: terminating, 1 bad configuration options
+### case=kw_CanonicalizeHostname file=kw/CanonicalizeHostname.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/CanonicalizeHostname.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/CanonicalizeHostname.conf: terminating, 1 bad configuration options
+### case=kw_CanonicalizeMaxDots file=kw/CanonicalizeMaxDots.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/CanonicalizeMaxDots.conf line 2: integer value invalid.
+stderr: <scratch>/kw/CanonicalizeMaxDots.conf: terminating, 1 bad configuration options
+### case=kw_CanonicalizePermittedCNAMEs file=kw/CanonicalizePermittedCNAMEs.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/CanonicalizePermittedCNAMEs.conf line 2: Invalid permitted CNAME "hmprobe"
+stderr: <scratch>/kw/CanonicalizePermittedCNAMEs.conf: terminating, 1 bad configuration options
+### case=kw_CertificateFile file=kw/CertificateFile.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_ChannelTimeout file=kw/ChannelTimeout.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ChannelTimeout.conf line 2: invalid channel timeout hmprobe
+### case=kw_CheckHostIP file=kw/CheckHostIP.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/CheckHostIP.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/CheckHostIP.conf: terminating, 1 bad configuration options
+### case=kw_Ciphers file=kw/Ciphers.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/Ciphers.conf line 2: Bad SSH2 cipher spec 'hmprobe'.
+stderr: <scratch>/kw/Ciphers.conf: terminating, 1 bad configuration options
+### case=kw_ClearAllForwardings file=kw/ClearAllForwardings.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ClearAllForwardings.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/ClearAllForwardings.conf: terminating, 1 bad configuration options
+### case=kw_Compression file=kw/Compression.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/Compression.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/Compression.conf: terminating, 1 bad configuration options
+### case=kw_ConnectTimeout file=kw/ConnectTimeout.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ConnectTimeout.conf line 2: invalid time value.
+stderr: <scratch>/kw/ConnectTimeout.conf: terminating, 1 bad configuration options
+### case=kw_ConnectionAttempts file=kw/ConnectionAttempts.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ConnectionAttempts.conf line 2: integer value invalid.
+stderr: <scratch>/kw/ConnectionAttempts.conf: terminating, 1 bad configuration options
+### case=kw_ControlMaster file=kw/ControlMaster.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ControlMaster.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/ControlMaster.conf: terminating, 1 bad configuration options
+### case=kw_ControlPath file=kw/ControlPath.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_ControlPersist file=kw/ControlPersist.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ControlPersist.conf line 2: Bad ControlPersist argument.
+stderr: <scratch>/kw/ControlPersist.conf: terminating, 1 bad configuration options
+### case=kw_DynamicForward file=kw/DynamicForward.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/DynamicForward.conf line 2: Bad forwarding specification.
+stderr: <scratch>/kw/DynamicForward.conf: terminating, 1 bad configuration options
+### case=kw_EnableEscapeCommandline file=kw/EnableEscapeCommandline.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/EnableEscapeCommandline.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/EnableEscapeCommandline.conf: terminating, 1 bad configuration options
+### case=kw_EnableSSHKeysign file=kw/EnableSSHKeysign.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/EnableSSHKeysign.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/EnableSSHKeysign.conf: terminating, 1 bad configuration options
+### case=kw_EscapeChar file=kw/EscapeChar.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/EscapeChar.conf line 2: Bad escape character.
+stderr: <scratch>/kw/EscapeChar.conf: terminating, 1 bad configuration options
+### case=kw_ExitOnForwardFailure file=kw/ExitOnForwardFailure.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ExitOnForwardFailure.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/ExitOnForwardFailure.conf: terminating, 1 bad configuration options
+### case=kw_FingerprintHash file=kw/FingerprintHash.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/FingerprintHash.conf line 2: Invalid hash algorithm "hmprobe".
+stderr: <scratch>/kw/FingerprintHash.conf: terminating, 1 bad configuration options
+### case=kw_ForkAfterAuthentication file=kw/ForkAfterAuthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ForkAfterAuthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/ForkAfterAuthentication.conf: terminating, 1 bad configuration options
+### case=kw_ForwardAgent file=kw/ForwardAgent.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_ForwardX11 file=kw/ForwardX11.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ForwardX11.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/ForwardX11.conf: terminating, 1 bad configuration options
+### case=kw_ForwardX11Timeout file=kw/ForwardX11Timeout.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ForwardX11Timeout.conf line 2: invalid time value.
+stderr: <scratch>/kw/ForwardX11Timeout.conf: terminating, 1 bad configuration options
+### case=kw_ForwardX11Trusted file=kw/ForwardX11Trusted.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ForwardX11Trusted.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/ForwardX11Trusted.conf: terminating, 1 bad configuration options
+### case=kw_GSSAPIAuthentication file=kw/GSSAPIAuthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/GSSAPIAuthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/GSSAPIAuthentication.conf: terminating, 1 bad configuration options
+### case=kw_GSSAPIDelegateCredentials file=kw/GSSAPIDelegateCredentials.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/GSSAPIDelegateCredentials.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/GSSAPIDelegateCredentials.conf: terminating, 1 bad configuration options
+### case=kw_GatewayPorts file=kw/GatewayPorts.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/GatewayPorts.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/GatewayPorts.conf: terminating, 1 bad configuration options
+### case=kw_GlobalKnownHostsFile file=kw/GlobalKnownHostsFile.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_HashKnownHosts file=kw/HashKnownHosts.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/HashKnownHosts.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/HashKnownHosts.conf: terminating, 1 bad configuration options
+### case=kw_HostKeyAlgorithms file=kw/HostKeyAlgorithms.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/HostKeyAlgorithms.conf line 2: Bad key types 'hmprobe'.
+stderr: <scratch>/kw/HostKeyAlgorithms.conf: terminating, 1 bad configuration options
+### case=kw_HostKeyAlias file=kw/HostKeyAlias.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_HostbasedAcceptedAlgorithms file=kw/HostbasedAcceptedAlgorithms.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/HostbasedAcceptedAlgorithms.conf line 2: Bad key types 'hmprobe'.
+stderr: <scratch>/kw/HostbasedAcceptedAlgorithms.conf: terminating, 1 bad configuration options
+### case=kw_HostbasedAuthentication file=kw/HostbasedAuthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/HostbasedAuthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/HostbasedAuthentication.conf: terminating, 1 bad configuration options
+### case=kw_Hostname file=kw/Hostname.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_IPQoS file=kw/IPQoS.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/IPQoS.conf line 2: Bad IPQoS value: hmprobe
+stderr: <scratch>/kw/IPQoS.conf: terminating, 1 bad configuration options
+### case=kw_IdentitiesOnly file=kw/IdentitiesOnly.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/IdentitiesOnly.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/IdentitiesOnly.conf: terminating, 1 bad configuration options
+### case=kw_IdentityAgent file=kw/IdentityAgent.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_IdentityFile file=kw/IdentityFile.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_IgnoreUnknown file=kw/IgnoreUnknown.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_Include file=kw/Include.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_KbdInteractiveAuthentication file=kw/KbdInteractiveAuthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/KbdInteractiveAuthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/KbdInteractiveAuthentication.conf: terminating, 1 bad configuration options
+### case=kw_KbdInteractiveDevices file=kw/KbdInteractiveDevices.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_KexAlgorithms file=kw/KexAlgorithms.conf args=hm-kw-other env=none exit=255
+stderr: Unsupported KEX algorithm "hmprobe"
+stderr: <scratch>/kw/KexAlgorithms.conf line 2: Bad SSH2 KexAlgorithms 'hmprobe'.
+stderr: <scratch>/kw/KexAlgorithms.conf: terminating, 1 bad configuration options
+### case=kw_KnownHostsCommand file=kw/KnownHostsCommand.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_LocalCommand file=kw/LocalCommand.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_LocalForward file=kw/LocalForward.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/LocalForward.conf line 2: Missing target argument.
+stderr: <scratch>/kw/LocalForward.conf: terminating, 1 bad configuration options
+### case=kw_LogLevel file=kw/LogLevel.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/LogLevel.conf line 2: unsupported log level 'hmprobe'
+stderr: <scratch>/kw/LogLevel.conf: terminating, 1 bad configuration options
+### case=kw_LogVerbose file=kw/LogVerbose.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_MACs file=kw/MACs.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/MACs.conf line 2: Bad SSH2 MAC spec 'hmprobe'.
+stderr: <scratch>/kw/MACs.conf: terminating, 1 bad configuration options
+### case=kw_NoHostAuthenticationForLocalhost file=kw/NoHostAuthenticationForLocalhost.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/NoHostAuthenticationForLocalhost.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/NoHostAuthenticationForLocalhost.conf: terminating, 1 bad configuration options
+### case=kw_NumberOfPasswordPrompts file=kw/NumberOfPasswordPrompts.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/NumberOfPasswordPrompts.conf line 2: integer value invalid.
+stderr: <scratch>/kw/NumberOfPasswordPrompts.conf: terminating, 1 bad configuration options
+### case=kw_ObscureKeystrokeTiming file=kw/ObscureKeystrokeTiming.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ObscureKeystrokeTiming.conf line 2: unsupported argument "hmprobe"
+stderr: <scratch>/kw/ObscureKeystrokeTiming.conf: terminating, 1 bad configuration options
+### case=kw_PKCS11Provider file=kw/PKCS11Provider.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_PasswordAuthentication file=kw/PasswordAuthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/PasswordAuthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/PasswordAuthentication.conf: terminating, 1 bad configuration options
+### case=kw_PermitLocalCommand file=kw/PermitLocalCommand.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/PermitLocalCommand.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/PermitLocalCommand.conf: terminating, 1 bad configuration options
+### case=kw_PermitRemoteOpen file=kw/PermitRemoteOpen.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/PermitRemoteOpen.conf line 2: bad port number in permitremoteopen
+### case=kw_Port file=kw/Port.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/Port.conf line 2: Bad port 'hmprobe'.
+stderr: <scratch>/kw/Port.conf: terminating, 1 bad configuration options
+### case=kw_PreferredAuthentications file=kw/PreferredAuthentications.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_ProxyCommand file=kw/ProxyCommand.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_ProxyJump file=kw/ProxyJump.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_ProxyUseFdpass file=kw/ProxyUseFdpass.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ProxyUseFdpass.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/ProxyUseFdpass.conf: terminating, 1 bad configuration options
+### case=kw_PubkeyAcceptedAlgorithms file=kw/PubkeyAcceptedAlgorithms.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/PubkeyAcceptedAlgorithms.conf line 2: Bad key types 'hmprobe'.
+stderr: <scratch>/kw/PubkeyAcceptedAlgorithms.conf: terminating, 1 bad configuration options
+### case=kw_PubkeyAuthentication file=kw/PubkeyAuthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/PubkeyAuthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/PubkeyAuthentication.conf: terminating, 1 bad configuration options
+### case=kw_RefuseConnection file=kw/RefuseConnection.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_RekeyLimit file=kw/RekeyLimit.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/RekeyLimit.conf line 2: Bad number 'hmprobe': Invalid argument
+stderr: <scratch>/kw/RekeyLimit.conf: terminating, 1 bad configuration options
+### case=kw_RemoteCommand file=kw/RemoteCommand.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_RemoteForward file=kw/RemoteForward.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/RemoteForward.conf line 2: Bad forwarding specification.
+stderr: <scratch>/kw/RemoteForward.conf: terminating, 1 bad configuration options
+### case=kw_RequestTTY file=kw/RequestTTY.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/RequestTTY.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/RequestTTY.conf: terminating, 1 bad configuration options
+### case=kw_RequiredRSASize file=kw/RequiredRSASize.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/RequiredRSASize.conf line 2: integer value invalid.
+stderr: <scratch>/kw/RequiredRSASize.conf: terminating, 1 bad configuration options
+### case=kw_RevokedHostKeys file=kw/RevokedHostKeys.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_SecurityKeyProvider file=kw/SecurityKeyProvider.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_SendEnv file=kw/SendEnv.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_ServerAliveCountMax file=kw/ServerAliveCountMax.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ServerAliveCountMax.conf line 2: integer value invalid.
+stderr: <scratch>/kw/ServerAliveCountMax.conf: terminating, 1 bad configuration options
+### case=kw_ServerAliveInterval file=kw/ServerAliveInterval.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/ServerAliveInterval.conf line 2: invalid time value.
+stderr: <scratch>/kw/ServerAliveInterval.conf: terminating, 1 bad configuration options
+### case=kw_SessionType file=kw/SessionType.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/SessionType.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/SessionType.conf: terminating, 1 bad configuration options
+### case=kw_SetEnv file=kw/SetEnv.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/SetEnv.conf line 2: Invalid SetEnv.
+stderr: <scratch>/kw/SetEnv.conf: terminating, 1 bad configuration options
+### case=kw_StdinNull file=kw/StdinNull.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/StdinNull.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/StdinNull.conf: terminating, 1 bad configuration options
+### case=kw_StreamLocalBindMask file=kw/StreamLocalBindMask.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/StreamLocalBindMask.conf line 2: Bad mask.
+stderr: <scratch>/kw/StreamLocalBindMask.conf: terminating, 1 bad configuration options
+### case=kw_StreamLocalBindUnlink file=kw/StreamLocalBindUnlink.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/StreamLocalBindUnlink.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/StreamLocalBindUnlink.conf: terminating, 1 bad configuration options
+### case=kw_StrictHostKeyChecking file=kw/StrictHostKeyChecking.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/StrictHostKeyChecking.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/StrictHostKeyChecking.conf: terminating, 1 bad configuration options
+### case=kw_SyslogFacility file=kw/SyslogFacility.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/SyslogFacility.conf line 2: unsupported log facility 'hmprobe'
+stderr: <scratch>/kw/SyslogFacility.conf: terminating, 1 bad configuration options
+### case=kw_TCPKeepAlive file=kw/TCPKeepAlive.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/TCPKeepAlive.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/TCPKeepAlive.conf: terminating, 1 bad configuration options
+### case=kw_Tag file=kw/Tag.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_Tunnel file=kw/Tunnel.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/Tunnel.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/Tunnel.conf: terminating, 1 bad configuration options
+### case=kw_TunnelDevice file=kw/TunnelDevice.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/TunnelDevice.conf line 2: Bad tun device.
+stderr: <scratch>/kw/TunnelDevice.conf: terminating, 1 bad configuration options
+### case=kw_UpdateHostKeys file=kw/UpdateHostKeys.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/UpdateHostKeys.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/UpdateHostKeys.conf: terminating, 1 bad configuration options
+### case=kw_User file=kw/User.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_UserKnownHostsFile file=kw/UserKnownHostsFile.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_VerifyHostKeyDNS file=kw/VerifyHostKeyDNS.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/VerifyHostKeyDNS.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/VerifyHostKeyDNS.conf: terminating, 1 bad configuration options
+### case=kw_VersionAddendum file=kw/VersionAddendum.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_VisualHostKey file=kw/VisualHostKey.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/VisualHostKey.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/VisualHostKey.conf: terminating, 1 bad configuration options
+### case=kw_WarnWeakCrypto file=kw/WarnWeakCrypto.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/WarnWeakCrypto.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/WarnWeakCrypto.conf: terminating, 1 bad configuration options
+### case=kw_XAuthLocation file=kw/XAuthLocation.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_afstokenpassing file=kw/afstokenpassing.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+stderr: <scratch>/kw/afstokenpassing.conf line 2: Unsupported option "afstokenpassing"
+### case=kw_challengeresponseauthentication file=kw/challengeresponseauthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/challengeresponseauthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/challengeresponseauthentication.conf: terminating, 1 bad configuration options
+### case=kw_cipher file=kw/cipher.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_compressionlevel file=kw/compressionlevel.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+stderr: <scratch>/kw/compressionlevel.conf line 2: Unsupported option "compressionlevel"
+### case=kw_dsaauthentication file=kw/dsaauthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/dsaauthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/dsaauthentication.conf: terminating, 1 bad configuration options
+### case=kw_fallbacktorsh file=kw/fallbacktorsh.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_globalknownhostsfile2 file=kw/globalknownhostsfile2.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_hostbasedkeytypes file=kw/hostbasedkeytypes.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/hostbasedkeytypes.conf line 2: Bad key types 'hmprobe'.
+stderr: <scratch>/kw/hostbasedkeytypes.conf: terminating, 1 bad configuration options
+### case=kw_identityfile2 file=kw/identityfile2.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_keepalive file=kw/keepalive.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/keepalive.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/keepalive.conf: terminating, 1 bad configuration options
+### case=kw_kerberosauthentication file=kw/kerberosauthentication.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+stderr: <scratch>/kw/kerberosauthentication.conf line 2: Unsupported option "kerberosauthentication"
+### case=kw_kerberostgtpassing file=kw/kerberostgtpassing.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+stderr: <scratch>/kw/kerberostgtpassing.conf line 2: Unsupported option "kerberostgtpassing"
+### case=kw_protocol file=kw/protocol.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_pubkeyacceptedkeytypes file=kw/pubkeyacceptedkeytypes.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/pubkeyacceptedkeytypes.conf line 2: Bad key types 'hmprobe'.
+stderr: <scratch>/kw/pubkeyacceptedkeytypes.conf: terminating, 1 bad configuration options
+### case=kw_rhostsauthentication file=kw/rhostsauthentication.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_rhostsrsaauthentication file=kw/rhostsrsaauthentication.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+stderr: <scratch>/kw/rhostsrsaauthentication.conf line 2: Unsupported option "rhostsrsaauthentication"
+### case=kw_rsaauthentication file=kw/rsaauthentication.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+stderr: <scratch>/kw/rsaauthentication.conf line 2: Unsupported option "rsaauthentication"
+### case=kw_skeyauthentication file=kw/skeyauthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/skeyauthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/skeyauthentication.conf: terminating, 1 bad configuration options
+### case=kw_smartcarddevice file=kw/smartcarddevice.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_tisauthentication file=kw/tisauthentication.conf args=hm-kw-other env=none exit=255
+stderr: <scratch>/kw/tisauthentication.conf line 2: unsupported option "hmprobe".
+stderr: <scratch>/kw/tisauthentication.conf: terminating, 1 bad configuration options
+### case=kw_useprivilegedport file=kw/useprivilegedport.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_userknownhostsfile2 file=kw/userknownhostsfile2.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_useroaming file=kw/useroaming.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### case=kw_usersh file=kw/usersh.conf args=hm-kw-other env=none exit=0
+user <local>
+hostname hm-kw-other
+port 22
+identitiesonly no
+kbdinteractiveauthentication yes
+sessiontype default
+hostbasedacceptedalgorithms ssh-ed25519-cert-v01@openssh.com...(588 chars)
+pubkeyacceptedalgorithms ssh-ed25519-cert-v01@openssh.com,ec...(585 chars)
+identityfile ~/.ssh/id_rsa
+identityfile ~/.ssh/id_ecdsa
+identityfile ~/.ssh/id_ecdsa_sk
+identityfile ~/.ssh/id_ed25519
+identityfile ~/.ssh/id_ed25519_sk
+identityfile ~/.ssh/id_mldsa44_ed25519
+userknownhostsfile <scratch>/known_hosts
+revokedhostkeys none
+### leak-check: whole-word account, host and home matches left after redaction: 0
+### scratch-removed=yes

@@ -216,6 +216,9 @@ struct Fx {
     home: ScratchHome,
     keys: Arc<KeyBook>,
     env: EnvironmentId,
+    /// The selected `ssh` client's version, when the fixture names one (otherwise
+    /// unknown: the strictest reading, ADR-0007 §12.32 item 11).
+    client: Option<heimdall_sshconf::eval::OpenSshVersion>,
 }
 
 impl Fx {
@@ -227,6 +230,7 @@ impl Fx {
             home,
             keys: Arc::default(),
             env: EnvironmentId::from_random_bytes(random()),
+            client: None,
         }
     }
 
@@ -247,10 +251,41 @@ impl Fx {
             self.home.git_home.clone(),
             self.home.root.join("etc-ssh"),
         );
-        let mut c = ProjectionConfig::new(paths, Platform::current(), self.home.config_dir.clone());
+        // ADR-0007 §12.32 item 2: the snapshot is the writer's, so every writer of these
+        // tests takes it, into the scratch state directory.
+        let mut c = ProjectionConfig::new(paths, Platform::current(), self.home.config_dir.clone())
+            .with_state_dir(self.home.state_dir.clone());
         let keys: Arc<dyn PublicKeySource> = self.keys.clone();
         c.keys = Some(keys);
+        if let Some(version) = self.client {
+            use heimdall_localenv::clients::{
+                ClientCandidate, ClientInventory, ClientKind, ClientSource,
+            };
+            c.clients = ClientInventory {
+                candidates: vec![ClientCandidate {
+                    kind: ClientKind::Ssh,
+                    path: self.home.root.join("bin").join("ssh"),
+                    source: ClientSource::Path,
+                    version: Some(version),
+                    sha256: None,
+                    selected: true,
+                }],
+            };
+        }
         c
+    }
+
+    /// A fixture whose selected `ssh` is an observed client that evaluates `Match
+    /// sessiontype` (OpenSSH 10.5p1, ADR-0007 §12.32 item 11).
+    fn with_sessiontype_client() -> Fx {
+        Fx {
+            client: Some(heimdall_sshconf::eval::OpenSshVersion {
+                major: 10,
+                minor: 5,
+                portable: Some(1),
+            }),
+            ..Fx::new()
+        }
     }
 
     fn hooked(&self, hook: &Arc<Hook>) -> ProjectionConfig {
@@ -258,6 +293,26 @@ impl Fx {
         let h: Arc<dyn ReplaceHook> = hook.clone();
         c.hook = Some(h);
         c
+    }
+
+    /// `<state>/backups`.
+    fn backups(&self) -> PathBuf {
+        self.home.state_dir.join("backups")
+    }
+
+    /// The snapshots named `name.<timestamp>.orig` in the backups directory, sorted.
+    fn snapshots(&self, name: &str) -> Vec<PathBuf> {
+        let prefix = format!("{name}.");
+        let mut found: Vec<PathBuf> = std::fs::read_dir(self.backups())
+            .map(|rd| {
+                rd.filter_map(Result::ok)
+                    .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                    .map(|e| e.path())
+                    .collect()
+            })
+            .unwrap_or_default();
+        found.sort();
+        found
     }
 
     fn writer(&self) -> LocalProjection {
@@ -3185,7 +3240,7 @@ fn observe_combines_every_invocation_profile_for_readiness() {
     use heimdall_contract::doctor::DirectiveCertainty;
     use heimdall_contract::provider::{IdentityEntrySource, IdentitySelection};
     use heimdall_sshconf::eval::Invocation;
-    let fx = Fx::new();
+    let fx = Fx::with_sessiontype_client();
     std::fs::write(fx.user(), USER_TEXT).unwrap();
     let (_first, sink) = fx.adopt(&["work"]);
     let record = sink.record(&fx.env);
@@ -3322,7 +3377,7 @@ fn rollback_spec(fx: &Fx, sink: &Sink) -> ProjectionSpec {
 fn v02_rollback_after_exec_only_hostname_change_needs_decision() {
     use heimdall_contract::setup::ConsentReasonKind;
     use heimdall_domain::projection::ItemId;
-    let fx = Fx::new();
+    let fx = Fx::with_sessiontype_client();
     let text = format!("{USER_TEXT}Match sessiontype exec\n    HostName exec-a.example.invalid\n");
     std::fs::write(fx.user(), &text).unwrap();
     let (_first, sink) = fx.adopt(&["work"]);
@@ -4933,7 +4988,8 @@ fn production_code_never_unlinks_outside_quarantine() {
         "DeleteFileW",
         "FileDispositionInfoEx",
     ];
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    // This crate's sources, through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+    let src = heimdall_testkit::repo::repo_path("crates/localenv/src");
     let mut files = Vec::new();
     let mut stack = vec![src.clone()];
     while let Some(d) = stack.pop() {
@@ -6611,6 +6667,353 @@ fn first_adoption_plan_carries_its_aliases_with_their_restore_state() {
         rollback.view.aliases.is_empty(),
         "{:?}",
         rollback.view.aliases
+    );
+}
+
+// --- ADR-0007 §5.5, §12.32 item 2: the snapshot is the writer's -------------------------
+
+/// The writer itself copies the original user file to
+/// `<state>/backups/ssh_config.<UTC timestamp>.orig` (0600, in a 0700 directory, the
+/// original bytes) before its first edit of it, with no CLI in the path: an apply takes it;
+/// a preview takes none; an update that only checks the user file takes none; a rollback,
+/// which edits the file again, keeps the first copy and adds none.
+#[test]
+fn the_writer_snapshots_the_original_user_file_before_its_first_edit() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let plan = fx.preview(&fx.spec(&["alpha"], None), &Fx::apply_intent());
+    assert!(!fx.backups().exists(), "a preview takes no snapshot");
+    let sink = Sink::default();
+    let intent = plan.intent();
+    let r = fx.writer().apply(&intent, &mut sink.clone()).unwrap();
+    assert_eq!(
+        r.items,
+        vec![ItemOutcome::Applied {
+            item: ProjectionItem::Ssh,
+            generation: 1
+        }]
+    );
+    let taken = fx.snapshots("ssh_config");
+    assert_eq!(taken.len(), 1, "{taken:?}");
+    let name = taken[0].file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        name.ends_with("Z.orig") && name.len() == "ssh_config.20261103T090807Z.orig".len(),
+        "{name}"
+    );
+    assert_eq!(std::fs::read(&taken[0]).unwrap(), USER_TEXT.as_bytes());
+    assert_eq!(
+        std::fs::metadata(&taken[0]).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(fx.backups())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_ne!(
+        std::fs::read(fx.user()).unwrap(),
+        USER_TEXT.as_bytes(),
+        "the apply edited the file after the copy"
+    );
+    assert_eq!(
+        std::fs::read_dir(fx.backups()).unwrap().count(),
+        1,
+        "no staging file is left behind"
+    );
+    // An update leaves the user file to the transaction check: no snapshot is added.
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.aliases = first_aliases(&intent, &fx, &["alpha"]);
+    spec.aliases.push(fx.alias("beta"));
+    let update = fx.preview(&spec, &Fx::apply_intent()).intent();
+    fx.writer().apply(&update, &mut sink.clone()).unwrap();
+    assert_eq!(fx.snapshots("ssh_config"), taken);
+    // A rollback edits the user file again; the first original is kept.
+    let record = sink.record(&fx.env);
+    let rollback = fx
+        .preview(&fx.spec(&[], Some(record)), &Fx::rollback_intent())
+        .intent();
+    fx.writer().apply(&rollback, &mut Sink::default()).unwrap();
+    assert_eq!(std::fs::read(fx.user()).unwrap(), USER_TEXT.as_bytes());
+    assert_eq!(fx.snapshots("ssh_config"), taken, "no second snapshot");
+    assert_eq!(std::fs::read(&taken[0]).unwrap(), USER_TEXT.as_bytes());
+}
+
+/// A user file the apply creates has no original, and a configuration without a state
+/// directory takes no snapshot: no backups directory appears in either case.
+#[test]
+fn a_created_user_file_or_a_missing_state_dir_takes_no_snapshot() {
+    let fx = Fx::new();
+    std::fs::remove_file(fx.user()).unwrap();
+    let plan = fx.preview(&fx.spec(&["alpha"], None), &Fx::apply_intent());
+    fx.writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(fx.user().exists(), "the apply created the user file");
+    assert!(!fx.backups().exists(), "nothing to copy");
+
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let plan = fx.preview(&fx.spec(&["alpha"], None), &Fx::apply_intent());
+    let mut config = fx.config();
+    config.state_dir = None;
+    let r = LocalProjection::new(config)
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(matches!(r.items.as_slice(), [ItemOutcome::Applied { .. }]));
+    assert!(!fx.backups().exists(), "no state directory, no snapshot");
+}
+
+/// The stale-base refusal is a precondition of the edit: a user file that changed after
+/// the preview refuses the apply (`user_config_changed`) before anything is written, and
+/// no snapshot of bytes the plan was not computed from is taken.
+#[test]
+fn a_stale_user_file_refuses_the_apply_and_takes_no_snapshot() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let plan = fx.preview(&fx.spec(&["alpha"], None), &Fx::apply_intent());
+    let changed = format!("{USER_TEXT}Host later\n    User changed\n");
+    std::fs::write(fx.user(), &changed).unwrap();
+    let before = fx.tree();
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert_eq!(
+        r.items,
+        vec![ItemOutcome::NotApplied {
+            item: ProjectionItem::Ssh,
+            reason: Some(ConflictKind::UserConfigChanged)
+        }]
+    );
+    assert!(!fx.backups().exists(), "no snapshot of a stale base");
+    assert_eq!(fx.tree(), before, "nothing was written");
+    assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), changed);
+}
+
+/// No edit without its original copied: when the copy cannot be made (the backups path
+/// holds a file), the item is not applied (`unmanageable_file`) before any of its steps
+/// writes: P, the key files and the user file are as they were.
+#[test]
+fn a_snapshot_that_cannot_be_made_leaves_the_item_unwritten() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let plan = fx.preview(&fx.spec(&["alpha", "beta"], None), &Fx::apply_intent());
+    std::fs::write(fx.backups(), b"not a directory").unwrap();
+    let before = fx.tree();
+    let sink = Sink::default();
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut sink.clone())
+        .unwrap();
+    assert_eq!(
+        r.items,
+        vec![ItemOutcome::NotApplied {
+            item: ProjectionItem::Ssh,
+            reason: Some(ConflictKind::UnmanageableFile)
+        }]
+    );
+    assert_eq!(fx.tree(), before, "nothing was written");
+    assert!(!fx.p().exists());
+    assert_eq!(std::fs::read(fx.user()).unwrap(), USER_TEXT.as_bytes());
+    assert!(
+        sink.file_phases(0).is_empty(),
+        "no step was staged: {:?}",
+        sink.kinds()
+    );
+}
+
+/// A restart that resumes an operation whose user-file step was never reached still
+/// takes the snapshot before that step's first edit (an operation admitted by a writer
+/// that took none, or a crash before the copy): the resume path is covered like the
+/// first apply, which is what a held repair's retry runs.
+#[test]
+fn a_resumed_operation_snapshots_before_the_user_file_step() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let plan = fx.preview(&fx.spec(&["alpha"], None), &Fx::apply_intent());
+    let intent = plan.intent();
+    let p_step = step_of(&intent, FileRole::ManagedSsh);
+    // The first run has no state directory (so it copies nothing) and crashes after P's
+    // staging, before the user file's step.
+    let hook = Hook::new().crash(ReplacePoint::AfterStage, Some(p_step));
+    let mut first = fx.hooked(&hook);
+    first.state_dir = None;
+    let sink = Sink::default();
+    assert!(apply_or_crash(first, &intent, &sink).is_none());
+    assert!(!fx.backups().exists());
+    assert_eq!(std::fs::read(fx.user()).unwrap(), USER_TEXT.as_bytes());
+    // The restart (with the state directory) completes the item and copied the original
+    // first.
+    let out = restart(&fx, &intent, &sink);
+    assert!(
+        matches!(out.as_slice(), [ItemOutcome::Applied { .. }]),
+        "{out:?}"
+    );
+    let taken = fx.snapshots("ssh_config");
+    assert_eq!(taken.len(), 1, "{taken:?}");
+    assert_eq!(std::fs::read(&taken[0]).unwrap(), USER_TEXT.as_bytes());
+    assert_ne!(std::fs::read(fx.user()).unwrap(), USER_TEXT.as_bytes());
+}
+
+/// The copy is of the bytes the plan was computed from: when the user file changes
+/// between the writer's base check and the copy, and no snapshot exists yet (a resume),
+/// the edit is refused as a changed base (`user_config_changed`), nothing is copied, and
+/// the other writer's bytes are never overwritten.
+#[test]
+fn a_user_file_that_changes_before_the_copy_is_not_snapshotted_or_edited() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let plan = fx.preview(&fx.spec(&["alpha"], None), &Fx::apply_intent());
+    let intent = plan.intent();
+    let p_step = step_of(&intent, FileRole::ManagedSsh);
+    let user_step = step_of(&intent, FileRole::UserSsh);
+    let mut first = fx.hooked(&Hook::new().crash(ReplacePoint::AfterStage, Some(p_step)));
+    first.state_dir = None;
+    let sink = Sink::default();
+    assert!(apply_or_crash(first, &intent, &sink).is_none());
+    // The restart reaches the user file's step; another writer edits the file just after
+    // the base check and before the copy.
+    let other = format!("{USER_TEXT}Host raced\n    User other\n");
+    let path = fx.user().to_path_buf();
+    let racing = other.clone();
+    let hook = Hook::new().run(ReplacePoint::AfterValidate, Some(user_step), move || {
+        std::fs::write(&path, &racing).unwrap();
+    });
+    let out = reconcile_or_crash(fx.hooked(&hook), &intent, &sink)
+        .expect("no crash")
+        .unwrap();
+    let reason = match out.as_slice() {
+        [ItemOutcome::NotApplied { reason, .. } | ItemOutcome::Restored { reason, .. }] => *reason,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(reason, Some(ConflictKind::UserConfigChanged), "{out:?}");
+    assert!(fx.snapshots("ssh_config").is_empty(), "nothing was copied");
+    assert_eq!(
+        std::fs::read_to_string(fx.user()).unwrap(),
+        other,
+        "the other writer's bytes are kept"
+    );
+}
+
+/// The global Git file is snapshotted the same way, to `gitconfig.<timestamp>.orig`,
+/// before the Git item's first edit of it (ADR-0007 §5.5, §12.32 item 2). The copy is taken
+/// when the item starts, so it exists whether or not the item then applies on this host's
+/// Git (the item's own outcome is `projection_git`'s concern).
+#[test]
+fn the_writer_snapshots_the_global_git_file_before_its_first_edit() {
+    use heimdall_localenv::clients::{ClientCandidate, ClientInventory, ClientKind, ClientSource};
+    use heimdall_localenv::env::Env;
+    use heimdall_localenv::local_query::LocalQueries;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let git = heimdall_testkit::home::find_program("git").expect("git is installed");
+    let system = fx.home.root.join("gitconfig-system");
+    std::fs::write(&system, b"").unwrap();
+    let global = fx.home.git_home.join(".gitconfig");
+    let original: &[u8] = b"[user]\n\tname = Scratch\n";
+    std::fs::write(&global, original).unwrap();
+    let mut config = fx.config();
+    config.env = Env::from_vars([
+        ("HOME", fx.home.git_home.display().to_string()),
+        (
+            "XDG_CONFIG_HOME",
+            fx.home.git_home.join(".config").display().to_string(),
+        ),
+        ("GIT_CONFIG_SYSTEM", system.display().to_string()),
+    ]);
+    config.queries = LocalQueries::Enabled;
+    let candidate = |kind, path| ClientCandidate {
+        kind,
+        path,
+        source: ClientSource::Path,
+        version: None,
+        sha256: None,
+        selected: true,
+    };
+    config.clients = ClientInventory {
+        candidates: vec![
+            candidate(ClientKind::Git, git),
+            candidate(ClientKind::Ssh, PathBuf::from("/usr/bin/ssh")),
+        ],
+    };
+    config.test.git_item_any_default = true;
+    let writer = LocalProjection::new(config);
+    let intent = PreviewIntent::Apply { include_git: true };
+    let plan = writer.preview(&fx.spec(&["alpha"], None), &intent).unwrap();
+    assert!(
+        plan.files.iter().any(|s| s.role == FileRole::GitInclude),
+        "the plan edits the global Git file"
+    );
+    assert!(!fx.backups().exists(), "a preview takes no snapshot");
+    writer.apply(&plan.intent(), &mut Sink::default()).unwrap();
+    let ssh = fx.snapshots("ssh_config");
+    let taken = fx.snapshots("gitconfig");
+    assert_eq!((ssh.len(), taken.len()), (1, 1), "{ssh:?} {taken:?}");
+    assert_eq!(std::fs::read(&taken[0]).unwrap(), original);
+    assert_eq!(
+        std::fs::metadata(&taken[0]).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(std::fs::read(&ssh[0]).unwrap(), USER_TEXT.as_bytes());
+}
+
+/// ADR-0007 §12.32 item 5: the real writer never cuts a diff. A plan of 250 aliases with
+/// long host names has a P diff beyond `MAX_DIFF_BYTES` by itself and a total far beyond
+/// it; the preview carries each diff whole (every added line of P is there, and the
+/// summary text ends with the last file's last line), so the application can refuse the
+/// plan instead of showing part of it.
+#[test]
+fn the_preview_never_cuts_a_diff() {
+    use heimdall_contract::setup::MAX_DIFF_BYTES;
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let names: Vec<String> = (0..250).map(|i| format!("host{i:03}")).collect();
+    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut spec = fx.spec(&refs, None);
+    for a in &mut spec.aliases {
+        let label = "a".repeat(60);
+        a.hostname = format!("{label}.{label}.{label}.{}.example.invalid", a.alias);
+    }
+    let plan = fx.preview(&spec, &Fx::apply_intent());
+    let p = plan
+        .view
+        .files
+        .iter()
+        .find(|f| f.role == heimdall_contract::setup::ProjectionFileRole::ManagedSsh)
+        .unwrap();
+    assert!(
+        p.diff.len() > MAX_DIFF_BYTES,
+        "P's diff alone is {} bytes",
+        p.diff.len()
+    );
+    for n in &names {
+        assert!(
+            p.diff.contains(&format!("+Host {n}\n")),
+            "{n} is in P's diff"
+        );
+    }
+    assert!(p.diff.ends_with('\n'));
+    let summary = plan
+        .summary
+        .as_ref()
+        .expect("a first adoption needs a decision");
+    assert!(
+        summary.diff_text.len() > MAX_DIFF_BYTES,
+        "not cut to the bound"
+    );
+    assert!(!summary.within_bounds());
+    let last = plan.view.files.last().unwrap();
+    assert!(
+        summary.diff_text.ends_with(&last.diff),
+        "the last file is whole"
+    );
+    let shown: usize = plan.view.files.iter().map(|f| f.diff.len()).sum();
+    assert!(
+        summary.diff_text.len() >= shown,
+        "the summary holds every file's diff"
     );
 }
 

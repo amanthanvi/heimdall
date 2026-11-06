@@ -614,6 +614,8 @@ fn error_reasons_are_stable_snake_case_and_complete() {
         "git_config_unreadable",
         "setup_in_progress",
         "projection_too_large",
+        // ADR-0007 §12.32 item 5: a preview whose full diff exceeds `MAX_DIFF_BYTES`.
+        "plan_too_large",
         // ADR-0007 §12.17 item 11 (the Git item's reasons) and §12.19 item 9 (the
         // manual reasons a `manual_mode` repair and a globbed P path give).
         "git_default_not_bundled_msys",

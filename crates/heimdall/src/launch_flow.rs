@@ -834,7 +834,24 @@ mod tests {
             )
             .unwrap();
             let paths = SshPaths::with_test_override(link.clone(), dir.path().join("etc-ssh"));
-            let config = ProjectionConfig::new(paths, Platform::current(), config_dir);
+            let mut config = ProjectionConfig::new(paths, Platform::current(), config_dir);
+            // ADR-0007 §12.32 item 11: an unknown client version takes the strictest
+            // reading (no `Match sessiontype`), so the layout names an observed client
+            // that evaluates every invocation profile (OpenSSH 10.5p1).
+            config.clients = heimdall_localenv::clients::ClientInventory {
+                candidates: vec![heimdall_localenv::clients::ClientCandidate {
+                    kind: heimdall_localenv::clients::ClientKind::Ssh,
+                    path: dir.path().join("bin").join("ssh"),
+                    source: heimdall_localenv::clients::ClientSource::Path,
+                    version: Some(heimdall_sshconf::eval::OpenSshVersion {
+                        major: 10,
+                        minor: 5,
+                        portable: Some(1),
+                    }),
+                    sha256: None,
+                    selected: true,
+                }],
+            };
             let environment = heimdall_contract::ids::EnvironmentId::from_random_bytes([4; 16]);
             let record = ProjectionRecord {
                 environment,

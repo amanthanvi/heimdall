@@ -707,3 +707,18 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - P02 (P2): the scenario inherits XDG Git configuration.
   - ADR-0007 §12.33: I fix both after wave 5c, before the exit-build runs.
 - Owner question (boat.dev): answered. It provides Linux-only cloud VMs, so it does not cover B1–B7 or B10. B9 only if it offers arm64 (unstated). Suggested local macOS and Windows VMs for B2/B3 as an owner option.
+- **M02 wave 5c** (`wf_6ad18190-1ba`): all 5 agents done.
+  - W5c-sshconf: OpenSSH 9.6p1 gating from devbox `ssh -G` observations; DEFAULT_IDENTITIES is the union.
+  - W5c-git:
+    - git 2.43 was not the cause; the devbox umask 0002 fixture was;
+    - preview now checks the global Git file's manageability.
+  - W5c-app: writer-owned snapshots; `plan_too_large`; purge counts.
+  - W5c-harness:
+    - HM_REPO_ROOT; pty fixes; cli_m02 json cases cross-platform;
+    - the a27 Ctrl-C cause: SIGINT ignored at entry; 100/100 failures before, 0/200 after;
+    - harness defects; the Windows local-mode runner.
+  - check.sh: the integrator ran it three times and I ran it once, all exit 0, 1704 passed, 0 failed.
+- ADR-0007 §12.34 rules on the escalations. Wave 5d:
+  - W5d-app: summarized removals for rollback/uninstall diffs; a state_dir guard test;
+  - W5d-git: a re-preview after applying the Git item can plan an update; rollback preview checks manageability;
+  - me: §12.33 P01 and P02, plus building the .ps1 self-test canary at run time.

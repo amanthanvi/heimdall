@@ -793,6 +793,7 @@ dependencies = [
 name = "heimdall-contract"
 version = "0.1.0-m01"
 dependencies = [
+ "heimdall-testkit",
  "jiff",
  "proptest",
  "schemars",
@@ -808,6 +809,7 @@ version = "0.1.0-m01"
 dependencies = [
  "base64ct",
  "heimdall-contract",
+ "heimdall-testkit",
  "jiff",
  "proptest",
  "serde",
@@ -845,6 +847,7 @@ dependencies = [
  "heimdall-contract",
  "heimdall-domain",
  "heimdall-localenv",
+ "heimdall-testkit",
  "jiff",
  "proptest",
  "serde_json",
@@ -913,6 +916,7 @@ dependencies = [
  "glob",
  "heimdall-contract",
  "heimdall-domain",
+ "heimdall-testkit",
  "proptest",
  "thiserror",
 ]

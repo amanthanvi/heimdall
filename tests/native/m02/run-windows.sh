@@ -42,7 +42,8 @@
 #     only the interop relay's priority, never the Windows process's, which is unchanged),
 #     its real exit code recorded; every binary gets `--show-output` (the `observation` lines of passing tests,
 #     the settled ADR-0007 facts); HEIMDALL_E2E_BIN and HM_FIXTURE_HOOK name the copied
-#     binaries;
+#     binaries, and HM_REPO_ROOT the copied repository files the tests read (lib.sh
+#     M02_REPO_DIRS; ADR-0007 §12.32 item 3), all through WSLENV;
 #   * the pseudoconsole drivers of tests/native/windows-launch (Ctrl-C and resize through
 #     `heimdall run`, with argvdump.exe cross-built by Go) run with -ExecutionPolicy Bypass
 #     for that process only; their report rows become "### windows_launch" test lines;
@@ -56,9 +57,12 @@
 #
 # No CARGO_TARGET_DIR override (AGENTS.md). Output (redacted: <winuser>, <winhost>,
 # <winhome>, <wsluser>, <wslhome>, <wslhost>, S-1-5-21-<redacted>, the build host's
-# <home>/<user>): build.txt, host.txt, tests.txt, commands.txt, skipped.txt,
-# canary-scan.txt. Exit: nonzero when a binary or a required step fails, or a canary or
-# a leak is found. Self-test without any host: tools/validation/native-harness-selftest.sh.
+# <home>/<user>; host names as whole words only): build.txt, host.txt, tests.txt,
+# commands.txt, skipped.txt, canary-scan.txt, and host-unreachable.txt when the host
+# cannot be reached (exit 4). build.txt is redacted as soon as the build is done and again
+# at exit, whatever ends the run (ADR-0007 §12.32 item 10). Exit: nonzero when a binary or
+# a required step fails, or a canary or a leak is found. Self-test without any host:
+# tools/validation/native-harness-selftest.sh.
 
 set -euo pipefail
 
@@ -108,9 +112,17 @@ commands="$out/commands.txt"
 # Exact directories the create step reported; only these are ever removed.
 wsl_dir=""
 win_dir=""
+# The build log names the build host's home, user and shim paths until it is redacted.
+redact_build_log() {
+    [ -f "$out/build.txt" ] || return 0
+    m02_redact "$out/build.txt" "$out/build.txt" "$shim" "<shim>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"
+}
 # shellcheck disable=SC2329  # invoked by the EXIT trap
 cleanup() {
     local rc=$?
+    # Whatever ended the run (an unreachable host, a failed step), the build log is
+    # redacted before the harness exits.
+    redact_build_log
     if [ -n "$wsl_dir$win_dir" ]; then
         set +e
         remote "$(printf 'wsl_dir=%q; win_dir=%q' "$wsl_dir" "$win_dir")" "$run" >"$shim/cleanup.txt" 2>&1 <<'REMOTE'
@@ -145,7 +157,6 @@ m02_cargo_build "$triple" "$shim" "$out/build.txt"
 rc=$?
 set -e
 m02_record "$commands" "cargo test --target $triple --workspace --no-run --locked (zig linker/CC shims)" "$rc"
-redact_build_log() { m02_redact "$out/build.txt" "$out/build.txt" "$shim" "<shim>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"; }
 [ "$rc" = 0 ] || { redact_build_log; exit "$rc"; }
 m02_artifacts "$shim" || { echo "heimdall.exe or hm-fixture-hook.exe was not built" >&2; redact_build_log; exit 5; }
 set +e
@@ -173,6 +184,8 @@ else
     echo "windows_launch: not run (HM_LAUNCH_DRIVER=0)" >>"$out/skipped.txt"
 fi
 echo "toolchain: $(rustc --version); zig $(zig version); target $triple" >>"$out/build.txt"
+# Nothing more is written to the build log: it is redacted before any host is contacted.
+redact_build_log
 if [ "$build_only" = 1 ]; then
     redact_build_log
     echo "test binaries planned: $(wc -l <"$shim/run.tsv" | tr -d ' '); skipped entries: $(wc -l <"$out/skipped.txt" | tr -d ' ')"
@@ -181,7 +194,7 @@ fi
 
 # Create both run directories exclusively; keep the exact paths reported.
 set +e
-remote "" "$run" >"$shim/created.txt" <<'REMOTE'
+remote "" "$run" >"$shim/created.txt" 2>"$shim/created.err" <<'REMOTE'
 main() {
 set -u
 run=$1
@@ -201,9 +214,22 @@ set -e
 wsl_dir=$(sed -n 's/^created-wsl=//p' "$shim/created.txt" | head -1)
 win_dir=$(sed -n 's/^created-win=//p' "$shim/created.txt" | head -1)
 m02_record "$commands" "remote: create the run directories exclusively (run $run)" "$crc"
+if [ "$crc" = 255 ]; then
+    # ssh could not reach the host: nothing was created. The error text may name the host,
+    # the user or an address: keep its shape only.
+    m02_redact "$shim/created.err" "$out/host-unreachable.txt" --word "$host" "<winhost>" "$(id -un)" "<user>" "$HOME" "<home>"
+    cat "$out/host-unreachable.txt" >&2
+    exit 4
+fi
 [ "$crc" = 0 ] && [ -n "$wsl_dir" ] && [ -n "$win_dir" ] || exit 1
 
 m02_stage "$shim" ".exe"
+set +e
+nrepo=$(m02_stage_repo "$repo" "$shim/stage")
+rc=$?
+set -e
+m02_record "$commands" "stage the repository files the tests read (HM_REPO_ROOT: $nrepo files)" "$rc"
+[ "$rc" = 0 ] || exit 1
 if [ "$launch" = 1 ]; then
     mkdir -p "$shim/stage/launch/windows-launch" "$shim/stage/launch/windows-g02"
     cp "$shim/argvdump.exe" "$shim/stage/argvdump.exe"
@@ -216,7 +242,7 @@ tar -C "$shim/stage" -chf - . | gzip -1 |
     ssh -F "$ssh_config" -o BatchMode=yes "$host" "tar -xzf - -C \"\$HOME/hm-m00/$run\""
 rc=$?
 set -e
-m02_record "$commands" "tar stream of $(wc -l <"$shim/run.tsv" | tr -d ' ') test binaries, heimdall.exe and hm-fixture-hook.exe into WSL scratch" "$rc"
+m02_record "$commands" "tar stream of $(wc -l <"$shim/run.tsv" | tr -d ' ') test binaries, heimdall.exe, hm-fixture-hook.exe and the repository files into WSL scratch" "$rc"
 [ "$rc" = 0 ] || exit 1
 names=$(cut -f1 "$shim/run.tsv" | tr '\n' ' ')
 
@@ -262,12 +288,15 @@ heimdall_before=$([ -e "$wroot/heimdall" ] && echo present || echo absent)
 wl=$win_dir
 cp "$wsl_dir/"*.exe "$wl/" || return 1
 [ "$launch" = 1 ] && { cp -R "$wsl_dir/launch" "$wl/launch" || return 1; }
+# The repository files the tests read (heimdall_testkit::repo; ADR-0007 §12.32 item 3).
+cp -R "$wsl_dir/repo" "$wl/repo" || return 1
 cd "$wl" || return 1
 TEMP=$(wslpath -w "$wl/tmp"); TMP=$TEMP
 HEIMDALL_E2E_BIN=$(wslpath -w "$wl/heimdall.exe")
 HM_FIXTURE_HOOK=$(wslpath -w "$wl/hm-fixture-hook.exe")
-WSLENV=TEMP/w:TMP/w:HEIMDALL_E2E_BIN/w:HM_FIXTURE_HOOK/w
-export TEMP TMP HEIMDALL_E2E_BIN HM_FIXTURE_HOOK WSLENV
+HM_REPO_ROOT=$(wslpath -w "$wl/repo")
+WSLENV=TEMP/w:TMP/w:HEIMDALL_E2E_BIN/w:HM_FIXTURE_HOOK/w:HM_REPO_ROOT/w
+export TEMP TMP HEIMDALL_E2E_BIN HM_FIXTURE_HOOK HM_REPO_ROOT WSLENV
 echo "integrity=$("$W/whoami.exe" /groups | grep -o 'Medium Mandatory Level\|High Mandatory Level\|System Mandatory Level' | head -1)"
 echo "os=$("$W/cmd.exe" /c ver | tr -d '\r' | grep -v '^$')"
 echo "ssh-V-inbox=$(hm2_first_line "$W/OpenSSH/ssh.exe" -V)"
@@ -397,12 +426,11 @@ winuser=$(val winuser); winhost=$(val winhost); winhome=$(val winhome)
 wsluser=$(val wsluser); wslhome=$(val wslhome); wslhost=$(val wslhost)
 sed '/^---redaction---$/,$d' "$shim/remote.txt" >"$shim/remote.body"
 m02_redact "$shim/remote.body" "$shim/redacted.txt" "$winhome" "<winhome>" "$wslhome" "<wslhome>" "$HOME" "<home>" \
-    "$winuser" "<winuser>" "$winhost" "<winhost>" "$host" "<winhost>" "$wsluser" "<wsluser>" \
-    "$wslhost" "<wslhost>" "$(id -un)" "<user>"
+    "$winuser" "<winuser>" --word "$winhost" "<winhost>" --word "$host" "<winhost>" "$wsluser" "<wsluser>" \
+    --word "$wslhost" "<wslhost>" "$(id -un)" "<user>"
 sed -n '1,/^---tests---$/p' "$shim/redacted.txt" | sed '$d' >"$out/host.txt"
 sed -n '/^---after---$/,$p' "$shim/redacted.txt" | sed '1d' >>"$out/host.txt"
 sed -n '/^---tests---$/,/^---after---$/p' "$shim/redacted.txt" | sed '1d;$d' >"$out/tests.txt"
-redact_build_log
 
 before=$(sed -n 's/^owner-ssh-before=//p;s/^owner-git-before=//p' "$out/host.txt" | tr '\n' ' ')
 after=$(sed -n 's/^owner-ssh-after=//p;s/^owner-git-after=//p' "$out/host.txt" | tr '\n' ' ')
@@ -412,7 +440,7 @@ m02_record "$commands" "%USERPROFILE%\\.ssh and .gitconfig metadata unchanged by
 hits=$(m02_canary_scan "$out")
 m02_record "$commands" "canary-prefix scan over saved output (count = $hits)" "$([ "$hits" = 0 ] && echo 0 || echo 1)"
 set +e
-leaks=$(m02_leak_scan "$out" "$winhome" "$wslhome" "$HOME" "$winuser" "$winhost" "$host" "$wsluser" "$wslhost" "$(id -un)")
+leaks=$(m02_leak_scan "$out" "$winhome" "$wslhome" "$HOME" "$winuser" --word "$winhost" --word "$host" "$wsluser" --word "$wslhost" "$(id -un)")
 lrc=$?
 set -e
 m02_record "$commands" "leak scan: saved files still naming a host, a user or a home ($leaks)" "$lrc"

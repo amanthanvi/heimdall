@@ -9,7 +9,9 @@
 #                        fixture sshd cannot run here)
 #
 # Steps:
-#   1. A scratch directory (mktemp, mode 700), removed exactly at exit, pass or fail.
+#   1. A scratch directory /tmp/hm-m02-macos.XXXXXX (mktemp, mode 700), removed exactly at
+#      exit, pass or fail. It is under /tmp, never under the per-user TMPDIR: the tests'
+#      Unix socket paths under that one overflow SUN_LEN (104 bytes; ADR-0007 §12.32 item 10).
 #   2. Facts: sw_vers, `uname -m`, `ssh -V`, `sshd -V`, `git --version` (scratch HOME,
 #      GIT_CONFIG_NOSYSTEM=1), script(1), the file system of TMPDIR (APFS: exchange support
 #      is recorded by the tests), and a metadata digest of ~/.ssh and the Git
@@ -22,10 +24,12 @@
 #      CLEANUP CONFIRMED. Limitation: those containers' keys are set at up time, so no
 #      HM_FIXTURE_SSHD_AUTHORIZED_KEYS is offered and a test that needs its own keys reports
 #      the fixture unavailable.
-#   4. check.sh with inherited agent, Git and Heimdall variables unset and TMPDIR inside
-#      scratch (the tests start their own LoopbackSshd, disposable ssh-agent with a scratch
-#      HOME, script(1) and rustix ptys), its real exit code recorded.
-#   5. Redaction (<home>, <user>, <host>), a leak scan and a canary scan over every saved file.
+#   4. check.sh with inherited agent, Git and Heimdall variables unset, TMPDIR inside
+#      scratch and HM_REPO_ROOT at this checkout (the tests that read repository files;
+#      ADR-0007 §12.32 item 3) (the tests start their own LoopbackSshd, disposable ssh-agent
+#      with a scratch HOME, script(1) and rustix ptys), its real exit code recorded.
+#   5. Redaction (<home>, <user>, <host> as whole words only), a leak scan and a canary
+#      scan over every saved file.
 #
 #   6. The observation targets of the case index run once more with --show-output
 #      (observations.txt): check.sh's own run discards what passing tests print.
@@ -52,7 +56,7 @@ unset CARGO_TARGET_DIR
 commands="$out/commands.txt"
 : >"$commands"
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/hm-m02-macos.XXXXXX")
+scratch=$(mktemp -d /tmp/hm-m02-macos.XXXXXX)
 scratch=$(cd "$scratch" && pwd -P)
 chmod 700 "$scratch"
 docker_up=0
@@ -82,7 +86,7 @@ if [ "$build_only" = 1 ]; then
     rc=$?
     set -e
     m02_record "$commands" "cargo test --workspace --no-run --locked" "$rc"
-    m02_redact "$out/build.txt" "$out/build.txt" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"
+    m02_redact "$out/build.txt" "$out/build.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"
     [ "$rc" = 0 ] || exit "$rc"
     m02_artifacts "$scratch" || { echo "the heimdall or hm-fixture-hook binary was not built" >&2; exit 5; }
     cp "$scratch/all.tsv" "$scratch/run.tsv"
@@ -127,11 +131,13 @@ else
 fi
 
 mkdir -m 700 "$scratch/tmp"
+# The tests that read repository files read this checkout (heimdall_testkit::repo).
+export HM_REPO_ROOT="$repo"
 set +e
 TMPDIR="$scratch/tmp" bash "$repo/tools/validation/check.sh" >"$scratch/check.raw" 2>&1
 rc=$?
 set -e
-m02_record "$commands" "bash tools/validation/check.sh (TMPDIR in scratch; inherited agent, Git and Heimdall variables unset)" "$rc"
+m02_record "$commands" "bash tools/validation/check.sh (TMPDIR in scratch under /tmp; HM_REPO_ROOT at the checkout; inherited agent, Git and Heimdall variables unset)" "$rc"
 
 # check.sh's own run discards what passing tests print. The targets whose tests print
 # `observation` lines (case-index.json observation_targets: the settled ADR-0007 facts) run
@@ -160,14 +166,14 @@ m02_record "$commands" "cargo test --workspace --locked --no-fail-fast <the obse
 } >>"$facts"
 lhost=$(hostname)
 lshort=$(hostname -s 2>/dev/null || echo "$lhost")
-# A very short host name would also match ordinary words (macOS, crate names).
-[ ${#lshort} -ge 5 ] || lshort=$lhost
+# Host names are replaced as whole words only: a short host name inside an ordinary word
+# (the OS name, a crate name) stays (ADR-0007 §12.32 item 10).
 m02_redact "$facts" "$out/host.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" \
-    "$lhost" "<host>" "$lshort" "<host>" "$(id -un)" "<user>"
+    --word "$lhost" "<host>" --word "$lshort" "<host>" "$(id -un)" "<user>"
 m02_redact "$scratch/check.raw" "$out/check.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" \
-    "$lhost" "<host>" "$lshort" "<host>" "$(id -un)" "<user>"
+    --word "$lhost" "<host>" --word "$lshort" "<host>" "$(id -un)" "<user>"
 m02_redact "$scratch/obs.raw" "$out/observations.txt" "$scratch" "<scratch>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" \
-    "$lhost" "<host>" "$lshort" "<host>" "$(id -un)" "<user>"
+    --word "$lhost" "<host>" --word "$lshort" "<host>" "$(id -un)" "<user>"
 
 before=$(sed -n 's/^owner-ssh-before=//p;s/^owner-git-before=//p' "$out/host.txt" | tr '\n' ' ')
 after=$(sed -n 's/^owner-ssh-after=//p;s/^owner-git-after=//p' "$out/host.txt" | tr '\n' ' ')
@@ -177,7 +183,7 @@ m02_record "$commands" "the home .ssh directory and Git configuration metadata u
 hits=$(m02_canary_scan "$out")
 m02_record "$commands" "canary-prefix scan over saved output (count = $hits)" "$([ "$hits" = 0 ] && echo 0 || echo 1)"
 set +e
-leaks=$(m02_leak_scan "$out" "$HOME" "$lhost" "$(id -un)")
+leaks=$(m02_leak_scan "$out" "$HOME" --word "$lhost" --word "$lshort" "$(id -un)")
 lrc=$?
 set -e
 m02_record "$commands" "leak scan: saved files still naming the host, the user or the home ($leaks)" "$lrc"

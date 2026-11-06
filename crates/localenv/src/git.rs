@@ -21,7 +21,9 @@
 //! Per origin, the count is the larger of the two sources' counts; an entry reached
 //! through `includeIf` is `conditional`.
 //!
-//! **`[I]` observed on Apple Git 2.54 (M02-W2-U3):** `git config --global` reads only
+//! **`[I]` observed on Apple Git 2.54 (M02-W2-U3) and on git 2.43.0 (M02 wave 5c, the
+//! same plain-Git script on both: `tests/evidence/artifacts/m02/git-2.43/`, identical
+//! output apart from the version line):** `git config --global` reads only
 //! `~/.gitconfig` when that file is readable and the XDG file only otherwise, so the
 //! `--global` query misses a value in the XDG file whenever both exist (ADR-0007 F22
 //! assumed both are read). The static scan reads both files, so the observation still

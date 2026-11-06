@@ -10,7 +10,8 @@
 //! * [`recovery`]: the total recovery function (frozen);
 //! * [`git`]: the Git item under Git's lock, held by K;
 //! * [`plan`], [`apply`], [`observe`]: the port's preview, execution and passive
-//!   observation;
+//!   observation (the writer also takes the §5.5 snapshot of an original user file
+//!   before its first edit: [`apply::snapshot_original`]);
 //! * [`cleaner`]: the `ResourceCleaner` for projection resources.
 
 use std::path::PathBuf;
@@ -131,6 +132,12 @@ pub struct ProjectionConfig {
     pub hook: Option<Arc<dyn ReplaceHook>>,
     /// Heimdall's configuration directory (M01 `Paths`).
     pub config_dir: PathBuf,
+    /// Heimdall's state directory (M01 `Paths`). The writer copies an original user
+    /// file to `<state_dir>/backups` before its first edit of it (ADR-0007 §5.5,
+    /// §12.32 item 2: the snapshot is the writer's, so every caller is covered). `None`
+    /// takes no snapshot: a configuration of the file transaction's own tests. Every
+    /// wiring of a real runtime sets it ([`ProjectionConfig::with_state_dir`]).
+    pub state_dir: Option<PathBuf>,
     /// The environment snapshot (Git's global-file resolution and queries).
     pub env: Env,
     /// The client inventory (BOM/CRLF acceptance, the verified `ssh` and `git`).
@@ -153,12 +160,28 @@ impl ProjectionConfig {
             platform,
             hook: None,
             config_dir,
+            state_dir: None,
             env: Env::default(),
             clients: ClientInventory::default(),
             queries: LocalQueries::Disabled,
             keys: None,
             test: ProjectionTestConfig::default(),
         }
+    }
+
+    /// This configuration with Heimdall's state directory, where the original files'
+    /// snapshots go (`<state_dir>/backups`; ADR-0007 §12.32 item 2).
+    #[must_use]
+    pub fn with_state_dir(mut self, state_dir: PathBuf) -> Self {
+        self.state_dir = Some(state_dir);
+        self
+    }
+
+    /// The directory of the original files' snapshots (`<state_dir>/backups`), when a
+    /// state directory is configured.
+    #[must_use]
+    pub fn backups_dir(&self) -> Option<PathBuf> {
+        self.state_dir.as_ref().map(|d| d.join("backups"))
     }
 
     /// P's path.
@@ -185,6 +208,7 @@ impl std::fmt::Debug for ProjectionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProjectionConfig")
             .field("platform", &self.platform)
+            .field("snapshots", &self.state_dir.is_some())
             .field("hook", &self.hook.is_some())
             .field("keys", &self.keys.is_some())
             .field("queries", &self.queries)

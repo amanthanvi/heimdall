@@ -2969,7 +2969,8 @@ mod tests {
                 }
             }
         }
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+        let root = heimdall_testkit::repo::repo_root();
         let mut files = Vec::new();
         let Ok(crates) = std::fs::read_dir(root.join("crates")) else {
             panic!("workspace crates directory not found");

@@ -1,5 +1,5 @@
 {
-  "description": "M02-U11 case index (m02-plan revision 5 §3, §4): every exit case and claim mapped to its Cargo test targets and tests, per platform. tests: {target: [name | prefix*] | \"*\"}; a name ending in '*' matches every test whose full name or last segment starts with the rest, and '*' alone is the whole target. Patterns are resolved into required-inventory.json from the build host's sources (m02-evidence.py --generate-inventory) and never from run logs. platform_only: {\"<target>\" | \"<target>::<test prefix>\": [platforms]} limits where a test exists (#[cfg] gating, read from the cross-built binaries' symbols with platform-tests.py). build_host_paths: tests that read the repository at its compile-time path; remote harnesses skip them, a neutral one counts as run on the build host, any other is a harness gap that keeps the row in_progress. child_entries: #[ignore]d child-process entry points, never required. scenario_targets: harness-defined steps (not Cargo tests) logged in the same format. observation_targets: the Cargo test targets whose tests print `observation` lines (ADR-0007 [I]/[U] facts: exchange and birth-time support, client and Git observations); every remote run uses --show-output, and run-macos.sh runs these once more through cargo with --show-output because check.sh discards passing output. blocked_rows: per case, the platform rows that need an owner input (m02-plan §7), always blocked with that input named.",
+  "description": "M02-U11 case index (m02-plan revision 5 §3, §4): every exit case and claim mapped to its Cargo test targets and tests, per platform. tests: {target: [name | prefix*] | \"*\"}; a name ending in '*' matches every test whose full name or last segment starts with the rest, and '*' alone is the whole target. Patterns are resolved into required-inventory.json from the build host's sources (m02-evidence.py --generate-inventory) and never from run logs. platform_only: {\"<target>\" | \"<target>::<test prefix>\": [platforms]} limits where a test exists (#[cfg] gating, read from the cross-built binaries' symbols with platform-tests.py). build_host_paths: tests that truly need the build host; remote harnesses skip them, a neutral one counts as run on the build host, any other is a harness gap that keeps the row in_progress. It is empty since ADR-0007 §12.32 item 3: every test that reads repository files (schemas, golden files, snapshots, documents, fixtures, the sources a static scan reads) resolves them through heimdall_testkit::repo::repo_root, which honours HM_REPO_ROOT, and the hook binary through HM_FIXTURE_HOOK; the native harnesses ship those files (lib.sh M02_REPO_DIRS) and set both, so these tests run on every platform. platform_only_rationale gives the reason for each platform_only entry of this file (ADR-0006 §13.13 item 5). child_entries: #[ignore]d child-process entry points, never required. scenario_targets: harness-defined steps (not Cargo tests) logged in the same format. observation_targets: the Cargo test targets whose tests print `observation` lines (ADR-0007 [I]/[U] facts: exchange and birth-time support, client and Git observations); every remote run uses --show-output, and run-macos.sh runs these once more through cargo with --show-output because check.sh discards passing output. blocked_rows: per case, the platform rows that need an owner input (m02-plan §7), always blocked with that input named.",
   "build_host": "macos",
   "observation_targets": [
     "integration_doctor",
@@ -21,159 +21,25 @@
       "runs": "scenario"
     }
   },
-  "build_host_paths": {
-    "contracts": {
-      "neutral": true,
-      "reason": "schema, golden and example files under schemas/ and tests/contracts/golden, read at the compile-time path (platform-neutral)"
-    },
-    "integration_runtime::config_schema_export_matches_checked_in_file": {
-      "neutral": true,
-      "reason": "compares the exported configuration schema with schemas/configuration at the compile-time path (platform-neutral)"
-    },
-    "integration_projection_replace::own_sources_never_remove_outside_the_quarantine": {
-      "neutral": true,
-      "reason": "static scan of the crate sources at the compile-time path (platform-neutral)"
-    },
-    "integration_projection::production_code_never_unlinks_outside_quarantine": {
-      "neutral": true,
-      "reason": "static scan of the crate sources at the compile-time path (platform-neutral)"
-    },
-    "model_projection_recovery::recovery_table_rows_each_decide_as_their_row": {
-      "neutral": true,
-      "reason": "pure decision over the ADR-0007 §5.7 table, read from docs/ at the compile-time path (platform-neutral)"
-    },
-    "model_operations::u0b_adapter_bound::u0b_every_adapter_call_is_bounded": {
-      "neutral": true,
-      "reason": "static scan of crates/app/src at the compile-time path (platform-neutral)"
-    },
-    "model_operations::u0b_adapter_bound::u02_adapters_prepare_from_reads_no_store_or_live_source": {
-      "neutral": true,
-      "reason": "static scan of crates/adapters/src and crates/app/src at the compile-time path (platform-neutral)"
-    },
-    "model_sshconf_parse::corpus_files_are_inert_and_self_contained": {
-      "neutral": true,
-      "reason": "pure parse of tests/fixtures/sshconf/corpus at the compile-time path (platform-neutral)"
-    },
-    "model_sshconf_parse::corpus_roots_walk_cleanly_in_bytewise_order": {
-      "neutral": true,
-      "reason": "pure parse of tests/fixtures/sshconf/corpus at the compile-time path (platform-neutral)"
-    },
-    "model_sshconf_parse::corpus_lexer_file_splits_as_ssh_g_printed": {
-      "neutral": true,
-      "reason": "pure parse of tests/fixtures/sshconf/corpus at the compile-time path (platform-neutral)"
-    },
-    "heimdall_launch-unit::meta::tests::encoding_matches_the_committed_examples": {
-      "neutral": true,
-      "reason": "golden comparison with schemas/examples at the compile-time path (platform-neutral)"
-    },
-    "heimdall-unit::tui::view::tests::testbackend_snapshots_at_40x12_and_120x40": {
-      "neutral": true,
-      "reason": "golden TestBackend snapshots read at the compile-time path (platform-neutral rendering)"
-    },
-    "heimdall_domain-unit::operation::tests::journaled_kinds_golden_matches_operation_kind_names": {
-      "neutral": true,
-      "reason": "golden file read at the compile-time path (platform-neutral)"
-    },
-    "heimdall_domain-unit::projection::tests::rendered_is_built_only_by_the_renderers": {
-      "neutral": true,
-      "reason": "static scan of the crate sources at the compile-time path (platform-neutral)"
-    },
-    "model_operations::u0b_phase2::u0b_setup_without_projection_writer_is_capability_unavailable": {
-      "neutral": false,
-      "reason": "builds its requests from schemas/examples at the compile-time path; runs the runtime over the platform store"
-    },
-    "model_operations::wave0_fail_closed::w0_setup_and_catalog_on_a_session_are_never_dispatched": {
-      "neutral": false,
-      "reason": "builds its requests from schemas/examples at the compile-time path; runs a real IPC session (Unix socket or named pipe)"
-    },
-    "integration_projection_recovery_rows::recovery_table_rows_each_have_a_test_vector": {
-      "neutral": false,
-      "reason": "reads the ADR-0007 §5.7 rows from docs/ at the compile-time path, then runs every vector on the platform file system"
-    },
-    "integration_testkit_fixtures::counting_proxy_in_front_of_a_disposable_ssh_agent": {
-      "neutral": false,
-      "reason": "uses env!(\"CARGO_BIN_EXE_hm-fixture-hook\"), the build host's path, instead of HookBinary::locate (HM_FIXTURE_HOOK)"
-    },
-    "integration_testkit_fixtures::hook_modes_behave_as_documented": {
-      "neutral": false,
-      "reason": "uses env!(\"CARGO_BIN_EXE_hm-fixture-hook\"), the build host's path, instead of HookBinary::locate (HM_FIXTURE_HOOK)"
-    },
-    "integration_testkit_fixtures::disposable_agent_runs_with_scratch_home": {
-      "neutral": false,
-      "reason": "uses env!(\"CARGO_BIN_EXE_hm-fixture-hook\"), the build host's path, instead of HookBinary::locate (HM_FIXTURE_HOOK)"
-    },
-    "integration_testkit_fixtures::f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed": {
-      "neutral": false,
-      "reason": "uses env!(\"CARGO_BIN_EXE_hm-fixture-hook\"), the build host's path, instead of HookBinary::locate (HM_FIXTURE_HOOK)"
-    },
-    "integration_sshconf_vs_ssh_g::corpus_basic_patterns_wildcards_negation_and_first_value_match_ssh_g": {
-      "neutral": false,
-      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
-    },
-    "integration_sshconf_vs_ssh_g::corpus_identity_list_matches_ssh_g": {
-      "neutral": false,
-      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
-    },
-    "integration_sshconf_vs_ssh_g::corpus_nested_includes_and_bytewise_glob_order_match_ssh_g": {
-      "neutral": false,
-      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
-    },
-    "integration_sshconf_vs_ssh_g::include_state_is_restored_after_included_file": {
-      "neutral": false,
-      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
-    },
-    "integration_sshconf_vs_ssh_g::corpus_unsupported_syntax_loads_and_matches_ssh_g": {
-      "neutral": false,
-      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
-    },
-    "integration_sshconf_vs_ssh_g::corpus_retired_keywords_are_accepted_by_the_client": {
-      "neutral": false,
-      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
-    },
-    "integration_sshconf_vs_ssh_g::corpus_lexer_matches_ssh_g_and_command_text_is_the_raw_rest_of_the_line": {
-      "neutral": false,
-      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
-    },
-    "integration_sshconf_vs_ssh_g::bom_and_crlf_acceptance": {
-      "neutral": false,
-      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
-    },
-    "e2e_cli_m02::u9_usage_errors_exit_2_before_any_runtime_contact": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    },
-    "e2e_cli_m02::unix::a22_cli_setup_conflict_then_repair": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    },
-    "e2e_cli_m02::unix::multi_operation_repair_is_complete_only_when_doctor_reports_none_left": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    },
-    "e2e_cli_m02::unix::a22_cli_held_operation_status_retry_and_keep": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    },
-    "e2e_cli_m02::unix::a11_noninteractive_errors_exit_codes": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    },
-    "e2e_cli_m02::unix::a21_cli_doctor_json_validates_against_schema": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    },
-    "e2e_cli_m02::unix::catalog_commands_round_trip_and_declare_interaction_follows_the_confirmation_contract": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    },
-    "e2e_cli_m02::unix::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    },
-    "e2e_cli_m02::unix::uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses": {
-      "neutral": false,
-      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
-    }
+  "build_host_paths": {},
+  "platform_only": {
+    "e2e_cli_m02::unix::": [
+      "macos",
+      "linux"
+    ],
+    "e2e_cli_m02::ssh::": [
+      "macos",
+      "linux"
+    ],
+    "e2e_cli_m02::terminal::": [
+      "macos",
+      "linux"
+    ]
+  },
+  "platform_only_rationale": {
+    "e2e_cli_m02::unix::": "Pseudo-terminal cases (#[cfg(unix)]): the owner's typed confirmations (ADR-0006 §3.1) and the CLI prompts on a pty. Their --json and --non-interactive counterparts for uninstall, doctor, setup preview and status and the catalog are e2e_cli_m02::json::* and run on every platform; Windows interactive confirmation is the pseudoconsole drivers' row, which waits on B5 (ADR-0007 §12.32 item 4; ADR-0006 §13.13 item 5). a21_cli_inventory_wording_never_claims_completeness is here because its Match exec command is POSIX (/usr/bin/touch).",
+    "e2e_cli_m02::ssh::": "Ordinary ssh, Git, scp and sftp against the loopback fixture sshd with the owner's typed confirmations on a pty (#[cfg(unix)]); the Windows client rows are the native harness's and the B2/B4 owner-input rows (ADR-0007 §12.32 item 4).",
+    "e2e_cli_m02::terminal::": "The pty helpers' own regression (#[cfg(unix)]: rustix ptys); Windows has the pseudoconsole drivers (ADR-0007 §12.32 items 4, 6 and 10)."
   },
   "groups": {
     "A01": {

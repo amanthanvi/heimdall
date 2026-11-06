@@ -145,14 +145,26 @@ mod pty {
         rustix::stdio::dup2_stderr(&tty).unwrap();
         drop(tty);
         let argv: Vec<String> = serde_json::from_str(&argv).unwrap();
+        // The session starts with the default terminal signals, whatever the test runner
+        // ignored (ADR-0007 §12.32 item 9; `heimdall_testkit::term`).
+        heimdall_testkit::term::default_terminal_signals_for_exec().unwrap();
         let err = Command::new(&argv[0]).args(&argv[1..]).exec();
         panic!("exec failed: {err}");
     }
 
     // ---- the pty ---------------------------------------------------------------------
 
+    /// A pseudo-terminal. It holds a descriptor of its slave for its whole life (ADR-0007
+    /// §12.32 item 6): macOS forgets a pty's window size when the last descriptor of its
+    /// slave closes, and the program then starts with no size (the TUI falls back to
+    /// 80×24), so without it a case opened at 40×120 or 24×80 ran at another size. When
+    /// the session leader on it exits, macOS revokes the terminal's open descriptors, so
+    /// a dead held descriptor is replaced (and the size the test asked for applied again)
+    /// before the next use.
     struct Pty {
         master: Option<OwnedFd>,
+        slave_fd: Mutex<Option<OwnedFd>>,
+        size: Mutex<(u16, u16)>,
         slave: PathBuf,
         output: Arc<Mutex<Vec<u8>>>,
         stop: Arc<AtomicBool>,
@@ -168,6 +180,13 @@ mod pty {
             grantpt(&master).unwrap();
             unlockpt(&master).unwrap();
             let name = ptsname(&master, Vec::new()).unwrap();
+            let slave = PathBuf::from(OsStr::from_bytes(name.as_bytes()));
+            let slave_fd = rustix::fs::open(
+                &slave,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap();
             let output = Arc::new(Mutex::new(Vec::new()));
             let stop = Arc::new(AtomicBool::new(false));
             // Drain the terminal so the child never blocks on output. `poll` with a
@@ -201,7 +220,9 @@ mod pty {
             });
             let pty = Pty {
                 master: Some(master),
-                slave: PathBuf::from(OsStr::from_bytes(name.as_bytes())),
+                slave_fd: Mutex::new(Some(slave_fd)),
+                size: Mutex::new((rows, cols)),
+                slave,
                 output,
                 stop,
                 reader: Some(reader),
@@ -210,32 +231,39 @@ mod pty {
             pty
         }
 
-        fn open_slave(&self) -> OwnedFd {
-            rustix::fs::open(
-                &self.slave,
-                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY,
-                rustix::fs::Mode::empty(),
-            )
-            .unwrap()
+        /// A descriptor of the held slave: the held one, or, when the terminal revoked it
+        /// (its session leader exited), a fresh one that is held from then on, with the
+        /// size the test asked for applied again.
+        fn held_slave(&self) -> OwnedFd {
+            let mut held = self.slave_fd.lock().unwrap();
+            let alive = held
+                .as_ref()
+                .is_some_and(|fd| rustix::termios::tcgetwinsize(fd).is_ok());
+            if !alive {
+                let fd = rustix::fs::open(
+                    &self.slave,
+                    rustix::fs::OFlags::RDWR
+                        | rustix::fs::OFlags::NOCTTY
+                        | rustix::fs::OFlags::CLOEXEC,
+                    rustix::fs::Mode::empty(),
+                )
+                .unwrap();
+                let (rows, cols) = *self.size.lock().unwrap();
+                set_size(&fd, rows, cols);
+                *held = Some(fd);
+            }
+            held.as_ref().unwrap().try_clone().unwrap()
         }
 
         /// `TIOCSWINSZ` through the slave; the kernel signals the foreground group.
         fn resize(&self, rows: u16, cols: u16) {
-            tcsetwinsize(
-                self.open_slave(),
-                Winsize {
-                    ws_row: rows,
-                    ws_col: cols,
-                    ws_xpixel: 0,
-                    ws_ypixel: 0,
-                },
-            )
-            .unwrap();
+            *self.size.lock().unwrap() = (rows, cols);
+            set_size(&self.held_slave(), rows, cols);
         }
 
         /// The terminal's current mode, read through the slave.
         fn termios(&self) -> Termios {
-            tcgetattr(self.open_slave()).unwrap()
+            tcgetattr(self.held_slave()).unwrap()
         }
 
         fn write(&self, bytes: &[u8]) {
@@ -251,17 +279,27 @@ mod pty {
             self.transcript().matches(needle).count()
         }
 
-        /// Close every descriptor of the master: the terminal hangs up.
+        /// Close every descriptor of the master (and this test's slave descriptor): the
+        /// terminal hangs up.
         fn hang_up(&mut self) {
             self.stop.store(true, Ordering::SeqCst);
             if let Some(r) = self.reader.take() {
                 r.join().unwrap();
             }
             self.master = None;
+            *self.slave_fd.lock().unwrap() = None;
+        }
+
+        /// The window size the terminal has now, read through the held slave.
+        fn size(&self) -> (u16, u16) {
+            let w = rustix::termios::tcgetwinsize(self.held_slave()).unwrap();
+            (w.ws_row, w.ws_col)
         }
 
         /// The test entry's arguments for `argv` on this terminal.
         fn start(&self, env: &[(OsString, OsString)], cwd: &Path, argv: &[OsString]) -> Proc {
+            // A live held slave (and so the asked-for size) before the child opens it.
+            drop(self.held_slave());
             let argv: Vec<String> = argv
                 .iter()
                 .map(|a| a.to_str().unwrap().to_owned())
@@ -290,6 +328,19 @@ mod pty {
                 .unwrap();
             Proc(Some(child))
         }
+    }
+
+    fn set_size(fd: &OwnedFd, rows: u16, cols: u16) {
+        tcsetwinsize(
+            fd,
+            Winsize {
+                ws_row: rows,
+                ws_col: cols,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            },
+        )
+        .unwrap();
     }
 
     impl Drop for Pty {
@@ -709,6 +760,8 @@ mod pty {
         w.stub_ssh("exit 0");
         let pty = Pty::open(40, 120);
         let tui = started(&w, &pty, &[]);
+        // ADR-0007 §12.32 item 6: the case really runs at the size it opened the pty with.
+        assert_screen_size(&w, 40, 120);
         pty.write(b"2");
         w.wait_screen("the destinations", LONG, |s| {
             s.contains("alpha") && s.contains("beta")
@@ -1245,15 +1298,12 @@ mod pty {
         p
     }
 
-    /// A pty of exactly `rows`×`cols`, and a slave descriptor that keeps that size. On
-    /// macOS a pty forgets its window size when the last descriptor of its slave closes
-    /// (`Pty::open` closes its own at once), and the program then starts with no size and
-    /// the TUI falls back to 80×24; the descriptor is held for the test's life.
-    fn sized_pty(rows: u16, cols: u16) -> (Pty, OwnedFd) {
+    /// A pty of exactly `rows`×`cols`. [`Pty`] itself now holds the slave descriptor that
+    /// keeps the size (ADR-0007 §12.32 item 6), so this only checks the size took.
+    fn sized_pty(rows: u16, cols: u16) -> Pty {
         let pty = Pty::open(rows, cols);
-        let keep = pty.open_slave();
-        pty.resize(rows, cols);
-        (pty, keep)
+        assert_eq!(pty.size(), (rows, cols));
+        pty
     }
 
     const PAGE_DOWN: &[u8] = b"\x1b[6~";
@@ -1309,7 +1359,7 @@ mod pty {
                 .filter(|l| l.split_whitespace().any(|a| a == "-G"))
                 .count()
         };
-        let (pty, _size) = sized_pty(rows, cols);
+        let pty = sized_pty(rows, cols);
         let tui = started_at_any_width(&w, &pty);
         pty.write(b"2");
         w.wait_screen("alpha", LONG, |s| s.contains("alpha"));
@@ -1395,7 +1445,7 @@ mod pty {
         let w = World::new();
         w.stub_ssh("exit 0");
         let (decision, identity) = pending_declaration(&w);
-        let (pty, _size) = sized_pty(12, 40);
+        let pty = sized_pty(12, 40);
         let tui = started_at_any_width(&w, &pty);
         pty.write(b"4");
         w.wait_screen("the decision", LONG, |s| s.contains("[!!] dec_"));
@@ -1586,7 +1636,7 @@ mod pty {
         let squash = |s: &str| s.split_whitespace().collect::<String>();
         for (rows, cols) in [(40u16, 120u16), (12, 40)] {
             let small = rows < 40;
-            let (pty, _size) = sized_pty(rows, cols);
+            let pty = sized_pty(rows, cols);
             let tui = started_at_any_width(&w, &pty);
             pty.write(b"4");
             w.wait_screen("the decision", LONG, |s| s.contains("[!!] dec_"));
@@ -1650,7 +1700,7 @@ mod pty {
         let w = World::new();
         w.stub_ssh("exit 0");
         let (decision, _) = pending_declaration(&w);
-        let (pty, _size) = sized_pty(12, 40);
+        let pty = sized_pty(12, 40);
         let tui = started_at_any_width(&w, &pty);
         pty.write(b"4");
         w.wait_screen("the decision", LONG, |s| s.contains("[!!] dec_"));

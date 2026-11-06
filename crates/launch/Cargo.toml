@@ -25,3 +25,6 @@ serde_json = { workspace = true }
 # their time arithmetic; both workspace-pinned.
 proptest = { workspace = true }
 jiff = { workspace = true }
+# The repository root for the tests that read repository files (HM_REPO_ROOT; ADR-0007
+# §12.32 item 3). A dev-dependency cycle like heimdall-ipc's: no store or app graph.
+heimdall-testkit = { workspace = true, default-features = false }

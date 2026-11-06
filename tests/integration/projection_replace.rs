@@ -2023,7 +2023,8 @@ fn private_key_files_never_opened() {
 /// `production_code_never_unlinks_outside_quarantine`).
 #[test]
 fn own_sources_never_remove_outside_the_quarantine() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // This crate's sources, through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+    let root = heimdall_testkit::repo::repo_path("crates/localenv");
     let tokens = [
         "unlinkat",
         "remove_file",

@@ -27,11 +27,10 @@
 //!   each held step's role, path and reason and what each observed name holds, both
 //!   repair commands, every non-empty quarantine directory with its entries, and the
 //!   snapshots under `<state>/backups` (ADR-0007 §5.5).
-//! * **Snapshots** (ADR-0007 §5.5, §12.30 item 7). Before an effect whose plan edits the
-//!   user's SSH configuration is first submitted, its original bytes are copied once to
-//!   `<state>/backups/ssh_config.<UTC timestamp>.orig` ([`snapshot_before_edit`]); an
-//!   edit whose original cannot be copied (a stale base: `CONFIG_CONFLICT`; an I/O
-//!   failure: `INTERNAL_ERROR`) is never submitted.
+//! * **Snapshots** (ADR-0007 §5.5, §12.32 item 2) are the writer's, not this CLI's: the
+//!   projection writer copies an original user file (the SSH configuration, the global Git
+//!   file) to `<state>/backups` before its first edit of it, whoever submitted the
+//!   operation. This module only lists them in `status`.
 //! * **A replayed request ID** whose plan changed stays `REQUEST_CONFLICT` (exit 6); the
 //!   message says why (ADR-0007 §12.30 item 12).
 //!
@@ -488,107 +487,6 @@ async fn effect(ctx: &Ctx, intent: PreviewIntent, given: Option<String>) -> Outc
     finish_repair(ctx, &intent, out)
 }
 
-/// The snapshot name of the user's SSH configuration (ADR-0007 §5.5:
-/// `<state_dir>/backups/ssh_config.<UTC timestamp>.orig`).
-pub(crate) const SSH_SNAPSHOT_NAME: &str = "ssh_config";
-
-/// The base digest of the user's SSH configuration in `plan` when the plan edits it (a
-/// `user_ssh` file change whose bytes exist before and differ after), else `None`.
-fn user_file_edit(plan: &serde_json::Value) -> Option<String> {
-    plan.get("files")?.as_array()?.iter().find_map(|f| {
-        let before = f.get("before_sha256")?.as_str()?;
-        (f.get("role").and_then(|r| r.as_str()) == Some("user_ssh")
-            && f.get("after_sha256").and_then(|a| a.as_str()) != Some(before))
-        .then(|| before.to_owned())
-    })
-}
-
-/// ⟨M02⟩ ADR-0007 §5.5 "Snapshots" (§12.30 item 7): before the first edit of the user's
-/// SSH configuration, its original bytes are copied to
-/// `<state_dir>/backups/ssh_config.<UTC timestamp>.orig` (owner-only), through
-/// `heimdall_localenv::projection::apply::snapshot_original`. Run by the control session
-/// just before a setup effect whose `plan` edits that file is first submitted (an
-/// apply that inserts the block, a block repair, a rollback); a snapshot taken before
-/// an earlier edit is kept and none is added. The copy is of the bytes the plan was
-/// computed from. No edit is submitted without it ([`snapshot_at`]).
-///
-/// The writer itself cannot take it: its configuration holds no state directory
-/// (escalated, W5-fix), so an API caller that bypasses this CLI gets no snapshot.
-pub(crate) fn snapshot_before_edit(
-    ctx: &Ctx,
-    plan: &serde_json::Value,
-    now: heimdall_contract::Timestamp,
-) -> Result<(), Box<Envelope<serde_json::Value>>> {
-    if user_file_edit(plan).is_none() {
-        return Ok(());
-    }
-    // A test configuration without a scratch SSH home never reads the account's own
-    // file (AGENTS.md; its runtime wires no projection either, ADR-0007 §12.30 item 3):
-    // nothing is read, copied or submitted.
-    if test_config_without_ssh_home(&|n| std::env::var_os(n)) {
-        return Err(Box::new(failure(
-            Code::UsageError,
-            "a test configuration without a scratch SSH home: the original SSH configuration is not read or copied; nothing was submitted",
-            None,
-        )));
-    }
-    let ssh = crate::doctor_cmd::account_ssh_paths().map_err(|o| Box::new(o.env))?;
-    let heimdall = ctx.paths().map_err(|e| Box::new(output::error_value(*e)))?;
-    snapshot_at(
-        &ssh.user_config,
-        &heimdall.state_dir.join("backups"),
-        plan,
-        now,
-    )
-}
-
-/// Whether `env` holds a test configuration (any `HEIMDALL_TEST_*` variable the
-/// runtime's or `run`'s test configuration reads) without a scratch SSH home
-/// (`HEIMDALL_TEST_SSH_HOME`): then the account's own SSH files are never read.
-fn test_config_without_ssh_home(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
-    let testing = crate::testcfg::requested_by(env)
-        || crate::testcfg::LAUNCH_ENV.iter().any(|n| env(n).is_some());
-    testing && env(crate::testcfg::SSH_HOME_ENV).is_none()
-}
-
-/// [`snapshot_before_edit`] for the user file `user_config` and the directory `backups`.
-/// A plan that does not edit an existing user file needs none. Otherwise:
-///
-/// * a snapshot is written, or one taken before an earlier first edit is kept: `Ok`;
-/// * the file here is gone or holds other bytes than the plan's base (the plan is
-///   stale, or this process reads another file than the runtime): `CONFIG_CONFLICT`,
-///   as the runtime refuses a stale plan, and nothing is submitted, so no edit runs
-///   without its original copied;
-/// * the copy cannot be made: `INTERNAL_ERROR` with the I/O kind (never a path), and
-///   nothing is submitted.
-fn snapshot_at(
-    user_config: &std::path::Path,
-    backups: &std::path::Path,
-    plan: &serde_json::Value,
-    now: heimdall_contract::Timestamp,
-) -> Result<(), Box<Envelope<serde_json::Value>>> {
-    use heimdall_localenv::projection::apply::{Snapshot, snapshot_original};
-    let Some(base) = user_file_edit(plan) else {
-        return Ok(());
-    };
-    match snapshot_original(user_config, backups, SSH_SNAPSHOT_NAME, Some(&base), now) {
-        Ok(Snapshot::Written(_) | Snapshot::Exists(_)) => Ok(()),
-        Ok(Snapshot::Changed | Snapshot::Absent) => Err(Box::new(failure(
-            Code::ConfigConflict,
-            "preview is stale: the SSH configuration changed since the plan was shown, so its original could not be copied to the backups directory; nothing was submitted; preview again",
-            None,
-        ))),
-        Err(e) => Err(Box::new(failure(
-            Code::InternalError,
-            &format!(
-                "the original SSH configuration could not be copied to the backups directory ({:?}); nothing was submitted",
-                e.kind()
-            ),
-            None,
-        ))),
-    }
-}
-
 /// The held operation a held repair names.
 fn held_target(intent: &PreviewIntent) -> Option<(RepairResolution, &OperationId)> {
     match intent {
@@ -701,10 +599,6 @@ pub(crate) async fn setup_flow<S: Session, P: Prompter>(
         let request = Request::Setup(effect_request(intent, digest, rid));
         let env = s.request(request.clone()).await;
         return result_outcome(settle(s, request, env).await);
-    }
-    // ADR-0007 §5.5 "Snapshots": the original user file is copied before its first edit.
-    if let Err(env) = s.before_effect(ctx, &preview.data) {
-        return Outcome::of(*env).with_human(plan_text);
     }
     let request = Request::Setup(effect_request(intent, digest.clone(), rid.clone()));
     let env = decided_request(s, p, ctx, request, &plan_text, Some(digest.as_str())).await;
@@ -1672,141 +1566,5 @@ mod tests {
             serde_json::to_value(request_conflict_explained(ok.clone(), &rid())).ok(),
             serde_json::to_value(ok).ok()
         );
-    }
-
-    /// ADR-0007 §5.5 "Snapshots" (§12.30 item 7): only a plan that edits an existing
-    /// user SSH configuration takes the snapshot, from the base digest it previewed.
-    #[test]
-    fn only_an_edit_of_an_existing_user_file_takes_the_snapshot() {
-        let change = |role: &str, before: Option<&str>, after: Option<&str>| {
-            let mut f = serde_json::json!({"role": role, "path_display": "~/x", "diff": ""});
-            if let Some(b) = before {
-                f["before_sha256"] = serde_json::json!(b);
-            }
-            if let Some(a) = after {
-                f["after_sha256"] = serde_json::json!(a);
-            }
-            serde_json::json!({ "files": [f] })
-        };
-        let a = "aa".repeat(32);
-        let b = "bb".repeat(32);
-        assert_eq!(
-            user_file_edit(&change("user_ssh", Some(&a), Some(&b))),
-            Some(a.clone())
-        );
-        assert_eq!(
-            user_file_edit(&change("user_ssh", Some(&a), None)),
-            Some(a.clone()),
-            "a removal of the file is an edit too"
-        );
-        for no in [
-            change("user_ssh", None, Some(&b)),
-            change("user_ssh", Some(&a), Some(&a)),
-            change("managed_ssh", Some(&a), Some(&b)),
-            change("git_include", Some(&a), Some(&b)),
-            serde_json::json!({ "files": [] }),
-        ] {
-            assert_eq!(user_file_edit(&no), None, "{no}");
-        }
-    }
-
-    /// A test configuration without a scratch SSH home never reads the account's own
-    /// SSH files: any test variable without `HEIMDALL_TEST_SSH_HOME` is refused before
-    /// anything is read; with it, or with no test variable at all, the snapshot goes on.
-    #[test]
-    fn a_test_configuration_without_a_scratch_ssh_home_reads_no_account_file() {
-        use crate::testcfg::{ALL_ENV, LAUNCH_ENV, SSH_HOME_ENV};
-        let set = |names: Vec<&'static str>| {
-            move |n: &str| {
-                names
-                    .contains(&n)
-                    .then(|| std::ffi::OsString::from("/scratch"))
-            }
-        };
-        assert!(!test_config_without_ssh_home(&set(vec![])));
-        assert!(!test_config_without_ssh_home(&set(vec![SSH_HOME_ENV])));
-        for name in ALL_ENV.iter().chain(&LAUNCH_ENV).copied() {
-            if name == SSH_HOME_ENV {
-                continue;
-            }
-            assert!(test_config_without_ssh_home(&set(vec![name])), "{name}");
-            assert!(
-                !test_config_without_ssh_home(&set(vec![name, SSH_HOME_ENV])),
-                "{name}"
-            );
-        }
-    }
-
-    /// ADR-0007 §5.5 "Snapshots": no edit is submitted without its original copied. An
-    /// edit of the plan's base bytes writes the snapshot (the original bytes) and a
-    /// later edit keeps it; a file that is gone or holds other bytes than the plan's
-    /// base is `CONFIG_CONFLICT` (stale, as the runtime says) with nothing written; a
-    /// backups path that cannot hold the copy is `INTERNAL_ERROR`; the paths never
-    /// appear in a refusal; a plan that edits nothing takes no snapshot.
-    #[test]
-    fn no_edit_is_submitted_without_its_original_copied() {
-        use heimdall_domain::projection::Sha256Hex;
-        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let user = dir.path().join("config");
-        let backups = dir.path().join("state").join("backups");
-        std::fs::create_dir_all(dir.path().join("state")).unwrap_or_else(|e| panic!("{e}"));
-        let original = b"Host other\n    User fixture\n";
-        std::fs::write(&user, original).unwrap_or_else(|e| panic!("{e}"));
-        let edit = |base: &[u8]| {
-            serde_json::json!({ "files": [{
-                "role": "user_ssh", "path_display": "~/.ssh/config", "diff": "",
-                "before_sha256": Sha256Hex::of(base).as_str(),
-                "after_sha256": "cc".repeat(32),
-            }]})
-        };
-        let now = heimdall_contract::Timestamp::now();
-        let shown = |e: &Envelope<serde_json::Value>| serde_json::to_string(e).unwrap_or_default();
-        let listed = || -> Vec<std::path::PathBuf> {
-            std::fs::read_dir(&backups)
-                .map(|rd| rd.filter_map(Result::ok).map(|e| e.path()).collect())
-                .unwrap_or_default()
-        };
-        // Other bytes than the plan's base (the file holds `original`, the plan was
-        // computed from other bytes), or no file at all: stale, nothing written.
-        let stale = |e: Result<(), Box<Envelope<serde_json::Value>>>| {
-            let Err(e) = e else {
-                panic!("a stale base is refused");
-            };
-            assert_eq!(e.code, Code::ConfigConflict, "{}", shown(&e));
-            assert!(shown(&e).contains("nothing was submitted"), "{}", shown(&e));
-            assert!(!shown(&e).contains(&dir.path().display().to_string()));
-            assert!(listed().is_empty(), "nothing was copied");
-        };
-        stale(snapshot_at(&user, &backups, &edit(b"other bytes"), now));
-        std::fs::remove_file(&user).unwrap_or_else(|e| panic!("{e}"));
-        stale(snapshot_at(&user, &backups, &edit(original), now));
-        std::fs::write(&user, original).unwrap_or_else(|e| panic!("{e}"));
-        // Nothing edited: no snapshot.
-        assert!(snapshot_at(&user, &backups, &serde_json::json!({"files": []}), now).is_ok());
-        assert!(!backups.exists());
-        // The plan's base: copied once, and kept by a later edit.
-        assert!(snapshot_at(&user, &backups, &edit(original), now).is_ok());
-        let taken = listed();
-        assert_eq!(taken.len(), 1, "{taken:?}");
-        assert_eq!(
-            std::fs::read(&taken[0]).ok().as_deref(),
-            Some(&original[..])
-        );
-        let later = b"Host other\n    User later\n";
-        std::fs::write(&user, later).unwrap_or_else(|e| panic!("{e}"));
-        assert!(snapshot_at(&user, &backups, &edit(later), now).is_ok());
-        assert_eq!(listed(), taken, "the first original is kept");
-        assert_eq!(
-            std::fs::read(&taken[0]).ok().as_deref(),
-            Some(&original[..])
-        );
-        // A backups path that is a file: the copy cannot be made.
-        let blocked = dir.path().join("blocked");
-        std::fs::write(&blocked, b"").unwrap_or_else(|e| panic!("{e}"));
-        let Err(e) = snapshot_at(&user, &blocked, &edit(later), now) else {
-            panic!("an impossible copy is refused");
-        };
-        assert_eq!(e.code, Code::InternalError, "{}", shown(&e));
-        assert!(!shown(&e).contains(&dir.path().display().to_string()));
     }
 }

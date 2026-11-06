@@ -401,7 +401,10 @@ impl World {
 
     fn projection_config(home: &ScratchHome, hook: &Arc<Hook>) -> ProjectionConfig {
         let paths = SshPaths::with_test_override(home.git_home.clone(), home.root.join("etc-ssh"));
-        let mut c = ProjectionConfig::new(paths, Platform::current(), home.config_dir.clone());
+        // The snapshot of an original user file is the writer's (ADR-0007 §12.32 item 2):
+        // the state directory is the scratch one.
+        let mut c = ProjectionConfig::new(paths, Platform::current(), home.config_dir.clone())
+            .with_state_dir(home.state_dir.clone());
         let h: Arc<dyn ReplaceHook> = hook.clone();
         c.hook = Some(h);
         // Git's global files resolve under the scratch home (never the account's).
@@ -866,6 +869,10 @@ async fn apply_after_base_change_is_config_conflict_and_nothing_written() {
         .transaction(|tx| tx.open_setup_operations(&env_id()))
         .unwrap();
     assert!(open.is_empty());
+    assert!(
+        !w.home.state_dir.join("backups").exists(),
+        "a stale plan takes no snapshot"
+    );
 
     // After the decision: approve, the recomputed plan differs, nothing written.
     let plan = w
@@ -887,6 +894,204 @@ async fn apply_after_base_change_is_config_conflict_and_nothing_written() {
     assert_eq!(rec.code, Some(Code::ConfigConflict));
     assert_eq!(rec.effect_status, EffectStatus::None);
     assert_eq!(w.tree(), before, "nothing written");
+    assert_eq!(w.writer.applies.load(Ordering::SeqCst), 0);
+    assert!(
+        !w.home.state_dir.join("backups").exists(),
+        "a refused apply takes no snapshot either"
+    );
+}
+
+/// The snapshots under `<state>/backups` whose name starts with `name.`, sorted.
+fn snapshots_of(w: &World, name: &str) -> Vec<PathBuf> {
+    let prefix = format!("{name}.");
+    let mut found: Vec<PathBuf> = std::fs::read_dir(w.home.state_dir.join("backups"))
+        .map(|rd| {
+            rd.filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                .map(|e| e.path())
+                .collect()
+        })
+        .unwrap_or_default();
+    found.sort();
+    found
+}
+
+/// ADR-0007 §5.5 "Snapshots", §12.32 item 2 (Q-W5): the snapshot of the original user
+/// file is the writer's, so an apply submitted through `Operations` alone (no CLI, no
+/// TUI: the caller of every other client) copies the original to
+/// `<state>/backups/ssh_config.<UTC timestamp>.orig` (0600, the original bytes) before
+/// the first edit; a preview takes none; a rollback, which edits the file again, keeps
+/// the first copy and adds none.
+#[tokio::test]
+async fn apply_through_operations_snapshots_the_original_user_file() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let w = World::new().await;
+    w.catalog_alpha().await;
+    let original: &[u8] = b"Host other\n    User fixture\n";
+    std::fs::write(w.user(), original).unwrap();
+    let plan = w
+        .preview(PreviewIntent::Apply { include_git: false })
+        .await
+        .unwrap();
+    assert!(
+        snapshots_of(&w, "ssh_config").is_empty(),
+        "a preview takes no snapshot"
+    );
+    let e = w
+        .effect(&attended(), "apply", &plan.plan_digest, "r-snapshot")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ApprovalRequired, "{e:?}");
+    assert!(
+        snapshots_of(&w, "ssh_config").is_empty(),
+        "nothing is copied while the decision is pending"
+    );
+    let op = e.operation_id.clone().unwrap();
+    w.decide(e.next.decision_ref.as_deref().unwrap(), Verdict::Approve)
+        .await
+        .unwrap();
+    assert_eq!(w.op(&op).state, OperationState::Succeeded);
+    let taken = snapshots_of(&w, "ssh_config");
+    assert_eq!(taken.len(), 1, "{taken:?}");
+    let name = taken[0].file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        name.ends_with("Z.orig") && name.len() == "ssh_config.20261103T090807Z.orig".len(),
+        "{name}"
+    );
+    assert_eq!(std::fs::read(&taken[0]).unwrap(), original);
+    assert_eq!(
+        std::fs::metadata(&taken[0]).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_ne!(
+        std::fs::read(w.user()).unwrap(),
+        original,
+        "the apply edited the user file after the copy"
+    );
+    // A rollback edits the user file again and keeps the first original.
+    let rollback = w
+        .preview(PreviewIntent::Rollback {
+            keep_key_files: false,
+            items: [ProjectionItem::Ssh].into_iter().collect(),
+        })
+        .await
+        .unwrap();
+    w.effect(
+        &attended(),
+        "rollback",
+        &rollback.plan_digest,
+        "r-snapshot-rb",
+    )
+    .await
+    .unwrap();
+    assert_eq!(snapshots_of(&w, "ssh_config"), taken, "no second snapshot");
+    assert_eq!(std::fs::read(&taken[0]).unwrap(), original);
+}
+
+/// The runtime's writer, but every preview carries `pad` more bytes of diff: the real
+/// writer emits a diff beyond `MAX_DIFF_BYTES` only for a plan of a few hundred aliases.
+struct Padded {
+    inner: Arc<dyn ProjectionWriter>,
+    pad: usize,
+}
+
+impl ProjectionWriter for Padded {
+    fn preview(
+        &self,
+        spec: &ProjectionSpec,
+        intent: &PreviewIntent,
+    ) -> Result<ProjectionPlan, PreviewError> {
+        let mut plan = self.inner.preview(spec, intent)?;
+        let extra = format!("+{}\n", "x".repeat(self.pad.saturating_sub(2)));
+        if let Some(f) = plan.view.files.first_mut() {
+            f.diff.push_str(&extra);
+        }
+        if let Some(s) = plan.summary.as_mut() {
+            s.diff_text.push_str(&extra);
+        }
+        Ok(plan)
+    }
+    fn apply(
+        &self,
+        intent: &SetupIntent,
+        sink: &mut dyn StageSink,
+    ) -> Result<ProjectionReceipt, ReconcileError> {
+        self.inner.apply(intent, sink)
+    }
+    fn reconcile(
+        &self,
+        intent: &SetupIntent,
+        receipts: &[StageReceipt],
+        sink: &mut dyn StageSink,
+    ) -> Result<ProjectionReconcile, ReconcileError> {
+        self.inner.reconcile(intent, receipts, sink)
+    }
+    fn observe(&self, record: &ProjectionRecord, aliases: &[String]) -> Vec<AliasObservation> {
+        self.inner.observe(record, aliases)
+    }
+    fn observe_held(
+        &self,
+        intent: &SetupIntent,
+        receipts: &[StageReceipt],
+    ) -> Result<Vec<HeldStep>, ReconcileError> {
+        self.inner.observe_held(intent, receipts)
+    }
+}
+
+/// ADR-0007 §12.32 item 5: a plan whose full diff exceeds `MAX_DIFF_BYTES` is refused,
+/// never cut. The preview, and an apply naming a digest the preview showed before the
+/// diff outgrew the bound, answer `CAPABILITY_UNAVAILABLE` with reason `plan_too_large`
+/// and effect `none` before anything is journaled, decided, written or copied: no
+/// operation, decision, event or idempotency row, and no file. (The boundary itself, one
+/// byte either way, is `setup::tests::a_diff_is_refused_one_byte_over_the_bound_and_never_cut`.)
+#[tokio::test]
+async fn a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled() {
+    use heimdall_contract::setup::MAX_DIFF_BYTES;
+    let mut w = World::new().await;
+    w.catalog_alpha().await;
+    std::fs::write(w.user(), "Host other\n    User fixture\n").unwrap();
+    let fitting = w
+        .preview(PreviewIntent::Apply { include_git: false })
+        .await
+        .unwrap();
+    let whole: usize = fitting.files.iter().map(|f| f.diff.len()).sum();
+    assert!(whole > 0 && whole < MAX_DIFF_BYTES, "{whole}");
+    let counts = |w: &World| w.store.transaction(|tx| tx.table_counts()).unwrap();
+    // One byte over the bound in total: refused.
+    let inner: Arc<dyn ProjectionWriter> = w.writer.clone();
+    let padded: Arc<dyn ProjectionWriter> = Arc::new(Padded {
+        inner,
+        pad: MAX_DIFF_BYTES - whole + 1,
+    });
+    w.ops = Operations::start(OperationsConfig {
+        projection: Some(padded),
+        ..World::config_of(&w.store, &w.clock, &w.sync, &w.writer, w.limits)
+    })
+    .await
+    .unwrap();
+    let before_rows = counts(&w);
+    let before_tree = w.tree();
+    let refused = |e: &OpError| {
+        assert_eq!(e.code, Code::CapabilityUnavailable, "{e:?}");
+        assert_eq!(e.reason.as_deref(), Some(reason::PLAN_TOO_LARGE), "{e:?}");
+        assert_eq!(e.effect_status, EffectStatus::None, "{e:?}");
+        assert!(e.operation_id.is_none(), "nothing is admitted: {e:?}");
+        assert!(e.message.contains("never shown cut"), "{}", e.message);
+    };
+    let e = w
+        .preview(PreviewIntent::Apply { include_git: false })
+        .await
+        .unwrap_err();
+    refused(&e);
+    let e = w
+        .effect(&attended(), "apply", &fitting.plan_digest, "r-too-large")
+        .await
+        .unwrap_err();
+    refused(&e);
+    assert_eq!(counts(&w), before_rows, "nothing was journaled");
+    assert!(w.decisions().is_empty());
+    assert_eq!(w.tree(), before_tree, "nothing was written");
+    assert!(!w.home.state_dir.join("backups").exists());
     assert_eq!(w.writer.applies.load(Ordering::SeqCst), 0);
 }
 

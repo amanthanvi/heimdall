@@ -1799,8 +1799,8 @@ mod tests {
     /// Compare with the committed snapshot `snapshots/<name>.txt`. With
     /// `HEIMDALL_TUI_UPDATE_SNAPSHOTS=1` the file is written instead (review the diff).
     fn snapshot(name: &str, rows: &[String]) {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/tui/snapshots")
+        // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+        let path = heimdall_testkit::repo::repo_path("crates/heimdall/src/tui/snapshots")
             .join(format!("{name}.txt"));
         let text = rows.join("\n") + "\n";
         if std::env::var_os("HEIMDALL_TUI_UPDATE_SNAPSHOTS").is_some() {

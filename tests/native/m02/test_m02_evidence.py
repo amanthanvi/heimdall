@@ -855,6 +855,25 @@ class Records(unittest.TestCase):
         self.assertEqual(rec["blocked_on"], "a Windows 11 x64 host (synthetic)")
         self.assertEqual(ev.validate_record(rec), [])
 
+    def test_tests_of_an_unavailable_platform_are_never_looked_for_in_the_logs(self):
+        # ADR-0007 §12.32 item 10: a Windows-only test, with Windows marked unavailable
+        # (nothing ran there), is not "not found in any log"; its row is blocked instead.
+        index = copy(INDEX)
+        index["groups"]["G2"]["tests"] = {"t_exact": ["e1", "e_other"]}
+        index["platform_only"] = {"t_exact::e_other": ["windows"]}
+        s = Scratch(self, index=index, platforms={"windows": {"unavailable": "a Windows host (synthetic)"}})
+        for name in ("windows.log", "windows.commands", "windows.facts"):
+            (s.dir / name).unlink()
+        rc, summary, err = s.run()
+        self.assertNotIn("not found in any log", err)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(row_status(summary, "G2", "windows"), "blocked")
+        # The same test with Windows available but absent from its log is still reported.
+        s = Scratch(self, index=index)
+        rc, summary, err = s.run()
+        self.assertIn("G2: t_exact::e_other not found in any log", err)
+        self.assertEqual(rc, 1)
+
     def test_a_missing_capability_blocks_the_row_and_the_record_names_it(self):
         logs = full_logs()
         del logs["t_pre"]
@@ -906,6 +925,139 @@ class Records(unittest.TestCase):
 
 
 # --- platform-tests.py ---------------------------------------------------------------------
+
+
+# --- the Windows local-mode bundle (ADR-0007 §12.32 item 17) ------------------------------
+
+wb = load("import_windows_bundle", "import-windows-bundle.py")
+
+
+def make_bundle(files=None, commit="1" * 40, label="windows-synthetic", tamper=None):
+    """A bundle as run-windows-local.ps1 writes it: JSON, gzip, base64 between the markers."""
+    import base64
+    import gzip
+    import hashlib
+    base = {
+        "tests.txt": "### model_setup\nrunning 1 test\ntest a ... ok\n### model_setup exit=0\n",
+        "commands.txt": "exit 0: every test binary natively\n",
+        "host.txt": "os=Microsoft Windows [Version 10.0.26100.1000]\nssh-V-inbox=OpenSSH_for_Windows_10.3p1 (exit 0)\n",
+        "build.txt": "",
+        "skipped.txt": "",
+        "canary-scan.txt": "canary-prefix occurrences in saved output: 0\n",
+    }
+    base.update(files or {})
+    doc = {"format": wb.FORMAT, "commit": commit, "label": label,
+           "files": base, "sha256": {k: hashlib.sha256(v.encode()).hexdigest() for k, v in base.items()}}
+    if tamper:
+        tamper(doc)
+    packed = gzip.compress(json.dumps(doc).encode())
+    b64 = base64.b64encode(packed).decode()
+    lines = [wb.BEGIN, "sha256-gzip: " + hashlib.sha256(packed).hexdigest()]
+    lines += [b64[i:i + 76] for i in range(0, len(b64), 76)]
+    lines.append(wb.END)
+    return "agent report text before\n" + "\n".join(lines) + "\nand after\n"
+
+
+class WindowsBundle(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="m02wb")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "artifacts"
+
+    def test_a_valid_bundle_is_imported_where_the_generator_reads_it(self):
+        dest, digest, n = wb.import_bundle(make_bundle(), "exit-x", self.root, commit="1" * 40)
+        self.assertEqual(dest, self.root / "exit-x" / "windows")
+        self.assertEqual(sorted(p.name for p in dest.iterdir()), sorted(wb.FILES))
+        self.assertEqual(ev.parse_log(dest / "tests.txt"), {"model_setup": {"a": "ok"}})
+        self.assertEqual(ev.parse_commands(dest / "commands.txt"), {"every test binary natively": 0})
+        self.assertEqual(len(digest), 64)
+        self.assertEqual(n, 1)
+        self.assertFalse((self.root / "exit-x" / ".windows-import").exists())
+
+    def test_the_config_is_pointed_at_the_files_and_loses_its_unavailable_mark(self):
+        cfg_path = Path(self.tmp.name) / "runs.json"
+        cfg = {"artifacts_root": str(self.root / "exit-x"),
+               "platforms": {"windows": {"label": "old", "unavailable": "the PC was unreachable"}}}
+        cfg_path.write_text(json.dumps(cfg))
+        _, digest, _ = wb.import_bundle(make_bundle(), "exit-x", self.root, config=cfg_path)
+        win = json.loads(cfg_path.read_text())["platforms"]["windows"]
+        self.assertNotIn("unavailable", win)
+        self.assertEqual(win["logs"], ["windows/tests.txt"])
+        self.assertEqual(win["commands_logs"], ["windows/commands.txt"])
+        self.assertEqual(win["facts"], ["windows/host.txt"])
+        self.assertEqual(win["label"], "windows-synthetic")
+        self.assertEqual(win["artifact_digest"], digest)
+        # load_platforms reads exactly those files.
+        plats = ev.load_platforms(json.loads(cfg_path.read_text()))
+        self.assertIn("model_setup", plats["windows"][1])
+
+    def test_a_refused_bundle_writes_nothing(self):
+        def drop(name):
+            return lambda d: d["files"].pop(name) and d["sha256"].pop(name)
+
+        def rename(d):
+            d["files"]["../escape.txt"] = d["files"].pop("build.txt")
+            d["sha256"]["../escape.txt"] = d["sha256"].pop("build.txt")
+
+        cases = {
+            "no markers": "nothing here",
+            "payload sha": make_bundle().replace("sha256-gzip: ", "sha256-gzip: 00"),
+            "file sha": make_bundle(tamper=lambda d: d["sha256"].update({"tests.txt": "0" * 64})),
+            "a missing file": make_bundle(tamper=drop("build.txt")),
+            "a path": make_bundle(tamper=rename),
+            "another format": make_bundle(tamper=lambda d: d.update({"format": "x/1"})),
+            "a short commit": make_bundle(commit="abc"),
+            "another commit": make_bundle(commit="2" * 40),
+            "a canary": make_bundle({"tests.txt": "### t\ntest a ... ok\nHEIMDALL_CANARY_x\n### t exit=0\n"}),
+            "a SID": make_bundle({"host.txt": "user=S-1-5-21-1-2-3-1001\n"}),
+            "an Entra SID": make_bundle({"host.txt": "user=S-1-12-1-1-2-3-4\n"}),
+            "an address": make_bundle({"build.txt": "peer 203.0.113.9\n"}),
+            "no results": make_bundle({"tests.txt": "nothing\n"}),
+            "no commands": make_bundle({"commands.txt": "\n"}),
+        }
+        for why, text in cases.items():
+            with self.subTest(why):
+                with self.assertRaises(wb.Refused):
+                    wb.import_bundle(text, "exit-x", self.root, commit="1" * 40)
+                self.assertFalse((self.root / "exit-x" / "windows").exists(), why)
+                self.assertFalse((self.root / "exit-x" / ".windows-import").exists(), why)
+
+    def test_an_existing_import_is_never_overwritten_and_a_bad_label_is_refused(self):
+        wb.import_bundle(make_bundle(), "exit-x", self.root)
+        before = (self.root / "exit-x" / "windows" / "tests.txt").read_text()
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(make_bundle({"tests.txt": "### t\ntest b ... ok\n### t exit=0\n"}), "exit-x", self.root)
+        self.assertEqual((self.root / "exit-x" / "windows" / "tests.txt").read_text(), before)
+        for bad in ("", "../up", "a/b", ".hidden", "-x"):
+            with self.assertRaises(wb.Refused):
+                wb.import_bundle(make_bundle(), bad, self.root)
+
+    def test_a_config_whose_artifacts_root_is_elsewhere_is_refused_before_writing(self):
+        cfg_path = Path(self.tmp.name) / "runs.json"
+        cfg_path.write_text(json.dumps({"artifacts_root": str(Path(self.tmp.name) / "other"), "platforms": {}}))
+        with self.assertRaises(wb.Refused):
+            wb.import_bundle(make_bundle(), "exit-x", self.root, config=cfg_path)
+        self.assertFalse((self.root / "exit-x" / "windows").exists())
+
+    def test_the_powershell_runner_selftest_bundle_imports(self):
+        # The runner's own bundle writer (run-windows-local.ps1 -SelfTest), when PowerShell 7
+        # is installed here; a skip otherwise.
+        import shutil
+        pwsh = shutil.which("pwsh")
+        if not pwsh:
+            self.skipTest("pwsh is not installed on this host")
+        out = Path(self.tmp.name) / "ps"
+        r = subprocess.run([pwsh, "-NoProfile", "-File", str(HERE / "run-windows-local.ps1"), "-SelfTest", "-Out", str(out)],
+                           capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("0 failed", r.stdout)
+        dest, _, n = wb.import_bundle((out / "bundle.b64").read_text(), "exit-ps", self.root, commit="0" * 40)
+        tests = (dest / "tests.txt").read_text()
+        self.assertGreaterEqual(n, 3)
+        for value in ("fixtureuser", "FIXTUREHOST", "wslfixture", "HEIMDALL_CANARY_", "3333333333", "203.0.113.9"):
+            self.assertNotIn(value.lower(), "".join(p.read_text() for p in dest.iterdir()).lower(), value)
+        self.assertIn("<canary>", tests)
+        self.assertIn("observation selftest=1", tests)
 
 
 class PlatformTests(unittest.TestCase):
@@ -1046,10 +1198,22 @@ EXPECTED_BLOCKED_INPUTS = {
 }
 
 
-# Declared rows with no applicable test: the T06 uninstall tests are Unix-only CLI end-to-end
-# tests (tests/e2e/cli_m02.rs `unix` module); the Windows row has no test of its own. The
-# generator records it `no_applicable_test` (in_progress) and the exit report names it.
+# Declared rows with no applicable test. Before ADR-0007 §12.32 item 4 the T06 uninstall tests
+# were Unix-only CLI end-to-end tests (tests/e2e/cli_m02.rs `unix` module) and the Windows row
+# had no test of its own (the generator records it `no_applicable_test`, in_progress). Since
+# item 4 `json::uninstall_restores_...` runs on every platform, so an inventory regenerated
+# from those sources closes the gap; one generated before still shows it.
 KNOWN_ROW_GAPS = {("T06", "windows"): "the uninstall end-to-end tests are cfg(unix)"}
+
+
+def t06_cli_runs_everywhere(inv):
+    """Whether the inventory was generated after §12.32 item 4 (its T06 CLI tests include the
+    cross-platform `json::` module)."""
+    return any(n.startswith("json::") for n in inv["groups"]["T06"]["tests"].get("e2e_cli_m02", []))
+
+
+def known_row_gaps(inv):
+    return {} if t06_cli_runs_everywhere(inv) else KNOWN_ROW_GAPS
 
 
 class RealFiles(unittest.TestCase):
@@ -1257,10 +1421,14 @@ class RealFiles(unittest.TestCase):
                         self.assertNotIn(r["status"], ("verified", "blocked"), (sid, r["platform"]))
                 if sec.get("blocked_rows"):
                     self.assertEqual(rec["status"], "blocked", f"{sid} has an owner-input row")
-            # The Windows row of T06 has no applicable test: a recorded gap, not a pass.
             t06 = [r for r in summary["groups"]["T06"]["rows"] if r["platform"].startswith("windows")][0]
-            self.assertEqual(t06["status"], "in_progress")
-            self.assertIn("no_applicable_test", t06)
+            if t06_cli_runs_everywhere(inv):
+                # §12.32 item 4: `json::uninstall_*` applies on Windows, so the row has a test.
+                self.assertNotIn("no_applicable_test", t06)
+            else:
+                # The Windows row of T06 has no applicable test: a recorded gap, not a pass.
+                self.assertEqual(t06["status"], "in_progress")
+                self.assertIn("no_applicable_test", t06)
 
     def test_the_a21_record_never_calls_the_executed_construct_list_complete(self):
         meta = self.cfg["records"]["A21"]
@@ -1312,13 +1480,18 @@ class RealFiles(unittest.TestCase):
                 for plat in sec.get("declared_platforms", []):
                     if not ev.required(self.index, self.inv, kind, sid, plat):
                         gaps[(sid, plat)] = True
-        self.assertEqual(set(gaps), set(KNOWN_ROW_GAPS), "the declared rows with no applicable test changed")
+        self.assertEqual(set(gaps), set(known_row_gaps(self.inv)), "the declared rows with no applicable test changed")
 
     def test_the_cli_end_to_end_suites_are_the_unix_only_reason_for_the_known_gap(self):
         self.assertIsNotNone(self.inv)
         windows_cli = [n for n in self.inv["groups"]["T06"]["tests"].get("e2e_cli_m02", [])
                        if ev.applicable(self.index, self.inv, "e2e_cli_m02", n, "windows")]
-        self.assertEqual(windows_cli, [], "if a T06 CLI test starts to apply on Windows, drop the known gap")
+        if t06_cli_runs_everywhere(self.inv):
+            # §12.32 item 4: the --json uninstall case applies on Windows, the pty ones do not.
+            self.assertTrue(windows_cli, "json::uninstall_* applies on Windows")
+            self.assertTrue(all(n.startswith("json::") for n in windows_cli), windows_cli)
+        else:
+            self.assertEqual(windows_cli, [], "if a T06 CLI test starts to apply on Windows, drop the known gap")
 
 
 if __name__ == "__main__":

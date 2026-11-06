@@ -149,8 +149,9 @@ fn without_revision_markers(cell: &str) -> String {
 fn adr_rows() -> &'static [AdrRow] {
     static ROWS: OnceLock<Vec<AdrRow>> = OnceLock::new();
     ROWS.get_or_init(|| {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/decisions/0007-existing-access-integration.md");
+        // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+        let path =
+            heimdall_testkit::repo::repo_path("docs/decisions/0007-existing-access-integration.md");
         let text = std::fs::read_to_string(&path).expect("ADR-0007 is readable");
         let start = text.find("\n### 5.7 ").expect("ADR-0007 has §5.7");
         let end = start + text[start..].find("\n### 5.8 ").expect("ADR-0007 has §5.8");

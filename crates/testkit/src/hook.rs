@@ -127,11 +127,33 @@ impl HookBinary {
     /// An environment variable naming the program explicitly (native harnesses).
     pub const ENV_OVERRIDE: &'static str = "HM_FIXTURE_HOOK";
 
-    /// The program at `path` (tests of this package pass
-    /// `env!("CARGO_BIN_EXE_hm-fixture-hook")`).
+    /// The program at `path`.
     #[must_use]
     pub fn at(path: impl Into<PathBuf>) -> HookBinary {
         HookBinary { path: path.into() }
+    }
+
+    /// [`ENV_OVERRIDE`](Self::ENV_OVERRIDE) when set (native harnesses name the copied
+    /// program; ADR-0007 §12.32 item 3), else `compiled`, the build's own path (tests of
+    /// this package pass `env!("CARGO_BIN_EXE_hm-fixture-hook")`).
+    ///
+    /// # Errors
+    /// `NotFound` when the variable is set but does not name a file.
+    pub fn locate_or(compiled: impl Into<PathBuf>) -> io::Result<HookBinary> {
+        match std::env::var_os(Self::ENV_OVERRIDE) {
+            Some(p) if !p.is_empty() => {
+                let p = PathBuf::from(p);
+                if p.is_file() {
+                    Ok(HookBinary::at(p))
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::NotFound,
+                        "HM_FIXTURE_HOOK does not name a file",
+                    ))
+                }
+            }
+            _ => Ok(HookBinary::at(compiled)),
+        }
     }
 
     /// Find the program: [`ENV_OVERRIDE`](Self::ENV_OVERRIDE), else next to the

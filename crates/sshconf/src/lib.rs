@@ -27,12 +27,23 @@
 //! `unmanageable{include_target_glob}`); `relevant::executing_constructs` lists every
 //! `XAuthLocation`, `none` included.
 //!
+//! **Wave 5c (W5c-sshconf, ADR-0007 §12.32 items 11 and 12).** The evaluator gates on
+//! the client version through [`client`], whose boundaries come from the corpus test
+//! on each client (macOS 10.3p1 and 10.5p1, the devbox's 9.6p1): `Match command`,
+//! `sessiontype` and `version` and the keywords `RefuseConnection`, `VersionAddendum`
+//! and `WarnWeakCrypto` make the file invalid for a client that refuses them; `${VAR}`
+//! and `%` tokens in `User`, `SetEnv` and `Include` are literal for a client observed
+//! to take them literally; an unknown version takes the strictest reading of each.
+//! `client::DEFAULT_IDENTITIES` is the union of every client's and the pinned manuals'
+//! default identity lists, which `relevant::identity_selection` uses.
+//!
 //! **Status (m02-plan wave 1).** Every type and signature here was fixed by the
 //! integrator in wave 0; U1 and U2 have written every body, so no `todo!()` remains.
 //! No request, CLI command, restart recovery or store method calls into this crate
 //! until U3, U4 and U5 land (m02-plan "Skeleton rule"); in this build only tests and
 //! the `heimdall-testkit` fixtures use it.
 
+pub mod client;
 pub mod consent;
 pub mod directive;
 pub mod edit;

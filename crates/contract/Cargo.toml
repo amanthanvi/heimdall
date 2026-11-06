@@ -20,6 +20,9 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+# The repository root for the tests that read repository files (HM_REPO_ROOT; ADR-0007
+# §12.32 item 3). A dev-dependency cycle like heimdall-ipc's: no store or app graph.
+heimdall-testkit = { workspace = true, default-features = false }
 
 # Contract golden tests and schema-consistency checks (M01-T06 part 1; review F09):
 # a real Cargo test target whose sources live under the repository `tests/` tree

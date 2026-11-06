@@ -255,6 +255,11 @@ pub mod reason {
     pub const PROJECTION_HELD: &str = "projection_held";
     /// A plan exceeds the setup intent's content bounds.
     pub const PROJECTION_TOO_LARGE: &str = "projection_too_large";
+    /// ⟨ADR-0007 §12.32 item 5⟩ A preview's full diff exceeds
+    /// [`MAX_DIFF_BYTES`](crate::setup::MAX_DIFF_BYTES) (`CAPABILITY_UNAVAILABLE`,
+    /// effect `none`). The plan is refused before anything is journaled; no client is
+    /// ever sent a truncated diff.
+    pub const PLAN_TOO_LARGE: &str = "plan_too_large";
     /// ⟨ADR-0007 §12.17 item 11⟩ The Git item is not applicable: Git's default SSH is
     /// not its bundled MSYS client (ADR-0007 §5.6), so the Git include would change
     /// nothing Heimdall can verify.
@@ -295,6 +300,7 @@ pub mod reason {
         SETUP_IN_PROGRESS,
         PROJECTION_HELD,
         PROJECTION_TOO_LARGE,
+        PLAN_TOO_LARGE,
         GIT_DEFAULT_NOT_BUNDLED_MSYS,
         VERIFIED_CLIENT_UNAVAILABLE,
         BINDING_IN_USE,

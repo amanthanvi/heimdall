@@ -1,0 +1,62 @@
+### ssh-V: OpenSSH_10.5p1, LibreSSL 3.3.6
+### case=include_tokens file=tok_include.conf args=tok-x env=none exit=0
+user <local>
+port 2962
+warnweakcrypto yes
+### case=tok_user file=tok_user.conf args=tok-x env=none exit=0
+user utok-x
+port 22
+warnweakcrypto yes
+### case=kw_RefuseConnection file=kw_RefuseConnection.conf args=box env=none exit=0
+user <local>
+port 22
+warnweakcrypto yes
+### case=kw_RefuseConnection_ignored file=kw_RefuseConnection_ignored.conf args=box env=none exit=0
+user <local>
+port 22
+warnweakcrypto yes
+### case=kw_RefuseConnection_ignored_box file=kw_RefuseConnection_ignored_box.conf args=box env=none exit=255
+stderr: <scratch>/kw_RefuseConnection_ignored_box.conf line 3: RefuseConnection: no
+### case=kw_VersionAddendum file=kw_VersionAddendum.conf args=box env=none exit=0
+user <local>
+port 22
+warnweakcrypto yes
+### case=kw_VersionAddendum_ignored file=kw_VersionAddendum_ignored.conf args=box env=none exit=0
+user <local>
+port 22
+warnweakcrypto yes
+### case=kw_VersionAddendum_ignored_box file=kw_VersionAddendum_ignored_box.conf args=box env=none exit=0
+user <local>
+port 2330
+warnweakcrypto yes
+versionaddendum 
+### case=kw_WarnWeakCrypto file=kw_WarnWeakCrypto.conf args=box env=none exit=0
+user <local>
+port 22
+warnweakcrypto yes
+### case=kw_WarnWeakCrypto_ignored file=kw_WarnWeakCrypto_ignored.conf args=box env=none exit=0
+user <local>
+port 22
+warnweakcrypto yes
+### case=kw_WarnWeakCrypto_ignored_box file=kw_WarnWeakCrypto_ignored_box.conf args=box env=none exit=0
+user <local>
+port 2330
+warnweakcrypto no
+### case=match_command file=match_command.conf args=box env=none exit=0
+user <local>
+port 22
+warnweakcrypto yes
+### case=match_command_neg file=match_command_neg.conf args=box env=none exit=0
+user <local>
+port 2318
+warnweakcrypto yes
+### case=match_sessiontype file=match_sessiontype.conf args=box env=none exit=0
+user <local>
+port 2317
+warnweakcrypto yes
+### case=match_version file=match_version.conf args=box env=none exit=0
+user <local>
+port 2317
+warnweakcrypto yes
+### leak-check: whole-word account, host and home matches left after redaction: 0
+### scratch-removed=yes

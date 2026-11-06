@@ -660,15 +660,10 @@ pub fn consent_behavior_state(
 
 // --- identity selection -----------------------------------------------------------------
 
-/// ssh's default identity files under `~/.ssh` (F20 [S01]).
-const DEFAULT_IDENTITIES: &[&str] = &[
-    "id_rsa",
-    "id_ecdsa",
-    "id_ecdsa_sk",
-    "id_ed25519",
-    "id_ed25519_sk",
-    "id_mldsa44_ed25519",
-];
+// ssh's default identity files under `~/.ssh` (F20): the union over every supported
+// client and the pinned manuals (`crate::client::DEFAULT_IDENTITIES`, ADR-0007 §12.32
+// item 12), so a default key of any of them is never missed.
+use crate::client::DEFAULT_IDENTITIES;
 
 /// Which identities ssh may offer for the alias, and whether the adopted key is the
 /// only one (ADR-0007 §3 item 3). `source` is used only to stat for a private key's

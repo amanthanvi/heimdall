@@ -1,0 +1,76 @@
+M02 wave 5c, unit W5c-git (ADR-0007 section 12.32 item 13): why the devbox's git 2.43.0 "refused both Git items
+as unmanageable_file". Everything below was observed; nothing is expected output. Host names, user names and
+home paths are redacted (<home>, <scratch>); the devbox is the generic label.
+
+QUESTION
+  integration_projection_git::git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win
+  failed on the devbox (git 2.43.0) with
+    items: [NotApplied { item: Ssh, reason: Some(UnmanageableFile) }, NotApplied { item: Git, reason: Some(UnmanageableFile) }]
+  and passed on Apple Git 2.54.0. Is that git 2.43, or Heimdall?
+
+FINDING 1: git 2.43.0 is not the cause.
+  plain-git-check.sh ran in a scratch HOME on the devbox (git 2.43.0) and on the build host (Apple Git 2.54.0
+  (Apple Git-157)). git-2.43.0-plain.txt and git-2.54.0-apple-plain.txt are IDENTICAL apart from the version line
+  (compared with diff after replacing the version line; exit 0). That covers every Git behaviour Heimdall's check
+  and the failing test rely on:
+    - git var GIT_CONFIG_GLOBAL lists the XDG file, then ~/.gitconfig (read order);
+    - git config --file <staged> --no-includes --list (the parse check before B_git is exchanged) exits 0;
+    - an include placed in the first-read (XDG) file takes effect; a later value in ~/.gitconfig wins;
+    - git config --global reads ~/.gitconfig alone when it exists.
+  The integration_git_observe suite (9 tests) passes on git 2.43.0 (after-fix-git_observe-umask-default.txt,
+  exit=0), including its [I] observation lines for 2.43.0.
+  No behaviour of git 2.43 is missing, so no git-version gate is added.
+
+FINDING 2: the cause is the session umask, which the test fixture ignored.
+  The devbox's non-interactive ssh session has umask 0002 (user-private groups): the runs below start with
+  "umask=0002" printed by the wrapper before anything else. The test made ~/.config/git with
+  std::fs::create_dir_all and the XDG file with std::fs::write, so under 0002 they were 0775 and 0664. The writer
+  refuses a directory that group or others can write to, and a file with a group or other write bit (ADR-0007
+  section 5.3 steps 1 and 2: unmanageable_file), and refuses the whole operation before the first commit point
+  (section 5.4 step 3), the SSH item with it.
+    before-fix-projection_git-umask-default.txt  same test, devbox, umask 0002 (the session default): FAILED, the
+                                                 same two NotApplied/UnmanageableFile items as the wave-5 run.
+    before-fix-projection_git-umask-022.txt      same binary, same test, same host and git 2.43.0, umask set to
+                                                 0022 first: ok.
+  (Those two wrapper runs did not capture the binary's exit code; libtest's own "FAILED"/"ok" lines are the
+  record. The wave-5 run's exit=101 for the whole binary is in exit-bcad82de-w5/linux/tests.txt.)
+
+FINDING 3: a real Heimdall defect sat behind it.
+  Preview offered the Git item (applicability "applicable") over a global file or directory that the writer then
+  refused at apply, and the refusal sank the SSH item too. ADR-0007 section 5.3 item 9 and 5.6 make an
+  unmanageable file manual mode, decided at preview; the SSH user file already got that check, the Git global
+  file did not. A real owner on a user-private-group account (umask 0002) who makes ~/.config/git with mkdir -p
+  (observed: xdg_dir_mode=775 under umask 0002 in git-2.43.0-plain.txt), or whose ~/.gitconfig is group-writable,
+  would have hit it.
+  Fix (crates/localenv/src/projection/git.rs check_global_file, called from plan.rs plan_git_apply when the plan
+  writes the global file): the Git item is "not_applicable" with reason "unmanageable_file", names the file, and
+  plans nothing for Git; the SSH item applies. The check runs the writer's own DirHandle and validate.
+  Fixture fix (tests/integration/projection_git.rs): the two tests that create the XDG directory and file create
+  them 0700 and 0600 whatever the umask.
+
+REGRESSION TESTS (tests/integration/projection_git.rs)
+  git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies
+      six cases: XDG directory 0775, XDG directory 0707, home directory 0775, global file 0664, global file a
+      symlink, global file with a second hard link. Each: Git not_applicable/unmanageable_file, file named, no Git
+      step, preview writes nothing, apply applies SSH and takes no Git lock or P_git.
+  git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask   (control)
+  git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win
+      (the wave-5 failure; passes under umask 0002 and 0022 with the fixture fix)
+  Mutation checks (restored byte-for-byte, sha256 compared before and after):
+    - check_global_file forced to return Manageable: the six-case test FAILED at the first case
+      ("xdg directory group-writable"); the control passed.
+    - the failing test's fixture put back to plain create_dir_all/write, run under umask 002 with the Heimdall fix
+      in place: FAILED; under umask 022: ok.
+
+AFTER THE FIX (devbox, git 2.43.0, scratch HOME and TMPDIR, cross-built x86_64-unknown-linux-gnu binaries)
+    after-fix-projection_git-umask-default.txt   umask=0002: 27 passed, 0 failed, exit=0
+    after-fix-projection_git-umask-022.txt       umask=0022: 27 passed, 0 failed, exit=0
+    after-fix-git_observe-umask-default.txt      umask=0002:  9 passed, 0 failed, exit=0
+  Build host (Apple Git 2.54.0): integration_projection_git 27 passed under the default umask and under
+  umask 002.
+
+SCRATCH
+  The devbox scratch directory (~/hm-m02-<random>) held only the two test binaries, two wrapper scripts and
+  scratch HOME/TMPDIR trees. It was removed and its absence checked (see commands.txt). No service was started on
+  the devbox, no process of this unit was left running there, ~/.ssh and the Git configuration were not read by
+  the tests (scratch HOME, env -i).

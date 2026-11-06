@@ -537,8 +537,54 @@ pub fn expand(
     source: &dyn ConfigSource,
     tokens: &dyn Fn(char) -> Option<String>,
 ) -> Result<String, ArgError> {
-    let accepted = directive::tokens(keyword);
-    let env = directive::expands_env(keyword);
+    expand_with(text, keyword, source, tokens, Expansion::FULL)
+}
+
+/// Which expansions a client applies to an argument (ADR-0007 §12.32 item 11 (b)): the
+/// pinned manual's (`FULL`), or none of `${VAR}` and the `%` tokens for a client
+/// observed to take them literally (OpenSSH 9.6p1 for `User`, `SetEnv` and
+/// `Include`; [`crate::client`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Expansion {
+    /// `${VAR}` is expanded (when [`directive::expands_env`]); otherwise `$`, `{` and
+    /// `}` are ordinary characters.
+    pub env: bool,
+    /// The `%` tokens of [`directive::tokens`] and `%%` are expanded; otherwise `%` is
+    /// an ordinary character.
+    pub tokens: bool,
+}
+
+impl Expansion {
+    /// What the pinned manual describes.
+    pub const FULL: Expansion = Expansion {
+        env: true,
+        tokens: true,
+    };
+    /// Neither `${VAR}` nor `%` is expanded.
+    pub const LITERAL: Expansion = Expansion {
+        env: false,
+        tokens: false,
+    };
+}
+
+/// [`expand`] for a client that applies only the expansions `expansion` allows (ADR-0007
+/// §12.32 item 11 (b)).
+///
+/// # Errors
+/// As [`expand`]; an expansion that is off cannot fail.
+pub fn expand_with(
+    text: &str,
+    keyword: KnownKeyword,
+    source: &dyn ConfigSource,
+    tokens: &dyn Fn(char) -> Option<String>,
+    expansion: Expansion,
+) -> Result<String, ArgError> {
+    let accepted = if expansion.tokens {
+        directive::tokens(keyword)
+    } else {
+        &[]
+    };
+    let env = expansion.env && directive::expands_env(keyword);
     let mut out = String::with_capacity(text.len());
     let mut unresolved: Option<ArgError> = None;
     let mut rest = text;
@@ -633,10 +679,25 @@ pub fn expand_include_arg(
     source: &dyn ConfigSource,
     tokens: &dyn Fn(char) -> Option<String>,
 ) -> Result<PathBuf, ArgError> {
+    expand_include_arg_with(arg, origin, source, tokens, Expansion::FULL)
+}
+
+/// [`expand_include_arg`] for a client that applies only `expansion` to the argument
+/// before `~`, the relative anchor and the glob (ADR-0007 §12.32 item 11 (b)).
+///
+/// # Errors
+/// As [`expand_include_arg`].
+pub fn expand_include_arg_with(
+    arg: &str,
+    origin: Origin,
+    source: &dyn ConfigSource,
+    tokens: &dyn Fn(char) -> Option<String>,
+    expansion: Expansion,
+) -> Result<PathBuf, ArgError> {
     if arg.is_empty() {
         return Err(ArgError::Invalid(InvalidArg::EmptyArgument));
     }
-    let expanded = expand(arg, KnownKeyword::Include, source, tokens)?;
+    let expanded = expand_with(arg, KnownKeyword::Include, source, tokens, expansion)?;
     if let Some(after) = expanded.strip_prefix('~') {
         if origin == Origin::System {
             return Err(ArgError::Invalid(InvalidArg::TildeInSystemFile));
@@ -718,7 +779,20 @@ pub fn resolve_include_arg(
     tokens: &dyn Fn(char) -> Option<String>,
     limits: &Limits,
 ) -> IncludeArg {
-    match expand_include_arg(arg, origin, source, tokens) {
+    resolve_include_arg_with(arg, origin, source, tokens, limits, Expansion::FULL)
+}
+
+/// [`resolve_include_arg`] under `expansion` ([`expand_include_arg_with`]).
+#[must_use]
+pub fn resolve_include_arg_with(
+    arg: &str,
+    origin: Origin,
+    source: &dyn ConfigSource,
+    tokens: &dyn Fn(char) -> Option<String>,
+    limits: &Limits,
+    expansion: Expansion,
+) -> IncludeArg {
+    match expand_include_arg_with(arg, origin, source, tokens, expansion) {
         Ok(pattern) => {
             let matches = glob_sorted(source, &pattern, limits).map_err(ArgError::Glob);
             IncludeArg {
@@ -767,6 +841,11 @@ pub trait IncludeVisitor {
     fn token(&self, token: char) -> Option<String> {
         let _ = token;
         None
+    }
+    /// The expansions the client applies to an `Include` argument ([`Expansion`];
+    /// ADR-0007 §12.32 item 11 (b)). The default is the pinned manual's.
+    fn include_expansion(&self) -> Expansion {
+        Expansion::FULL
     }
     /// A file starts (a root, or an include).
     fn enter(&mut self, visit: &Visit) {
@@ -870,12 +949,13 @@ impl Walker<'_> {
                 continue;
             }
             for written in &d.args {
-                let arg = resolve_include_arg(
+                let arg = resolve_include_arg_with(
                     written,
                     origin,
                     self.source,
                     &|t| visitor.token(t),
                     self.limits,
+                    visitor.include_expansion(),
                 );
                 visitor.include(&visit, d.span, &arg);
                 let Ok(matches) = &arg.matches else { continue };
@@ -958,12 +1038,16 @@ pub struct WalkRecord {
 
 struct Recorder<'a> {
     tokens: &'a dyn Fn(char) -> Option<String>,
+    expansion: Expansion,
     record: WalkRecord,
 }
 
 impl IncludeVisitor for Recorder<'_> {
     fn token(&self, token: char) -> Option<String> {
         (self.tokens)(token)
+    }
+    fn include_expansion(&self) -> Expansion {
+        self.expansion
     }
     fn enter(&mut self, visit: &Visit) {
         self.record.visits.push(visit.clone());
@@ -1003,8 +1087,24 @@ pub fn record(
     limits: &Limits,
     tokens: &dyn Fn(char) -> Option<String>,
 ) -> WalkRecord {
+    record_with(set, source, roots, limits, tokens, Expansion::FULL)
+}
+
+/// [`record`] for a client that applies only `expansion` to `Include` arguments, so a
+/// snapshot reads the files the evaluation of that client reads (ADR-0007 §12.32 item
+/// 11 (b); [`crate::client::include_expansion`]).
+#[must_use]
+pub fn record_with(
+    set: &mut ConfigSet,
+    source: &dyn ConfigSource,
+    roots: &Roots,
+    limits: &Limits,
+    tokens: &dyn Fn(char) -> Option<String>,
+    expansion: Expansion,
+) -> WalkRecord {
     let mut recorder = Recorder {
         tokens,
+        expansion,
         record: WalkRecord::default(),
     };
     let summary = walk(set, source, roots, limits, &mut recorder);

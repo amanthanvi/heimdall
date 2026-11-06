@@ -1160,19 +1160,6 @@ pub(crate) trait Session {
     async fn request(&mut self, request: Request) -> Envelope<serde_json::Value>;
     /// Send `Attend` for this session.
     async fn attend(&mut self) -> Envelope<serde_json::Value>;
-    /// Run just before a setup effect for `plan` (the previewed `SetupPlan`) is first
-    /// submitted; an error is printed and nothing is submitted. The control session
-    /// takes the §5.5 snapshot of the original SSH configuration
-    /// ([`crate::setup_cmd::snapshot_before_edit`]); the default does nothing, so the
-    /// unit tests' scripted sessions touch no file.
-    fn before_effect(
-        &mut self,
-        ctx: &Ctx,
-        plan: &serde_json::Value,
-    ) -> Result<(), Box<Envelope<serde_json::Value>>> {
-        let _ = (ctx, plan);
-        Ok(())
-    }
 }
 
 impl Session for Client {
@@ -1181,13 +1168,6 @@ impl Session for Client {
     }
     async fn attend(&mut self) -> Envelope<serde_json::Value> {
         Client::attend(self).await
-    }
-    fn before_effect(
-        &mut self,
-        ctx: &Ctx,
-        plan: &serde_json::Value,
-    ) -> Result<(), Box<Envelope<serde_json::Value>>> {
-        crate::setup_cmd::snapshot_before_edit(ctx, plan, heimdall_contract::Timestamp::now())
     }
 }
 

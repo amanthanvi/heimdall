@@ -36,6 +36,13 @@
 #       the registered set equal afterwards; no `--shutdown`; an interrupted run's EXIT
 #       trap unregisters; an existing distribution of the run's name is never touched.
 #   T   target-root.sh refusals.   S   scenario-ordinary-ssh.sh (see below).
+#   P   run-windows-local.ps1 (Windows local mode, ADR-0007 §12.32 item 17) when pwsh is
+#       installed: it parses, its -SelfTest passes, its bundle imports through
+#       import-windows-bundle.py with nothing unredacted left, and a real run off Windows is
+#       refused (exit 2, nothing created); `skip` without pwsh.
+# Also (ADR-0007 §12.32 items 3 and 10): the harnesses ship the repository files the tests
+# read and set HM_REPO_ROOT (nothing is build-host-only), redact host names as whole words,
+# put the macOS scratch under /tmp, and redact the Windows build log before any exit.
 # Also in L, M and W: every binary runs with --show-output and what a passing test printed
 # (the `observation` lines of the tests that settle ADR-0007 facts) is kept, redacted; the
 # macOS run repeats the case index's observation targets through cargo for the same reason.
@@ -166,6 +173,8 @@ if [ "${HM_ST_CARGO_FAIL:-0}" = 1 ]; then
     exit 101
 fi
 echo "   Compiling selftest stub" >&2
+# What a real build log carries: the build host's paths (redacted before the harness exits).
+echo "   Compiling heimdall ($HOME/hm-selftest-checkout/crates/heimdall)" >&2
 cat "$HM_ST_BUILD_JSON"
 EOF
     printf '#!/usr/bin/env bash\necho "rustc 0.0.0-selftest"\n' >"$B/rustc"
@@ -432,6 +441,11 @@ echo "env wslenv=${WSLENV:-unset}"
 echo "env temp=${TEMP:-unset}"
 echo "env tmpdir_inside_cwd=$([ "${TMPDIR:-x}" != "${TMPDIR#"$PWD"/}" ] && echo yes || echo no)"
 echo "env cwd_has_scratch_name=$(printf '%s' "$PWD" | grep -qE 'hm-m02-|hm-m00' && echo yes || echo no)"
+echo "env repo_root=${HM_REPO_ROOT:+set}"
+r=${HM_REPO_ROOT:-/nonexistent}
+case "$r" in [A-Za-z]:*) r=$(wslpath -u "$r") ;; esac
+echo "env repo_root_inside_cwd=$([ "$r" != "${r#"$PWD"/}" ] && echo yes || echo no)"
+echo "env repo_root_has_files=$([ -f "$r/schemas/public-api/envelope.schema.json" ] && [ -f "$r/crates/testkit/src/repo.rs" ] && [ -f "$r/tests/e2e/cli_m02.rs" ] && [ ! -e "$r/tests/evidence" ] && echo yes || echo no)"
 EOS
                         ;;
                     leak) printf 'echo "leak home=$HOME user=$(id -un) host=$(hostname) fqdn=$(hostname -f) winuser=fixtureuser winhost=FIXTUREHOST winhome=C:\\\\Users\\\\fixtureuser sid=S-1-5-21-1111111111-2222222222-3333333333-1001 addr=203.0.113.9 loop=127.0.0.1"\n' ;;
@@ -593,6 +607,30 @@ check "X06 lib: a domain SID and a non-loopback IPv4 address are masked, loopbac
     bash -c 'grep -q "S-1-5-21-<redacted>" "$1" && grep -q "<addr>" "$1" && grep -q "127.0.0.1" "$1" && grep -q "0.0.0.0" "$1" && ! grep -q "203.0.113.9" "$1"' _ "$X0/redact.out"
 check "X07 lib: a one-character value is ignored (it would mangle ordinary text)" \
     bash -c 'grep -q "^short a$" "$1"' _ "$X0/redact.out"
+printf 'mac on macOS, Mac.local, mac-1 and xmac; heimdall_mac_x\n' >"$X0/word.in"
+m02_redact "$X0/word.in" "$X0/word.out" --word "mac" "<host>"
+check "X27 lib: a --word host name is replaced only as a whole word, any case, never inside another word" \
+    bash -c 'grep -qx "<host> on macOS, <host>.local, <host>-1 and xmac; heimdall_mac_x" "$1"' _ "$X0/word.out"
+mkdir -p "$X0/wscan"
+printf 'built on macOS\n' >"$X0/wscan/a.txt"
+wleak_clean=$(m02_leak_scan "$X0/wscan" --word "mac")
+printf 'host mac\n' >"$X0/wscan/b.txt"
+wleak_hit=$(m02_leak_scan "$X0/wscan" --word "mac")
+wleak_any=$(m02_leak_scan "$X0/wscan" "mac")
+check "X28 lib: the leak scan counts a --word value only as a whole word (as it is redacted), any other value anywhere" \
+    bash -c '[ "$1" = 0 ] && [ "$2" = 1 ] && [ "$3" = 2 ]' _ "$wleak_clean" "$wleak_hit" "$wleak_any"
+mkdir -p "$X0/repo-src/crates/x/src" "$X0/repo-src/crates/x/target" "$X0/repo-src/schemas" "$X0/repo-src/docs/decisions" \
+    "$X0/repo-src/docs/other" "$X0/repo-src/tests/e2e" "$X0/repo-src/tests/evidence/a" "$X0/repo-src/tests/contracts/golden" \
+    "$X0/repo-src/tests/fixtures/f" "$X0/repo-src/tests/native"
+for f in crates/x/src/lib.rs crates/x/target/big schemas/s.json docs/decisions/0007.md docs/other/no.md tests/e2e/t.rs \
+    tests/evidence/a/p.rs tests/contracts/golden/g.json tests/fixtures/f/c tests/native/n.sh; do
+    echo "$f" >"$X0/repo-src/$f"
+done
+ln -s "$X0/repo-src/schemas/s.json" "$X0/repo-src/schemas/link.json"
+repo_n=$(m02_stage_repo "$X0/repo-src" "$X0/repo-stage")
+check "X29 lib: the repository copy for HM_REPO_ROOT holds the listed directories and every tests/*.rs, never build output, evidence, other files or symbolic links" \
+    bash -c 'd=$1/repo; [ "$2" = 6 ] && for f in crates/x/src/lib.rs schemas/s.json docs/decisions/0007.md tests/e2e/t.rs tests/contracts/golden/g.json tests/fixtures/f/c; do [ -f "$d/$f" ] || exit 1; done &&
+        for f in crates/x/target/big docs/other/no.md tests/evidence tests/native/n.sh schemas/link.json; do [ ! -e "$d/$f" ] || exit 1; done' _ "$X0/repo-stage" "$repo_n"
 
 mkdir -p "$X0/scan"
 printf 'clean\n' >"$X0/scan/a.txt"
@@ -728,9 +766,10 @@ check "L03 linux build-only: cargo ran for x86_64-unknown-linux-gnu, locked, wit
 check "L04 linux build-only: build.txt has a sha256 per planned binary, the CLI and the hook, and the toolchain" \
     bash -c 'b=$1; grep -q "^e2e_cli_m02 sha256: [0-9a-f]\{64\}$" "$b" && grep -q "^heimdall (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: [0-9a-f]\{64\}$" "$b" &&
         grep -q "^hm-fixture-hook (HM_FIXTURE_HOOK) sha256: [0-9a-f]\{64\}$" "$b" && grep -q "^toolchain: rustc 0.0.0-selftest; zig 0.0.0-selftest; target x86_64-unknown-linux-gnu" "$b"' _ "$O/build.txt"
-check "L05 linux build-only: a target that reads the repository at its compile-time path is not planned" no_grep "contracts sha256" "$O/build.txt"
-check "L06 linux build-only: skipped.txt names it and each skipped single test with its reason" \
-    bash -c 's=$1; grep -q "^contracts: not run on linux (platform-neutral, run on the build host)" "$s" && grep -q "^e2e_cli_m02::u9_usage_errors_exit_2_before_any_runtime_contact: skipped on linux (harness gap)" "$s"' _ "$O/skipped.txt"
+check "L05 linux build-only: every target is planned (repository files come from HM_REPO_ROOT; ADR-0007 §12.32 item 3)" \
+    bash -c 'for t in $2; do [ "$t" = extra_target ] && continue; grep -q "^$t sha256: " "$1" || exit 1; done' _ "$O/build.txt" "$TARGETS"
+check "L06 linux build-only: nothing is skipped as build-host-only" \
+    bash -c '! grep -qE "not run on linux|skipped on linux" "$1" 2>/dev/null' _ "$O/skipped.txt"
 check "L07 linux build-only: no scratch, no remote directory, nothing in the fake home" dir_tree_is_empty "$H"
 check "L08 linux build-only: the commands record real exit codes" \
     bash -c 'grep -q "^exit 0: cargo test --target x86_64-unknown-linux-gnu" "$1" && grep -q "^exit 0: run plan from case-index.json" "$1"' _ "$O/commands.txt"
@@ -748,9 +787,10 @@ check "L13 linux: every binary ran and its exit code is kept (### name exit=0)" 
     bash -c 'n=$(grep -c "^### [A-Za-z0-9_-]* exit=0$" "$1"); [ "$n" -ge 25 ] && ! grep -q "exit=[1-9]" "$1"' _ "$O/tests.txt"
 check "L14 linux: each binary ran under nice -n 10 and timeout 1800" \
     bash -c 'n=$(grep -c "^nice -n 10 " "$1"); t=$(grep -c "^timeout 1800 " "$1"); [ "$n" -ge 25 ] && [ "$n" = "$t" ]' _ "$L"
-check "L15 linux: single skipped tests go as --exact --skip (and only for the remote platform)" \
-    bash -c 'grep -E "^argv: --exact " "$1" | grep -q -e "--skip u9_usage_errors_exit_2_before_any_runtime_contact" && grep -E "^argv: --exact " "$1" | grep -q -e "--skip unix::a22_cli_setup_conflict_then_repair"' _ "$L"
-check "L16 linux: a whole build-host-path target (contracts) never ran" no_grep "### contracts" "$O/tests.txt"
+check "L15 linux: no binary is given --exact --skip (nothing is build-host-only)" \
+    bash -c '! grep -E "^argv: " "$1" | grep -q -e "--skip"' _ "$L"
+check "L16 linux: HM_REPO_ROOT names the repository copy inside the scratch, with the schemas, the sources and the tests (no evidence)" \
+    bash -c 't=$1; grep -q "^env repo_root=set$" "$t" && grep -q "^env repo_root_inside_cwd=yes$" "$t" && grep -q "^env repo_root_has_files=yes$" "$t" && grep -q "^exit 0: stage the repository files the tests read (HM_REPO_ROOT: [1-9][0-9]* files)$" "$2"' _ "$O/tests.txt" "$O/commands.txt"
 check "L17 linux: host.txt records ssh -V, sshd -V and git --version with exit codes" \
     bash -c 'h=$1; grep -q "^ssh-V=OpenSSH_9.9p9, selftest stub (exit 0)$" "$h" && grep -q "^sshd-V=OpenSSH_9.9p9 selftest sshd stub (exit 1)$" "$h" && grep -q "^git-version=git version 0.0.0-selftest (exit 0)$" "$h"' _ "$O/host.txt"
 check "L18 linux: the fixture sshd preflight listened on 127.0.0.1 and was stopped" \
@@ -852,8 +892,8 @@ check "L60 linux: every binary ran with --show-output" \
     bash -c 'n=$(grep -c "^argv: .*--show-output$" "$1"); [ "$n" -ge 25 ] && [ "$n" = "$(grep -c "^argv: " "$1")" ]' _ "$L"
 check "L61 linux: the observation line of a passing test is in tests.txt under its test header, with the home redacted" \
     bash -c 't=$1; grep -q "^---- fixture::a stdout ----$" "$t" && grep -q "^observation test=a path=<home> supported=true$" "$t"' _ "$O/tests.txt"
-check "L62 linux: --show-output follows --exact --skip (a single skipped test keeps its exact skip)" \
-    bash -c 'grep -E "^argv: --exact .*--skip .* --show-output$" "$1" | grep -q .' _ "$L"
+check "L62 linux: --show-output is every binary's only argument (no --exact or --skip: nothing is build-host-only)" \
+    bash -c 'n=$(grep -c "^argv: --show-output$" "$1"); [ "$n" -ge 25 ] && [ "$n" = "$(grep -c "^argv: " "$1")" ]' _ "$L"
 
 # L-existing directory with a similar name
 new_world linux-existing
@@ -884,6 +924,8 @@ echo "     Running unittests src/lib.rs (target/debug/deps/heimdall_x-0123abcd)"
 echo "running 1 test"
 echo "test a::b ... ok"
 echo "env tmpdir_in_scratch=$(printf '%s' "${TMPDIR:-}" | grep -q 'hm-m02-macos\.' && echo yes || echo no)"
+echo "check-tmpdir ${TMPDIR:-}" >>"$HM_ST_LOG"
+echo "env repo_root=$([ "${HM_REPO_ROOT:-}" = "$(cd "$(dirname "$0")/../.." && pwd)" ] && echo checkout || echo other)"
 echo "env ssh_auth_sock=${SSH_AUTH_SOCK:-unset}"
 echo "env fixture_port=${HM_FIXTURE_SSHD_PORT:-unset}"
 echo "env fixture_host=${HM_FIXTURE_SSHD_HOST:-unset}"
@@ -911,6 +953,17 @@ echo "down (stub)" >>"$HM_ST_LOG"
 exit 0
 EOF
     chmod +x "$r/tools/validation/check.sh" "$r/tests/fixtures/ssh/up.sh" "$r/tests/fixtures/ssh/down.sh"
+}
+
+# mac_scratch_gone LOG: the TMPDIR check.sh saw was <scratch>/tmp with <scratch> directly
+# under /tmp (the macOS /tmp is /private/tmp), and that scratch no longer exists.
+mac_scratch_gone() {
+    local t d
+    t=$(sed -n 's/^check-tmpdir //p' "$1" | tail -1)
+    d=${t%/tmp}
+    case "$d" in /tmp/hm-m02-macos.?* | /private/tmp/hm-m02-macos.?*) ;; *) return 1 ;; esac
+    case "${d#*/tmp/}" in */*) return 1 ;; esac
+    [ ! -e "$d" ]
 }
 
 new_world mac-build
@@ -941,6 +994,10 @@ check "M08 macos: the home .ssh and Git metadata unchanged is recorded with exit
     bash -c 'c=$1; grep -q "^exit 0: the home .ssh directory and Git configuration metadata unchanged by the run" "$c" && grep -q "^exit 0: canary-prefix scan" "$c" && grep -q "^exit 0: leak scan" "$c"' _ "$O/commands.txt"
 check "M09 macos: the scratch directory is gone and the sshd it started too" \
     bash -c '[ -z "$(ls -A "$1")" ] && { for p in $(cat "$2"); do kill -0 "$p" 2>/dev/null && exit 1; done; exit 0; }' _ "$S/tmp" "$S/sshd.pids"
+check "M24 macos: the scratch directory is under /tmp, not the per-user TMPDIR (SUN_LEN), and it is gone after the run" \
+    mac_scratch_gone "$L"
+check "M25 macos: check.sh ran with HM_REPO_ROOT at the checkout (ADR-0007 §12.32 item 3)" \
+    grep_q "env repo_root=checkout" "$O/check.txt"
 
 new_world mac-fail
 make_fake_root "$S/repo"
@@ -948,7 +1005,7 @@ extra_env=(HM_ST_CHECK_RC=1)
 harness "$S/repo" run-macos.sh "$O"
 check "M10 macos: a failing check.sh -> the harness exits with its code, recorded as exit 1" \
     bash -c '[ "$1" = 1 ] && grep -q "^exit 1: bash tools/validation/check.sh" "$2" && grep -q "== overall: exit 1" "$3"' _ "$rc" "$O/commands.txt" "$O/check.txt"
-check "M11 macos: the scratch directory is removed after the failure" dir_tree_is_empty "$S/tmp"
+check "M11 macos: the scratch directory is removed after the failure" mac_scratch_gone "$L"
 
 new_world mac-obs-fail
 make_fake_root "$S/repo"
@@ -956,7 +1013,7 @@ extra_env=(HM_ST_CARGO_FAIL=1)
 harness "$S/repo" run-macos.sh "$O"
 check "M22 macos: a failing observation pass -> the harness exits with its code (101), recorded; check.sh's own exit was 0" \
     bash -c '[ "$1" = 101 ] && grep -q "^exit 101: cargo test --workspace --locked --no-fail-fast <the observation targets>" "$2" && grep -q "^exit 0: bash tools/validation/check.sh" "$2"' _ "$rc" "$O/commands.txt"
-check "M23 macos: the scratch directory is removed after it" dir_tree_is_empty "$S/tmp"
+check "M23 macos: the scratch directory is removed after it" mac_scratch_gone "$L"
 
 new_world mac-docker
 make_fake_root "$S/repo"
@@ -1056,11 +1113,21 @@ check "W18 windows: the Windows profile .ssh and .gitconfig metadata unchanged i
     grep_q "unchanged by the run" "$O/commands.txt"
 check "W19 windows: test pipes and %LOCALAPPDATA%\\heimdall are counted before and after" \
     bash -c 'h=$1; grep -q "^test-pipes-before=0$" "$h" && grep -q "^test-pipes-after=0$" "$h" && grep -q "^localappdata-heimdall-before=absent$" "$h" && grep -q "^localappdata-heimdall-after=absent$" "$h" && grep -q "^leftover-test-processes=0$" "$h"' _ "$O/host.txt"
-check "W20 windows: the platform-neutral target and the harness-gap tests were skipped with reasons; the rest ran" \
-    bash -c 's=$1; t=$2; grep -q "^contracts: not run on windows (platform-neutral, run on the build host)" "$s" && ! grep -q "^### contracts" "$t" && grep -q "^### e2e_cli_m02 exit=0" "$t"' _ "$O/skipped.txt" "$O/tests.txt"
+check "W20 windows: nothing is skipped as build-host-only; HM_REPO_ROOT names the repository copy in the Windows scratch, through WSLENV" \
+    bash -c 's=$1; t=$2; ! grep -qE "not run on windows|skipped on windows" "$s" 2>/dev/null && grep -q "^### e2e_cli_m02 exit=0" "$t" && grep -q "^env repo_root=set$" "$t" && grep -q "^env repo_root_has_files=yes$" "$t" && grep "^env wslenv=" "$t" | grep -q "HM_REPO_ROOT/w"' _ "$O/skipped.txt" "$O/tests.txt"
 check "W21 windows: host, user and home names, both WSL and Windows, are absent from every artifact" \
     none_of "$O" "$H" "wslfixturehost" "FIXTUREHOST" "fixtureuser" "$REAL_USER"
 check "W22 windows: the owner's Windows profile .ssh was not touched (no file created there)" no_file "$W/Users/fixtureuser/.ssh"
+
+# ADR-0007 §12.32 item 10: an unreachable host ends the run after the build, and the build
+# log is redacted all the same; the error is kept without the host name.
+new_world win-unreachable
+extra_env=(HM_ST_UNREACHABLE=1)
+harness "$root" run-windows.sh "$O"
+check "W38 windows: an unreachable host -> exit 4, nothing created, the error saved without the host name" \
+    bash -c '[ "$1" = 4 ] && [ -f "$2/host-unreachable.txt" ] && ! grep -q "hm-selftest-no-such-host" "$2/host-unreachable.txt" && grep -q "<winhost>" "$2/host-unreachable.txt" && [ -z "$(ls -A "$3/localappdata")" ]' _ "$rc" "$O" "$W"
+check "W39 windows: ...and the build log is redacted before that exit (no build-host home or user left)" \
+    bash -c 'grep -q "<home>/hm-selftest-checkout" "$1" && ! grep -qF "$2" "$1" && ! grep -qw "$3" "$1"' _ "$O/build.txt" "$H" "$REAL_USER"
 
 new_world win-obs
 exe model_setup obs
@@ -1391,6 +1458,43 @@ PY
         bash -c 'grep -q "^fact leftover-heimdall-processes=0$" "$1" && [ "$(pgrep -f "$2" | wc -l | tr -d " ")" = 0 ]' _ "$SC" "$SCD"
 else
     skip "S10-S23 scenario in isolated mode ($reason)"
+fi
+
+# =============================================================================================
+# P: run-windows-local.ps1, the Windows local mode (ADR-0007 §12.32 items 15-17), and the
+#    build-host import of its bundle (import-windows-bundle.py). No host: the runner's own
+#    -SelfTest exercises its redaction, canary masking, results format and bundle writer on
+#    synthetic data; its bundle is then imported as the agent's report would be.
+# =============================================================================================
+
+if command -v pwsh >/dev/null 2>&1; then
+    ps1="$m02/run-windows-local.ps1"
+    parse_ps1() {
+        HM_ST_PS1="$1" pwsh -NoProfile -NonInteractive -Command \
+            '$e = $null; $t = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($env:HM_ST_PS1, [ref]$t, [ref]$e); if ($e.Count) { foreach ($x in $e) { "{0}: {1}" -f $x.Extent.StartLineNumber, $x.Message }; exit 1 }' \
+            >"$T/ps-parse.txt" 2>&1
+    }
+    check "P01 local mode: run-windows-local.ps1 parses under PowerShell 7 with no error" parse_ps1 "$ps1"
+    pwsh -NoProfile -NonInteractive -File "$ps1" -SelfTest -Out "$T/ps-bundle" >"$T/ps-selftest.txt" 2>&1
+    ps_rc=$?
+    check "P02 local mode: its -SelfTest passes (redaction of <winuser>/<winhost>/<winhome>/SIDs, canary masking, results, bundle)" \
+        bash -c '[ "$1" = 0 ] && grep -q "^run-windows-local selftest: [1-9][0-9]* passed, 0 failed$" "$2" && ! grep -q "^FAIL" "$2"' _ "$ps_rc" "$T/ps-selftest.txt"
+    python3 -I "$m02/import-windows-bundle.py" --bundle "$T/ps-bundle/bundle.b64" --label exit-selftest \
+        --artifacts-root "$T/ps-imported" --commit 0000000000000000000000000000000000000000 >"$T/ps-import.txt" 2>&1
+    imp_rc=$?
+    check "P03 local mode: the bundle imports into <label>/windows/ as the files the generator reads, nothing unredacted left" \
+        bash -c 'd=$2/exit-selftest/windows; [ "$1" = 0 ] && for f in tests.txt commands.txt host.txt build.txt skipped.txt canary-scan.txt; do [ -f "$d/$f" ] || exit 1; done &&
+            grep -q "^### e2e_cli_m02 exit=0$" "$d/tests.txt" && grep -q "^exit 101: every test binary$" "$d/commands.txt" &&
+            ! grep -rqiE "fixtureuser|FIXTUREHOST|wslfixture|HEIMDALL_CANARY_|3333333333|203\.0\.113\.9" "$d"' _ "$imp_rc" "$T/ps-imported"
+    mkdir -p "$T/ps-root"
+    pwsh -NoProfile -NonInteractive -File "$ps1" -Commit 0000000000000000000000000000000000000000 -ScratchRoot "$T/ps-root" >"$T/ps-real.txt" 2>&1
+    real_rc=$?
+    if [ "$(uname -s)" != Windows_NT ]; then
+        check "P04 local mode: a real run off Windows is refused with exit 2 and creates nothing" \
+            bash -c '[ "$1" = 2 ] && [ -z "$(ls -A "$2")" ]' _ "$real_rc" "$T/ps-root"
+    fi
+else
+    skip "P01-P04 local mode: pwsh (PowerShell 7) is not installed here (the importer is still tested by test_m02_evidence.py)"
 fi
 
 echo "m02-selftest: $passes passed, $fails failed$([ "$skips" = 0 ] || echo ", $skips skipped")"

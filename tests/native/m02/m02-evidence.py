@@ -765,11 +765,15 @@ def evaluate(cfg, index, inv):
         return rows
 
     def check_found(kind, sid):
+        """A required test that applies to a platform that ran (ADR-0007 §12.32 item 10: a
+        platform the run marks `unavailable` ran nothing, so its tests are never looked
+        for; its rows are `blocked` instead) must appear in some log."""
         nonlocal rc
+        ran = [pn for pn, (p, _) in plats.items() if not p.get("unavailable")]
         for target, names in inv[kind][sid]["tests"].items():
             for n in names:
                 anywhere = any(n in logs.get(target, {}) for _, logs in plats.values())
-                applies = any(applicable(index, inv, target, n, pn) for pn in plats)
+                applies = any(applicable(index, inv, target, n, pn) for pn in ran)
                 neutral_elsewhere = build_host_path(index, target, n)
                 if applies and not anywhere and not neutral_elsewhere:
                     print(f"{sid}: {target}::{n} not found in any log", file=sys.stderr)
@@ -812,7 +816,9 @@ def evaluate(cfg, index, inv):
 def environment_of(cfg, plats):
     env = dict(cfg.get("environment") or {})
     facts = {}
-    keep = re.compile(r"^(os|glibc|nproc|script|scratch-fs|integrity|developer-mode|ssh-V.*|sshd-V.*|git-version.*|fixture-sshd.*|leftover-test-processes|test-pipes-.*|localappdata-heimdall-.*|inherited-.*|home-fs|rename-exchange|sshd-accepted-logins|default-identity-guard|time-confirmation)$")
+    # mode, build-target, build-commit and toolchain*: the Windows local-mode runner's facts
+    # (run-windows-local.ps1; ADR-0007 §12.32 item 17), which name the target honestly.
+    keep = re.compile(r"^(os|glibc|nproc|script|scratch-fs|integrity|developer-mode|ssh-V.*|sshd-V.*|git-version.*|fixture-sshd.*|leftover-test-processes|test-pipes-.*|localappdata-heimdall-.*|inherited-.*|home-fs|rename-exchange|sshd-accepted-logins|default-identity-guard|time-confirmation|mode|build-target|build-commit|toolchain.*)$")
     for pname, (p, _) in plats.items():
         f = {k: v for k, v in p.get("_facts", {}).items() if keep.match(k)}
         if f:

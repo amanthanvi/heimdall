@@ -1,0 +1,52 @@
+### ssh-V: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024
+### case=include_tokens file=tok_include.conf args=tok-x env=none exit=0
+user <local>
+port 2965
+### case=tok_user file=tok_user.conf args=tok-x env=none exit=0
+user u%h
+port 22
+### case=kw_RefuseConnection file=kw_RefuseConnection.conf args=box env=none exit=255
+stderr: <scratch>/kw_RefuseConnection.conf: line 2: Bad configuration option: refuseconnection
+stderr: <scratch>/kw_RefuseConnection.conf: terminating, 1 bad configuration options
+### case=kw_RefuseConnection_ignored file=kw_RefuseConnection_ignored.conf args=box env=none exit=0
+user <local>
+port 22
+### case=kw_RefuseConnection_ignored_box file=kw_RefuseConnection_ignored_box.conf args=box env=none exit=0
+user <local>
+port 2330
+### case=kw_VersionAddendum file=kw_VersionAddendum.conf args=box env=none exit=255
+stderr: <scratch>/kw_VersionAddendum.conf: line 2: Bad configuration option: versionaddendum
+stderr: <scratch>/kw_VersionAddendum.conf: terminating, 1 bad configuration options
+### case=kw_VersionAddendum_ignored file=kw_VersionAddendum_ignored.conf args=box env=none exit=0
+user <local>
+port 22
+### case=kw_VersionAddendum_ignored_box file=kw_VersionAddendum_ignored_box.conf args=box env=none exit=0
+user <local>
+port 2330
+### case=kw_WarnWeakCrypto file=kw_WarnWeakCrypto.conf args=box env=none exit=255
+stderr: <scratch>/kw_WarnWeakCrypto.conf: line 2: Bad configuration option: warnweakcrypto
+stderr: <scratch>/kw_WarnWeakCrypto.conf: terminating, 1 bad configuration options
+### case=kw_WarnWeakCrypto_ignored file=kw_WarnWeakCrypto_ignored.conf args=box env=none exit=0
+user <local>
+port 22
+### case=kw_WarnWeakCrypto_ignored_box file=kw_WarnWeakCrypto_ignored_box.conf args=box env=none exit=0
+user <local>
+port 2330
+### case=match_command file=match_command.conf args=box env=none exit=255
+stderr: Unsupported Match attribute command
+stderr: <scratch>/match_command.conf line 1: Bad Match condition
+stderr: <scratch>/match_command.conf: terminating, 1 bad configuration options
+### case=match_command_neg file=match_command_neg.conf args=box env=none exit=255
+stderr: Unsupported Match attribute command
+stderr: <scratch>/match_command_neg.conf line 1: Bad Match condition
+stderr: <scratch>/match_command_neg.conf: terminating, 1 bad configuration options
+### case=match_sessiontype file=match_sessiontype.conf args=box env=none exit=255
+stderr: Unsupported Match attribute sessiontype
+stderr: <scratch>/match_sessiontype.conf line 1: Bad Match condition
+stderr: <scratch>/match_sessiontype.conf: terminating, 1 bad configuration options
+### case=match_version file=match_version.conf args=box env=none exit=255
+stderr: Unsupported Match attribute version
+stderr: <scratch>/match_version.conf line 1: Bad Match condition
+stderr: <scratch>/match_version.conf: terminating, 1 bad configuration options
+### leak-check: whole-word account, host and home matches left after redaction: 0
+### scratch-removed=yes

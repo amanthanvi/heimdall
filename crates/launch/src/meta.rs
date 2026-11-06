@@ -381,8 +381,8 @@ mod tests {
 
     /// The committed example without insignificant whitespace.
     fn example(name: &str) -> String {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../schemas/examples")
+        // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+        let path = heimdall_testkit::repo::repo_path("schemas/examples")
             .join(format!("run-record.{name}.json"));
         let text = std::fs::read_to_string(path).unwrap();
         let mut out = String::new();

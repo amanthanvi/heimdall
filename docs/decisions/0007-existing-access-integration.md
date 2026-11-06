@@ -4249,6 +4249,83 @@ Source: `tests/evidence/artifacts/review-m02-code/wave5.md` (Codex, independent,
    * Regression: an external synthetic XDG Git configuration with a hook is neither read
      nor run.
 
+### 12.34 Rulings on the wave-5c escalations; wave 5d (orchestrator, 2026-11-06)
+
+Sources: the four wave-5c unit reports and the integrator's report (workflow `wf_6ad18190-1ba`).
+check.sh exited 0 three times, with 1704 tests passed and 0 failed. Every §12.32 item assigned
+to wave 5c is done.
+
+**Outcomes worth recording:**
+* §12.32 item 13: git 2.43.0 behaves like 2.54.0. The refusal came from the devbox's umask
+  of 0002, which made the fixture's Git directory group-writable, and the writer correctly
+  refuses that. Preview now runs the writer's own manageability check on the global Git file
+  (`check_global_file`). An account with umask 0002 therefore gets the Git item as
+  `not_applicable` (`unmanageable_file`), named at preview, while SSH still applies.
+* §12.32 item 9: `a27_ctrl_c_reaches_child_once` was a test defect. A test binary started
+  with SIGINT ignored passed that disposition to the pty child's shell, which cannot trap a
+  signal ignored on entry. Failures were 100 in 100 before the fix and 0 in 200 after.
+* §12.32 item 11 found more 9.6p1 gaps than ruled: `Match command` and `Match version` are
+  refused, `RefuseConnection`, `VersionAddendum` and `WarnWeakCrypto` are unknown keywords,
+  and `%` tokens in `Include` are taken literally. Each is gated on the observed client
+  version (`heimdall_sshconf::client::OBSERVED_CLIENTS`).
+
+1. **Client version in passes (escalation A).** A pass takes the version of the selected
+   `ssh` client from the client inventory. `run`, `connect` and setup query it with
+   `ssh -V`, a permitted local query.
+   * Where local queries are off (`doctor --no-local-exec`) or the version query fails,
+     the strictest reading applies: gated criteria refused, `${VAR}` expanding. That fails
+     closed. Recorded in the matrix: on such a pass, a user `Match sessiontype|command|version`
+     makes the selection undetermined.
+2. **The extra gating is ratified (escalation B).**
+   * A client the corpus has not observed takes the strictest reading of every gated
+     construct.
+   * Windows OpenSSH 10.3p1 therefore reads `command`, `version` and the three keywords
+     as refused until a Windows corpus run records otherwise.
+   * U11's Windows local-mode run includes the corpus test for exactly this reason.
+3. **Agent-endpoint discovery and Include expansion (escalation C)** is
+   `deferred_with_decision` to M03. `agents::identity_agent_references` lists candidate
+   endpoints for the doctor only and grants nothing. An Include expanded where the client
+   would not expand it can list an extra candidate, never hide one. Recorded in §13.
+4. **The matrix and design documents are the orchestrator's (escalation D).**
+   * They are updated with the M02 exit record: per-client default identity lists, the
+     gated constructs, the encoding observations for 10.5p1 and 9.6p1, the umask-0002
+     Git outcome, `plan_too_large`, and the writer-owned snapshots.
+   * The §5.5 text gains the writer-owned `gitconfig.<ts>.orig`.
+5. **Edits outside owner paths are ratified (escalation E):**
+   * W5c-app: `cli.rs`, `runtime/service.rs` and `testcfg.rs` (`with_state_dir`), and
+     `contracts/m02.rs`;
+   * W5c-harness: the testkit dev-dependencies in contract, domain, launch and sshconf,
+     and the four lock lines.
+6. **Snapshots without `state_dir` (escalation F).** Every production constructor of a
+   writing `ProjectionConfig` (the runtime service and the debug test configuration) sets
+   `state_dir`. A guard test that scans the source for writing constructors without it is
+   added (W5d-app). Refusing an edit without `state_dir` is left for M03 hardening and
+   recorded in §13.
+7. **Rollback and uninstall must never be blocked by size (escalation G).**
+   * The diff of a plan that **removes** Heimdall's own files (P, P_git, key files) shows
+     each removal as a summary: name, line count and SHA-256 of the removed content.
+     Their content was shown in full when the owner approved it.
+   * Changes to files the owner owns (the user SSH configuration, the global Git file)
+     are always shown in full. Only those count toward `MAX_DIFF_BYTES`.
+   * A plan whose owner-file changes alone exceed the bound is still `plan_too_large`.
+   * Regression: a rollback of a P well over 64 KiB is previewed and applied, while a
+     too-large owner-file change is refused.
+   * Owner: W5d-app.
+8. **Git follow-ups (escalation H).**
+   * (1) After the Git item is applied, `observe_global` counts Heimdall's own P_git
+     through the include as a user `core.sshCommand`. A re-preview then reports
+     `git_ssh_command_present`, and an update or re-render can never be planned. Values
+     whose origin is P_git are Heimdall's own and do not make the item not applicable.
+     Regression: apply, change an alias, re-preview, and an update is planned.
+   * (2) `plan_git_rollback` runs the same manageability check at preview as apply does.
+   * Owner: W5d-git.
+9. **§12.33 P01 and P02** are fixed by the orchestrator in the same wave.
+10. **Scan note (escalation J):** the public repository URL, which contains the
+    repository owner's login, is already public. It is allowed in committed files; the
+    pre-push scan treats it as expected.
+11. **Wave 5d:** W5d-app (items 6 and 7) and W5d-git (item 8), with the orchestrator on
+    P01 and P02, then the exit build and the native runs.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
@@ -4293,6 +4370,11 @@ Source: `tests/evidence/artifacts/review-m02-code/wave5.md` (Codex, independent,
   `config_tree_changed` (§6). ⟨r5⟩ It also records Git's lock holder K, and that a lock
   left after a crash on a filesystem without birth time is the owner's to remove.
 * ⟨r5⟩ The runtime bounds every real adapter call (`Limits.adapter_call_timeout`, §7).
+* ⟨§12.34 items 3 and 6⟩ Deferred to M03 with a decision:
+  * `agents::identity_agent_references` expands `Include` regardless of the client, so the
+    doctor may list an extra candidate agent endpoint. It grants nothing.
+  * Refusing an edit when a writing `ProjectionConfig` has no `state_dir` is left for M03
+    hardening. Every production constructor sets it, which a guard test checks.
 * ⟨§12.30 item 9⟩ An unknown local account has no dedicated `UnresolvedReason`. Conditions
   that read the account (`Match localuser`, `Match user` while the remote user may be the
   local account, `%u`, `%r`) are `Unknown` or `TokenUnavailable`, and the doctor words its

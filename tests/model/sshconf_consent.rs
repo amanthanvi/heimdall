@@ -57,10 +57,12 @@ fn query(host: &str, invocation: Invocation) -> Query {
         host: host.to_owned(),
         user: None,
         local_user: Some("fixture".to_owned()),
+        // A client observed to accept `Match sessiontype` and `Match command`
+        // (ADR-0007 §12.32 item 11); 9.5p2 and 9.6p1 refuse them.
         client_version: OpenSshVersion {
-            major: 9,
+            major: 10,
             minor: 5,
-            portable: Some(2),
+            portable: Some(1),
         },
         invocation,
     }

@@ -290,8 +290,8 @@ winuser=$(val winuser); winhost=$(val winhost); winhome=$(val winhome)
 wsluser=$(val wsluser); wslhome=$(val wslhome); wslhost=$(val wslhost); wsldistro=$(val wsldistro)
 sed '/^---redaction---$/,$d' "$shim/remote.txt" >"$shim/remote.body"
 m02_redact "$shim/remote.body" "$shim/redacted.txt" "$winhome" "<winhome>" "$wslhome" "<wslhome>" "$HOME" "<home>" \
-    "$winuser" "<winuser>" "$winhost" "<winhost>" "$host" "<winhost>" "$wsluser" "<wsluser>" \
-    "$wslhost" "<wslhost>" "$wsldistro" "<owner-distro>" "$(id -un)" "<user>"
+    "$winuser" "<winuser>" --word "$winhost" "<winhost>" --word "$host" "<winhost>" "$wsluser" "<wsluser>" \
+    --word "$wslhost" "<wslhost>" "$wsldistro" "<owner-distro>" "$(id -un)" "<user>"
 if grep -q '^---tests---$' "$shim/redacted.txt"; then
     sed -n '1,/^---tests---$/p' "$shim/redacted.txt" | sed '$d' >"$out/host.txt"
     sed -n '/^---after---$/,$p' "$shim/redacted.txt" | sed '1d' >>"$out/host.txt"
@@ -309,7 +309,7 @@ redact_build_log
 hits=$(m02_canary_scan "$out")
 m02_record "$commands" "canary-prefix scan over saved output (count = $hits)" "$([ "$hits" = 0 ] && echo 0 || echo 1)"
 set +e
-leaks=$(m02_leak_scan "$out" "$winhome" "$wslhome" "$HOME" "$winuser" "$winhost" "$host" "$wsluser" "$wslhost" "$wsldistro" "$(id -un)")
+leaks=$(m02_leak_scan "$out" "$winhome" "$wslhome" "$HOME" "$winuser" --word "$winhost" --word "$host" "$wsluser" --word "$wslhost" "$wsldistro" "$(id -un)")
 lrc=$?
 set -e
 m02_record "$commands" "leak scan: saved files still naming a host, a user, a home or the controller distribution ($leaks)" "$lrc"

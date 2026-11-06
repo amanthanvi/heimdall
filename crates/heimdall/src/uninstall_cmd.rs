@@ -24,13 +24,13 @@
 //!
 //! **Purging needs its own attended confirmation** (ADR-0007 §12.31 item 1, Q6). Before
 //! anything is started or changed, `--purge-state` shows what it will discard (the state
-//! database with its counts of operations, grants, decisions and catalog records, the
-//! backups, and the conflict and quarantine copies it leaves alone) and asks for a typed
-//! `y`/`yes`. A non-TTY stdin, `--non-interactive` (which never stands in for the typed
-//! answer, unlike `doctor --allow-config-commands`), end of input, an interruption, the
-//! prompt timeout and any other answer end the command at once with exit 3
-//! `INTERACTION_REQUIRED` (raised by this client, so with no `decision_ref`): nothing was
-//! changed and everything is kept.
+//! database with its counts of operations, grants, decisions, catalog records, events and
+//! idempotency records, the backups, and the conflict and quarantine copies it leaves
+//! alone) and asks for a typed `y`/`yes`. A non-TTY stdin, `--non-interactive` (which
+//! never stands in for the typed answer, unlike `doctor --allow-config-commands`), end of
+//! input, an interruption, the prompt timeout and any other answer end the command at
+//! once with exit 3 `INTERACTION_REQUIRED` (raised by this client, so with no
+//! `decision_ref`): nothing was changed and everything is kept.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -40,6 +40,7 @@ use heimdall_contract::envelope::{EffectStatus, Envelope, reason};
 use heimdall_contract::request::{InspectSubject, Request, ShutdownRequest};
 use heimdall_contract::setup::{RemainingArtifact, RemainingArtifactKind};
 use heimdall_contract::{Code, ExitCode};
+use heimdall_store::ext::TableCounts;
 use heimdall_store::{NoFaults, Store};
 
 use crate::cli::{Prompter, TerminalPrompt, UninstallArgs};
@@ -255,7 +256,7 @@ struct Discard {
     /// Its size in bytes.
     bytes: u64,
     /// The record counts, or why they could not be read.
-    counts: Result<Counts, &'static str>,
+    counts: Result<TableCounts, &'static str>,
     /// The snapshots under `<state>/backups`, as displayed.
     backups: Vec<String>,
     /// Conflict files and non-empty quarantine directories: never removed by a purge
@@ -263,38 +264,15 @@ struct Discard {
     kept: Vec<String>,
 }
 
-/// The state database's records, counted from the store opened read-only. The store
-/// exposes no count of every row, so these are the records it lists: every operation,
-/// the grants that are not terminal, the decisions that are pending, and the catalog's
-/// identities, destinations and profiles.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Counts {
-    operations: u64,
-    live_grants: u64,
-    pending_decisions: u64,
-    identities: u64,
-    destinations: u64,
-    profiles: u64,
-}
-
-/// Count the records of the database at `db` (read-only: nothing is created, migrated
-/// or repaired, and no runtime is started). `Err` names the failure's class, never a
-/// path or the store's own text.
-fn read_counts(db: &Path) -> Result<Counts, &'static str> {
+/// Count the rows of the database at `db`, table by table, whatever each row's state
+/// ([`TableCounts`], ADR-0007 §12.32 item 7). Read-only: nothing is created, migrated or
+/// repaired, and no runtime is started. `Err` names the failure's class, never a path
+/// or the store's own text.
+fn read_counts(db: &Path) -> Result<TableCounts, &'static str> {
     let store = Store::open_read_only(db, Arc::new(NoFaults))
         .map_err(|_| "the database could not be opened read-only")?;
-    let n = |len: usize| u64::try_from(len).unwrap_or(u64::MAX);
     store
-        .transaction(|tx| {
-            Ok(Counts {
-                operations: tx.operation_counts()?.iter().map(|(_, n)| *n).sum(),
-                live_grants: n(tx.grants_due(heimdall_contract::Timestamp::MAX)?.len()),
-                pending_decisions: n(tx.pending_decisions()?.len()),
-                identities: n(tx.identities()?.len()),
-                destinations: n(tx.destinations()?.len()),
-                profiles: n(tx.profiles()?.len()),
-            })
-        })
+        .transaction(|tx| tx.table_counts())
         .map_err(|_| "the records could not be read")
 }
 
@@ -335,20 +313,22 @@ impl Discard {
         ));
         match &self.counts {
             Ok(c) => out.push_str(&format!(
-                "    operations: {} (all states)\n    grants: {} (not ended)\n    decisions: {} (pending)\n    catalog records: {} identities, {} destinations, {} profiles\n",
+                "    operations: {} (all states)\n    grants: {} (all states)\n    decisions: {} (all states)\n    catalog records: {} identities, {} destinations, {} profiles\n    events: {}\n    idempotency records: {}\n",
                 c.operations,
-                c.live_grants,
-                c.pending_decisions,
+                c.grants,
+                c.decisions,
                 c.identities,
                 c.destinations,
-                c.profiles
+                c.profiles,
+                c.events,
+                c.idempotency
             )),
             Err(why) => out.push_str(&format!(
-                "    operations, grants, decisions and catalog records: not counted ({why}); they are discarded with it\n"
+                "    operations, grants, decisions, catalog records, events and idempotency records: not counted ({why}); they are discarded with it\n"
             )),
         }
         out.push_str(
-            "    It also holds the standing policies, the tombstones, the history of decisions and grants, the audit events and the recovery records, and the records this uninstall adds; all of them go too.\n",
+            "    It also holds the standing policies, the tombstones and the recovery records, and the records this uninstall adds; all of them go too.\n",
         );
         if self.backups.is_empty() {
             out.push_str("  Backups of your original files: none\n");
@@ -712,13 +692,15 @@ mod tests {
         Discard {
             database: "~/state/state.db".to_owned(),
             bytes: 4096,
-            counts: Ok(Counts {
+            counts: Ok(TableCounts {
                 operations: 7,
-                live_grants: 2,
-                pending_decisions: 1,
+                grants: 2,
+                decisions: 1,
                 identities: 3,
                 destinations: 4,
                 profiles: 5,
+                events: 11,
+                idempotency: 6,
             }),
             backups: vec!["~/state/backups/ssh_config.20260101T000000Z.orig".to_owned()],
             kept: vec!["~/.ssh/config.hm-conflict-1".to_owned()],
@@ -811,9 +793,11 @@ mod tests {
         for needle in [
             "~/state/state.db (4096 bytes)",
             "operations: 7 (all states)",
-            "grants: 2 (not ended)",
-            "decisions: 1 (pending)",
+            "grants: 2 (all states)",
+            "decisions: 1 (all states)",
             "3 identities, 4 destinations, 5 profiles",
+            "events: 11",
+            "idempotency records: 6",
             "Backups of your original files (1):",
             "~/state/backups/ssh_config.20260101T000000Z.orig",
             "kept (a purge removes none",
@@ -837,7 +821,7 @@ mod tests {
         );
         assert!(
             text.contains(
-                "not counted (the records could not be read); they are discarded with it"
+                "operations, grants, decisions, catalog records, events and idempotency records: not counted (the records could not be read); they are discarded with it"
             ),
             "{text}"
         );
@@ -853,17 +837,7 @@ mod tests {
         assert!(!db.exists());
         drop(Store::open(&db, Arc::new(NoFaults)).unwrap_or_else(|e| panic!("{e}")));
         let before = std::fs::read(&db).unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(
-            read_counts(&db),
-            Ok(Counts {
-                operations: 0,
-                live_grants: 0,
-                pending_decisions: 0,
-                identities: 0,
-                destinations: 0,
-                profiles: 0,
-            })
-        );
+        assert_eq!(read_counts(&db), Ok(TableCounts::default()));
         assert_eq!(
             std::fs::read(&db).unwrap_or_else(|e| panic!("{e}")),
             before,

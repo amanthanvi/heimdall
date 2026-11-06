@@ -1,0 +1,42 @@
+umask=0002
+
+running 9 tests
+test git_multiplicity_through_includes_counts_each_origin ... ok
+test git_global_file_resolution_follows_read_order ... ok
+test git_config_query_output_parsed ... ok
+test git_queries_use_includes_flag_and_expand_includes ... ok
+test git_both_global_files_present_values_in_either_make_item_not_applicable ... ok
+test git_run_selection_in_cwd_reports_local_override ... ok
+test git_value_through_conditional_include_is_counted_conditional ... ok
+test git_unreadable_include_makes_item_not_applicable ... ok
+test git_values_never_leave_observation ... ok
+
+successes:
+
+---- git_global_file_resolution_follows_read_order stdout ----
+observation test=git_global_file_resolution_follows_read_order git="git version 2.43.0" git_var_exit="0" git_var_global="<scratch>/home/.config/git/config,<scratch>/home/.gitconfig" unscoped_read_order="xdg-value,home-value"
+
+---- git_queries_use_includes_flag_and_expand_includes stdout ----
+observation test=git_queries_use_includes_flag_and_expand_includes git="git version 2.43.0" with_includes_exit="0" without_includes_exit="1"
+
+---- git_both_global_files_present_values_in_either_make_item_not_applicable stdout ----
+observation test=git_both_global_files_present_values_in_either_make_item_not_applicable git="git version 2.43.0" global_query_reads_xdg_when_home_file_exists="false"
+
+---- git_value_through_conditional_include_is_counted_conditional stdout ----
+observation test=git_value_through_conditional_include_is_counted_conditional git="git version 2.43.0" query_outside_repository_exit="1"
+
+
+successes:
+    git_both_global_files_present_values_in_either_make_item_not_applicable
+    git_config_query_output_parsed
+    git_global_file_resolution_follows_read_order
+    git_multiplicity_through_includes_counts_each_origin
+    git_queries_use_includes_flag_and_expand_includes
+    git_run_selection_in_cwd_reports_local_override
+    git_unreadable_include_makes_item_not_applicable
+    git_value_through_conditional_include_is_counted_conditional
+    git_values_never_leave_observation
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+exit=0

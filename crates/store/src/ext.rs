@@ -130,6 +130,28 @@ pub enum DecisionCompletion {
     },
 }
 
+/// ⟨M02⟩ ADR-0007 §12.32 item 7: how many rows each table a purge of the state
+/// discards holds ([`Txn::table_counts`]). Every row counts, whatever its state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TableCounts {
+    /// Operations, in every state.
+    pub operations: u64,
+    /// Grants, in every state (ended ones included).
+    pub grants: u64,
+    /// Decisions, pending or settled.
+    pub decisions: u64,
+    /// Catalog identities.
+    pub identities: u64,
+    /// Catalog destinations.
+    pub destinations: u64,
+    /// Catalog profiles.
+    pub profiles: u64,
+    /// Audit events still stored.
+    pub events: u64,
+    /// Idempotency records.
+    pub idempotency: u64,
+}
+
 /// ⟨M02⟩ Result of [`Txn::end_interaction_declaration`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EndOutcome {
@@ -1839,6 +1861,28 @@ impl Txn<'_> {
     /// Every identity, ordered by ID.
     pub fn identities(&mut self) -> Result<Vec<IdentityRecord>> {
         self.docs("SELECT record_json FROM identities ORDER BY id", [])
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.32 item 7: the number of rows in each table a purge of the
+    /// state discards, whatever each row's state (every operation, every grant, every
+    /// decision). Read-only: it runs one `SELECT count(*)` per table (fixed table
+    /// names, no caller text in the SQL) and writes nothing, so it works on a store
+    /// opened read-only.
+    pub fn table_counts(&mut self) -> Result<TableCounts> {
+        let count = |sql: &'static str| -> Result<u64> {
+            let n: i64 = self.tx.query_row(sql, [], |r| r.get(0))?;
+            codec::uint(n)
+        };
+        Ok(TableCounts {
+            operations: count("SELECT count(*) FROM operations")?,
+            grants: count("SELECT count(*) FROM grants")?,
+            decisions: count("SELECT count(*) FROM decisions")?,
+            identities: count("SELECT count(*) FROM identities")?,
+            destinations: count("SELECT count(*) FROM destinations")?,
+            profiles: count("SELECT count(*) FROM profiles")?,
+            events: count("SELECT count(*) FROM events")?,
+            idempotency: count("SELECT count(*) FROM idempotency")?,
+        })
     }
 
     // --- interaction declarations (ADR-0007 §7) ----------------------------------------

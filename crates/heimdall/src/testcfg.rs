@@ -627,7 +627,8 @@ mod enabled {
             &ClientsConfig::default(),
             LocalQueries::Enabled,
         );
-        let mut config = ProjectionConfig::new(ssh, Platform::current(), paths.config_dir.clone());
+        let mut config = ProjectionConfig::new(ssh, Platform::current(), paths.config_dir.clone())
+            .with_state_dir(paths.state_dir.clone());
         config.env = captured;
         config.clients = clients;
         config.queries = LocalQueries::Enabled;

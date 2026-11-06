@@ -2,7 +2,9 @@
 //!
 //! The plan carries each step's `StepContent`, built through `Rendered`; staged
 //! names are random and fixed in the plan. A plan beyond the content bounds is
-//! refused (`PreviewError::TooLarge`, `projection_too_large`).
+//! refused (`PreviewError::TooLarge`, `projection_too_large`). The diffs are whole: the
+//! preview never cuts one (ADR-0007 §12.32 item 5); the application refuses a plan whose
+//! full diff exceeds `MAX_DIFF_BYTES` (`plan_too_large`).
 //!
 //! **Reproducible digests** (ADR-0007 §12.18 item 3). The marker of a block a plan
 //! inserts (B, B_git) is derived from the proposed generation, the target file's role
@@ -128,7 +130,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::ProjectionConfig;
 use super::apply::random_hex;
-use super::git::lock_holder;
+use super::git::{GlobalFileCheck, check_global_file, lock_holder};
 use super::replace::{self, DirHandle, Quarantine, ReplaceRefusal};
 use crate::clients::ClientKind;
 use crate::fs::BoundedSource;
@@ -969,6 +971,34 @@ impl<'a> Builder<'a> {
             self.git = Some(not_applicable("verified_client_unavailable", before));
             return Ok(());
         };
+        let global = file.path.clone();
+        let global_bytes = self.read(FileRole::GitInclude, &global)?;
+        let blocks = gitedit::find_blocks(global_bytes.as_deref().unwrap_or_default());
+        // ADR-0007 §5.3 item 9, §5.6: a global file the writer will not touch (its
+        // directory or the file fails a step-1 or step-2 check) is manual mode for the
+        // Git item, decided here as the SSH user file is, not at apply, where the
+        // refusal would sink the SSH item too (§12.32 item 13). Only a plan that
+        // writes the global file needs it: an update of P_git alone does not.
+        if blocks.is_empty() {
+            match check_global_file(&global, global_bytes.as_deref()) {
+                GlobalFileCheck::Manageable => {}
+                GlobalFileCheck::Unmanageable => {
+                    let mut change = not_applicable(manual_reason::UNMANAGEABLE_FILE, before);
+                    change.global_file = Some(GitGlobalFile {
+                        path_display: self.display(&global),
+                        file: file.file,
+                        resolution: file.rule,
+                    });
+                    self.git = Some(change);
+                    return Ok(());
+                }
+                GlobalFileCheck::Changed => {
+                    return Err(PreviewError::Unavailable(
+                        "the global Git file changed while it was read".to_owned(),
+                    ));
+                }
+            }
+        }
         let client_path = self.absolute_path(&client.path)?;
         let p_git = render::rendered_git_managed(&client_path)
             .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?;
@@ -977,9 +1007,6 @@ impl<'a> Builder<'a> {
         }
         let p_git_path = self.config.managed_git_path();
         let p_git_step = self.whole_step(FileRole::GitManaged, &p_git_path, p_git)?;
-        let global = file.path.clone();
-        let global_bytes = self.read(FileRole::GitInclude, &global)?;
-        let blocks = gitedit::find_blocks(global_bytes.as_deref().unwrap_or_default());
         let mut steps: Vec<FileStep> = Vec::new();
         let mut include_change = None;
         match blocks.as_slice() {
@@ -1833,7 +1860,7 @@ impl<'a> Builder<'a> {
                 behavior: &decided.digest_view,
             },
         )?;
-        let diff_text = bounded_diff(&self.changes);
+        let diff_text = full_diff(&self.changes);
         let rollback = matches!(intent, PreviewIntent::Rollback { .. });
         let summary = decided.need.required.then(|| ProjectionSummary {
             intent: match intent {
@@ -2241,7 +2268,9 @@ fn read_file(path: &Path) -> Result<Option<Vec<u8>>, PreviewError> {
 }
 
 /// A line diff: removed lines with `-`, added lines with `+`, the common prefix and
-/// suffix omitted. Display only.
+/// suffix omitted. Display only. It is never cut: a diff beyond
+/// [`heimdall_contract::setup::MAX_DIFF_BYTES`] makes the application refuse the plan
+/// (`plan_too_large`, ADR-0007 §12.32 item 5), so no client is shown part of a diff.
 fn line_diff(before: &[u8], after: &[u8]) -> String {
     let b: Vec<&[u8]> = before.split_inclusive(|c| *c == b'\n').collect();
     let a: Vec<&[u8]> = after.split_inclusive(|c| *c == b'\n').collect();
@@ -2265,10 +2294,13 @@ fn line_diff(before: &[u8], after: &[u8]) -> String {
             }
         }
     }
-    truncate(out, heimdall_contract::setup::MAX_DIFF_BYTES)
+    out
 }
 
-fn bounded_diff(changes: &[FileChange]) -> String {
+/// Every change's diff under its path header, whole (ADR-0007 §12.32 item 5): the decision
+/// summary's `diff_text`. The application refuses a plan whose text exceeds
+/// [`ProjectionSummary::MAX_DIFF_TEXT`] before it is shown or journaled.
+fn full_diff(changes: &[FileChange]) -> String {
     let mut out = String::new();
     for c in changes {
         out.push_str("--- ");
@@ -2276,18 +2308,7 @@ fn bounded_diff(changes: &[FileChange]) -> String {
         out.push('\n');
         out.push_str(&c.diff);
     }
-    truncate(out, ProjectionSummary::MAX_DIFF_TEXT)
-}
-
-fn truncate(mut s: String, max: usize) -> String {
-    if s.len() > max {
-        let mut cut = max;
-        while !s.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        s.truncate(cut);
-    }
-    s
+    out
 }
 
 #[cfg(test)]

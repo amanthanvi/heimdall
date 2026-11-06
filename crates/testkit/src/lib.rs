@@ -1017,6 +1017,10 @@ mod ledger_tests {
     }
 }
 
+// ADR-0007 §12.32 item 3: the repository root (`HM_REPO_ROOT`) for every test that reads
+// repository files. No feature: every test graph has it.
+pub mod repo;
+
 // M02-U7 process fixtures (m02-plan §0, U7; ADR-0007 §9). Feature `fixtures`.
 #[cfg(feature = "fixtures")]
 pub mod agent;
@@ -1026,6 +1030,10 @@ pub mod home;
 pub mod hook;
 #[cfg(feature = "fixtures")]
 pub mod sshd;
+// ADR-0007 §12.32 item 9: the e2e pty cases' session starts with the default terminal
+// signal dispositions, whatever the test runner ignored.
+#[cfg(all(unix, feature = "fixtures"))]
+pub mod term;
 
 /// Proptest strategies for domain values (plan §6.3). Seeds: tests set
 /// `ProptestConfig { cases, .. }` and commit `proptest-regressions/` files; the

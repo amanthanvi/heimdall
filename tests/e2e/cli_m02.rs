@@ -20,8 +20,9 @@
 //!
 //! **Canaries.** Every stdout and stderr byte is scanned with `assert_no_canary`.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
-// The suite is Unix-hosted (the fixture sshd, agents and the pty); on Windows only the
-// usage-error case runs, and the shared helpers are unused there.
+// On every platform: the usage-error case and the `--json`/`--non-interactive` cases of
+// `json` (ADR-0007 §12.32 item 4). The pty cases (`unix`, `ssh`, `terminal`) are Unix-only,
+// so some shared helpers are unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 
 use std::ffi::{OsStr, OsString};
@@ -86,9 +87,9 @@ impl Out {
 
 /// The checked-in public schema `name`.
 fn schema(name: &str) -> Value {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../schemas/public-api")
-        .join(format!("{name}.schema.json"));
+    // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+    let path =
+        heimdall_testkit::repo::repo_path("schemas/public-api").join(format!("{name}.schema.json"));
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap()
 }
 
@@ -108,7 +109,8 @@ fn assert_envelope_valid(env: &Value) {
     }
 }
 
-#[cfg(unix)]
+// Cross-platform (ADR-0007 §12.32 item 4): the `--json` and `--non-interactive` cases of
+// [`json`] run on every platform; the pty cases ([`unix`], [`ssh`]) on macOS and Linux.
 mod world {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, PoisonError};
@@ -191,12 +193,72 @@ mod world {
         pub(super) real: Option<RealAgent>,
         pub(super) keys: Vec<FixtureKey>,
         pub(super) hook: Arc<Hook>,
-        uid: u32,
+        principal: PrincipalRef,
         n: AtomicU32,
     }
 
     fn rid(s: &str) -> RequestId {
         RequestId::parse(s).unwrap()
+    }
+
+    /// This account as the runtime names a CLI client of it: its uid (Unix, the scratch
+    /// home's owner) or its SID (Windows), so in-process requests and the CLI's are the
+    /// same principal.
+    fn owner_principal(home: &Path) -> PrincipalRef {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            PrincipalRef::UnixUser {
+                uid: std::fs::metadata(home).unwrap().uid(),
+            }
+        }
+        #[cfg(windows)]
+        {
+            let _ = home;
+            PrincipalRef::WindowsUser {
+                sid: heimdall_ipc::windows::current_user_sid().unwrap(),
+            }
+        }
+    }
+
+    /// The agent endpoint kind of this platform (a socket path, or a named pipe).
+    pub(super) fn endpoint_kind() -> EndpointKind {
+        if cfg!(windows) {
+            EndpointKind::NamedPipe
+        } else {
+            EndpointKind::UnixSocket
+        }
+    }
+
+    /// The minimal environment a process of this platform needs, with `home` as the
+    /// user's home: Unix `PATH=/usr/bin:/bin` and `HOME`; Windows the in-box OpenSSH,
+    /// System32 and the Windows directory on `PATH` (the E6 baseline, as the native
+    /// harness puts it first), `SystemRoot`, `SystemDrive`, `TEMP`/`TMP` and the profile
+    /// (`USERPROFILE`, and `HOME` for Git).
+    pub(super) fn platform_env(home: &Path) -> Vec<(OsString, OsString)> {
+        let mut env: Vec<(OsString, OsString)> = Vec::new();
+        if cfg!(windows) {
+            let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+            let root = PathBuf::from(root);
+            let path = std::env::join_paths([
+                root.join("System32").join("OpenSSH"),
+                root.join("System32"),
+                root.clone(),
+            ])
+            .unwrap();
+            env.push(("PATH".into(), path));
+            env.push(("SystemRoot".into(), root.into_os_string()));
+            for k in ["SystemDrive", "TEMP", "TMP"] {
+                if let Some(v) = std::env::var_os(k) {
+                    env.push((k.into(), v));
+                }
+            }
+            env.push(("USERPROFILE".into(), home.as_os_str().to_owned()));
+        } else {
+            env.push(("PATH".into(), "/usr/bin:/bin".into()));
+        }
+        env.push(("HOME".into(), home.as_os_str().to_owned()));
+        env
     }
 
     impl World {
@@ -206,7 +268,6 @@ mod world {
         }
 
         pub(super) fn with_mode(keys: usize, mode: AgentMode) -> World {
-            use std::os::unix::fs::MetadataExt as _;
             let home = ScratchHome::new();
             std::fs::create_dir_all(home.root.join("etc-ssh")).unwrap();
             let keys = FixtureKey::generate_many(keys);
@@ -217,7 +278,7 @@ mod world {
                     mode,
                 },
             );
-            let uid = std::fs::metadata(&home.root).unwrap().uid();
+            let principal = owner_principal(&home.root);
             let mut w = World {
                 home,
                 service: None,
@@ -225,7 +286,7 @@ mod world {
                 real: None,
                 keys,
                 hook: Arc::new(Hook::default()),
-                uid,
+                principal,
                 n: AtomicU32::new(0),
             };
             w.start();
@@ -237,8 +298,11 @@ mod world {
                 self.home.git_home.clone(),
                 self.home.root.join("etc-ssh"),
             );
+            // ADR-0007 §12.32 item 2: the snapshot of an original user file is the
+            // writer's, so the runtime under test is given the scratch state directory.
             let mut c =
-                ProjectionConfig::new(paths, Platform::current(), self.home.config_dir.clone());
+                ProjectionConfig::new(paths, Platform::current(), self.home.config_dir.clone())
+                    .with_state_dir(self.home.state_dir.clone());
             c.env = Env::from_vars([
                 ("HOME", self.home.git_home.display().to_string()),
                 ("GIT_CONFIG_NOSYSTEM", "1".to_owned()),
@@ -334,7 +398,7 @@ mod world {
         fn attended(&self) -> Caller {
             Caller {
                 context: CallerContext {
-                    principal: PrincipalRef::UnixUser { uid: self.uid },
+                    principal: self.principal.clone(),
                     role: ClientRole::Owner,
                 },
                 attendance: Attendance::Attended {
@@ -385,7 +449,7 @@ mod world {
                 None => self.agent.endpoint().locator(),
             };
             EndpointRef {
-                kind: EndpointKind::UnixSocket,
+                kind: endpoint_kind(),
                 locator: locator.to_str().unwrap().to_owned(),
             }
         }
@@ -573,9 +637,8 @@ mod world {
         /// The environment every heimdall process gets.
         pub(super) fn env(&self) -> Vec<(OsString, OsString)> {
             let g = &self.home.git_home;
-            vec![
-                ("PATH".into(), "/usr/bin:/bin".into()),
-                ("HOME".into(), g.clone().into_os_string()),
+            let mut env = platform_env(g);
+            env.extend([
                 (
                     "HEIMDALL_HOME".into(),
                     self.home.root.clone().into_os_string(),
@@ -590,7 +653,8 @@ mod world {
                     "SSH_AUTH_SOCK".into(),
                     self.home.decoy_agent().endpoint().locator(),
                 ),
-            ]
+            ]);
+            env
         }
 
         /// `heimdall <args>` with this world's environment and `extra`. A command that
@@ -971,12 +1035,26 @@ mod terminal {
         rustix::stdio::dup2_stderr(&tty).unwrap();
         drop(tty);
         let args: Vec<String> = serde_json::from_str(&args).unwrap();
-        let err = Command::new(bin()).args(args).exec();
+        // The session starts with the default terminal signals, whatever the test runner
+        // ignored (ADR-0007 §12.32 item 9; `heimdall_testkit::term`).
+        heimdall_testkit::term::default_terminal_signals_for_exec().unwrap();
+        // The binary under test is the one the parent passed (ADR-0007 §12.32 item 10);
+        // the variable itself is not part of heimdall's environment.
+        let program = bin();
+        let err = Command::new(program)
+            .args(args)
+            .env_remove("HEIMDALL_E2E_BIN")
+            .exec();
         panic!("exec failed: {err}");
     }
 
+    /// A pseudo-terminal. It holds a descriptor of its slave for its whole life (ADR-0007
+    /// §12.32 item 6): macOS forgets a pty's window size when the last descriptor of its
+    /// slave closes. Both descriptors are close-on-exec, so no other test's child
+    /// inherits them.
     pub(crate) struct Pty {
         master: OwnedFd,
+        slave_fd: Option<OwnedFd>,
         slave: PathBuf,
         output: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
         stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -985,15 +1063,36 @@ mod terminal {
     impl Drop for Pty {
         fn drop(&mut self) {
             self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            // With no slave descriptor left once the child has gone, the drain's read
+            // returns, so its thread sees `stop` and ends.
+            self.slave_fd = None;
         }
     }
 
     impl Pty {
         pub(crate) fn open() -> Pty {
             let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY).unwrap();
+            rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC).unwrap();
             grantpt(&master).unwrap();
             unlockpt(&master).unwrap();
             let name = ptsname(&master, Vec::new()).unwrap();
+            let slave = PathBuf::from(std::ffi::OsStr::from_bytes(name.as_bytes()));
+            let slave_fd = rustix::fs::open(
+                &slave,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap();
+            rustix::termios::tcsetwinsize(
+                &slave_fd,
+                rustix::termios::Winsize {
+                    ws_row: 24,
+                    ws_col: 80,
+                    ws_xpixel: 0,
+                    ws_ypixel: 0,
+                },
+            )
+            .unwrap();
             let output = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let reader = master.try_clone().unwrap();
@@ -1012,10 +1111,17 @@ mod terminal {
             });
             Pty {
                 master,
-                slave: PathBuf::from(std::ffi::OsStr::from_bytes(name.as_bytes())),
+                slave_fd: Some(slave_fd),
+                slave,
                 output,
                 stop,
             }
+        }
+
+        /// The window size the terminal has now, read through the held slave.
+        pub(crate) fn size(&self) -> (u16, u16) {
+            let w = rustix::termios::tcgetwinsize(self.slave_fd.as_ref().unwrap()).unwrap();
+            (w.ws_row, w.ws_col)
         }
 
         pub(crate) fn write(&self, bytes: &[u8]) {
@@ -1029,6 +1135,19 @@ mod terminal {
             &self,
             env: &[(OsString, OsString)],
             cwd: &Path,
+            args: &[&str],
+        ) -> Child {
+            self.start_bin(env, cwd, OsStr::new(&bin()), args)
+        }
+
+        /// `<program> <args>`, `program` standing for the binary under test. The child
+        /// mode's environment is cleared, so the binary is passed to it explicitly
+        /// (`HEIMDALL_E2E_BIN`; ADR-0007 §12.32 item 10).
+        pub(crate) fn start_bin(
+            &self,
+            env: &[(OsString, OsString)],
+            cwd: &Path,
+            program: &OsStr,
             args: &[&str],
         ) -> Child {
             let json = serde_json::to_string(&args).unwrap();
@@ -1048,6 +1167,7 @@ mod terminal {
             }
             cmd.env(SLAVE, &self.slave)
                 .env(ARGS, &json)
+                .env("HEIMDALL_E2E_BIN", program)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -1091,6 +1211,45 @@ mod terminal {
         let t = pty.transcript();
         assert_no_canary(&t);
         (code, t)
+    }
+
+    /// ADR-0007 §12.32 items 6 and 10: the child mode runs the binary its parent names
+    /// (its environment is cleared, so it cannot fall back on the parent's
+    /// `HEIMDALL_E2E_BIN`; a native run copies the binaries elsewhere), and the program
+    /// sees the pty's 24×80 (the Pty holds its slave, so macOS keeps the size). A stub
+    /// stands for the binary under test.
+    #[test]
+    fn pty_child_runs_the_named_binary_at_the_pty_size() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let seen = dir.path().join("seen");
+        let stub = dir.path().join("stub-heimdall");
+        std::fs::write(
+            &stub,
+            format!(
+                "#!/bin/sh\nprintf '%s|' \"$*\" > '{0}'\nstty size >> '{0}'\n",
+                seen.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let pty = Pty::open();
+        assert_eq!(pty.size(), (24, 80));
+        let env = [(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
+        let mut child = pty.start_bin(&env, dir.path(), stub.as_os_str(), &["probe", "one"]);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let status = loop {
+            if let Some(s) = child.try_wait().unwrap() {
+                break s;
+            }
+            assert!(Instant::now() < deadline, "the stub did not finish");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(status.code(), Some(0), "{}", pty.transcript());
+        assert_eq!(
+            std::fs::read_to_string(&seen).unwrap().trim(),
+            "probe one|24 80"
+        );
     }
 
     /// The last JSON envelope in a pty transcript.
@@ -1147,20 +1306,24 @@ fn u9_usage_errors_exit_2_before_any_runtime_contact() {
     }
 }
 
-#[cfg(unix)]
-mod unix {
+/// The `--json` and `--non-interactive` cases of uninstall, doctor, setup preview and
+/// status and the catalog: they run on every platform (ADR-0007 §12.32 item 4). The pty
+/// cases are in [`unix`] and [`ssh`], macOS and Linux only (case-index.json
+/// `platform_only`); Windows interactive confirmation is the pseudoconsole drivers' row.
+mod json {
     use heimdall_contract::ids::IdentityId;
-    use heimdall_localenv::projection::ReplacePoint;
+    use heimdall_contract::provider::EndpointRef;
 
-    use super::world::World;
+    use super::world::{World, endpoint_kind, platform_env};
     use super::*;
 
-    const ALPHA: &str = "alpha";
-    const USER: &str = "Host other\n    HostName other.example.invalid\n    User fixture\n";
+    pub(super) const ALPHA: &str = "alpha";
+    pub(super) const USER: &str =
+        "Host other\n    HostName other.example.invalid\n    User fixture\n";
 
     /// Key 0 adopted at the fake agent for `alpha`, profile `work`, the user file
     /// [`USER`], and (with `project`) the projection applied in process.
-    fn single(project: bool) -> (World, IdentityId) {
+    pub(super) fn single(project: bool) -> (World, IdentityId) {
         let w = World::new(1);
         w.home.write_user_config(USER).unwrap();
         let id = w.adopt(0);
@@ -1172,12 +1335,12 @@ mod unix {
         (w, id)
     }
 
-    fn user(w: &World) -> String {
+    pub(super) fn user(w: &World) -> String {
         std::fs::read_to_string(&w.home.user_config).unwrap()
     }
 
     /// The operation of a refusal or result.
-    fn op_of(env: &Value) -> String {
+    pub(super) fn op_of(env: &Value) -> String {
         env["operation_id"]
             .as_str()
             .or_else(|| env["next"]["operation_id"].as_str())
@@ -1186,11 +1349,451 @@ mod unix {
     }
 
     /// `heimdall --json --non-interactive <args>`.
-    fn ni(w: &World, args: &[&str]) -> Out {
+    pub(super) fn ni(w: &World, args: &[&str]) -> Out {
         let mut all = vec!["--json", "--non-interactive"];
         all.extend_from_slice(args);
         w.cli(&all)
     }
+
+    /// A program `run` resolves on this platform. The cases using it are refused before
+    /// the launch, so it never runs.
+    fn present_program() -> String {
+        if cfg!(windows) {
+            let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+            PathBuf::from(root)
+                .join("System32")
+                .join("cmd.exe")
+                .display()
+                .to_string()
+        } else {
+            "/usr/bin/true".to_owned()
+        }
+    }
+
+    /// An agent endpoint of this platform's kind where nothing listens.
+    fn absent_endpoint(w: &World) -> EndpointRef {
+        let locator = if cfg!(windows) {
+            format!(
+                "\\\\.\\pipe\\hm-gone-{}",
+                w.home.root.file_name().unwrap().to_string_lossy()
+            )
+        } else {
+            w.home.root.join("gone.sock").display().to_string()
+        };
+        EndpointRef {
+            kind: endpoint_kind(),
+            locator,
+        }
+    }
+
+    /// ADR-0007 §12.32 item 4: `setup preview`, `setup apply` and `setup status` under
+    /// `--json --non-interactive`. The first adoption's preview lists the managed alias
+    /// with its restore column; the apply exits 3 with the decision reference and writes
+    /// nothing; once the owner approved that decision (in process), a new request applies
+    /// once; `setup status` then reports no held operation. Every envelope is
+    /// schema-valid.
+    #[test]
+    fn setup_preview_apply_and_status_json_on_every_platform() {
+        let (w, _) = single(false);
+        let before = user(&w);
+        let preview = ni(&w, &["setup", "preview"]);
+        assert_eq!(preview.code, Some(0), "{preview:?}");
+        assert_envelope_valid(&preview.json());
+        let aliases = preview.json()["data"]["aliases"].clone();
+        let alpha = aliases
+            .as_array()
+            .and_then(|a| a.iter().find(|a| a["alias"] == ALPHA))
+            .unwrap_or_else(|| panic!("the plan lists alpha: {aliases}"));
+        assert_eq!(alpha["kind"], "managed", "{alpha}");
+        assert_eq!(
+            alpha["restore"]["digest"].as_str().map(str::len),
+            Some(64),
+            "{alpha}"
+        );
+        let apply = ni(&w, &["setup", "apply", "--request-id", "r-json-apply"]);
+        assert_eq!(apply.code, Some(3), "{apply:?}");
+        assert_eq!(apply.code_str(), "INTERACTION_REQUIRED", "{apply:?}");
+        assert_envelope_valid(&apply.json());
+        let decision = apply.json()["next"]["decision_ref"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a decision reference: {apply:?}"))
+            .to_owned();
+        assert_eq!(user(&w), before, "nothing written before the decision");
+        w.approve(&decision);
+        // The approval is consent, so the plan previewed now has another digest: a new
+        // request applies it (the old request ID never applies a different plan).
+        let applied = ni(&w, &["setup", "apply", "--request-id", "r-json-apply-2"]);
+        assert_eq!(applied.code, Some(0), "{applied:?}");
+        assert_envelope_valid(&applied.json());
+        assert_eq!(
+            user(&w).matches("# >>> heimdall managed include").count(),
+            1
+        );
+        assert!(w.p().exists(), "P written");
+        let status = ni(&w, &["setup", "status"]);
+        assert_eq!(status.code, Some(0), "{status:?}");
+        let env = status.json();
+        assert_envelope_valid(&env);
+        assert_eq!(
+            env["data"]["held_operations"].as_array().map(Vec::len),
+            Some(0),
+            "{env}"
+        );
+    }
+
+    /// ADR-0007 §12.30 item 12: with an agent that lists several identities,
+    /// `identity adopt --from-agent` (the explicit agent probe) is a usage error naming
+    /// their fingerprints and `--fingerprint`; `--fingerprint <fp>` adopts exactly that
+    /// listed identity; an unlisted fingerprint is `NOT_FOUND` and adopts nothing.
+    #[test]
+    fn identity_adopt_from_agent_fingerprint_chooses_one_listed_identity() {
+        let w = World::new(2);
+        let agent = w.agent.endpoint().locator();
+        let at_agent: [(&str, &OsStr); 1] = [("SSH_AUTH_SOCK", agent.as_os_str())];
+        let base = [
+            "--json",
+            "--non-interactive",
+            "identity",
+            "adopt",
+            "--from-agent",
+            "--active-probe",
+            "agent",
+        ];
+        let adopted = |w: &World| {
+            w.cli(&["--json", "--non-interactive", "identity", "list"])
+                .json()["data"]["identities"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        };
+        let several = w.cli_with(&base, &at_agent);
+        assert_eq!(several.code, Some(2), "{several:?}");
+        let message = several.json()["data"]["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        for k in &w.keys {
+            assert!(message.contains(&k.fingerprint()), "{message}");
+        }
+        assert!(message.contains("--fingerprint"), "{message}");
+        assert!(adopted(&w).is_empty());
+        let unlisted = heimdall_testkit::agent::FixtureKey::generate().fingerprint();
+        let mut line = base.to_vec();
+        line.extend(["--fingerprint", unlisted.as_str()]);
+        let missing = w.cli_with(&line, &at_agent);
+        assert_eq!(missing.code_str(), "NOT_FOUND", "{missing:?}");
+        assert!(adopted(&w).is_empty(), "nothing adopted");
+        let wanted = w.keys[1].fingerprint();
+        let mut line = base.to_vec();
+        line.extend(["--fingerprint", wanted.as_str()]);
+        let chosen = w.cli_with(&line, &at_agent);
+        assert_eq!(chosen.code, Some(0), "{chosen:?}");
+        let list = adopted(&w);
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0]["fingerprint"], wanted, "{list:?}");
+        assert_eq!(
+            list[0]["identity_id"],
+            chosen.json()["data"]["identity_id"],
+            "{chosen:?}"
+        );
+    }
+
+    // ---- A11: non-interactive exit codes ---------------------------------------------------
+
+    /// m02-plan U9 `a11_noninteractive_errors_exit_codes`: apply gives 3,
+    /// `--require-unattended` gives 4, an absent provider endpoint gives 5, a conflict
+    /// gives 6, `LAUNCH_FAILED` gives 127, a usage error gives 2; each envelope is
+    /// schema-valid.
+    #[test]
+    fn a11_noninteractive_errors_exit_codes() {
+        let (w, id) = single(true);
+        w.declare(&id);
+        // 4: the native agent's lock continuity is unknown, which never satisfies it.
+        let out = ni(
+            &w,
+            &[
+                "run",
+                "--profile",
+                "work",
+                "--require-unattended",
+                "--",
+                &present_program(),
+            ],
+        );
+        assert_eq!(out.code, Some(4), "{out:?}");
+        // 127: the program cannot be found.
+        let out = ni(
+            &w,
+            &["run", "--profile", "work", "--", "/nonexistent/hm-program"],
+        );
+        assert_eq!(out.code, Some(127), "{out:?}");
+        // 5: an identity adopted at an endpoint that is absent.
+        let data = w
+            .catalog(heimdall_contract::catalog::CatalogRequest::AdoptIdentity {
+                identity: heimdall_contract::catalog::IdentitySpec {
+                    source: heimdall_contract::catalog::IdentitySourceSpec::NativeAgent {
+                        endpoint: absent_endpoint(&w),
+                    },
+                    public_key: heimdall_testkit::agent::FixtureKey::generate_many(1)[0]
+                        .public_line_without_comment(),
+                    label: None,
+                },
+                request_id: w.next_id("adopt-gone"),
+            })
+            .unwrap();
+        let gone_id = IdentityId::parse(data["identity_id"].as_str().unwrap()).unwrap();
+        w.managed("beta", "beta.example.invalid", None, "fixture", &gone_id);
+        w.profile_as("gone", "pol-gone", &["beta"], "fixture");
+        w.project();
+        let out = ni(
+            &w,
+            &[
+                "access",
+                "ensure",
+                "--profile",
+                "gone",
+                "--work-id",
+                "w5",
+                "--request-id",
+                "r5",
+            ],
+        );
+        assert_eq!(out.code, Some(5), "{out:?}");
+        assert_envelope_valid(&out.json());
+        // 3: an apply that needs a decision (a changed managed alias).
+        w.managed("beta", "beta2.example.invalid", None, "fixture", &id);
+        let out = ni(&w, &["setup", "apply", "--request-id", "r-a3"]);
+        assert_eq!(out.code, Some(3), "{out:?}");
+        assert_eq!(out.code_str(), "INTERACTION_REQUIRED");
+        assert!(out.json()["next"]["decision_ref"].is_string());
+        assert_envelope_valid(&out.json());
+        // 6: a second setup while that one waits.
+        let out = ni(&w, &["setup", "rollback"]);
+        assert_eq!(out.code, Some(6), "{out:?}");
+        assert_eq!(out.reason(), "setup_in_progress");
+        assert_envelope_valid(&out.json());
+        // 2: a usage error.
+        let out = ni(&w, &["setup", "repair", "nonsense", "rerender"]);
+        assert_eq!(out.code, Some(2), "{out:?}");
+        assert_envelope_valid(&out.json());
+    }
+
+    // ---- A21: doctor -----------------------------------------------------------------------
+
+    /// m02-plan U9 `a21_cli_doctor_json_validates_against_schema`, with ADR-0007 §12.17
+    /// item 10 (the CLI fills `LocalContext` from the catalog, read-only) and §12.25
+    /// item 2's doctor wiring (`Match localuser` from the account database, never `USER`).
+    #[test]
+    fn a21_cli_doctor_json_validates_against_schema() {
+        let (w, _) = single(true);
+        // `Match localuser` reads the account database; on Windows the account is unknown
+        // until the native lookup lands (ADR-0007 §12.28 item 4, §13), so the condition is
+        // undetermined there and only the Unix file carries it.
+        let localuser = if cfg!(unix) {
+            "Match localuser hm-not-this-account-u9\n    HostName wrong.example.invalid\n"
+        } else {
+            ""
+        };
+        let text = format!(
+            "{}{localuser}Host plain\n    HostName right.example.invalid\n",
+            user(&w)
+        );
+        w.home.write_user_config(&text).unwrap();
+        let out = w.cli_with(
+            &["--json", "--non-interactive", "doctor", "--no-local-exec"],
+            &[
+                ("USER", OsStr::new("hm-not-this-account-u9")),
+                ("LOGNAME", OsStr::new("hm-not-this-account-u9")),
+            ],
+        );
+        assert_eq!(out.code, Some(0), "{out:?}");
+        let env = out.json();
+        assert_envelope_valid(&env);
+        assert_valid("doctor-report", &env["data"]);
+        let aliases = env["data"]["aliases"].as_array().unwrap();
+        let alpha = aliases.iter().find(|a| a["alias"] == ALPHA).expect("alpha");
+        assert_eq!(
+            alpha["definition"], "managed",
+            "the catalog filled LocalContext"
+        );
+        assert_eq!(
+            alpha["identity_selection"]["selection"], "exclusive",
+            "{alpha}"
+        );
+        let plain = aliases
+            .iter()
+            .find(|a| a["alias"] == "plain")
+            .expect("plain");
+        let hostname = plain["behavior"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["directive"] == "HostName")
+            .unwrap();
+        assert_eq!(
+            hostname["values"],
+            serde_json::json!(["right.example.invalid"]),
+            "{plain}"
+        );
+        assert!(!w.home.root.join("run/instance.json").exists() || w.serving());
+        // --redact: still schema-valid, no host name.
+        let red = ni(&w, &["doctor", "--no-local-exec", "--redact"]);
+        assert_valid("doctor-report", &red.json()["data"]);
+        assert!(!red.stdout.contains("alpha.example.invalid"), "{red:?}");
+    }
+
+    /// m02-plan U9 `a11_cli_listing_lapse_recorded_only_when_runtime_running`: the
+    /// adopted, declared key is not in the agent. With the runtime stopped, `doctor
+    /// --active-probe agent` reports the lapse `recorded: false` with the command and
+    /// starts nothing; with it running, the lapse is recorded and a later `run
+    /// --non-interactive` is refused.
+    #[test]
+    fn a11_cli_listing_lapse_recorded_only_when_runtime_running() {
+        let mut w = World::new(1);
+        w.home.write_user_config(USER).unwrap();
+        // A key the agent does not hold, adopted at the agent and declared.
+        let absent = heimdall_testkit::agent::FixtureKey::generate_many(1).remove(0);
+        let data = w
+            .catalog(heimdall_contract::catalog::CatalogRequest::AdoptIdentity {
+                identity: heimdall_contract::catalog::IdentitySpec {
+                    source: heimdall_contract::catalog::IdentitySourceSpec::NativeAgent {
+                        endpoint: w.endpoint(),
+                    },
+                    public_key: absent.public_line_without_comment(),
+                    label: None,
+                },
+                request_id: w.next_id("adopt"),
+            })
+            .unwrap();
+        let id = IdentityId::parse(data["identity_id"].as_str().unwrap()).unwrap();
+        w.managed(ALPHA, "alpha.example.invalid", None, "fixture", &id);
+        w.profile(&[ALPHA], "fixture");
+        w.project();
+        w.declare(&id);
+        w.stop();
+        let args = [
+            "--json",
+            "--non-interactive",
+            "doctor",
+            "--no-local-exec",
+            "--active-probe",
+            "agent",
+        ];
+        let out = w.cli(&args);
+        assert_eq!(out.code, Some(0), "{out:?}");
+        let lapse = out.json()["data"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["code"] == "interaction_declaration_lapsed")
+            .cloned()
+            .unwrap_or_else(|| panic!("{out:?}"));
+        assert_eq!(lapse["reason"], "not_recorded");
+        let message = lapse["message"].as_str().unwrap();
+        assert!(message.contains("recorded: false"), "{message}");
+        assert!(
+            message.contains(&format!("heimdall identity withdraw-declaration {id}")),
+            "{message}"
+        );
+        assert!(
+            !w.home.root.join("run/instance.json").exists(),
+            "doctor started nothing"
+        );
+        w.start();
+        let out = w.cli(&args);
+        let lapse = out.json()["data"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["code"] == "interaction_declaration_lapsed")
+            .cloned()
+            .unwrap();
+        assert_eq!(lapse["reason"], "recorded", "{out:?}");
+        let program = present_program();
+        let run = ni(&w, &["run", "--profile", "work", "--", &program]);
+        assert_eq!(run.code, Some(3), "{run:?}");
+    }
+
+    // ---- uninstall -------------------------------------------------------------------------
+
+    /// `ssh -G -F <scratch config> <alias>`, isolation only.
+    fn ssh_g(w: &World, alias: &str) -> String {
+        let ssh = heimdall_testkit::home::find_program("ssh").expect("ssh");
+        let out = Command::new(ssh)
+            .args(w.home.isolation_args())
+            .arg("-G")
+            .arg(alias)
+            .env_clear()
+            .envs(platform_env(&w.home.git_home))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    }
+
+    /// m02-plan U9 `uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items`
+    /// (A35 T06): the user file is restored byte for byte, `ssh -G` of an unaffected
+    /// alias is identical, P and the key files are removed, the runtime stops, and the
+    /// report lists the kept state store.
+    #[test]
+    fn uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items() {
+        let w = World::new(1);
+        w.home.write_user_config(USER).unwrap();
+        let bytes = std::fs::read(&w.home.user_config).unwrap();
+        let effective = ssh_g(&w, "other");
+        let id = w.adopt(0);
+        w.managed(ALPHA, "alpha.example.invalid", None, "fixture", &id);
+        w.project();
+        assert_ne!(std::fs::read(&w.home.user_config).unwrap(), bytes);
+        let out = ni(&w, &["uninstall"]);
+        assert_eq!(out.code, Some(0), "{out:?}");
+        let env = out.json();
+        assert_envelope_valid(&env);
+        assert_eq!(
+            std::fs::read(&w.home.user_config).unwrap(),
+            bytes,
+            "restored byte for byte"
+        );
+        assert_eq!(ssh_g(&w, "other"), effective);
+        assert!(!w.p().exists(), "P removed");
+        assert!(
+            std::fs::read_dir(w.home.config_dir.join("keys"))
+                .map_or(true, |mut d| d.next().is_none()),
+            "key files removed"
+        );
+        assert_eq!(env["data"]["runtime_stopped"], true, "{env}");
+        assert!(!w.home.root.join("run/instance.json").exists());
+        let kinds: Vec<&str> = env["data"]["remaining"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["kind"].as_str().unwrap())
+            .collect();
+        assert!(kinds.contains(&"state_store"), "{env}");
+        assert!(
+            !kinds.contains(&"conflict_file") && !kinds.contains(&"quarantine"),
+            "{env}"
+        );
+        let shown = env["data"]["remaining"].to_string();
+        assert!(
+            !shown.contains(w.home.git_home.to_str().unwrap()),
+            "no absolute home path: {shown}"
+        );
+    }
+}
+
+#[cfg(unix)]
+mod unix {
+    use heimdall_localenv::projection::ReplacePoint;
+
+    use super::json::{ALPHA, USER, ni, op_of, single, user};
+    use super::world::World;
+    use super::*;
 
     /// `heimdall --json <args>` on a terminal, the owner typing `yes` at every prompt
     /// (the ADR-0006 §3.1 flow); the exit status, the envelope and the transcript.
@@ -1644,63 +2247,6 @@ mod unix {
         assert_eq!(std::fs::read(&taken[0]).unwrap(), original);
     }
 
-    /// ADR-0007 §12.30 item 12: with an agent that lists several identities,
-    /// `identity adopt --from-agent` (the explicit agent probe) is a usage error naming
-    /// their fingerprints and `--fingerprint`; `--fingerprint <fp>` adopts exactly that
-    /// listed identity; an unlisted fingerprint is `NOT_FOUND` and adopts nothing.
-    #[test]
-    fn identity_adopt_from_agent_fingerprint_chooses_one_listed_identity() {
-        let w = World::new(2);
-        let agent = w.agent.endpoint().locator();
-        let at_agent: [(&str, &OsStr); 1] = [("SSH_AUTH_SOCK", agent.as_os_str())];
-        let base = [
-            "--json",
-            "--non-interactive",
-            "identity",
-            "adopt",
-            "--from-agent",
-            "--active-probe",
-            "agent",
-        ];
-        let adopted = |w: &World| {
-            w.cli(&["--json", "--non-interactive", "identity", "list"])
-                .json()["data"]["identities"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default()
-        };
-        let several = w.cli_with(&base, &at_agent);
-        assert_eq!(several.code, Some(2), "{several:?}");
-        let message = several.json()["data"]["error"]["message"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
-        for k in &w.keys {
-            assert!(message.contains(&k.fingerprint()), "{message}");
-        }
-        assert!(message.contains("--fingerprint"), "{message}");
-        assert!(adopted(&w).is_empty());
-        let unlisted = heimdall_testkit::agent::FixtureKey::generate().fingerprint();
-        let mut line = base.to_vec();
-        line.extend(["--fingerprint", unlisted.as_str()]);
-        let missing = w.cli_with(&line, &at_agent);
-        assert_eq!(missing.code_str(), "NOT_FOUND", "{missing:?}");
-        assert!(adopted(&w).is_empty(), "nothing adopted");
-        let wanted = w.keys[1].fingerprint();
-        let mut line = base.to_vec();
-        line.extend(["--fingerprint", wanted.as_str()]);
-        let chosen = w.cli_with(&line, &at_agent);
-        assert_eq!(chosen.code, Some(0), "{chosen:?}");
-        let list = adopted(&w);
-        assert_eq!(list.len(), 1, "{list:?}");
-        assert_eq!(list[0]["fingerprint"], wanted, "{list:?}");
-        assert_eq!(
-            list[0]["identity_id"],
-            chosen.json()["data"]["identity_id"],
-            "{chosen:?}"
-        );
-    }
-
     fn deny(w: &World, decision: &str) {
         let (code, t) = terminal::answer(
             &w.env(),
@@ -1709,146 +2255,6 @@ mod unix {
             b"yes\n",
         );
         assert_eq!(code, Some(0), "{t}");
-    }
-
-    // ---- A11: non-interactive exit codes ---------------------------------------------------
-
-    /// m02-plan U9 `a11_noninteractive_errors_exit_codes`: apply gives 3,
-    /// `--require-unattended` gives 4, an absent provider endpoint gives 5, a conflict
-    /// gives 6, `LAUNCH_FAILED` gives 127, a usage error gives 2; each envelope is
-    /// schema-valid.
-    #[test]
-    fn a11_noninteractive_errors_exit_codes() {
-        let (w, id) = single(true);
-        w.declare(&id);
-        // 4: the native agent's lock continuity is unknown, which never satisfies it.
-        let out = ni(
-            &w,
-            &[
-                "run",
-                "--profile",
-                "work",
-                "--require-unattended",
-                "--",
-                "/usr/bin/true",
-            ],
-        );
-        assert_eq!(out.code, Some(4), "{out:?}");
-        // 127: the program cannot be found.
-        let out = ni(
-            &w,
-            &["run", "--profile", "work", "--", "/nonexistent/hm-program"],
-        );
-        assert_eq!(out.code, Some(127), "{out:?}");
-        // 5: an identity adopted at an endpoint that is absent.
-        let gone = w.home.root.join("gone.sock");
-        let data = w
-            .catalog(heimdall_contract::catalog::CatalogRequest::AdoptIdentity {
-                identity: heimdall_contract::catalog::IdentitySpec {
-                    source: heimdall_contract::catalog::IdentitySourceSpec::NativeAgent {
-                        endpoint: heimdall_contract::provider::EndpointRef {
-                            kind: heimdall_contract::provider::EndpointKind::UnixSocket,
-                            locator: gone.display().to_string(),
-                        },
-                    },
-                    public_key: heimdall_testkit::agent::FixtureKey::generate_many(1)[0]
-                        .public_line_without_comment(),
-                    label: None,
-                },
-                request_id: w.next_id("adopt-gone"),
-            })
-            .unwrap();
-        let gone_id = IdentityId::parse(data["identity_id"].as_str().unwrap()).unwrap();
-        w.managed("beta", "beta.example.invalid", None, "fixture", &gone_id);
-        w.profile_as("gone", "pol-gone", &["beta"], "fixture");
-        w.project();
-        let out = ni(
-            &w,
-            &[
-                "access",
-                "ensure",
-                "--profile",
-                "gone",
-                "--work-id",
-                "w5",
-                "--request-id",
-                "r5",
-            ],
-        );
-        assert_eq!(out.code, Some(5), "{out:?}");
-        assert_envelope_valid(&out.json());
-        // 3: an apply that needs a decision (a changed managed alias).
-        w.managed("beta", "beta2.example.invalid", None, "fixture", &id);
-        let out = ni(&w, &["setup", "apply", "--request-id", "r-a3"]);
-        assert_eq!(out.code, Some(3), "{out:?}");
-        assert_eq!(out.code_str(), "INTERACTION_REQUIRED");
-        assert!(out.json()["next"]["decision_ref"].is_string());
-        assert_envelope_valid(&out.json());
-        // 6: a second setup while that one waits.
-        let out = ni(&w, &["setup", "rollback"]);
-        assert_eq!(out.code, Some(6), "{out:?}");
-        assert_eq!(out.reason(), "setup_in_progress");
-        assert_envelope_valid(&out.json());
-        // 2: a usage error.
-        let out = ni(&w, &["setup", "repair", "nonsense", "rerender"]);
-        assert_eq!(out.code, Some(2), "{out:?}");
-        assert_envelope_valid(&out.json());
-    }
-
-    // ---- A21: doctor -----------------------------------------------------------------------
-
-    /// m02-plan U9 `a21_cli_doctor_json_validates_against_schema`, with ADR-0007 §12.17
-    /// item 10 (the CLI fills `LocalContext` from the catalog, read-only) and §12.25
-    /// item 2's doctor wiring (`Match localuser` from the account database, never `USER`).
-    #[test]
-    fn a21_cli_doctor_json_validates_against_schema() {
-        let (w, _) = single(true);
-        let text = format!(
-            "{}Match localuser hm-not-this-account-u9\n    HostName wrong.example.invalid\nHost plain\n    HostName right.example.invalid\n",
-            user(&w)
-        );
-        w.home.write_user_config(&text).unwrap();
-        let out = w.cli_with(
-            &["--json", "--non-interactive", "doctor", "--no-local-exec"],
-            &[
-                ("USER", OsStr::new("hm-not-this-account-u9")),
-                ("LOGNAME", OsStr::new("hm-not-this-account-u9")),
-            ],
-        );
-        assert_eq!(out.code, Some(0), "{out:?}");
-        let env = out.json();
-        assert_envelope_valid(&env);
-        assert_valid("doctor-report", &env["data"]);
-        let aliases = env["data"]["aliases"].as_array().unwrap();
-        let alpha = aliases.iter().find(|a| a["alias"] == ALPHA).expect("alpha");
-        assert_eq!(
-            alpha["definition"], "managed",
-            "the catalog filled LocalContext"
-        );
-        assert_eq!(
-            alpha["identity_selection"]["selection"], "exclusive",
-            "{alpha}"
-        );
-        let plain = aliases
-            .iter()
-            .find(|a| a["alias"] == "plain")
-            .expect("plain");
-        let hostname = plain["behavior"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|d| d["directive"] == "HostName")
-            .unwrap();
-        assert_eq!(
-            hostname["values"],
-            serde_json::json!(["right.example.invalid"]),
-            "{plain}"
-        );
-        assert!(!w.home.root.join("run/instance.json").exists() || w.serving());
-        // --redact: still schema-valid, no host name.
-        let red = ni(&w, &["doctor", "--no-local-exec", "--redact"]);
-        assert_valid("doctor-report", &red.json()["data"]);
-        assert!(!red.stdout.contains("alpha.example.invalid"), "{red:?}");
     }
 
     /// The scratch configuration of the `--allow-config-commands` cases: alias `lab`,
@@ -2109,77 +2515,6 @@ mod unix {
         }
     }
 
-    /// m02-plan U9 `a11_cli_listing_lapse_recorded_only_when_runtime_running`: the
-    /// adopted, declared key is not in the agent. With the runtime stopped, `doctor
-    /// --active-probe agent` reports the lapse `recorded: false` with the command and
-    /// starts nothing; with it running, the lapse is recorded and a later `run
-    /// --non-interactive` is refused.
-    #[test]
-    fn a11_cli_listing_lapse_recorded_only_when_runtime_running() {
-        let mut w = World::new(1);
-        w.home.write_user_config(USER).unwrap();
-        // A key the agent does not hold, adopted at the agent and declared.
-        let absent = heimdall_testkit::agent::FixtureKey::generate_many(1).remove(0);
-        let data = w
-            .catalog(heimdall_contract::catalog::CatalogRequest::AdoptIdentity {
-                identity: heimdall_contract::catalog::IdentitySpec {
-                    source: heimdall_contract::catalog::IdentitySourceSpec::NativeAgent {
-                        endpoint: w.endpoint(),
-                    },
-                    public_key: absent.public_line_without_comment(),
-                    label: None,
-                },
-                request_id: w.next_id("adopt"),
-            })
-            .unwrap();
-        let id = IdentityId::parse(data["identity_id"].as_str().unwrap()).unwrap();
-        w.managed(ALPHA, "alpha.example.invalid", None, "fixture", &id);
-        w.profile(&[ALPHA], "fixture");
-        w.project();
-        w.declare(&id);
-        w.stop();
-        let args = [
-            "--json",
-            "--non-interactive",
-            "doctor",
-            "--no-local-exec",
-            "--active-probe",
-            "agent",
-        ];
-        let out = w.cli(&args);
-        assert_eq!(out.code, Some(0), "{out:?}");
-        let lapse = out.json()["data"]["findings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|f| f["code"] == "interaction_declaration_lapsed")
-            .cloned()
-            .unwrap_or_else(|| panic!("{out:?}"));
-        assert_eq!(lapse["reason"], "not_recorded");
-        let message = lapse["message"].as_str().unwrap();
-        assert!(message.contains("recorded: false"), "{message}");
-        assert!(
-            message.contains(&format!("heimdall identity withdraw-declaration {id}")),
-            "{message}"
-        );
-        assert!(
-            !w.home.root.join("run/instance.json").exists(),
-            "doctor started nothing"
-        );
-        w.start();
-        let out = w.cli(&args);
-        let lapse = out.json()["data"]["findings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|f| f["code"] == "interaction_declaration_lapsed")
-            .cloned()
-            .unwrap();
-        assert_eq!(lapse["reason"], "recorded", "{out:?}");
-        let run = ni(&w, &["run", "--profile", "work", "--", "/usr/bin/true"]);
-        assert_eq!(run.code, Some(3), "{run:?}");
-    }
-
     /// The catalog commands through the CLI (m02-plan U9): `profile create|add|remove|
     /// show|list`, `destination show|remove`, `identity list`; and `identity
     /// declare-interaction` follows the confirmation contract (ADR-0007 §7; ADR-0006
@@ -2268,79 +2603,6 @@ mod unix {
         assert_eq!(ni(&w, &["destination", "show", ALPHA]).code, Some(2));
     }
 
-    // ---- uninstall -------------------------------------------------------------------------
-
-    /// `ssh -G -F <scratch config> <alias>`, isolation only.
-    fn ssh_g(w: &World, alias: &str) -> String {
-        let ssh = heimdall_testkit::home::find_program("ssh").expect("ssh");
-        let out = Command::new(ssh)
-            .args(w.home.isolation_args())
-            .arg("-G")
-            .arg(alias)
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", &w.home.git_home)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8(out.stdout).unwrap()
-    }
-
-    /// m02-plan U9 `uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items`
-    /// (A35 T06): the user file is restored byte for byte, `ssh -G` of an unaffected
-    /// alias is identical, P and the key files are removed, the runtime stops, and the
-    /// report lists the kept state store.
-    #[test]
-    fn uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items() {
-        let w = World::new(1);
-        w.home.write_user_config(USER).unwrap();
-        let bytes = std::fs::read(&w.home.user_config).unwrap();
-        let effective = ssh_g(&w, "other");
-        let id = w.adopt(0);
-        w.managed(ALPHA, "alpha.example.invalid", None, "fixture", &id);
-        w.project();
-        assert_ne!(std::fs::read(&w.home.user_config).unwrap(), bytes);
-        let out = ni(&w, &["uninstall"]);
-        assert_eq!(out.code, Some(0), "{out:?}");
-        let env = out.json();
-        assert_envelope_valid(&env);
-        assert_eq!(
-            std::fs::read(&w.home.user_config).unwrap(),
-            bytes,
-            "restored byte for byte"
-        );
-        assert_eq!(ssh_g(&w, "other"), effective);
-        assert!(!w.p().exists(), "P removed");
-        assert!(
-            std::fs::read_dir(w.home.config_dir.join("keys"))
-                .map_or(true, |mut d| d.next().is_none()),
-            "key files removed"
-        );
-        assert_eq!(env["data"]["runtime_stopped"], true, "{env}");
-        assert!(!w.home.root.join("run/instance.json").exists());
-        let kinds: Vec<&str> = env["data"]["remaining"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| r["kind"].as_str().unwrap())
-            .collect();
-        assert!(kinds.contains(&"state_store"), "{env}");
-        assert!(
-            !kinds.contains(&"conflict_file") && !kinds.contains(&"quarantine"),
-            "{env}"
-        );
-        let shown = env["data"]["remaining"].to_string();
-        assert!(
-            !shown.contains(w.home.git_home.to_str().unwrap()),
-            "no absolute home path: {shown}"
-        );
-    }
-
     /// m02-plan U9 `uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses`
     /// (Q6 as qualified): P was edited after setup, so the rollback keeps it as a conflict
     /// file; a foreign quarantine entry is kept. Uninstall reports `CONFIG_CONFLICT`
@@ -2387,6 +2649,31 @@ mod unix {
                 && t.find(".hm-quarantine") < t.find("[y/N]"),
             "{t}"
         );
+    }
+
+    /// The number after `label: ` in the purge prompt (`    events: 12` is 12).
+    fn shown_count(shown: &str, label: &str) -> u64 {
+        let at = shown
+            .find(&format!("{label}: "))
+            .unwrap_or_else(|| panic!("no {label} line: {shown}"));
+        shown[at + label.len() + 2..]
+            .split(|c: char| !c.is_ascii_digit())
+            .next()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("no {label} count: {shown}"))
+    }
+
+    /// ADR-0007 §12.32 item 7: the purge prompt counts every table it discards, not
+    /// only the live rows of some: operations, grants, decisions, catalog records,
+    /// events and idempotency records. A world that has run commands holds operations,
+    /// audit events and idempotency records, so those counts are not zero.
+    fn assert_counts_shown(shown: &str) {
+        for label in ["grants", "decisions", "catalog records"] {
+            assert!(shown.contains(&format!("{label}: ")), "{label}: {shown}");
+        }
+        for label in ["operations", "events", "idempotency records"] {
+            assert!(shown_count(shown, label) >= 1, "{label}: {shown}");
+        }
     }
 
     /// A disposable snapshot in the state directory, as `setup apply` leaves one.
@@ -2476,16 +2763,19 @@ mod unix {
             // What would have been discarded was shown before the answer.
             let prompt_at = t.find("[y/N]").unwrap_or_else(|| panic!("no prompt: {t}"));
             let shown = &t[..prompt_at];
+            // Two backups: the snapshot the writer took of the original user file when the
+            // fixture applied the projection (ADR-0007 §12.32 item 2), and the planted one.
             for needle in [
                 "--purge-state permanently deletes",
                 "State database:",
                 "operations:",
                 "1 identities, 1 destinations, 1 profiles",
-                "Backups of your original files (1):",
+                "Backups of your original files (2):",
                 "ssh_config.20260101T000000Z.orig",
             ] {
                 assert!(shown.contains(needle), "{answer:?}: {needle}: {t}");
             }
+            assert_counts_shown(shown);
             assert_eq!(t.matches("[y/N]").count(), 1, "asked once: {t}");
             intact(why);
         }
@@ -2529,6 +2819,7 @@ mod unix {
         ] {
             assert!(shown.contains(needle), "{needle}: {t}");
         }
+        assert_counts_shown(shown);
     }
 
     /// The full uninstall: after a purge was confirmed, the rollback of an installed

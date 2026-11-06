@@ -12772,8 +12772,8 @@ mod u0b_adapter_bound {
     /// The production part of `crates/app/src/operations.rs` (before its
     /// `#[cfg(test)]` module), each line cut at its `//` comment.
     fn production_source() -> Vec<String> {
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app/src/operations.rs");
+        // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+        let path = heimdall_testkit::repo::repo_path("crates/app/src/operations.rs");
         let source = std::fs::read_to_string(path).unwrap();
         let production = source
             .split("\n#[cfg(test)]")
@@ -12917,9 +12917,7 @@ mod u0b_adapter_bound {
     /// The production part of `crates/adapters/src/<file>`, each line cut at its `//`
     /// comment.
     fn adapter_source(file: &str) -> String {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../adapters/src")
-            .join(file);
+        let path = heimdall_testkit::repo::repo_path("crates/adapters/src").join(file);
         let source = std::fs::read_to_string(path).unwrap();
         let production = source
             .split("\n#[cfg(test)]")
@@ -12992,7 +12990,7 @@ mod u0b_adapter_bound {
     /// projection or live-source read.
     #[test]
     fn u02_adapters_prepare_from_reads_no_store_or_live_source() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../adapters/src");
+        let dir = heimdall_testkit::repo::repo_path("crates/adapters/src");
         let mut implementors = Vec::new();
         for entry in std::fs::read_dir(&dir).unwrap() {
             let file = entry.unwrap().file_name().into_string().unwrap();
@@ -13027,10 +13025,9 @@ mod u0b_adapter_bound {
         implementors.sort();
         assert_eq!(implementors, ["native_agent.rs", "onepassword.rs"]);
         // The port declares both without a default body (a `;`, never a `{`).
-        let ports = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app/src/ports.rs"),
-        )
-        .unwrap();
+        let ports =
+            std::fs::read_to_string(heimdall_testkit::repo::repo_path("crates/app/src/ports.rs"))
+                .unwrap();
         let ports: String = ports
             .lines()
             .map(|l| l.split("//").next().unwrap_or(""))
@@ -14724,7 +14721,7 @@ mod u0b_phase2 {
 
     /// Every Setup request of the committed examples.
     fn setup_requests() -> Vec<Request> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
+        let dir = heimdall_testkit::repo::repo_path("schemas/examples");
         let mut names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -15058,7 +15055,7 @@ mod wave0_fail_closed {
     /// `schemas/examples/request.{setup,catalog}.*.json`, decoded as a `Request`
     /// (every action of both, U0's examples).
     fn new_requests() -> Vec<Request> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
+        let dir = heimdall_testkit::repo::repo_path("schemas/examples");
         let mut names: Vec<String> = std::fs::read_dir(&dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())

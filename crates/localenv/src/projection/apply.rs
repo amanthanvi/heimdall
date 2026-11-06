@@ -190,6 +190,14 @@ pub(super) fn held_steps(
 /// The longest file a snapshot copies (the §5.3 read bound).
 const SNAPSHOT_MAX: u64 = 1 << 20;
 
+/// The snapshot name of the user's SSH configuration
+/// (`<state>/backups/ssh_config.<UTC timestamp>.orig`; ADR-0007 §5.5).
+pub const SSH_SNAPSHOT_NAME: &str = "ssh_config";
+
+/// The snapshot name of the global Git file
+/// (`<state>/backups/gitconfig.<UTC timestamp>.orig`; ADR-0007 §5.5, §12.32 item 2).
+pub const GIT_SNAPSHOT_NAME: &str = "gitconfig";
+
 /// What [`snapshot_original`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Snapshot {
@@ -900,6 +908,42 @@ impl<'a> Run<'a> {
         Ok(())
     }
 
+    // --- the original's snapshot (ADR-0007 §5.5) ------------------------------------
+
+    /// ⟨M02⟩ ADR-0007 §5.5, §12.32 item 2: before the first edit of a user file (the
+    /// user's SSH configuration, the global Git file), its original bytes are copied to
+    /// `<state_dir>/backups/<name>.<UTC timestamp>.orig` ([`snapshot_original`]). A step
+    /// that creates its file, a step that only checks it and a configuration without a
+    /// state directory have nothing to copy. The copy is of the bytes the plan was
+    /// computed from, so the stale-base refusal is a precondition of the edit: a file
+    /// that is gone or holds other bytes refuses with the base's conflict
+    /// (`user_config_changed`), and a copy that cannot be made with `unmanageable_file`;
+    /// either way the step is not staged.
+    fn snapshot_before_edit(&self, step: &FileStep) -> Result<(), ConflictKind> {
+        let name = match step.role {
+            FileRole::UserSsh => SSH_SNAPSHOT_NAME,
+            FileRole::GitInclude => GIT_SNAPSHOT_NAME,
+            _ => return Ok(()),
+        };
+        let Some(backups) = self.config.backups_dir() else {
+            return Ok(());
+        };
+        let Some(base) = base_sha(step).filter(|_| is_writing(step)) else {
+            return Ok(());
+        };
+        match snapshot_original(
+            Path::new(&step.path),
+            &backups,
+            name,
+            Some(base.as_str()),
+            Timestamp::now(),
+        ) {
+            Ok(Snapshot::Written(_) | Snapshot::Exists(_)) => Ok(()),
+            Ok(Snapshot::Changed | Snapshot::Absent) => Err(changed_kind(step)),
+            Err(_) => Err(ConflictKind::UnmanageableFile),
+        }
+    }
+
     // --- apply ------------------------------------------------------------------------
 
     fn apply_all(&mut self) -> Result<Vec<ItemOutcome>, ReconcileError> {
@@ -967,6 +1011,14 @@ impl<'a> Run<'a> {
     }
 
     fn apply_item(&mut self, item: ProjectionItem) -> Result<ItemOutcome, ReconcileError> {
+        // ADR-0007 §5.5, §12.32 item 2: the item's user files are copied before any of
+        // its steps writes, so a snapshot that cannot be made leaves the item unwritten.
+        for i in self.steps_of(item) {
+            if let Err(kind) = self.snapshot_before_edit(self.step(i)) {
+                self.reasons.entry(item).or_insert(kind);
+                return self.drive(item, false);
+            }
+        }
         for i in self.steps_of(item) {
             match self.forward_step(i, From::Fresh)? {
                 Flow::Continue => {}
@@ -1012,6 +1064,14 @@ impl<'a> Run<'a> {
             Err(ContentError::BaseMismatch) => return Ok(Flow::Stop(changed_kind(step))),
             Err(e) => return Err(intent_invalid(&e)),
         };
+        // ADR-0007 §5.5, §12.32 item 2: whatever started this step (an apply, or the
+        // resume of a restart that never got to it), a user file's original is copied
+        // before its first edit; an existing snapshot is kept.
+        if from == From::Fresh
+            && let Err(kind) = self.snapshot_before_edit(step)
+        {
+            return Ok(Flow::Stop(kind));
+        }
         // Step 3: stage (or keep the recorded S).
         let staged = if from == From::Fresh {
             let s = match replace::stage(&dir, &staged_name, &bytes, mode_of(step)) {

@@ -1,0 +1,70 @@
+umask=0022
+
+running 27 tests
+test git_check_failure_with_edited_p_git_is_held_and_keeps_k ... ok
+test git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win ... ok
+test git_consent_apply_decided_rollback_to_consented_state_waived ... ok
+test git_existing_core_sshcommand_in_system_or_global_makes_item_not_applicable ... ok
+test git_editor_write_after_final_check_is_restored ... ok
+test git_first_adoption_previews_reproduce_their_plan_digest ... ok
+test git_apply_releases_k_with_and_without_birth_time ... ok
+test git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask ... ok
+test git_crash_with_lock_holding_staged_or_displaced_reconciles ... ok
+test git_item_not_offered_without_bundled_msys_default ... ok
+test git_lock_held_by_git_is_git_config_locked_nothing_written ... ok
+test git_include_applied_under_lock_and_rollback_restores_bytes ... ok
+test git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies ... ok
+test git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed ... ok
+test git_lock_occupied_by_holder_until_settlement ... ok
+test git_parse_check_failure_aborts_before_the_commit_point ... ok
+test git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable ... ok
+test git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing ... ok
+test git_rollback_after_edit_inside_block_is_marker_edited ... ok
+test git_rollback_after_user_added_value_keeps_user_value ... ok
+test git_user_set_after_include_wins ... ok
+test git_writer_during_heimdall_lock_fails_cleanly_nothing_lost ... ok
+test git_xdg_created_after_apply_shadowed_value_reported ... ok
+test git_restart_keeps_the_recovery_classifier_for_k ... ok
+test git_release_of_k_after_hand_over_happens_at_restart_never_earlier ... ok
+test git_name_transitions_crash_at_every_point_reconciles ... ok
+test lock_claim_order::git_lock_claimed_only_after_staged_receipt ... ok
+
+successes:
+
+---- lock_claim_order::git_lock_claimed_only_after_staged_receipt stdout ----
+proptest: Failed to find absolute path of source file '"crates/localenv/../../tests/integration/projection_git.rs"'. Ensure the test is being run from somewhere within the crate directory hierarchy.
+proptest: FileFailurePersistence::WithSource set, but no source file known
+
+
+successes:
+    git_apply_releases_k_with_and_without_birth_time
+    git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win
+    git_check_failure_with_edited_p_git_is_held_and_keeps_k
+    git_consent_apply_decided_rollback_to_consented_state_waived
+    git_crash_with_lock_holding_staged_or_displaced_reconciles
+    git_editor_write_after_final_check_is_restored
+    git_existing_core_sshcommand_in_system_or_global_makes_item_not_applicable
+    git_first_adoption_previews_reproduce_their_plan_digest
+    git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed
+    git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask
+    git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies
+    git_include_applied_under_lock_and_rollback_restores_bytes
+    git_item_not_offered_without_bundled_msys_default
+    git_lock_held_by_git_is_git_config_locked_nothing_written
+    git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing
+    git_lock_occupied_by_holder_until_settlement
+    git_name_transitions_crash_at_every_point_reconciles
+    git_parse_check_failure_aborts_before_the_commit_point
+    git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable
+    git_release_of_k_after_hand_over_happens_at_restart_never_earlier
+    git_restart_keeps_the_recovery_classifier_for_k
+    git_rollback_after_edit_inside_block_is_marker_edited
+    git_rollback_after_user_added_value_keeps_user_value
+    git_user_set_after_include_wins
+    git_writer_during_heimdall_lock_fails_cleanly_nothing_lost
+    git_xdg_created_after_apply_shadowed_value_reported
+    lock_claim_order::git_lock_claimed_only_after_staged_receipt
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.43s
+
+exit=0

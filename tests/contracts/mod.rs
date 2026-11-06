@@ -38,9 +38,10 @@ use std::path::PathBuf;
 
 use proptest::test_runner::{Config as ProptestConfig, FileFailurePersistence, RngSeed};
 
-/// Repository root (two levels above the crate manifest).
+/// Repository root: `HM_REPO_ROOT` when a native harness sets it, else the compile-time
+/// root (ADR-0007 §12.32 item 3).
 pub fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+    heimdall_testkit::repo::repo_root()
 }
 
 /// Property-test configuration shared by every property in this tree.

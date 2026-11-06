@@ -887,7 +887,8 @@ fn account_projection(paths: &Paths) -> Option<ProjectionConfig> {
     };
     let env = Env::capture();
     let clients = resolve_clients(&env, &ssh, &ClientsConfig::default(), LocalQueries::Enabled);
-    let mut config = ProjectionConfig::new(ssh, Platform::current(), paths.config_dir.clone());
+    let mut config = ProjectionConfig::new(ssh, Platform::current(), paths.config_dir.clone())
+        .with_state_dir(paths.state_dir.clone());
     config.env = env;
     config.clients = clients;
     config.queries = LocalQueries::Enabled;

@@ -19,8 +19,9 @@
 #     reads their metadata (lstat), to show they are unchanged after the run.
 
 # hm2_sanitize_env: drop inherited agent, askpass, Git and Heimdall variables, so no
-# test can reach the account's agent or configuration by inheritance. Prints what was
-# inherited, as set/unset and counts only.
+# test can reach the account's agent or configuration by inheritance, and an inherited
+# HM_REPO_ROOT (the harness sets its own). Prints what was inherited, as set/unset and
+# counts only.
 hm2_sanitize_env() {
     local sock=unset n_git=0 n_hm=0 v
     [ -n "${SSH_AUTH_SOCK:-}" ] && sock="set"
@@ -34,7 +35,7 @@ hm2_sanitize_env() {
     done
     unset SSH_AUTH_SOCK SSH_AGENT_PID SSH_ASKPASS SSH_ASKPASS_REQUIRE DISPLAY \
         HM_FIXTURE_SSHD_HOST HM_FIXTURE_SSHD_PORT HM_FIXTURE_SSHD_HOST_KEY \
-        HM_FIXTURE_SSHD_AUTHORIZED_KEYS HM_FIXTURE_SSHD_LOG HM_FIXTURE_HOOK
+        HM_FIXTURE_SSHD_AUTHORIZED_KEYS HM_FIXTURE_SSHD_LOG HM_FIXTURE_HOOK HM_REPO_ROOT
     echo "inherited-ssh-auth-sock=$sock (unset for the run)"
     echo "inherited-git-variables=$n_git (unset for the run)"
     echo "inherited-heimdall-variables=$n_hm (unset for the run)"

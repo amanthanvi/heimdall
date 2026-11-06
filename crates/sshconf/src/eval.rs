@@ -51,7 +51,16 @@
 //! * `Match sessiontype` reads the `SessionType` in force in the pass when there is
 //!   one (`default` defers to the invocation), otherwise the invocation; an
 //!   undetermined `SessionType` makes it unknown (ADR-0007 §12.16 item 4). A subsystem
-//!   invocation's `-s` is read first, so no `SessionType` line takes effect for it.
+//!   invocation's `-s` is read first, so no `SessionType` line takes effect for it;
+//! * **the client's version gates** what differs between clients (ADR-0007 §12.32
+//!   item 11; [`crate::client`], boundaries from the corpus test on each client, an
+//!   unknown version strictest): a `Match` criterion the client refuses (`command`,
+//!   `sessiontype`, `version` on 9.6p1) makes its line invalid
+//!   (`unsupported_match_criterion`) with an unknown condition, every later `exec` of
+//!   the line still recorded; a keyword of the pinned table the client does not know is
+//!   an unknown keyword to it; `${VAR}` and `%` tokens in `User`, `SetEnv` and
+//!   `Include` are literal for a client observed to take them literally, so such a
+//!   value reads no variable and an `Include` globs its text as written.
 //!
 //! **Source role** (ADR-0007 §5.2, §12.15 item 3). Every [`Value`] carries the role of
 //! the file it was read from: [`SourceRole::Managed`] for P, the Heimdall-owned file
@@ -92,13 +101,12 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
-use crate::directive::{
-    DirectiveClass, Keyword, KnownKeyword, Obsolete, class, expands_env, obsolete,
-};
+use crate::client;
+use crate::directive::{DirectiveClass, Keyword, KnownKeyword, Obsolete, class, obsolete};
 pub use crate::include::SourceRole;
 use crate::include::{
-    self, ArgError, ConfigSet, ConfigSource, IncludeArg, IncludeError, IncludeVisitor, Origin,
-    Roots, SourceError, Visit,
+    self, ArgError, ConfigSet, ConfigSource, Expansion, IncludeArg, IncludeError, IncludeVisitor,
+    Origin, Roots, SourceError, Visit,
 };
 use crate::limits::Limits;
 use crate::parse::{Directive, Line, SourceId, Span};
@@ -869,6 +877,10 @@ impl IncludeVisitor for Walker<'_> {
         }
     }
 
+    fn include_expansion(&self) -> Expansion {
+        client::include_expansion(self.query.client_version)
+    }
+
     fn enter(&mut self, visit: &Visit) {
         self.visited.insert(visit.source);
         // ADR-0007 §12.28 item 6: the path as written. A root is its root's path; an
@@ -917,8 +929,10 @@ impl IncludeVisitor for Walker<'_> {
         let (cond_span, cond) = cur.map_or((None, Tri::Unknown), |c| (c.span, c.cond));
         // ADR-0007 §12.16 item 1: a path that reads a variable names the runtime's
         // file, which a later ssh may not read. Its matches are read under an unknown
-        // condition, and another file may set anything (an opaque point).
-        let reads_env = !env_names(&arg.written).is_empty();
+        // condition, and another file may set anything (an opaque point). A client
+        // that takes `${…}` literally there (§12.32 item 11 (b)) globs the text as
+        // written, which reads no variable.
+        let reads_env = self.include_expansion().env && !env_names(&arg.written).is_empty();
         if let Some(f) = self.frames.last_mut() {
             f.include_cond = if reads_env { Tri::Unknown } else { Tri::True };
             f.pending = arg.matches.as_ref().map_or_else(
@@ -1074,6 +1088,15 @@ impl Walker<'_> {
                     self.invalid(d.span, "unknown_keyword");
                 }
             }
+            Keyword::Known(kw) if !client::knows_keyword(*kw, self.query.client_version) => {
+                // ADR-0007 §12.32 item 11: a keyword of the pinned table this client
+                // does not know is an unknown keyword to it ("Bad configuration
+                // option"): ignored only when `IgnoreUnknown` covers it, otherwise the
+                // file is refused. Either way the line sets nothing.
+                if self.ignored(kw.as_str()) != Tri::True {
+                    self.invalid(d.span, "unknown_keyword");
+                }
+            }
             Keyword::Known(kw) => {
                 let kw = *kw;
                 match class(kw) {
@@ -1156,6 +1179,32 @@ impl Walker<'_> {
         Tri::Unknown
     }
 
+    /// A criterion the client refuses (ADR-0007 §12.32 item 11 (a);
+    /// [`client::accepts_match_criterion`]): ssh reports "Unsupported Match attribute"
+    /// and refuses the file, so the line is invalid (`unsupported_match_criterion`) and
+    /// decides nothing (its condition is unknown). Every later `exec` criterion of the
+    /// line that a prior false criterion does not skip is still recorded, since a
+    /// client that accepts the criterion (an unknown version may) would run it.
+    fn refused_match(&mut self, d: &Directive, rest: usize, so_far: Tri) -> Tri {
+        self.invalid(d.span, "unsupported_match_criterion");
+        if so_far != Tri::False {
+            let mut j = rest;
+            while j < d.args.len() {
+                let attr = d.args[j].trim_start_matches('!').to_ascii_lowercase();
+                j += 1;
+                match attr.as_str() {
+                    "all" | "canonical" | "final" => {}
+                    "exec" => {
+                        self.unresolve(UnresolvedReason::MatchExec, d.span);
+                        j += 1;
+                    }
+                    _ => j += 1,
+                }
+            }
+        }
+        Tri::Unknown
+    }
+
     fn match_line(&mut self, d: &Directive) -> Tri {
         let args = &d.args;
         if args.is_empty() {
@@ -1196,6 +1245,9 @@ impl Walker<'_> {
                         return self.bad_match(d);
                     };
                     i += 1;
+                    if !client::accepts_match_criterion(&lower, self.query.client_version) {
+                        return self.refused_match(d, i, result);
+                    }
                     match lower.as_str() {
                         "host" => {
                             let hosts = self.match_host_poss();
@@ -1358,10 +1410,13 @@ impl Walker<'_> {
     /// it applies under an unknown condition, reason `EnvironmentReference` (an unset
     /// variable, which makes ssh ignore the setting here, F7, is also `EnvUnset`). The
     /// default agent's literal forms, `SSH_AUTH_SOCK` and `$SSH_AUTH_SOCK`, read no
-    /// configured variable and stay determined.
+    /// configured variable and stay determined. Whether the directive expands
+    /// `${VAR}` is the client's ([`client::expands_env`], ADR-0007 §12.32 item 11 (b)):
+    /// a client that takes it literally (9.6p1's `User` and `SetEnv`) reads no
+    /// variable, so the value as written is determined.
     fn env_check(&mut self, kw: KnownKeyword, d: &Directive) -> Tri {
         let mut t = Tri::True;
-        if expands_env(kw) {
+        if client::expands_env(kw, self.query.client_version) {
             let names: Vec<String> = d
                 .args
                 .iter()

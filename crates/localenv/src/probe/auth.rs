@@ -376,6 +376,15 @@ mod tests {
     use crate::paths::SshPaths;
 
     const ALIAS: &str = "hm-auth";
+    /// An observed client that evaluates `Match sessiontype` and `Match command`
+    /// (OpenSSH 10.5p1): an unknown version takes the strictest reading, which refuses
+    /// both (ADR-0007 §12.32 item 11).
+    const CLIENT: Option<heimdall_sshconf::eval::OpenSshVersion> =
+        Some(heimdall_sshconf::eval::OpenSshVersion {
+            major: 10,
+            minor: 5,
+            portable: Some(1),
+        });
 
     /// A synthetic public key line of `key_type` over a fixed 32-byte pattern: public
     /// fixture material only (no private key exists for it).
@@ -470,7 +479,7 @@ mod tests {
             let pass = super::super::static_pass_for(
                 ctx,
                 ALIAS,
-                None,
+                CLIENT,
                 super::super::invocation_of(AUTHENTICATION_COMMAND),
             );
             assert!(!pass.not_fully_readable);
@@ -868,7 +877,7 @@ mod tests {
             )
         };
         let shell = |ctx: &LocalContext| {
-            let pass = super::super::static_pass(ctx, ALIAS, None);
+            let pass = super::super::static_pass(ctx, ALIAS, CLIENT);
             noninteractive_refusal(&ProbeContext::new(ctx, true, false), ALIAS, &pass)
         };
         assert_eq!(
@@ -969,7 +978,7 @@ mod tests {
             let source = BoundedSource::new(c.paths.clone(), c.env.clone(), c.limits);
             let query = heimdall_sshconf::eval::Query {
                 local_user: None,
-                ..super::super::query_with(c, ALIAS, None, pass.invocation.clone())
+                ..super::super::query_with(c, ALIAS, CLIENT, pass.invocation.clone())
             };
             let mut set = heimdall_sshconf::include::ConfigSet::new();
             pass.evaluation =

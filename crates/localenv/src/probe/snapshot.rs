@@ -6,9 +6,10 @@
 //! `!compare(..).is_empty()`; `false` means only that the two snapshots are equal (a
 //! change reverted in between is not detected).
 //!
-//! The walk is `heimdall_sshconf::include::record` over a fresh `ConfigSet`, so it
-//! re-expands every `Include` (globs, `~`, tokens, `${VAR}`) under the same bounds as
-//! the static pass, and reads every file again. The digests come from a wrapper around
+//! The walk is `heimdall_sshconf::include::record_with` over a fresh `ConfigSet`, so it
+//! re-expands every `Include` (globs, `~`, tokens, `${VAR}`, as far as the query's
+//! client expands them) under the same bounds as the static pass, and reads every file
+//! again. The digests come from a wrapper around
 //! the source that hashes each read's bytes; a file that could not be walked has no
 //! digest. Tokens: `%h` and `%n` are the query's host, `%u` its local user, `%r` its
 //! user when given, `%d` the account home; any other token is unavailable, so its
@@ -155,7 +156,11 @@ pub fn take(
         }
     };
     let mut set = ConfigSet::new();
-    let record = include::record(&mut set, &digesting, roots, limits, &tokens);
+    // ADR-0007 §12.32 item 11 (b): the walk applies the expansions the query's client
+    // applies to `Include`, so the snapshot reads the files that client's evaluation
+    // reads (an unknown version takes the full expansion, the strictest reading).
+    let expansion = heimdall_sshconf::client::include_expansion(query.client_version);
+    let record = include::record_with(&mut set, &digesting, roots, limits, &tokens, expansion);
     let display = |p: &Path| display_path(&home, p);
     let digests = digesting.into_digests();
     let mut snapshot = TreeSnapshot::default();
@@ -255,6 +260,43 @@ mod tests {
 
     fn roots() -> Roots {
         Roots::new(Some(PathBuf::from("/h/.ssh/config")), None)
+    }
+
+    /// ADR-0007 §12.32 item 11 (b): OpenSSH 9.6p1 takes `%` tokens in `Include`
+    /// literally (observed), so its snapshot reads the file literally named
+    /// `inc-%h.conf`; a client that expands them (10.5p1) and an unknown version read
+    /// `inc-a.conf`. An edit of the file the client reads is a change.
+    #[test]
+    fn include_tokens_are_read_as_the_querys_client_reads_them() {
+        let base = MemSource::new("/h", "/h/.ssh", "/etc/ssh")
+            .with_file("/h/.ssh/config", "Include /h/.ssh/inc-%h.conf\n")
+            .with_file("/h/.ssh/inc-%h.conf", "Host b\n")
+            .with_file("/h/.ssh/inc-a.conf", "Host c\n");
+        let at = |major, minor| Query {
+            client_version: OpenSshVersion {
+                major,
+                minor,
+                portable: Some(1),
+            },
+            ..query()
+        };
+        let resolved = |q: &Query| {
+            let s = take(&base, &roots(), q, &Limits::default());
+            match &s.includes[0].1 {
+                IncludeExpansion::Resolved(p) => p.clone(),
+                other => panic!("{other:?}"),
+            }
+        };
+        assert!(resolved(&at(9, 6)).ends_with("inc-%h.conf"));
+        assert!(resolved(&at(10, 5)).ends_with("inc-a.conf"));
+        assert!(resolved(&query()).ends_with("inc-a.conf"));
+        let edited = base.clone().with_file("/h/.ssh/inc-%h.conf", "Host d\n");
+        let before = take(&base, &roots(), &at(9, 6), &Limits::default());
+        let after = take(&edited, &roots(), &at(9, 6), &Limits::default());
+        assert!(!compare(&before, &after).is_empty());
+        let before = take(&base, &roots(), &at(10, 5), &Limits::default());
+        let after = take(&edited, &roots(), &at(10, 5), &Limits::default());
+        assert!(compare(&before, &after).is_empty());
     }
 
     #[test]

@@ -1386,7 +1386,8 @@ const CORPUS_HEADER: &str = "# inert, ssh -G only";
 const CORPUS_MOUNT: &str = "/hm/corpus";
 
 fn corpus_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/sshconf/corpus")
+    // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+    heimdall_testkit::repo::repo_path("tests/fixtures/sshconf/corpus")
 }
 
 /// Every corpus file as (path relative to the corpus, bytes), README excluded.

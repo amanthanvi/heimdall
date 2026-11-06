@@ -13,6 +13,7 @@
     "tests/native/m02/run-macos.sh <artifacts_root>/macos",
     "tests/native/m02/run-linux.sh <artifacts_root>/linux <linuxhost>",
     "HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m02/run-windows.sh <artifacts_root>/windows",
+    "or, with no remote route into WSL (ADR-0007 §12.32 items 15-17), on the PC: pwsh -NoProfile -File tests/native/m02/run-windows-local.ps1 -Commit <exit commit> -ScratchRoot <scratch root>; then on the build host: python3 -I tests/native/m02/import-windows-bundle.py --bundle <the agent's report> --label <artifacts_root name> --commit <exit commit> --config <artifacts_root>/runs.json",
     "HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> HM_WSL_ROOTFS=<pinned image> tests/native/m02/run-wsl-distro.sh <artifacts_root>/wsl-distro",
     "python3 -I tests/native/m02/m02-evidence.py --config tests/native/m02/runs.json --write",
     "python3 -I tools/validation/validate-records.py"
@@ -21,6 +22,8 @@
     "tests/native/m02/run-macos.sh",
     "tests/native/m02/run-linux.sh",
     "tests/native/m02/run-windows.sh",
+    "tests/native/m02/run-windows-local.ps1",
+    "tests/native/m02/import-windows-bundle.py",
     "tests/native/m02/run-wsl-distro.sh",
     "tests/native/m02/scenario-ordinary-ssh.sh",
     "tests/native/m02/target-root.sh",

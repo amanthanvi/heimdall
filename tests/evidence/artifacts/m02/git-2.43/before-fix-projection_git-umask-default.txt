@@ -1,0 +1,25 @@
+# the failing test of the wave-5 run, re-run on the devbox before the fix (one test, --exact --show-output)
+# wrapper did not capture the binary exit code; libtest reports FAILED
+umask=0002
+
+running 1 test
+test git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win ... FAILED
+
+successes:
+
+successes:
+
+failures:
+
+---- git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win stdout ----
+
+thread 'git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win' (2425805) panicked at crates/localenv/../../tests/integration/projection_git.rs:2159:5:
+ProjectionReceipt { items: [NotApplied { item: Ssh, reason: Some(UnmanageableFile) }, NotApplied { item: Git, reason: Some(UnmanageableFile) }] } ["ssh:finished_not_applied", "git:finished_not_applied"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 24 filtered out; finished in 0.03s
+

@@ -1,0 +1,18 @@
+exit 0: cargo test --target x86_64-unknown-linux-gnu -p heimdall-localenv --test integration_projection_git --test integration_git_observe --no-run --locked (zig cc linker/CC shims; before the fix)
+exit 0: ssh <devbox> mkdir ~/hm-m02-<random> (exclusive, one scratch directory)
+exit not captured (the wrapper printed each command's exit=): ssh <devbox> sh plain-git-check.sh <scratch>   -> git-2.43.0-plain.txt
+exit not captured: sh plain-git-check.sh <scratch>   (build host, Apple Git 2.54.0)   -> git-2.54.0-apple-plain.txt
+exit 0: diff of the two plain-git outputs after replacing the version line (identical)
+exit not captured (libtest reports FAILED): ssh <devbox> run-test-binary: integration_projection_git --exact git_both_global_files_present_..._win, umask 0002   -> before-fix-projection_git-umask-default.txt
+exit not captured (libtest reports ok): same, umask 0022   -> before-fix-projection_git-umask-022.txt
+exit 0: cargo test --target x86_64-unknown-linux-gnu -p heimdall-localenv --test integration_projection_git --test integration_git_observe --no-run --locked (after the fix)
+exit 0: ssh <devbox> run-test-binary: integration_projection_git (27 tests), umask 0002   -> after-fix-projection_git-umask-default.txt
+exit 0: ssh <devbox> run-test-binary: integration_projection_git (27 tests), umask 0022   -> after-fix-projection_git-umask-022.txt
+exit 0: ssh <devbox> run-test-binary: integration_git_observe (9 tests), umask 0002          -> after-fix-git_observe-umask-default.txt
+exit 0: ssh <devbox> rm -rf the run's scratch dir, then check it is absent (printed scratch-absent)
+exit 0: cargo clippy -p heimdall-localenv --all-targets -- -D warnings
+exit 0: rustfmt --edition 2024 --check on this unit's files (projection_git.rs, git_observe.rs, projection/git.rs, git.rs, projection/plan.rs)
+exit 0: cargo test -p heimdall-localenv --test integration_projection_git --test integration_git_observe   (build host, default umask: 27 + 9 passed)
+exit 0: (umask 002; cargo test -p heimdall-localenv --test integration_projection_git --test integration_git_observe)   (27 + 9 passed)
+exit 0: cargo test -p heimdall-localenv --no-fail-fast   (every localenv test target passed)
+exit 1: bash tools/validation/check.sh   fmt exit 1 (files of other units: crates/heimdall/src/uninstall_cmd.rs, tests/integration/projection.rs, tests/integration/store.rs, tests/model/setup.rs; none of this unit's), clippy exit 0, clippy-windows exit 101 (crates/app/src/operations.rs test code of another unit: DecisionId and AuthorityGeneration not in scope), test exit 0, test-discovery exit 0, schema exit 0, native-harness-selftest exit 0, evidence-selftest exit 0, evidence-records exit 0

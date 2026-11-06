@@ -13,15 +13,17 @@
 #   1. `uname -m` on the host (anything but x86_64 stops with exit 3, nothing copied).
 #   2. Cross-build with zig (`zig cc -target x86_64-linux-gnu.2.31`) as linker and as C
 #      compiler for the bundled SQLite, through shims in a mktemp directory removed on exit.
-#   3. The run plan from case-index.json `build_host_paths`: tests that read the repository
-#      at its compile-time path cannot run on another host. They are skipped there with
-#      `--exact --skip` and listed in skipped.txt with their reason (platform-neutral, run
-#      on the build host; or a harness gap, which keeps the evidence row in_progress).
+#   3. The run plan from case-index.json `build_host_paths`: a test that truly needs the
+#      build host is skipped with `--exact --skip` and listed in skipped.txt with its reason
+#      (platform-neutral, run on the build host; or a harness gap, which keeps the evidence
+#      row in_progress). Tests that read repository files read them through HM_REPO_ROOT
+#      (ADR-0007 §12.32 item 3), so they run here.
 #   4. A fresh scratch directory ~/hm-m02-<random> (plain mkdir, never reused), created
 #      before anything is copied. Only that exact directory is removed at the end, pass or
 #      fail, and its absence is checked.
-#   5. One tar stream copies the binaries, heimdall (HEIMDALL_E2E_BIN) and
-#      hm-fixture-hook (HM_FIXTURE_HOOK, also found next to the test binaries).
+#   5. One tar stream copies the binaries, heimdall (HEIMDALL_E2E_BIN),
+#      hm-fixture-hook (HM_FIXTURE_HOOK, also found next to the test binaries) and the
+#      repository files the tests read (lib.sh M02_REPO_DIRS) as repo/ (HM_REPO_ROOT).
 #   6. On the host: inherited agent, Git and Heimdall variables are unset; `ssh -V`,
 #      `sshd -V`, `git --version` (scratch HOME, GIT_CONFIG_NOSYSTEM=1), script(1), the
 #      scratch file system type are recorded; a preflight starts the fixture sshd (the
@@ -33,8 +35,9 @@
 #      the same way. A metadata digest of ~/.ssh and the Git configuration files is
 #      taken before and after (names and contents never printed): unchanged means
 #      nothing wrote there.
-#   7. Redaction (<linuxhost>, <user>, <home>, the build host's <home>/<user>), a leak scan
-#      for those values and a canary scan over every saved artifact.
+#   7. Redaction (<linuxhost> as whole words only, <user>, <home>, the build host's
+#      <home>/<user>), a leak scan for those values and a canary scan over every saved
+#      artifact.
 #
 # Nothing is installed or elevated; no service is touched; no listener other than the
 # loopback fixture sshd and owner-only Unix sockets inside the scratch TMPDIR is created;
@@ -97,7 +100,7 @@ if [ "$build_only" != 1 ]; then
     m02_record "$commands" "ssh <linuxhost> uname -m" "$rc"
     if [ "$rc" != 0 ]; then
         # The error text may name the host, the user or an address: keep its shape only.
-        m02_redact "$shim/arch.err" "$out/host-unreachable.txt" "$host" "<linuxhost>" "$(id -un)" "<user>" "$HOME" "<home>"
+        m02_redact "$shim/arch.err" "$out/host-unreachable.txt" --word "$host" "<linuxhost>" "$(id -un)" "<user>" "$HOME" "<home>"
         cat "$out/host-unreachable.txt" >&2
         exit 4
     fi
@@ -150,10 +153,16 @@ scratch=$name
 
 m02_stage "$shim" ""
 set +e
+nrepo=$(m02_stage_repo "$repo" "$shim/stage")
+rc=$?
+set -e
+m02_record "$commands" "stage the repository files the tests read (HM_REPO_ROOT: $nrepo files)" "$rc"
+[ "$rc" = 0 ] || exit 1
+set +e
 tar -C "$shim/stage" -chf - . | gzip -1 | rssh "tar -xzf - -C \"\$HOME/$scratch\""
 rc=$?
 set -e
-m02_record "$commands" "tar stream of $(wc -l <"$shim/run.tsv" | tr -d ' ') test binaries, heimdall and hm-fixture-hook into the scratch dir" "$rc"
+m02_record "$commands" "tar stream of $(wc -l <"$shim/run.tsv" | tr -d ' ') test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir" "$rc"
 [ "$rc" = 0 ] || exit 1
 names=$(cut -f1 "$shim/run.tsv" | tr '\n' ' ')
 
@@ -186,6 +195,9 @@ else
 fi
 chmod 700 ./heimdall ./hm-fixture-hook
 export HEIMDALL_E2E_BIN=$scratch/heimdall HM_FIXTURE_HOOK=$scratch/hm-fixture-hook
+# The repository files the tests read (heimdall_testkit::repo; ADR-0007 §12.32 item 3).
+[ -d "$scratch/repo" ] || { echo "the repository copy is missing"; return 1; }
+export HM_REPO_ROOT=$scratch/repo
 echo "---tests---"
 arc=0
 for b in "$@"; do
@@ -231,8 +243,8 @@ red=$(sed -n '/^---redaction---$/,$p' "$shim/remote.txt")
 val() { printf '%s\n' "$red" | sed -n "s/^$1=//p" | head -1; }
 rhome=$(val rhome); rfqdn=$(val rfqdn); rhost=$(val rhost); ruser=$(val ruser)
 sed '/^---redaction---$/,$d' "$shim/remote.txt" >"$shim/remote.body"
-m02_redact "$shim/remote.body" "$shim/redacted.txt" "$rhome" "<home>" "$HOME" "<home>" "$rfqdn" "<linuxhost>" \
-    "$rhost" "<linuxhost>" "$host" "<linuxhost>" "$ruser" "<user>" "$(id -un)" "<user>"
+m02_redact "$shim/remote.body" "$shim/redacted.txt" "$rhome" "<home>" "$HOME" "<home>" --word "$rfqdn" "<linuxhost>" \
+    --word "$rhost" "<linuxhost>" --word "$host" "<linuxhost>" "$ruser" "<user>" "$(id -un)" "<user>"
 sed -i.bak -E 's/hm-m02-[0-9a-f]{12}/hm-m02-<random>/g' "$shim/redacted.txt" && rm -f "$shim/redacted.txt.bak"
 {
     sed -n '1,/^---tests---$/p' "$shim/redacted.txt" | sed '$d'
@@ -250,7 +262,7 @@ m02_record "$commands" "host ~/.ssh and Git configuration metadata unchanged by 
 hits=$(m02_canary_scan "$out")
 m02_record "$commands" "canary-prefix scan over saved output (count = $hits)" "$([ "$hits" = 0 ] && echo 0 || echo 1)"
 set +e
-leaks=$(m02_leak_scan "$out" "$rhome" "$HOME" "$rfqdn" "$rhost" "$host" "$ruser" "$(id -un)")
+leaks=$(m02_leak_scan "$out" "$rhome" "$HOME" --word "$rfqdn" --word "$rhost" --word "$host" "$ruser" "$(id -un)")
 lrc=$?
 set -e
 m02_record "$commands" "leak scan: saved files still naming the host, user or a home ($leaks)" "$lrc"

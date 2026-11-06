@@ -1,0 +1,90 @@
+M02-W5c-sshconf: ssh -G observations used for ADR-0007 §12.32 items 11 and 12
+=============================================================================
+
+Taken 2026-11-06 by the W5c-sshconf unit. Redacted before leaving each host: the
+scratch path is <scratch>, the account name <local>; the host name and the home
+directory matched nowhere (each run's own leak check printed 0). No host or user name
+is recorded.
+
+Clients
+-------
+* ssh-g-9.6p1.txt: the Linux devbox, "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13
+  30 Jan 2024", run over the owner's ssh alias in a fresh ~/hm-m02-<random> directory
+  (mktemp), removed by the script's exit trap ("### scratch-removed=yes" at the end of
+  the file). Afterwards one other ~/hm-m02-* directory was present on the devbox: not
+  this unit's (another name pattern, Git scratch content, created by a concurrent unit),
+  and left untouched.
+* ssh-g-10.5p1.txt: the macOS build host, "OpenSSH_10.5p1, LibreSSL 3.3.6", the same
+  script with its scratch under /tmp (removed the same way).
+
+The task brief named the macOS client as 10.3p1; the build host now runs 10.5p1. The
+10.3p1 facts used by `heimdall_sshconf::client::OBSERVED_CLIENTS` come from earlier
+recorded runs (tests/evidence/artifacts/review-m02-code/wave1.md Y04 and wave2bc.md;
+ADR-0007 §12.17 item 9), not from this run.
+
+Procedure
+---------
+make-bundle.sh builds the inert configurations (the repository's
+tests/fixtures/sshconf/corpus, the cases of integration_sshconf_vs_ssh_g, and one file
+per keyword of keywords.txt under a Host that never matches). runner-body.sh is the
+part of the script that ran on each host after the bundle was unpacked: every case is
+
+    env -i PATH=/usr/bin:/bin HOME=<scratch>/home [one fixture variable] \
+      ssh -G -F <scratch>/<file> -o UserKnownHostsFile=<scratch>/known_hosts \
+      -o GlobalKnownHostsFile=<scratch>/empty_known_hosts -o BatchMode=yes <alias>
+
+Nothing in the configurations executes (no Match exec; ssh -G runs no ProxyCommand,
+LocalCommand or KnownHostsCommand). compare.py prints the case-by-case differences.
+
+What 9.6p1 does differently from 10.5p1
+---------------------------------------
+(a) Match criteria. "Unsupported Match attribute" for `command`, `sessiontype` and
+    `version` (cases match_command, match_sessiontype, match_version and every
+    sessiontype_* case, also `!sessiontype`, a second criterion, and a parse-only
+    include under a false section). ssh -G exits 255: the whole file is refused.
+    Accepted on both: all, canonical, final, host, originalhost, user, localuser,
+    localnetwork, tagged.
+(a') Keywords. "Bad configuration option" for RefuseConnection, VersionAddendum and
+    WarnWeakCrypto (kw_* cases); every other keyword of the pinned table, every alias
+    and every retired spelling of directive.rs behaves the same on both clients.
+(b) Environment expansion. `User u${HM_CORPUS_VAR}`, `SetEnv HMSET=${HM_CORPUS_VAR}`
+    and `Include <scratch>/cases/${HM_CORPUS_VAR}.conf` (in a Host section and at the
+    top level) are taken literally by 9.6p1 and expanded by 10.5p1 (cases s01_env,
+    env_user, env_setenv, env_include, env_include_top). With the variable unset,
+    10.5p1 refuses a `User` or `SetEnv` that names it (exit 255) and skips the Include
+    with an error; 9.6p1 prints the literal values (env_*_unset).
+(b') Tokens. `User u%h`, `User u%%h`, `SetEnv HMSET=%h` and `Include
+    <scratch>/cases/inc-%h.conf` are literal on 9.6p1 (port 22, values printed as
+    written) and expanded on 10.5p1 (port 2962, `utok-x`, `u%h`, `HMSET=tok-x`). On
+    10.5p1 `Match user utok-x` after `User u%h` does not match (tok_match_user): Match
+    reads the User as written.
+(c) First and final pass. host_pattern_case_*, match_final_and_canonical,
+    hostname_not_set_again_in_final_pass, parse_only_*, final_only_port and the
+    IdentityFile cases (id_first_and_final, id_final_only, id_final_dup, id_none,
+    id_none_then) print the same Port, User, HostName and configured IdentityFile list
+    on both clients. The only IdentityFile difference is the default list ssh adds when
+    nothing is configured, identical in the first and the final pass of each client:
+      9.6p1:  id_rsa id_ecdsa id_ecdsa_sk id_ed25519 id_ed25519_sk id_xmss id_dsa
+      10.5p1: id_rsa id_ecdsa id_ecdsa_sk id_ed25519 id_ed25519_sk id_mldsa44_ed25519
+    The wave-5 failure "identityfile: heimdall [] ssh -G [...]" was the corpus test's
+    S01-only default list rejecting id_xmss and id_dsa, not a pass difference.
+Everything else in the corpus (basic, identity, nested, include-state, unsupported,
+retired, lexer, BOM, CRLF) prints the same values on both clients, apart from the
+default identity list and the length of the default algorithm lists.
+
+Second run (run2.sh; ssh-g-9.6p1-run2.txt, ssh-g-10.5p1-run2.txt)
+-------------------------------------------------------------------
+The cases the updated corpus test adds, before it runs natively on the devbox:
+* `Include <scratch>/inc-%h.conf` with both `inc-tok-x.conf` (Port 2962) and a file
+  literally named `inc-%h.conf` (Port 2965): 9.6p1 port 2965, 10.5p1 port 2962.
+* `IgnoreUnknown <keyword>` before RefuseConnection, VersionAddendum or WarnWeakCrypto:
+  9.6p1 loads the file (exit 0) and ignores the line, under a Host that does not match
+  and under one that does (port 2330 applied). Without it: exit 255, "Bad
+  configuration option". 10.5p1 knows all three; with the line in force,
+  `RefuseConnection no` makes 10.5p1 stop at once ("RefuseConnection: no", exit 255):
+  its argument is a message, not yes/no.
+* `Match command hm-corpus-cmd`, `Match !command hm-cmd`, `Match sessiontype shell`,
+  `Match version OpenSSH_*`: 9.6p1 "Unsupported Match attribute", exit 255; 10.5p1
+  port 22, 2318, 2317 and 2317.
+Both scratch directories were removed ("### scratch-removed=yes"); afterwards no
+~/hm-m02-* directory was left on the devbox and none under /tmp on the build host.

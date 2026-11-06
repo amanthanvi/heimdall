@@ -1129,7 +1129,8 @@ mod tests {
     #[test]
     fn journaled_kinds_golden_matches_operation_kind_names() {
         use std::collections::BTreeMap;
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
+        let root = heimdall_testkit::repo::repo_root();
         let text = std::fs::read_to_string(
             root.join("tests/contracts/golden/journaled-kinds.golden.json"),
         )
