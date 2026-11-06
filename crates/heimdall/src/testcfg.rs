@@ -854,16 +854,22 @@ mod tests {
                     .map(|(_, v)| std::ffi::OsString::from(*v))
             }
         };
+        // An absolute path on the host (a Unix path has no drive on Windows).
+        const FIFO: &str = if cfg!(windows) {
+            "C:\\scratch\\fifo"
+        } else {
+            "/scratch/fifo"
+        };
         if AVAILABLE {
             let h = launch_hooks(&set(&[
-                (PRE_EXEC_PAUSE_ENV, "/scratch/fifo"),
+                (PRE_EXEC_PAUSE_ENV, FIFO),
                 (FORCE_EXEC_FAILURE_ENV, "1"),
                 (CLOCK_OFFSET_ENV, "-90"),
             ]))
             .unwrap();
             assert_eq!(
                 h.pre_exec_pause.as_deref(),
-                Some(std::path::Path::new("/scratch/fifo"))
+                Some(std::path::Path::new(FIFO))
             );
             assert!(h.force_exec_failure);
             assert_eq!(h.clock_offset, Some(ClockOffset::Fixed(-90)));

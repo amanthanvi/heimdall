@@ -467,13 +467,19 @@ mod tests {
         assert_eq!(test_hooks(&none), Ok(TestHooks::default()));
         let set =
             |k: &'static str, v: &'static str| move |n: &str| (n == k).then(|| OsString::from(v));
+        // An absolute path on the host (a Unix path has no drive on Windows).
+        let scratch_screen = if cfg!(windows) {
+            "C:\\scratch\\screen"
+        } else {
+            "/scratch/screen"
+        };
         let panic = test_hooks(&set(PANIC_ENV, "after_first_frame"));
-        let screen = test_hooks(&set(SCREEN_ENV, "/scratch/screen"));
+        let screen = test_hooks(&set(SCREEN_ENV, scratch_screen));
         if testcfg::AVAILABLE {
             assert!(panic.unwrap().panic_after_first_frame);
             assert_eq!(
                 screen.unwrap().screen.as_deref(),
-                Some(std::path::Path::new("/scratch/screen"))
+                Some(std::path::Path::new(scratch_screen))
             );
             assert!(test_hooks(&set(PANIC_ENV, "now")).is_err());
             assert!(test_hooks(&set(SCREEN_ENV, "relative")).is_err());
@@ -491,7 +497,11 @@ mod tests {
         );
         let args = isolation_args(&p);
         assert_eq!(args[0], "-F");
-        assert_eq!(args[1], "/scratch/home/.ssh/config");
+        // Joined with the host's separator (`\` on Windows).
+        let config = std::path::Path::new("/scratch/home")
+            .join(".ssh")
+            .join("config");
+        assert_eq!(args[1], config.as_os_str());
         for a in &args {
             let a = a.to_string_lossy();
             for forbidden in [

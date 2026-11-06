@@ -849,3 +849,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Minor: R3-05.
   - Every other round-2 finding was confirmed closed, the host-key cases by probe.
   - Record: `round3-recheck-codex.md`. Rulings: ADR-0008 §17.7. Next: revision 4, then a re-check of R3 only, with the fencing probes on each shell.
+- Wave 6w, more units done (each native on the PC, LF tree):
+  - w6-launch: 14 of 14, all test-side (Windows absolute executables, `cmd` argument quoting, forbidden file-name characters, the Windows `launching, spawned, exited` record sequence, a canary-safe assertion). Patch applied.
+  - w6-fixtures: 4 of 4. Three product fixes:
+    - `agents::locator_for` uses a leading `/`, not the host's `is_absolute`;
+    - the testkit hook disinherits its std handles (122 s down to 2.7 s);
+    - `remote-lib.sh` `hm2_stop_recorded` matches the retitled sshd. The leftover sshd from the cb16c2d6 run was stopped by its exact PID.
+
+    The runner keeps `core.autocrlf=false` in the clone and aborts on CR. Patch applied.
+    - The counting-proxy test is adjusted for Windows: a silent pipe client cannot be identified (1368).
+    - No Windows test uses the harness sshd today, so `HM_FIXTURE_SSHD_USER` is not needed.
+  - w6-projection, after the §12 rulings on `sys/quarantine.rs`: 10 of 10. Live pins drop DELETE and gain `FILE_LIST_DIRECTORY` (needed for the exclusion to apply). Removal uses a separate DELETE open, revalidated. The DACL check is kind-aware and exact. 4 Windows regressions, each mutation-checked. Patch fetched (sha256 104c13e3…).
+  - A stale pending question on the projection thread had blocked it since 13:09; answering it started a superfluous run, which was interrupted.
+- New unit w6-ipc (Opus, PC): `ipc::windows` `accept` impersonates before the client has written (`ImpersonateNamedPipeClient` gives 1368), so a slow same-user client can be refused. The fix: identify only after the client's first write, bounded, without head-of-line blocking.

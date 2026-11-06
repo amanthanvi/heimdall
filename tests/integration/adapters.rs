@@ -1650,9 +1650,17 @@ async fn adapters_stop_all_work_when_dropped() {
             let logged = f.agent.contact_count();
             drop_after_request(&f.agent, p.list_identities(&bounds())).await;
             assert_eq!(f.agent.connections(), opened + 1, "{point:?}");
+            // Wait on the runtime, not by blocking its thread: a dropped Windows pipe
+            // client is closed once the reactor reaps its cancelled read, which a
+            // blocked thread never lets happen (a Unix socket closes at the drop).
+            let closed = tokio::time::timeout(Duration::from_secs(2), async {
+                while f.agent.open_connections() != 0 {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await;
             assert!(
-                f.agent
-                    .wait_until(Duration::from_secs(2), |a| a.open_connections() == 0),
+                closed.is_ok(),
                 "{point:?}: the connection is closed after the drop"
             );
             tokio::time::sleep(Duration::from_millis(50)).await;

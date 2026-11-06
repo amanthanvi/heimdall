@@ -416,6 +416,35 @@ fn revert(path: &Path, original: &Path, marker: &Path) -> i32 {
     }
 }
 
+/// The one Windows system call the hook makes (same shape as
+/// `heimdall_runtime::platform::disinherit_standard_handles`).
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod win {
+    use windows_sys::Win32::Foundation::{HANDLE_FLAG_INHERIT, SetHandleInformation};
+
+    /// Clear `HANDLE_FLAG_INHERIT` on this process's standard input, output and error
+    /// handles. They stay open and usable here; a child created afterwards no longer
+    /// receives them through handle inheritance.
+    pub(super) fn disinherit_standard_handles() {
+        use std::os::windows::io::AsRawHandle as _;
+        for handle in [
+            std::io::stdin().as_raw_handle(),
+            std::io::stdout().as_raw_handle(),
+            std::io::stderr().as_raw_handle(),
+        ] {
+            if handle.is_null() {
+                continue;
+            }
+            // SAFETY: `handle` is this process's own standard handle as the standard
+            // library holds it (null skipped above); changing its inherit flag neither
+            // closes nor invalidates it. An invalid or console pseudo handle makes the
+            // call fail, which is ignored.
+            unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+        }
+    }
+}
+
 fn escape(pidfile: &Path) -> i32 {
     let Ok(me) = std::env::current_exe() else {
         return exit::FAILED;
@@ -433,6 +462,10 @@ fn escape(pidfile: &Path) -> i32 {
     #[cfg(windows)]
     let started = {
         use std::os::windows::process::CommandExt;
+        // `CreateProcess` hands the child every inheritable handle of this process, so
+        // the caller's stdout pipe would stay open (and `wait_with_output` or `ssh`
+        // would wait for its end of file) until the 120 s child exits.
+        win::disinherit_standard_handles();
         spawn("breakaway")
             .creation_flags(CREATE_BREAKAWAY_FROM_JOB)
             .spawn()

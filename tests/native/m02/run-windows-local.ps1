@@ -208,6 +208,34 @@ function Get-ToolEnvironmentOverrides([string]$RustupHome, [string]$CargoHome, [
     return @{ RUSTUP_HOME = $RustupHome; CARGO_HOME = $CargoHome; GIT_CONFIG_NOSYSTEM = '1'; GIT_CONFIG_GLOBAL = $GitConfig; TEMP = $Tmp; TMP = $Tmp; TMPDIR = $Tmp }
 }
 
+# How many of the given files contain a carriage return (0 when every one is LF-only; a file
+# that cannot be read counts as one).
+function Get-CrlfFileCount([string[]]$Paths) {
+    $n = 0
+    foreach ($p in $Paths) {
+        try { if ([System.Array]::IndexOf([System.IO.File]::ReadAllBytes($p), [byte]13) -ge 0) { $n++ } } catch { $n++ }
+    }
+    return $n
+}
+
+# What the end-of-run stop step (`echo "stop=$(hm2_stop_recorded ...)"` in WSL) answered: the
+# word after `stop=` on the first such line (`none`, `stopped`, `gone`, `mismatch` or
+# `still-running`), or `no answer` when WSL gave no such line.
+function Get-SshdAtEnd([string]$Output) {
+    $line = ($Output -split "`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ -like 'stop=*' } | Select-Object -First 1
+    if ($null -eq $line) { return 'no answer' }
+    $word = ($line -replace '^stop=', '').Trim()
+    if ($word) { return $word } else { return 'no answer' }
+}
+
+# Whether that answer proves no fixture sshd of this run is left running: only `stopped` (it
+# was signalled and is gone) and `gone` (it had already exited). `mismatch` (the recorded
+# process was not recognised, so it was not signalled), `still-running`, `none` (no usable
+# record) and `no answer` all leave it unaccounted for.
+function Test-SshdAtEndOk([string]$AtEnd) {
+    return ($AtEnd -eq 'stopped' -or $AtEnd -eq 'gone')
+}
+
 # -SelfTest: the helpers on synthetic data (no host, no network, no toolchain)
 # ---------------------------------------------------------------------------------------------
 
@@ -260,6 +288,15 @@ function Invoke-SelfTest([string]$OutDir) {
     $pb = New-Bundle @{ 'tests.txt' = ''; 'commands.txt' = ''; 'host.txt' = ''; 'build.txt' = ''; 'skipped.txt' = ''; 'canary-scan.txt' = '' } ([ordered]@{ commit = ('0' * 40); label = $pm.Label; exit = 0 })
     Check 'E02 a canary or a user name in the label is masked, counted, and absent from the serialized bundle (ADR-0007 §12.38 L02)' ($pm.Canaries -eq 1 -and -not $pm.Label.Contains('HEIMDALL_' + 'CANARY_') -and -not ($pm.Label -match '(?i)fixtureuser') -and -not $pb.Json.Contains('HEIMDALL_' + 'CANARY_') -and -not $pb.Json.Contains('labelvalue1'))
     Check 'E01 the toolchain environment keeps TEMP, TMP and TMPDIR in the run scratch (ADR-0007 §12.35 N05)' ($te['TEMP'] -eq 'S\tmp' -and $te['TMP'] -eq 'S\tmp' -and $te['TMPDIR'] -eq 'S\tmp' -and $te['RUSTUP_HOME'] -eq 'S\rustup' -and $te['CARGO_HOME'] -eq 'S\cargo')
+    $lfDir = Join-Path ([System.IO.Path]::GetTempPath()) ('hm-selftest-eol-' + (New-RandomHex 4))
+    New-Item -ItemType Directory -Path $lfDir | Out-Null
+    [System.IO.File]::WriteAllBytes((Join-Path $lfDir 'lf.txt'), [byte[]](97, 10, 98, 10))
+    [System.IO.File]::WriteAllBytes((Join-Path $lfDir 'crlf.txt'), [byte[]](97, 13, 10))
+    Check 'G01 the line-ending sample counts files holding a CR (LF-only 0, CRLF 1, unreadable 1)' ((Get-CrlfFileCount @((Join-Path $lfDir 'lf.txt'))) -eq 0 -and (Get-CrlfFileCount @((Join-Path $lfDir 'lf.txt'), (Join-Path $lfDir 'crlf.txt'))) -eq 1 -and (Get-CrlfFileCount @((Join-Path $lfDir 'absent.txt'))) -eq 1)
+    Remove-Item -LiteralPath $lfDir -Recurse -Force
+    $stopOut = "created=x`r`nstop=stopped`r`n"
+    Check 'S01 the end-of-run sshd stop answer is read from its stop= line (CRLF too), and only stopped or gone count as stopped' ((Get-SshdAtEnd $stopOut) -eq 'stopped' -and (Test-SshdAtEndOk 'stopped') -and (Test-SshdAtEndOk (Get-SshdAtEnd "stop=gone`n")))
+    Check 'S02 mismatch, still-running, none and a missing answer are failures of the run, never a stopped sshd' ((Get-SshdAtEnd "noise`n") -eq 'no answer' -and (Get-SshdAtEnd 'stop=') -eq 'no answer' -and -not (Test-SshdAtEndOk (Get-SshdAtEnd "stop=mismatch`n")) -and -not (Test-SshdAtEndOk 'still-running') -and -not (Test-SshdAtEndOk 'none') -and -not (Test-SshdAtEndOk (Get-SshdAtEnd '')))
     $meta = [ordered]@{ commit = ('0' * 40); label = 'windows-selftest'; started_at = '2026-11-06T00:00:00Z'; finished_at = '2026-11-06T00:00:01Z'; exit = 101 }
     $b = New-Bundle $files $meta
     Check 'B01 the bundle is framed by its markers with the payload sha256' ($b.Text.StartsWith($BeginMarker + "`nsha256-gzip: ") -and $b.Text.TrimEnd().EndsWith($EndMarker))
@@ -422,13 +459,27 @@ try {
     Add-Fact 'git-version-windows' ((Invoke-Bounded $git @('--version') $gitEnv $run 30).Output.Trim())
 
     # 1. The clone, at exactly the commit.
-    $r = Invoke-Bounded $git @('-c', 'credential.helper=', '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-checkout', $RepoUrl, $src) $gitEnv $run 1800
+    # Git for Windows' system configuration may set core.autocrlf=true, which would check the
+    # tree out with CRLF (schema exports, corpus inertness and TUI snapshots then fail), and
+    # evidence paths exceed MAX_PATH: both are set for the clone and the checkout, and then
+    # kept in the clone's own configuration (never the user's or the system's).
+    $r = Invoke-Bounded $git @('-c', 'credential.helper=', '-c', 'core.autocrlf=false', '-c', 'core.longpaths=true', 'clone', '--quiet', '--no-checkout', $RepoUrl, $src) $gitEnv $run 1800
     Add-Command $r.Code 'git clone of the public repository into the run directory'
     [void]$build.Append($r.Output)
     if ($r.Code -ne 0) { throw 'clone failed' }
-    $r = Invoke-Bounded $git @('-C', $src, '-c', 'core.autocrlf=false', 'checkout', '--quiet', '--detach', $Commit) $gitEnv $run 600
+    foreach ($kv in @(@('core.autocrlf', 'false'), @('core.longpaths', 'true'))) {
+        $r = Invoke-Bounded $git @('-C', $src, 'config', '--local', $kv[0], $kv[1]) $gitEnv $run 60
+        Add-Command $r.Code "git config --local $($kv[0]) $($kv[1]) (the clone's own configuration)"
+        if ($r.Code -ne 0) { throw "git config $($kv[0]) failed" }
+    }
+    $r = Invoke-Bounded $git @('-C', $src, 'checkout', '--quiet', '--detach', $Commit) $gitEnv $run 600
     Add-Command $r.Code 'git checkout --detach <exit commit>'
     if ($r.Code -ne 0) { throw 'checkout failed' }
+    $crlf = Get-CrlfFileCount @('Cargo.lock', 'rust-toolchain.toml', 'tests\native\m02\remote-lib.sh', 'crates\testkit\Cargo.toml' | ForEach-Object { Join-Path $src $_ })
+    Add-Fact 'git-autocrlf-clone' ((Invoke-Bounded $git @('-C', $src, 'config', '--get', 'core.autocrlf') $gitEnv $run 30).Output.Trim())
+    Add-Fact 'clone-line-endings' $(if ($crlf -eq 0) { 'LF (sampled files have no CR)' } else { "CRLF in $crlf sampled files" })
+    Add-Command $(if ($crlf -eq 0) { 0 } else { 1 }) 'the checked-out tree has LF line endings (core.autocrlf=false)'
+    if ($crlf -ne 0) { throw 'the checkout has CRLF line endings' }
     $head = (Invoke-Bounded $git @('-C', $src, 'rev-parse', 'HEAD') $gitEnv $run 60).Output.Trim()
     Add-Command $(if ($head -eq $Commit) { 0 } else { 1 }) 'the clone is at exactly the exit commit'
     if ($head -ne $Commit) { throw 'the clone is not at the commit' }
@@ -631,7 +682,14 @@ fi
     try {
         if ($wslDir) {
             $r = Invoke-Wsl ($remoteLib + "`n" + 'echo "stop=$(hm2_stop_recorded "$1/sshd")"' + "`n") @($wslDir) 120
-            Add-Fact 'fixture-sshd-at-end' ((($r.Output -split "`n") | Where-Object { $_ -like 'stop=*' } | Select-Object -First 1) -replace '^stop=', '')
+            $atEnd = Get-SshdAtEnd $r.Output
+            Add-Fact 'fixture-sshd-at-end' $atEnd
+            # Only `stopped` (signalled and gone) or `gone` (already exited) leaves no sshd
+            # behind; `mismatch`, `still-running`, `none` or no answer at all means one may
+            # still be running in WSL, and that is a failure of the run, not just a fact.
+            $ended = Test-SshdAtEndOk $atEnd
+            Add-Command $(if ($ended) { 0 } else { 1 }) 'wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run'
+            if (-not $ended) { $overall = 1 }
         }
         if ($null -ne $sshdProc) {
             if (-not $sshdProc.WaitForExit(30000)) { $sshdProc.Kill($true); $sshdProc.WaitForExit() }

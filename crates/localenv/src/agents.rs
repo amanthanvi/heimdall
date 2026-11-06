@@ -177,9 +177,12 @@ pub fn locator_for(value: &str, platform: Platform) -> Option<EndpointLocator> {
         }
         return None;
     }
-    let p = Path::new(value);
-    p.is_absolute()
-        .then(|| EndpointLocator::UnixSocket(p.to_path_buf()))
+    // A Unix absolute path is a leading `/`. `Path::is_absolute` would answer for the
+    // host's rules, so a Linux/macOS `platform` evaluated on a Windows host (no drive
+    // letter) would name no socket; on a Unix host the two are the same test.
+    value
+        .starts_with('/')
+        .then(|| EndpointLocator::UnixSocket(PathBuf::from(value)))
 }
 
 fn presence(locator: &EndpointLocator, pipes: Option<&[String]>, platform: Platform) -> Presence {

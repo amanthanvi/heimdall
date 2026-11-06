@@ -33,6 +33,7 @@ fixtures = [
     "dep:getrandom",
     "dep:rustix",
     "dep:heimdall-ipc",
+    "dep:windows-sys",
 ]
 
 [dependencies]
@@ -66,6 +67,8 @@ rustix = { workspace = true, optional = true, features = ["process"] }
 # `fixtures`; with it (workspace feature unification) Cargo builds the ordinary
 # dev-dependency cycle.
 heimdall-ipc = { workspace = true, optional = true }
+# The hook's `escape` mode clears the inherit flag on its standard handles.
+windows-sys = { workspace = true, optional = true }
 
 # The fixture hook for `Match exec`, ProxyCommand and askpass fixtures (m02-plan U7
 # `hook::HookBinary`). Tests of this package get `CARGO_BIN_EXE_hm-fixture-hook`;

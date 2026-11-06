@@ -1744,6 +1744,24 @@ mod tests {
         ("tui/worker.rs", include_str!("tui/worker.rs")),
     ];
 
+    /// Stands for [`resolvable_program`] in [`M02_COMMAND_LINES`].
+    const PROGRAM: &str = "<resolvable program>";
+
+    /// An absolute path of a program that resolves (`run` resolves its program before
+    /// it looks at `--profile`, so a line meant to be refused for its missing profile
+    /// needs one): `/bin/sh` on Unix, and on Windows, where it does not exist, this
+    /// test binary.
+    fn resolvable_program() -> String {
+        if cfg!(windows) {
+            std::env::current_exe()
+                .unwrap_or_else(|e| panic!("current_exe: {e}"))
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            "/bin/sh".to_owned()
+        }
+    }
+
     /// One command line per M02 command whose own handler refuses it before any
     /// runtime, terminal or account-file contact, with the handler's exit status.
     /// (`uninstall` and `identity adopt --from-agent` read the account's SSH directory
@@ -1755,7 +1773,7 @@ mod tests {
             ExitCode::Usage,
         ),
         (&["connect", "--", "-oProxyCommand=x"], ExitCode::Usage),
-        (&["run", "--", "/bin/sh"], ExitCode::Usage),
+        (&["run", "--", PROGRAM], ExitCode::Usage),
         (&["doctor", "--active-probe", "everything"], ExitCode::Usage),
         (&["tui"], ExitCode::Usage),
         (
@@ -1803,13 +1821,20 @@ mod tests {
             }
         }
         let scratch = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+        let program = resolvable_program();
         for (i, (line, expected)) in M02_COMMAND_LINES.iter().enumerate() {
             let home = scratch.path().join(format!("home-{i}"));
             let home_arg = home.to_string_lossy().into_owned();
             let argv: Vec<&str> = ["heimdall", "--json", "--non-interactive", "--home"]
                 .into_iter()
                 .chain(std::iter::once(home_arg.as_str()))
-                .chain(line.iter().copied())
+                .chain(line.iter().map(|arg| {
+                    if *arg == PROGRAM {
+                        program.as_str()
+                    } else {
+                        *arg
+                    }
+                }))
                 .collect();
             let cli = Cli::try_parse_from(&argv)
                 .unwrap_or_else(|e| panic!("{line:?} must parse: {:?}", e.kind()));
@@ -1880,6 +1905,7 @@ mod tests {
             .join("no-such-program")
             .to_string_lossy()
             .into_owned();
+        let program = resolvable_program();
         let lines: Vec<(Vec<&str>, ExitCode)> = vec![
             (
                 vec!["connect", "lab", "--meta-file", &existing],
@@ -1905,7 +1931,7 @@ mod tests {
                 vec!["run", "--profile", "p", "--", &missing],
                 ExitCode::LaunchFailed,
             ),
-            (vec!["run", "--", "/bin/sh"], ExitCode::Usage),
+            (vec!["run", "--", &program], ExitCode::Usage),
             (vec!["connect", "--", "-oProxyCommand=x"], ExitCode::Usage),
         ];
         for (i, line) in lines.iter().enumerate() {

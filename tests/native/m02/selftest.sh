@@ -804,6 +804,25 @@ sleeper_probe() {
     [ "$alive" = 1 ] && case "$r" in mismatch | gone) true ;; *) false ;; esac
 }
 check "X25 remote-lib: a recorded PID whose start time and configuration do not match is left alone" sleeper_probe
+# A running sshd retitles itself ("sshd: <argv> [listener] ..."), which on Linux makes its whole
+# command line one argument: the recorded configuration path must still be found in it (the first
+# Windows local run reported "mismatch" and left its sshd running). /proc is Linux only.
+retitled_probe() {
+    local d p r start
+    [ -r /proc/self/stat ] || return 0
+    d=$(mktemp -d)
+    (exec -a "sshd: /usr/sbin/sshd -D -f $d/sshd_config -E $d/log [listener] 0 of 10-100 startups" sleep 60) &
+    p=$!
+    sleep 0.3
+    start=$(hm2_start_time "$p")
+    printf 'pid=%s\nstart=%s\nconfig=%s\n' "$p" "$start" "$d/sshd_config" >"$d/state"
+    r=$(hm2_stop_recorded "$d")
+    kill "$p" 2>/dev/null
+    wait "$p" 2>/dev/null
+    rm -rf "$d"
+    [ "$r" = stopped ]
+}
+check "X27 remote-lib: a recorded sshd whose process title holds the whole command line is found and stopped (Linux /proc)" retitled_probe
 
 # =============================================================================================
 # L: run-linux.sh

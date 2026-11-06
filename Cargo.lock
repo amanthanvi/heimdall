@@ -958,6 +958,7 @@ dependencies = [
  "ssh-key",
  "tempfile",
  "tokio",
+ "windows-sys",
 ]
 
 [[package]]

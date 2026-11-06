@@ -541,8 +541,15 @@ mod tests {
         // directory, so the list itself must not contain one.
         let abs = std::env::temp_dir();
         let abs_text = abs.to_str().unwrap();
-        let unix_env = Env::from_vars([("PATH", format!(".::bin:../x:./:{abs_text}:"))]);
-        assert_eq!(search_dirs(&unix_env, Platform::Linux), vec![abs.clone()]);
+        // Unix rules split at `:` and a Unix path is absolute only on a Unix host, so a
+        // Windows host (`C:\...`) can check only that the relative entries all go.
+        let unix_relative = Env::from_vars([("PATH", ".::bin:../x:./:")]);
+        assert!(search_dirs(&unix_relative, Platform::Linux).is_empty());
+        #[cfg(unix)]
+        {
+            let unix_env = Env::from_vars([("PATH", format!(".::bin:../x:./:{abs_text}:"))]);
+            assert_eq!(search_dirs(&unix_env, Platform::Linux), vec![abs.clone()]);
+        }
         let win_env = Env::from_vars([("Path", format!(".;;bin;\"\";..\\x;{abs_text};"))]);
         assert_eq!(search_dirs(&win_env, Platform::Windows), vec![abs]);
         assert!(search_dirs(&Env::default(), Platform::Linux).is_empty());
@@ -717,8 +724,27 @@ mod tests {
         for c in BATCH_PATH_REFUSED.into_iter().chain(['\u{1}', '\t']) {
             let dir = s.path().join(format!("d{}x", u32::from(c)));
             let bad = dir.join(format!("a{c}b"));
-            if c == '"' && cfg!(windows) {
-                continue; // not a legal Windows file name
+            if cfg!(windows) && (matches!(c, '<' | '>' | '"' | '|') || c.is_control()) {
+                // Not a legal Windows file name, so no such script can exist to be
+                // found; the rule itself is still checked on a path naming one.
+                let script = ResolvedProgram {
+                    path: bad.join("tool.cmd"),
+                    kind: ProgramKind::Batch,
+                    via: Via::Explicit,
+                };
+                assert_eq!(
+                    preflight(&script, &[]),
+                    Err(LaunchRefusal::BatchPathUnsafe),
+                    "char {c:?}"
+                );
+                let native = ResolvedProgram {
+                    path: bad.join("native.exe"),
+                    kind: ProgramKind::Native,
+                    via: Via::Explicit,
+                };
+                assert!(preflight(&native, &[]).is_ok(), "char {c:?}");
+                assert_eq!(LaunchRefusal::BatchPathUnsafe.exit_code(), 127);
+                continue;
             }
             std::fs::create_dir_all(&bad).unwrap();
             write_file(&bad.join("tool.cmd"), 0o644);

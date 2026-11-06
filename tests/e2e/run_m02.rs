@@ -446,10 +446,7 @@ fn a27_not_executable_exits_126() {
 fn a27_child_exit_codes_0_to_255_preserved() {
     let rig = Rig::new();
     // One run first, so the runtime is up before the parallel runs.
-    let first = rig.run_with(
-        &refs(&run_args(None, &os(&["/bin/sh", "-c", "exit 0"]))),
-        &[],
-    );
+    let first = rig.run_with(&refs(&run_args(None, &shell("exit 0"))), &[]);
     assert_eq!(first.code(), Some(0), "{}", first.stderr);
     let codes: Vec<i32> = (0..=255).collect();
     std::thread::scope(|scope| {
@@ -989,11 +986,10 @@ fn a27_argv_canary_absent_from_ipc_store_events_logs_errors_batch_refusals_repla
         run_one("first", "req-canary", argv.clone(), &[]).code(),
         Some(0)
     );
-    assert_eq!(
-        std::fs::read_to_string(&seen).unwrap(),
-        canary,
-        "the child got it"
-    );
+    // `cmd`'s `echo` leaves a space before the redirection and ends the line with CRLF
+    // (a Unix `printf` writes the bare value). No assertion may print the canary.
+    let got = std::fs::read_to_string(&seen).unwrap();
+    assert!(got.trim_end() == canary, "the child got it");
     std::fs::remove_file(&seen).unwrap();
     let replay = run_one("replay", "req-canary", argv.clone(), &[]).code();
     assert!(
@@ -1705,16 +1701,22 @@ fn binding_state(rig: &Rig, binding: &str) -> String {
 /// One `run --profile ops --request-id <request> --meta-file <meta> -- <shell script>`
 /// whose child appends a line to `count` and exits 7.
 fn counted_run(rig: &Rig, request: &str, meta: &Path, count: &Path) -> Out {
-    let script = if cfg!(windows) {
-        format!("echo x>> \"{}\" & exit 7", count.display())
+    let argv = if cfg!(windows) {
+        // One token per argument: std quotes only a token holding a space, which
+        // `cmd` reads as it should, whereas a whole script holding quotes would reach
+        // `cmd` with std's `\"` escapes and fail.
+        let mut argv = os(&["cmd", "/d", "/c", "echo", "x", ">>"]);
+        argv.push(count.as_os_str().to_owned());
+        argv.extend(os(&["&", "exit", "7"]));
+        argv
     } else {
-        format!("echo x >> '{}'; exit 7", count.display())
+        shell(&format!("echo x >> '{}'; exit 7", count.display()))
     };
     let mut a = os(&["--json", "run", "--profile", "ops", "--request-id", request]);
     a.push("--meta-file".into());
     a.push(meta.as_os_str().to_owned());
     a.push("--".into());
-    a.extend(shell(&script));
+    a.extend(argv);
     rig.run_with(&refs(&a), &[])
 }
 
@@ -1798,10 +1800,24 @@ fn run_retry_with_same_request_id_never_relaunches_automatically() {
         let meta = rig.file(&format!("meta-{n}.ndjson"));
         let out = counted_run(&rig, "req-rt05", &meta, &count);
         if out.code() == Some(7) {
-            assert!(matches!(
-                records(&meta).as_slice(),
-                [RunRecord::Launching { .. }]
-            ));
+            // Unix: `exec` leaves `launching` last. Windows spawns and waits, so the
+            // launcher also records `spawned` and `exited` (ADR-0007 §8).
+            let recs = records(&meta);
+            if cfg!(windows) {
+                assert!(
+                    matches!(
+                        recs.as_slice(),
+                        [
+                            RunRecord::Launching { .. },
+                            RunRecord::Spawned { .. },
+                            RunRecord::Exited { exit_code: 7, .. }
+                        ]
+                    ),
+                    "{recs:?}"
+                );
+            } else {
+                assert!(matches!(recs.as_slice(), [RunRecord::Launching { .. }]));
+            }
             launched += 1;
         } else {
             assert!(n > 1, "the first invocation launches: {}", out.stderr);

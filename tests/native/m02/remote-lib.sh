@@ -241,9 +241,15 @@ hm2_sshd_stop() {
 
 # hm2_stop_recorded DIR: from another session, stop the sshd recorded in DIR/state, only
 # when its start time and its configuration path still match (Linux /proc only).
-# Prints what it did: none, stopped, gone or mismatch.
+# Prints what it did: none, stopped, gone, mismatch or still-running (signalled, but
+# alive after 5 s).
+#
+# The configuration path is looked for as ` -f <path> ` in the whole command line, not
+# as an argument of its own: sshd retitles itself ("sshd: <argv> [listener] ..."), which
+# on Linux overwrites the argument vector with one string, so the path is no longer a
+# separate NUL-terminated argument once the daemon runs.
 hm2_stop_recorded() {
-    local pid start cfg now
+    local pid start cfg now i
     [ -f "$1/state" ] || { echo none; return 0; }
     pid=$(sed -n 's/^pid=//p' "$1/state")
     start=$(sed -n 's/^start=//p' "$1/state")
@@ -251,9 +257,21 @@ hm2_stop_recorded() {
     case "$pid" in '' | *[!0-9]*) echo none; return 0 ;; esac
     [ -r "/proc/$pid/stat" ] || { echo gone; return 0; }
     now=$(hm2_start_time "$pid")
-    if [ -n "$start" ] && [ "$now" = "$start" ] && tr '\0' '\n' <"/proc/$pid/cmdline" 2>/dev/null | grep -qxF -- "$cfg"; then
+    if [ -n "$start" ] && [ "$now" = "$start" ] && [ -n "$cfg" ] &&
+        tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -qF -- " -f $cfg "; then
         kill "$pid" 2>/dev/null || true
-        echo stopped
+        # Gone, or a zombie waiting to be reaped, counts as stopped.
+        i=0
+        while [ $i -lt 50 ] && [ -r "/proc/$pid/stat" ] &&
+            [ "$(sed -e 's/^.*) //' "/proc/$pid/stat" 2>/dev/null | cut -c1)" != Z ]; do
+            sleep 0.1
+            i=$((i + 1))
+        done
+        if [ -r "/proc/$pid/stat" ] && [ "$(sed -e 's/^.*) //' "/proc/$pid/stat" 2>/dev/null | cut -c1)" != Z ]; then
+            echo still-running
+        else
+            echo stopped
+        fi
     else
         echo mismatch
     fi

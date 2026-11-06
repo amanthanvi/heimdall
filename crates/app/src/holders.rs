@@ -189,6 +189,14 @@ mod tests {
         ReconcileOutcome, RevokeOutcome,
     };
 
+    /// An absolute executable path for the platform (a binding names the resolved
+    /// executable, which the contract requires to be absolute; it is never run here).
+    const EXECUTABLE: &str = if cfg!(windows) {
+        "C:\\Windows\\System32\\cmd.exe"
+    } else {
+        "/bin/sh"
+    };
+
     /// An adapter that prepares every time (this crate's own port: the testkit fake
     /// is built against the library outside its unit-test build).
     struct Prepares(AdapterDescriptor);
@@ -392,7 +400,7 @@ mod tests {
                 BindRequest {
                     binding_id: ensured.data.binding_id.clone(),
                     form: BindForm::Launch(LaunchBinding {
-                        executable: "/bin/sh".to_owned(),
+                        executable: EXECUTABLE.to_owned(),
                         holder,
                     }),
                     request_id: RequestId::parse(&format!("b-{work}")).unwrap(),
@@ -532,7 +540,7 @@ mod tests {
             BindRequest {
                 binding_id: binding.clone(),
                 form: BindForm::Launch(LaunchBinding {
-                    executable: "/bin/sh".to_owned(),
+                    executable: EXECUTABLE.to_owned(),
                     holder,
                 }),
                 request_id: RequestId::parse(request).unwrap(),

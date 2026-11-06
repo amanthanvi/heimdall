@@ -915,7 +915,9 @@ impl FakeAgent {
         self.shared.log.lock().map(|l| l.len()).unwrap_or(0)
     }
 
-    /// Number of connections accepted (a connection that sends nothing is still one).
+    /// Number of connections accepted (on Unix a connection that sends nothing is still
+    /// one; on Windows the pipe listener refuses a client that has sent nothing, as it
+    /// cannot identify it, so that one is not counted).
     #[must_use]
     pub fn connections(&self) -> usize {
         self.shared.accepted.load(Ordering::SeqCst)
@@ -1065,7 +1067,9 @@ impl CountingProxy {
         self.shared.log.lock().map(|l| l.len()).unwrap_or(0)
     }
 
-    /// Number of client connections accepted.
+    /// Number of client connections accepted. On Windows a pipe client that has sent
+    /// nothing cannot be identified by the listener and is refused, so it is not
+    /// counted.
     #[must_use]
     pub fn connections(&self) -> usize {
         self.shared.accepted.load(Ordering::SeqCst)

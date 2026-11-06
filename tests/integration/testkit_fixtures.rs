@@ -430,13 +430,28 @@ fn counting_proxy_counts_frames() {
         Some(key.fingerprint().as_str())
     );
     drop(c);
-    let _ = connect(proxy.endpoint());
+    // Held open while it is observed.
+    let idle = connect(proxy.endpoint());
+    #[cfg(unix)]
     assert!(upstream.wait_until(T, |_| proxy.connections() == 2));
+    // Windows: the reviewed pipe listener identifies a client by impersonating it, and
+    // Windows refuses that (ERROR_CANNOT_IMPERSONATE) until the client has sent data,
+    // so a connection that sends nothing is refused unserved and never counted.
+    #[cfg(windows)]
+    {
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(
+            proxy.connections(),
+            1,
+            "a pipe client that sends nothing cannot be identified, so it is not served"
+        );
+    }
     assert_eq!(
         proxy.count(),
         4,
         "a connection that sends nothing forwards nothing"
     );
+    drop(idle);
 }
 
 #[cfg(unix)]
