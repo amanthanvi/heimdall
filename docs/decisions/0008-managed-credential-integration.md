@@ -1,7 +1,12 @@
 # ADR-0008 — Managed credential integration (M03): the B1 signer and issuer, scoped enrollment, deadline and connection control, lock behaviour
 
-**Status:** proposed, revision 3 · **Date:** 2026-11-06 · **Tasks:** M03-T00-design (revision 1),
-M03-T00-design-fix (revisions 2 and 3)
+**Status:** proposed, revision 4 · **Date:** 2026-11-06 · **Tasks:** M03-T00-design (revision 1),
+M03-T00-design-fix (revisions 2, 3 and 4)
+**Revision 4** applies the round-3 targeted re-check
+(`tests/evidence/artifacts/review-m03-design/round3-recheck-codex.md`, findings M03-R3-01–R3-05) under
+the orchestrator's rulings in §17.7. Text it changed is marked **⟨r4⟩**, and §22 maps each R3 finding to
+the sections that changed. Where a ruling could not be applied exactly as written, the ruling is kept
+and §17.8 asks the question (Q26–Q28).
 **Revision 3** applies the two independent round-2 reviews
 (`tests/evidence/artifacts/review-m03-design/round2-a-codex.md`, findings A R2-01–R2-09;
 `round2-b-opus.md`, findings B M03-R2-01–R2-18) under the orchestrator's rulings in §17.4, and
@@ -107,6 +112,7 @@ this ADR adds.
 | ⟨r3⟩ M-F30 | **Process identity on a target.** POSIX `ps -o` names `pid`, `ppid`, `pgid`, `etime`, `comm` and `args`, but no start time: `lstart` is a BSD and procps extension, and BusyBox `ps` lacks it. Linux `/proc/<pid>/stat` field 22 is the start time in clock ticks since boot, and `/proc/sys/kernel/random/boot_id` names the boot. POSIX `kill` with a negative PID signals a process group, and a process ID is not reused while a process group with that ID exists. sshd runs a non-pty session's command in a new session, so the `$$` of `exec /bin/sh -s` is its process-group leader | [I] (POSIX.1-2017 and OpenSSH `session.c`; neither is pinned). Settled per target by `start_identity_per_target_shell` and `holder_is_process_group_leader_per_target` (U5) |
 | ⟨r3⟩ M-F31 | POSIX `ln -s <contents> <name>` creates a symbolic link in one `symlink()` call and fails if `<name>` exists. The exception is an existing **directory** at `<name>`: `ln` then creates the link inside it. `ls -l` prints a link as `<name> -> <contents>` | [I] (POSIX.1-2017, not pinned). Settled by `lock_symlink_is_exclusive_per_target` (U5) |
 | ⟨r3⟩ M-F32 | `awk`'s `printf "%c"` depends on the locale. bwk awk 20200816 writes one byte for a code of 128 or more; gawk in a UTF-8 locale is reported to write a multibyte sequence | Observed for bwk awk by reviewer B; gawk is [I]. The scripts set `LC_ALL=C` (D5 §6.3). Settled by `non_ascii_registry_bytes_per_target_shell` (U5) |
+| ⟨r4⟩ M-F33 | dash's built-in `kill` rejects `kill -0 -- -PGID` ("Illegal number: -", exit 2), and accepts `kill -s 0 -- -PGID` (exit 0 on a live group); `/bin/kill -0 -- -PGID` exits 0. POSIX `kill` recognizes the symbolic name `0` for `-s`, and POSIX `ps` has `-A` and the `pgid` field. Today's signing transport awaits `write_all` and then `flush` on the socket inside the request path (`ipc/src/signing.rs`) | Observed by the round-3 re-check (scratch model) and in the code at `3d335e7d`; the POSIX statements are [I] (POSIX.1-2017, not pinned). Settled per shell by `group_probe_and_listing_per_target_shell` (U5) |
 
 ### 1.3 ADR-0005 §9.3: where each open item goes
 
@@ -250,7 +256,8 @@ only through the claim table (D12).
    instance and dropped with its last).
    * **A sign request** goes through these steps:
      1. parse and purpose-check (item 4);
-     2. a **pre-check** authorization (an unlocked read, used only to refuse early);
+     2. a **pre-check** authorization (an unlocked read, used only to refuse early). ⟨r4⟩ It also
+        refuses at once when a narrowing has marked the grant pending (below);
      3. take the grant's gate **shared**, waiting at most `signing_gate_wait` (1 s), else refuse;
      4. a **fresh** authorization read under the gate. This is the check that admits.
         * ⟨r3⟩ It returns a `SignPermit` that carries an **absolute expiry**: the earliest of the
@@ -262,23 +269,36 @@ only through the claim table (D12).
           the gate awaits it with that timeout.
         * On overrun the task drops the permit and the gate. When the late signature arrives, it finds
           no permit and is discarded;
-     6. ⟨r3⟩ **the release check**, immediately before the enqueue. Two things must hold:
+     6. ⟨r4⟩ **reserve outbound capacity** for the complete response frame (§17.7 item 2; M03-R3-02).
+        * The connection's outbound queue is bounded, and one reservation holds room for one whole
+          frame.
+        * The wait is bounded by `signing_enqueue_timeout` (2 s), and **the permit's expiry cancels it**,
+          whichever comes first.
+        * On timeout the signature is discarded and the connection is closed without a reply.
+        * On expiry the signature is discarded, and the reply becomes `SSH_AGENT_FAILURE`, sent once
+          capacity frees within the same 2 s, or the connection is closed;
+     7. ⟨r3⟩ **the release check**, ⟨r4⟩ immediately before the enqueue, with the capacity already held.
+        Two things must hold:
         * the permit has not expired, on both clocks;
         * the read-only time assessment is still `Safe`.
 
-        If either fails, the response is `SSH_AGENT_FAILURE` instead of the signature;
-     7. hand the response frame to the connection's outbound buffer, bounded by
-        `signing_enqueue_timeout` (2 s). A response that cannot be enqueued in time is dropped, and the
-        connection is closed without it;
-     8. release the gate.
+        If either fails, the reserved room carries `SSH_AGENT_FAILURE` instead of the signature;
+     8. ⟨r4⟩ **the enqueue**: the complete frame goes into the reserved room. It **cannot wait**: the
+        capacity was taken at step 6, and nothing between step 7 and this step blocks. A writer task
+        drains the queue to the socket afterwards, outside the gate;
+     9. release the gate.
 
      The `SignPermit` returned at step 4 is the shared guard.
      * ⟨r3⟩ It crosses into `ipc` as an opaque `ipc::signing::PermitGuard`, a boxed `ReleaseCheck`
-       trait object defined in `ipc` (§18). `ipc` therefore needs no edge to `app`.
-     * `ipc::signing::serve` runs step 6's check through it and drops it only after step 7.
-     * **The enqueue at step 7 is the linearized effect.**
+       trait object defined in `ipc` (§18). `ipc` therefore needs no edge to `app`. ⟨r4⟩ The trait
+       gives both `may_release()` and the expiry instant that cancels step 6's wait.
+     * `ipc::signing::serve` runs steps 6–8 through it, and drops it only after step 8. ⟨r4⟩ It no longer
+       awaits `write_all` and `flush` on the socket inside the signing path (today's
+       `ipc/src/signing.rs`; M-F33).
+     * **The enqueue at step 8 is the linearized effect.**
      * ⟨r3⟩ So a request admitted just before D is never released after D, even when no state changes
-       in between.
+       in between. ⟨r4⟩ Expiry is checked at the moment of release, because the only wait (for
+       capacity) happens before the check, and the expiry cancels it.
    * **Narrowing commits:**
      * a revocation (explicit, cascade, `revoke_on_lock`, and authority withdrawn at re-validation);
      * a cutoff that is set or moved earlier;
@@ -287,38 +307,59 @@ only through the claim table (D12).
      * every other change that narrows a grant.
 
      Each takes the gate **exclusively**, for every grant it affects (the cascade included), **before**
-     its store commit. ⟨r3⟩ The rest of the order is §17.4 item 6's (B R2-03):
+     its store commit. ⟨r3⟩ The rest of the order is §17.4 item 6's (B R2-03), ⟨r4⟩ as amended by §17.7
+     item 3 (M03-R3-03):
      * **Lock order.** Gates are always acquired in one global order: **ancestors first, then by grant
-       ID** (sorted by delegation depth, then ID).
-       * A shared holder holds one gate and waits for nothing else.
-       * So no wait cycle can form between two narrowings, or between a narrowing and a signer.
-     * **The cascade set is re-read under the gates.** After acquiring the gates of the set it read:
-       * the narrowing re-reads the descendants in a transaction;
-       * it acquires the gate of any new descendant (each sorts after its held parent);
-       * it repeats until a re-read adds nothing.
+       ID** (sorted by delegation depth, then ID). ⟨r4⟩ **Every gate a narrowing holds was acquired in
+       that order**: a narrowing never acquires a gate that sorts before one it already holds.
+       * A signer holds one gate and waits for nothing else.
+       * ⟨r4⟩ A delegation holds the gates of the parent **and of every ancestor**, taken shared in global
+         order (root first), until the child's first install (Q26).
+       * So no wait cycle can form between two narrowings, between a narrowing and a delegation, or
+         between a narrowing and a signer.
+     * ⟨r4⟩ **The pending mark.** Before it waits for any gate, a narrowing marks every grant of the set
+       it read as `narrowing_pending`, in memory. Step 2 of a sign request then refuses, and a delegation
+       from a marked grant refuses to start. So no new holder can start on a gate the narrowing will
+       need, and only holders already present when the mark was set can make it wait.
+     * ⟨r4⟩ **The set is re-validated under the gates; if it grew, everything is released and
+       reacquired once** (§17.7 item 3):
+       1. **Round 0.** Read the set; acquire its gates in global order; re-read the set in a
+          transaction. Unchanged: continue.
+       2. **Round 1**, only if the re-read found new descendants:
+          * release **every** gate;
+          * reacquire in global order;
+          * as soon as the gate of each **root** of the set is held (a member whose parent is not in
+            the set), read that root's subtree again and add any new member (each is deeper than the
+            root, so it sorts after every gate already held);
+          * when all are held, re-validate: the re-read must equal the set.
 
-       This terminates. Creating a delegation holds the parent's gate **shared** until the child's
-       first install, so no child can appear under a gate the narrowing already holds exclusively.
-       * That hold is bounded by `delegation_gate_hold_max` (10 s).
-       * On overrun, the delegation is aborted fail-closed: the child's instance is destroyed, and its
-         entries stay counted.
+       **Why one round suffices.** Every delegation holds its whole ancestor chain shared, the root
+       included. So once the narrowing holds a root exclusively, no member can be added anywhere in
+       that root's subtree. Every subtree is therefore frozen from the moment its root is held, and the
+       round-1 re-validation cannot grow the set. A re-validation that nevertheless differs is a defect:
+       it is reported, and the narrowing does not commit (fail closed).
      * **Order within a narrowing:**
-       1. acquire the gates;
+       1. acquire the gates (rounds 0 and, if needed, 1);
        2. commit;
        3. destroy the keys, unlist the identities, and remove the slot and binding files, **while the
           gates are held**;
-       4. release the gates;
+       4. release the gates, ⟨r4⟩ and clear the pending marks;
        5. close processes: owned masters and owned dedicated connections (D7 item 2, D8).
 
        Closing never happens under a gate, so a 5 s master close cannot lengthen any signer's wait.
      * **No gate, no narrowing.** A narrowing never commits without every gate it needs. Its wait is
        bounded because every holder is bounded:
-       * a signer by `signing_holder_max` (5 s: a 2 s fresh read, a 1 s signature and a 2 s enqueue),
-         enforced by the permit's expiry and the cancellation above;
+       * a signer by `signing_holder_max` (5 s: a 2 s fresh read, a 1 s signature and ⟨r4⟩ at most 2 s
+         waiting for capacity), enforced by the permit's expiry and the cancellations above;
        * a delegation by `delegation_gate_hold_max` (10 s).
 
-       So a narrowing waits at most `narrowing_gate_wait_max` (10 s). Exceeding it is a defect. It is
-       reported as one, and the gate is never bypassed.
+       ⟨r4⟩ **The overall wait bound** is `(rounds + 1) × signing_gate_max_wait` (§17.7 item 3). With at
+       most one reacquisition round, that is `2 × signing_gate_max_wait`.
+       * Because of the pending mark, every holder a round can wait for was already present when the
+         round began. So each round waits at most for the longest holder bound.
+       * `signing_gate_max_wait` must therefore be at least `delegation_gate_hold_max`. Revision 4 sets
+         it to **10 s**, so `narrowing_gate_wait_max` is **20 s** (Q27).
+       * Exceeding it is a defect. It is reported as one, and the gate is never bypassed.
    * ⟨r3⟩ **Who writes the bodies.** `app::managed::SigningGates` and its exclusive acquisition are
      written by **U0b phase 1** (wave 0), and U10 only wires them (§17.4 item 6; B R2-01). U0b phase 1
      needs them because the narrowing paths of its rows 5 and 20 call them, and revocation is reachable
@@ -326,7 +367,7 @@ only through the claim table (D12).
    * **Result:** every signature is either enqueued before the narrowing's commit, while its permit is
      unexpired, or refused. None is enqueued after a revocation has been acknowledged, or after the
      grant's deadline.
-   * **Tests (U2, and U0b row 20):**
+   * **Tests (U2, and U0b rows 1 and 20):**
      * `sign_paused_after_precheck_then_revoke_is_refused`. Deterministic: the signer is paused right
        after the pre-check authorization; the revocation commits; the signer is resumed; its fresh read
        under the gate refuses (§17.3 item 4);
@@ -335,14 +376,28 @@ only through the claim table (D12).
      * ⟨r3⟩ `sign_crossing_deadline_after_fresh_read_not_released`. The signer is paused after the
        fresh read; the virtual clock crosses D with no edit to any state; the signer is resumed; and
        the release check refuses;
+     * ⟨r4⟩ `deadline_crossed_while_enqueue_blocked_nothing_released` (§17.7 item 2). Deterministic: the
+       outbound queue is held full; the deadline passes after the release check would have run in
+       revision 3's order, while the enqueue is blocked; the capacity wait is cancelled by the expiry,
+       and nothing is released;
+     * ⟨r4⟩ `deadline_crossed_between_capacity_and_release_check_refused`;
+     * ⟨r4⟩ `enqueue_after_release_check_never_waits` (U0b row 1);
      * ⟨r3⟩ `sign_budget_overrun_expires_permit_nothing_released`;
      * ⟨r3⟩ `delegation_during_revocation_child_never_signs_after_ack` (U0b row 20);
      * ⟨r3⟩ `two_concurrent_cascades_no_deadlock_no_late_signature` (U0b row 20);
+     * ⟨r4⟩ `gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock` (U0b row 20): the
+       re-check's interleaving. The cascade holds R and H; L (sorting before H) finished delegating
+       before R was taken; another narrowing holds L and waits for H. The cascade releases everything,
+       reacquires in global order, and both narrowings complete;
+     * ⟨r4⟩ `reacquisition_round_never_grows_set` (U0b row 20: delegations at every depth race the
+       round-1 reacquisition);
+     * ⟨r4⟩ `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait` (U0b row 20);
      * ⟨r3⟩ `revoke_closes_processes_only_after_gates_released` (U0b row 20);
      * the uncontrolled-interleaving test, added on top, never instead.
 
      The linearization model (U3) covers activation, re-issue, lock revocation, ⟨r3⟩ delegation and
-     concurrent cascades against the gate (F24; B R2-03).
+     concurrent cascades against the gate (F24; B R2-03), ⟨r4⟩ the capacity-then-release order, and the
+     release-and-reacquire round.
 
 4. **Purpose (spec §7.2).** The signed data must parse, with the established `ssh-encoding` reader, as
    an SSH user-authentication request (RFC 4252 §7):
@@ -739,22 +794,50 @@ A K_ca compromise means rotation (D4).
      * No resolution, alias matching or "same address" reasoning is attempted.
    * **The route and host key** are this device's: its catalog's alias, approved for the removal
      like any remote step (D5 §6.3).
-   * ⟨r3⟩ **The state machine is the enrollment removal sub-machine, keyed by marker** (§17.4 item 10):
-     * a foreign removal record moves `planned → removing | withdrawn`, then `removing → removed |
-       remove_unknown | held`, then `remove_unknown → removed | removing | abandoned`;
+   * ⟨r3⟩ **The state machine is the enrollment removal sub-machine, keyed by marker** (§17.4 item 10),
+     ⟨r4⟩ with its admission in the **frozen** transition contract (§17.7 item 4; M03-R3-04):
+     * ⟨r4⟩ **Admission.** A foreign record is created `planned`. Its admission events are part of
+       `domain::enrollment::transition` and of `enrollment_transition_table_golden` (D5 §6.2, `planned`
+       row):
+       * account form: `RemoveEnrollment` approved → `removing`; denied, cancelled or stale →
+         `withdrawn` (nothing remote);
+       * system form: the owner's typed confirmation → `manual_removal_pending`, origin `planned`
+         (below).
+     * account form, after admission: `removing → removed | remove_unknown | held`, then
+       `remove_unknown → removed | removing | abandoned`, and ⟨r4⟩ `held → removing` (a new
+       `RemoveEnrollment`, with a freshly evaluated target for a host-key hold) or `held → abandoned`;
      * these are exactly D5 §6.2's events, with the D5 §6.3 fence;
      * a lost reply is reconciled by D5 §6.7, with the marker as the key ("marker absent" means
        applied);
-     * `ForeignRemovalRecord.state` is that subset of `EnrollmentState`, checked by the same
-       `transition` function (plan §5 item 16).
+     * `ForeignRemovalRecord.state` is a subset of `EnrollmentState`, checked by the same `transition`
+       function (plan §5 item 16). ⟨r4⟩ The subset is `planned`, `removing`, `remove_unknown`,
+       `removed`, `held`, `abandoned` and `withdrawn`, plus `manual_removal_pending` and
+       `removal_verifying` for the system form.
    * **Records.** Foreign removals live in their own table `foreign_removals`, with **no foreign key**
      to `issuers`, because the CA is not registered here.
    * **System form.** A system-form entry in a bundle is never removed by Heimdall. It gets the manual
-     instructions of D5 §6.9.
+     instructions of D5 §6.9. ⟨r4⟩ Its record uses the §6.9 manual removal states (§17.7 item 4):
+     * `planned → manual_removal_pending`, origin `planned`, on the owner's typed confirmation;
+     * `manual_removal_pending → removal_verifying` when the owner reports the lines removed;
+     * a cancel returns to `planned`, which can then be `withdrawn`.
+
+     **The absence check cannot pass here** (Q28). §6.9's check issues a verification certificate
+     under the removed CA, and expects it to be refused. A foreign removal runs on a device that does
+     not hold that CA's key (the CA is not registered here). So `removal_verifying` ends
+     `verification_inconclusive`, reason `ca_not_held`, and returns to `manual_removal_pending`.
+     * The record is never reported `removed`, and stays listed with `pending_until_line_removed`.
+     * The owner may `abandon` it.
    * **Tests (U10):**
      * `foreign_removal_from_second_installation_with_different_catalog`;
      * ⟨r3⟩ `foreign_removal_lost_reply_reconciled_by_marker`;
-     * ⟨r3⟩ `foreign_removal_refuses_bundle_host_mismatch`.
+     * ⟨r3⟩ `foreign_removal_refuses_bundle_host_mismatch`;
+     * ⟨r4⟩ `foreign_removal_approved_planned_to_removing`;
+     * ⟨r4⟩ `foreign_removal_denied_withdrawn_nothing_remote`;
+     * ⟨r4⟩ `foreign_removal_held_recovery_by_new_decision_or_abandon`;
+     * ⟨r4⟩ `foreign_removal_system_form_manual_route_never_reported_removed`.
+
+     ⟨r4⟩ Before the freeze, U0's `foreign_removal_paths_golden` drives the same five routes through
+     the pure `transition`: approval, denial, a lost reply, held recovery, and the system form.
 
    This is the ADR-0005 §6.3 lost-issuing-device primitive; the guided flow is M07 (§8).
 
@@ -888,23 +971,27 @@ the table (plan U0 `enrollment_recovery_paths_each_tested`).
 * a lock holder that cannot be proven gone ends in `held`, for manual recovery, never in a redispatch
   (§17.4 item 2).
 
+⟨r4⟩ Revision 4 adds two things (§17.7 items 4 and 5): the foreign-removal admission (the `planned`
+row), and the rule that a target change replaces the approved target only on a pass (`held` and
+`reverifying` rows).
+
 | State | Form | Meaning | Allowed transitions (event) |
 |---|---|---|---|
-| `planned` | both | Operation admitted, awaiting the owner decision | `applying` (account: `EnrollAccount` approved); `manual_pending` (system: `EnrollSystemForm` approved); `withdrawn` (denied, cancelled, or the decision is stale; nothing written) |
+| `planned` | both | Operation admitted, awaiting the owner decision | `applying` (account: `EnrollAccount` approved); `manual_pending` (system: `EnrollSystemForm` approved); `withdrawn` (denied, cancelled, or the decision is stale; nothing written); ⟨r4⟩ for a **foreign record** (D4 item 5; §17.7 item 4): `removing` (account form: `RemoveEnrollment` approved), `manual_removal_pending` (system form: the owner's typed confirmation; origin `planned`) |
 | `applying` | account | The approved operation is running; nothing remote is known written | `applied_unverified` (append confirmed, or `already_present` with the exact line); `outcome_unknown` (the result of an append, ⟨r3⟩ or of a bootstrap, was lost or timed out); `failed_unwritten` (refused before any write: not manageable, provider locked, host trust, route changed, ⟨r3⟩ not-after passed, parent directory absent, endpoint changed); `held` (post-write check failed); stays `applying` on `busy` (bounded retries, §6.3) and ⟨r3⟩ after a confirmed bootstrap |
 | `outcome_unknown` | account | The append may or may not have applied | `applied_unverified` (reconcile: exactly one exact line); `applying` (reconcile: marker absent, ⟨r3⟩ **the old holder proven gone**, and the other conditions of §6.7, within the approval's validity, on an attended session); `held` (damaged line or two marker lines; ⟨r3⟩ or `lock_holder_unresolved` after `holder_termination_attempts` reconciles); ⟨r2⟩ `withdrawn` (marker absent after fencing and the approval lapsed: `DECISION_STALE`, `approval_lapsed`; ⟨r3⟩ it keeps the `late_write` residual until that clears); ⟨r2⟩ `abandoned` (owner; ⟨r3⟩ with the `late_write` residual); stays while unreachable, or while the old holder may still be alive |
-| `held` | both | Our marker or trust is present but wrong, or a check failed in a way that needs the owner. Nothing automatic happens. ⟨r3⟩ `hold.reason` says which | `removing` (account: `RemoveEnrollment`, ⟨r3⟩ which carries a **freshly evaluated target** when the hold is a host-key change); `manual_removal_pending` (system; origin `held`); `abandoned`; ⟨r3⟩ `reverifying` (owner, `enroll verify`, for an **evidence-based** hold only: `principals_not_enforced`, positive refused, or verification failed after the approval lapsed); ⟨r3⟩ `reverifying` (decision `ApproveTargetChange` approved, for a `host_key_changed` hold: the new host key, shown as a diff against the approved one, replaces it); ⟨r3⟩ `applied_unverified` or `withdrawn` (the manual-recovery reconcile of a `lock_holder_unresolved` hold, §6.7: one exact line, or none; never a redispatch) |
+| `held` | both | Our marker or trust is present but wrong, or a check failed in a way that needs the owner. Nothing automatic happens. ⟨r3⟩ `hold.reason` says which | `removing` (account: `RemoveEnrollment`, ⟨r3⟩ which carries a **freshly evaluated target** when the hold is a host-key change); `manual_removal_pending` (system; origin `held`); `abandoned`; ⟨r3⟩ `reverifying` (owner, `enroll verify`, for an **evidence-based** hold only: `principals_not_enforced`, positive refused, or verification failed after the approval lapsed); ⟨r3⟩ `reverifying` (decision `ApproveTargetChange` approved, for a `host_key_changed` hold: the new host key is shown as a diff against the approved one. ⟨r4⟩ The `enrollment.verify` operation carries it as the **proposed target**, and the approved target is unchanged until a pass; §6.5 item 3, §17.7 item 5); ⟨r3⟩ `applied_unverified` or `withdrawn` (the manual-recovery reconcile of a `lock_holder_unresolved` hold, §6.7: one exact line, or none; never a redispatch) |
 | `applied_unverified` | account | The exact line is present; no positive and negative verification has passed | `verifying` (⟨r3⟩ through `reconcile` while the `enrollment.apply` approval is valid; through `enroll verify` after it has lapsed); `removing` (`RemoveEnrollment`); `abandoned` |
 | `manual_pending` | system | Approved; waiting for the owner to apply the sshd lines (§6.9) | `verifying` (owner confirms applied); ⟨r3⟩ `manual_removal_pending` (owner cancels: the owner may already have installed the lines, so the entry stays until their absence is verified; origin `manual_pending`); ⟨r3⟩ `abandoned` |
 | `verifying` | both | The **initial** verification (§6.5) is running | `verified` (pass); `rollback_pending` (account: failure with refusal evidence, or principals not enforced, ⟨r3⟩ **while the approval is valid**); ⟨r3⟩ `held` (account: the same failure after the approval lapsed; removal needs `RemoveEnrollment`); `manual_pending` (system: failure or inconclusive, with the finding); `applied_unverified` (account: inconclusive or unreachable); ⟨r2⟩ `held` (host-key mismatch: no rollback over an untrusted host; or the system form with principals not enforced) |
 | `verified` | both | Positive passed with exactly one signature and the negative was refused with full refusal evidence (§6.5). `destination_scope: verified_server_principals` may be claimed for the pair | ⟨r2⟩ `reverifying`; `removing` (account: `RemoveEnrollment`); `manual_removal_pending` (system; origin `verified`) |
-| ⟨r2⟩ `reverifying` | both | A **later** verification (§6.5, owner or supervisor). Never removes anything (§17.1 item 5) | `verified` (pass: freshness renewed; **or**, when it started from `verified`, unreachable or inconclusive: unchanged freshness and a doctor finding); `held` (failure: `principals_not_enforced`, or positive refused with refusal evidence; grants under that CA for that pair degraded). ⟨r3⟩ When it started from `held`, an unreachable or inconclusive result returns to `held` with its reason unchanged |
+| ⟨r2⟩ `reverifying` | both | A **later** verification (§6.5, owner or supervisor). Never removes anything (§17.1 item 5) | `verified` (pass: freshness renewed; **or**, when it started from `verified`, unreachable or inconclusive: unchanged freshness and a doctor finding); `held` (failure: `principals_not_enforced`, or positive refused with refusal evidence; grants under that CA for that pair degraded). ⟨r3⟩ When it started from `held`, an unreachable or inconclusive result returns to `held` with its reason unchanged. ⟨r4⟩ **A target-change attempt** (from a `host_key_changed` hold; §17.7 item 5) takes its pins from the operation's proposed target. A pass replaces the approved target with it, atomically with the move to `verified`. A failure or an inconclusive result leaves the approved target unchanged, and the record returns to `held`, reason unchanged |
 | `rollback_pending` | account | The initial verification failed; removing our line under the enrollment decision | `verification_failed` (removed); ⟨r2⟩ `rollback_unknown` (the remove step's result was lost); `held` (`registry_changed` three times, or not rewritable: manual instructions; ⟨r3⟩ or `lock_holder_unresolved`); ⟨r2⟩ `abandoned` |
 | ⟨r2⟩ `rollback_unknown` | account | The rollback's removal may or may not have applied. It keeps the **rollback** purpose | `verification_failed` (reconcile: marker absent); `rollback_pending` (reconcile: present, ⟨r3⟩ the old holder proven gone); ⟨r3⟩ `held` (`lock_holder_unresolved`); `abandoned`; stays while unreachable |
 | `removing` | account | **Explicit** owner-decided removal running (`RemoveEnrollment`) | `removed`; `remove_unknown`; `held` |
 | `remove_unknown` | account | The explicit removal may or may not have applied. It keeps the **explicit removal** purpose | `removed` (reconcile: marker absent); `removing` (reconcile: present, ⟨r3⟩ the old holder proven gone); ⟨r3⟩ `held` (`lock_holder_unresolved`); ⟨r2⟩ `abandoned`; stays while unreachable |
-| ⟨r2⟩ `manual_removal_pending` | system | The owner is to remove the sshd lines; Heimdall shows them. ⟨r3⟩ `removal_origin` holds the state and evidence it began from | `removal_verifying` (owner confirms removed); ⟨r3⟩ **the origin state, with its evidence restored** (owner cancels: `verified`, `held`, `abandoned` or `manual_pending`) |
-| ⟨r2⟩ `removal_verifying` | system | The absence check runs (§6.9) | `removed` (absence verified); ⟨r3⟩ `withdrawn` (absence verified, and the origin was `manual_pending`, so no verification ever passed); `manual_removal_pending` (still accepted, or inconclusive; origin kept) |
+| ⟨r2⟩ `manual_removal_pending` | system | The owner is to remove the sshd lines; Heimdall shows them. ⟨r3⟩ `removal_origin` holds the state and evidence it began from | `removal_verifying` (owner confirms removed); ⟨r3⟩ **the origin state, with its evidence restored** (owner cancels: `verified`, `held`, `abandoned` or `manual_pending`, ⟨r4⟩ or `planned` for a foreign record) |
+| ⟨r2⟩ `removal_verifying` | system | The absence check runs (§6.9) | `removed` (absence verified); ⟨r3⟩ `withdrawn` (absence verified, and the origin was `manual_pending`, so no verification ever passed); `manual_removal_pending` (still accepted, or inconclusive; origin kept). ⟨r4⟩ A foreign record's check always ends inconclusive, `ca_not_held` (D4 item 5; Q28) |
 | `verification_failed`, `removed`, `withdrawn`, `failed_unwritten` | — | Final; no trust of ours remains, as last observed. `removed` for the system form means **absence verified**, never "removed by Heimdall". ⟨r3⟩ A `withdrawn` record may still carry the `late_write` residual (§6.7), listed until an inspect after its not-after shows absence | none |
 | `abandoned` | both | The owner gave the account up while unreachable, held or uncertain. Trust may remain. Reported `pending_until_line_removed`; listed by uninstall and the bundle. ⟨r3⟩ It is **outside** the uniqueness rule: a new enrollment of the pair uses a new marker, and this record stays listed (Q25) | `removing` (account: a new `RemoveEnrollment`, whose reconcile may break this enrollment's own stale lock once its holder is proven gone, §6.7); `manual_removal_pending` (system; origin `abandoned`) |
 
@@ -1149,40 +1236,81 @@ paused writer append after its lock was taken away (reviewer A's model produced 
 
 **Breaking a lock** is done only by `reconcile` of the **same** enrollment (§6.7), and only once the
 holder is **proven gone**. Age alone never proves it. The `fence` script runs under the same pins,
-reads the holder record (`PID`, `START`, `BOOT`), and decides:
-* **gone**, in any of these cases:
-  * the boot identity differs;
-  * `PID` exists with a **different** start identity. A PID is not reused while its process group has
-    members, so the holder's group was already empty when the PID was reused (M-F30);
-  * `PID` does not exist, and no process is in process group `PID` (`kill -0 -- -PID` fails);
-* **alive** otherwise: `PID` exists with the same start identity (a zombie included), or `PID` does not
-  exist but its group still has members, which can only be the holder's children.
+reads the holder record (`PID`, `START`, `BOOT`), and decides `gone`, `alive` or ⟨r4⟩ `unproven`.
+
+⟨r4⟩ **The group-gone proof: two methods that must agree, after a control** (§17.7 item 1; M03-R3-01).
+Revision 3 read a failing `kill -0 -- -PID` as "no process in the group". dash rejects that syntax
+("Illegal number: -", exit 2), so a syntax error was read as proof, and the reviewer's reproduction lost
+a write. Now no failure is ever read as proof:
+1. **The control.** The probing shell is its own group leader: the script checks that `ps -o pgid= -p
+   $$` prints `$$`, else it exits 33. It then runs `kill -s 0 -- -$$` against its **own** group, which
+   must exit 0. This proves that this shell accepts exactly this syntax and can signal a live group.
+2. **The probe.** `kill -s 0 -- -PID`, the POSIX form (`-s 0` is the null signal, and `--` ends the
+   options). Its exit status is recorded.
+3. **The listing.** `ps -A -o pgid=` must exit 0 **and** list the probing shell's own group (`$$`); that
+   is the listing's own control. The target is "listed" when any line, with spaces trimmed, equals
+   `PID`.
+
+| Control | Probe | Listing | Group |
+|---|---|---|---|
+| exit 0 | exit ≠ 0 | own group present, target **absent** | **empty** (the two methods agree) |
+| exit 0 | exit 0 | own group present, target **present** | **live** (the two methods agree) |
+| exit ≠ 0 (a syntax error, an unknown option) | — | — | unproven |
+| exit 0 | exit ≠ 0 | target present (a permission failure, or a disagreement) | unproven |
+| exit 0 | exit 0 | target absent (a disagreement) | unproven |
+| exit 0 | — | listing failed, or lacks the shell's own group, or is unparseable | unproven |
+
+Every combination not in the first two rows is **unproven**.
+
+**The decision.**
+* **gone** when:
+  * the boot identity differs (every process of that boot has ended); or
+  * the group is **empty** by agreement, **and** `PID` either does not exist or exists with a
+    different start identity. ⟨r4⟩ A different start identity alone no longer decides: revision 3
+    inferred "gone" from the PID-reuse rule (M-F30); now the group proof must agree.
+* **alive** when the group is **live** by agreement, and either:
+  * `PID` exists with the same start identity (a zombie included); or
+  * `PID` does not exist. This is the **leader-absent** case: the shell was killed or exited, but one
+    of its children (for example a `mv` stopped just before its write) is still in the group. Because a
+    PID is not reused while a group with that ID has members (M-F30), these members are the holder's,
+    except in the disclosed process-group reuse window (§17.6 item 5).
+* **unproven** otherwise. That includes a live group while `PID` exists with a different start
+  identity: that group may not be the holder's, so it is never signalled.
 
 An **alive** holder whose `NOT_AFTER` has passed on the remote clock may be **terminated**:
 1. `kill -s TERM -- -PID`, then wait up to 5 s;
 2. `kill -s KILL -- -PID`, which also ends a stopped process, then wait up to 5 s;
-3. prove again.
+3. prove again, with the control, the probe and the listing.
 
-The identity is re-checked before each signal. Only a `gone` result removes the link. If the proof still
-fails (a process in uninterruptible sleep, for example), nothing is removed, and the step stays `busy` or
-uncertain. After `holder_termination_attempts` (3) reconciles, the record is `held`
-(`lock_holder_unresolved`), with manual instructions. **It is never redispatched** (§6.7).
+* **Re-checks.** The decision is re-made before each signal.
+* **Only `gone` removes the link.** `unproven` is never signalled, never removes the link, and counts
+  as a failed attempt.
+* **When the proof keeps failing** (a process in uninterruptible sleep, a shell that rejects the
+  syntax, a listing that disagrees), nothing is removed, and the step stays `busy` or uncertain.
+* **Bounded attempts.** After `holder_termination_attempts` (3) reconciles, the record is `held`
+  (`lock_holder_unresolved`), with manual instructions. **It is never redispatched** (§6.7).
 
-⟨r3⟩ **The start identity per target shell** (§17.4 item 2; M-F30). The command depends on the
-target's userland, not on the shell, because `$$` means the same in every target shell:
+⟨r3⟩ **The start identity and the group proof per target shell** (§17.4 item 2; M-F30; ⟨r4⟩ §17.7
+item 1). The start identity depends on the target's userland. The group proof depends on the shell's
+`kill` built-in and on the userland's `ps`:
 
-| Target (shell) | Start identity | Resolution | Boot identity | POSIX status |
-|---|---|---|---|---|
-| Linux: Debian 13 and Ubuntu 24.04 `dash`; bash as `sh`; BusyBox `ash` | field 22 (`starttime`) of `/proc/$$/stat`, read with `awk` after the last `)` | clock ticks since boot | `/proc/sys/kernel/random/boot_id` | **Not POSIX** (Linux procfs). The reads use only POSIX `awk` and `cat` |
-| macOS `/bin/sh` (bash in POSIX mode, or the configured `sh`) | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | **Not POSIX**: `lstart` is a BSD `ps` field, and `sysctl` is not POSIX |
-| FreeBSD, NetBSD and OpenBSD `sh` | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | **Not POSIX**, as above. [I]: no M03 target runs them |
-| Anything else (`uname -s` not recognized) | — | — | — | The mutating scripts exit 30 (`start_identity_unavailable`) before the lock; `inspect` still runs |
+| Target (shell) | Start identity | Resolution | Boot identity | ⟨r4⟩ Group probe and control | ⟨r4⟩ Listing | POSIX status |
+|---|---|---|---|---|---|---|
+| Debian 13 and Ubuntu 24.04 `dash` | field 22 (`starttime`) of `/proc/$$/stat`, read with `awk` after the last `)` | clock ticks since boot | `/proc/sys/kernel/random/boot_id` | dash built-in `kill -s 0 -- -PGID`: observed exit 0 on a live group (round-3 re-check). `kill -0 -- -PGID` is rejected, which is why it is no longer used | procps `ps -A -o pgid=` | start and boot identity **not POSIX** (Linux procfs; the reads use only POSIX `awk` and `cat`); probe and listing **POSIX** |
+| bash as `sh` (Linux) | as for dash | as for dash | as for dash | bash built-in `kill -s 0 -- -PGID` [I] | procps `ps -A -o pgid=` | as for dash |
+| BusyBox `ash` (Linux) | as for dash | as for dash | as for dash | ash built-in `kill -s 0 -- -PGID` [U] | BusyBox `ps -A -o pgid=` [U]. A BusyBox build without `-A` or `pgid` fails the listing, so the group stays **unproven** (manual recovery, never "gone") | as for dash |
+| macOS `/bin/sh` (bash in POSIX mode, or the configured `sh`) | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | built-in `kill -s 0 -- -PGID` [I] | BSD `ps -A -o pgid=` | start and boot identity **not POSIX** (`lstart` is a BSD `ps` field; `sysctl` is not POSIX); probe and listing **POSIX** |
+| FreeBSD, NetBSD and OpenBSD `sh` | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | built-in `kill -s 0 -- -PGID` [I] | BSD `ps -A -o pgid=` [I] | as for macOS. [I]: no M03 target runs them |
+| Anything else (`uname -s` not recognized) | — | — | — | — | — | The mutating scripts exit 30 (`start_identity_unavailable`) before the lock; `inspect` still runs |
 
 * **Why not POSIX `ps -o etime=`.** It gives the elapsed time, but "now minus elapsed" moves with
   rounding between two reads, so any tolerance would accept a reused PID. It is rejected.
 * **The 1 s resolution** leaves a PID reused **within the same second** indistinguishable on macOS and
   the BSDs. With the group check and the boot identity this window is small, and it is disclosed.
-* **Evidence.** `start_identity_per_target_shell` records each target's values.
+* **Evidence.** `start_identity_per_target_shell` records each target's values. ⟨r4⟩
+  `group_probe_and_listing_per_target_shell` records each shell's control, probe and listing results.
+  `leader_absent_live_mutation_child_never_gone_per_shell` runs on dash, bash as `sh`, BusyBox `ash` and
+  the macOS `sh` (§17.7 item 1). The BSD row has no M03 target, and is reported as such.
 
 **Scripts** (generated by `heimdall_registry::script`; release builds byte-compare them against
 goldens, and the test configuration adds pause points):
@@ -1193,7 +1321,7 @@ goldens, and the test configuration adds pause points):
 | ⟨r3⟩ `bootstrap` | Creates the registry's directory with `mkdir -m 0700 <dir>` (never `-p`) when it is absent (§17.4 item 3). Before: the **parent** must exist, be a directory and not a symlink, be owned by `id -u` or by root, and not be group- or world-writable. After: `ls -ldn` must show a directory, not a symlink, owned by `id -u`, with mode `drwx------`. A single `mkdir` is atomic and needs no lock; run twice, it reports already present | 0 created; 11 already present (checked as above); 30 not manageable; **33 parent absent** |
 | `append` | ⟨r3⟩ Under the lock: (1) Directory: present (else 32); refuse when not owned by `id -u`, or group- or world-writable (M-F11). (2) File: when present, it must be regular, not a symlink, have link count 1, be owned by `id -u`, and carry no ACL, xattr or label indicator (a character after the 10-character mode string). (3) **If any line already contains the marker, exit 10 without writing** (idempotent). (4) The link and not-after re-check. (5) If the file is non-empty and its last byte, read **now** with `tail -c 1`, is not a newline, write one first. (6) Append the line with `>>`; when the file is absent, create it with `set -C` and `>` and then `chmod 600`. (7) Emit the new content as hex. (8) Release the lock | 0 written; 10 already present (nothing written); 30 not manageable; 31 too large; ⟨r3⟩ 32 directory absent; 33 no process group; 40 busy; 41 not-after passed; 42 lock lost |
 | `remove` | ⟨r2⟩ Under the lock. It gets the expected preimage and post-image as hex in quoted here-documents, decoded by `awk` `printf "%c"` ⟨r3⟩ under `LC_ALL=C` (registry files are text without NUL; a NUL in the preimage refuses with 30). (1) The checks of `append` step (2), with the directory present. (2) Decode both into `.hm-pre.<nonce>` and `.hm-post.<nonce>` in the registry's directory, with umask 077, then `chmod` the post-image to the registry's permission bits read from `ls -ldn` (only `rw-`/`r--` bit patterns; anything else refuses with 30). (3) `cmp -s <registry> .hm-pre.<nonce>`, or **exit 20 without renaming**. (4) The link and not-after re-check. (5) `mv -f .hm-post.<nonce> <registry>`. (6) Remove `.hm-pre.<nonce>` and emit the new content as hex. (7) Release the lock. A trap removes both temporary files on every exit path | 0 renamed; 20 changed since read (nothing renamed); 30 not manageable; 31 too large; ⟨r3⟩ 32, 33, 40, 41 and 42 as for `append` |
-| ⟨r3⟩ `fence` | Reads the lock's holder record and reports `gone`, `alive` or `none`. With `--terminate`, allowed only once the holder's `NOT_AFTER` has passed on the remote clock, it sends TERM and then KILL to the exact process group, proves again, and removes the link only on `gone` | 0 `gone` (link removed) or `none`; **43 `alive`** (nothing removed); 30 not manageable |
+| ⟨r3⟩ `fence` | Reads the lock's holder record and reports `gone`, `alive`, ⟨r4⟩ `unproven`, or `none`, using the control, the probe and the listing, which must agree (above). With `--terminate`, allowed only once the holder's `NOT_AFTER` has passed on the remote clock and only for `alive`, it sends TERM and then KILL to the exact process group, proves again, and removes the link only on `gone` | 0 `gone` (link removed) or `none`; **43 `alive`** (nothing removed); ⟨r4⟩ **44 `unproven`** (nothing removed, nothing signalled); 30 not manageable |
 
 **Disclosed windows** (stated in every preview and confirmation; ADR-0005 §3.3):
 * an administrator write between `append` step (5) and its write can join the administrator's line to
@@ -1279,6 +1407,11 @@ ADR-0005 §3.3, as implemented:
    * `HostKeyAlias hm-verify-<16 hex>`, and `UserKnownHostsFile` = a generated file holding exactly
      one line: that alias with the approved host key. The check therefore does not depend on how the
      user's known-hosts files write the host and port;
+   * ⟨r4⟩ for a **target-change** verification (`VerifyMode::TargetChange`; §17.7 item 5), `HostName`,
+     `Port`, `User` and the host key in that generated file all come from the **proposed target** the
+     `enrollment.verify` operation carries. The attempt never touches the enrollment's approved
+     target. A pass replaces it atomically with the record's move to `verified` (§6.2). A failure or an
+     inconclusive result leaves it unchanged, and the record stays `held`;
    * `GlobalKnownHostsFile` = an empty generated file, `CheckHostIP no`;
    * `StrictHostKeyChecking yes`, `UpdateHostKeys no`, `CanonicalizeHostname no`;
    * ⟨r3⟩ the rest of §6.3's host-trust pins: `KnownHostsCommand none`, `VerifyHostKeyDNS no`,
@@ -1426,6 +1559,9 @@ A R2-02). Reconcile reads the lock state in the inspect result before it reads t
     operation stays uncertain, with next `reconcile` after the hard deadline;
   * `alive` after it: `fence --terminate` (TERM, then KILL, of the exact process group, then the proof
     again). A `gone` result continues as above; still `alive` stays uncertain;
+  * ⟨r4⟩ `unproven` (the control failed, the two methods disagree, or a live group's leader PID has
+    another start identity): nothing is removed and nothing is signalled. The operation stays
+    uncertain, and the attempt counts toward `holder_termination_attempts` (§17.7 item 1);
   * after `holder_termination_attempts` (3) reconciles without a proof, the record is `held`
     (`lock_holder_unresolved`).
     * The owner gets the lock path, its holder record, and the commands to check the process and
@@ -1464,7 +1600,18 @@ state says (spec §7.5). **Tests** (plan U5):
 * ⟨r3⟩ `script_started_after_not_after_writes_nothing_exit_41` (B R2-04);
 * ⟨r3⟩ `unprovable_holder_held_for_manual_recovery_never_redispatched`;
 * ⟨r3⟩ `other_enrollments_lock_is_busy_never_broken`;
-* ⟨r3⟩ `late_write_residual_cleared_only_by_inspect_after_not_after`.
+* ⟨r3⟩ `late_write_residual_cleared_only_by_inspect_after_not_after`;
+* ⟨r4⟩ `leader_absent_live_mutation_child_never_gone_per_shell` (§17.7 item 1), on dash, bash as `sh`,
+  BusyBox `ash` and the macOS `sh`. The holder shell is killed and reaped, and its mutation child is
+  stopped just before its write. The group proof must report `alive`, never `gone`. After the
+  not-after, termination ends the child, the proof agrees on `gone`, and the redispatch's write is
+  the only one (the reviewer's reproduction, no longer losing a write);
+* ⟨r4⟩ `group_probe_syntax_error_is_unproven` (a shell that rejects the probe's syntax fails the
+  control);
+* ⟨r4⟩ `group_probe_and_listing_disagreement_is_unproven` (probe and listing disagree, in both
+  directions);
+* ⟨r4⟩ `listing_without_own_group_is_unproven`;
+* ⟨r4⟩ `reused_pid_with_live_foreign_group_is_unproven_never_signalled`.
 
 ### 6.8 Removal and rollback (compare-then-rename)
 
@@ -1542,6 +1689,9 @@ plan §1.2).
      `manual_pending`. The record never moves to `verified` without that evidence.
 
   A system-form enrollment is **never reported as removed automatically**.
+  ⟨r4⟩ **A foreign system-form record** (D4 item 5; §17.7 item 4) follows the same states, with origin
+  `planned`. Its absence check cannot pass, because this device holds no key of the removed CA, so it
+  ends `verification_inconclusive` (`ca_not_held`) and returns to `manual_removal_pending` (Q28).
 * **Re-verification** behaves as in §6.5's re-verification column.
 
 ### 6.10 Interaction and roles
@@ -1719,9 +1869,11 @@ plan §1.2).
 2. **Revocation order** (spec §6.7; R-AU-04). M01's revoke path, with M03's managed step. ⟨r3⟩ The order
    is D2 item 3a's (§17.4 item 6; B R2-03):
    0. ⟨r2⟩ Take the **signing gate exclusively** for the grant and every descendant in the cascade (D2
-      item 3a). ⟨r3⟩ The gates are taken ancestors first, then by grant ID, and the descendants are
-      re-read under the gates until the set is stable. The wait is bounded by
-      `narrowing_gate_wait_max`, and the revocation never proceeds without the gates.
+      item 3a). ⟨r3⟩ The gates are taken ancestors first, then by grant ID. ⟨r4⟩ The pending mark is
+      set first. The set is re-read under the gates; if it grew, every gate is released and the whole
+      set is reacquired once in global order, then re-validated (D2 item 3a; §17.7 item 3). The wait is
+      bounded by `narrowing_gate_wait_max` = `(rounds + 1) × signing_gate_max_wait` (20 s; Q27), and
+      the revocation never proceeds without the gates.
    1. Tombstone, cascade and generation in one transaction. From this commit, every signature on every
       endpoint is refused, and none was enqueued after it (D2 item 3a). `local_applied: true` is
       acknowledged only after this commit (M01).
@@ -2333,6 +2485,7 @@ plan §1.2).
    | ⟨r2⟩ A second Heimdall installation (`HEIMDALL_HOME` in a second scratch, its own catalog and destination IDs) | account | U10 e2e | foreign removal from a bundle (§17.1 item 11; F07) |
    | ⟨r3⟩ Wrong-key destinations: a `LoopbackSshd` whose host key is **not** the approved one, with each of: an inherited `KnownHostsCommand` that prints that key; an inherited user or global known-hosts file that lists it; an inherited `NoHostAuthenticationForLocalhost yes` | account | U11 fixtures, driven by U5 | every remote step refuses before any mutation (§17.4 item 1) |
    | ⟨r3⟩ The `principals_not_enforced` fixtures (M-F27). Account form: a line listing **both** principals, `principals="hm:<dest>:<acct>,hm:verify-negative:<nonce>"`, written at a pause hook once the verification's nonce is known. System form: an `AuthorizedPrincipalsCommand` (with `%k`) that prints the presented certificate's principals. The bare `cert-authority` line without `principals=` is a separate `verification_failed` case | account, system | U11, driven by U5 | `principals_not_enforced` is actually produced (§17.4 item 11; B R2-08) |
+   | ⟨r4⟩ Disposable shell containers on the build host: `debian:13` with `/bin/sh` pointed at bash, and `alpine` with BusyBox `ash` and `ps`. The generated scripts run directly under each shell, in a `setsid` session | — | U11 (`ShellContainers`), driven by U5 | the per-shell group proof and the leader-absent fencing test, where no sshd target runs that shell (§17.7 item 1) |
 
 3. **Concurrent writers.** In the test configuration only, the scripts carry pause points (`HM_PAUSE
    <name>` lines). Each blocks on a FIFO named in the test's scratch until the test releases it. The test
@@ -2481,6 +2634,9 @@ Questions raised by revision 2 are in §17.2.
 apply both. Questions raised by revision 3 are in §17.5. ⟨r3⟩ Q8 below is refined by §17.4 item 3: the
 directory is created by a separate, journaled `bootstrap` step (D5 §6.3, §6.4 E2b), not inside the
 append.
+
+⟨r4⟩ §17.6 rules Q22–Q25 (each default accepted), and §17.7 rules the round-3 findings; the D sections
+apply both. Questions raised by revision 4 are in §17.8.
 
 * **Q1. The issuer has no listening endpoint** (D3 item 2). ADR-0006 §2.1 says the issuer path is "fixed
   now". **Recommended:** keep `EndpointKind::Issuer` and its path reserved and never bound. The issuer is
@@ -2978,6 +3134,84 @@ Source: `tests/evidence/artifacts/review-m03-design/round3-recheck-codex.md`. Ev
    - The approved target is replaced atomically only on a verification pass.
    - On failure or an inconclusive result, the approved target is unchanged and the record stays `held`. The table says so.
 
+### 17.8 ⟨r4⟩ Questions raised by revision 4 (rulings kept; evidence and options)
+
+As in §17.2 and §17.5: each question concerns a §17.7 ruling that could not be applied exactly as
+written. The ruling is kept in the D sections, and units build against the recommended default, behind
+one switch.
+
+* **Q26. Which gates a delegation holds** (§17.7 item 3; D2 item 3a).
+  * **Evidence.** The ruling's argument is: "Delegation needs the parent's gate held shared, so once
+    the root is held exclusively the set cannot grow again." With revision 3's rule (the parent's gate
+    only), that holds for the root's **direct** children only.
+    * A delegation from a deeper member D needs only D's gate.
+    * During the reacquisition round, the narrowing holds the root but not yet D, so D can still gain a
+      child.
+    * The round-1 re-validation would then find the set grown again, and one round would not suffice.
+  * **Options:**
+    * (a) a delegation holds the gates of the parent **and every ancestor**, shared, in global order
+      (root first), until the child's first install. Holding a root then freezes its whole subtree,
+      and the ruling's one-round argument holds at any depth. The cost is a few more shared
+      acquisitions per delegation, bounded by the ancestor-chain limit M01 already enforces.
+      **Recommended**;
+    * (b) keep the parent-only rule, and allow up to "depth" reacquisition rounds, with the bound
+      scaled to match;
+    * (c) acquire incrementally: right after a member's gate is held, read its children. They are
+      deeper, so they sort after every gate held, and no release is ever needed. This departs from the
+      ruling's release-and-reacquire.
+  * **Default until ruled:** (a). D2 item 3a is written to it.
+* **Q27. The constant in the wait bound** (§17.7 item 3).
+  * **Evidence.** The ruling sets the overall wait bound at `(rounds + 1) × signing_gate_max_wait`.
+    For that to hold, two things must be true:
+    * one round's wait is at most `signing_gate_max_wait`. Gate holders include delegations, bounded
+      by `delegation_gate_hold_max` (10 s), and revision 3 set `signing_gate_max_wait` to 5 s, the
+      signer's bound. A delegation needs an issuer signature, whose timeout is 10 s, so its hold
+      cannot be cut to 5 s;
+    * no new holder starts during a round. With in-order acquisition, a signer can take a later gate
+      shared while the narrowing still waits on an earlier one, so the per-round wait could approach
+      "number of gates × holder bound".
+  * **Options:**
+    * (a) set `signing_gate_max_wait` to the longest holder bound, 10 s, so `narrowing_gate_wait_max`
+      is 20 s. Add the in-memory **pending mark**: before waiting, the narrowing marks its set, and
+      signers and delegations on marked grants refuse. **Recommended**;
+    * (b) shorten delegation holds with a two-phase delegation: create the child record in one short
+      transaction under the gates, and issue its certificate afterwards, guarded by the child's own
+      gate and the ancestors' tombstone check. `signing_gate_max_wait` could then stay at 5 s (10 s
+      overall);
+    * (c) keep 5 s, and accept a bound that the formula does not cover.
+  * **Default until ruled:** (a). §5 item 17 of the plan carries the values. In the worst case a
+    revocation's commit now waits 20 s. Revisions 2 and 3 allowed 5 s and 10 s. A signer that meets a
+    marked grant refuses at once.
+* **Q28. The absence check of a foreign system-form removal** (§17.7 item 4; D4 item 5; D5 §6.9).
+  * **Evidence.** The ruling sends foreign system-form records through the §6.9 manual removal states.
+    §6.9's absence check needs a positive verification certificate signed by the removed CA, which is
+    then refused. A foreign removal runs on a device that does not hold that CA's key: the CA is not
+    registered there (D4 item 5, `foreign_removals` has no foreign key to `issuers`). So the check can
+    never pass, and the record can never reach `removed`.
+  * **Options:**
+    * (a) apply the ruling literally. `removal_verifying` ends `verification_inconclusive`
+      (`ca_not_held`) and returns to `manual_removal_pending`. The record is never reported removed,
+      stays listed (`pending_until_line_removed`), and may be abandoned. **Recommended**;
+    * (b) let the owner restore the CA's D5 backup on this device first (D4 item 4, `--not-stolen`), so
+      the absence check can sign. The record then stops being foreign;
+    * (c) a separate final state, `owner_reported_removed`, which is never reported as absence verified.
+  * **Default until ruled:** (a).
+
+---
+
+### 17.9 Orchestrator rulings on revision 4's questions (2026-11-06)
+
+1. **Q26: accepted as recommended.** A delegation holds the gates of its parent and of every ancestor, shared and in global order, until the child's first install. That makes the "the set cannot grow once the root is held exclusively" argument true, so one reacquisition round suffices.
+2. **Q27: accepted as recommended.**
+   - `signing_gate_max_wait` is 10 s, and the worst-case wait before a revocation commits is 20 s.
+   - When a narrowing starts waiting, it sets an in-memory pending mark on the grants it covers. From then on, every new signature and every new delegation for those grants is refused at once, so revocation stops new signatures immediately at the request ("locally immediate"). Only the in-flight holders finish.
+   - The revocation result reports the time it was requested and the time it was committed.
+3. **Q28: accepted as recommended.** For a foreign removal in the system form, the absence check ends inconclusive (`ca_not_held`). Such a record is never reported as removed, and it can be abandoned with its residual listed.
+4. **Residuals that stay disclosed, not closed:**
+   - a group ID reused just after the group empties;
+   - shell rows whose behaviour is only inferred from documentation. These are settled by the per-shell tests; a shell that fails them leaves the fence `unproven`, which means manual recovery. That is safe.
+5. **Fixtures:** the bash-as-`sh` and BusyBox `ash` shell containers each get a MANIFEST row, built from pinned images by digest on the build host.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):
@@ -3052,7 +3286,9 @@ Source: `tests/evidence/artifacts/review-m03-design/round3-recheck-codex.md`. Ev
     are avoided by construction, and the check is tightened:
     * **No `ipc → app` edge.** `ipc::signing` defines the trait `ReleaseCheck { fn may_release(&self)
       -> bool }` and `PermitGuard(Box<dyn ReleaseCheck + Send + Sync>)`. `heimdall-credential` wraps
-      `app::managed::SignPermit` in it; credential already depends on both.
+      `app::managed::SignPermit` in it; credential already depends on both. ⟨r4⟩ The trait also has
+      `fn expires_at(&self) -> tokio::time::Instant`, which cancels the capacity wait (D2 item 3a step 6;
+      §17.7 item 2).
     * **The enrollment plan is below `app`.** `EnrollmentPlan::build` lives in `heimdall-registry`, and
       its input types (`TargetEvaluation`, `ApprovedTarget`, the catalog view) in `domain`.
     * **The verification lifecycle goes through a factory port**, `app::ports::VerificationEndpoints`,
@@ -3144,6 +3380,9 @@ Source: `tests/evidence/artifacts/review-m03-design/round3-recheck-codex.md`. Ev
   identity cannot be read (M-F30), so the fence cannot run there.
 * ⟨r3⟩ `maintenance_inside_managed_run_context_zero_managed_signatures` fails on any client.
 * ⟨r3⟩ The orchestrator rules Q22–Q25 differently from their defaults.
+* ⟨r4⟩ A target shell's group-proof control or listing fails routinely (for example a BusyBox build
+  without `ps -A`), so every stale lock there ends in manual recovery (M-F33).
+* ⟨r4⟩ The orchestrator rules Q26–Q28 differently from their defaults.
 
 ---
 
@@ -3235,3 +3474,19 @@ reviewer A (`round2-a-codex.md`), "B" is reviewer B (`round2-b-opus.md`). The pl
 | B M03-R2-16 Q18–Q21 read as open; blocked list incomplete | 12 | header; §17 intro; §17.2 note; D2 item 3a (Q21); D5 §6.3 (Q19), §6.8 (Q20); D8 item 2 (Q18); §18; §19. The blocked records are listed in m03-plan §3 and §7 |
 | B M03-R2-17 U9 wave, port signature, operations body | 9 | plan-side (m03-plan U9, U0b, §2) |
 | B M03-R2-18 ordinary `ssh` needs a held slot, undisclosed | 12 | D10 item 2 |
+
+---
+
+## 22. ⟨r4⟩ Change log (revision 4, task M03-T00-design-fix)
+
+Each round-3 finding, with the §17.7 ruling that decided it and where this ADR closes it. The plan's
+change log (m03-plan §11) lists the plan-side changes. §17.6's rulings on Q22–Q25 are already the D
+sections' defaults.
+
+| Finding | Ruling | Closed in this ADR |
+|---|---|---|
+| M03-R3-01 (blocker): a failing group probe read as "gone" | 1 | D5 §6.3: the group-gone proof (control, POSIX probe, listing, agreement table), the decision (`gone`, `alive`, `unproven`), termination only for `alive`, the per-shell table, and the `fence` row with exit 44. §6.7: `unproven` handling and the leader-absent tests. M-F33 |
+| M03-R3-02: expiry during the enqueue wait | 2 | D2 item 3a, steps 6–8 (capacity reserved first, expiry cancels the wait, release check, non-waiting enqueue), and its tests; M-F33 (transport) |
+| M03-R3-03: out-of-order acquisition when the set grows | 3 | D2 item 3a (global order always; the pending mark; release and reacquire once; the one-round argument; the bound `(rounds + 1) × signing_gate_max_wait`); D7 item 2 step 0; §17.8 Q26, Q27 |
+| M03-R3-04: foreign removal missing from the frozen table | 4 | D4 item 5 (admission events, the subset, the system-form route, the tests); D5 §6.2 (`planned`, `manual_removal_pending` and `removal_verifying` rows); §6.9; §17.8 Q28 |
+| M03-R3-05: the approved target replaced before a pass | 5 | D5 §6.2 (`held` and `reverifying` rows); §6.5 item 3 (the proposed target on the operation) |

@@ -1,6 +1,6 @@
-# M03 work breakdown (managed credentials and meaningful deadline behaviour): revision 3
+# M03 work breakdown (managed credentials and meaningful deadline behaviour): revision 4
 
-**Status:** proposed, revision 3 (tasks M03-T00-design and M03-T00-design-fix).
+**Status:** proposed, revision 4 (tasks M03-T00-design and M03-T00-design-fix).
 * Revision 1 had two independent reviews, both "proceed after fixes":
   `tests/evidence/artifacts/review-m03-design/round1-a-codex.md` (findings M03-R01–R15) and
   `round1-b-opus.md` (F01–F27).
@@ -10,9 +10,14 @@
   design round") and `round2-b-opus.md` (B M03-R2-01–R2-18, "ready after fixes").
 * ⟨r3⟩ **Revision 3** applies them under ADR-0008 §17.4 items 1–12, and applies §17.3's rulings on
   Q18–Q21. Text changed by it is marked **⟨r3⟩**, and §10 maps each R2 finding to its changes.
+* ⟨r4⟩ Revision 3 had a targeted round-3 re-check, `round3-recheck-codex.md` (M03-R3-01–R3-05, "ready
+  after fixes", one blocker). **Revision 4** applies it under ADR-0008 §17.7 items 1–5, with §17.6's
+  rulings on Q22–Q25 as the defaults already written. Text changed by it is marked **⟨r4⟩**, and §11
+  maps each R3 finding to its changes.
 * Where a ruling could not be applied as written, the ruling is kept and ADR-0008 asks the question:
-  §17.2 (Q18–Q21, now ruled) and ⟨r3⟩ §17.5 (Q22–Q25).
-* ⟨r3⟩ The orchestrator re-checks only the R2 fixes (§17.4).
+  §17.2 (Q18–Q21), §17.5 (Q22–Q25), all ruled, and ⟨r4⟩ §17.8 (Q26–Q28).
+* ⟨r4⟩ The orchestrator re-checks only the R3 findings, with the fencing probes run again on each target
+  shell (§17.7).
 
 **Inputs:**
 * plan §5 M03 (T01–T06, exit evidence), §3 G04 and G09, §6, §10, §13 (the eleven requirements M03
@@ -62,9 +67,9 @@ Code that its driver has not yet replaced **fails closed** instead:
 
 The wave-0 acceptance tests in U0b prove each of these.
 
-**Not decided by this plan:** ⟨r3⟩ ADR-0008 §17.5 Q22–Q25 (Q18–Q21 are ruled in §17.3; Q1–Q17 and
-P1–P9 in §17.1). Units build against the recommended defaults stated there. Where a unit depends on
-one, it says so, and the integrator flips the switch if the ruling differs.
+**Not decided by this plan:** ⟨r4⟩ ADR-0008 §17.8 Q26–Q28 (Q22–Q25 are ruled in §17.6, Q18–Q21 in §17.3,
+and Q1–Q17 and P1–P9 in §17.1). Units build against the recommended defaults stated there. Where a unit
+depends on one, it says so, and the integrator flips the switch if the ruling differs.
 
 ---
 
@@ -321,7 +326,7 @@ ADR-0008 §18.
     `ApprovedTarget` and `ClockMeasurement` types.
   * ⟨r2⟩ **The signing-gate protocol** (ADR-0008 D2 item 3a): the step order, `SignPermit` held until
     the enqueue, the exclusive acquisition by narrowings, and the bounds `signing_gate_wait` (1 s),
-    `signing_enqueue_timeout` (2 s) and `signing_gate_max_wait` (5 s).
+    `signing_enqueue_timeout` (2 s) and `signing_gate_max_wait` (5 s; ⟨r4⟩ 10 s since revision 4, Q27).
   * ⟨r2⟩ **The CA states** (`active`, `pending`, `retiring`, `unloaded`, `deleted`, `retired`; ADR-0008
     D4 item 3), and the remote-obligation statuses (`pending_until`, `bounded_complete`,
     `nominally_expired`; D7 item 3).
@@ -355,6 +360,21 @@ ADR-0008 §18.
       revision-3 transitions of the 20-state table; `VerifyMode::TargetChange` and the decision
       `ApproveTargetChange`;
     * `ForeignRemovalRecord.state` as the removal subset of `EnrollmentState` (D4 item 5).
+  * ⟨r4⟩ **Revision 4's frozen additions** (ADR-0008 §17.7):
+    * the sign order of D2 item 3a, steps 6–9: capacity reserved first, the permit's expiry cancelling
+      that wait, the release check, then an enqueue that cannot wait. `ReleaseCheck` gains
+      `expires_at()` (U0b row 1);
+    * the narrowing protocol of D2 item 3a: global order always, the pending mark, the ancestor-chain
+      delegation hold (Q26), release and reacquire once, re-validation, and the bound
+      `(rounds + 1) × signing_gate_max_wait` with the §5 item 17 values (Q27);
+    * the `fence` decision of D5 §6.3: the control, the POSIX probe `kill -s 0 -- -PGID`, the listing
+      `ps -A -o pgid=`, the agreement table, the states `gone`, `alive` and `unproven`, exit 44, and
+      the per-shell table;
+    * the foreign-removal admission events in `domain::enrollment::transition` (`planned → removing`
+      on an approved `RemoveEnrollment`; `planned → manual_removal_pending` on the system form's typed
+      confirmation), and the foreign subset with the manual states (D4 item 5; D5 §6.2);
+    * the proposed target carried by a `VerifyMode::TargetChange` operation, with the approved target
+      replaced only on a pass (D5 §6.2, §6.5).
 * **Tests:**
   * `contract_code_table_unchanged_30_rows`;
   * `contract_reason_golden` (every §5 item 14 reason with its code);
@@ -385,6 +405,16 @@ ADR-0008 §18.
     revision-3 paths of ADR-0008 D5 §6.2 (§17.4 item 5): manual-removal cancel to its origin, the
     system-form cancel from `manual_pending`, every `held` exit, the initial-verification retry before
     and after the approval lapses, re-enrollment after `abandoned`, and `lock_holder_unresolved`;
+  * ⟨r4⟩ `enrollment_transition_table_golden` includes the foreign-removal admission events and the
+    target-change outcomes (§17.7 items 4 and 5);
+  * ⟨r4⟩ `foreign_removal_paths_golden` (§17.7 item 4; before the freeze, through the pure `transition`):
+    approval (`planned → removing`), denial (`planned → withdrawn`), a lost reply (`removing →
+    remove_unknown → removed` by marker), held recovery (`held → removing` with a fresh target, or
+    `held → abandoned`), and the system-form route (`planned → manual_removal_pending →
+    removal_verifying → manual_removal_pending` on `ca_not_held`, never `removed`);
+  * ⟨r4⟩ `target_change_outcomes_golden` (§17.7 item 5): a pass replaces the approved target with the
+    operation's proposed target in the same transition; a failure or an inconclusive result leaves it
+    unchanged, and the record in `held`;
   * `slot_transition_table_golden`;
   * `ensure_data_without_m03_fields_decodes` (an M02 document reads with `lock_continuity:
     not_verified`, empty `conditions` and absent `revocation`), and
@@ -418,11 +448,11 @@ ADR-0008 §18.
 
 | Row | Today (at `1f5b8156`) | Change | Phase | Tests |
 |---|---|---|---|---|
-| 1 | `ipc::signing::Signer { identities(), sign(key_blob, data, flags) }`, no connection context | `Signer` methods take `&SigningSession { peer: PeerInfo, endpoint: EndpointRef, bind: Option<SessionBindRecord> }`. `serve()` creates one per connection and handles `session-bind@openssh.com` by calling `Signer::session_bind(&mut SigningSession, payload) -> bool` (success or failure frame). ⟨r2⟩ `sign` returns `SignOutcome { frame, permit: Option<⟨r3⟩ PermitGuard> }`. ⟨r3⟩ `PermitGuard(Box<dyn ReleaseCheck + Send + Sync>)` and `ReleaseCheck { fn may_release(&self) -> bool }` are defined in `ipc` itself, so `ipc` gains no edge to `app` (§17.4 item 9). `serve()` calls `may_release()` immediately before the enqueue and sends `SSH_AGENT_FAILURE` instead of the frame when it is false; it writes the frame bounded by `signing_enqueue_timeout`, and drops the guard **only after** the frame is in the connection's outbound buffer. A timed-out enqueue closes the connection without the frame (ADR-0008 D2 item 3a). `NoIdentities` is adapted (empty list, failure, no permit) | 1 | the M01 signing suites unchanged; `signing_session_carries_peer_and_endpoint`; `session_bind_reaches_signer_and_answers_success_or_failure`; ⟨r2⟩ `permit_dropped_only_after_enqueue`; `enqueue_timeout_closes_without_frame`; ⟨r3⟩ `release_check_false_sends_failure_not_signature` |
+| 1 | `ipc::signing::Signer { identities(), sign(key_blob, data, flags) }`, no connection context. ⟨r4⟩ `serve()` awaits `write_all` and then `flush` on the socket for each reply (`ipc/src/signing.rs`; M-F33) | `Signer` methods take `&SigningSession { peer: PeerInfo, endpoint: EndpointRef, bind: Option<SessionBindRecord> }`. `serve()` creates one per connection and handles `session-bind@openssh.com` by calling `Signer::session_bind(&mut SigningSession, payload) -> bool` (success or failure frame). ⟨r2⟩ `sign` returns `SignOutcome { frame, permit: Option<⟨r3⟩ PermitGuard> }`. ⟨r3⟩ `PermitGuard(Box<dyn ReleaseCheck + Send + Sync>)` and `ReleaseCheck { fn may_release(&self) -> bool }` are defined in `ipc` itself, so `ipc` gains no edge to `app` (§17.4 item 9). ⟨r4⟩ **The capacity-then-release order** (ADR-0008 D2 item 3a, steps 6–9; §17.7 item 2; M03-R3-02). Each connection gets a **bounded outbound queue** of whole frames, drained to the socket by its own writer task. `serve()` first **reserves room for one complete frame**, waiting at most `signing_enqueue_timeout`, and the wait is cancelled by `ReleaseCheck::expires_at()`, whichever comes first. Then it calls `may_release()` immediately before the enqueue, and puts either the signature or `SSH_AGENT_FAILURE` into the reserved room, an enqueue that **cannot wait**. It drops the guard only after that enqueue. On expiry the reply is `SSH_AGENT_FAILURE`, and on a capacity timeout the connection is closed without a reply. `NoIdentities` is adapted (empty list, failure, no permit) | 1 | the M01 signing suites unchanged; `signing_session_carries_peer_and_endpoint`; `session_bind_reaches_signer_and_answers_success_or_failure`; ⟨r2⟩ `permit_dropped_only_after_enqueue`; `enqueue_timeout_closes_without_frame`; ⟨r3⟩ `release_check_false_sends_failure_not_signature`; ⟨r4⟩ `capacity_reserved_before_release_check`; `enqueue_after_release_check_never_waits`; `expiry_cancels_capacity_wait_and_replies_failure` |
 | 2 | `domain::issuance::check` knows no CA; `app::operations::permitted_extensions` gives `permit-pty` plus agent forwarding | `IssuanceCheck.enrolled_cas: &[String]` (the CAs whose `verified` enrollment covers the pair, newest first). New refusals `UnknownCa` (no `ca_fingerprint`, or a CA not in the set) and `CaNotVerifiedForPair`. `issuance::extension_profile(grant, pair)` implements ADR-0008 D6 item 1; `permitted_extensions` becomes a wrapper with identical output for M01 grants | 1 | one refusal test per new variant; `extension_profile_matches_adr_0005_3_4_table`; the M01 issuance tests unchanged |
 | 3 | `Operations::reserve_issuance(IssuanceRequest)` takes the caller's bounds | The reserve transaction **selects** `ca_fingerprint` itself from `enrollments` (newest `active` CA with a `verified` enrollment for the pair, ADR-0008 D4 item 3). A request naming another CA is refused (`UnknownCa`). Publish re-checks it | 1 | `reserve_selects_newest_verified_ca_for_pair`; `publish_voids_when_enrollment_removed_between_reserve_and_publish`; `publish_voids_when_ca_retired_between` |
 | 4 | — | `Operations::{reserve_verification, publish_verification, void_verification}` over the `verification_issuance` table, with `verification::check` (ADR-0008 D5 §6.5 item 2), `TimeGate` inside the transaction, and the per-pair residual | 1 | one refusal per predicate; `verification_entries_counted_in_pair_residual`; `reserved_verification_never_published_after_restart` |
-| 5 | — | `Operations::authorize_signature(SignatureRequestFacts) -> SignatureDecision`, implementing `SignatureAuthority`: ADR-0008 D2 item 3 in one read transaction plus ⟨r2⟩ `TimeGate::assess_read_only` (no high-water write; F21), with automatic re-validation on a stale generation (ADR-0006 §13.5 ruling 2). ⟨r2⟩ Two calls: `precheck(facts)` (no gate) and `admit(facts) -> Result<SignPermit, SignRefusal>`, which takes the grant's gate shared (`signing_gate_wait`) **then** reads fresh (D2 item 3a). ⟨r3⟩ The `SignPermit` carries its absolute expiry (the earliest of the wall deadline, the continuous budget end, the admission limits and the holder bound) and implements the release check (expiry on both clocks, `Safe` time) (§17.4 item 6; A R2-06) | 1 | `authorize_refuses_each_predicate`; `authorize_revalidates_after_unrelated_generation_move`; `authorize_linearizes_with_revoke_commit`; ⟨r2⟩ `admit_reads_fresh_after_taking_gate`; `admit_refuses_when_gate_not_obtained_in_time`; ⟨r3⟩ `permit_expiry_is_earliest_of_every_bound` |
+| 5 | — | `Operations::authorize_signature(SignatureRequestFacts) -> SignatureDecision`, implementing `SignatureAuthority`: ADR-0008 D2 item 3 in one read transaction plus ⟨r2⟩ `TimeGate::assess_read_only` (no high-water write; F21), with automatic re-validation on a stale generation (ADR-0006 §13.5 ruling 2). ⟨r2⟩ Two calls: `precheck(facts)` (no gate) and `admit(facts) -> Result<SignPermit, SignRefusal>`, which takes the grant's gate shared (`signing_gate_wait`) **then** reads fresh (D2 item 3a). ⟨r3⟩ The `SignPermit` carries its absolute expiry (the earliest of the wall deadline, the continuous budget end, the admission limits and the holder bound) and implements the release check (expiry on both clocks, `Safe` time) (§17.4 item 6; A R2-06). ⟨r4⟩ It also exposes `expires_at()`, the continuous-clock instant of that expiry, which cancels the capacity wait (row 1). `precheck` refuses a grant marked `narrowing_pending` (row 20) | 1 | `authorize_refuses_each_predicate`; `authorize_revalidates_after_unrelated_generation_move`; `authorize_linearizes_with_revoke_commit`; ⟨r2⟩ `admit_reads_fresh_after_taking_gate`; `admit_refuses_when_gate_not_obtained_in_time`; ⟨r3⟩ `permit_expiry_is_earliest_of_every_bound`; ⟨r4⟩ `permit_expires_at_matches_expiry`; `precheck_refuses_pending_narrowing` |
 | 6 | Remote-revocation obligations have backoff and cap only | `RemoteObligation.kind`; ⟨r2⟩ the supervisor's `revocation_pass` moves `bounded_by_expiry` obligations through `pending_until` → `bounded_complete` (measured clock: `latest_valid_before + behind_upper + rtt + 100 ppm × age` passed on safe time) or `nominally_expired` (unmeasured: `latest_valid_before` passed on safe time; never shown as cleared), with no adapter call and no attempt counted; the grant reaches `revoked` when every obligation is in one of those two (ADR-0008 D7 item 3; §17.1 item 10). `RevokeOutcome.remote_effects: Vec<RemoteEffectReport>`. `RevocationCause::SessionLocked` | 1 | ⟨r2⟩ `bounded_obligation_completes_after_measured_bound_on_safe_time`; `unmeasured_obligation_becomes_nominally_expired_never_cleared`; `bounded_obligation_never_moves_on_uncertain_time`; `bounded_obligation_consumes_no_attempt`; the M01 obligation suites unchanged |
 | 7 | QR17: a timed-out immediate `revoke` counts as made | `AdapterDescriptor.remote_credential_effect: bool` (false for M02 adapters). When true, a timed-out immediate call **keeps its cleanup intent**, and the supervisor retries it with bounded, jittered backoff (ADR-0007 §12.13; ADR-0008 D7 item 5) | 1 | `timed_out_immediate_revoke_with_remote_effect_keeps_intent_and_retries`; `m02_adapters_unchanged_timed_out_immediate_counts_as_made` |
 | 8 | Restart recovery knows no credential instances | At start, in one transaction before any listener binds: every `installed` credential instance whose vault slot does not exist in this process becomes `lost`, and ⟨r2⟩ every `pending` instance becomes `destroyed`, its `reserved`/`published` entries staying counted (ADR-0008 D2 table; F18). The supervisor gains the hook `managed_reissue_pass`; its body is U6/U10's, and it is a no-op while the managed adapter is unregistered | 1 | `installed_instances_become_lost_at_restart`; ⟨r2⟩ `pending_instances_destroyed_at_restart_entries_still_counted`; `lost_instance_grant_degraded_credential_reissue_pending` |
@@ -437,7 +467,7 @@ ADR-0008 §18.
 | 17 | Restart recovery dispatches M01/M02 kinds | M03 journaled kinds stay **unresolved** at restart and are reported in `runtime_lifecycle` with `{phase: unresolved, kind, reason: owner_reconcile}` (ADR-0008 D5 §6.4) | 1 | `w0_open_enrollment_operations_stay_unresolved_at_restart` |
 | 18 | Uninstall knows M02's owned artifacts | Uninstall lists remaining enrollments (non-final states) and refuses `--purge-state` while any remain, unless `--keep-remote-enrollments` is given (ADR-0008 §18). The CLI body is U12 | 1 (refusal), U12 (CLI) | `uninstall_refuses_purge_with_live_enrollments` |
 | 19 | `holders::holder_pass` releases bindings on an observed exit | ⟨r2⟩ The holder and the **owned connection** are separate records (ADR-0008 D8 item 2; §17.1 item 8). ⟨r3⟩ On Unix the `dedicated` `owned_connections` row is written **at bind**, in the `BindForm::Launch` transaction, with the **expected image** (the verified client's path), when the launch's program is that client; it is cleared on an observed exit or a failed exec (§17.4 item 8; B R2-12). On Windows the row comes from the launcher's `Connections::Register` (row 26), never from the holder. The closing is U7's | 1 | `holder_registers_dedicated_only_for_verified_ssh`; ⟨r2⟩ `windows_holder_never_registers_connection_itself`; ⟨r3⟩ `unix_connection_row_written_at_bind_with_expected_image` |
-| ⟨r2⟩ 20 | Revocation, cutoff and narrowing paths in `operations.rs` commit without any signer coordination | Each narrowing path takes the **signing gate exclusively** for every affected grant (cascade included) before its commit: `revoke`, the cascade, authority withdrawn at re-validation, a cutoff set or moved earlier, environment-permission removal, lock revocation (row 25), and an enrollment hold or removal that degrades a pair (U10). ⟨r3⟩ The order is ADR-0008 D2 item 3a's (§17.4 item 6; B R2-03): gates ancestors first, then by grant ID; the descendants re-read under the gates until stable; keys destroyed, identities unlisted and files removed **under** the gates; the gates released; **then** processes closed. Creating a delegation holds the parent's gate shared until the child's first install (`delegation_gate_hold_max`, aborting fail-closed on overrun). A narrowing never commits without its gates | 1 | `revoke_takes_gate_before_commit`; `cutoff_earlier_takes_gate`; `revalidation_withdrawal_takes_gate`; `gate_released_after_keys_destroyed`; ⟨r3⟩ `delegation_during_revocation_child_never_signs_after_ack`; `two_concurrent_cascades_no_deadlock_no_late_signature`; `revoke_closes_processes_only_after_gates_released`; `delegation_overrun_aborts_fail_closed_entries_counted` |
+| ⟨r2⟩ 20 | Revocation, cutoff and narrowing paths in `operations.rs` commit without any signer coordination | Each narrowing path takes the **signing gate exclusively** for every affected grant (cascade included) before its commit: `revoke`, the cascade, authority withdrawn at re-validation, a cutoff set or moved earlier, environment-permission removal, lock revocation (row 25), and an enrollment hold or removal that degrades a pair (U10). ⟨r3⟩ The order is ADR-0008 D2 item 3a's (§17.4 item 6; B R2-03): gates ancestors first, then by grant ID; keys destroyed, identities unlisted and files removed **under** the gates; the gates released; **then** processes closed. A narrowing never commits without its gates. ⟨r4⟩ As amended by §17.7 item 3 (M03-R3-03): **(1)** the narrowing first sets the in-memory **pending mark** on every grant of the set it read, so no new signer or delegation starts on them; **(2)** round 0 acquires the set's gates in global order and re-reads the set; **(3)** if the set grew, it releases **every** gate and reacquires the whole set in global order, re-reading each root's subtree as soon as that root's gate is held, then re-validates (round 1; never a gate acquired out of order); **(4)** creating a delegation holds the gates of the parent **and every ancestor** shared, in global order, until the child's first install (`delegation_gate_hold_max`, aborting fail-closed on overrun; ADR-0008 Q26 default), so a held root freezes its subtree and one round suffices; **(5)** the wait is bounded by `narrowing_gate_wait_max` = `(rounds + 1) × signing_gate_max_wait` (20 s with the Q27 default); a round-1 re-validation that differs is a reported defect, and nothing commits | 1 | `revoke_takes_gate_before_commit`; `cutoff_earlier_takes_gate`; `revalidation_withdrawal_takes_gate`; `gate_released_after_keys_destroyed`; ⟨r3⟩ `delegation_during_revocation_child_never_signs_after_ack`; `two_concurrent_cascades_no_deadlock_no_late_signature`; `revoke_closes_processes_only_after_gates_released`; `delegation_overrun_aborts_fail_closed_entries_counted`; ⟨r4⟩ `gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock` (the re-check's H/L interleaving); `reacquisition_round_never_grows_set`; `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait`; `pending_mark_refuses_new_signers_and_delegations`; `delegation_holds_ancestor_chain_in_global_order` |
 | ⟨r2⟩ 21 | `IntegrationSnapshot` has observations, identities, declarations and executables; `prepare_from` forbids store and live reads (`ports.rs`) | `IntegrationSnapshot.managed: Option<ManagedSources>` (enrollments and issuing-CA sets, slots, claims, issuer status, the driver's `ManagedPrepared`). The managed effect driver `app::managed::drive_preparation` runs ADR-0008 D6 item 1 around the `ManagedEffects` port, with every store transaction outside the adapter bound. Existing-access adapters are unchanged (D6 item 0; §17.1 item 12) | 1 (types, fail closed), 2 (driver) | `existing_access_prepare_contract_unchanged`; `managed_prepare_from_without_driver_results_is_protocol_error`; `driver_never_runs_store_work_inside_adapter_bound` |
 | ⟨r2⟩ 22 | Catalog actions are M02's eight | The ninth, `SetPreference` (§5 item 4b), and the preference's issuing-CA set (`pair_preferences.issuing_cas`; F05) | 1 | `set_preference_refused_without_verified_enrollment`; `issuing_ca_set_updated_by_e5_and_removal` |
 | ⟨r2⟩ 23 | Restart recovery does not know CA retirement | A CA in `retiring` or `unloaded` resumes its retirement at start (ADR-0008 D4 item 3); the issuer child is told not to load a `retiring` CA | 1 | `retirement_resumes_at_start_from_each_state` |
@@ -555,7 +585,9 @@ ADR-0008 §18.
       4. `KeyVault::sign`, ⟨r3⟩ on the blocking pool under `signing_budget`; on overrun the permit and
          the gate are dropped, and the late result is discarded;
       5. return `SignOutcome { frame, permit }`, ⟨r3⟩ the permit wrapped as `ipc::signing::PermitGuard`,
-         so that `serve()` runs the release check and drops it only after the enqueue.
+         so that `serve()` runs the release check and drops it only after the enqueue. ⟨r4⟩ `serve()`
+         reserves outbound capacity first, cancelled at `expires_at()`, then runs `may_release()`, then
+         enqueues without waiting (U0b row 1; ADR-0008 D2 item 3a steps 6–9).
 
       A test-only pause hook sits after each step;
     * counters per verification endpoint: `signatures(key_fp) -> u32` and `session_binds() -> u32`.
@@ -606,6 +638,9 @@ ADR-0008 §18.
       read; the virtual clock crosses D with no state edit; the release check refuses);
     * ⟨r3⟩ `sign_budget_overrun_expires_permit_nothing_released`;
     * ⟨r3⟩ `signer_holder_bounded_by_signing_holder_max`;
+    * ⟨r4⟩ `deadline_crossed_while_enqueue_blocked_nothing_released` (§17.7 item 2: the outbound queue
+      is held full, the deadline passes while the enqueue is blocked, and nothing is released);
+    * ⟨r4⟩ `deadline_crossed_between_capacity_and_release_check_refused`;
     * `sign_during_revoke_is_linearized`: across 1000 uncontrolled interleavings, added **on top of**
       the deterministic tests, a signature either is enqueued before the tombstone commit or is
       refused;
@@ -691,9 +726,10 @@ ADR-0008 §18.
   * The linearization model (ADR-0005 §9.3 R2/R12): deterministic interleavings of {revoke, cutoff,
     delegation change, deadline passage with no edit, `TIME_UNCERTAIN` onset, lock revocation} against
     {reserve, issuer read-only check, sign, publish, install}, ⟨r2⟩ **for activation and for re-issue**
-    (F24), and against the signer's {precheck, gate, fresh read, sign, ⟨r3⟩ release check, enqueue}
-    (§17.1 item 1), ⟨r3⟩ plus delegation creation during a cascade and two concurrent cascades in lock
-    order (§17.4 item 6; B R2-03), with a crash at each step. Pass:
+    (F24), and against the signer's {precheck, gate, fresh read, sign, ⟨r4⟩ capacity, ⟨r3⟩ release check,
+    enqueue} (§17.1 item 1), ⟨r3⟩ plus delegation creation during a cascade and two concurrent cascades in
+    lock order (§17.4 item 6; B R2-03), ⟨r4⟩ and the pending mark and the release-and-reacquire round
+    with delegations at every depth (§17.7 items 2 and 3), with a crash at each step. Pass:
     * no certificate is published once any predicate fails;
     * the issuer refuses whenever its read-only snapshot shows a failing predicate;
     * a receiver with a stale generation, a tombstone or an unsafe deadline discards;
@@ -847,8 +883,21 @@ ADR-0008 §18.
       link (42), and exit 40 on any existing lock (D5 §6.3);
     * the start identity and boot identity follow the per-target table of D5 §6.3 (Linux `/proc`, macOS
       and the BSDs `ps -o lstart=` and `sysctl -n kern.boottime`, anything else exit 30);
-    * `fence` reports `gone`, `alive` or `none`, and with `--terminate` sends TERM then KILL to the exact
-      process group and proves again.
+    * `fence` reports `gone`, `alive`, ⟨r4⟩ `unproven` or `none`, and with `--terminate` sends TERM then
+      KILL to the exact process group and proves again. ⟨r4⟩ The group proof is ADR-0008 D5 §6.3's
+      (§17.7 item 1; M03-R3-01):
+      * **the control:** `kill -s 0 -- -$$` against the probing shell's own group must exit 0;
+      * **the probe:** `kill -s 0 -- -PID` (the POSIX form; never `kill -0`, which dash rejects);
+      * **the listing:** `ps -A -o pgid=` must exit 0 and list the probing shell's own group;
+      * the group is **empty** only when the control succeeds, the probe fails **and** the listing lacks
+        `PID`. It is **live** only when the control succeeds, the probe succeeds **and** the listing has
+        `PID`. Everything else, a syntax error, a permission failure or a disagreement included, is
+        **unproven** (exit 44): never signalled, never unlocked;
+      * `gone` requires an empty group, or a different boot identity; `alive` requires a live group,
+        either with its leader `PID` holding the same start identity, or with the leader absent (a live
+        child). A live group whose `PID` has another start identity is unproven;
+      * the per-shell table of D5 §6.3 gives the start identity, boot identity, probe and listing for
+        dash, bash as `sh`, BusyBox `ash`, and the macOS and BSD `sh`.
 
     Under the test configuration only, `HM_PAUSE <name>` points are inserted, ⟨r3⟩ including
     `after_lock`, `before_write` (between the final re-check and the write) and `before_ln`.
@@ -916,7 +965,9 @@ ADR-0008 §18.
     * ⟨r2⟩ `remote_step_pins_are_exactly_the_documented_set`, ⟨r3⟩ with `trust_pins_match_documented_table`
       (every row of D5 §6.3's table, in order);
     * ⟨r3⟩ `truncated_script_does_nothing_at_every_truncation_point` (every script, every byte offset,
-      run on every target shell; B R2-10);
+      run on every target shell; B R2-10). ⟨r4⟩ The full script without only its final newline is a
+      complete script, and is expected to run (the round-3 re-check's observation); every shorter
+      prefix must do nothing;
     * ⟨r3⟩ `not_after_computation_bounds_hard_deadline`.
   * Protocol on every target shell (`registry_protocol_on_target_shell`, one row per target: dash on
     Docker Debian 13; the WSL Ubuntu 24.04; the devbox's `/bin/sh` through `LoopbackSshd`; macOS
@@ -999,7 +1050,26 @@ ADR-0008 §18.
       `stale_lock_broken_only_after_hard_deadline_by_rename_aside`);
     * ⟨r3⟩ `holder_alive_past_not_after_terminated_term_then_kill_then_proven_gone`;
     * ⟨r3⟩ `stopped_holder_ended_by_kill`;
-    * ⟨r3⟩ `reused_pid_with_other_start_identity_counts_as_gone_and_is_never_signalled`;
+    * ⟨r4⟩ `reused_pid_with_live_foreign_group_is_unproven_never_signalled` (replaces revision 3's
+      `reused_pid_with_other_start_identity_counts_as_gone_and_is_never_signalled`: a different start
+      identity alone no longer proves "gone"; §17.7 item 1);
+    * ⟨r4⟩ `reused_pid_with_empty_group_is_gone_by_agreement`;
+    * ⟨r4⟩ `leader_absent_live_mutation_child_never_gone_per_shell` (§17.7 item 1; the required test,
+      one row per shell: dash on Docker Debian 13, WSL Ubuntu 24.04 and the devbox; bash as `sh` and
+      BusyBox `ash` in U11's disposable shell containers; the macOS `sh`). The holder shell is killed and
+      reaped, and its mutation child is stopped at `before_write`. The proof reports `alive`, never
+      `gone`. After the not-after, termination ends the child, the proof agrees on `gone`, the
+      redispatch writes, and the registry holds exactly the redispatched line, with nothing lost (the
+      re-check's reproduction);
+    * ⟨r4⟩ `group_probe_and_listing_per_target_shell` (each shell's control, probe and listing results
+      recorded, live and empty groups);
+    * ⟨r4⟩ `group_probe_syntax_error_is_unproven` (a shim shell rejecting the probe's syntax fails the
+      control: unproven, nothing signalled or unlocked);
+    * ⟨r4⟩ `group_probe_and_listing_disagreement_is_unproven` (a listing shim that disagrees, in both
+      directions);
+    * ⟨r4⟩ `group_probe_permission_failure_is_unproven` (a group owned by another account in the
+      Docker fixture: the probe fails while the listing shows the group);
+    * ⟨r4⟩ `listing_without_own_group_is_unproven`;
     * ⟨r3⟩ `unprovable_holder_held_for_manual_recovery_never_redispatched`;
     * ⟨r3⟩ `other_enrollments_lock_is_busy_never_broken`;
     * ⟨r3⟩ `script_started_after_not_after_writes_nothing_exit_41` (B R2-04: a script delivered after
@@ -1426,16 +1496,21 @@ ADR-0008 §18.
     proven termination first (the `fence` step; never a lock taken from a live holder; another
     enrollment's lock is `busy`), `lock_holder_unresolved` after `holder_termination_attempts`, the
     `--after-manual-recovery` classification without redispatch, and a redispatch only on an attended
-    session within the approval's validity.
+    session within the approval's validity. ⟨r4⟩ A `fence` result of `unproven` (exit 44) removes
+    nothing, signals nothing, and counts as a failed attempt; only `gone` by the two-method agreement
+    unlocks (§17.7 item 1).
   * ⟨r3⟩ `enrollment::next_step` also issues the **bootstrap** stage when E2 found the registry's
     directory absent, computes each mutating step's `not_after_remote` from the latest inspect (and
     returns an inspect first when it is older than `enrollment_inspect_max_age`), runs the `ssh -G`
     effective-configuration check once per operation (`host_trust_unpinnable`), and re-validates the
     approved existing-access endpoint (`existing_access_changed`).
   * ⟨r3⟩ `enrollment::approve_target_change(enrollment)`: `VerifyMode::TargetChange`. It evaluates the
-    target, shows the new host key as a diff against the approved one, needs the attended
-    `ApproveTargetChange` decision, re-verifies against the new target, and replaces the approved target
-    only on a pass (D5 §6.2; §17.4 item 5; B R2-05).
+    target, shows the new host key as a diff against the approved one, and needs the attended
+    `ApproveTargetChange` decision. ⟨r4⟩ The `enrollment.verify` operation **carries the proposed
+    target** in its intent, and that attempt's generated configuration and known-hosts file are built
+    from it. The approved target is replaced **only on a pass**, in the same transaction that moves the
+    record to `verified`. A failure or an inconclusive result leaves the approved target unchanged, and
+    the record `held` with its reason unchanged (D5 §6.2, §6.5; §17.7 item 5; M03-R3-05).
   * ⟨r3⟩ `enrollment::run_verification` creates its endpoint through `VerificationEndpoints::create`,
     registers K_verify, reserves and publishes both certificates through `Operations`, signs them
     through `IssuerPort`, installs them in the session, and drops the session (zeroizing the key) on
@@ -1447,7 +1522,10 @@ ADR-0008 §18.
     `line_sha256`, refuses a redacted bundle, and records into `foreign_removals` (D4 item 5). ⟨r3⟩ It
     requires exact equality of the evaluated `HostName` and `Port` with the bundle's
     (`bundle_host_mismatch`), and drives the record through the removal sub-machine and the §6.7
-    reconcile keyed by marker (§17.4 item 10).
+    reconcile keyed by marker (§17.4 item 10). ⟨r4⟩ It admits the record through the frozen
+    `planned → removing` event on an approved `RemoveEnrollment`. A system-form entry goes `planned →
+    manual_removal_pending` on the typed confirmation, and its absence check ends inconclusive
+    (`ca_not_held`), so it is never reported removed (§17.7 item 4; Q28 default).
   * ⟨r2⟩ `managed::reverify_pass` (supervisor): re-verifies each `verified` pair after 80 days, with
     bounded jittered retries; non-interactive; no remote change (Q11 as amended; F27). ⟨r3⟩ It also
     re-verifies promptly (within `reverify_prompt_delay`) after a client or CA change (§17.4 item 11).
@@ -1509,6 +1587,14 @@ ADR-0008 §18.
     * ⟨r2⟩ `foreign_removal_refuses_redacted_bundle_and_line_hash_mismatch`;
     * ⟨r3⟩ `foreign_removal_lost_reply_reconciled_by_marker` (§17.4 item 10; B R2-07);
     * ⟨r3⟩ `foreign_removal_refuses_bundle_host_mismatch`;
+    * ⟨r4⟩ `foreign_removal_approved_planned_to_removing` (§17.7 item 4);
+    * ⟨r4⟩ `foreign_removal_denied_withdrawn_nothing_remote`;
+    * ⟨r4⟩ `foreign_removal_held_recovery_by_new_decision_or_abandon`;
+    * ⟨r4⟩ `foreign_removal_system_form_manual_route_never_reported_removed` (Q28 default);
+    * ⟨r4⟩ `target_change_pins_come_from_proposed_target` (§17.7 item 5);
+    * ⟨r4⟩ `target_change_pass_replaces_approved_target_atomically`;
+    * ⟨r4⟩ `target_change_failure_or_inconclusive_keeps_approved_target_and_held`;
+    * ⟨r4⟩ `fence_unproven_never_unlocks_and_counts_attempt`;
     * ⟨r3⟩ `held_host_key_change_needs_target_reapproval_with_key_diff` (§17.4 item 5; B R2-05);
     * ⟨r3⟩ `held_removal_with_freshly_evaluated_target`;
     * ⟨r3⟩ `held_evidence_hold_reverifies_on_owner_request`;
@@ -1588,6 +1674,17 @@ ADR-0008 §18.
   * ⟨r3⟩ `managed::ManagedRunContext`: a child environment as a managed `run` produces it
     (`SSH_AUTH_SOCK` at the binding endpoint, the managed files inherited), for
     `maintenance_inside_managed_run_context_zero_managed_signatures`.
+  * ⟨r4⟩ `shells::ShellContainers`: disposable Docker containers on the build host, for the per-shell
+    fencing rows that no sshd target covers (§17.7 item 1). Each runs the generated scripts directly
+    under the shell, each in a session made with `setsid`, so that it leads its process group as under
+    sshd:
+    * `debian:13` with `/bin/sh` pointed at bash;
+    * `alpine` with BusyBox `ash` and BusyBox `ps`.
+
+    Image digests are pinned in MANIFEST, there is no network listener, and they are removed by
+    `down.sh`.
+  * ⟨r4⟩ `shells::ProbeShim`: a wrapper shell that rejects `kill -s 0 -- -PGID`, and a `ps` shim whose
+    listing disagrees with the probe, for the unproven cases.
 * **Tests:**
   * `registry_guard_refuses_non_scratch_paths`;
   * `owner_digest_detects_change` (a self-test on a scratch tree);
@@ -1605,7 +1702,9 @@ ADR-0008 §18.
   * ⟨r3⟩ `wrong_key_fixture_variants_each_present_the_wrong_key`;
   * ⟨r3⟩ `principals_not_enforced_fixture_accepts_both_principals` (M-F27);
   * ⟨r3⟩ `pause_hooks_stop_and_continue_exact_group`;
-  * ⟨r3⟩ `managed_run_context_sets_binding_endpoint`.
+  * ⟨r3⟩ `managed_run_context_sets_binding_endpoint`;
+  * ⟨r4⟩ `shell_containers_run_each_shell_as_group_leader`;
+  * ⟨r4⟩ `probe_shims_produce_syntax_error_and_disagreement`.
 * **Acceptance:** the tests pass; MANIFEST rows record owner, image, versions, reset and cleanup.
 * **Depends on:** U0, and the U4 ceremony for `TestCa` (its test goes green after U4).
 
@@ -1800,8 +1899,8 @@ arm64, Linux x86-64 (devbox) and Windows 11 x64, plus the WSL disposable distrib
 | Exit claim / case | Proven by (tests) | Records | Platforms (§4) |
 |---|---|---|---|
 | **A03**: fresh authentications succeed through desktop and vault lock without the original vault staying unlocked; the configured lock-revokes alternative behaves differently, as disclosed | U13's lock procedure (§4.4): `a03_fresh_logins_while_locked_continue`, `a03_new_grant_while_locked_under_standing_policy` (D1, issuer under lock), `a03_lock_revokes_ends_grant_and_fresh_login_fails`, `a03_vault_stand_in_locked_agent_does_not_matter`, ⟨r2⟩ each grant on its own pairs and attributed by certificate key ID (F09). U9 `macos_lock_signal_observed`, `windows_lock_signal_observed`, ⟨r2⟩ `lock_then_unlock_while_consumer_paused_still_revokes`. U2 and U10 `reissue_after_runtime_process_restart_same_boot` (the recovery row). U4 `windows_dpapi_round_trip_across_processes` during lock | `m03-a03-lock-continuity.json`; `m03-p1-macos-screen-lock.json`; `m03-pw1-windows-lock.json` | macOS (lock rule; ⟨r2⟩ a test-store, debug-profile run: mechanism evidence only, so no macOS claim, F03). Windows (lock rule; ⟨r2⟩ a **release-profile** run on the product DPAPI store, `HEIMDALL_HOME` in scratch, so claim-eligible). **Blocked rows:** the macOS login-keychain product row (B3), Linux desktop (B11), the 1Password vault row (B1), the Windows system-agent vault row (B4) |
-| **A07**: new local use fails immediately; descendants and stale callbacks cannot reactivate; remote-pending effects and the maximum residual are truthful | U3 the linearization model (⟨r2⟩ with re-issue, lock revocation and the signing gate; F24). U2 ⟨r2⟩ `sign_paused_after_precheck_then_revoke_is_refused`, `sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit`, `no_signature_enqueued_after_revocation_acknowledged`, then `sign_during_revoke_is_linearized` and `destroyed_key_makes_installed_certificate_unusable`. U6 `revoke_during_each_issuance_step`, `revoke_with_unreachable_destination_reports_bounded_remote_effect`, `revoke_cascades_to_children_destroying_their_keys`, `stale_approval_cannot_reactivate_after_revoke`, ⟨r2⟩ `slow_server_clock_residual_bounded_by_measurement`, `unmeasured_residual_reported_nominally_expired_never_cleared`, `revoke_destroys_keys_under_exclusive_gate`. U0b rows 6 and 20, ⟨r3⟩ with `delegation_during_revocation_child_never_signs_after_ack`, `two_concurrent_cascades_no_deadlock_no_late_signature` and `revoke_closes_processes_only_after_gates_released`. ⟨r3⟩ U2 `sign_crossing_deadline_after_fresh_read_not_released`, `sign_budget_overrun_expires_permit_nothing_released`. U9 `lock_revocation_between_reserve_and_publish_voids`. U4 `key_only_restore_reports_unbounded_unknown` | `m03-a07-revocation.json` | All. The disconnected-**runner** variant is `deferred_with_decision` to M06 (G07; plan §5 M06). A07's M01 model rows stay as recorded |
-| **A09**: existing access survives; only owned records change; uncertain outcomes reconcile; newer edits are not overwritten; rotation; rollback | U5: protocol, negative, interleaving, lost-response, ⟨r2⟩ target-binding, maintenance-invocation and fencing tests (incl. `first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss`). ⟨r3⟩ U5 `writer_paused_just_before_write_no_duplicate_no_loss`, the host-trust tests (`wrong_key_with_inherited_known_hosts_command_refused_before_mutation` and the rest), `maintenance_inside_managed_run_context_zero_managed_signatures`, `registry_dir_bootstrap_journaled_shown_in_plan_then_locked`, `truncated_script_does_nothing_at_every_truncation_point`, `start_identity_per_target_shell`. U10 the revision-3 recovery-path tests (U10's list). U10 `enroll_*`, `rotation_two_accounts_one_unreachable`, ⟨r2⟩ `rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable`, `step_refused_when_route_changed_after_approval`, `enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check`, `foreign_removal_from_second_installation_with_different_catalog`, `abandon_from_outcome_unknown_remove_unknown_and_rollback_pending`, `enroll_remove_lists_affected_grants_and_degrades_them`. U6 ⟨r2⟩ `rotation_keeps_ensure_working_per_account`. U0 ⟨r2⟩ `enrollment_recovery_paths_each_tested`. U11 `registry_guard_refuses_non_scratch_paths`; the harness's owner-digest check. The disclosed remove window is recorded as a limitation (U5); ⟨r3⟩ revision 2's fence window is closed (§17.4 item 2) | `m03-a09-enrollment.json` | All (Windows as the client to the WSL fixture sshd ⟨M02?⟩ M7). Docker default-path rows on macOS; WSL default-path rows on Windows; the devbox default path is covered by WSL (B8, not a declared row). ⟨r2⟩ **Blocked rows** (F26): enrollment with 1Password as the existing access (B1), with the Windows system agent (B4), and with a touch-required key (B6) |
+| **A07**: new local use fails immediately; descendants and stale callbacks cannot reactivate; remote-pending effects and the maximum residual are truthful | U3 the linearization model (⟨r2⟩ with re-issue, lock revocation and the signing gate; F24). U2 ⟨r2⟩ `sign_paused_after_precheck_then_revoke_is_refused`, `sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit`, `no_signature_enqueued_after_revocation_acknowledged`, then `sign_during_revoke_is_linearized` and `destroyed_key_makes_installed_certificate_unusable`. U6 `revoke_during_each_issuance_step`, `revoke_with_unreachable_destination_reports_bounded_remote_effect`, `revoke_cascades_to_children_destroying_their_keys`, `stale_approval_cannot_reactivate_after_revoke`, ⟨r2⟩ `slow_server_clock_residual_bounded_by_measurement`, `unmeasured_residual_reported_nominally_expired_never_cleared`, `revoke_destroys_keys_under_exclusive_gate`. U0b rows 6 and 20, ⟨r3⟩ with `delegation_during_revocation_child_never_signs_after_ack`, `two_concurrent_cascades_no_deadlock_no_late_signature` and `revoke_closes_processes_only_after_gates_released`. ⟨r3⟩ U2 `sign_crossing_deadline_after_fresh_read_not_released`, `sign_budget_overrun_expires_permit_nothing_released`; ⟨r4⟩ `deadline_crossed_while_enqueue_blocked_nothing_released`, `deadline_crossed_between_capacity_and_release_check_refused`. ⟨r4⟩ U0b rows 1 and 20: `enqueue_after_release_check_never_waits`, `gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock`, `reacquisition_round_never_grows_set`, `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait`. U9 `lock_revocation_between_reserve_and_publish_voids`. U4 `key_only_restore_reports_unbounded_unknown` | `m03-a07-revocation.json` | All. The disconnected-**runner** variant is `deferred_with_decision` to M06 (G07; plan §5 M06). A07's M01 model rows stay as recorded |
+| **A09**: existing access survives; only owned records change; uncertain outcomes reconcile; newer edits are not overwritten; rotation; rollback | U5: protocol, negative, interleaving, lost-response, ⟨r2⟩ target-binding, maintenance-invocation and fencing tests (incl. `first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss`). ⟨r3⟩ U5 `writer_paused_just_before_write_no_duplicate_no_loss`, the host-trust tests (`wrong_key_with_inherited_known_hosts_command_refused_before_mutation` and the rest), `maintenance_inside_managed_run_context_zero_managed_signatures`, `registry_dir_bootstrap_journaled_shown_in_plan_then_locked`, `truncated_script_does_nothing_at_every_truncation_point`, `start_identity_per_target_shell`. U10 the revision-3 recovery-path tests (U10's list). ⟨r4⟩ U5 `leader_absent_live_mutation_child_never_gone_per_shell` (dash, bash as `sh`, BusyBox `ash`, macOS `sh`), `group_probe_and_listing_per_target_shell`, the unproven-case tests. U10 the foreign-removal route tests and the target-change tests. U0 `foreign_removal_paths_golden`, `target_change_outcomes_golden`. U10 `enroll_*`, `rotation_two_accounts_one_unreachable`, ⟨r2⟩ `rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable`, `step_refused_when_route_changed_after_approval`, `enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check`, `foreign_removal_from_second_installation_with_different_catalog`, `abandon_from_outcome_unknown_remove_unknown_and_rollback_pending`, `enroll_remove_lists_affected_grants_and_degrades_them`. U6 ⟨r2⟩ `rotation_keeps_ensure_working_per_account`. U0 ⟨r2⟩ `enrollment_recovery_paths_each_tested`. U11 `registry_guard_refuses_non_scratch_paths`; the harness's owner-digest check. The disclosed remove window is recorded as a limitation (U5); ⟨r3⟩ revision 2's fence window is closed (§17.4 item 2) | `m03-a09-enrollment.json` | All (Windows as the client to the WSL fixture sshd ⟨M02?⟩ M7). Docker default-path rows on macOS; WSL default-path rows on Windows; the devbox default path is covered by WSL (B8, not a declared row). ⟨r2⟩ **Blocked rows** (F26): enrollment with 1Password as the existing access (B1), with the Windows system agent (B4), and with a touch-required key (B6) |
 | **A10**: only the intended access succeeds where enforcement is claimed; no issuer key or broader certificate escapes; unsupported scope is labelled | U5 `verify_positive_one_signature_negative_zero`, ⟨r2⟩ the negative-inconclusive tests, `principals_not_enforced_detected_and_rolled_back` (⟨r3⟩ on the both-principals fixture), ⟨r3⟩ `principals_not_enforced_system_form_via_echoing_principals_command`, `bare_cert_authority_line_is_verification_failed`, `verification_failed_when_server_reads_another_registry`. U10 a two-host flow per form (`a10_narrow_certificate_refused_on_other_host_account_form`, `a10_narrow_certificate_refused_on_other_host_system_form`). U3 `ceiling_two_principals`, `issuer_path_never_exists_through_runtime_lifecycle`. U2 `environment_endpoint_lists_only_materialized_bindings` (no CA listed). U13 ⟨r2⟩ `a10_bound_consumer_issuer_reachability_recorded` (renamed; per platform, with positive controls, what a same-user worker can do; F10). U6 `report_*` (unverified pairs report `unknown`; existing access reports `client_routing`) | `m03-a10-scope-issuer.json` | All. Docker `ca1`/`ca2` and `enrollable`/`enrollable2` on macOS; two `LoopbackSshd` per form everywhere; the WSL distribution's sshd in both forms. The Linux Secret Service reachability row is blocked (B11) |
 | **A23**: owned admission and closure match the policy; no certificate-only enforcement assumption; unmanaged and remote-process limits are reported accurately; OpenSSH stop behaviour tested | U7 (all its tests, ⟨r2⟩ including the Windows ownership tests, ⟨r3⟩ the registration-ordering tests, and `two_successive_bindings_share_the_slot_mux_path_through_ordinary_ssh`). U8 `p_renders_owned_master_control_path_when_enabled`, ⟨r3⟩ the foreground tests, ⟨r2⟩ `deadline_wording_follows_identity_selection`, the `connect` flow tests. U6 report fields `owned_multiplexing`, `existing_connections`, `remote_processes`, `unmanaged_connections`. U12 `managed_readiness_detail_exact_deadline_strings` | `m03-a23-deadline-connections.json` | macOS and devbox (real masters); Windows (dedicated connections through the job object and registration; multiplexing reported and enforced as unavailable) |
 | **A33**: no secret leakage or plaintext fallback; previewed and redacted outputs; nothing collected by default | U4 `no_plaintext_when_store_unavailable`, `passphrase_only_on_tty_transcript`, ⟨r2⟩ `d5_backup_restores_with_stock_ssh_keygen` (pty; never in argv), `bundle_contains_no_private_material`. U1 `secret_key_has_no_clone_debug_serialize`, `core_dumps_disabled_after_harden`. U13 `a33_secret_bytes_scan_all_artifacts` (the seeded K_env, the test K_ca, the passphrase and canaries, over envelopes, events, logs, errors, the DB file, the runtime and data directories, process argv and environment, crash-artifact directories). U0b ⟨r3⟩ `release_build_refuses_m03_test_gates` | `m03-a33-secrets.json` | All. Support bundles and update artifacts are M08 (their rows are `deferred_with_decision`) |
@@ -2461,7 +2560,7 @@ destroyed | lost | reissued`. No payload carries a secret, a PID or a path.
 
 | Code | New reasons |
 |---|---|
-| `CAPABILITY_UNAVAILABLE` (4) | `issuer_not_initialized`, `issuer_unavailable`, `issuer_store_locked`, `issuer_store_unavailable`, `pair_not_enrolled`, `pair_not_adopted`, `enrollment_unverified`, `projection_pending`, `observed_alias_unmanaged`, `route_unsupported`, `registry_unsupported`, `principal_charset`, `host_trust_undetermined`, `verification_failed`, `principals_not_enforced`, `verification_inconclusive`, `lock_continuity_unverified`, `lock_revokes_chosen`, `lock_signal_unavailable`, `multiplexing_unsupported`, `too_many_identities`, `credential_reissue_pending`, `remote_step_in_progress`, `driver_unavailable` (exists); ⟨r2⟩ `route_changed`, `route_undetermined`, `existing_access_kind_unsupported`, `no_profile_covers_destination`, `mux_path_too_long`, `ca_retiring`, `bundle_redacted`, `bundle_required`; ⟨r3⟩ `host_trust_unpinnable`, `existing_access_endpoint_unrecorded`, `existing_access_endpoint_is_heimdall`, `existing_access_changed`, `bundle_host_mismatch`, `registry_parent_absent`, `start_identity_unavailable`, `no_process_group`, `destination_clock_skew` (with `verification_inconclusive`) |
+| `CAPABILITY_UNAVAILABLE` (4) | `issuer_not_initialized`, `issuer_unavailable`, `issuer_store_locked`, `issuer_store_unavailable`, `pair_not_enrolled`, `pair_not_adopted`, `enrollment_unverified`, `projection_pending`, `observed_alias_unmanaged`, `route_unsupported`, `registry_unsupported`, `principal_charset`, `host_trust_undetermined`, `verification_failed`, `principals_not_enforced`, `verification_inconclusive`, `lock_continuity_unverified`, `lock_revokes_chosen`, `lock_signal_unavailable`, `multiplexing_unsupported`, `too_many_identities`, `credential_reissue_pending`, `remote_step_in_progress`, `driver_unavailable` (exists); ⟨r2⟩ `route_changed`, `route_undetermined`, `existing_access_kind_unsupported`, `no_profile_covers_destination`, `mux_path_too_long`, `ca_retiring`, `bundle_redacted`, `bundle_required`; ⟨r3⟩ `host_trust_unpinnable`, `existing_access_endpoint_unrecorded`, `existing_access_endpoint_is_heimdall`, `existing_access_changed`, `bundle_host_mismatch`, `registry_parent_absent`, `start_identity_unavailable`, `no_process_group`, `destination_clock_skew` (with `verification_inconclusive`); ⟨r4⟩ `ca_not_held` (with `verification_inconclusive`: a foreign system-form absence check, ADR-0008 Q28) |
 | `CONFIG_CONFLICT` (6) | `already_enrolled`, `registry_changed`, `registry_not_rewritable`, `registry_too_large`, `registry_line_damaged`, `managed_slot_held`; ⟨r2⟩ `registry_busy`; ⟨r3⟩ `owned_connection_option_conflict`, `lock_holder_unresolved` |
 | ⟨r2⟩ `USAGE_ERROR` (2) | `account_override_refused` |
 | ⟨r2⟩ `LAUNCH_FAILED` (127) | `connection_registration_failed` (Windows: the contained `ssh.exe` could not be registered; the job is closed); ⟨r3⟩ `connection_registration_refused` (the grant ended or is unsafe; the child was never resumed) |
@@ -2501,7 +2600,9 @@ and `connections/1` are **declared and not offered** in wave 0, and offered in p
   * ⟨r2⟩ `ForeignRemovalTarget` (§5 item 3) and `ForeignRemovalRecord { id, target, state, operation,
     created_at }`. ⟨r3⟩ `state` is the removal subset of `EnrollmentState` (`planned`, `removing`,
     `remove_unknown`, `removed`, `held`, `abandoned`, `withdrawn`), checked by the same `transition`
-    (ADR-0008 D4 item 5; B R2-07).
+    (ADR-0008 D4 item 5; B R2-07). ⟨r4⟩ A system-form foreign record also uses `manual_removal_pending`
+    and `removal_verifying`; admission is the frozen `planned → removing` (approved `RemoveEnrollment`)
+    or `planned → manual_removal_pending` (typed confirmation; origin `planned`) (§17.7 item 4).
 * `domain::verification`:
   * `VerificationEntry { id: IssuanceId, operation, pair, purpose: Positive | Negative, bounds:
     CertificateBounds, state: IssuanceState, reserved_at, settled_at, void_reason }`;
@@ -2542,12 +2643,12 @@ and `connections/1` are **declared and not offered** in wave 0, and offered in p
 |---|---|---|
 | `signature_authorization_timeout` | 2 s | |
 | ⟨r2⟩ `signing_gate_wait` | 1 s | a signer waiting behind a narrowing refuses after it |
-| ⟨r2⟩ `signing_enqueue_timeout` | 2 s | |
+| ⟨r2⟩ `signing_enqueue_timeout` | 2 s | ⟨r4⟩ the wait for outbound **capacity**, before the release check; the permit's expiry cancels it earlier. The enqueue itself never waits (§17.7 item 2) |
 | ⟨r3⟩ `signing_budget` | 1 s | `KeyVault::sign` on the blocking pool; overrun expires the permit |
 | ⟨r3⟩ `signing_holder_max` | 5 s | 2 s fresh read + 1 s signature + 2 s enqueue; part of the permit's expiry |
-| ⟨r2⟩ `signing_gate_max_wait` | 5 s | ⟨r3⟩ = `signing_holder_max`: the longest a signer holds a gate |
-| ⟨r3⟩ `delegation_gate_hold_max` | 10 s | a delegation holds the parent's gate shared until the child's first install; overrun aborts fail-closed |
-| ⟨r3⟩ `narrowing_gate_wait_max` | 10 s | the longest holder bound; exceeding it is a reported defect, never a bypass |
+| ⟨r2⟩ `signing_gate_max_wait` | ⟨r4⟩ **10 s** (was 5 s) | ⟨r4⟩ the longest any holder keeps a gate: max(`signing_holder_max`, `delegation_gate_hold_max`); one acquisition round waits at most this, given the pending mark (ADR-0008 Q27) |
+| ⟨r3⟩ `delegation_gate_hold_max` | 10 s | a delegation holds ⟨r4⟩ the gates of the parent and every ancestor shared until the child's first install (Q26); overrun aborts fail-closed |
+| ⟨r3⟩ `narrowing_gate_wait_max` | ⟨r4⟩ **20 s** (was 10 s) | ⟨r4⟩ `(rounds + 1) × signing_gate_max_wait`, with at most one reacquisition round (§17.7 item 3); exceeding it is a reported defect, never a bypass |
 | `issuer_request_timeout` | 10 s | inside the 30 s adapter-call bound |
 | `issuer_start_timeout` | 5 s | |
 | `issuer_signatures_per_minute` | 600 | |
@@ -2677,7 +2778,8 @@ The other additions:
 * ⟨r2⟩ `IntegrationSnapshot.managed: Option<ManagedSources>` (U0b row 21);
 * ⟨r3⟩ in `ipc::signing` (not a port; U0b row 1): `pub trait ReleaseCheck: Send + Sync { fn
   may_release(&self) -> bool; }` and `pub struct PermitGuard(pub Box<dyn ReleaseCheck>)`, so that
-  `SignOutcome.permit` names no `app` type.
+  `SignOutcome.permit` names no `app` type. ⟨r4⟩ `ReleaseCheck` also has `fn expires_at(&self) ->
+  tokio::time::Instant`, which cancels the capacity wait (U0b row 1; §17.7 item 2).
 
 **20. Issuer wire protocol `heimdall-issuer/1`** (internal; ADR-0008 D3 item 3). It is not a public
 schema. A golden fixes the message set; frames are at most 64 KiB; and the `IssuerRefusal` variants are
@@ -2694,7 +2796,11 @@ pair `{"t":"unload","ca_fingerprint":…}` → `{"t":"unloaded","ca_fingerprint"
 * ⟨r3⟩ the ready line `HM1 ready`, printed by the fixed remote command before the script is sent;
 * exit codes: 0, 10, 20, 30, 31; ⟨r3⟩ 11 (bootstrap: already present), 32 directory absent, 33 parent
   absent or no process group, 40 busy, 41 not-after passed, 42 lock lost, 43 holder alive (`fence`);
-  and 255 from ssh itself;
+  ⟨r4⟩ 44 unproven (`fence`: nothing signalled, nothing unlocked); and 255 from ssh itself;
+* ⟨r4⟩ the group proof (ADR-0008 D5 §6.3; §17.7 item 1): the control `kill -s 0 -- -$$`, the probe
+  `kill -s 0 -- -PGID`, and the listing `ps -A -o pgid=` (with the shell's own group as its control);
+  "empty" and "live" only when the methods agree; HM1 keys `group_control`, `group_probe`,
+  `group_listed`, and `fence` gains `unproven`;
 * ⟨r3⟩ the fence: `ln -s "hm1-<token>-<pid>-<start hex>-<boot hex>-<not_after>"
   <dir>/.hm-lock.<registry name>`; any existing lock is `busy`; the not-after checked before the lock
   and before the write; release by the owning contents only; a stale lock broken only by `fence` after
@@ -2766,15 +2872,25 @@ Exit codes are unchanged (ADR-0006 §6).
 | Q20 | Removing one of two verified enrollments of a pair | Every grant under the removed CA is degraded; the clause governs only the preference |
 | Q21 | The signing-gate test's pause point | Two tests: a pause after the pre-check (refused) and a pause inside the gate (enqueued before the commit) |
 
-⟨r3⟩ **Open: raised by revision 3** (ADR-0008 §17.5). The rulings are kept; units build against the
-defaults below, behind one switch each.
+⟨r4⟩ **Ruled** in ADR-0008 §17.6 (each default accepted), and already the defaults written by revision 3.
+The table below is kept as revision 3 raised it:
 
 | # | Question | Recommended default |
+|---|---|---|
 |---|---|---|
 | Q22 | `KnownHostsCommand=none`: the pinned ssh_config(5) documents no `none` for it | (a) Keep it, and prove per client that it is a keyword (`known_hosts_command_none_is_a_keyword_per_client`); a client that fails is refused (`host_trust_unpinnable`) |
 | Q23 | A vendor patch's `GSSAPIKeyExchange` can authenticate the server without the host key; it is outside the pinned sources, and upstream clients reject it | (a) Pin it `no` only when the client's `ssh -G` prints it, and require `no` in the effective-configuration check |
 | Q24 | The existing-access endpoint when the catalog record names none (1Password at its default, a public-key-file identity) | (a) The alias's own `IdentityAgent`, statically evaluated with P's managed block excluded; otherwise `existing_access_endpoint_unrecorded`. Never `SSH_AUTH_SOCK` |
 | Q25 | Re-enrolling an abandoned pair can leave two lines under the same CA, against ADR-0005 §3.3's "one line" | (a) Allowed; the abandoned line is reported and `enroll remove <abandoned>` offered |
+
+⟨r4⟩ **Open: raised by revision 4** (ADR-0008 §17.8). The rulings are kept; units build against the
+defaults below, behind one switch each.
+
+| # | Question | Recommended default |
+|---|---|---|
+| Q26 | §17.7 item 3's one-round argument ("delegation needs the parent's gate held shared, so once the root is held exclusively the set cannot grow") holds only for direct children under revision 3's parent-only hold | (a) A delegation holds the gates of the parent **and every ancestor** shared, in global order, until the child's first install (U0b row 20) |
+| Q27 | The bound `(rounds + 1) × signing_gate_max_wait` needs `signing_gate_max_wait` ≥ every holder's bound (delegations: 10 s) and no new holders during a round | (a) `signing_gate_max_wait` = 10 s, `narrowing_gate_wait_max` = 20 s, and the in-memory pending mark (§5 item 17; U0b row 20) |
+| Q28 | A foreign system-form record's absence check needs a certificate signed by the removed CA, which this device does not hold | (a) The check ends inconclusive (`ca_not_held`), the record is never reported removed, and it may be abandoned (U10) |
 
 Revision 1's table, for the record:
 
@@ -3013,3 +3129,18 @@ and found that `none` is documented for neither `KnownHostsCommand` (Q22) nor `G
 `/proc/$$/stat` field 22 with `/proc/sys/kernel/random/boot_id`; macOS and the BSDs `ps -o lstart= -p $$`
 with `sysctl -n kern.boottime`. None of them is POSIX; POSIX `ps -o etime=` is rejected, and an
 unrecognized target refuses mutating steps (`start_identity_unavailable`).
+
+---
+
+## 11. ⟨r4⟩ Change log (revision 4, task M03-T00-design-fix)
+
+Each round-3 finding (`round3-recheck-codex.md`), with the ADR-0008 §17.7 ruling that decided it and
+where this plan closes it. ADR-0008 §22 lists the design-side changes.
+
+| Finding | Ruling | Closed in this plan |
+|---|---|---|
+| M03-R3-01 (blocker) | 1 | U5 (the `fence` interface with the control, the POSIX probe, the listing and the agreement rule; the fencing tests, including the required `leader_absent_live_mutation_child_never_gone_per_shell` and `group_probe_and_listing_per_target_shell`); U10 (`unproven` in reconcile; `fence_unproven_never_unlocks_and_counts_attempt`); U11 (`ShellContainers`, `ProbeShim`); U0 frozen list; §5 item 21 (exit 44); §3 A09 |
+| M03-R3-02 | 2 | U0b row 1 (bounded outbound queue, capacity first, release check, non-waiting enqueue, and its tests); U0b row 5 (`expires_at`); U2 interfaces and `deadline_crossed_while_enqueue_blocked_nothing_released`; §5 items 17 (`signing_enqueue_timeout`, now the capacity wait) and 19 (`ReleaseCheck::expires_at`); §3 A07 |
+| M03-R3-03 | 3 | U0b row 20 (pending mark, release and reacquire once, the ancestor-chain delegation hold, the bound, and the H/L test); U0 frozen list; U3 model; §5 item 17 (`signing_gate_max_wait` 10 s, `narrowing_gate_wait_max` 20 s); §6.1 Q26, Q27; §3 A07 |
+| M03-R3-04 | 4 | U0 (`enrollment_transition_table_golden`, `foreign_removal_paths_golden`, frozen list); U10 (`foreign_remove` admission; the approval, denial, held-recovery and system-form tests); §5 item 16 (the foreign subset with the manual states), item 14 (`ca_not_held`); §6.1 Q28 |
+| M03-R3-05 | 5 | U10 (`approve_target_change`: the proposed target on the operation; its three tests); U0 (`target_change_outcomes_golden`, frozen list) |
