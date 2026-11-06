@@ -192,6 +192,14 @@ function Protect-BundleFiles([hashtable]$Raw, $Rules) {
 }
 
 # ---------------------------------------------------------------------------------------------
+# The overrides of the toolchain environment (rustup-init and the Cargo builds). ADR-0007
+# §12.35 item 3 (N05): the toolchain homes and every temporary directory are in this run's
+# scratch (TEMP/TMP for Windows tools, TMPDIR for MSYS-style ones), and Git reads no user or
+# system configuration.
+function Get-ToolEnvironmentOverrides([string]$RustupHome, [string]$CargoHome, [string]$GitConfig, [string]$Tmp) {
+    return @{ RUSTUP_HOME = $RustupHome; CARGO_HOME = $CargoHome; GIT_CONFIG_NOSYSTEM = '1'; GIT_CONFIG_GLOBAL = $GitConfig; TEMP = $Tmp; TMP = $Tmp; TMPDIR = $Tmp }
+}
+
 # -SelfTest: the helpers on synthetic data (no host, no network, no toolchain)
 # ---------------------------------------------------------------------------------------------
 
@@ -238,6 +246,8 @@ function Invoke-SelfTest([string]$OutDir) {
     # Every file goes through the same protection as in a real run.
     $files = (Protect-BundleFiles $files $rules).Files
     Check 'R09 every result file is protected (the host name in host.txt too)' ($files['host.txt'].Contains('on <winhost>'))
+    $te = Get-ToolEnvironmentOverrides 'S\rustup' 'S\cargo' 'S\empty.gitconfig' 'S\tmp'
+    Check 'E01 the toolchain environment keeps TEMP, TMP and TMPDIR in the run scratch (ADR-0007 §12.35 N05)' ($te['TEMP'] -eq 'S\tmp' -and $te['TMP'] -eq 'S\tmp' -and $te['TMPDIR'] -eq 'S\tmp' -and $te['RUSTUP_HOME'] -eq 'S\rustup' -and $te['CARGO_HOME'] -eq 'S\cargo')
     $meta = [ordered]@{ commit = ('0' * 40); label = 'windows-selftest'; started_at = '2026-11-06T00:00:00Z'; finished_at = '2026-11-06T00:00:01Z'; exit = 101 }
     $b = New-Bundle $files $meta
     Check 'B01 the bundle is framed by its markers with the payload sha256' ($b.Text.StartsWith($BeginMarker + "`nsha256-gzip: ") -and $b.Text.TrimEnd().EndsWith($EndMarker))
@@ -426,7 +436,7 @@ try {
     $have = Get-Sha256Hex ([System.IO.File]::ReadAllBytes($init))
     Add-Command $(if ($want -eq $have) { 0 } else { 1 }) 'rustup-init.exe downloaded over HTTPS and its sha256 matches the published one'
     if ($want -ne $have) { throw 'rustup-init sha256 mismatch' }
-    $toolEnv = New-ChildEnvironment @{ RUSTUP_HOME = $rustupHome; CARGO_HOME = $cargoHome; GIT_CONFIG_NOSYSTEM = '1'; GIT_CONFIG_GLOBAL = $emptyGitConfig }
+    $toolEnv = New-ChildEnvironment (Get-ToolEnvironmentOverrides $rustupHome $cargoHome $emptyGitConfig $wtmp)
     $toolEnv['PATH'] = (Join-Path $cargoHome 'bin') + ';' + $toolEnv['PATH']
     $r = Invoke-Bounded $init @('-y', '--no-modify-path', '--profile', 'minimal', '--default-host', 'x86_64-pc-windows-msvc', '--default-toolchain', $channel) $toolEnv $run 1800
     Add-Command $r.Code "rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain $channel)"
@@ -651,7 +661,8 @@ fi
     $files['commands.txt'] += Format-CommandLine $(if ($p.Canaries -eq 0) { 0 } else { 1 }) "canary-prefix scan over saved output (count = $($p.Canaries))"
     $files['commands.txt'] += Format-CommandLine $(if ($p.Leaks -eq 0) { 0 } else { 1 }) "leak scan: saved files still naming a host, a user or a home ($($p.Leaks))"
     if ($p.Canaries -ne 0 -or $p.Leaks -ne 0) { $overall = 1 }
-    $meta = [ordered]@{ commit = $Commit; label = $Label; started_at = $started; finished_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'); exit = $overall }
+    # ADR-0007 §12.35 item 3 (N03): the metadata is redacted with the same rules as the files.
+    $meta = [ordered]@{ commit = $Commit; label = (Invoke-Redaction $Label $rules); started_at = $started; finished_at = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'); exit = $overall }
     $b = New-Bundle $files $meta
     [System.IO.File]::WriteAllText((Join-Path $bundleDir 'bundle.json'), $b.Json, [System.Text.UTF8Encoding]::new($false))
     [System.IO.File]::WriteAllText((Join-Path $bundleDir 'bundle.b64'), $b.Text, [System.Text.UTF8Encoding]::new($false))

@@ -28,12 +28,12 @@ Exit: 0 on success, 1 when the bundle is refused (nothing written), 2 for a usag
 
 import argparse
 import base64
-import gzip
 import hashlib
 import importlib.util
 import json
 import re
 import sys
+import zlib
 from pathlib import Path
 
 FORMAT = "heimdall-m02-windows-local-bundle/1"
@@ -43,6 +43,39 @@ FILES = ("tests.txt", "commands.txt", "host.txt", "build.txt", "skipped.txt", "c
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 MAX_PAYLOAD = 64 * 1024 * 1024
+# ADR-0007 §12.35 item 3 (N04): every size is bounded before it is read whole. The compressed
+# payload may be at most MAX_PAYLOAD (gzip never needs more for this content), its base64 at most
+# 4/3 of that plus line breaks, and the report around it at most twice that.
+MAX_COMPRESSED = MAX_PAYLOAD
+MAX_BASE64 = (MAX_COMPRESSED + 2) // 3 * 4 + MAX_COMPRESSED // 57 + 1024
+MAX_REPORT = 2 * MAX_BASE64
+MAX_LABEL = 200
+
+# ADR-0007 §12.35 item 3 (N03): content that must never leave the PC, checked in every file body
+# and in every metadata field that is persisted. The runner redacts and masks these before the
+# bundle is written; their presence is a defect, so nothing is imported.
+_SENSITIVE = (
+    (re.compile(r"HEIMDALL_CANARY_"), "a canary prefix"),
+    (re.compile(r"S-1-(5-21|12-1)-\d"), "an unmasked user or domain SID"),
+    (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"), "private-key armor"),
+    (re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+(?!<|Public\b|Default\b|Default User\b|All Users\b)[^\\/\s\"'<>]+"),
+     "an unredacted Windows home path"),
+    (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|Public\b|Default\b)[^/\s\"'<>]+"), "an unredacted Windows home path"),
+    (re.compile(r"(?<![\w/.-])/home/(?!<)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
+    (re.compile(r"(?<![\w/.-])/Users/(?!<|Shared\b)[A-Za-z0-9._-]+"), "an unredacted macOS home path"),
+)
+_IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
+
+
+def sensitive(text):
+    """The reason `text` must not be imported, or None."""
+    for rx, why in _SENSITIVE:
+        if rx.search(text):
+            return why
+    for m in _IPV4.finditer(text):
+        if not (m.group(0).startswith("127.") or m.group(0) == "0.0.0.0"):
+            return "a non-loopback IPv4 address"
+    return None
 
 
 class Refused(Exception):
@@ -58,6 +91,8 @@ def load_generator():
 
 def decode(text):
     """The bundle document from a report that contains it between the markers."""
+    if len(text) > MAX_REPORT:
+        raise Refused("the report is larger than the bundle bound")
     start = text.find(BEGIN)
     end = text.find(END, start + 1 if start >= 0 else 0)
     if start < 0 or end < 0:
@@ -69,17 +104,25 @@ def decode(text):
         raise Refused("the payload's sha256 line is missing")
     want = lines[0][len("sha256-gzip: "):].strip().lower()
     body = "".join(lines[1:])
+    if len(body) > MAX_BASE64:
+        raise Refused("the base64 payload is larger than its bound")
     if not re.fullmatch(r"[A-Za-z0-9+/]*={0,2}", body):
         raise Refused("the payload is not base64")
     packed = base64.b64decode(body, validate=True)
+    if len(packed) > MAX_COMPRESSED:
+        raise Refused("the compressed payload is larger than its bound")
     if hashlib.sha256(packed).hexdigest() != want:
         raise Refused("the payload's sha256 does not match")
+    # Incremental: never more than MAX_PAYLOAD + 1 bytes are produced.
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
     try:
-        raw = gzip.decompress(packed)
-    except OSError as e:
+        raw = inflater.decompress(packed, MAX_PAYLOAD + 1)
+    except zlib.error as e:
         raise Refused(f"the payload is not gzip: {e}") from None
-    if len(raw) > MAX_PAYLOAD:
+    if len(raw) > MAX_PAYLOAD or inflater.unconsumed_tail:
         raise Refused("the payload is larger than 64 MiB")
+    if not inflater.eof:
+        raise Refused("the payload is not a complete gzip stream")
     try:
         doc = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
@@ -96,6 +139,12 @@ def validate(doc, commit=None):
         raise Refused("the bundle names no 40-hex commit")
     if commit and c != commit:
         raise Refused("the bundle is for another commit")
+    label = doc.get("label", "")
+    if not isinstance(label, str) or len(label) > MAX_LABEL or not label.isprintable():
+        raise Refused("the bundle's label is not a short printable string")
+    why = sensitive(label)
+    if why:
+        raise Refused(f"the bundle's label carries {why}")
     files, sums = doc.get("files"), doc.get("sha256")
     if not isinstance(files, dict) or not isinstance(sums, dict):
         raise Refused("the bundle has no files")
@@ -108,13 +157,9 @@ def validate(doc, commit=None):
             raise Refused(f"{name} is not text")
         if hashlib.sha256(text.encode("utf-8")).hexdigest() != str(sums[name]).lower():
             raise Refused(f"{name}: sha256 does not match")
-        if "HEIMDALL_CANARY_" in text:
-            raise Refused(f"{name} carries a canary prefix")
-        if re.search(r"S-1-(5-21|12-1)-\d", text):
-            raise Refused(f"{name} carries an unmasked user or domain SID")
-        for m in re.finditer(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])", text):
-            if not (m.group(0).startswith("127.") or m.group(0) == "0.0.0.0"):
-                raise Refused(f"{name} carries a non-loopback IPv4 address")
+        why = sensitive(text)
+        if why:
+            raise Refused(f"{name} carries {why}")
         out[name] = text
     return out
 

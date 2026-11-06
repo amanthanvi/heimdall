@@ -1013,6 +1013,16 @@ class WindowsBundle(unittest.TestCase):
             "an Entra SID": make_bundle({"host.txt": "user=S-1-12-1-1-2-3-4\n"}),
             "an address": make_bundle({"build.txt": "peer 203.0.113.9\n"}),
             "no results": make_bundle({"tests.txt": "nothing\n"}),
+            # ADR-0007 §12.35 item 3 (N03): metadata and the new content rules.
+            "a canary in the label": make_bundle(label="win " + "HEIMDALL_" + "CANARY_" + "x"),
+            "a home path in the label": make_bundle(label="run of C:\\Users\\someone"),
+            "a control character in the label": make_bundle(label="a\x1bb"),
+            "a long label": make_bundle(label="x" * 201),
+            "private-key armor": make_bundle({"build.txt": "-----BEGIN " + "OPENSSH PRIVATE KEY-----\n"}),
+            "a Unix home path": make_bundle({"build.txt": "at /home/someone/src\n"}),
+            "a Windows home path": make_bundle({"build.txt": "at C:\\Users\\someone\\src\n"}),
+            "a WSL view of a Windows home": make_bundle({"build.txt": "at /mnt/c/Users/someone/x\n"}),
+            "a macOS home path": make_bundle({"build.txt": "at /Users/someone/x\n"}),
             "no commands": make_bundle({"commands.txt": "\n"}),
         }
         for why, text in cases.items():
@@ -1021,6 +1031,47 @@ class WindowsBundle(unittest.TestCase):
                     wb.import_bundle(text, "exit-x", self.root, commit="1" * 40)
                 self.assertFalse((self.root / "exit-x" / "windows").exists(), why)
                 self.assertFalse((self.root / "exit-x" / ".windows-import").exists(), why)
+
+    def test_redacted_and_system_paths_are_accepted(self):
+        # The placeholders the runner writes, and Windows' own profile folders, are not leaks.
+        files = {"build.txt": "C:\\Users\\<winuser>\\src and <winhome>\\x and C:\\Users\\Public\\y and "
+                              "/home/<wsluser>/z and /hm/home/fixture and /mnt/c/Users/<winuser>/w\n"}
+        dest, _, _ = wb.import_bundle(make_bundle(files), "exit-ok", self.root)
+        self.assertTrue((dest / "build.txt").exists())
+
+    def test_decompression_is_bounded_and_stops_early(self):
+        # ADR-0007 §12.35 item 3 (N04): a small payload that inflates past the bound is refused
+        # without ever producing more than MAX_PAYLOAD + 1 bytes.
+        import base64
+        import gzip
+        import hashlib
+        import unittest.mock
+        packed = gzip.compress(b"\0" * (wb.MAX_PAYLOAD + 4096))
+        b64 = base64.b64encode(packed).decode()
+        text = "\n".join([wb.BEGIN, "sha256-gzip: " + hashlib.sha256(packed).hexdigest(), b64, wb.END])
+        seen = []
+        real = wb.zlib.decompressobj
+
+        def spy(*a, **k):
+            d = real(*a, **k)
+
+            class Wrap:
+                def decompress(self, data, max_length=0):
+                    seen.append(max_length)
+                    out = d.decompress(data, max_length)
+                    seen.append(len(out))
+                    return out
+
+                def __getattr__(self, name):
+                    return getattr(d, name)
+            return Wrap()
+        with unittest.mock.patch.object(wb.zlib, "decompressobj", spy):
+            with self.assertRaises(wb.Refused):
+                wb.decode(text)
+        self.assertEqual(seen[0], wb.MAX_PAYLOAD + 1, "decompression is asked for at most the bound plus one")
+        self.assertLessEqual(seen[1], wb.MAX_PAYLOAD + 1, "never more than the bound plus one is produced")
+        with self.assertRaises(wb.Refused):
+            wb.decode("x" * (wb.MAX_REPORT + 1))
 
     def test_an_existing_import_is_never_overwritten_and_a_bad_label_is_refused(self):
         wb.import_bundle(make_bundle(), "exit-x", self.root)

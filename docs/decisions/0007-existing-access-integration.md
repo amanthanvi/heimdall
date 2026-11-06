@@ -4375,6 +4375,17 @@ N01–N05 are accepted.
      a stop at `MAX_PAYLOAD + 1`.
    * N05: the toolchain install and the builds pin `TEMP` and `TMP` to the run's scratch
      temporary directory.
+   * *Done by the orchestrator, 2026-11-06*:
+     * the importer's `sensitive()` covers every file body and the label. It adds
+       private-key armor and unredacted Windows, WSL, Unix and macOS home paths;
+       placeholders and Windows' own profile folders are accepted.
+     * Sizes are bounded, and inflating is incremental, with the stop at
+       `MAX_PAYLOAD + 1` (`zlib.decompressobj`).
+     * The runner redacts its label, and `Get-ToolEnvironmentOverrides` pins `TEMP`, `TMP`
+       and `TMPDIR`; runner self-test E01.
+     * Regressions in `test_m02_evidence.WindowsBundle`. Each was mutation-checked: without
+       the label check the label cases fail, and with unbounded inflating the bound test
+       fails.
 
 ## 13. Consequences
 

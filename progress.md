@@ -727,3 +727,8 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - P02: scenario Git pins XDG_CONFIG_HOME inside the scratch home; self-test S17.
   - The .ps1 self-test canary is now built at run time.
   - native-harness-selftest: 271 passed, 0 failed.
+- M02 wave-5c code review (Codex; `tests/evidence/artifacts/review-m02-code/wave5c.md`): fix first.
+  - N01 (P1): an unknown-version Include `%` expansion stays determined.
+  - N02: an invalid backup entry suppresses the snapshot.
+  - N03–N05: bundle-import and Windows-runner gaps.
+  - ADR-0007 §12.35. N01 and N02 go to wave 5e (`wf_485f9ce9-99c`, Sonnet); I fixed N03–N05, mutation-checked, harness self-test 271/0.
