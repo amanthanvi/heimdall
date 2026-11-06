@@ -687,3 +687,23 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Decision (§12.32 item 17): the Windows run goes through a local-mode runner started by a T3 agent on the PC, with the toolchain installed in scratch.
 - ADR-0007 §12.32 rules on the wave-5 escalations and defines wave 5c: W5c-sshconf, W5c-git, W5c-app, W5c-harness. A §13 entry for §12.30 item 9 is added.
 - Artifact scan: the only hits are synthetic self-test fixtures. Real user and host names: 0, except the devbox host name, which is the generic label "devbox".
+- Wave 5 is committed as d2b78ed5. My check.sh: exit 0, 1665 passed.
+- Running (2026-11-06):
+  - workflow `wf_6ad18190-1ba`, wave 5c:
+    - W5c-sshconf (Opus; devbox ssh -G for 9.6p1 gating);
+    - W5c-git (Sonnet; devbox git 2.43 diagnosis);
+    - W5c-app (Sonnet);
+    - W5c-harness (Opus; includes the Windows local-mode runner);
+    - then the integrator.
+  - task M02-W5-code-review: Codex, worktree at d2b78ed5.
+- After wave 5c:
+  1. commit the exit build;
+  2. native runs at that commit: macOS (run-macos.sh), devbox (run-linux.sh), Windows (T3 agent on the PC with run-windows-local.ps1);
+  3. regenerate the m02 records, matrix and exit record;
+  4. Codex review of 5c.
+- M02 wave-5 code review (Codex; `tests/evidence/artifacts/review-m02-code/wave5.md`): fix first.
+  - Q01–Q04 closed; the fork gate is sound; the 14 records are consistent and reproduce exactly; no personal data in the artifacts.
+  - P01 (P1): the Docker fallback can tear down another run's fixtures.
+  - P02 (P2): the scenario inherits XDG Git configuration.
+  - ADR-0007 §12.33: I fix both after wave 5c, before the exit-build runs.
+- Owner question (boat.dev): answered. It provides Linux-only cloud VMs, so it does not cover B1–B7 or B10. B9 only if it offers arm64 (unstated). Suggested local macOS and Windows VMs for B2/B3 as an owner option.

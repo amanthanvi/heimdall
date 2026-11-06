@@ -4225,6 +4225,30 @@ tests passed and 0 failed. Every item of §12.30 and §12.31 is done, except ite
     * The orchestrator runs it after wave 5c integrates, together with the macOS and
       devbox runs.
 
+### 12.33 Rulings on the wave-5 code review (orchestrator, 2026-11-06)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave5.md` (Codex, independent, fix first).
+* Q01–Q04 are closed, and the pipe-test fork gate is sound.
+* All 14 m02 records are consistent with the lowest-row rule, and regenerating them
+  reproduced them exactly.
+* P01 and P02 are accepted. Both lie in `tests/native/m02/**`, which W5c-harness edits
+  concurrently, so the orchestrator fixes them after wave 5c integrates and before the
+  exit-build native runs.
+
+1. **P01: the harness tears down only what it created.**
+   * `run-macos.sh` takes ownership of the Docker fixtures only after `up.sh` has succeeded.
+   * `up.sh` reports "fixtures already exist" with its own exit code. On that code the
+     harness leaves everything untouched, and the macOS rows that needed the fallback
+     are `blocked`, naming the conflict.
+   * Cleanup after a partial startup of this run's own fixtures still runs.
+   * Regression: a stubbed pre-existing-fixture refusal leaves the fixtures in place.
+2. **P02: Git in the harness reads no owner configuration.**
+   * After sanitizing, every scenario and harness Git invocation runs with
+     `XDG_CONFIG_HOME` in scratch, `GIT_CONFIG_GLOBAL` set to an empty scratch file and
+     `GIT_CONFIG_NOSYSTEM=1`. That covers init, commit, push, clone and the version query.
+   * Regression: an external synthetic XDG Git configuration with a hook is neither read
+     nor run.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
