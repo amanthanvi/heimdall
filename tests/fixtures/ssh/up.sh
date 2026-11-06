@@ -6,9 +6,16 @@ set -eu
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 need_docker
 
+# Exit 3 (ADR-0007 §12.33 item 1): the fixtures already exist (another run's); nothing was
+# created, so a caller must not tear anything down.
 if [ -n "$(fixture_containers)" ] || docker network inspect "$NET_EDGE" >/dev/null 2>&1 \
    || docker network inspect "$NET_INT" >/dev/null 2>&1; then
-  die "fixture resources already exist; run reset.sh (keep keys) or down.sh first"
+  printf '[%s] ERROR: %s\n' "$(ts)" "fixture resources already exist; run reset.sh (keep keys) or down.sh first" >&2
+  exit 3
+fi
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  printf '[%s] ERROR: %s\n' "$(ts)" "image $IMAGE already exists; run down.sh" >&2
+  exit 3
 fi
 trap 'rc=$?; [ $rc -ne 0 ] && echo "up.sh FAILED (exit $rc); run down.sh to clean partial state" >&2; exit $rc' EXIT
 

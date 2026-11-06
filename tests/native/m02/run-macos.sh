@@ -116,11 +116,20 @@ else
     m02_record "$commands" "fixture sshd preflight (non-root, 127.0.0.1): unavailable" 1
     if [ "$docker_fallback" = 1 ]; then
         set +e
-        docker_up=1
         bash "$repo/tests/fixtures/ssh/up.sh" >"$scratch/up.txt" 2>&1
         urc=$?
         set -e
         m02_record "$commands" "tests/fixtures/ssh/up.sh (M00-T03 Docker fixtures, 127.0.0.1 only)" "$urc"
+        # ADR-0007 §12.33 item 1 (P01): this run owns the fixtures, and so tears them down,
+        # only when up.sh did not refuse. Exit 3 is "the fixtures already exist": another
+        # run's, left untouched; the rows that needed the fallback are blocked on it.
+        if [ "$urc" = 3 ]; then
+            echo "fixture-sshd=blocked: the Docker fixtures already exist (another run's); left untouched" >>"$facts"
+            echo "blocked: the Docker fixtures already exist (another run's); left untouched, no teardown" >"$out/blocked.txt"
+            m02_record "$commands" "Docker fixtures already exist (another run's): left untouched, run blocked" 3
+            exit 3
+        fi
+        docker_up=1
         [ "$urc" = 0 ] || exit "$urc"
         port=$(sed -n 's/^PORT_fixed=//p' "$repo/tests/fixtures/ssh/runtime/ports.env" | head -1)
         key=$(awk '{ print $1 " " $2 }' "$repo/tests/fixtures/ssh/runtime/hostkeys/fixed/ssh_host_ed25519_key.pub")

@@ -1047,6 +1047,15 @@ harness "$S/repo" run-macos.sh "$O"
 check "M17 macos: up.sh failing stops the run with its exit code, and down.sh still cleans up" \
     bash -c '[ "$1" = 7 ] && grep -q "^down (stub)" "$2" && grep -q "^exit 7: tests/fixtures/ssh/up.sh" "$3"' _ "$rc" "$L" "$O/commands.txt"
 
+new_world mac-docker-already-up
+make_fake_root "$S/repo"
+mkdir -p "$S/repo/tests/fixtures/ssh/runtime"
+: >"$S/repo/tests/fixtures/ssh/runtime/other-run-sentinel"
+extra_env=(HM_ST_SSHD=fail HM_ST_UP_RC=3)
+harness "$S/repo" run-macos.sh "$O"
+check "M17b macos (ADR-0007 §12.33 P01): up.sh refusing pre-existing fixtures (exit 3) -> exit 3, no down.sh, the other run's fixtures untouched, recorded as blocked" \
+    bash -c '[ "$1" = 3 ] && ! grep -q "^down" "$2" && [ -e "$3/tests/fixtures/ssh/runtime/other-run-sentinel" ] && grep -q "^blocked: the Docker fixtures already exist" "$4/blocked.txt" && grep -q "already exist (another run.s): left untouched, run blocked" "$4/commands.txt"' _ "$rc" "$L" "$S/repo" "$O"
+
 new_world mac-canary
 make_fake_root "$S/repo"
 extra_env=(HM_ST_CHECK=canary)
@@ -1428,7 +1437,17 @@ if [ "$scenario_ready" = 1 ]; then
     printf '#!/usr/bin/env bash\ncase " $* " in *" setup apply "*) echo "{\\"code\\":\\"OK\\"}"; exit 0 ;; esac\nexec "%s" "$@"\n' "$HM_BIN" >"$T/heimdall-no-apply"
     chmod +x "$T/heimdall-no-apply"
 
-    scn_run pass "$HM_BIN"
+    # ADR-0007 §12.33 item 2 (P02): a foreign XDG Git configuration whose template and
+    # hooksPath hooks would leave a marker; the scenario must neither read nor run it.
+    fx="$T/foreign-xdg"
+    mkdir -p "$fx/git" "$fx/tpl/hooks" "$fx/hooks"
+    printf '#!/bin/sh\n: >"%s"\n' "$fx/hook-ran" >"$fx/tpl/hooks/post-commit"
+    cp "$fx/tpl/hooks/post-commit" "$fx/hooks/post-commit"
+    chmod +x "$fx/tpl/hooks/post-commit" "$fx/hooks/post-commit"
+    printf '[init]\n\ttemplateDir = %s\n[core]\n\thooksPath = %s\n[heimdall]\n\tforeignprobe = read\n' "$fx/tpl" "$fx/hooks" >"$fx/git/config"
+    XDG_CONFIG_HOME="$fx" scn_run pass "$HM_BIN"
+    check "S17 scenario (ADR-0007 §12.33 P02): an inherited XDG Git configuration is never read and its hooks never run" \
+        bash -c '[ ! -e "$1/hook-ran" ]' _ "$fx"
     check "S10 scenario (isolated, real heimdall): exits 0 and ends with its exit line" \
         bash -c '[ "$1" = 0 ] && grep -q "^### wsl_ordinary_ssh exit=0$" "$2"' _ "$scn_rc" "$SC"
     steps=$(python3 -I - "$m02/case-index.json" <<'PY'

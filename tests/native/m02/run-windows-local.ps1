@@ -214,7 +214,7 @@ function Invoke-SelfTest([string]$OutDir) {
         "short host mac on macOS, mac-1, xmac`n" +
         "sid S-1-5-21-1111111111-2222222222-3333333333-1001 entra S-1-12-1-111-222-333-444 system S-1-5-18`n" +
         "addr 203.0.113.9 loop 127.0.0.1 any 0.0.0.0 version 1.2.3.4.5`n" +
-        "canary HEIMDALL_CANARY_selftest_value_1 end`n"
+        "canary " + ("HEIMDALL_" + "CANARY_") + "selftest_value_1 end`n"
     $r = Invoke-Redaction $text $rules
     Check 'R01 the Windows home in its backslash, doubled, slash and /mnt forms, any case' (-not ($r -match '(?i)fixtureuser') -and ([regex]::Matches($r, '<winhome>')).Count -ge 4)
     Check 'R02 the WSL home and user' ($r.Contains('<wslhome>/a') -and $r.Contains('user <wsluser>'))

@@ -4241,13 +4241,24 @@ Source: `tests/evidence/artifacts/review-m02-code/wave5.md` (Codex, independent,
      harness leaves everything untouched, and the macOS rows that needed the fallback
      are `blocked`, naming the conflict.
    * Cleanup after a partial startup of this run's own fixtures still runs.
-   * Regression: a stubbed pre-existing-fixture refusal leaves the fixtures in place.
+   * Regression: `M17b`. A stubbed refusal leaves the pre-existing fixtures in place, runs
+     no `down.sh`, exits 3 and records `blocked.txt`. M17b fails when ownership is taken
+     before `up.sh` returns.
+   * `up.sh` exits 3 for both "already exist" refusals: containers or networks, and the
+     image. It does so before it creates anything.
+   * *Done by the orchestrator, 2026-11-06.*
 2. **P02: Git in the harness reads no owner configuration.**
-   * After sanitizing, every scenario and harness Git invocation runs with
-     `XDG_CONFIG_HOME` in scratch, `GIT_CONFIG_GLOBAL` set to an empty scratch file and
-     `GIT_CONFIG_NOSYSTEM=1`. That covers init, commit, push, clone and the version query.
-   * Regression: an external synthetic XDG Git configuration with a hook is neither read
-     nor run.
+   * Every scenario Git invocation (init, add, commit, ls-remote, clone) runs with `HOME`
+     and `XDG_CONFIG_HOME` both inside the scratch home, and with `GIT_CONFIG_NOSYSTEM=1`.
+     Both of Git's global lookups, `$HOME/.gitconfig` and `$XDG_CONFIG_HOME/git/config`,
+     are then scratch files.
+   * An empty `GIT_CONFIG_GLOBAL` is not used, because it would also bypass the scratch
+     home's own global file, where setup writes B_git.
+   * `git --version` reads no configuration.
+   * Regression: `S17` in `tests/native/m02/selftest.sh` gives the scenario a foreign
+     `XDG_CONFIG_HOME` whose template and `hooksPath` hooks would leave a marker. The
+     marker never appears, and S17 fails when the pin is removed.
+   * *Done by the orchestrator, 2026-11-06.*
 
 ### 12.34 Rulings on the wave-5c escalations; wave 5d (orchestrator, 2026-11-06)
 

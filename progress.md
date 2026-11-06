@@ -722,3 +722,8 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - W5d-app: summarized removals for rollback/uninstall diffs; a state_dir guard test;
   - W5d-git: a re-preview after applying the Git item can plan an update; rollback preview checks manageability;
   - me: §12.33 P01 and P02, plus building the .ps1 self-test canary at run time.
+- I fixed §12.33 P01 and P02, both mutation-checked:
+  - P01: up.sh exits 3 on "already exist"; run-macos.sh owns the fixtures only after that; self-test M17b;
+  - P02: scenario Git pins XDG_CONFIG_HOME inside the scratch home; self-test S17.
+  - The .ps1 self-test canary is now built at run time.
+  - native-harness-selftest: 271 passed, 0 failed.

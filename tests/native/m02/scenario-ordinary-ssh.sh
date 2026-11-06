@@ -183,7 +183,11 @@ rc=$?
 setup fixture-sshd-listening-on-127.0.0.1 "$rc"
 echo "fact sshd-V=$(hm2_first_line "$(hm2_sshd_bin)" -V)"
 port=$HM2_SSHD_PORT
-git_quiet() { HOME="$H" GIT_CONFIG_NOSYSTEM=1 git "$@" </dev/null >/dev/null 2>&1; }
+# ADR-0007 §12.33 item 2 (P02): every Git call pins its user configuration to the scratch
+# home: HOME and XDG_CONFIG_HOME both inside it (so $HOME/.gitconfig and
+# $XDG_CONFIG_HOME/git/config are scratch files), and no system file. An inherited
+# XDG_CONFIG_HOME, templateDir, hooksPath, include or credential helper is never read.
+git_quiet() { HOME="$H" XDG_CONFIG_HOME="$H/.config" GIT_CONFIG_NOSYSTEM=1 git "$@" </dev/null >/dev/null 2>&1; }
 git_quiet init -q --bare "$S/repo.git" &&
     git_quiet init -q "$S/work" &&
     printf 'hm-m02 scenario\n' >"$S/work/README" &&
@@ -269,8 +273,8 @@ step a01_ordinary_ssh_alias_without_f "$?"
 if [ "$isolated" = 1 ]; then
     export GIT_SSH_COMMAND="ssh -F '$CFG' -o 'UserKnownHostsFile=$KH' -o 'GlobalKnownHostsFile=$S/empty_known_hosts' -o BatchMode=yes"
 fi
-run_ok env HOME="$H" GIT_CONFIG_NOSYSTEM=1 git ls-remote "$ALIAS:$S/repo.git" &&
-    run_ok env HOME="$H" GIT_CONFIG_NOSYSTEM=1 git clone -q "$ALIAS:$S/repo.git" "$S/clone" &&
+run_ok env HOME="$H" XDG_CONFIG_HOME="$H/.config" GIT_CONFIG_NOSYSTEM=1 git ls-remote "$ALIAS:$S/repo.git" &&
+    run_ok env HOME="$H" XDG_CONFIG_HOME="$H/.config" GIT_CONFIG_NOSYSTEM=1 git clone -q "$ALIAS:$S/repo.git" "$S/clone" &&
     [ "$(cat "$S/clone/README" 2>/dev/null)" = "hm-m02 scenario" ]
 step a01_ordinary_git_without_f "$?"
 unset GIT_SSH_COMMAND
