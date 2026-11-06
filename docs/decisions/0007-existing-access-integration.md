@@ -4475,6 +4475,35 @@ check.sh exited 0 twice, with 1744 tests passed and 0 failed.
    scenario that expects a second `setup --include-git` to report `git_ssh_command_present`,
    before the exit-build runs.
 
+### 12.38 Rulings on the wave-5d/5e code review (orchestrator, 2026-11-06)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave5de.md` (Codex, independent, fix first).
+P02, N01, N02, N05, the removal summaries and the Git re-preview are closed. L01–L04, all in
+the harness and the importer, are accepted and fixed by the orchestrator.
+
+1. **L01: the Docker fallback is opt-in and exclusive.**
+   * `run-macos.sh` no longer falls back to the shared M00 Docker fixtures by default:
+     `HM_DOCKER_FALLBACK=1` must be set. Without it, a fixture `sshd` that cannot start
+     makes the rows that need it `blocked`.
+   * With it, the harness first takes an exclusive ownership lock, an atomic `mkdir` of
+     `tests/fixtures/ssh/runtime.owner.lock`, and holds it until its cleanup has run.
+   * `up.sh` returns 3 for every "already exist" refusal, including the image check
+     after the pull.
+   * The harness tears down only when it holds the lock and `up.sh` did not refuse.
+   * Residual, stated in the harness header: a non-M02 caller of `up.sh` does not take the
+     lock, so the opt-in is for a host with no other fixture user.
+   * Regressions:
+     * a refusal (3) after the preflight runs no teardown;
+     * a held lock blocks the run without touching anything;
+     * the default run never starts Docker.
+2. **L02:** the runner counts and masks canaries in its metadata, together with the file
+   bodies, and fails the run on any it finds. Runner self-test check E02.
+3. **L03:** only exact system profile components are exempt (`Public`, `Default`,
+   `Default User`, `All Users` and `Shared`, followed by a separator or the end of the
+   component). `Public-Alice` and `Default.Bob` are rejected.
+4. **L04:** the importer's command line reads at most `MAX_REPORT + 1` bytes from the open
+   file and refuses more, before decoding. A CLI-level regression checks the amount read.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
