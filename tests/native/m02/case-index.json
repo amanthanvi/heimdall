@@ -21,7 +21,12 @@
       "runs": "scenario"
     }
   },
-  "build_host_paths": {},
+  "build_host_paths": {
+    "heimdall_testkit-unit::repo::tests::unset_or_empty_is_the_compile_time_root": {
+      "neutral": true,
+      "reason": "asserts that the compile-time repository root (the build host's checkout) holds Cargo.toml and schemas/, which exists only where the binary was built; the HM_REPO_ROOT resolution it covers is platform-neutral and its sibling tests run everywhere"
+    }
+  },
   "platform_only": {
     "e2e_cli_m02::unix::": [
       "macos",

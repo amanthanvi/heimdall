@@ -1,0 +1,341 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running ../../tests/integration/doctor.rs (target/debug/deps/integration_doctor-cbc74af52156f3a7)
+
+running 24 tests
+test a21_network_level_reads_banner_only ... ok
+test a21_agent_level_sends_only_request_identities ... ok
+test a21_new_glob_member_after_static_pass_is_reported_and_never_listed ... ok
+test a21_match_exec_inserted_after_static_pass_never_runs_unauthorized ... ok
+test a21_change_then_revert_is_undetected_and_inventory_never_complete ... ok
+test doctor_lists_config_files_and_include_failures_as_written ... ok
+test doctor_shows_a_file_outside_the_home_as_written ... ok
+test a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion ... ok
+test doctor_reads_localuser_from_the_account_database ... ok
+test doctor_reports_identity_selection_not_exclusive_with_remedy ... ok
+test a21_host_verification_offers_nothing_to_sign ... ok
+test a21_fifo_include_does_not_block ... ok
+test a21_evaluate_declined_without_allow_config_commands ... ok
+test a21_inert_config_still_requires_allow_config_commands ... ok
+test a21_host_verification_requires_authorization_with_or_without_constructs ... ok
+test a21_local_queries_listed_and_off_with_no_local_exec ... ok
+test a21_authentication_level_single_identity_fixture_signs_exactly_once ... ok
+test a21_default_doctor_runs_no_exec_no_agent_no_network_no_mutation ... ok
+test home_resolution_matches_ssh_g ... ok
+test a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity ... ok
+test a21_unreadable_include_declines_even_with_authorization ... ok
+test home_mismatch_makes_a_home_relative_include_not_fully_readable ... ok
+test a21_agent_that_never_replies_times_out ... ok
+test a21_hanging_match_exec_killed_with_group_at_timeout ... ok
+
+successes:
+
+---- home_resolution_matches_ssh_g stdout ----
+observation test=home_resolution_matches_ssh_g percent_d_is_account_home=true include_tilde_follows_HOME=true
+
+
+successes:
+    a21_agent_level_sends_only_request_identities
+    a21_agent_that_never_replies_times_out
+    a21_authentication_level_single_identity_fixture_signs_exactly_once
+    a21_change_then_revert_is_undetected_and_inventory_never_complete
+    a21_default_doctor_runs_no_exec_no_agent_no_network_no_mutation
+    a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion
+    a21_evaluate_declined_without_allow_config_commands
+    a21_fifo_include_does_not_block
+    a21_hanging_match_exec_killed_with_group_at_timeout
+    a21_host_verification_offers_nothing_to_sign
+    a21_host_verification_requires_authorization_with_or_without_constructs
+    a21_inert_config_still_requires_allow_config_commands
+    a21_local_queries_listed_and_off_with_no_local_exec
+    a21_match_exec_inserted_after_static_pass_never_runs_unauthorized
+    a21_network_level_reads_banner_only
+    a21_new_glob_member_after_static_pass_is_reported_and_never_listed
+    a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity
+    a21_unreadable_include_declines_even_with_authorization
+    doctor_lists_config_files_and_include_failures_as_written
+    doctor_reads_localuser_from_the_account_database
+    doctor_reports_identity_selection_not_exclusive_with_remedy
+    doctor_shows_a_file_outside_the_home_as_written
+    home_mismatch_makes_a_home_relative_include_not_fully_readable
+    home_resolution_matches_ssh_g
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.59s
+
+     Running ../../tests/integration/git_observe.rs (target/debug/deps/integration_git_observe-1304f861a08f3025)
+
+running 17 tests
+test git_global_file_resolution_follows_read_order ... ok
+test git_values_never_leave_observation ... ok
+test git_config_query_output_parsed ... ok
+test git_multiplicity_through_includes_counts_each_origin ... ok
+test git_own_value_outside_home_and_absent_managed_file ... ok
+test the_doctor_reports_git_user_value_shadowed_with_both_origins ... ok
+test git_value_through_conditional_include_is_counted_conditional ... ok
+test git_run_selection_in_cwd_reports_local_override ... ok
+test git_queries_use_includes_flag_and_expand_includes ... ok
+test git_own_value_through_the_include_is_split_out_of_values ... ok
+test git_unreadable_include_makes_item_not_applicable ... ok
+test git_both_global_files_present_values_in_either_make_item_not_applicable ... ok
+test the_doctor_takes_a_value_reached_once_through_an_intact_b_git_for_heimdalls_own ... ok
+test git_user_value_elsewhere_stays_a_value_beside_the_own_one ... ok
+test git_own_file_reached_any_other_way_stays_a_value ... ok
+test the_doctor_reports_no_shadowing_unless_heimdalls_value_wins_over_a_global_one ... ok
+test the_doctor_reports_the_value_when_no_intact_b_git_links_it ... ok
+
+successes:
+
+---- git_global_file_resolution_follows_read_order stdout ----
+observation test=git_global_file_resolution_follows_read_order git="git version 2.54.0 (Apple Git-157)" git_var_exit="0" git_var_global="<scratch>/home/.config/git/config,<scratch>/home/.gitconfig" unscoped_read_order="xdg-value,home-value"
+
+---- git_value_through_conditional_include_is_counted_conditional stdout ----
+observation test=git_value_through_conditional_include_is_counted_conditional git="git version 2.54.0 (Apple Git-157)" query_outside_repository_exit="1"
+
+---- git_queries_use_includes_flag_and_expand_includes stdout ----
+observation test=git_queries_use_includes_flag_and_expand_includes git="git version 2.54.0 (Apple Git-157)" with_includes_exit="0" without_includes_exit="1"
+
+---- git_both_global_files_present_values_in_either_make_item_not_applicable stdout ----
+observation test=git_both_global_files_present_values_in_either_make_item_not_applicable git="git version 2.54.0 (Apple Git-157)" global_query_reads_xdg_when_home_file_exists="false"
+
+
+successes:
+    git_both_global_files_present_values_in_either_make_item_not_applicable
+    git_config_query_output_parsed
+    git_global_file_resolution_follows_read_order
+    git_multiplicity_through_includes_counts_each_origin
+    git_own_file_reached_any_other_way_stays_a_value
+    git_own_value_outside_home_and_absent_managed_file
+    git_own_value_through_the_include_is_split_out_of_values
+    git_queries_use_includes_flag_and_expand_includes
+    git_run_selection_in_cwd_reports_local_override
+    git_unreadable_include_makes_item_not_applicable
+    git_user_value_elsewhere_stays_a_value_beside_the_own_one
+    git_value_through_conditional_include_is_counted_conditional
+    git_values_never_leave_observation
+    the_doctor_reports_git_user_value_shadowed_with_both_origins
+    the_doctor_reports_no_shadowing_unless_heimdalls_value_wins_over_a_global_one
+    the_doctor_reports_the_value_when_no_intact_b_git_links_it
+    the_doctor_takes_a_value_reached_once_through_an_intact_b_git_for_heimdalls_own
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s
+
+     Running ../../tests/integration/projection_replace.rs (target/debug/deps/integration_projection_replace-47f9675ee2fd1a74)
+
+running 29 tests
+test materialize_absent_base_is_insert_only ... ok
+test materialize_checks_both_digests_from_the_step ... ok
+test materialize_refuses_shapes_that_do_not_fit_the_role ... ok
+test own_sources_never_remove_outside_the_quarantine ... ok
+test range::materialize_range_arithmetic_is_checked ... ok
+test dir_handle_refuses_symlink_foreign_mode_and_files ... ok
+test exchange_supported_on_target_fs ... ok
+test range::materialize_range_corners ... ok
+test create_is_no_replace_and_never_overwrites ... ok
+test observe_fingerprint_records_digests_and_metadata_only ... ok
+test quarantine_validation_owner_mode_symlink_mount ... ok
+test remove_verified_hook_marks_the_residual_window ... ok
+test race_in_place_write_before_exchange_is_restored ... ok
+test edit_after_restore_check_is_kept_in_quarantine_never_deleted ... ok
+test observe_step_classifies_each_name ... ok
+test remove_verified_rechecks_the_name_before_removal ... ok
+test race_rename_replace_before_exchange_is_restored_never_overwritten ... ok
+test lock_name_without_birth_time_is_foreign ... ok
+test private_key_files_never_opened ... ok
+test remove_verified_identity_and_content_mismatch_outcomes ... ok
+test stage_keeps_the_original_permission_bits ... ok
+test stage_names_its_target_only_through_learn_step ... ok
+test race_symlink_substitution_at_boundary_is_held ... ok
+test restore_with_names_in_a_fresh_handle ... ok
+test settle_outcomes_missing_foreign_occupied_modified ... ok
+test restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing ... ok
+test unrecorded_entry_at_staged_name_is_s_by_digest_never_at_lock_name ... ok
+test validate_refuses_unmanageable_and_changed_bases ... ok
+test file_identity_birth_recorded_on_target_fs ... ok
+
+successes:
+
+---- range::materialize_range_arithmetic_is_checked stdout ----
+proptest: FileFailurePersistence::SourceParallel set, but failed to find lib.rs or main.rs
+
+---- exchange_supported_on_target_fs stdout ----
+observation: exchange_supported_on_target_fs os=macos supported=true
+
+---- file_identity_birth_recorded_on_target_fs stdout ----
+observation: file_identity_birth_recorded_on_target_fs os=macos birth_recorded=true inode_reused=false
+
+
+successes:
+    create_is_no_replace_and_never_overwrites
+    dir_handle_refuses_symlink_foreign_mode_and_files
+    edit_after_restore_check_is_kept_in_quarantine_never_deleted
+    exchange_supported_on_target_fs
+    file_identity_birth_recorded_on_target_fs
+    lock_name_without_birth_time_is_foreign
+    materialize_absent_base_is_insert_only
+    materialize_checks_both_digests_from_the_step
+    materialize_refuses_shapes_that_do_not_fit_the_role
+    observe_fingerprint_records_digests_and_metadata_only
+    observe_step_classifies_each_name
+    own_sources_never_remove_outside_the_quarantine
+    private_key_files_never_opened
+    quarantine_validation_owner_mode_symlink_mount
+    race_in_place_write_before_exchange_is_restored
+    race_rename_replace_before_exchange_is_restored_never_overwritten
+    race_symlink_substitution_at_boundary_is_held
+    range::materialize_range_arithmetic_is_checked
+    range::materialize_range_corners
+    remove_verified_hook_marks_the_residual_window
+    remove_verified_identity_and_content_mismatch_outcomes
+    remove_verified_rechecks_the_name_before_removal
+    restore_holds_on_modified_active_entry_or_third_writer_and_moves_nothing
+    restore_with_names_in_a_fresh_handle
+    settle_outcomes_missing_foreign_occupied_modified
+    stage_keeps_the_original_permission_bits
+    stage_names_its_target_only_through_learn_step
+    unrecorded_entry_at_staged_name_is_s_by_digest_never_at_lock_name
+    validate_refuses_unmanageable_and_changed_bases
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+     Running ../../tests/integration/sshconf_vs_ssh_g.rs (target/debug/deps/integration_sshconf_vs_ssh_g-b56aa8164efadb7a)
+
+running 15 tests
+test s01_env_expansion_keywords_match_the_client ... ok
+test include_tokens_follow_the_client ... ok
+test include_target_with_glob_metacharacters_is_refused_before_any_edit ... ok
+test corpus_unsupported_syntax_loads_and_matches_ssh_g ... ok
+test corpus_retired_keywords_are_accepted_by_the_client ... ok
+test include_state_is_restored_after_included_file ... ok
+test include_tilde_follows_home_and_is_undetermined_under_another_home ... ok
+test corpus_nested_includes_and_bytewise_glob_order_match_ssh_g ... ok
+test bom_and_crlf_acceptance ... ok
+test final_pass_case_canonical_and_parse_only_facts_match_ssh_g ... ok
+test gated_match_criteria_and_keywords_follow_the_client ... ok
+test corpus_basic_patterns_wildcards_negation_and_first_value_match_ssh_g ... ok
+test sessiontype_in_force_matches_ssh_g ... ok
+test corpus_lexer_matches_ssh_g_and_command_text_is_the_raw_rest_of_the_line ... ok
+test corpus_identity_list_matches_ssh_g ... ok
+
+successes:
+
+---- s01_env_expansion_keywords_match_the_client stdout ----
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=User dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=SetEnv dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=RevokedHostKeys dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=LocalForward dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=RemoteForward dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=ControlPath dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=IdentityAgent dump="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=IdentityFile dump="literal_in_dump" heimdall_expands_env="true" note="not observable through ssh -G"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=CertificateFile dump="literal_in_dump" heimdall_expands_env="true" note="not observable through ssh -G"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=KnownHostsCommand dump="literal_in_dump" heimdall_expands_env="true" note="not observable through ssh -G"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=UserKnownHostsFile dump="other" heimdall_expands_env="true" note="not observable through ssh -G"
+observation test=s01_env_expansion_keywords_match_the_client client=macos:10.5p1 subject=Include effect="expanded" heimdall_expands_env="true" heimdall_stricter="false"
+
+---- include_tokens_follow_the_client stdout ----
+observation test=include_tokens_follow_the_client client=macos:10.5p1 subject=tok-x ssh_g_port="2962" client_expands_include_tokens="true" heimdall_expands_include_tokens="true" heimdall_port="2962" ssh_g_user_for_u%h="utok-x"
+
+---- include_target_with_glob_metacharacters_is_refused_before_any_edit stdout ----
+observation test=include_target_with_glob_metacharacters_is_refused_before_any_edit client=macos:10.5p1 subject=box ssh_g_exit="0" ssh_g_hostname="different.example" client_globbed_quoted_include="true"
+
+---- corpus_unsupported_syntax_loads_and_matches_ssh_g stdout ----
+observation test=corpus_unsupported client=macos:10.5p1 subject=unsupported agree="true" ssh_g_port="2701" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+
+---- corpus_retired_keywords_are_accepted_by_the_client stdout ----
+observation test=corpus_retired_keywords_are_accepted_by_the_client client=macos:10.5p1 subject=retired ssh_g_exit="0" ssh_g_port="2801" heimdall_invalid_lines="0" heimdall_port="2801"
+
+---- include_state_is_restored_after_included_file stdout ----
+observation test=include_state_is_restored_after_included_file client=macos:10.5p1 subject=state-alpha agree="true" ssh_g_port="2501" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=include_state_is_restored_after_included_file client=macos:10.5p1 subject=state-other agree="true" ssh_g_port="2599" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+
+---- include_tilde_follows_home_and_is_undetermined_under_another_home stdout ----
+observation test=include_tilde_follows_home_and_is_undetermined_under_another_home client=macos:10.5p1 subject=tilde-x ssh_g_exit_other_home="0" ssh_g_port_other_home="2972" client_follows_home="true" heimdall_port_determined="None"
+observation test=include_tilde_follows_home_and_is_undetermined_under_another_home client=macos:10.5p1 subject=rel-x ssh_g_exit_other_home="0" ssh_g_port_other_home="2974" client_follows_home="true" heimdall_port_determined="None"
+
+---- corpus_nested_includes_and_bytewise_glob_order_match_ssh_g stdout ----
+observation test=corpus_nested client=macos:10.5p1 subject=nested-after agree="true" ssh_g_port="2401" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_nested client=macos:10.5p1 subject=nested-level1 agree="true" ssh_g_port="2411" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_nested client=macos:10.5p1 subject=nested-glob agree="true" ssh_g_port="2421" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_nested client=macos:10.5p1 subject=nested-deep agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+
+---- bom_and_crlf_acceptance stdout ----
+observation test=bom_and_crlf_acceptance client=macos:10.5p1 subject=encodings corpus_bom_loads="false" corpus_crlf_loads="true" bom_b_effective="false" crlf_b_effective="true" lf_b_effective="true"
+
+---- final_pass_case_canonical_and_parse_only_facts_match_ssh_g stdout ----
+observation test=host_pattern_case_first_pass client=macos:10.5p1 subject=MixedCase agree="true" ssh_g_port="2901" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=host_pattern_case_first_pass_lower client=macos:10.5p1 subject=mixedcase agree="true" ssh_g_port="2911" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=host_pattern_case_final_pass client=macos:10.5p1 subject=MixedCase agree="true" ssh_g_port="2912" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=match_final_and_canonical client=macos:10.5p1 subject=fin-a agree="true" ssh_g_port="2902" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=hostname_not_set_again_in_final_pass client=macos:10.5p1 subject=fin-b agree="true" ssh_g_port="2903" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=parse_only_include_under_false_section client=macos:10.5p1 subject=target agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=parse_only_include_is_still_checked client=macos:10.5p1 subject=target ssh_g_exit="255" heimdall_invalid_lines="1"
+
+---- gated_match_criteria_and_keywords_follow_the_client stdout ----
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=match_command ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=match_sessiontype ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=match_version ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=kw_RefuseConnection ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=kw_RefuseConnection_ignored ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=kw_VersionAddendum ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=kw_VersionAddendum_ignored ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=kw_WarnWeakCrypto ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+observation test=gated_match_criteria_and_keywords_follow_the_client client=macos:10.5p1 subject=kw_WarnWeakCrypto_ignored ssh_g_exit="0" heimdall_accepts="true" heimdall_invalid="false" heimdall_stricter="false"
+
+---- corpus_basic_patterns_wildcards_negation_and_first_value_match_ssh_g stdout ----
+observation test=corpus_basic client=macos:10.5p1 subject=alpha agree="true" ssh_g_port="2201" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_basic client=macos:10.5p1 subject=x.corpus.example agree="true" ssh_g_port="2202" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_basic client=macos:10.5p1 subject=bad.corpus.example agree="true" ssh_g_port="2299" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_basic client=macos:10.5p1 subject=beta agree="true" ssh_g_port="2299" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_basic client=macos:10.5p1 subject=gamma1 agree="true" ssh_g_port="2203" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_basic client=macos:10.5p1 subject=gamma-excluded agree="true" ssh_g_port="2299" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_basic client=macos:10.5p1 subject=delta agree="true" ssh_g_port="2205" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_basic client=macos:10.5p1 subject=anything.example agree="true" ssh_g_port="2204" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+
+---- sessiontype_in_force_matches_ssh_g stdout ----
+observation test=sessiontype_none_shell client=macos:10.5p1 subject=box ssh_g_exit="0" client_accepts="true" heimdall_accepts="true" heimdall_refused_lines="0" heimdall_stricter="false"
+observation test=sessiontype_none_shell client=macos:10.5p1 subject=box agree="true" ssh_g_port="2202" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=sessiontype_subsystem_shell client=macos:10.5p1 subject=box ssh_g_exit="0" client_accepts="true" heimdall_accepts="true" heimdall_refused_lines="0" heimdall_stricter="false"
+observation test=sessiontype_subsystem_shell client=macos:10.5p1 subject=box agree="true" ssh_g_port="2203" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=sessiontype_none_dash_s client=macos:10.5p1 subject=box ssh_g_exit="0" client_accepts="true" heimdall_accepts="true" heimdall_refused_lines="0" heimdall_stricter="false"
+observation test=sessiontype_none_dash_s client=macos:10.5p1 subject=box agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=sessiontype_subsystem_dash_s client=macos:10.5p1 subject=box ssh_g_exit="0" client_accepts="true" heimdall_accepts="true" heimdall_refused_lines="0" heimdall_stricter="false"
+observation test=sessiontype_subsystem_dash_s client=macos:10.5p1 subject=box agree="true" ssh_g_port="2203" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=sessiontype_in_force_matches_ssh_g client=macos:10.5p1 subject=reviewer_case ssh_g_sessiontype="none" ssh_g_port="2202"
+
+---- corpus_lexer_matches_ssh_g_and_command_text_is_the_raw_rest_of_the_line stdout ----
+observation test=corpus_lexer client=macos:10.5p1 subject=lex-hash agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_lexer client=macos:10.5p1 subject=lex-quote agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_lexer client=macos:10.5p1 subject=lex-equals agree="true" ssh_g_port="2290" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_lexer client=macos:10.5p1 subject=lex-escape agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_lexer client=macos:10.5p1 subject=lex-unknown-escape agree="true" ssh_g_port="22" ssh_g_identityfile="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519"
+observation test=corpus_lexer_raw_command client=macos:10.5p1 subject=lex-command file_rest_of_line="echo '$X'  \"q\"  # c" ssh_g_remotecommand="echo '$X'  \"q\"  # c" ssh_g_proxycommand="echo '$X'  \"q\"  # c" heimdall_directive_raw="echo '$X'  \"q\"  # c" heimdall_value_raw="echo '$X'  \"q\"  # c"
+
+---- corpus_identity_list_matches_ssh_g stdout ----
+observation test=corpus_identity_list_matches_ssh_g client=macos:10.5p1 subject=ident-one agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_one,/nonexistent/hm-corpus/id_shared"
+observation test=corpus_identity_list_matches_ssh_g client=macos:10.5p1 subject=ident-spaced agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared,/nonexistent/hm corpus/id spaced,/nonexistent/hm-corpus/id-ïdentité"
+observation test=corpus_identity_list_matches_ssh_g client=macos:10.5p1 subject=ident-percent agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared,/nonexistent/hm-corpus/100%%/id"
+observation test=corpus_identity_list_matches_ssh_g client=macos:10.5p1 subject=ident-pipe agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared"
+observation test=corpus_identity_list_matches_ssh_g client=macos:10.5p1 subject=ident-pipe-quoted agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared"
+observation test=corpus_identity_list_matches_ssh_g client=macos:10.5p1 subject=ident-agent-none agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared"
+observation test=corpus_identity_list_matches_ssh_g client=macos:10.5p1 subject=ident-files-none agree="true" ssh_g_port="22" ssh_g_identityfile="/nonexistent/hm-corpus/id_shared,none"
+observation test=corpus_identity_list_matches_ssh_g client=macos:10.5p1 subject=default_identities printed="~/.ssh/id_rsa,~/.ssh/id_ecdsa,~/.ssh/id_ecdsa_sk,~/.ssh/id_ed25519,~/.ssh/id_ed25519_sk,~/.ssh/id_mldsa44_ed25519" recorded_for_this_client="id_rsa,id_ecdsa,id_ecdsa_sk,id_ed25519,id_ed25519_sk,id_mldsa44_ed25519" not_in_heimdall_union=""
+
+
+successes:
+    bom_and_crlf_acceptance
+    corpus_basic_patterns_wildcards_negation_and_first_value_match_ssh_g
+    corpus_identity_list_matches_ssh_g
+    corpus_lexer_matches_ssh_g_and_command_text_is_the_raw_rest_of_the_line
+    corpus_nested_includes_and_bytewise_glob_order_match_ssh_g
+    corpus_retired_keywords_are_accepted_by_the_client
+    corpus_unsupported_syntax_loads_and_matches_ssh_g
+    final_pass_case_canonical_and_parse_only_facts_match_ssh_g
+    gated_match_criteria_and_keywords_follow_the_client
+    include_state_is_restored_after_included_file
+    include_target_with_glob_metacharacters_is_refused_before_any_edit
+    include_tilde_follows_home_and_is_undetermined_under_another_home
+    include_tokens_follow_the_client
+    s01_env_expansion_keywords_match_the_client
+    sessiontype_in_force_matches_ssh_g
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

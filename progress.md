@@ -787,3 +787,25 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - check.sh: the unit ran it twice and I ran it once, all exit 0, 1760 passed.
   - ADR-0007 §12.41 ratifies it, amends §5.6 Rollback, and records three Git residuals for M03 in §13.
 - I fixed the wave-5f review's K01 (cb5139e4).
+- **M02 exit build: cb16c2d6** (wave 5g plus the refreshed inventory), pushed. Native runs started 2026-11-06, artifacts under `tests/evidence/artifacts/m02/exit-cb16c2d6/`:
+  - macOS: run-macos.sh, background task b4flj90z3;
+  - devbox: run-linux.sh, background task bpk6agk5v;
+  - Windows: a T3 agent on the PC runs run-windows-local.ps1 and returns the bundle.
+- Exit-build native runs at cb16c2d6:
+  - macOS: run-macos.sh exit 0; check.sh every step 0; 1760 passed, 0 failed, 8 ignored; observations 85 passed; canary 0; owner ~/.ssh and Git digests unchanged.
+  - devbox: run-linux.sh exit 101; 1756 passed, 1 failed; canary 0. The failure is `heimdall_testkit` `repo::tests::unset_or_empty_is_the_compile_time_root`, which asserts the compile-time (build-host) repo path exists, so it is build-host-only. Classify it in case-index `build_host_paths` (no source change).
+  - Windows: run-windows-local.ps1 exit 1 (11:28–11:35Z). It is the first native Windows run of the whole suite.
+    - Build, toolchain, WSL scratch and the fixture sshd all exit 0. The tests exit 101: 12 of 51 binaries fail, 56 tests in all.
+    - The canary scan counts 2. Both are the masked canary in the failure message of `e2e_run_m02` `a27_argv_canary_absent_…`: the child echoed `<canary> \r\n`, and the assertion prints both values. That is a test defect: an assertion must never print the canary.
+    - `%USERPROFILE%\.ssh` and the Git metadata are unchanged; no Heimdall state is left; no test pipes are left.
+    - The bundle was copied from the PC (scp, read only) and imported to `exit-cb16c2d6/windows/` (import-windows-bundle.py exit 0, 1333 test results).
+  - devbox: `heimdall_testkit-unit::repo::tests::unset_or_empty_is_the_compile_time_root` is now in case-index `build_host_paths` (neutral; the evidence tool's tests pass, 102 OK).
+- The Mac now reaches the PC over ssh (Windows OpenSSH server, pwsh). That session runs at High integrity (elevated), so it is used only to copy files out of scratch, never to run tests or change anything. Tests on the PC run through its T3 agents at Medium integrity.
+- Windows failure groups at cb16c2d6, from `exit-cb16c2d6/windows/tests.txt`:
+  - tests canonicalize scratch roots into `\\?\C:\…`, and `RenderPath::windows` refuses device and verbatim paths (`RefusedValue("path")`: git_observe ×4, sshconf_vs_ssh_g ×2);
+  - Git origins are not shown under `~` on Windows (git_observe ×6), plus Git exit 1 and 128 cases;
+  - Windows ssh 9.5p2 differences: `~` follows the account profile, not HOME; `${VAR}` expansion; identity exclusivity (sshconf_vs_ssh_g, model_sshconf_eval, e2e a21);
+  - projection replace on Windows: NotFound in restore, a sharing violation (os error 32) in remove (projection_replace ×6; e2e setup, uninstall and diff-bound);
+  - launch and run on Windows: PATH entries, a batch-name test whose name is invalid on Windows, LAUNCH_FAILED 127, retry and replay records, `/bin/sh` in the cli tests, app holders UsageError ×6;
+  - Unix assumptions in tests: test hooks need Windows absolute paths, `/tmp/a.sock`, `/scratch/home` separators, and the adapters drop, counting-proxy and hook-mode fixtures;
+  - the harness's WSL fixture sshd authenticates only the WSL account, while the clients log in as the Windows user.
