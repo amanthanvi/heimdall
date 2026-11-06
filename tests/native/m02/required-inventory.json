@@ -213,6 +213,7 @@
           "projection::tests::setup_intent_content_wire_forms"
         ],
         "heimdall_sshconf-unit": [
+          "client::tests::behaviour_is_unknown_only_where_the_observations_do_not_settle_it",
           "client::tests::default_identities_are_exactly_the_union_of_clients_and_manuals",
           "client::tests::default_identities_per_client_are_kept_as_data",
           "client::tests::expansion_is_literal_only_where_observed",
@@ -245,11 +246,19 @@
           "git_config_query_output_parsed",
           "git_global_file_resolution_follows_read_order",
           "git_multiplicity_through_includes_counts_each_origin",
+          "git_own_file_reached_any_other_way_stays_a_value",
+          "git_own_value_outside_home_and_absent_managed_file",
+          "git_own_value_through_the_include_is_split_out_of_values",
           "git_queries_use_includes_flag_and_expand_includes",
           "git_run_selection_in_cwd_reports_local_override",
           "git_unreadable_include_makes_item_not_applicable",
+          "git_user_value_elsewhere_stays_a_value_beside_the_own_one",
           "git_value_through_conditional_include_is_counted_conditional",
-          "git_values_never_leave_observation"
+          "git_values_never_leave_observation",
+          "the_doctor_reports_git_user_value_shadowed_with_both_origins",
+          "the_doctor_reports_no_shadowing_unless_heimdalls_value_wins_over_a_global_one",
+          "the_doctor_reports_the_value_when_no_intact_b_git_links_it",
+          "the_doctor_takes_a_value_reached_once_through_an_intact_b_git_for_heimdalls_own"
         ],
         "integration_projection": [
           "a22_apply_then_rollback_restores_user_bytes_exactly",
@@ -313,11 +322,15 @@
           "a22_update_user_edit_after_p_exchange_restores_generation_n",
           "a22_update_user_edit_after_p_post_validation_restores_generation_n",
           "a22_user_edit_between_preview_and_apply_conflicts_user_config_changed",
+          "a_backups_directory_that_is_not_a_private_directory_refuses_the_edit",
           "a_created_user_file_or_a_missing_state_dir_takes_no_snapshot",
           "a_resumed_operation_snapshots_before_the_user_file_step",
+          "a_rollback_of_a_p_well_over_the_bound_shows_summaries_and_applies",
           "a_snapshot_that_cannot_be_made_leaves_the_item_unwritten",
           "a_stale_user_file_refuses_the_apply_and_takes_no_snapshot",
           "a_user_file_that_changes_before_the_copy_is_not_snapshotted_or_edited",
+          "a_valid_existing_snapshot_is_accepted_and_no_second_copy_is_made",
+          "an_existing_entry_that_is_not_a_valid_snapshot_refuses_the_edit_before_it",
           "child_process_writer_entry",
           "consent_first_adoption_needs_a_decision_and_records_the_consented_states",
           "consent_plan_affecting_no_item_needs_no_decision",
@@ -344,6 +357,7 @@
           "recovery_decided_abort_reason_is_recorded_and_survives_restart",
           "settlement_order::a22_settlement_never_precedes_item_committed",
           "snapshot_original_copies_the_original_once_owner_only",
+          "snapshot_original_refuses_an_invalid_entry_naming_it_and_accepts_a_valid_one",
           "splice_applies_only_to_validated_base",
           "the_preview_never_cuts_a_diff",
           "the_writer_snapshots_the_global_git_file_before_its_first_edit",
@@ -356,11 +370,13 @@
           "v02_rollback_after_subsystem_only_environment_agent_needs_decision"
         ],
         "integration_projection_git": [
+          "git_apply_records_the_file_b_git_was_written_into",
           "git_apply_releases_k_with_and_without_birth_time",
           "git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win",
           "git_check_failure_with_edited_p_git_is_held_and_keeps_k",
           "git_consent_apply_decided_rollback_to_consented_state_waived",
           "git_crash_with_lock_holding_staged_or_displaced_reconciles",
+          "git_doctor_after_apply_reports_no_present_value_for_heimdalls_own",
           "git_editor_write_after_final_check_is_restored",
           "git_existing_core_sshcommand_in_system_or_global_makes_item_not_applicable",
           "git_first_adoption_previews_reproduce_their_plan_digest",
@@ -373,16 +389,29 @@
           "git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing",
           "git_lock_occupied_by_holder_until_settlement",
           "git_name_transitions_crash_at_every_point_reconciles",
+          "git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own",
           "git_parse_check_failure_aborts_before_the_commit_point",
           "git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable",
+          "git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present",
+          "git_reapply_finds_b_git_in_the_recorded_file_after_an_xdg_file_appears",
+          "git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved",
+          "git_reapply_with_a_user_value_in_either_global_file_stays_not_applicable",
+          "git_reapply_without_a_recorded_file_searches_both_global_files",
           "git_release_of_k_after_hand_over_happens_at_restart_never_earlier",
           "git_restart_keeps_the_recovery_classifier_for_k",
           "git_rollback_after_edit_inside_block_is_marker_edited",
           "git_rollback_after_user_added_value_keeps_user_value",
+          "git_rollback_finds_b_git_in_the_file_its_step_wrote_after_an_xdg_file_appears",
+          "git_rollback_in_the_shadowed_case_needs_a_decision",
+          "git_rollback_over_a_global_file_the_writer_would_refuse_plans_nothing_for_git",
+          "git_rollback_trusts_the_recorded_file_over_what_else_the_global_files_hold",
+          "git_rollback_without_a_recorded_file_searches_both_global_files",
           "git_user_set_after_include_wins",
+          "git_user_value_added_after_apply_still_makes_the_item_not_applicable",
           "git_writer_during_heimdall_lock_fails_cleanly_nothing_lost",
           "git_xdg_created_after_apply_shadowed_value_reported",
-          "lock_claim_order::git_lock_claimed_only_after_staged_receipt"
+          "lock_claim_order::git_lock_claimed_only_after_staged_receipt",
+          "the_git_snapshot_follows_the_same_rules_as_the_ssh_one"
         ],
         "integration_projection_recovery_rows": [
           "recovery_table_rows_each_have_a_test_vector"
@@ -467,6 +496,8 @@
         "model_setup": [
           "a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_driver",
           "a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled",
+          "a_rollback_is_refused_for_its_owner_file_change_alone",
+          "a_rollback_of_a_p_well_over_the_bound_is_previewed_and_applied",
           "apply_after_base_change_is_config_conflict_and_nothing_written",
           "apply_executes_exactly_the_decided_plan_digest",
           "apply_requires_decision_attended_and_unattended",
@@ -571,6 +602,9 @@
           "match_exec_is_undetermined_and_never_executed",
           "match_final_and_canonical_with_canonicalize_hostname_no_and_yes",
           "moving_a_value_between_roles_changes_the_digest_but_a_line_move_or_comment_does_not",
+          "n01_include_without_an_expandable_construct_stays_determined_and_a_false_section_hides_it",
+          "n01_token_include_is_undetermined_unless_the_client_is_settled",
+          "n01_user_and_setenv_tokens_are_undetermined_unless_the_client_is_settled",
           "proxyjump_competes_with_proxycommand",
           "render_escapes_percent_and_writes_windows_forms",
           "render_git_values_are_shell_and_git_quoted",
@@ -790,11 +824,19 @@
           "git_config_query_output_parsed",
           "git_global_file_resolution_follows_read_order",
           "git_multiplicity_through_includes_counts_each_origin",
+          "git_own_file_reached_any_other_way_stays_a_value",
+          "git_own_value_outside_home_and_absent_managed_file",
+          "git_own_value_through_the_include_is_split_out_of_values",
           "git_queries_use_includes_flag_and_expand_includes",
           "git_run_selection_in_cwd_reports_local_override",
           "git_unreadable_include_makes_item_not_applicable",
+          "git_user_value_elsewhere_stays_a_value_beside_the_own_one",
           "git_value_through_conditional_include_is_counted_conditional",
-          "git_values_never_leave_observation"
+          "git_values_never_leave_observation",
+          "the_doctor_reports_git_user_value_shadowed_with_both_origins",
+          "the_doctor_reports_no_shadowing_unless_heimdalls_value_wins_over_a_global_one",
+          "the_doctor_reports_the_value_when_no_intact_b_git_links_it",
+          "the_doctor_takes_a_value_reached_once_through_an_intact_b_git_for_heimdalls_own"
         ],
         "integration_testkit_fixtures": [
           "client_command_never_adds_selection_options",
@@ -1604,11 +1646,19 @@
       "linux",
       "macos"
     ],
+    "integration_projection::a_backups_directory_that_is_not_a_private_directory_refuses_the_edit": [
+      "linux",
+      "macos"
+    ],
     "integration_projection::a_created_user_file_or_a_missing_state_dir_takes_no_snapshot": [
       "linux",
       "macos"
     ],
     "integration_projection::a_resumed_operation_snapshots_before_the_user_file_step": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::a_rollback_of_a_p_well_over_the_bound_shows_summaries_and_applies": [
       "linux",
       "macos"
     ],
@@ -1621,6 +1671,14 @@
       "macos"
     ],
     "integration_projection::a_user_file_that_changes_before_the_copy_is_not_snapshotted_or_edited": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::a_valid_existing_snapshot_is_accepted_and_no_second_copy_is_made": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection::an_existing_entry_that_is_not_a_valid_snapshot_refuses_the_edit_before_it": [
       "linux",
       "macos"
     ],
@@ -1728,6 +1786,10 @@
       "linux",
       "macos"
     ],
+    "integration_projection::snapshot_original_refuses_an_invalid_entry_naming_it_and_accepts_a_valid_one": [
+      "linux",
+      "macos"
+    ],
     "integration_projection::splice_applies_only_to_validated_base": [
       "linux",
       "macos"
@@ -1768,6 +1830,10 @@
       "linux",
       "macos"
     ],
+    "integration_projection_git::git_apply_records_the_file_b_git_was_written_into": [
+      "linux",
+      "macos"
+    ],
     "integration_projection_git::git_apply_releases_k_with_and_without_birth_time": [
       "linux",
       "macos"
@@ -1785,6 +1851,10 @@
       "macos"
     ],
     "integration_projection_git::git_crash_with_lock_holding_staged_or_displaced_reconciles": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_doctor_after_apply_reports_no_present_value_for_heimdalls_own": [
       "linux",
       "macos"
     ],
@@ -1836,11 +1906,35 @@
       "linux",
       "macos"
     ],
+    "integration_projection_git::git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own": [
+      "linux",
+      "macos"
+    ],
     "integration_projection_git::git_parse_check_failure_aborts_before_the_commit_point": [
       "linux",
       "macos"
     ],
     "integration_projection_git::git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_reapply_finds_b_git_in_the_recorded_file_after_an_xdg_file_appears": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_reapply_with_a_user_value_in_either_global_file_stays_not_applicable": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_reapply_without_a_recorded_file_searches_both_global_files": [
       "linux",
       "macos"
     ],
@@ -1860,7 +1954,31 @@
       "linux",
       "macos"
     ],
+    "integration_projection_git::git_rollback_finds_b_git_in_the_file_its_step_wrote_after_an_xdg_file_appears": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_rollback_in_the_shadowed_case_needs_a_decision": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_rollback_over_a_global_file_the_writer_would_refuse_plans_nothing_for_git": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_rollback_trusts_the_recorded_file_over_what_else_the_global_files_hold": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_rollback_without_a_recorded_file_searches_both_global_files": [
+      "linux",
+      "macos"
+    ],
     "integration_projection_git::git_user_set_after_include_wins": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::git_user_value_added_after_apply_still_makes_the_item_not_applicable": [
       "linux",
       "macos"
     ],
@@ -1873,6 +1991,10 @@
       "macos"
     ],
     "integration_projection_git::lock_claim_order::git_lock_claimed_only_after_staged_receipt": [
+      "linux",
+      "macos"
+    ],
+    "integration_projection_git::the_git_snapshot_follows_the_same_rules_as_the_ssh_one": [
       "linux",
       "macos"
     ],
@@ -1935,6 +2057,14 @@
       "macos"
     ],
     "model_setup::a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled": [
+      "linux",
+      "macos"
+    ],
+    "model_setup::a_rollback_is_refused_for_its_owner_file_change_alone": [
+      "linux",
+      "macos"
+    ],
+    "model_setup::a_rollback_of_a_p_well_over_the_bound_is_previewed_and_applied": [
       "linux",
       "macos"
     ],
@@ -2131,5 +2261,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "34abdb42ba241ed60236ef1a0a2a272ee51b51dfba799216e9dacf255ba6f313"
+  "sources_sha256": "ca12bbcba0314f5c25386193dd7e21fa31f7a1059499b37390526d5069ae52cc"
 }
