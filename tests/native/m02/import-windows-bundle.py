@@ -58,16 +58,18 @@ _SENSITIVE = (
     (re.compile(r"HEIMDALL_CANARY_"), "a canary prefix"),
     (re.compile(r"S-1-(5-21|12-1)-\d"), "an unmasked user or domain SID"),
     (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----"), "private-key armor"),
-    # ADR-0007 §12.38 item 3 (L03): only an exact system profile component is exempt (followed
-    # by a separator, a quote, whitespace or the end), never a personal name that starts with it.
-    (re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+(?!<|(?:Public|Default|Default User|All Users)(?=[\\/\s\"'<>]|$))[^\\/\s\"'<>]+"),
+    # ADR-0007 §12.38 item 3 (L03) and the K01 review: only an exact system profile component is
+    # exempt: the name must be followed by a separator, a quote, a bracket or the end, never by
+    # whitespace (which can sit inside a personal name: "Public Alice"); the longer names are
+    # tried first, so "Default User.Alice" is not exempted as "Default".
+    (re.compile(r"(?i)\b[A-Z]:[\\/]+Users[\\/]+(?!<|(?:Default User|All Users|Public|Default)(?=[\\/\"'<>]|$))[^\\/\s\"'<>]+"),
      "an unredacted Windows home path"),
-    (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|(?:Public|Default|Default User|All Users)(?=[/\s\"'<>]|$))[^/\s\"'<>]+"),
+    (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|(?:Default User|All Users|Public|Default)(?=[/\"'<>]|$))[^/\s\"'<>]+"),
      "an unredacted Windows home path"),
     (re.compile(r"(?<![\w/.-])/home/(?!<)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
     # The macOS form is not applied right after a lone drive letter (C:/Users/... is the
     # Windows rule's), but it is after any other colon (PATH=...:/Users/x, file:/Users/x).
-    (re.compile(r"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\s\"'<>]|$))[A-Za-z0-9._-]+"),
+    (re.compile(r"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\"'<>]|$))[A-Za-z0-9._-]+"),
      "an unredacted macOS home path"),
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")

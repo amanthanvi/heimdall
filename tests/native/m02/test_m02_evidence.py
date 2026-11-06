@@ -1029,6 +1029,11 @@ class WindowsBundle(unittest.TestCase):
             "a WSL view of such a profile": make_bundle({"build.txt": "at /mnt/c/Users/Public.Alice/x\n"}),
             "a macOS home named like Shared": make_bundle({"build.txt": "at /Users/Shared-Alice/x\n"}),
             "a label naming such a profile": make_bundle(label="from C:\\Users\\Default-Bob"),
+            # The K01 review: a space inside a personal name, and a longer name than an exempt one.
+            "a Windows profile with a space": make_bundle({"build.txt": "at C:/Users/Public Alice/src\n"}),
+            "a profile extending Default User": make_bundle({"build.txt": "at C:/Users/Default User.Alice/src\n"}),
+            "a WSL view with a space": make_bundle({"build.txt": "at /mnt/c/Users/Public Alice/src\n"}),
+            "a macOS home with a space": make_bundle({"build.txt": "at /Users/Shared Alice/src\n"}),
             # A macOS home after any colon other than a lone drive letter's.
             "a macOS home in a PATH list": make_bundle({"build.txt": "PATH=/usr/bin:/Users/someone/bin\n"}),
             "a macOS home in a file URL": make_bundle({"build.txt": "see file:/Users/someone/log\n"}),
@@ -1051,7 +1056,7 @@ class WindowsBundle(unittest.TestCase):
 
     def test_exact_system_profiles_stay_accepted(self):
         files = {"build.txt": "C:\\Users\\Public\\a and C:/Users/Default/b and /mnt/c/Users/Public/c "
-                              "and /Users/Shared/d and C:\\Users\\All Users\\e\n"}
+                              "and /Users/Shared/d and C:\\Users\\All Users\\e and C:\\Users\\Default User\\f\n"}
         dest, _, _ = wb.import_bundle(make_bundle(files), "exit-sys", self.root)
         self.assertTrue((dest / "build.txt").exists())
 

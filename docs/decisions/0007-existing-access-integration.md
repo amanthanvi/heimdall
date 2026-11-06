@@ -4540,6 +4540,19 @@ tests passed and 0 failed. §12.37 items 1–4 are done, each mutation-checked (
    `git config --show-origin`, so with `--no-local-exec` the doctor reports nothing about
    shadowing. Stated in the matrix.
 
+### 12.40 Ruling on the wave-5f code review (orchestrator, 2026-11-06)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave5f.md` (Codex, independent, fix first). The
+wave-5f Rust changes are sound, and L01, L02 and L04 are closed.
+
+1. **K01: an exempt system profile is an exact component.** The name must be followed by a
+   separator, a quote, a bracket or the end, never by whitespace, which can sit inside a
+   personal name. The longer names (`Default User`, `All Users`) are tried first.
+   `Public Alice`, `Default User.Alice` and `Shared Alice` are rejected, and `Default User`
+   and `All Users` are accepted.
+   *Fixed by the orchestrator, 2026-11-06*: regressions in `test_m02_evidence.WindowsBundle`,
+   which fail with whitespace allowed.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
