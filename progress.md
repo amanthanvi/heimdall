@@ -830,3 +830,4 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Lesson: Git for Windows' system config on the PC sets `core.autocrlf=true`, so fresh clones check out CRLF. The units re-check out with LF; the harness clone must as well (w6-fixtures checks this).
 - I fixed the wave-5g review's R01–R03 (ADR-0007 §12.42; review record `review-m02-code/wave5g.md`).
 - The selftest's L06, L15, L62 and W20 now follow `build_host_paths`. 1f5b8156 had broken them; it was pushed without a full check.sh, a lapse. Lesson: run check.sh before pushing any change to the harness inputs.
+- **M03-T00 design, draft 1** (author: Opus xhigh, worktree; self-reviewed only): `docs/architecture/m03-plan.md` (1963 lines; U0, U0b and U1–U13, waves 0–6) and ADR-0008 (proposed; D1–D13; Q1–Q17 and P1–P9 with recommended answers). Next: two independent design reviews (Codex Sol; Opus) at the commit holding the draft, then rulings and a design fix.
