@@ -4337,6 +4337,45 @@ to wave 5c is done.
 11. **Wave 5d:** W5d-app (items 6 and 7) and W5d-git (item 8), with the orchestrator on
     P01 and P02, then the exit build and the native runs.
 
+### 12.35 Rulings on the wave-5c code review (orchestrator, 2026-11-06)
+
+Source: `tests/evidence/artifacts/review-m02-code/wave5c.md` (Codex, independent, fix first).
+N01–N05 are accepted.
+
+1. **N01: an Include whose expansion depends on unestablished client behaviour is opaque.**
+   This amends §12.32 item 11 and §12.34 item 1. "Strictest" means *undetermined*, not one
+   of the two readings.
+   * Gates of the first kind (a construct is refused or accepted) take the reading that
+     refuses.
+   * Gates of the second kind (two different results) make the affected value
+     undetermined: `%` tokens or `${VAR}` in `Include`, `User` or `SetEnv` on a client whose
+     version is unknown or unobserved.
+   * For an Include, the argument is recorded as unresolved, with reason
+     `client_behaviour_unknown`, and an opaque point is added, as for an
+     environment-dependent Include.
+   * Regression: the reviewer's `inc-%h.conf` case is undetermined for an unknown version,
+     and the model test's expectation is corrected.
+   * Owner: W5e-sshconf.
+2. **N02: an existing snapshot must be a valid one.**
+   * The writer opens `<state>/backups` without following links and refuses a symlink,
+     non-directory, foreign owner or group- or other-writable directory.
+   * It accepts an existing `ssh_config.*.orig` only as a regular, owner-owned file of
+     mode 0600 that it opened without following links.
+   * It refuses any other entry with that name before the first user-file edit,
+     `unmanageable_file`, and names it. The source is read without following links too.
+   * The same rules apply to `gitconfig.*.orig`.
+   * Regressions: the reviewer's directory and symlinked-backups cases refuse, and a
+     valid snapshot is accepted.
+   * Owner: W5e-snapshot.
+3. **N03–N05, harness and importer:** fixed by the orchestrator.
+   * N03: the importer validates every persisted field, the label included, against the
+     same rules as the file bodies. It also rejects private-key armor and unredacted home
+     paths. The runner redacts its metadata before serializing it.
+   * N04: input and compressed sizes are bounded, and decompression is incremental, with
+     a stop at `MAX_PAYLOAD + 1`.
+   * N05: the toolchain install and the builds pin `TEMP` and `TMP` to the run's scratch
+     temporary directory.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
