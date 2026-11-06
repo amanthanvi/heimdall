@@ -933,7 +933,10 @@ fn expand_identity_path(arg: &str, source: &dyn ConfigSource) -> Option<PathBuf>
         && b.as_bytes()[0].is_ascii_alphabetic()
         && b.as_bytes()[1] == b':'
         && matches!(b.as_bytes()[2], b'/' | b'\\');
-    (p.is_absolute() || drive).then_some(p)
+    // On Windows a rooted path (`/…` or `\…`, no drive) is absolute to the Win32 port's
+    // `path_absolute` as it is to `include::is_absolute`; `Path::is_absolute` says no.
+    let rooted = cfg!(windows) && b.starts_with(['/', '\\']);
+    (p.is_absolute() || drive || rooted).then_some(p)
 }
 
 /// Fingerprint and backing of an identity path (see

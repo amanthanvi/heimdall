@@ -4579,6 +4579,29 @@ tests passed and 0 failed. §12.39 items 3 and 4 are done, each mutation-checked
    * a user value only in a conditional include that `git config` does not follow outside a
      repository is read conservatively, and requires a decision.
 
+### 12.42 Rulings on the wave-5g code review (orchestrator, 2026-11-06)
+
+Source: M02-W5g-code-review (Codex GPT-6.1 Sol, independent;
+`tests/evidence/artifacts/review-m02-code/wave5g.md`), range `cb5139e4..1f5b8156`: fix first,
+R01–R03. Each was reproduced by the reviewer, and the orchestrator fixed each and
+mutation-checked the regression.
+
+1. **R01: only the persistent scopes decide who wins.** §5.6 setup selections cover the
+   system and global files. A command-scope value (`-c`, `GIT_CONFIG_COUNT`,
+   `GIT_CONFIG_PARAMETERS`) belongs to one process, and a repository's own scopes belong to
+   one repository. Neither ever waives a decision on a persistent change. `winning_origin`
+   (used by both the rollback and the doctor's `git_user_value_shadowed`) queries
+   `--show-scope --show-origin` and takes the last system or global occurrence.
+   Regression: the shadowed case with a `GIT_CONFIG_COUNT` value in Heimdall's environment
+   still needs a decision.
+2. **R02: an incomplete observation is undetermined.** If the walk could not read the whole
+   include graph, or could not establish Git's global file, the selection after a rollback
+   is `undetermined` whether or not a user value was found. A decision is then required
+   (`undetermined_state`). Regression: an XDG include of a path that is not a file.
+3. **R03: the reverse move is a regression.** B_git applied into the XDG file and moved by
+   the owner into `~/.gitconfig` (the XDG file put back) is found only by the search. A
+   mutant that skips the search when the recorded file holds no block now fails.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

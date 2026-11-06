@@ -1165,7 +1165,18 @@ impl<'a> Builder<'a> {
             scope: Some(GitScope::Global),
             classification: GitSshClassification::VerifiedClient,
         };
+        // ADR-0007 §12.42 item 2 (R02): an observation that could not read the whole
+        // include graph, or could not establish Git's global file, cannot say what
+        // the rollback leaves in effect, whether or not it found a user value: the
+        // selection after the rollback is undetermined, which needs a decision (§5.2).
+        let incomplete = !obs.unreadable.is_empty() || obs.file.is_none();
+        let undetermined = GitSshSelection {
+            source: GitSshSource::Default,
+            scope: None,
+            classification: GitSshClassification::Undetermined,
+        };
         let selection = match user_value {
+            _ if incomplete => (heimdall, undetermined),
             Some(v) => {
                 let user = GitSshSelection {
                     source: GitSshSource::Config,

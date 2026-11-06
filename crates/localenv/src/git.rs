@@ -321,6 +321,29 @@ pub fn parse_origin_values(out: &[u8]) -> Option<Vec<(String, String)>> {
         .collect()
 }
 
+/// Parse `--show-scope --show-origin -z --get-all` output: `scope NUL origin NUL value
+/// NUL` triples, in read order. `None` when the output is not whole triples, a field is
+/// not UTF-8 or a scope is not one Git names.
+#[must_use]
+pub fn parse_scope_origin_values(out: &[u8]) -> Option<Vec<(GitScope, String, String)>> {
+    let mut fields: Vec<&[u8]> = out.split(|&b| b == 0).collect();
+    if fields.last().is_some_and(|f| f.is_empty()) {
+        fields.pop();
+    }
+    if !fields.len().is_multiple_of(3) {
+        return None;
+    }
+    fields
+        .chunks(3)
+        .map(|t| {
+            let scope = parse_scope(std::str::from_utf8(t[0]).ok()?)?;
+            let origin = std::str::from_utf8(t[1]).ok()?;
+            let value = std::str::from_utf8(t[2]).ok()?;
+            Some((scope, origin.to_owned(), value.to_owned()))
+        })
+        .collect()
+}
+
 /// Parse `--show-scope -z --get` output: `scope NUL value NUL`.
 #[must_use]
 pub fn parse_scope_value(out: &[u8]) -> Option<(GitScope, String)> {
@@ -712,14 +735,18 @@ pub fn managed_include_present(env: &Env, managed: &Path, windows: bool) -> bool
     holding.is_some_and(|bytes| holds_include(&bytes, &target).unwrap_or(false))
 }
 
-/// ADR-0007 §12.37 item 2: the origin of the `core.sshCommand` value Git uses when it
-/// runs outside any repository, as an observation shows origins ([`origin_of`]'s form):
-/// the **last** occurrence across every scope, which is how Git resolves a repeated key.
-/// `git config --show-origin -z --get-all` lists the occurrences in read order, with each
-/// include expanded where it stands, so the last one is the winner (system, then the XDG
-/// file, then `~/.gitconfig`). An origin that is not a file (the command scope) is
-/// returned as Git prints it. `None` when no value is set, the query failed or local
-/// queries are off: nothing is then said about who wins.
+/// ADR-0007 §12.37 item 2: the origin of the `core.sshCommand` value that the
+/// **persistent** configuration selects, as an observation shows origins ([`origin_of`]'s
+/// form): the **last** occurrence in the system and global scopes, which is how Git
+/// resolves a repeated key. `git config --show-scope --show-origin -z --get-all` lists the
+/// occurrences in read order, with each include expanded where it stands, so the last
+/// system or global one is the winner (system, then the XDG file, then `~/.gitconfig`).
+/// ADR-0007 §12.42 item 1 (R01): the command scope (`-c`, `GIT_CONFIG_COUNT`,
+/// `GIT_CONFIG_PARAMETERS`) and a repository's own scopes belong to one process or one
+/// repository, not to the selection that setup changes (§5.6 covers the system and
+/// global files), so an occurrence there never decides who wins. `None` when no
+/// system or global value is set, the query failed or local queries are off: nothing
+/// is then said about who wins.
 #[must_use]
 pub fn winning_origin(
     env: &Env,
@@ -732,6 +759,7 @@ pub fn winning_origin(
     }
     let args = [
         "config",
+        "--show-scope",
         "--show-origin",
         "-z",
         "--get-all",
@@ -740,7 +768,9 @@ pub fn winning_origin(
     let QueryAnswer::Found(out) = git_query(&git, &args, env, &query_cwd()) else {
         return None;
     };
-    let (origin, _value) = parse_origin_values(&out)?.pop()?;
+    let (_scope, origin, _value) = parse_scope_origin_values(&out)?
+        .into_iter()
+        .rfind(|(scope, _, _)| matches!(scope, GitScope::System | GitScope::Global))?;
     Some(queried_origin(origin, git_home(env).as_deref()))
 }
 
@@ -1155,6 +1185,25 @@ mod tests {
             Some((GitScope::Global, "included-ssh".to_owned()))
         );
         assert_eq!(parse_scope_value(b"unknown\0x\0"), None);
+        assert_eq!(
+            parse_scope_origin_values(
+                b"global\0file:/h/.gitconfig\0a\0command\0command line:\0b\0"
+            ),
+            Some(vec![
+                (
+                    GitScope::Global,
+                    "file:/h/.gitconfig".to_owned(),
+                    "a".to_owned()
+                ),
+                (
+                    GitScope::Command,
+                    "command line:".to_owned(),
+                    "b".to_owned()
+                ),
+            ])
+        );
+        assert_eq!(parse_scope_origin_values(b"global\0file:/x\0"), None);
+        assert_eq!(parse_scope_origin_values(b"nonsense\0file:/x\0v\0"), None);
     }
 
     #[test]

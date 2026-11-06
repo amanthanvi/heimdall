@@ -809,3 +809,24 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - launch and run on Windows: PATH entries, a batch-name test whose name is invalid on Windows, LAUNCH_FAILED 127, retry and replay records, `/bin/sh` in the cli tests, app holders UsageError ×6;
   - Unix assumptions in tests: test hooks need Windows absolute paths, `/tmp/a.sock`, `/scratch/home` separators, and the adapters drop, counting-proxy and hook-mode fixtures;
   - the harness's WSL fixture sshd authenticates only the WSL account, while the clients log in as the Windows user.
+- **Wave 6w (Windows native fixes)**, started 2026-11-06 ~12:05Z. The units are T3 agents on the PC, working natively in a dev scratch `%LOCALAPPDATA%\hm-m02-windev-c020e3be` (toolchain 1.99.1 installed there, sha256-checked rustup-init; a base clone at 1f5b8156; a full native build takes about 1 min). Each unit clones base and returns `units\<unit>\unit.patch`; I copy the patches back over ssh (read only), integrate, run check.sh on macOS, commit and push.
+  - w6-git (Opus): integration_git_observe ×15.
+  - w6-sshconf (Opus): sshconf_vs_ssh_g ×7, model_sshconf_eval ×1, e2e a21, doctor_cmd authorization text.
+  - w6-projection (Codex Sol): projection_replace ×6, e2e setup, uninstall, diff-bound and a11.
+  - w6-launch (Sonnet): launch ×2, e2e_run_m02 ×4 (including the assertion that printed the canary), holders ×6, cli, testcfg and tui ×5.
+  - w6-fixtures (Sonnet): testkit_fixtures ×2, adapters drop, agent locators; the WSL fixture sshd account; `fixture-sshd-at-end=mismatch`.
+  - Then a new exit build, with all three platforms rerun at it.
+- GitHub reported 4 Dependabot alerts on the default branch at 1f5b8156 (1 moderate, 3 low): to triage.
+  - Triage: all four alerts are `rustls` < 0.23.46 in `tests/evidence/artifacts/g02-r4/x5/rust-embed/Cargo.lock`, a disposable G02 X5 study's lockfile kept as evidence. The product Cargo.lock has no rustls. Nothing shipped is affected. To be recorded in the release go/no-go record; the evidence file is not edited.
+- Running (2026-11-06, local):
+  - M03 design author: Opus xhigh, worktree; writes `docs/architecture/m03-plan.md` and `docs/decisions/0008-managed-credential-integration.md`.
+  - M02-W5g-code-review: Codex Sol high, worktree at 1f5b8156.
+- target/ pruned: the unused `x86_64-pc-windows-gnu` cross dir removed (80G to 66G); the Linux cross dir kept for the next exit build.
+- Wave 6w results so far (native on the PC; patches copied back over ssh and checked against their sha256):
+  - w6-git: done. 15 of 15 fixed, all test-side. A `\\?\` canonical scratch root makes Git for Windows fail (exit 128); Git prints origins as `file:C:/…`; the default is the bundled MSYS ssh. Patch applied.
+  - w6-sshconf: 8 of 10 fixed. One product fix: a rooted Windows `IdentityFile` path (`/…`, no drive) is absolute, as Win32-OpenSSH treats it. The rest are test-side. Patch applied. Observed on 9.5p2: `~` in an Include follows HOME; `~` in ControlPath and IdentityAgent, and `%d`, follow the account profile.
+    - Escalation, display separators: ruled `/` everywhere (ADR-0007 §12.26 item 7, applied to `paths::display_path`). The `doctor_cmd` and a21 tests are to be re-run on Windows.
+  - w6-projection: 5 of 10 fixed, test-side. Two product defects in `sys/quarantine.rs`: every pin requests DELETE without delete sharing, so a second live pin fails (os error 32); and the owner-only DACL check always expects the directory form, so setup rejects its own snapshot file. Ruled and sent back to the same unit, with `sys/**` now granted.
+  - Lesson: Git for Windows' system config on the PC sets `core.autocrlf=true`, so fresh clones check out CRLF. The units re-check out with LF; the harness clone must as well (w6-fixtures checks this).
+- I fixed the wave-5g review's R01–R03 (ADR-0007 §12.42; review record `review-m02-code/wave5g.md`).
+- The selftest's L06, L15, L62 and W20 now follow `build_host_paths`. 1f5b8156 had broken them; it was pushed without a full check.sh, a lapse. Lesson: run check.sh before pushing any change to the harness inputs.

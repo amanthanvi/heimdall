@@ -3743,6 +3743,29 @@ fn git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved() {
     let _ = assert_update_or_noop(&fx, &spec, "block moved");
     assert_eq!(std::fs::read(&xdg).unwrap(), moved);
     assert_eq!(std::fs::read(fx.global()).unwrap(), original);
+
+    // §12.42 item 3 (R03), the reverse move: B_git went into the XDG file (the only global
+    // file at the apply), and the owner moved it into ~/.gitconfig and put the XDG file back
+    // as it was. The recorded file holds no block, so only the search finds the moved one.
+    let fx = Fx::new();
+    let xdg = create_xdg(&fx, b"[user]\n\tname = Xdg\n");
+    let original = std::fs::read(&xdg).unwrap();
+    let (spec, intent, sink) = applied_once(&fx);
+    let moved = std::fs::read(&xdg).unwrap();
+    assert_ne!(moved, original, "B_git went into the XDG file");
+    write_private(&fx.global(), &moved);
+    std::fs::write(&xdg, &original).unwrap();
+    let spec = again(&fx, &spec, &intent, &sink);
+    assert_eq!(
+        spec.record.as_ref().unwrap().items[&ProjectionItem::Git]
+            .include_file
+            .as_deref(),
+        xdg.to_str(),
+        "the record still names the XDG file"
+    );
+    let _ = assert_update_or_noop(&fx, &spec, "block moved out of the XDG file");
+    assert_eq!(std::fs::read(&xdg).unwrap(), original);
+    assert_eq!(std::fs::read(fx.global()).unwrap(), moved);
 }
 
 /// A record written before it named the file (`include_file` is `None`): both global files
@@ -3878,7 +3901,9 @@ fn git_reapply_without_a_recorded_file_searches_both_global_files() {
 /// Treating it as "no change" was not fail-closed. The controls: no user value (the
 /// ordinary rollback, back to the state the owner consented to) and a user value that
 /// already wins (read after B_git) need none. With local queries off nobody can say who
-/// wins, and the reading that needs a decision is taken.
+/// wins, and the reading that needs a decision is taken. §12.42: a command-scope value in
+/// Heimdall's environment never decides who wins (R01), and an observation that cannot
+/// read the whole include graph leaves the result undetermined (R02).
 #[test]
 fn git_rollback_in_the_shadowed_case_needs_a_decision() {
     use heimdall_contract::setup::ConsentReasonKind;
@@ -3888,9 +3913,14 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
         before_apply: Setup,
         after_apply: Setup,
         queries: LocalQueries,
-        /// The value Git selects after the apply and the owner's change.
-        effective: &'static str,
+        /// The value Git selects after the apply and the owner's change (`None`: Git
+        /// cannot read its configuration).
+        effective: Option<&'static str>,
         decision: bool,
+        /// The Git item's reason when a decision is needed.
+        reason: ConsentReasonKind,
+        /// Variables added to Heimdall's environment for the preview only.
+        extra_env: &'static [(&'static str, &'static str)],
     }
     let nothing: Setup = |_| {};
     let home_file: Setup = |fx| std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
@@ -3910,6 +3940,12 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
         );
     };
     let home_value: Setup = |fx| write_private(&fx.global(), b"[core]\n\tsshCommand = ssh -v\n");
+    let unreadable_include: Setup = |fx| {
+        let dir = fx.home.root.join("not-a-config-file");
+        std::fs::create_dir(&dir).unwrap();
+        let text = format!("[include]\n\tpath = {}\n", dir.to_str().unwrap());
+        create_xdg(fx, text.as_bytes());
+    };
     let heimdall = "'/usr/bin/ssh'";
     let cases = [
         Case {
@@ -3917,56 +3953,99 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
             before_apply: home_file,
             after_apply: nothing,
             queries: LocalQueries::Enabled,
-            effective: heimdall,
+            effective: Some(heimdall),
             decision: false,
+            reason: ConsentReasonKind::GitSelectionChanged,
+            extra_env: &[],
         },
         Case {
             label: "shadowed by an XDG file created after the apply",
             before_apply: home_file,
             after_apply: xdg_value,
             queries: LocalQueries::Enabled,
-            effective: heimdall,
+            effective: Some(heimdall),
             decision: true,
+            reason: ConsentReasonKind::GitSelectionChanged,
+            extra_env: &[],
         },
         Case {
             label: "shadowed by the system file",
             before_apply: home_file,
             after_apply: system_value,
             queries: LocalQueries::Enabled,
-            effective: heimdall,
+            effective: Some(heimdall),
             decision: true,
+            reason: ConsentReasonKind::GitSelectionChanged,
+            extra_env: &[],
         },
         Case {
             label: "shadowed, local queries off",
             before_apply: home_file,
             after_apply: xdg_value,
             queries: LocalQueries::Disabled,
-            effective: heimdall,
+            effective: Some(heimdall),
             decision: true,
+            reason: ConsentReasonKind::GitSelectionChanged,
+            extra_env: &[],
         },
         Case {
             label: "a user value after B_git wins",
             before_apply: home_file,
             after_apply: appended_value,
             queries: LocalQueries::Enabled,
-            effective: "ssh -v",
+            effective: Some("ssh -v"),
             decision: false,
+            reason: ConsentReasonKind::GitSelectionChanged,
+            extra_env: &[],
         },
         Case {
             label: "B_git in the XDG file, the value in ~/.gitconfig wins",
             before_apply: xdg_file,
             after_apply: home_value,
             queries: LocalQueries::Enabled,
-            effective: "ssh -v",
+            effective: Some("ssh -v"),
             decision: false,
+            reason: ConsentReasonKind::GitSelectionChanged,
+            extra_env: &[],
         },
         Case {
             label: "the same, local queries off",
             before_apply: xdg_file,
             after_apply: home_value,
             queries: LocalQueries::Disabled,
-            effective: "ssh -v",
+            effective: Some("ssh -v"),
             decision: true,
+            reason: ConsentReasonKind::GitSelectionChanged,
+            extra_env: &[],
+        },
+        // §12.42 item 1 (R01): a command-scope value in Heimdall's own environment
+        // belongs to that process. The persistent selection that ordinary processes see
+        // is still Heimdall's, so the rollback still changes it: a decision.
+        Case {
+            label: "shadowed, a command-scope value in the environment",
+            before_apply: home_file,
+            after_apply: xdg_value,
+            queries: LocalQueries::Enabled,
+            effective: Some(heimdall),
+            decision: true,
+            reason: ConsentReasonKind::GitSelectionChanged,
+            extra_env: &[
+                ("GIT_CONFIG_COUNT", "1"),
+                ("GIT_CONFIG_KEY_0", "core.sshCommand"),
+                ("GIT_CONFIG_VALUE_0", "ssh -c"),
+            ],
+        },
+        // §12.42 item 2 (R02): an include the walk cannot read leaves the selection after
+        // the rollback undetermined, although no user value was found.
+        Case {
+            label: "an unreadable include in the XDG file",
+            before_apply: home_file,
+            after_apply: unreadable_include,
+            queries: LocalQueries::Enabled,
+            effective: None,
+            decision: true,
+            reason: ConsentReasonKind::UndeterminedState,
+            extra_env: &[],
         },
     ];
     let rollback = PreviewIntent::Rollback {
@@ -3986,13 +4065,16 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
         (case.after_apply)(&fx);
         assert_eq!(
             fx.effective_ssh_command().as_deref(),
-            Some(case.effective),
+            case.effective,
             "{}: the fixture is the world it claims",
             case.label
         );
 
         let mut config = fx.config();
         config.queries = case.queries;
+        let mut vars = fx.git_env();
+        vars.extend(case.extra_env.iter().map(|(k, v)| (*k, (*v).to_owned())));
+        config.env = Env::from_vars(vars);
         let tree = fx.tree();
         let rb = LocalProjection::new(config)
             .preview(&spec, &rollback)
@@ -4018,7 +4100,7 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
         assert_eq!(
             git_reasons,
             if case.decision {
-                vec![ConsentReasonKind::GitSelectionChanged]
+                vec![case.reason]
             } else {
                 vec![]
             },

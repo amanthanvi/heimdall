@@ -120,6 +120,60 @@ print(" ".join(sorted(t)))
 PY
 )
 
+# The case index's build_host_paths entries (`target` or `target::test`), one per line: the
+# run plan skips exactly these off the build host, and the checks below compare against them.
+BHP=$(python3 -I - "$m02/case-index.json" <<'PY2'
+import json, sys
+idx = json.load(open(sys.argv[1], encoding="utf-8"))
+print("\n".join(sorted(idx.get("build_host_paths", {}))))
+PY2
+)
+
+# skipped_exactly PLATFORM FILE: FILE names every build_host_paths entry for PLATFORM
+# ("<key>: skipped on PLATFORM" or "<target>: not run on PLATFORM") and no other skip. A
+# directory two runs wrote into holds each line once per run, so the names are compared as sets.
+skipped_exactly() {
+    python3 -I - "$1" "$2" "$BHP" <<'PY2'
+import re, sys
+platform, path, bhp = sys.argv[1], sys.argv[2], sys.argv[3]
+want = sorted(k for k in bhp.splitlines() if k)
+try:
+    lines = open(path, encoding="utf-8").read().splitlines()
+except FileNotFoundError:
+    lines = []
+got = sorted(m.group(1) for l in lines
+             if (m := re.match(r"^(\S+): (?:skipped|not run) on " + re.escape(platform) + r" ", l)))
+sys.exit(0 if sorted(set(got)) == want else 1)
+PY2
+}
+
+# skip_args_exactly LOG: every binary's argv ends with --show-output; a binary with
+# build_host_paths single-test entries gets `--exact --skip <test>...` for exactly those
+# tests before it, and every other binary gets --show-output alone.
+skip_args_exactly() {
+    python3 -I - "$1" "$BHP" <<'PY2'
+import sys
+log, bhp = sys.argv[1], sys.argv[2]
+tests = sorted(k.split("::", 1)[1] for k in bhp.splitlines() if "::" in k)
+targets = {k.split("::", 1)[0] for k in bhp.splitlines() if "::" in k}
+argvs = [l[len("argv: "):].split(" ") for l in open(log, encoding="utf-8").read().splitlines()
+         if l.startswith("argv: ")]
+skipped = []
+with_skip = 0
+for a in argvs:
+    if a == ["--show-output"]:
+        continue
+    if len(a) < 4 or a[0] != "--exact" or a[-1] != "--show-output":
+        sys.exit(1)
+    mid = a[1:-1]
+    if len(mid) % 2 or any(mid[i] != "--skip" for i in range(0, len(mid), 2)):
+        sys.exit(1)
+    skipped += mid[1::2]
+    with_skip += 1
+sys.exit(0 if argvs and sorted(skipped) == tests and with_skip == len(targets) else 1)
+PY2
+}
+
 # --- the fake world -----------------------------------------------------------------------
 
 # new_world NAME: fresh fake remote home ($H), Windows tree ($W), stub bin ($B), stub
@@ -768,8 +822,8 @@ check "L04 linux build-only: build.txt has a sha256 per planned binary, the CLI 
         grep -q "^hm-fixture-hook (HM_FIXTURE_HOOK) sha256: [0-9a-f]\{64\}$" "$b" && grep -q "^toolchain: rustc 0.0.0-selftest; zig 0.0.0-selftest; target x86_64-unknown-linux-gnu" "$b"' _ "$O/build.txt"
 check "L05 linux build-only: every target is planned (repository files come from HM_REPO_ROOT; ADR-0007 §12.32 item 3)" \
     bash -c 'for t in $2; do [ "$t" = extra_target ] && continue; grep -q "^$t sha256: " "$1" || exit 1; done' _ "$O/build.txt" "$TARGETS"
-check "L06 linux build-only: nothing is skipped as build-host-only" \
-    bash -c '! grep -qE "not run on linux|skipped on linux" "$1" 2>/dev/null' _ "$O/skipped.txt"
+check "L06 linux build-only: exactly the case index's build_host_paths entries are skipped as build-host-only" \
+    skipped_exactly linux "$O/skipped.txt"
 check "L07 linux build-only: no scratch, no remote directory, nothing in the fake home" dir_tree_is_empty "$H"
 check "L08 linux build-only: the commands record real exit codes" \
     bash -c 'grep -q "^exit 0: cargo test --target x86_64-unknown-linux-gnu" "$1" && grep -q "^exit 0: run plan from case-index.json" "$1"' _ "$O/commands.txt"
@@ -787,8 +841,8 @@ check "L13 linux: every binary ran and its exit code is kept (### name exit=0)" 
     bash -c 'n=$(grep -c "^### [A-Za-z0-9_-]* exit=0$" "$1"); [ "$n" -ge 25 ] && ! grep -q "exit=[1-9]" "$1"' _ "$O/tests.txt"
 check "L14 linux: each binary ran under nice -n 10 and timeout 1800" \
     bash -c 'n=$(grep -c "^nice -n 10 " "$1"); t=$(grep -c "^timeout 1800 " "$1"); [ "$n" -ge 25 ] && [ "$n" = "$t" ]' _ "$L"
-check "L15 linux: no binary is given --exact --skip (nothing is build-host-only)" \
-    bash -c '! grep -E "^argv: " "$1" | grep -q -e "--skip"' _ "$L"
+check "L15 linux: --exact --skip is given for exactly the build_host_paths tests, to their binaries only" \
+    skip_args_exactly "$L"
 check "L16 linux: HM_REPO_ROOT names the repository copy inside the scratch, with the schemas, the sources and the tests (no evidence)" \
     bash -c 't=$1; grep -q "^env repo_root=set$" "$t" && grep -q "^env repo_root_inside_cwd=yes$" "$t" && grep -q "^env repo_root_has_files=yes$" "$t" && grep -q "^exit 0: stage the repository files the tests read (HM_REPO_ROOT: [1-9][0-9]* files)$" "$2"' _ "$O/tests.txt" "$O/commands.txt"
 check "L17 linux: host.txt records ssh -V, sshd -V and git --version with exit codes" \
@@ -892,8 +946,13 @@ check "L60 linux: every binary ran with --show-output" \
     bash -c 'n=$(grep -c "^argv: .*--show-output$" "$1"); [ "$n" -ge 25 ] && [ "$n" = "$(grep -c "^argv: " "$1")" ]' _ "$L"
 check "L61 linux: the observation line of a passing test is in tests.txt under its test header, with the home redacted" \
     bash -c 't=$1; grep -q "^---- fixture::a stdout ----$" "$t" && grep -q "^observation test=a path=<home> supported=true$" "$t"' _ "$O/tests.txt"
-check "L62 linux: --show-output is every binary's only argument (no --exact or --skip: nothing is build-host-only)" \
-    bash -c 'n=$(grep -c "^argv: --show-output$" "$1"); [ "$n" -ge 25 ] && [ "$n" = "$(grep -c "^argv: " "$1")" ]' _ "$L"
+show_output_last() {
+    local n
+    n=$(grep -c "^argv: .*--show-output$" "$1")
+    [ "$n" -ge 25 ] && [ "$n" = "$(grep -c "^argv: " "$1")" ] && skip_args_exactly "$1"
+}
+check "L62 linux: --show-output is every binary's last argument, preceded only by the build_host_paths skips" \
+    show_output_last "$L"
 
 # L-existing directory with a similar name
 new_world linux-existing
@@ -1146,8 +1205,12 @@ check "W18 windows: the Windows profile .ssh and .gitconfig metadata unchanged i
     grep_q "unchanged by the run" "$O/commands.txt"
 check "W19 windows: test pipes and %LOCALAPPDATA%\\heimdall are counted before and after" \
     bash -c 'h=$1; grep -q "^test-pipes-before=0$" "$h" && grep -q "^test-pipes-after=0$" "$h" && grep -q "^localappdata-heimdall-before=absent$" "$h" && grep -q "^localappdata-heimdall-after=absent$" "$h" && grep -q "^leftover-test-processes=0$" "$h"' _ "$O/host.txt"
-check "W20 windows: nothing is skipped as build-host-only; HM_REPO_ROOT names the repository copy in the Windows scratch, through WSLENV" \
-    bash -c 's=$1; t=$2; ! grep -qE "not run on windows|skipped on windows" "$s" 2>/dev/null && grep -q "^### e2e_cli_m02 exit=0" "$t" && grep -q "^env repo_root=set$" "$t" && grep -q "^env repo_root_has_files=yes$" "$t" && grep "^env wslenv=" "$t" | grep -q "HM_REPO_ROOT/w"' _ "$O/skipped.txt" "$O/tests.txt"
+w20_repo_root() {
+    skipped_exactly windows "$1" &&
+        bash -c 't=$1; grep -q "^### e2e_cli_m02 exit=0" "$t" && grep -q "^env repo_root=set$" "$t" && grep -q "^env repo_root_has_files=yes$" "$t" && grep "^env wslenv=" "$t" | grep -q "HM_REPO_ROOT/w"' _ "$2"
+}
+check "W20 windows: exactly the build_host_paths entries are skipped as build-host-only; HM_REPO_ROOT names the repository copy in the Windows scratch, through WSLENV" \
+    w20_repo_root "$O/skipped.txt" "$O/tests.txt"
 check "W21 windows: host, user and home names, both WSL and Windows, are absent from every artifact" \
     none_of "$O" "$H" "wslfixturehost" "FIXTUREHOST" "fixtureuser" "$REAL_USER"
 check "W22 windows: the owner's Windows profile .ssh was not touched (no file created there)" no_file "$W/Users/fixtureuser/.ssh"

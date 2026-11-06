@@ -51,7 +51,11 @@ struct GitHome {
 impl GitHome {
     fn new() -> GitHome {
         let scratch = Scratch::new().unwrap();
-        let root = std::fs::canonicalize(scratch.path()).unwrap();
+        // The product's canonical form: on Windows `std::fs::canonicalize` gives the
+        // verbatim `\\?\C:\…` form, which Git for Windows cannot use as `HOME` (exit 128,
+        // "unable to access '\?\C:\…\.config/git/config'") and B_git cannot name
+        // (ADR-0007 §4 refuses verbatim paths). Unix: the same as `canonicalize`.
+        let root = heimdall_localenv::fs::canonical_path(scratch.path()).unwrap();
         let home = root.join("home");
         std::fs::create_dir_all(&home).unwrap();
         let git = find_program("git").expect("git on PATH");
@@ -62,6 +66,14 @@ impl GitHome {
             "XDG_CONFIG_HOME".to_owned(),
             home.join(".config").into_os_string(),
         );
+        // Windows: every process has `SystemRoot`, and the client inventory selects the
+        // OpenSSH programs from `%SystemRoot%\System32\OpenSSH` only (ADR-0004 E6). A
+        // machine-wide value, not the owner's home or configuration.
+        if cfg!(windows)
+            && let Some(root) = std::env::var_os("SystemRoot")
+        {
+            vars.insert("SystemRoot".to_owned(), root);
+        }
         GitHome {
             _scratch: scratch,
             root,
@@ -73,7 +85,21 @@ impl GitHome {
 
     fn path_var(&self) -> OsString {
         let dir = self.git.parent().unwrap().to_path_buf();
-        std::env::join_paths([dir, PathBuf::from("/usr/bin"), PathBuf::from("/bin")]).unwrap()
+        // Windows has no `/usr/bin` or `/bin` (they are not absolute there): the
+        // directory of the `ssh` this test environment resolves (the in-box OpenSSH,
+        // first on the harness `PATH`) stands in for them.
+        let rest = if cfg!(windows) {
+            vec![
+                find_program("ssh")
+                    .expect("ssh on PATH")
+                    .parent()
+                    .unwrap()
+                    .to_path_buf(),
+            ]
+        } else {
+            vec![PathBuf::from("/usr/bin"), PathBuf::from("/bin")]
+        };
+        std::env::join_paths(std::iter::once(dir).chain(rest)).unwrap()
     }
 
     fn env(&self) -> Env {
@@ -171,16 +197,19 @@ impl GitHome {
             String::from_utf8_lossy(&version).trim()
         );
         for (k, v) in fields {
-            line.push_str(&format!(
-                " {k}={:?}",
-                v.replace(&*self.root.to_string_lossy(), "<scratch>")
-            ));
+            // Both forms: Git for Windows prints paths with `/` separators.
+            let v = v
+                .replace(&*self.root.to_string_lossy(), "<scratch>")
+                .replace(&git_path(&self.root), "<scratch>");
+            line.push_str(&format!(" {k}={v:?}"));
         }
         eprintln!("{line}");
     }
 
+    /// The origin an observation shows for `rel` under Git's home: `~/` and `/`
+    /// separators on every platform (ADR-0007 §12.26 item 7, §12.43 item 1).
     fn display(&self, rel: &str) -> String {
-        format!("file:~{}{rel}", std::path::MAIN_SEPARATOR)
+        format!("file:~/{rel}")
     }
 }
 
@@ -214,7 +243,9 @@ fn git_config_query_output_parsed() {
     );
     assert_eq!(code, 0);
     let pairs = parse_origin_values(&out).expect("the --show-origin -z form parses");
-    let home = h.home.to_string_lossy().into_owned();
+    // The origin as Git prints it: Git for Windows writes `file:C:/…` with `/`
+    // separators (observed on 2.55.0.windows.3); elsewhere the path as given.
+    let home = git_path(&h.home);
     assert_eq!(
         pairs,
         vec![
@@ -364,14 +395,39 @@ fn git_run_selection_in_cwd_reports_local_override() {
         .path
         .clone();
     let env = h.env();
-    // Nothing set anywhere: Git's default, `ssh` from PATH, the verified client here.
+    // Nothing set anywhere: Git's default. That is `ssh` from PATH, the verified client
+    // here, except where Git for Windows ships its own MSYS `ssh.exe` beside its `cmd`
+    // or `bin` directory: then Git's default is that bundled client (ADR-0007 §5.6
+    // "Git's default SSH", §8, F16).
+    let git_root = h.git.parent().and_then(Path::parent).unwrap();
+    let git_root = if git_root
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case("mingw64"))
+    {
+        git_root.parent().unwrap()
+    } else {
+        git_root
+    };
+    let bundled = cfg!(windows) && git_root.join("usr").join("bin").join("ssh.exe").is_file();
+    h.record(
+        "git_run_selection_in_cwd_reports_local_override",
+        &[("git_bundles_msys_ssh", bundled.to_string())],
+    );
     let s = resolve_run_selection(&repo, &env, &inv, LocalQueries::Enabled);
     assert_eq!(s.source, GitSshSource::Default);
-    assert_eq!(s.classification, GitSshClassification::VerifiedClient);
-    // A global value naming the verified client, quoted as Heimdall renders it.
+    assert_eq!(
+        s.classification,
+        if bundled {
+            GitSshClassification::BundledMsys
+        } else {
+            GitSshClassification::VerifiedClient
+        }
+    );
+    // A global value naming the verified client, quoted as Heimdall renders it: `/`
+    // separators, single-quoted, then Git-config double-quoted (ADR-0007 §4).
     h.write(
         ".gitconfig",
-        &format!("[core]\n\tsshCommand = \"'{}'\"\n", ssh.display()),
+        &format!("[core]\n\tsshCommand = \"'{}'\"\n", git_path(&ssh)),
     );
     let s = resolve_run_selection(&repo, &env, &inv, LocalQueries::Enabled);
     assert_eq!(

@@ -82,13 +82,24 @@ impl SshPaths {
     }
 }
 
-/// `path` with a leading `home` shown as `~` (lossy UTF-8).
+/// `path` with a leading `home` shown as `~` (lossy UTF-8), with `/` separators on every
+/// platform, as every other display does (ADR-0007 §12.26 item 7, §12.43 item 1): on
+/// Windows `\` is a separator and is shown as `/`; on Unix it is a file-name character
+/// and is kept.
 #[must_use]
 pub fn display_path(home: &Path, path: &Path) -> String {
+    let text = |p: &Path| {
+        let s = p.to_string_lossy();
+        if cfg!(windows) {
+            s.replace('\\', "/")
+        } else {
+            s.into_owned()
+        }
+    };
     match path.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
-        Ok(rest) => format!("~{}{}", std::path::MAIN_SEPARATOR, rest.to_string_lossy()),
-        Err(_) => path.to_string_lossy().into_owned(),
+        Ok(rest) => format!("~/{}", text(rest)),
+        Err(_) => text(path),
     }
 }
 
@@ -129,7 +140,7 @@ mod tests {
         assert_eq!(display_path(&home, &home), "~");
         assert_eq!(
             display_path(&home, &home.join(".ssh").join("config")),
-            format!("~{0}.ssh{0}config", std::path::MAIN_SEPARATOR)
+            "~/.ssh/config"
         );
         assert_eq!(
             display_path(&home, Path::new("/scratch/homework/x")),

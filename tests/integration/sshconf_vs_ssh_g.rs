@@ -71,7 +71,9 @@ struct Harness {
 impl Harness {
     fn new() -> Harness {
         let scratch = Scratch::new().unwrap();
-        let root = std::fs::canonicalize(scratch.path()).unwrap();
+        // Canonical without Windows' verbatim `\\?\` prefix, which no client config
+        // can name and the renderer refuses by design.
+        let root = heimdall_localenv::fs::canonical_path(scratch.path()).unwrap();
         for d in ["home", "home/.ssh", "etc-ssh"] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
@@ -97,7 +99,7 @@ impl Harness {
         // The repository through HM_REPO_ROOT (ADR-0007 §12.32 item 3).
         let src = heimdall_testkit::repo::repo_path("tests/fixtures/sshconf/corpus");
         let dst = self.root.join("corpus");
-        copy_tree(&src, &dst, &dst.to_string_lossy());
+        copy_tree(&src, &dst, &config_text(&dst));
         dst
     }
 
@@ -178,8 +180,7 @@ impl Harness {
                 .or_default()
                 .push(v.to_owned());
         }
-        let stderr = String::from_utf8_lossy(&out.stderr)
-            .replace(&*self.root.to_string_lossy(), "<scratch>");
+        let stderr = self.redact(&String::from_utf8_lossy(&out.stderr));
         (out.status.code().unwrap_or(-1), map, stderr)
     }
 
@@ -234,8 +235,8 @@ impl Harness {
             self.client()
         );
         for (k, v) in fields {
-            let v = v
-                .replace(&*self.root.to_string_lossy(), "<scratch>")
+            let v = self
+                .redact(v)
                 .replace(&format!("user {}", self.local_user), "user <local>");
             line.push_str(&format!(" {k}={v:?}"));
         }
@@ -244,8 +245,26 @@ impl Harness {
 
     fn write(&self, name: &str, text: &str) -> PathBuf {
         let p = self.root.join(name);
-        std::fs::write(&p, text.replace("@SCRATCH@", &self.root.to_string_lossy())).unwrap();
+        std::fs::write(&p, text.replace("@SCRATCH@", &config_text(&self.root))).unwrap();
         p
+    }
+
+    /// `text` with the scratch root, in either separator form, shown as `<scratch>`.
+    fn redact(&self, text: &str) -> String {
+        text.replace(&*self.root.to_string_lossy(), "<scratch>")
+            .replace(&config_text(&self.root), "<scratch>")
+    }
+}
+
+/// An absolute scratch path as the corpus and the test configurations write it:
+/// with `/` separators (the corpus README; on Windows the client takes `C:/…`).
+/// Unchanged on Unix.
+fn config_text(p: &Path) -> String {
+    let s = p.to_string_lossy().into_owned();
+    if cfg!(windows) {
+        s.replace('\\', "/")
+    } else {
+        s
     }
 }
 
