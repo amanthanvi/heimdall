@@ -443,7 +443,7 @@
           ]
         },
         "diff": {
-          "description": "Unified diff, at most [`MAX_DIFF_BYTES`].",
+          "description": "Unified diff, at most [`MAX_DIFF_BYTES`]. A change to a file the owner owns is\nshown whole. A **removal of one of Heimdall's own files** (P, P_git, a key file)\nis one summary line instead of the removed content (ADR-0007 §12.34 item 7):\n`~ removed <name>: <N> lines, sha256 <hex>`, with the file's name, its number of\nlines (`1 line` for one) and the SHA-256 of the removed content. The line starts\nwith `~`, which no line of a real diff does, and only files the owner owns count\ntoward the bound.",
           "type": "string"
         },
         "path_display": {

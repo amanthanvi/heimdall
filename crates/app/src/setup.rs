@@ -2325,6 +2325,7 @@ fn committed_record(
             generation: commit.generation,
             files: Vec::new(),
             aliases: Vec::new(),
+            include_file: None,
             operation: operation.clone(),
             committed_at: at,
         }
@@ -2354,6 +2355,12 @@ fn committed_record(
         files.extend(written.iter().cloned());
         files.sort_by(|a, b| (a.role, &a.path).cmp(&(b.role, &b.path)));
         let p_written = written.iter().any(|w| w.role == FileRole::ManagedSsh);
+        // ADR-0007 §12.37 item 3: the file B_git went into. An intent that wrote B_git
+        // names it; an update of P_git alone keeps what the previous generation recorded.
+        let include_file = given
+            .as_ref()
+            .and_then(|g| g.include_file.clone())
+            .or_else(|| previous.as_ref().and_then(|p| p.include_file.clone()));
         let aliases = if p_written || previous.is_none() {
             given.map(|g| g.aliases).unwrap_or_default()
         } else {
@@ -2363,6 +2370,7 @@ fn committed_record(
             generation: commit.generation,
             files,
             aliases,
+            include_file,
             operation: operation.clone(),
             committed_at: at,
         }
@@ -2728,5 +2736,118 @@ mod tests {
         }
         let e = not_applied_error(&[not_applied(ProjectionItem::Ssh, None)]);
         assert_eq!((e.code, e.reason), (Code::ConfigConflict, None));
+    }
+
+    /// ADR-0007 §12.37 item 3: the file B_git was written into is kept on the Git item's
+    /// record. The commit that wrote it names it; an update of P_git alone names none and
+    /// keeps the previous generation's; a rollback empties the record, path included; and
+    /// the SSH item never carries one.
+    #[test]
+    fn the_git_record_keeps_the_file_b_git_was_written_into() {
+        use heimdall_domain::projection::ConsentRecord;
+        let env = EnvironmentId::from_random_bytes([1; 16]);
+        let op = OperationId::from_random_bytes([2; 16]);
+        let now = Timestamp::now();
+        let intent = |intent: PreviewIntent, generation: u64| SetupIntent {
+            plan_digest: PlanDigest::from_sha256([3; 32]),
+            intent,
+            generation,
+            approval: None,
+            consent: ConsentRecord::default(),
+            files: Vec::new(),
+        };
+        let commit = |item: ProjectionItem, generation: u64, include_file: Option<&str>| {
+            let record = ProjectionRecord {
+                environment: env.clone(),
+                items: [(
+                    item,
+                    ItemRecord {
+                        generation,
+                        files: Vec::new(),
+                        aliases: Vec::new(),
+                        include_file: include_file.map(str::to_owned),
+                        operation: op.clone(),
+                        committed_at: now,
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            };
+            ItemCommit {
+                item,
+                generation,
+                resources: Vec::new(),
+                record,
+                consent: ConsentRecord::default(),
+            }
+        };
+        let apply = PreviewIntent::Apply { include_git: true };
+        let git =
+            |record: &ProjectionRecord| record.items[&ProjectionItem::Git].include_file.clone();
+
+        // The apply that wrote B_git records its file.
+        let first = committed_record(
+            None,
+            &commit(ProjectionItem::Git, 1, Some("/scratch/home/.gitconfig")),
+            &intent(apply.clone(), 1),
+            &env,
+            &op,
+            now,
+        );
+        assert_eq!(git(&first).as_deref(), Some("/scratch/home/.gitconfig"));
+        // An update that did not touch B_git names no file and keeps the recorded one.
+        let update = committed_record(
+            Some(first.clone()),
+            &commit(ProjectionItem::Git, 2, None),
+            &intent(apply.clone(), 2),
+            &env,
+            &op,
+            now,
+        );
+        assert_eq!(git(&update).as_deref(), Some("/scratch/home/.gitconfig"));
+        // A commit that wrote B_git again names its file, which replaces the old one.
+        let moved = committed_record(
+            Some(update.clone()),
+            &commit(
+                ProjectionItem::Git,
+                3,
+                Some("/scratch/home/.config/git/config"),
+            ),
+            &intent(apply.clone(), 3),
+            &env,
+            &op,
+            now,
+        );
+        assert_eq!(
+            git(&moved).as_deref(),
+            Some("/scratch/home/.config/git/config")
+        );
+        // The SSH item's commit carries none, and leaves the Git item's alone.
+        let ssh = committed_record(
+            Some(update),
+            &commit(ProjectionItem::Ssh, 4, None),
+            &intent(apply, 4),
+            &env,
+            &op,
+            now,
+        );
+        assert_eq!(ssh.items[&ProjectionItem::Ssh].include_file, None);
+        assert_eq!(git(&ssh).as_deref(), Some("/scratch/home/.gitconfig"));
+        // A rollback empties the item: no files, no aliases, no path.
+        let rollback = PreviewIntent::Rollback {
+            keep_key_files: true,
+            items: [ProjectionItem::Git].into_iter().collect(),
+        };
+        let rolled = committed_record(
+            Some(ssh),
+            &commit(ProjectionItem::Git, 5, None),
+            &intent(rollback, 5),
+            &env,
+            &op,
+            now,
+        );
+        let item = &rolled.items[&ProjectionItem::Git];
+        assert!(item.files.is_empty() && item.aliases.is_empty());
+        assert_eq!(item.include_file, None);
     }
 }

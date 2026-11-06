@@ -4512,6 +4512,34 @@ the harness and the importer, are accepted and fixed by the orchestrator.
    * The macOS home rule no longer matches a drive-letter path, so `C:/Users/...` is judged
      by the Windows rule only, a gap the new tests found.
 
+### 12.39 Rulings on the wave-5f escalations; wave 5g (orchestrator, 2026-11-06)
+
+Source: the wave-5f unit report (workflow `wf_ebca271f-51b`). check.sh exited 0 twice, with 1755
+tests passed and 0 failed. §12.37 items 1–4 are done, each mutation-checked (12 mutants).
+
+1. **`ItemRecord.include_file` is ratified.** It is additive and serde-defaulted, so an old
+   record reads back as `None`. The writer fills it from the written `git_include` step, and
+   the sink keeps it across a P_git-only update and empties it on rollback.
+2. **Readings ratified, for a record without a path:**
+   * exactly one block in total is used where it is;
+   * a single edited block stays the `marker_edited` conflict;
+   * no block removes P_git alone;
+   * more than one block is manual mode (`marker_duplicated`).
+3. **The re-preview uses the recorded file too (the twin of §12.37 item 3).** `plan_git_apply`
+   looks for B_git in the file the record names, with the same fallback as the rollback, so
+   a second `setup --include-git` after the XDG file appears can plan an update. Owner:
+   W5g-git.
+4. **The rollback consent sees the shadowed case.** When Heimdall's value is the effective one
+   and a user value sits in another global file, a rollback changes Git's effective value
+   from Heimdall's to the user's. The Git item's before and after selections must say so,
+   and §5.2 applies: a rollback that exposes a value the owner's configuration gained after
+   the apply decision needs a decision. Treating it as "no change" was not fail-closed.
+   Regression: shadowed case, then a rollback preview, and a decision is required. Owner:
+   W5g-git.
+5. **Shadowing needs a local query.** `git_user_value_shadowed` needs
+   `git config --show-origin`, so with `--no-local-exec` the doctor reports nothing about
+   shadowing. Stated in the matrix.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

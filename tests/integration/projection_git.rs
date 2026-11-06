@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex, Once, PoisonError};
 use heimdall_app::ports::{
     ItemOutcome, ProjectionReceipt, ProjectionWriter, ReconcileError, SinkError, StageSink,
 };
-use heimdall_contract::doctor::FindingSeverity;
+use heimdall_contract::doctor::{DoctorReport, Finding, FindingSeverity, finding};
 use heimdall_contract::ids::{AccountName, DestinationId, EnvironmentId, IdentityId, OperationId};
 use heimdall_contract::setup::{ConflictKind, GitApplicability, PreviewIntent, ProjectionItem};
 use heimdall_domain::operation::{
@@ -43,7 +43,10 @@ use heimdall_domain::projection::{
     Base, FileRole, FileStep, ItemCommit, ManagedAliasSpec, ProjectionPlan, ProjectionRecord,
     ProjectionSpec, SetupIntent, Sha256Hex, StepContentView, Target,
 };
-use heimdall_localenv::clients::{ClientCandidate, ClientInventory, ClientKind, ClientSource};
+use heimdall_localenv::clients::{
+    ClientCandidate, ClientInventory, ClientKind, ClientSource, ClientsConfig,
+};
+use heimdall_localenv::doctor::{DoctorRequest, LocalContext};
 use heimdall_localenv::env::{Env, Platform};
 use heimdall_localenv::local_query::LocalQueries;
 use heimdall_localenv::paths::SshPaths;
@@ -51,6 +54,7 @@ use heimdall_localenv::projection::{
     LocalProjection, ProjectionConfig, PublicKeySource, ReplaceHook, ReplacePoint,
 };
 use heimdall_localenv::sys::IdentitySource;
+use heimdall_sshconf::limits::Limits;
 use heimdall_testkit::home::{ScratchHome, find_program};
 
 // --- fixtures (the compact harness of integration_projection) ------------------------
@@ -237,8 +241,10 @@ fn synthetic_public_key() -> String {
     format!("ssh-ed25519 {}", b64(&blob))
 }
 
+/// The receipts the writer appended, and the item commits it handed to the sink (what
+/// the application's sink merges into the projection record).
 #[derive(Clone, Default)]
-struct Sink(Arc<Mutex<Vec<StageReceipt>>>);
+struct Sink(Arc<Mutex<Vec<StageReceipt>>>, Arc<Mutex<Vec<ItemCommit>>>);
 
 fn durable(local: &LocalReceipt) -> StageReceipt {
     let adapter = AdapterIdentity {
@@ -273,16 +279,46 @@ impl StageSink for Sink {
     }
 
     fn commit_item(&mut self, commit: ItemCommit) -> Result<(), SinkError> {
-        self.append(&LocalReceipt::Item {
+        let receipt = LocalReceipt::Item {
             item: commit.item,
             phase: ItemPhase::Committed {
                 generation: commit.generation,
             },
-        })
+        };
+        self.1
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(commit);
+        self.append(&receipt)
     }
 }
 
 impl Sink {
+    /// The item commits, in order.
+    fn commits(&self) -> Vec<ItemCommit> {
+        self.1
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The file the writer last recorded B_git in (`ItemRecord::include_file`): the
+    /// newest Git commit that names one, as the application's sink keeps the previous
+    /// generation's path across an update that names none.
+    fn recorded_include_file(&self) -> Option<String> {
+        self.commits()
+            .iter()
+            .rev()
+            .filter(|c| c.item == ProjectionItem::Git)
+            .find_map(|c| {
+                c.record
+                    .items
+                    .get(&ProjectionItem::Git)?
+                    .include_file
+                    .clone()
+            })
+    }
+
     fn receipts(&self) -> Vec<StageReceipt> {
         self.0
             .lock()
@@ -512,6 +548,42 @@ impl Fx {
             c.env(k, v);
         }
         c.output().unwrap()
+    }
+
+    /// The passive doctor over this scratch world (ADR-0007 §12.37): the same scratch
+    /// `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_SYSTEM`, this scratch Git, Heimdall's
+    /// configuration directory as the writer uses it. No alias is evaluated.
+    fn doctor(&self, queries: LocalQueries) -> DoctorReport {
+        let path = std::env::join_paths([
+            self.git.parent().unwrap(),
+            Path::new("/usr/bin"),
+            Path::new("/bin"),
+        ])
+        .unwrap();
+        let mut vars: Vec<(std::ffi::OsString, std::ffi::OsString)> = vec![("PATH".into(), path)];
+        vars.extend(
+            self.git_env()
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into())),
+        );
+        let mut ctx = LocalContext::new(
+            SshPaths::with_test_override(
+                self.home_dir().to_path_buf(),
+                self.home.root.join("etc-ssh"),
+            ),
+            Env::from_vars(vars),
+            Platform::current(),
+            ClientsConfig {
+                git: Some(self.git.clone()),
+                ..ClientsConfig::default()
+            },
+            Limits::default(),
+        );
+        ctx.managed_file = Some(self.config().managed_ssh_path());
+        let mut request = DoctorRequest::passive();
+        request.local_queries = queries;
+        request.aliases = Some(Vec::new());
+        heimdall_localenv::doctor::run(&ctx, &request)
     }
 
     fn effective_ssh_command(&self) -> Option<String> {
@@ -841,6 +913,11 @@ fn record_of(fx: &Fx, intent: &SetupIntent, sink: &Sink) -> ProjectionRecord {
                 generation: intent.generation,
                 files,
                 aliases: Vec::new(),
+                // What the writer's own commit recorded (ADR-0007 §12.37 item 3), not
+                // what the test knows: the sink merges it into the stored record.
+                include_file: (item == ProjectionItem::Git)
+                    .then(|| sink.recorded_include_file())
+                    .flatten(),
                 operation: OperationId::from_random_bytes([3; 16]),
                 committed_at: heimdall_contract::Timestamp::now(),
             },
@@ -2491,10 +2568,18 @@ fn git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask() {
     );
 }
 
+fn findings<'a>(report: &'a DoctorReport, code: &str) -> Vec<&'a Finding> {
+    report.findings.iter().filter(|f| f.code == code).collect()
+}
+
 /// Only `~/.gitconfig` existed at apply; the owner then creates the XDG file with a
 /// value. Git reads the XDG file first, so Heimdall's include (in `~/.gitconfig`) wins,
-/// as disclosed. The doctor finding `git_user_value_shadowed` is U3's/U5's and is not
-/// asserted here.
+/// as disclosed (ADR-0007 §5.6 "Residual, disclosed"; §12.37 item 2). The doctor, run
+/// over the same scratch world, reports `git_user_value_shadowed` with both origins and
+/// both value digests, and never a value. The user's value stays a present value with
+/// its origin, and Heimdall's own is not listed. When the user's value wins instead (B_git
+/// in the XDG file, the user's value in `~/.gitconfig`, which Git reads later), the
+/// finding is not emitted.
 #[test]
 fn git_xdg_created_after_apply_shadowed_value_reported() {
     let fx = Fx::new();
@@ -2510,6 +2595,68 @@ fn git_xdg_created_after_apply_shadowed_value_reported() {
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
         Some("'/usr/bin/ssh'")
+    );
+
+    let report = fx.doctor(LocalQueries::Enabled);
+    let shadowed = findings(&report, finding::GIT_USER_VALUE_SHADOWED);
+    assert_eq!(shadowed.len(), 1, "{:?}", report.findings);
+    let message = &shadowed[0].message;
+    let env = Env::from_vars(fx.git_env());
+    let own_origin = heimdall_localenv::git::origin_of(&env, &fx.p_git()).unwrap();
+    let user_origin = heimdall_localenv::git::origin_of(&env, &xdg).unwrap();
+    for needed in [
+        own_origin.clone(),
+        user_origin.clone(),
+        heimdall_localenv::git::value_digest("'/usr/bin/ssh'"),
+        heimdall_localenv::git::value_digest("ssh -q"),
+    ] {
+        assert!(message.contains(&needed), "{needed}: {message}");
+    }
+    for never in ["ssh -q", "/usr/bin/ssh"] {
+        assert!(!message.contains(never), "{never}: {message}");
+    }
+    assert_eq!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).len(),
+        1,
+        "the user's value is a present value: {:?}",
+        report.findings
+    );
+    let git = report.git.expect("git is installed on the harness");
+    assert_eq!(git.values.len(), 1, "{:?}", git.values);
+    assert_eq!(
+        git.values[0].origin_display.as_deref(),
+        Some(user_origin.as_str())
+    );
+    assert_ne!(
+        Some(own_origin.as_str()),
+        git.values[0].origin_display.as_deref()
+    );
+
+    // The other order: B_git went into the XDG file (it existed at apply), and the
+    // user's value is later set in `~/.gitconfig`, which Git reads after it. The user's
+    // value wins, so nothing is shadowed (and it is still reported as present).
+    let fx = Fx::new();
+    let xdg = fx.xdg_dir().join("git").join("config");
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, b"[user]\n\tname = Xdg\n");
+    let (intent, _sink) = apply_git(&fx);
+    assert_eq!(
+        Path::new(&step_ref(&intent, FileRole::GitInclude).path),
+        xdg
+    );
+    std::fs::write(fx.global(), b"[core]\n\tsshCommand = ssh -v\n").unwrap();
+    assert_eq!(fx.effective_ssh_command().as_deref(), Some("ssh -v"));
+    let report = fx.doctor(LocalQueries::Enabled);
+    assert!(
+        findings(&report, finding::GIT_USER_VALUE_SHADOWED).is_empty(),
+        "{:?}",
+        report.findings
+    );
+    assert_eq!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).len(),
+        1,
+        "{:?}",
+        report.findings
     );
 }
 
@@ -3024,4 +3171,343 @@ fn the_git_snapshot_follows_the_same_rules_as_the_ssh_one() {
         original,
         "the item edited the global Git file"
     );
+}
+
+// --- the doctor and Heimdall's own value; a rollback finds B_git where it was written --------
+//
+// ADR-0007 §12.37 items 1 to 3 (M02 wave 5f). Same `Fx` scratch world as above.
+
+/// After a real Git apply, the doctor takes the value reached once through B_git for
+/// Heimdall's own: it is the projection's Git selection and never
+/// `git_ssh_command_present`. A user value is still reported with its origin, and a B_git
+/// that has been edited no longer vouches for P_git's value (fail closed).
+#[test]
+fn git_doctor_after_apply_reports_no_present_value_for_heimdalls_own() {
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    // Before the apply there is no value at all.
+    let report = fx.doctor(LocalQueries::Enabled);
+    assert!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).is_empty(),
+        "{:?}",
+        report.findings
+    );
+    let (_intent, _sink) = apply_git(&fx);
+    let tree = fx.tree();
+
+    let report = fx.doctor(LocalQueries::Enabled);
+    assert!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).is_empty(),
+        "Heimdall's own value is not a present value: {:?}",
+        report.findings
+    );
+    assert!(findings(&report, finding::GIT_USER_VALUE_SHADOWED).is_empty());
+    let git = report.git.expect("git is installed on the harness");
+    assert!(git.values.is_empty(), "{:?}", git.values);
+    assert_eq!(
+        git.selection.source,
+        heimdall_contract::doctor::GitSshSource::Config
+    );
+    assert_eq!(
+        git.selection.scope,
+        Some(heimdall_contract::doctor::GitScope::Global)
+    );
+    assert_eq!(fx.tree(), tree, "the doctor changes nothing");
+
+    // A user value elsewhere is reported, with its origin.
+    assert!(
+        fx.git(&["config", "--global", "core.sshCommand", "ssh -v"])
+            .status
+            .success()
+    );
+    let report = fx.doctor(LocalQueries::Enabled);
+    assert_eq!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).len(),
+        1,
+        "{:?}",
+        report.findings
+    );
+    let git = report.git.unwrap();
+    assert_eq!(git.values.len(), 1, "{:?}", git.values);
+    assert_eq!(
+        git.values[0].value_sha256,
+        heimdall_localenv::git::value_digest("ssh -v")
+    );
+    assert!(
+        git.values[0]
+            .origin_display
+            .as_deref()
+            .is_some_and(|o| o.ends_with(".gitconfig")),
+        "{:?}",
+        git.values
+    );
+
+    // B_git edited: P_git is no longer linked by Heimdall's block, so its value is
+    // reported like any other.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let _ = apply_git(&fx);
+    let text = std::fs::read_to_string(fx.global()).unwrap();
+    std::fs::write(fx.global(), text.replacen("\tpath = ", "\tpath =  ", 1)).unwrap();
+    let report = fx.doctor(LocalQueries::Enabled);
+    assert_eq!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).len(),
+        1,
+        "{:?}",
+        report.findings
+    );
+}
+
+/// The writer records the file it wrote B_git into on the Git item's record
+/// (`ItemRecord::include_file`), for the first-read file Git resolved at apply: the
+/// existing `~/.gitconfig`, the XDG file when it exists. An update of P_git alone writes
+/// no B_git and names none (the application's sink keeps the previous generation's), and
+/// the SSH item never names one.
+#[test]
+fn git_apply_records_the_file_b_git_was_written_into() {
+    // ~/.gitconfig only.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (spec, intent, sink) = applied_once(&fx);
+    assert_eq!(
+        sink.recorded_include_file().as_deref(),
+        Some(fx.global().to_str().unwrap())
+    );
+    let ssh = sink
+        .commits()
+        .into_iter()
+        .find(|c| c.item == ProjectionItem::Ssh)
+        .unwrap();
+    assert_eq!(ssh.record.items[&ProjectionItem::Ssh].include_file, None);
+
+    // An update of P_git alone: the commit names no file.
+    let spec = again(&fx, &spec, &intent, &sink);
+    let writer = fx.writer_with_client("/opt/heimdall-fixture/bin/ssh");
+    let plan = writer.preview(&spec, &GIT_APPLY).unwrap();
+    assert_eq!(git_steps(&plan), vec![FileRole::GitManaged]);
+    let update = Sink::default();
+    let r = writer.apply(&plan.intent(), &mut update.clone()).unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    let commit = update
+        .commits()
+        .into_iter()
+        .find(|c| c.item == ProjectionItem::Git)
+        .unwrap();
+    assert_eq!(commit.record.items[&ProjectionItem::Git].include_file, None);
+
+    // The XDG file exists at apply: B_git goes there, and that is the recorded file.
+    let fx = Fx::new();
+    let xdg = fx.xdg_dir().join("git").join("config");
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, b"[user]\n\tname = Xdg\n");
+    let (_spec, _intent, sink) = applied_once(&fx);
+    assert_eq!(
+        sink.recorded_include_file().as_deref(),
+        Some(xdg.to_str().unwrap())
+    );
+}
+
+/// Whether the intent plans P_git's removal: a Git step with an absent target, which the
+/// cleaner (not the writer's apply) carries out.
+fn removes_p_git(intent: &SetupIntent) -> bool {
+    intent
+        .files
+        .iter()
+        .any(|s| s.role == FileRole::GitManaged && matches!(s.target, Target::Absent))
+}
+
+/// ADR-0007 §12.37 item 3, the regression. B_git went into `~/.gitconfig` because no XDG
+/// file existed. The owner then created the XDG file, which Git reads first, so it is now
+/// the first-read file. The rollback removes B_git from the file its step wrote (the
+/// record names it): `~/.gitconfig` is byte for byte what it was before the apply, P_git
+/// is removed, and the XDG file is not touched. Reading only the first-read file removed
+/// P_git and left B_git behind in `~/.gitconfig`.
+#[test]
+fn git_rollback_finds_b_git_in_the_file_its_step_wrote_after_an_xdg_file_appears() {
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let original = std::fs::read(fx.global()).unwrap();
+    let (intent, sink) = apply_git(&fx);
+    assert_ne!(std::fs::read(fx.global()).unwrap(), original);
+    let xdg = fx.xdg_dir().join("git").join("config");
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, b"[user]\n\tname = Xdg\n");
+    let xdg_bytes = std::fs::read(&xdg).unwrap();
+
+    let plan = rollback_git(&fx, &intent, &sink);
+    let rb = plan.intent();
+    assert_eq!(
+        Path::new(&step_ref(&rb, FileRole::GitInclude).path),
+        fx.global(),
+        "the removal is planned where B_git was written"
+    );
+    assert!(removes_p_git(&rb), "P_git's removal is planned");
+    let r = fx.writer().apply(&rb, &mut Sink::default()).unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    assert_eq!(std::fs::read(fx.global()).unwrap(), original);
+    assert_eq!(std::fs::read(&xdg).unwrap(), xdg_bytes);
+    assert_eq!(fx.effective_ssh_command(), None);
+    assert!(!fx.lock().exists());
+    assert!(leftovers(&fx).is_empty(), "{:?}", leftovers(&fx));
+}
+
+/// The record names the file, so the record decides, whatever else is in the global
+/// files: a second Heimdall block in the other global file (a copy the owner made) does
+/// not make the rollback ambiguous, and it is not touched. A record that names a file
+/// that no longer exists leaves nothing to remove from it: P_git alone is removed.
+#[test]
+fn git_rollback_trusts_the_recorded_file_over_what_else_the_global_files_hold() {
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let original = std::fs::read(fx.global()).unwrap();
+    let (intent, sink) = apply_git(&fx);
+    let with_block = std::fs::read(fx.global()).unwrap();
+    let xdg = fx.xdg_dir().join("git").join("config");
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, &with_block);
+    let copy = std::fs::read(&xdg).unwrap();
+
+    let plan = rollback_git(&fx, &intent, &sink);
+    assert!(plan.view.manual_reasons.is_empty(), "{:?}", plan.view);
+    let rb = plan.intent();
+    assert_eq!(
+        Path::new(&step_ref(&rb, FileRole::GitInclude).path),
+        fx.global()
+    );
+    let r = fx.writer().apply(&rb, &mut Sink::default()).unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    assert_eq!(std::fs::read(fx.global()).unwrap(), original);
+    assert_eq!(
+        std::fs::read(&xdg).unwrap(),
+        copy,
+        "the other file is not touched"
+    );
+
+    // The recorded file is gone: nothing to remove from it, and P_git alone is.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (intent, sink) = apply_git(&fx);
+    std::fs::remove_file(fx.global()).unwrap();
+    let plan = rollback_git(&fx, &intent, &sink);
+    assert_eq!(
+        git_steps(&plan),
+        vec![FileRole::GitManaged],
+        "no B_git step"
+    );
+    assert!(removes_p_git(&plan.intent()));
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    assert!(!fx.global().exists(), "the owner's file is not recreated");
+}
+
+/// A record written before it named the file: both global files are searched. Exactly one
+/// Heimdall block names the file, and the removal is planned there, with the XDG file
+/// created after the apply left alone. More than one block, in the two files, cannot be
+/// told apart: manual mode, nothing planned for the Git item (B_git and P_git stay), a
+/// `problem` finding that says why, and nothing written. No block at all leaves only
+/// P_git to remove.
+#[test]
+fn git_rollback_without_a_recorded_file_searches_both_global_files() {
+    use heimdall_contract::setup::SetupMode;
+    let without_file = |fx: &Fx, intent: &SetupIntent, sink: &Sink| -> ProjectionSpec {
+        let mut record = record_of(fx, intent, sink);
+        record
+            .items
+            .get_mut(&ProjectionItem::Git)
+            .unwrap()
+            .include_file = None;
+        fx.spec(Some(record))
+    };
+    let git_only = PreviewIntent::Rollback {
+        keep_key_files: true,
+        items: [ProjectionItem::Git].into_iter().collect(),
+    };
+
+    // Exactly one block (in ~/.gitconfig; the XDG file appeared later without one).
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let original = std::fs::read(fx.global()).unwrap();
+    let (intent, sink) = apply_git(&fx);
+    let xdg = fx.xdg_dir().join("git").join("config");
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, b"[user]\n\tname = Xdg\n");
+    let spec = without_file(&fx, &intent, &sink);
+    assert_eq!(
+        spec.record.as_ref().unwrap().items[&ProjectionItem::Git].include_file,
+        None
+    );
+    let plan = fx.writer().preview(&spec, &git_only).unwrap();
+    assert!(plan.view.manual_reasons.is_empty(), "{:?}", plan.view);
+    let rb = plan.intent();
+    assert_eq!(
+        Path::new(&step_ref(&rb, FileRole::GitInclude).path),
+        fx.global()
+    );
+    assert!(removes_p_git(&rb));
+    let r = fx.writer().apply(&rb, &mut Sink::default()).unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    assert_eq!(std::fs::read(fx.global()).unwrap(), original);
+
+    // Two blocks, one in each global file: manual mode.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (intent, sink) = apply_git(&fx);
+    let xdg = fx.xdg_dir().join("git").join("config");
+    create_owner_only_dir_all(xdg.parent().unwrap());
+    write_private(&xdg, &std::fs::read(fx.global()).unwrap());
+    let spec = without_file(&fx, &intent, &sink);
+    let tree = fx.tree();
+    let plan = fx.writer().preview(&spec, &git_only).unwrap();
+    assert_eq!(plan.view.mode, SetupMode::Manual);
+    assert_eq!(plan.view.manual_reasons, ["marker_duplicated"]);
+    assert!(plan.files.is_empty(), "{:?}", plan.files);
+    assert!(
+        plan.view
+            .findings
+            .iter()
+            .any(|f| f.code == "marker_duplicated"
+                && f.severity == FindingSeverity::Problem
+                && f.reason.as_deref() == Some("marker_duplicated")),
+        "{:?}",
+        plan.view.findings
+    );
+    assert_eq!(fx.tree(), tree, "a preview writes nothing");
+
+    // Two blocks in the one file: also not told apart.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let (intent, sink) = apply_git(&fx);
+    let once = std::fs::read(fx.global()).unwrap();
+    let mut twice = once.clone();
+    twice.extend_from_slice(&once);
+    std::fs::write(fx.global(), twice).unwrap();
+    let plan = fx
+        .writer()
+        .preview(&without_file(&fx, &intent, &sink), &git_only)
+        .unwrap();
+    assert_eq!(plan.view.manual_reasons, ["marker_duplicated"]);
+    assert!(plan.files.is_empty(), "{:?}", plan.files);
+
+    // No block anywhere (the owner removed it): P_git alone is removed.
+    let fx = Fx::new();
+    std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
+    let original = std::fs::read(fx.global()).unwrap();
+    let (intent, sink) = apply_git(&fx);
+    std::fs::write(fx.global(), &original).unwrap();
+    let plan = fx
+        .writer()
+        .preview(&without_file(&fx, &intent, &sink), &git_only)
+        .unwrap();
+    assert!(plan.view.manual_reasons.is_empty(), "{:?}", plan.view);
+    assert_eq!(git_steps(&plan), vec![FileRole::GitManaged]);
+    assert!(removes_p_git(&plan.intent()));
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(applied_git(&r.items), "{r:?}");
+    assert_eq!(std::fs::read(fx.global()).unwrap(), original);
 }

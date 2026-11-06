@@ -789,7 +789,7 @@
           "$ref": "#/$defs/GitSshSelection"
         },
         "values": {
-          "description": "Every observed value.",
+          "description": "Every observed value that is a user's. Heimdall's own value, reached once through\nits intact include block, is not listed: it is the effective selection above\n(ADR-0007 §12.37 item 1).",
           "type": "array",
           "default": [],
           "items": {

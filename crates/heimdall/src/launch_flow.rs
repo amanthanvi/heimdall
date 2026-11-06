@@ -870,6 +870,7 @@ mod tests {
                             sha256: Sha256Hex::of(b"fixture"),
                         }],
                         aliases: vec!["alpha".to_owned()],
+                        include_file: None,
                         operation: OperationId::from_random_bytes([3; 16]),
                         committed_at: heimdall_contract::Timestamp::now(),
                     },

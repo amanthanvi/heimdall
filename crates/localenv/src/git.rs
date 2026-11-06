@@ -23,10 +23,14 @@
 //!
 //! **Heimdall's own value** (ADR-0007 §12.34 item 8): once the Git item is applied, the
 //! global file's B_git includes P_git, which holds one `core.sshCommand`.
-//! [`observe_global`] counts it like any other value, which is what the doctor reports.
+//! [`observe_global`] counts it like any other value.
 //! [`observe_global_for`] takes P_git's path and splits that one occurrence out as
-//! [`GitGlobalObservation::own_values`], so a setup preview does not take Heimdall's own
-//! value for a user's.
+//! [`GitGlobalObservation::own_values`], so neither a setup preview nor the doctor takes
+//! Heimdall's own value for a user's. Both then judge it from the global files' bytes:
+//! it is Heimdall's own only when an intact B_git links it in ([`holds_include`]; the
+//! doctor's whole-file form is [`managed_include_present`]). When Heimdall's value is the
+//! effective one ([`winning_origin`]) and a user's is in another global file, the doctor
+//! reports `git_user_value_shadowed` (ADR-0007 §12.37).
 //!
 //! **`[I]` observed on Apple Git 2.54 (M02-W2-U3) and on git 2.43.0 (M02 wave 5c, the
 //! same plain-Git script on both: `tests/evidence/artifacts/m02/git-2.43/`, identical
@@ -48,7 +52,9 @@ use heimdall_contract::doctor::{
     GitScope, GitSshClassification, GitSshSelection, GitSshSource, GitValueObservation,
 };
 use heimdall_contract::setup::{GitFileResolution, GitGlobalFileKind};
+use heimdall_sshconf::edit;
 use heimdall_sshconf::gitedit;
+use heimdall_sshconf::render::{self, Newline, RenderError, RenderPath};
 use sha2::{Digest, Sha256};
 
 use crate::clients::{ClientInventory, ClientKind, git_bundled_ssh, hex, search_path};
@@ -180,6 +186,18 @@ pub struct GlobalFiles {
     pub home: Option<PathBuf>,
     /// `GIT_CONFIG_GLOBAL`, when set: Git reads that file instead of both.
     pub redirected: Option<PathBuf>,
+}
+
+impl GlobalFiles {
+    /// The files Git reads for the global scope, in read order: the redirected file
+    /// alone, else the XDG file and then `~/.gitconfig`. Not every one exists.
+    #[must_use]
+    pub fn roots(&self) -> Vec<PathBuf> {
+        match &self.redirected {
+            Some(p) => vec![p.clone()],
+            None => self.xdg.iter().chain(self.home.iter()).cloned().collect(),
+        }
+    }
 }
 
 /// Git's global files for `env`.
@@ -569,8 +587,8 @@ fn system_file(
 }
 
 /// Observe the system and global Git configuration. Every `core.sshCommand` occurrence
-/// is in [`GitGlobalObservation::values`], Heimdall's own P_git included; the doctor
-/// reports what the configuration says. A setup preview uses [`observe_global_for`].
+/// is in [`GitGlobalObservation::values`], Heimdall's own P_git included. The setup
+/// preview and the doctor use [`observe_global_for`], which knows P_git.
 #[must_use]
 pub fn observe_global(
     env: &Env,
@@ -617,6 +635,113 @@ fn display_origin(home: Option<&Path>, path: &Path) -> String {
         || path.to_string_lossy().into_owned(),
         |h| display_path(h, path),
     )
+}
+
+/// An origin as `git config --show-origin` prints it, in the form an observation reports
+/// (the canonical path, `~` for Git's home); an origin that is not a file is kept as
+/// written.
+fn queried_origin(origin: String, home: Option<&Path>) -> String {
+    match origin.strip_prefix("file:") {
+        Some(p) => {
+            let p = crate::fs::canonical_path(Path::new(p)).unwrap_or_else(|_| PathBuf::from(p));
+            format!("file:{}", display_origin(home, &p))
+        }
+        None => origin,
+    }
+}
+
+/// The name of P_git in Heimdall's configuration directory (ADR-0007 §5.6).
+pub const MANAGED_GIT_FILE: &str = "gitconfig";
+
+/// ADR-0007 §12.34 item 8, §12.37 item 1: whether the global Git file `bytes` holds B_git
+/// as Heimdall renders it for `target` (P_git's absolute path): exactly one marked block,
+/// intact, whose bytes are what [`render::render_git_include_block`] gives for its own
+/// marker, `target` and its own line ending. A block that is edited, duplicated, absent
+/// or names another file is not B_git.
+///
+/// # Errors
+/// [`RenderError`] when no B_git can be rendered for `target`.
+pub fn holds_include(bytes: &[u8], target: &RenderPath) -> Result<bool, RenderError> {
+    let blocks = gitedit::find_blocks(bytes);
+    let [only] = blocks.as_slice() else {
+        return Ok(false);
+    };
+    if !only.intact {
+        return Ok(false);
+    }
+    let newline = bytes
+        .get(only.range.clone())
+        .and_then(edit::detect_newline)
+        .unwrap_or(Newline::Lf);
+    let expected = render::render_git_include_block(&only.marker, target, newline)?;
+    Ok(bytes.get(only.range.clone()) == Some(expected.as_slice()))
+}
+
+/// ADR-0007 §12.37 item 1: whether Heimdall's B_git for `managed` (P_git) is in the
+/// global Git files: exactly one Heimdall block in all of them, intact, naming `managed`.
+/// The doctor takes a `core.sshCommand` reached once through P_git for Heimdall's own
+/// only when this holds. Every file that cannot be read within the bounds, a second block
+/// anywhere and a path no B_git can name make it `false` (fail closed: the value is then
+/// reported like a user's).
+#[must_use]
+pub fn managed_include_present(env: &Env, managed: &Path, windows: bool) -> bool {
+    let target = if windows {
+        RenderPath::windows(managed)
+    } else {
+        RenderPath::unix(managed)
+    };
+    let Ok(target) = target else {
+        return false;
+    };
+    let mut holding: Option<Vec<u8>> = None;
+    for root in global_files(env).roots() {
+        match crate::fs::read_bounded(&root, GIT_WALK_FILE_BYTES) {
+            Ok(read) => {
+                if !gitedit::find_blocks(&read.bytes).is_empty()
+                    && holding.replace(read.bytes).is_some()
+                {
+                    // Blocks in two global files: which one Git reads first is not the
+                    // question here, and neither can be taken for the only B_git.
+                    return false;
+                }
+            }
+            Err(heimdall_sshconf::include::SourceError::NotFound) => {}
+            Err(_) => return false,
+        }
+    }
+    holding.is_some_and(|bytes| holds_include(&bytes, &target).unwrap_or(false))
+}
+
+/// ADR-0007 §12.37 item 2: the origin of the `core.sshCommand` value Git uses when it
+/// runs outside any repository, as an observation shows origins ([`origin_of`]'s form):
+/// the **last** occurrence across every scope, which is how Git resolves a repeated key.
+/// `git config --show-origin -z --get-all` lists the occurrences in read order, with each
+/// include expanded where it stands, so the last one is the winner (system, then the XDG
+/// file, then `~/.gitconfig`). An origin that is not a file (the command scope) is
+/// returned as Git prints it. `None` when no value is set, the query failed or local
+/// queries are off: nothing is then said about who wins.
+#[must_use]
+pub fn winning_origin(
+    env: &Env,
+    clients: &ClientInventory,
+    queries: LocalQueries,
+) -> Option<String> {
+    let git = clients.selected(ClientKind::Git).map(|c| c.path.clone())?;
+    if queries != LocalQueries::Enabled {
+        return None;
+    }
+    let args = [
+        "config",
+        "--show-origin",
+        "-z",
+        "--get-all",
+        "core.sshCommand",
+    ];
+    let QueryAnswer::Found(out) = git_query(&git, &args, env, &query_cwd()) else {
+        return None;
+    };
+    let (origin, _value) = parse_origin_values(&out)?.pop()?;
+    Some(queried_origin(origin, git_home(env).as_deref()))
 }
 
 /// Split Heimdall's own occurrence out of `values`: `(own, rest)`. `own` is the file's
@@ -674,17 +799,7 @@ fn observe(
             .unreadable
             .push("git system configuration (path not established)".to_owned()),
     }
-    let globals = global_files(env);
-    let global_roots: Vec<PathBuf> = match &globals.redirected {
-        Some(p) => vec![p.clone()],
-        None => globals
-            .xdg
-            .iter()
-            .chain(globals.home.iter())
-            .cloned()
-            .collect(),
-    };
-    for root in &global_roots {
+    for root in &global_files(env).roots() {
         walk.file(root, GitScope::Global, 0, false, &mut Vec::new());
     }
     let mut occurrences = walk.found;
@@ -709,17 +824,9 @@ fn observe(
                 QueryAnswer::Found(out) => match parse_origin_values(&out) {
                     Some(pairs) => {
                         for (origin, value) in pairs {
-                            let origin = match origin.strip_prefix("file:") {
-                                Some(p) => {
-                                    let p = crate::fs::canonical_path(Path::new(p))
-                                        .unwrap_or_else(|_| PathBuf::from(p));
-                                    format!("file:{}", display_origin(home.as_deref(), &p))
-                                }
-                                None => origin,
-                            };
                             queried.push(Occurrence {
                                 scope,
-                                origin,
+                                origin: queried_origin(origin, home.as_deref()),
                                 digest: value_digest(&value),
                                 conditional: false,
                             });

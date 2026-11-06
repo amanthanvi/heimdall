@@ -193,7 +193,7 @@ impl ProjectionConfig {
     /// P_git's path.
     #[must_use]
     pub fn managed_git_path(&self) -> PathBuf {
-        self.config_dir.join("gitconfig")
+        self.config_dir.join(crate::git::MANAGED_GIT_FILE)
     }
 
     /// Run the test hook, when one is configured.

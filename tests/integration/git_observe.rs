@@ -18,16 +18,21 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use heimdall_contract::doctor::{GitScope, GitSshClassification, GitSshSource};
+use heimdall_contract::doctor::{
+    DoctorReport, Finding, GitScope, GitSshClassification, GitSshSource, finding,
+};
 use heimdall_contract::setup::{GitFileResolution, GitGlobalFileKind};
 use heimdall_localenv::clients::{ClientInventory, ClientsConfig, resolve_clients};
-use heimdall_localenv::env::Env;
+use heimdall_localenv::doctor::{DoctorRequest, LocalContext, run};
+use heimdall_localenv::env::{Env, Platform};
 use heimdall_localenv::git::{
     GitGlobalObservation, observe_global, observe_global_for, origin_of, parse_origin_values,
     parse_scope_value, resolve_global_file, resolve_run_selection, value_digest,
 };
 use heimdall_localenv::local_query::LocalQueries;
 use heimdall_localenv::paths::SshPaths;
+use heimdall_sshconf::limits::Limits;
+use heimdall_sshconf::render::{MarkerId, Newline, RenderPath, render_git_include_block};
 use heimdall_testkit::home::{Scratch, find_program};
 use heimdall_testkit::{CANARY_PREFIX, assert_no_canary};
 
@@ -122,6 +127,23 @@ impl GitHome {
             LocalQueries::Enabled,
             managed,
         )
+    }
+
+    /// The passive doctor over this scratch world (no alias is evaluated), with
+    /// `managed_ssh` as Heimdall's P (its directory then holds P_git).
+    fn doctor(&self, managed_ssh: Option<&Path>, queries: LocalQueries) -> DoctorReport {
+        let mut ctx = LocalContext::new(
+            SshPaths::with_test_override(self.home.clone(), self.root.join("etc-ssh")),
+            self.env(),
+            Platform::current(),
+            ClientsConfig::default(),
+            Limits::default(),
+        );
+        ctx.managed_file = managed_ssh.map(Path::to_path_buf);
+        let mut request = DoctorRequest::passive();
+        request.local_queries = queries;
+        request.aliases = Some(Vec::new());
+        run(&ctx, &request)
     }
 
     /// Run the local `git` with exactly this test's environment.
@@ -868,6 +890,273 @@ fn git_own_file_reached_any_other_way_stays_a_value() {
             obs.not_applicable_reason(),
             Some("git_ssh_command_present"),
             "{label}"
+        );
+    }
+}
+
+// --- the doctor and Heimdall's own value (ADR-0007 §12.37 items 1 and 2) ------------------
+//
+// The doctor observes with P_git's path, so a `core.sshCommand` reached once through an
+// intact B_git is Heimdall's own: the projection's Git selection, never
+// `git_ssh_command_present`. Every other value is a user's and is reported with its
+// origin, and a user value in the other global file, read before Heimdall's, is
+// `git_user_value_shadowed`. B_git is rendered by the real renderer, so an intact block
+// is byte for byte what the writer wrote.
+
+/// B_git for `managed`, as the writer renders it.
+fn heimdall_include(managed: &Path) -> String {
+    let marker = MarkerId::parse("hm-0123456789abcdef").unwrap();
+    let target = if cfg!(windows) {
+        RenderPath::windows(managed)
+    } else {
+        RenderPath::unix(managed)
+    }
+    .unwrap();
+    String::from_utf8(render_git_include_block(&marker, &target, Newline::Lf).unwrap()).unwrap()
+}
+
+fn findings<'a>(report: &'a DoctorReport, code: &str) -> Vec<&'a Finding> {
+    report.findings.iter().filter(|f| f.code == code).collect()
+}
+
+/// A scratch world where Heimdall's configuration directory is `<home>/heimdall`: P_git
+/// holds its one value, and `ssh_config` names P (and so the directory) to the doctor.
+fn heimdall_world() -> (GitHome, PathBuf, PathBuf) {
+    let h = GitHome::new();
+    let managed = h.write("heimdall/gitconfig", OWN_FILE);
+    let ssh = h.home.join("heimdall").join("ssh_config");
+    (h, managed, ssh)
+}
+
+#[test]
+fn the_doctor_takes_a_value_reached_once_through_an_intact_b_git_for_heimdalls_own() {
+    let (h, managed, ssh) = heimdall_world();
+    h.write(".gitconfig", &heimdall_include(&managed));
+
+    let report = h.doctor(Some(&ssh), LocalQueries::Enabled);
+    assert!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).is_empty(),
+        "{:?}",
+        report.findings
+    );
+    assert!(findings(&report, finding::GIT_USER_VALUE_SHADOWED).is_empty());
+    let git = report.git.expect("git is installed on the harness");
+    assert!(git.values.is_empty(), "{:?}", git.values);
+    // The selection the doctor reports is the projection's: P_git's value, global scope.
+    assert_eq!(
+        (git.selection.source, git.selection.scope),
+        (GitSshSource::Config, Some(GitScope::Global))
+    );
+
+    // The control: a value of the user's, set after B_git in the same file, is a present
+    // value with its origin; Heimdall's own is still not listed, and the user's value
+    // wins (the last occurrence), so nothing is shadowed.
+    h.write(
+        ".gitconfig",
+        &format!(
+            "{}[core]\n\tsshCommand = user-after\n",
+            heimdall_include(&managed)
+        ),
+    );
+    let report = h.doctor(Some(&ssh), LocalQueries::Enabled);
+    assert_eq!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).len(),
+        1,
+        "{:?}",
+        report.findings
+    );
+    assert!(findings(&report, finding::GIT_USER_VALUE_SHADOWED).is_empty());
+    let git = report.git.unwrap();
+    assert_eq!(git.values.len(), 1, "{:?}", git.values);
+    assert_eq!(git.values[0].value_sha256, value_digest("user-after"));
+    assert_eq!(git.values[0].scope, GitScope::Global);
+    assert_eq!(
+        git.values[0].origin_display,
+        origin_of(&h.env(), &h.home.join(".gitconfig"))
+    );
+}
+
+/// The value is Heimdall's own only through B_git, intact and naming P_git. In every
+/// other arrangement it is a present value, reported with its origin (fail closed).
+#[test]
+fn the_doctor_reports_the_value_when_no_intact_b_git_links_it() {
+    type Setup = fn(&GitHome, &Path);
+    let cases: [(&str, Setup, bool); 6] = [
+        (
+            "the block is edited",
+            |h, m| {
+                h.write(
+                    ".gitconfig",
+                    &heimdall_include(m).replacen("\tpath = ", "\tpath =  ", 1),
+                );
+            },
+            true,
+        ),
+        (
+            "the owner's own include, with no Heimdall block",
+            |h, m| {
+                h.write(
+                    ".gitconfig",
+                    &format!("[include]\n\tpath = \"{}\"\n", git_path(m)),
+                );
+            },
+            true,
+        ),
+        (
+            "an intact block that names another file",
+            |h, m| {
+                let other = h.write("heimdall/other", "");
+                h.write(
+                    ".gitconfig",
+                    &format!(
+                        "{}[include]\n\tpath = \"{}\"\n",
+                        heimdall_include(&other),
+                        git_path(m)
+                    ),
+                );
+            },
+            true,
+        ),
+        (
+            "the intact block is in both global files",
+            |h, m| {
+                h.write(".gitconfig", &heimdall_include(m));
+                h.write(".config/git/config", &heimdall_include(m));
+            },
+            true,
+        ),
+        (
+            "B_git is intact but P's directory is not known",
+            |h, m| {
+                h.write(".gitconfig", &heimdall_include(m));
+            },
+            false,
+        ),
+        (
+            "no block, and the file is reached by a relative include",
+            |h, _| {
+                h.write(".gitconfig", "[include]\n\tpath = heimdall/gitconfig\n");
+            },
+            true,
+        ),
+    ];
+    for (label, setup, known) in cases {
+        let (h, managed, ssh) = heimdall_world();
+        setup(&h, &managed);
+        let report = h.doctor(known.then_some(ssh.as_path()), LocalQueries::Enabled);
+        assert_eq!(
+            findings(&report, finding::GIT_SSH_COMMAND_PRESENT).len(),
+            1,
+            "{label}: {:?}",
+            report.findings
+        );
+        let git = report.git.unwrap();
+        let own = origin_of(&h.env(), &managed);
+        assert!(
+            git.values.iter().any(
+                |v| v.origin_display == own && v.value_sha256 == value_digest("'/usr/bin/ssh'")
+            ),
+            "{label}: P_git's value is listed with its origin: {:?}",
+            git.values
+        );
+    }
+}
+
+/// B_git is in `~/.gitconfig` because no XDG file existed; the user then creates the XDG
+/// file with a value. Git reads that file first, so Heimdall's value wins and the user's
+/// is shadowed: the finding names both origins and both digests, and never a value.
+#[test]
+fn the_doctor_reports_git_user_value_shadowed_with_both_origins() {
+    let (h, managed, ssh) = heimdall_world();
+    h.write(".gitconfig", &heimdall_include(&managed));
+    let xdg = h.write(".config/git/config", "[core]\n\tsshCommand = user-xdg\n");
+
+    let report = h.doctor(Some(&ssh), LocalQueries::Enabled);
+    let shadowed = findings(&report, finding::GIT_USER_VALUE_SHADOWED);
+    assert_eq!(shadowed.len(), 1, "{:?}", report.findings);
+    let f = shadowed[0];
+    assert_eq!(f.code, "git_user_value_shadowed");
+    let own_origin = origin_of(&h.env(), &managed).unwrap();
+    let user_origin = origin_of(&h.env(), &xdg).unwrap();
+    for needed in [
+        own_origin,
+        user_origin,
+        value_digest("'/usr/bin/ssh'"),
+        value_digest("user-xdg"),
+    ] {
+        assert!(f.message.contains(&needed), "{needed}: {}", f.message);
+    }
+    for never in ["user-xdg", "/usr/bin/ssh"] {
+        assert!(!f.message.contains(never), "{never}: {}", f.message);
+    }
+    // The user's value is still a present value with its origin; Heimdall's own is not.
+    assert_eq!(
+        findings(&report, finding::GIT_SSH_COMMAND_PRESENT).len(),
+        1,
+        "{:?}",
+        report.findings
+    );
+    let git = report.git.unwrap();
+    assert_eq!(git.values.len(), 1, "{:?}", git.values);
+    assert_eq!(git.values[0].value_sha256, value_digest("user-xdg"));
+}
+
+/// Nothing is shadowed unless Heimdall's own value is the effective one and the user's is
+/// in another global file: a user value that wins, one in the system file, and a run
+/// without local queries (nobody can say who wins) report no `git_user_value_shadowed`.
+#[test]
+fn the_doctor_reports_no_shadowing_unless_heimdalls_value_wins_over_a_global_one() {
+    type Setup = fn(&mut GitHome, &Path);
+    let cases: [(&str, Setup, LocalQueries); 4] = [
+        (
+            "B_git in the XDG file, the user's value in ~/.gitconfig (read later: it wins)",
+            |h, m| {
+                h.write(".config/git/config", &heimdall_include(m));
+                h.write(".gitconfig", "[core]\n\tsshCommand = user-home\n");
+            },
+            LocalQueries::Enabled,
+        ),
+        (
+            "the user's value is in the system file",
+            |h, m| {
+                h.write(".gitconfig", &heimdall_include(m));
+                h.system_file("[core]\n\tsshCommand = user-system\n");
+            },
+            LocalQueries::Enabled,
+        ),
+        (
+            "the case that is shadowed, without local queries",
+            |h, m| {
+                h.write(".gitconfig", &heimdall_include(m));
+                h.write(".config/git/config", "[core]\n\tsshCommand = user-xdg\n");
+            },
+            LocalQueries::Disabled,
+        ),
+        (
+            "the user's value is in the same file, after B_git",
+            |h, m| {
+                h.write(
+                    ".gitconfig",
+                    &format!("{}[core]\n\tsshCommand = user-after\n", heimdall_include(m)),
+                );
+            },
+            LocalQueries::Enabled,
+        ),
+    ];
+    for (label, setup, queries) in cases {
+        let (mut h, managed, ssh) = heimdall_world();
+        setup(&mut h, &managed);
+        let report = h.doctor(Some(&ssh), queries);
+        assert!(
+            findings(&report, finding::GIT_USER_VALUE_SHADOWED).is_empty(),
+            "{label}: {:?}",
+            report.findings
+        );
+        assert_eq!(
+            findings(&report, finding::GIT_SSH_COMMAND_PRESENT).len(),
+            1,
+            "{label}: the user's value is still reported: {:?}",
+            report.findings
         );
     }
 }

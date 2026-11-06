@@ -879,6 +879,7 @@ fn a22_first_adoption_previews_reproduce_their_plan_digest() {
                     generation: 4,
                     files: Vec::new(),
                     aliases: Vec::new(),
+                    include_file: None,
                     operation: OperationId::from_random_bytes([7; 16]),
                     committed_at: heimdall_contract::Timestamp::now(),
                 },
@@ -3457,6 +3458,7 @@ fn empty_record(generation: u64) -> heimdall_domain::projection::ItemRecord {
         generation,
         files: Vec::new(),
         aliases: Vec::new(),
+        include_file: None,
         operation: OperationId::from_random_bytes([7; 16]),
         committed_at: heimdall_contract::Timestamp::now(),
     }
@@ -5328,6 +5330,7 @@ fn fresh_writer_executes_intent_without_preview() {
                     generation: u64::try_from(n + 1).unwrap(),
                     files,
                     aliases: Vec::new(),
+                    include_file: None,
                     operation: OperationId::from_random_bytes([1; 16]),
                     committed_at: heimdall_contract::Timestamp::now(),
                 },

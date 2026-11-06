@@ -1379,6 +1379,7 @@ impl Bench<'_> {
                     generation,
                     files: resources.clone(),
                     aliases: Vec::new(),
+                    include_file: None,
                     operation: self.w.op.clone(),
                     committed_at: heimdall_contract::Timestamp::now(),
                 },

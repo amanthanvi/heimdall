@@ -33,8 +33,9 @@ use heimdall_contract::code::Code;
 use heimdall_contract::doctor::{
     AliasDefinition, AliasObservation, ClientObservation, ClientSource as WireSource,
     ConfigFileObservation, ConfigFileRole, ConfigProvenance, Containment, DirectiveCertainty,
-    DirectiveObservation, DoctorReport, Finding, FindingSeverity, GitObservation, ProbeOutcome,
-    ProbeRecord, ProjectionObservation, ProjectionState, finding,
+    DirectiveObservation, DoctorReport, Finding, FindingSeverity, GitObservation, GitScope,
+    GitValueObservation, ProbeOutcome, ProbeRecord, ProjectionObservation, ProjectionState,
+    finding,
 };
 use heimdall_contract::envelope::{NextAction, ResourceRef};
 use heimdall_contract::provider::{
@@ -60,7 +61,10 @@ use crate::agents::{AgentEndpoint, EndpointLocator, EndpointSource, Presence, de
 use crate::clients::{ClientInventory, ClientKind, ClientSource, ClientsConfig, resolve_clients};
 use crate::env::{Env, Platform};
 use crate::fs::BoundedSource;
-use crate::git::{DefaultGitSsh, observe_global, resolve_run_selection};
+use crate::git::{
+    DefaultGitSsh, MANAGED_GIT_FILE, managed_include_present, observe_global, observe_global_for,
+    resolve_run_selection, winning_origin,
+};
 use crate::known_hosts::lookup_detailed;
 use crate::local_query::{LocalQueries, version_text};
 use crate::paths::SshPaths;
@@ -219,6 +223,16 @@ impl LocalContext {
             Some(p) => roots.with_managed(p.clone()),
             None => roots,
         }
+    }
+
+    /// P_git, Heimdall's managed Git file: `gitconfig` beside P in Heimdall's
+    /// configuration directory (ADR-0007 §5.6). `None` when P's path is not known.
+    #[must_use]
+    pub fn managed_git_file(&self) -> Option<PathBuf> {
+        self.managed_file
+            .as_deref()
+            .and_then(Path::parent)
+            .map(|dir| dir.join(MANAGED_GIT_FILE))
     }
 
     /// The catalog alias `alias`, if any.
@@ -1348,7 +1362,30 @@ impl Doctor<'_> {
         inventory.selected(ClientKind::Git)?;
         let ctx = self.ctx;
         let q = self.request.local_queries;
-        let obs = observe_global(&ctx.env, inventory, q);
+        // ADR-0007 §12.37 item 1: Heimdall's own P_git is not a user's value. A value
+        // reached once through an intact B_git is the projection's Git selection (the
+        // run-time selection below reports it); every other value is a user's and is
+        // reported with its origin.
+        let p_git = ctx.managed_git_file();
+        let mut obs = match &p_git {
+            Some(p) => observe_global_for(&ctx.env, inventory, q, p),
+            None => observe_global(&ctx.env, inventory, q),
+        };
+        let own = std::mem::take(&mut obs.own_values);
+        let own = match &p_git {
+            Some(p)
+                if !own.is_empty()
+                    && managed_include_present(&ctx.env, p, ctx.platform.is_windows()) =>
+            {
+                own
+            }
+            // No intact B_git links the file in: whatever it holds is present like any
+            // other value (fail closed, as the setup preview takes it).
+            _ => {
+                obs.values.extend(own);
+                Vec::new()
+            }
+        };
         let root = if cfg!(windows) {
             PathBuf::from(r"C:\")
         } else {
@@ -1366,6 +1403,9 @@ impl Doctor<'_> {
                 "none",
                 None,
             );
+        }
+        if let [own] = own.as_slice() {
+            self.git_user_value_shadowed(inventory, own, &obs.values);
         }
         if obs.file.is_none() && ctx.env.get("GIT_CONFIG_GLOBAL").is_some() {
             self.add(
@@ -1414,6 +1454,60 @@ impl Doctor<'_> {
             selection,
             values: obs.values,
         })
+    }
+
+    /// ADR-0007 §12.37 item 2, §5.6 "Residual, disclosed": `git_user_value_shadowed`.
+    /// B_git sits in the first-read global file at the time of the apply. A user
+    /// `core.sshCommand` in the *other* global file that Git reads earlier (an XDG file
+    /// created after the apply, while B_git is in `~/.gitconfig`) loses to Heimdall's value,
+    /// because Git's last occurrence wins. It is reported when Heimdall's own value is the
+    /// effective one (`git config --show-origin --get-all`, whose last entry is Git's
+    /// choice) and a user value is global; when the user's value wins there is nothing to
+    /// report, and without a local query nobody can say who wins. Origins and value
+    /// digests only: a value is never shown.
+    fn git_user_value_shadowed(
+        &mut self,
+        inventory: &ClientInventory,
+        own: &GitValueObservation,
+        user: &[GitValueObservation],
+    ) {
+        let shadowed: Vec<String> = user
+            .iter()
+            .filter(|v| v.scope == GitScope::Global && v.origin_display != own.origin_display)
+            .map(|v| {
+                format!(
+                    "{} (sha256 {}{})",
+                    v.origin_display.as_deref().unwrap_or("an unknown file"),
+                    v.value_sha256,
+                    if v.conditional { ", conditional" } else { "" }
+                )
+            })
+            .collect();
+        let Some(own_origin) = own.origin_display.as_deref() else {
+            return;
+        };
+        if shadowed.is_empty()
+            || winning_origin(&self.ctx.env, inventory, self.request.local_queries).as_deref()
+                != Some(own_origin)
+        {
+            return;
+        }
+        self.add(
+            finding::GIT_USER_VALUE_SHADOWED,
+            FindingSeverity::Warning,
+            subject("config", Some("core.sshCommand")),
+            ProbeLevel::Static,
+            None,
+            format!(
+                "Heimdall's core.sshCommand in {own_origin} (sha256 {}) takes effect over a user \
+                 value in {} (values are never shown); move the value into the file that holds \
+                 Heimdall's include, or roll back the Git item",
+                own.value_sha256,
+                shadowed.join("; ")
+            ),
+            "review_config",
+            None,
+        );
     }
 
     fn explicit_levels(

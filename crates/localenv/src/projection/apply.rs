@@ -1631,6 +1631,18 @@ impl<'a> Run<'a> {
         } else {
             Vec::new()
         };
+        // ADR-0007 §12.37 item 3: the file B_git was written into, when this intent wrote
+        // it. An update of P_git alone has no such step; the sink keeps the path the
+        // previous generation recorded.
+        let include_file = (item == ProjectionItem::Git)
+            .then(|| {
+                self.intent
+                    .files
+                    .iter()
+                    .find(|s| s.role == FileRole::GitInclude && is_writing(s))
+                    .map(|s| s.path.clone())
+            })
+            .flatten();
         // The consented states the plan computed (ADR-0007 §5.2), under the decision
         // that approved this intent; the plan carries a placeholder decision.
         let approved = self.intent.approval.as_ref().map(|a| a.decision.clone());
@@ -1660,6 +1672,7 @@ impl<'a> Run<'a> {
                     generation,
                     files: resources.clone(),
                     aliases,
+                    include_file,
                     operation: OperationId::from_random_bytes([0; 16]),
                     committed_at: now,
                 },

@@ -1157,12 +1157,34 @@ impl<'a> Builder<'a> {
                 default,
             ),
         };
-        let Some(file) = obs.file else {
-            return Ok(());
-        };
-        let global = file.path;
-        let Some(bytes) = read_file(&global)? else {
-            return Ok(());
+        // ADR-0007 §12.37 item 3: B_git is removed from the file its own step wrote, which
+        // the Git item's record names. Git's first-read file is not that file once an XDG
+        // file has been created after the apply (B_git stays in `~/.gitconfig`), and a
+        // rollback that looked only at the first-read file would remove P_git and leave
+        // B_git behind, including a file that no longer exists.
+        let recorded = live_item(self.spec, ProjectionItem::Git)
+            .and_then(|r| r.include_file.as_deref())
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute());
+        let (global, bytes) = match recorded {
+            // A file that is gone holds no block: P_git alone is removed.
+            Some(path) => {
+                let bytes = read_file(&path)?.unwrap_or_default();
+                (path, bytes)
+            }
+            None => match self.search_b_git(obs.file.as_ref().map(|f| f.path.as_path()))? {
+                BGitSearch::At(path, bytes) => (path, bytes),
+                BGitSearch::Nothing => return Ok(()),
+                BGitSearch::Ambiguous => {
+                    self.manual_git(
+                        manual_reason::MARKER_DUPLICATED,
+                        "Heimdall's include block is in more than one place in the global Git \
+                         files; remove the blocks by hand"
+                            .to_owned(),
+                    );
+                    return Ok(());
+                }
+            },
         };
         let blocks = gitedit::find_blocks(&bytes);
         // ADR-0007 §5.3 item 9, §12.34 item 8 (2): the writer refuses a global file, or
@@ -1232,37 +1254,39 @@ impl<'a> Builder<'a> {
     /// Whether `blocks` of the global file `bytes` are B_git as Heimdall renders it for
     /// `p_git_path`: exactly one block, and its bytes are what [`render::render_git_include_block`]
     /// gives for its own marker, P_git's absolute path and its own line ending. A block
-    /// that is edited, duplicated, absent or names another file is not.
+    /// that is edited, duplicated, absent or names another file is not
+    /// ([`crate::git::holds_include`], which the doctor shares).
     fn names_include(
         &self,
         blocks: &[FoundBlock],
         bytes: Option<&[u8]>,
         p_git_path: &Path,
     ) -> Result<bool, PreviewError> {
-        let ([only], Some(bytes)) = (blocks, bytes) else {
+        let ([_], Some(bytes)) = (blocks, bytes) else {
             return Ok(false);
         };
-        if !only.intact {
-            return Ok(false);
-        }
         let target = self.absolute_path(p_git_path)?;
-        let expected =
-            render::render_git_include_block(&only.marker, &target, block_newline(bytes, only))
-                .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?;
-        Ok(bytes.get(only.range.clone()) == Some(expected.as_slice()))
+        crate::git::holds_include(bytes, &target)
+            .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))
     }
 
     /// A rollback over a global Git file the writer will not touch (`unmanageable_file`,
     /// ADR-0007 §12.34 item 8 (2)): manual mode, and a `problem` finding so that a plan
     /// that changes nothing is refused before admission, not approved and then refused.
     fn manual_unmanageable_git(&mut self, global: &Path) {
-        self.manual(manual_reason::UNMANAGEABLE_FILE);
         let message = format!(
             "{} cannot be edited by Heimdall; remove its include block by hand",
             self.display(global)
         );
+        self.manual_git(manual_reason::UNMANAGEABLE_FILE, message);
+    }
+
+    /// A Git rollback that is manual mode for `reason` (one of [`manual_reason`]): nothing
+    /// is planned for the item, and a `problem` finding says why.
+    fn manual_git(&mut self, reason: &str, message: String) {
+        self.manual(reason);
         self.findings.push(Finding {
-            code: manual_reason::UNMANAGEABLE_FILE.to_owned(),
+            code: reason.to_owned(),
             severity: FindingSeverity::Problem,
             subject: ResourceRef {
                 kind: "projection".to_owned(),
@@ -1272,8 +1296,45 @@ impl<'a> Builder<'a> {
             provenance: None,
             message,
             next: NextAction::for_code(Code::ConfigConflict),
-            reason: Some(manual_reason::UNMANAGEABLE_FILE.to_owned()),
+            reason: Some(reason.to_owned()),
         });
+    }
+
+    /// ADR-0007 §12.37 item 3: where B_git is for a record that names no file (one
+    /// written before the record carried it). Both global files are read,
+    /// `$XDG_CONFIG_HOME/git/config` and `$HOME/.gitconfig` as the environment gives
+    /// them. Exactly one block in all of them names the file; a block that is edited is
+    /// still found there, so the removal refuses it as before (`marker_edited`). No block
+    /// anywhere leaves the file Git's first-read rule resolves (`resolved`), as before:
+    /// there is nothing to remove from it and P_git alone is. More than one block, in one
+    /// file or two, cannot be told apart and is manual mode. `resolved` is `None` when
+    /// `GIT_CONFIG_GLOBAL` redirects the global file or Git's home is unknown: nothing is
+    /// planned, as before.
+    fn search_b_git(&self, resolved: Option<&Path>) -> Result<BGitSearch, PreviewError> {
+        let Some(resolved) = resolved else {
+            return Ok(BGitSearch::Nothing);
+        };
+        let files = crate::git::global_files(&self.config.env);
+        let mut holding: Vec<(PathBuf, Vec<u8>, usize)> = Vec::new();
+        for path in files.xdg.into_iter().chain(files.home) {
+            if let Some(bytes) = read_file(&path)? {
+                let blocks = gitedit::find_blocks(&bytes).len();
+                if blocks > 0 {
+                    holding.push((path, bytes, blocks));
+                }
+            }
+        }
+        Ok(match holding.len() {
+            0 => match read_file(resolved)? {
+                Some(bytes) => BGitSearch::At(resolved.to_path_buf(), bytes),
+                None => BGitSearch::Nothing,
+            },
+            1 if holding[0].2 == 1 => {
+                let (path, bytes, _) = holding.remove(0);
+                BGitSearch::At(path, bytes)
+            }
+            _ => BGitSearch::Ambiguous,
+        })
     }
 
     /// The `git_lock` step for `global` (ADR-0007 §5.7 "The `git_lock` step").
@@ -2336,6 +2397,16 @@ fn line_of(bytes: &[u8], offset: usize) -> u32 {
     u32::try_from(n + 1).unwrap_or(u32::MAX)
 }
 
+/// What [`Builder::search_b_git`] found.
+enum BGitSearch {
+    /// The global file to remove B_git from, with its bytes.
+    At(PathBuf, Vec<u8>),
+    /// No global file can be resolved: nothing is planned.
+    Nothing,
+    /// More than one block: manual mode.
+    Ambiguous,
+}
+
 /// The line ending of the found block (from its first line).
 fn block_newline(bytes: &[u8], block: &FoundBlock) -> Newline {
     bytes
@@ -2678,6 +2749,7 @@ mod tests {
                     generation: 3,
                     files,
                     aliases: Vec::new(),
+                    include_file: None,
                     operation: OperationId::from_random_bytes([2; 16]),
                     committed_at: heimdall_contract::Timestamp::now(),
                 },

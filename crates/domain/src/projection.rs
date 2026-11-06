@@ -1089,6 +1089,15 @@ pub struct ItemRecord {
     /// Managed aliases rendered into P (the `ssh` item); empty for `git`.
     #[serde(default)]
     pub aliases: Vec<String>,
+    /// ADR-0007 §12.37 item 3: the file the `git` item's B_git was written into (the
+    /// global Git file the apply chose), so a rollback finds the block where it is even
+    /// after Git's first-read file has changed (an XDG file created after the apply).
+    /// Not a managed file: the owner's file, so it has no locator and no digest.
+    /// `None` for the `ssh` item, and for a record written before this field existed
+    /// (a rollback then searches both global files). An update that does not touch B_git
+    /// keeps the path the previous generation recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_file: Option<String>,
     /// The operation that committed it.
     pub operation: OperationId,
     /// When it was committed (the `item.committed` receipt's time).
@@ -2950,6 +2959,35 @@ mod tests {
                 &loc.path
             )
         );
+    }
+
+    /// ADR-0007 §12.37 item 3: `ItemRecord::include_file` is additive. A record written
+    /// before the field existed has no such key and reads back as `None` (a rollback then
+    /// searches both global files); `None` is never written; the path round-trips.
+    #[test]
+    fn an_item_record_without_an_include_file_reads_back_as_none() {
+        let mut record = ItemRecord {
+            generation: 2,
+            files: Vec::new(),
+            aliases: Vec::new(),
+            include_file: None,
+            operation: OperationId::from_random_bytes([1; 16]),
+            committed_at: Timestamp::now(),
+        };
+        let json = serde_json::to_value(&record).unwrap();
+        assert!(
+            json.get("include_file").is_none(),
+            "an absent path is not written: {json}"
+        );
+        assert_eq!(
+            serde_json::from_value::<ItemRecord>(json).unwrap(),
+            record,
+            "a record from before the field reads back whole"
+        );
+        record.include_file = Some("/scratch/home/.gitconfig".to_owned());
+        let json = serde_json::to_value(&record).unwrap();
+        assert_eq!(json["include_file"], "/scratch/home/.gitconfig");
+        assert_eq!(serde_json::from_value::<ItemRecord>(json).unwrap(), record);
     }
 
     /// E9: `Rendered` is built only by the renderers. Scans every production source

@@ -420,7 +420,13 @@ pub struct FileChange {
     /// SHA-256 after, lowercase hex; absent when the file is removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_sha256: Option<String>,
-    /// Unified diff, at most [`MAX_DIFF_BYTES`].
+    /// Unified diff, at most [`MAX_DIFF_BYTES`]. A change to a file the owner owns is
+    /// shown whole. A **removal of one of Heimdall's own files** (P, P_git, a key file)
+    /// is one summary line instead of the removed content (ADR-0007 §12.34 item 7):
+    /// `~ removed <name>: <N> lines, sha256 <hex>`, with the file's name, its number of
+    /// lines (`1 line` for one) and the SHA-256 of the removed content. The line starts
+    /// with `~`, which no line of a real diff does, and only files the owner owns count
+    /// toward the bound.
     pub diff: String,
 }
 

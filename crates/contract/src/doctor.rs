@@ -286,7 +286,9 @@ pub struct GitValueObservation {
 pub struct GitObservation {
     /// Effective selection.
     pub selection: GitSshSelection,
-    /// Every observed value.
+    /// Every observed value that is a user's. Heimdall's own value, reached once through
+    /// its intact include block, is not listed: it is the effective selection above
+    /// (ADR-0007 §12.37 item 1).
     #[serde(default)]
     pub values: Vec<GitValueObservation>,
 }
@@ -388,7 +390,9 @@ pub mod finding {
     pub const GIT_CONFIG_LOCK_HELD: &str = "git_config_lock_held";
     /// A Git configuration file is unreadable.
     pub const GIT_CONFIG_UNREADABLE: &str = "git_config_unreadable";
-    /// A user Git value shadows the managed one.
+    /// A user Git value in another global file is shadowed by the managed one: Heimdall's
+    /// `core.sshCommand` is the effective value and a user's, read before it, loses
+    /// (ADR-0007 §5.6, §12.37 item 2).
     pub const GIT_USER_VALUE_SHADOWED: &str = "git_user_value_shadowed";
     /// The agent endpoint is missing.
     pub const AGENT_ENDPOINT_MISSING: &str = "agent_endpoint_missing";

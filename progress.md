@@ -760,3 +760,10 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - L03: only exact profile components are exempt;
     - L04: the CLI read is bounded.
   - Harness self-test: 274 passed, 0 failed.
+- **Wave 5f** (`wf_ebca271f-51b`):
+  - the doctor recognises Heimdall's own Git value and emits `git_user_value_shadowed` (origins and digests, never values);
+  - rollback finds B_git through the new `ItemRecord.include_file`;
+  - the FileChange.diff doc is updated and the schemas regenerated.
+  - check.sh: the unit ran it twice and I ran it once, all exit 0, 1755 passed.
+  - ADR-0007 §12.39 defines wave 5g (W5g-git: the re-preview uses the recorded file; rollback consent sees the shadowed case).
+- I fixed §12.38 L01–L04 (74f63f7f) and corrected the importer's macOS rule after the automated security review (3b0154c5).

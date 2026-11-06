@@ -4703,6 +4703,7 @@ mod m02 {
                     generation,
                     files: resources.clone(),
                     aliases: vec!["work".into()],
+                    include_file: None,
                     operation: op.clone(),
                     committed_at: plus(t0(), 60),
                 },
