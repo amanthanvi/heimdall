@@ -1029,6 +1029,10 @@ class WindowsBundle(unittest.TestCase):
             "a WSL view of such a profile": make_bundle({"build.txt": "at /mnt/c/Users/Public.Alice/x\n"}),
             "a macOS home named like Shared": make_bundle({"build.txt": "at /Users/Shared-Alice/x\n"}),
             "a label naming such a profile": make_bundle(label="from C:\\Users\\Default-Bob"),
+            # A macOS home after any colon other than a lone drive letter's.
+            "a macOS home in a PATH list": make_bundle({"build.txt": "PATH=/usr/bin:/Users/someone/bin\n"}),
+            "a macOS home in a file URL": make_bundle({"build.txt": "see file:/Users/someone/log\n"}),
+            "a drive letter before a personal profile": make_bundle({"build.txt": "x:/Users/someone/y\n"}),
             "no commands": make_bundle({"commands.txt": "\n"}),
         }
         for why, text in cases.items():

@@ -65,8 +65,10 @@ _SENSITIVE = (
     (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|(?:Public|Default|Default User|All Users)(?=[/\s\"'<>]|$))[^/\s\"'<>]+"),
      "an unredacted Windows home path"),
     (re.compile(r"(?<![\w/.-])/home/(?!<)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
-    # The macOS form never follows a drive letter's colon: C:/Users/... is the Windows rule's.
-    (re.compile(r"(?<![\w/.:-])/Users/(?!<|Shared(?=[/\s\"'<>]|$))[A-Za-z0-9._-]+"), "an unredacted macOS home path"),
+    # The macOS form is not applied right after a lone drive letter (C:/Users/... is the
+    # Windows rule's), but it is after any other colon (PATH=...:/Users/x, file:/Users/x).
+    (re.compile(r"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\s\"'<>]|$))[A-Za-z0-9._-]+"),
+     "an unredacted macOS home path"),
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
 
