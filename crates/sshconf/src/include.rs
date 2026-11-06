@@ -249,6 +249,9 @@ pub struct ConfigSet {
     requested: BTreeMap<PathBuf, PathBuf>,
     /// The canonical path of each loaded file's id.
     paths: BTreeMap<SourceId, PathBuf>,
+    /// ⟨M02⟩ The path each loaded file's id was first requested as (ADR-0007 §12.30
+    /// item 10).
+    written: BTreeMap<SourceId, PathBuf>,
     /// Bytes of every cached file.
     bytes: usize,
 }
@@ -288,6 +291,18 @@ impl ConfigSet {
     #[must_use]
     pub fn path_of(&self, id: SourceId) -> Option<&Path> {
         self.paths.get(&id).map(PathBuf::as_path)
+    }
+
+    /// ⟨M02⟩ ADR-0007 §12.30 item 10 (the §12.28 item 6 residual): the path a loaded
+    /// file was first requested as, which is how the configuration names it (an
+    /// `Include` match or a root, after expansion), never its canonical form. A file
+    /// outside the account home is shown this way, so a link in its path (a symlinked
+    /// directory, macOS `/var` against `/private/var`) is shown as written. The first
+    /// request wins when two paths reach one file. `None` for an id this set did not
+    /// load.
+    #[must_use]
+    pub fn written_path_of(&self, id: SourceId) -> Option<&Path> {
+        self.written.get(&id).map(PathBuf::as_path)
     }
 
     /// The canonical path a successful load of `requested` resolved to.
@@ -357,6 +372,7 @@ impl ConfigSet {
         let file = Arc::new(parse_file(id, &read.bytes, limits).map_err(IncludeError::Parse)?);
         self.bytes += len;
         self.paths.insert(id, read.canonical.clone());
+        self.written.insert(id, path.to_path_buf());
         self.requested
             .insert(path.to_path_buf(), read.canonical.clone());
         self.files.insert(
@@ -1303,5 +1319,44 @@ mod tests {
             Err(SourceError::Io(_))
         ));
         assert_eq!(src.reads(), 4);
+    }
+
+    /// ADR-0007 §12.30 item 10: a file loaded through a link keeps the path it was
+    /// requested as (`written_path_of`), beside its canonical path (`path_of`); a second
+    /// path to the same file shares it and keeps the first written path; an id the set
+    /// did not load has none.
+    #[test]
+    fn written_path_is_the_path_as_requested_never_the_canonical_one() {
+        let src = MemSource::new("/h", "/h/.ssh", "/etc/ssh")
+            .with_file("/outside/real.conf", b"Host a\n".to_vec())
+            .with_entry("/outside/link.conf", MemEntry::Symlink("real.conf".into()))
+            .with_entry("/outside/again", MemEntry::Symlink("real.conf".into()));
+        let mut set = ConfigSet::new();
+        let limits = Limits::default();
+        let id = set
+            .load(&src, Path::new("/outside/link.conf"), &limits)
+            .unwrap()
+            .source;
+        assert_eq!(
+            set.path_of(id),
+            Some(Path::new("/outside/real.conf")),
+            "canonical"
+        );
+        assert_eq!(
+            set.written_path_of(id),
+            Some(Path::new("/outside/link.conf")),
+            "as written"
+        );
+        let again = set
+            .load(&src, Path::new("/outside/again"), &limits)
+            .unwrap()
+            .source;
+        assert_eq!(again, id, "one file, one id");
+        assert_eq!(
+            set.written_path_of(id),
+            Some(Path::new("/outside/link.conf")),
+            "the first request wins"
+        );
+        assert_eq!(set.written_path_of(SourceId(u32::MAX)), None);
     }
 }

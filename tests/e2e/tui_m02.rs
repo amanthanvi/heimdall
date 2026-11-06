@@ -1026,14 +1026,8 @@ mod pty {
         );
     }
 
-    /// m02-plan U10 `decision_modal_requires_typed_yes_default_no`, end to end: a pending
-    /// `DeclareInteraction` decision is shown with its decision text; Enter alone and a
-    /// typed `no` send nothing (the record stays pending); a typed `yes` completes it
-    /// through `Attend` and `Decide`, and the declaration is recorded.
-    #[test]
-    fn decision_modal_requires_typed_yes_default_no() {
-        let w = World::new();
-        w.stub_ssh("exit 0");
+    /// An adopted native-agent identity (a fixture public key at the decoy agent).
+    fn adopt_identity(w: &World) -> IdentityId {
         let key = FixtureKey::generate();
         let identity = w
             .catalog(CatalogRequest::AdoptIdentity {
@@ -1056,7 +1050,13 @@ mod pty {
                 request_id: w.next_id("adopt"),
             })
             .unwrap();
-        let identity = IdentityId::parse(identity["identity_id"].as_str().unwrap()).unwrap();
+        IdentityId::parse(identity["identity_id"].as_str().unwrap()).unwrap()
+    }
+
+    /// An adopted native-agent identity whose `DeclareInteraction` the runtime answers
+    /// with a pending decision record: the decision's ID and the identity.
+    fn pending_declaration(w: &World) -> (String, IdentityId) {
+        let identity = adopt_identity(w);
         let refused = w
             .catalog(CatalogRequest::DeclareInteraction {
                 identity: identity.clone(),
@@ -1069,13 +1069,39 @@ mod pty {
             .decision_ref
             .clone()
             .expect("a decision record");
-        let pending = |w: &World| {
-            w.inspect(InspectSubject::Decisions)["decisions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|d| d["decision_id"] == decision.as_str())
-        };
+        (decision, identity)
+    }
+
+    /// Whether `identity` has a declared interaction basis.
+    fn declared(w: &World, identity: &IdentityId) -> bool {
+        w.inspect(InspectSubject::Identities)["identities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| {
+                i["identity_id"] == identity.to_string() && i["interaction_basis"] == "declared"
+            })
+    }
+
+    /// Whether the runtime still lists `decision` as pending.
+    fn decision_pending(w: &World, decision: &str) -> bool {
+        w.inspect(InspectSubject::Decisions)["decisions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["decision_id"] == decision)
+    }
+
+    /// m02-plan U10 `decision_modal_requires_typed_yes_default_no`, end to end: a pending
+    /// `DeclareInteraction` decision is shown with its decision text; Enter alone and a
+    /// typed `no` send nothing (the record stays pending); a typed `yes` completes it
+    /// through `Attend` and `Decide`, and the declaration is recorded.
+    #[test]
+    fn decision_modal_requires_typed_yes_default_no() {
+        let w = World::new();
+        w.stub_ssh("exit 0");
+        let (decision, identity) = pending_declaration(&w);
+        let pending = |w: &World| decision_pending(w, &decision);
         assert!(pending(&w));
         let pty = Pty::open(40, 120);
         let tui = started(&w, &pty, &[]);
@@ -1097,17 +1123,16 @@ mod pty {
         w.wait_screen("the modal", LONG, |s| s.contains("[y/N]"));
         pty.write(b"yes\r");
         wait_for("the decision completed", LONG, || !pending(&w));
+        // The status line "decision <id>: <code>", not the modal's title (a frame drawn
+        // before the modal closed also reads "decision <id>").
         w.wait_screen("the result", LONG, |s| {
-            s.contains(&format!("decision {decision}"))
+            s.contains(&format!("decision {decision}: "))
         });
-        let declared = w.inspect(InspectSubject::Identities)["identities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|i| {
-                i["identity_id"] == identity.to_string() && i["interaction_basis"] == "declared"
-            });
-        assert!(declared, "the approved declaration is recorded");
+        // The record completes first and the waiting operation applies the declaration
+        // as it resumes: wait for it rather than read it in that window.
+        wait_for("the approved declaration is recorded", LONG, || {
+            declared(&w, &identity)
+        });
         pty.write(b"q");
         assert_eq!(tui.wait(LONG).code(), Some(0));
         assert_no_canary(&pty.transcript());
@@ -1192,6 +1217,459 @@ mod pty {
         assert_no_canary(&pty.transcript());
     }
 
+    // ---- reading before confirming (ADR-0007 §12.31 item 3, Q03 and Q04) ---------------
+
+    /// The frame on the screen is `rows` rows and about `cols` columns: the TUI really
+    /// runs at the size a size-dependent case asks for.
+    fn assert_screen_size(w: &World, rows: u16, cols: u16) {
+        let screen = w.screen();
+        let widest = screen.lines().map(|l| l.chars().count()).max().unwrap_or(0);
+        assert_eq!(screen.lines().count(), usize::from(rows), "{screen}");
+        assert!(
+            widest <= usize::from(cols) && widest >= usize::from(cols) * 9 / 10,
+            "{widest} columns of {cols}: {screen}"
+        );
+    }
+
+    /// [`started`] for any width: the tab titles shorten on a narrow screen ("1 Over"),
+    /// so the first frame is recognised by their common start.
+    fn started_at_any_width(w: &World, pty: &Pty) -> Proc {
+        let p = w.tui(pty, &[]);
+        w.wait_screen("the first frame", LONG, |s| s.contains("1 Over"));
+        w.wait_screen("the runtime's listing", LONG, |s| {
+            s.contains("Runtime: connected")
+        });
+        w.wait_screen("the static pass", LONG, |s| {
+            s.contains("Static pass:") && !s.contains("Static pass: running")
+        });
+        p
+    }
+
+    /// A pty of exactly `rows`×`cols`, and a slave descriptor that keeps that size. On
+    /// macOS a pty forgets its window size when the last descriptor of its slave closes
+    /// (`Pty::open` closes its own at once), and the program then starts with no size and
+    /// the TUI falls back to 80×24; the descriptor is held for the test's life.
+    fn sized_pty(rows: u16, cols: u16) -> (Pty, OwnedFd) {
+        let pty = Pty::open(rows, cols);
+        let keep = pty.open_slave();
+        pty.resize(rows, cols);
+        (pty, keep)
+    }
+
+    const PAGE_DOWN: &[u8] = b"\x1b[6~";
+    const END: &[u8] = b"\x1b[F";
+
+    /// Page down, one page at a time and waiting for each frame, until `done` holds of
+    /// the screen; every frame on the way is handed to `seen`.
+    fn page_down_until(
+        w: &World,
+        pty: &Pty,
+        what: &str,
+        mut seen: impl FnMut(&str),
+        done: impl Fn(&str) -> bool,
+    ) {
+        for _ in 0..40 {
+            let before = w.screen();
+            seen(&before);
+            if done(&before) {
+                return;
+            }
+            pty.write(PAGE_DOWN);
+            w.wait_screen("the next page", LONG, |s| s != before);
+        }
+        panic!("never reached {what}; the last frame:\n{}", w.screen());
+    }
+
+    /// The scratch configuration of the Q04 reproduction: `n` static `Match exec`
+    /// constructs, one per line from line 3 (the stub client contacts nothing and never
+    /// evaluates them).
+    fn match_exec_config(n: usize) -> String {
+        let mut text = "Host alpha\n  HostName 127.0.0.1\n".to_owned();
+        for _ in 0..n {
+            text.push_str("Match exec \"true\"\n");
+        }
+        text
+    }
+
+    /// The Q04 reproduction through the real binary: a configuration with 15 static
+    /// `Match exec` constructs; the `evaluate` authorization lists them. On a screen too
+    /// small for the list, a typed yes is refused until the end has been shown, every
+    /// entry crosses the screen on the way down, and the last entry is reached by
+    /// keyboard alone; then the yes runs the evaluation once. On a tall screen the whole
+    /// list is shown at once and the yes runs it.
+    fn inventory_of_15_constructs(rows: u16, cols: u16) {
+        let tall = rows >= 40;
+        let w = World::new();
+        w.home.write_user_config(&match_exec_config(15)).unwrap();
+        w.observed("alpha");
+        w.stub_ssh("exit 0");
+        let ran_g = |w: &World| {
+            w.read_mark("invocations")
+                .lines()
+                .filter(|l| l.split_whitespace().any(|a| a == "-G"))
+                .count()
+        };
+        let (pty, _size) = sized_pty(rows, cols);
+        let tui = started_at_any_width(&w, &pty);
+        pty.write(b"2");
+        w.wait_screen("alpha", LONG, |s| s.contains("alpha"));
+        pty.write(b"p");
+        w.wait_screen("the probe menu", LONG, |s| s.contains("evaluate"));
+        pty.write(b"\x1b[B\r");
+        w.wait_screen("the authorization", LONG, |s| s.contains("[y/N]"));
+        assert_screen_size(&w, rows, cols);
+        let first = w.screen();
+        let entry = |n: usize| format!("~/.ssh/config:{n}");
+        if tall {
+            for n in 3..=17 {
+                assert!(first.contains(&entry(n)), "{n}: {first}");
+            }
+            assert!(!first.contains("more row"), "{first}");
+        } else {
+            assert!(
+                !first.contains(&entry(17)),
+                "the last entry is below: {first}"
+            );
+            assert!(first.contains("more rows below"), "{first}");
+            // The yes is refused before the end is shown; nothing ran.
+            pty.write(b"yes\r");
+            w.wait_screen("the refusal", LONG, |s| s.contains("yes refused"));
+            std::thread::sleep(Duration::from_millis(400));
+            assert_eq!(ran_g(&w), 0, "nothing ran");
+            let refused = w.screen();
+            assert!(refused.contains("[y/N]"), "the modal stays open: {refused}");
+            assert!(refused.contains("Read to the end first"), "{refused}");
+            // Reading on by keyboard: each entry crosses the screen, the last is reached.
+            let mut shown = std::collections::BTreeSet::new();
+            page_down_until(
+                &w,
+                &pty,
+                "the end of the content",
+                |s| {
+                    for n in 3..=17 {
+                        if s.contains(&entry(n)) {
+                            shown.insert(n);
+                        }
+                    }
+                },
+                |s| s.contains("end of the content"),
+            );
+            assert_eq!(
+                shown.len(),
+                15,
+                "every entry was on screen on the way: {shown:?}"
+            );
+            assert!(w.screen().contains("Without a typed yes"), "{}", w.screen());
+            assert_eq!(ran_g(&w), 0, "reading runs nothing");
+        }
+        pty.write(b"yes\r");
+        w.wait_screen("the probe result", LONG, |s| {
+            flat(s).contains(
+                "configuration commands found before the run; the run may have executed others",
+            )
+        });
+        assert_eq!(ran_g(&w), 1, "{}", w.read_mark("invocations"));
+        pty.write(b"\x1b");
+        w.wait_screen("the result closed", LONG, |s| !s.contains("probe: alpha"));
+        pty.write(b"q");
+        assert_eq!(tui.wait(LONG).code(), Some(0));
+        assert_no_canary(&pty.transcript());
+    }
+
+    #[test]
+    fn inventory_of_15_constructs_is_reachable_and_gates_yes_at_40x12() {
+        inventory_of_15_constructs(12, 40);
+    }
+
+    #[test]
+    fn inventory_of_15_constructs_is_shown_whole_at_120x40() {
+        inventory_of_15_constructs(40, 120);
+    }
+
+    /// ADR-0007 §12.31 item 3 through the real binary, on a `DeclareInteraction`
+    /// decision at 40×12 (the text and fields do not fit): a typed yes is refused with
+    /// the modal saying so and the record stays pending; the decision text and the
+    /// disclosure are read page by page; then the yes completes it.
+    #[test]
+    fn decision_yes_is_refused_at_40x12_until_the_end_has_been_shown() {
+        let w = World::new();
+        w.stub_ssh("exit 0");
+        let (decision, identity) = pending_declaration(&w);
+        let (pty, _size) = sized_pty(12, 40);
+        let tui = started_at_any_width(&w, &pty);
+        pty.write(b"4");
+        w.wait_screen("the decision", LONG, |s| s.contains("[!!] dec_"));
+        pty.write(b"\r");
+        w.wait_screen("the modal", LONG, |s| {
+            s.contains("[y/N]") && s.contains("more rows below")
+        });
+        assert_screen_size(&w, 12, 40);
+        assert!(
+            !flat(&w.screen()).contains("could imitate it"),
+            "the end is below"
+        );
+        pty.write(b"yes\r");
+        w.wait_screen("the refusal", LONG, |s| s.contains("yes refused"));
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(
+            decision_pending(&w, &decision),
+            "a refused yes sends nothing"
+        );
+        let refused = w.screen();
+        assert!(refused.contains("[y/N]"), "{refused}");
+        assert!(refused.contains("Read to the end first"), "{refused}");
+        // Read it all, page by page; End alone would also have shown the last rows.
+        let mut read = String::new();
+        page_down_until(
+            &w,
+            &pty,
+            "the end of the content",
+            |s| {
+                read.push(' ');
+                read.push_str(&flat(s));
+            },
+            |s| s.contains("end of the content"),
+        );
+        for must in [
+            "Heimdall will treat this key as needing no confirmation",
+            "agent's dialog can still appear",
+            "Declared interaction: none",
+            "could imitate it",
+        ] {
+            assert!(read.contains(must), "{must:?} was never on screen: {read}");
+        }
+        assert!(decision_pending(&w, &decision), "reading sends nothing");
+        pty.write(b"yes\r");
+        wait_for("the decision completed", LONG, || {
+            !decision_pending(&w, &decision)
+        });
+        // The record completes first and the waiting operation applies the declaration
+        // as it resumes: wait for it rather than read it in that window.
+        wait_for("the approved declaration is recorded", LONG, || {
+            declared(&w, &identity)
+        });
+        pty.write(b"q");
+        assert_eq!(tui.wait(LONG).code(), Some(0));
+        assert_no_canary(&pty.transcript());
+    }
+
+    impl World {
+        /// A `setup` request as the attended owner.
+        fn setup(&self, req: heimdall_contract::setup::SetupRequest) -> Result<Value, OpError> {
+            let caller = self.attended();
+            let ops = self.ops.clone();
+            self.on(async move { ops.setup(&caller, req).await.map(|c| c.data) })
+        }
+
+        /// A `setup` request from an unattended caller (the runtime records a decision
+        /// for what needs the owner and answers `INTERACTION_REQUIRED`).
+        fn setup_unattended(
+            &self,
+            req: heimdall_contract::setup::SetupRequest,
+        ) -> Result<Value, OpError> {
+            let mut caller = self.attended();
+            caller.attendance = Attendance::Unattended;
+            caller.interaction = InteractionMode::NonInteractive;
+            let ops = self.ops.clone();
+            self.on(async move { ops.setup(&caller, req).await.map(|c| c.data) })
+        }
+
+        /// A pending `ApplyProjection` decision: the first adoption of one managed
+        /// destination with a long host name, refused for the owner's approval. Returns
+        /// the decision's ID and the diff text it recorded.
+        fn pending_apply(&self) -> (String, String) {
+            use heimdall_contract::ids::AccountName;
+            use heimdall_contract::setup::{PreviewIntent, SetupPlan, SetupRequest};
+            let identity = adopt_identity(self);
+            self.catalog(CatalogRequest::UpsertDestination {
+                destination: DestinationSpec {
+                    id: DestinationId::parse("dst-alpha").unwrap(),
+                    alias: "alpha".to_owned(),
+                    definition: DestinationDefinitionSpec::Managed {
+                        hostname: "alpha-bastion.production-fleet.internal.example.invalid"
+                            .to_owned(),
+                        port: None,
+                        account: AccountName::parse("fixture").unwrap(),
+                        identity,
+                    },
+                    label: None,
+                },
+                request_id: self.next_id("dest"),
+            })
+            .unwrap();
+            let plan: SetupPlan = serde_json::from_value(
+                self.setup(SetupRequest::Preview {
+                    intent: PreviewIntent::Apply { include_git: false },
+                })
+                .unwrap(),
+            )
+            .unwrap();
+            let refused = self
+                .setup_unattended(SetupRequest::Apply {
+                    plan_digest: plan.plan_digest.clone(),
+                    request_id: self.next_id("apply"),
+                })
+                .unwrap_err();
+            let decision = refused
+                .next
+                .decision_ref
+                .clone()
+                .expect("a decision record");
+            let listed = self.inspect(InspectSubject::Decisions);
+            let diff = listed["decisions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|d| d["decision_id"] == decision.as_str())
+                .and_then(|d| d["request"]["diff_text"].as_str())
+                .expect("the recorded diff text")
+                .to_owned();
+            (decision, diff)
+        }
+    }
+
+    /// The modal's content rows on a frame: between its top border and the prompt's first
+    /// line (the key hint), the borders and the background beside them removed.
+    fn modal_content(screen: &str) -> Vec<String> {
+        let lines: Vec<&str> = screen.lines().collect();
+        let top = lines.iter().position(|l| l.contains('┌')).unwrap();
+        let hint = lines
+            .iter()
+            .skip(top)
+            .position(|l| l.contains("Tab: "))
+            .map_or(lines.len(), |i| top + i);
+        lines[top + 1..hint]
+            .iter()
+            .map(|l| {
+                let chars: Vec<char> = l.chars().collect();
+                let from = chars.iter().position(|c| *c == '│').unwrap();
+                let to = chars.iter().rposition(|c| *c == '│').unwrap();
+                chars[from + 1..to]
+                    .iter()
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// Append `frame` to `rows`, dropping the rows it repeats from the end of `rows`
+    /// (the page overlap).
+    fn append_frame(rows: &mut Vec<String>, frame: Vec<String>) {
+        let most = rows.len().min(frame.len());
+        let overlap = (0..=most)
+            .rev()
+            .find(|m| rows[rows.len() - m..] == frame[..*m])
+            .unwrap_or(0);
+        rows.extend(frame.into_iter().skip(overlap));
+    }
+
+    /// Q03 through the real binary, at 120×40 and 40×12: an `ApplyProjection` decision
+    /// whose Include line is as long as the scratch configuration path is readable in
+    /// full: every line of the recorded diff reaches the screen. At 40×12 a typed yes is
+    /// refused until the end has been shown, and then approves the record.
+    #[test]
+    fn apply_projection_decision_diff_is_readable_in_full_and_gates_yes() {
+        let w = World::new();
+        w.stub_ssh("exit 0");
+        let (decision, diff) = w.pending_apply();
+        let recorded: Vec<String> = diff
+            .lines()
+            .filter(|l| !l.starts_with("---") && (l.starts_with('+') || l.starts_with('-')))
+            .map(|l| l[1..].trim().to_owned())
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert!(
+            recorded.iter().any(|l| l.starts_with("Include ")),
+            "the first adoption includes Heimdall's file: {diff}"
+        );
+        let squash = |s: &str| s.split_whitespace().collect::<String>();
+        for (rows, cols) in [(40u16, 120u16), (12, 40)] {
+            let small = rows < 40;
+            let (pty, _size) = sized_pty(rows, cols);
+            let tui = started_at_any_width(&w, &pty);
+            pty.write(b"4");
+            w.wait_screen("the decision", LONG, |s| s.contains("[!!] dec_"));
+            pty.write(b"\r");
+            w.wait_screen("the modal", LONG, |s| s.contains("[y/N]"));
+            assert_screen_size(&w, rows, cols);
+            let mut content = Vec::new();
+            append_frame(&mut content, modal_content(&w.screen()));
+            // The recorded diff is long (generated key and configuration paths): whether
+            // a screen shows it whole depends on its size, and either way the yes waits
+            // for the end of it.
+            let scrolls = w.screen().contains("more rows below");
+            assert!(scrolls || !small, "40x12 cannot show it whole");
+            if scrolls {
+                pty.write(b"yes\r");
+                w.wait_screen("the refusal", LONG, |s| s.contains("yes refused"));
+                std::thread::sleep(Duration::from_millis(400));
+                assert!(
+                    decision_pending(&w, &decision),
+                    "a refused yes sends nothing"
+                );
+                page_down_until(
+                    &w,
+                    &pty,
+                    "the end of the content",
+                    |s| append_frame(&mut content, modal_content(s)),
+                    |s| s.contains("end of the content"),
+                );
+            }
+            let read = squash(&content.concat());
+            for line in &recorded {
+                assert!(
+                    read.contains(&squash(line)),
+                    "{rows}x{cols}: {line:?} was not readable in full: {content:#?}"
+                );
+            }
+            assert!(
+                read.contains(&squash("could imitate it")),
+                "{rows}x{cols}: the last line of the content: {content:#?}"
+            );
+            if small {
+                pty.write(b"yes\r");
+                wait_for("the decision completed", LONG, || {
+                    !decision_pending(&w, &decision)
+                });
+            } else {
+                pty.write(b"\x1b");
+                w.wait_screen("the modal closed", LONG, |s| !s.contains("[y/N]"));
+                assert!(decision_pending(&w, &decision), "Escape sends nothing");
+            }
+            pty.write(b"q");
+            assert_eq!(tui.wait(LONG).code(), Some(0));
+            assert_no_canary(&pty.transcript());
+        }
+    }
+
+    /// End jumps to the last rows at once: the yes is then accepted (the last line has
+    /// been on screen), and Home afterwards does not take that back.
+    #[test]
+    fn decision_end_key_shows_the_last_rows_and_then_a_yes_is_accepted() {
+        let w = World::new();
+        w.stub_ssh("exit 0");
+        let (decision, _) = pending_declaration(&w);
+        let (pty, _size) = sized_pty(12, 40);
+        let tui = started_at_any_width(&w, &pty);
+        pty.write(b"4");
+        w.wait_screen("the decision", LONG, |s| s.contains("[!!] dec_"));
+        pty.write(b"\r");
+        w.wait_screen("the modal", LONG, |s| s.contains("more rows below"));
+        pty.write(END);
+        w.wait_screen("the end", LONG, |s| s.contains("end of the content"));
+        assert!(flat(&w.screen()).contains("could imitate it"));
+        pty.write(b"\x1b[H");
+        w.wait_screen("the start", LONG, |s| s.contains("more rows below"));
+        pty.write(b"yes\r");
+        wait_for("the decision completed", LONG, || {
+            !decision_pending(&w, &decision)
+        });
+        pty.write(b"q");
+        assert_eq!(tui.wait(LONG).code(), Some(0));
+        assert_no_canary(&pty.transcript());
+    }
+
     /// m02-plan U10: first-frame latency, measured and recorded, not gated in M02 (spec
     /// §15.1: P95 ≤ 750 ms from launch, measured in M08). Each sample is from the spawn
     /// of the process to the first frame written, and to the first frame showing the
@@ -1226,5 +1704,107 @@ mod pty {
             ms(&useful[2]),
         );
         assert!(first.iter().all(|d| *d < LONG));
+    }
+
+    // ---- a bare `heimdall` (ADR-0007 §12.30 item 5) ------------------------------------
+
+    impl World {
+        /// `heimdall <args>` (no `tui` subcommand) on `pty`.
+        fn bare(&self, pty: &Pty, args: &[&str]) -> Proc {
+            let mut argv = vec![OsString::from(bin())];
+            argv.extend(args.iter().map(OsString::from));
+            pty.start(&self.env(), &self.home.root, &argv)
+        }
+
+        /// `heimdall <args>` with stdin closed and both outputs captured (no terminal).
+        fn piped(&self, args: &[&str]) -> std::process::Output {
+            let mut cmd = Command::new(bin());
+            cmd.args(args).env_clear().current_dir(&self.home.root);
+            for (k, v) in self.env() {
+                cmd.env(k, v);
+            }
+            cmd.stdin(Stdio::null()).output().unwrap()
+        }
+    }
+
+    /// ADR-0007 §12.30 item 5 (overview §3 "TUI mode"): a bare `heimdall` on a terminal,
+    /// with no subcommand and no flag, opens the TUI: it enters the alternate screen,
+    /// draws the overview with the runtime's listing, and `q` exits 0 with the terminal
+    /// restored.
+    #[test]
+    fn bare_heimdall_on_a_terminal_opens_the_tui() {
+        let w = World::new();
+        w.observed("alpha");
+        w.stub_ssh("exit 0");
+        let pty = Pty::open(40, 120);
+        let before = modes(&pty.termios());
+        let tui = w.bare(&pty, &[]);
+        w.wait_screen("the first frame", LONG, |s| s.contains("Overview"));
+        w.wait_screen("the runtime's listing", LONG, |s| {
+            s.contains("Runtime: connected")
+        });
+        pty.write(b"q");
+        let status = tui.wait(LONG);
+        let transcript = pty.transcript();
+        assert_eq!(status.code(), Some(0), "{}", tail(&pty));
+        assert!(transcript.contains("\u{1b}[?1049h"), "the TUI entered");
+        assert!(transcript.contains("\u{1b}[?1049l"), "the TUI left");
+        assert!(
+            !transcript.contains("\"running\""),
+            "no status envelope: {}",
+            tail(&pty)
+        );
+        assert_eq!(modes(&pty.termios()), before, "the terminal is restored");
+        assert_no_canary(&transcript);
+    }
+
+    /// ADR-0007 §12.30 item 5: without a terminal, or with `--json` or
+    /// `--non-interactive` on one, a bare `heimdall` stays `status`: the runtime's
+    /// summary (`running: true`, exit 0), the alternate screen never entered and no
+    /// frame drawn.
+    #[test]
+    fn bare_heimdall_without_a_terminal_or_with_json_is_status() {
+        let w = World::new();
+        w.stub_ssh("exit 0");
+        // No terminal: the human summary, and the envelope with --json.
+        for args in [&[][..], &["--json"][..]] {
+            let out = w.piped(args);
+            let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+            assert_no_canary(&stdout);
+            assert_no_canary(&stderr);
+            assert_eq!(out.status.code(), Some(0), "{args:?}: {stdout} {stderr}");
+            assert!(!stdout.contains("\u{1b}[?1049h"), "{args:?}: {stdout}");
+            assert!(stdout.contains("running"), "{args:?}: {stdout}");
+            if !args.is_empty() {
+                let env: Value = serde_json::from_str(stdout.trim()).unwrap();
+                assert_eq!(env["code"], "OK", "{env}");
+                assert_eq!(env["data"]["running"], true, "{env}");
+            }
+        }
+        assert!(!w.screen_file().exists(), "no frame was drawn");
+        // On a terminal with --json, or with --non-interactive: still status.
+        for args in [&["--json"][..], &["--non-interactive"][..]] {
+            let pty = Pty::open(24, 80);
+            let status = w.bare(&pty, args).wait(LONG);
+            std::thread::sleep(Duration::from_millis(150));
+            let transcript = pty.transcript();
+            assert_eq!(status.code(), Some(0), "{args:?}: {transcript}");
+            assert!(
+                !transcript.contains("\u{1b}[?1049h"),
+                "{args:?}: the TUI was opened: {transcript}"
+            );
+            assert!(transcript.contains("running"), "{args:?}: {transcript}");
+            if args == ["--json"] {
+                let env: Value = transcript
+                    .lines()
+                    .rev()
+                    .find_map(|l| serde_json::from_str(l.trim()).ok())
+                    .unwrap_or_else(|| panic!("no envelope: {transcript}"));
+                assert_eq!(env["data"]["running"], true, "{env}");
+            }
+            assert_no_canary(&transcript);
+        }
+        assert!(!w.screen_file().exists(), "no frame was drawn");
     }
 }

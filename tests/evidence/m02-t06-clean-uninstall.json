@@ -1,0 +1,201 @@
+{
+  "case_id": "T06",
+  "status": "blocked",
+  "requirement_ids": [],
+  "build_commit": "bcad82de864656c0a434e21155a807da7c768ed4 plus the uncommitted wave-5 working tree (git diff HEAD and the untracked files hashed together at 03:55Z: sha256 b4700a438dc24ce14c962db2d7d683960f2c26f48b5f582db1f02c448e2de82a; crates/ and tests/ *.rs sources_sha256 1e912184918d1673417ae3aba996f779fb9cf3e851b68994c1f9d57d35f90b80, the value in required-inventory.json)",
+  "artifact_digest": "sha256:f5e294d7c2f90e3060d9d56e4b68a94a385cce1d57d360e4e004508d36d6f12c (sha256 of tests/evidence/artifacts/m02/exit-bcad82de-w5/digests.txt, which lists the sha256 of every platform artifact file; per-binary sha256 values are in linux/build.txt and windows/build.txt)",
+  "environment": {
+    "macos": "macOS 27.2 (26B123) arm64, the build host; rustc 1.99.1; OpenSSH_10.5p1 client and server (system), Apple Git 2.54.0; scratch on APFS. run-macos.sh 04:39:51Z-04:45:10Z with TMPDIR=/tmp (the tests' TMPDIR /private/tmp/hm-m02-macos.XXXXXX/tmp). A first run (04:02:20Z-04:38:53Z, macos-run1-sun-len/) used the per-user TMPDIR and failed on Unix socket path length (harness defect); it is kept as harness evidence and no record uses it.",
+    "linux": "Linux 6.8.0-147-generic x86_64 (the owner's devbox, label linux-a), Ubuntu glibc 2.39, 4 CPUs, util-linux script 2.39.3, OpenSSH_9.6p1 Ubuntu-3ubuntu13.20 client and server, git 2.43.0, scratch on ext4; binaries x86_64-unknown-linux-gnu cross-built on the macOS host with zig 0.17.1 (glibc floor 2.31), run under nice -n 10 and timeout 1800 per binary in a fresh ~/hm-m02-<random> directory (removed; absence checked by the harness and again afterwards: 0 ~/hm-m02-* directories, 0 leftover processes). run-linux.sh 04:01Z-04:23Z.",
+    "windows": "Not run: the Windows 11 PC's WSL ssh endpoint named by HM_SSH_CONFIG did not accept a TCP connection from 03:56Z to 04:47Z (22 attempts, each 'connection timed out'; windows/host-unreachable.txt). run-windows.sh cross-built and planned (exit 0) and stopped at its remote create step (exit 255); nothing was created on the host.",
+    "wsl-distro": "Not run: run-wsl-distro.sh reaches the disposable distribution through the same Windows PC endpoint, which was unreachable; the task's run list also did not include it.",
+    "host_facts": {
+      "macos": {
+        "inherited-ssh-auth-sock": "set (unset for the run)",
+        "inherited-git-variables": "1 (unset for the run)",
+        "inherited-heimdall-variables": "0 (unset for the run)",
+        "os": "<host>OS 27.2 (26B123) arm64",
+        "script": "/usr/bin/script",
+        "scratch-fs": "apfs",
+        "ssh-V": "OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)",
+        "sshd-V": "OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)",
+        "git-version": "git version 2.54.0 (Apple Git-157) (exit 0)",
+        "fixture-sshd-preflight": "listening on 127.0.0.1 (non-root, per-run host key)",
+        "leftover-test-processes": "0"
+      },
+      "linux": {
+        "inherited-ssh-auth-sock": "unset (unset for the run)",
+        "inherited-git-variables": "0 (unset for the run)",
+        "inherited-heimdall-variables": "0 (unset for the run)",
+        "os": "Linux 6.8.0-147-generic x86_64",
+        "glibc": "ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39",
+        "nproc": "4",
+        "script": "script from util-linux 2.39.3",
+        "scratch-fs": "ext4",
+        "ssh-V": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+        "sshd-V": "OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+        "git-version": "git version 2.43.0 (exit 0)",
+        "fixture-sshd-preflight": "listening on 127.0.0.1 (non-root, per-run host key)",
+        "fixture-sshd-preflight-stopped": "yes",
+        "leftover-test-processes": "0"
+      }
+    }
+  },
+  "provider_versions": [
+    "macos git-version: git version 2.54.0 (Apple Git-157) (exit 0)",
+    "macos ssh-V: OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)",
+    "macos sshd-V: OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)",
+    "linux git-version: git version 2.43.0 (exit 0)",
+    "linux ssh-V: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)",
+    "linux sshd-V: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)"
+  ],
+  "started_at": "2026-11-06T03:55:13Z",
+  "commands_or_harness": [
+    "tests/native/m02/refresh-inventory.sh -> exit 0 (03:55Z-04:02Z; both cross-builds; groups A01 20, A11 34, A21 31, A22 393, A27 100, A35 35, R-RT-05 12, ADR-0006-13.20-3 17, R-SE-04 8, T06 4 required tests)",
+    "TMPDIR=/tmp tests/native/m02/run-macos.sh tests/evidence/artifacts/m02/exit-bcad82de-w5/macos -> exit 1 (check.sh exit 1: every step 0 except test 101, 1664 passed, 1 failed (e2e_run_m02 terminal::a27_ctrl_c_reaches_child_once), 7 ignored; observation pass exit 0; canary 0; leak scan 0; ~/.ssh and Git metadata unchanged)",
+    "tests/native/m02/run-macos.sh tests/evidence/artifacts/m02/exit-bcad82de-w5/macos-run1-sun-len (first run, per-user TMPDIR) -> exit 1 (harness defect: socket paths over SUN_LEN; 1257 passed, 408 failed; not used by any record)",
+    "tests/native/m02/run-linux.sh tests/evidence/artifacts/m02/exit-bcad82de-w5/linux devbox -> exit 101 (47 test binaries plus heimdall and hm-fixture-hook; 5 binaries exit 101: e2e_cli_m02, e2e_run_m02, heimdall-unit, integration_projection_git, integration_sshconf_vs_ssh_g; canary 0; leak scan 0; ~/.ssh and Git metadata unchanged; scratch removed)",
+    "HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m02/run-windows.sh tests/evidence/artifacts/m02/exit-bcad82de-w5/windows -> exit 1 (cross-build 0, plan 0, argvdump 0; remote create 255: host unreachable)",
+    "tests/native/m02/run-wsl-distro.sh: not run (the Windows PC endpoint was unreachable)",
+    "python3 -I tests/native/m02/m02-evidence.py --config tests/evidence/artifacts/m02/exit-bcad82de-w5/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "observed_result": {
+    "indexed_tests": 4,
+    "rows": [
+      {
+        "platform": "macos-arm64 (build host)",
+        "status": "in_progress",
+        "passed": 2,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID": 0,
+          "bash tools/validation/check.sh (TMPDIR in scratch; inherited agent, Git and Heimdall variables unset)": 1,
+          "cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)": 0,
+          "the home .ssh directory and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, the user or the home (0)": 0,
+          "remove exactly the run's scratch directory, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:f277539d5ed287a8e469ee16331d766e30f0ee67b862fbc3fac14160c4703b4c (sha256 of the macos/ lines of digests.txt)",
+        "logs": [
+          "macos/check.txt",
+          "macos/observations.txt"
+        ],
+        "failed_commands": [
+          "bash tools/validation/check.sh (TMPDIR in scratch; inherited agent, Git and Heimdall variables unset)"
+        ]
+      },
+      {
+        "platform": "linux-x86_64 (linux-a)",
+        "status": "in_progress",
+        "passed": 0,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": {
+          "ssh <linuxhost> uname -m": 0,
+          "cargo test --target x86_64-unknown-linux-gnu --workspace --no-run --locked (zig cc linker/CC shims)": 0,
+          "run plan from case-index.json build_host_paths": 0,
+          "ssh <linuxhost> mkdir (exclusive) ~/hm-m02-<random> and its tmp": 0,
+          "tar stream of 47 test binaries, heimdall and hm-fixture-hook into the scratch dir": 0,
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)": 101,
+          "host ~/.ssh and Git configuration metadata unchanged by the run": 0,
+          "canary-prefix scan over saved output (count = 0)": 0,
+          "leak scan: saved files still naming the host, user or a home (0)": 0,
+          "ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent": 0
+        },
+        "artifact_digest": "sha256:4ccc3d94e0a6c8e1197765397ca0df197e675ca5e16c2c6d4b57454948361976 (sha256 of the linux/ lines of digests.txt)",
+        "logs": [
+          "linux/tests.txt"
+        ],
+        "harness_gap_not_run": [
+          "e2e_cli_m02::unix::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items",
+          "e2e_cli_m02::unix::uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses"
+        ],
+        "failed_commands": [
+          "remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)"
+        ]
+      },
+      {
+        "platform": "windows-11-x86_64",
+        "status": "blocked",
+        "no_applicable_test": "m02-plan §4 declares this platform row; no indexed test applies on it",
+        "blocked_on": "the Windows 11 x64 PC: its WSL ssh endpoint (HM_SSH_CONFIG) did not accept a connection during the run (03:56Z-04:47Z, 22 attempts, connection timed out; the PC itself answered). Needs the owner to bring that endpoint up (WSL running with its sshd on the PC)"
+      },
+      {
+        "platform": "wsl2-disposable-distribution (Ubuntu 24.04.5 image)",
+        "status": "blocked",
+        "passed": 0,
+        "failed": [],
+        "ignored": [],
+        "not_run_on_this_platform": [
+          "wsl_ordinary_ssh::t06_uninstall_restores_effective_config",
+          "wsl_ordinary_ssh::t06_uninstall_restores_user_bytes"
+        ],
+        "platform_neutral_run_elsewhere": [],
+        "exit_codes": null,
+        "artifact_digest": null,
+        "logs": [
+          "wsl-distro/tests.txt"
+        ],
+        "blocked_on": "the WSL2 disposable distribution on the Windows 11 PC: reached through the same PC endpoint, which was unreachable during the run; also needs HM_WSL_ROOTFS (the pinned image on the PC) or HM_WSL_DOWNLOAD=1"
+      }
+    ],
+    "row_statuses": {
+      "in_progress": 2,
+      "blocked": 2
+    },
+    "summary": "Clean local uninstall: user bytes and effective configuration restored, remaining items reported; incomplete rollback keeps artifacts and purge refuses; the disposable WSL distribution with a real home."
+  },
+  "evidence_paths": [
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/runs.json",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/digests.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/macos/check.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/macos/observations.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/macos/host.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/macos/commands.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/macos/diagnostic-reruns.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/linux/tests.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/linux/host.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/linux/commands.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/linux/skipped.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/linux/build.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/windows/commands.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/windows/host-unreachable.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/windows/build.txt",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/macos-run1-sun-len/NOTE.txt",
+    "tests/native/m02/run-macos.sh",
+    "tests/native/m02/run-linux.sh",
+    "tests/native/m02/run-windows.sh",
+    "tests/native/m02/run-wsl-distro.sh",
+    "tests/native/m02/scenario-ordinary-ssh.sh",
+    "tests/native/m02/target-root.sh",
+    "tests/native/m02/lib.sh",
+    "tests/native/m02/remote-lib.sh",
+    "tests/native/m02/pty-answer.py",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/selftest.sh",
+    "tests/native/m02/m02-evidence.py",
+    "tests/native/m02/runs.json",
+    "tests/native/m02/required-inventory.json",
+    "tests/native/m02/case-index.json",
+    "tests/evidence/artifacts/m02/exit-bcad82de-w5/case-summary.json"
+  ],
+  "limitations": [
+    "Build identity: the runs used base commit bcad82de plus the uncommitted wave-5 working tree, bound by the digests in build_commit; the records describe that tree, not a commit. Once it is committed the native runs should be repeated at that commit (ADR-0007 §12.31 item 5).",
+    "Status discipline (m02-plan, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units.",
+    "Linux and Windows binaries are cross-built on the macOS host with zig and run natively on the hosts; tests that read the repository at its compile-time path run on the build host only (case-index.json build_host_paths): a platform-neutral one counts as run elsewhere, any other keeps its row in_progress (harness gap). On Linux this leaves every corpus comparison against the host client's ssh -G (integration_sshconf_vs_ssh_g corpus_*, bom_and_crlf_acceptance, include_state_is_restored_after_included_file) unrun.",
+    "Two tests read compile-time paths but are not yet in build_host_paths, so they failed on Linux for that reason: heimdall-unit tui::view::tests::the_refusal_is_visible_in_the_modal (snapshot file decision_apply_refused_40x12) and e2e_cli_m02 unix::uninstall_purge_state_is_refused_without_a_typed_yes_and_keeps_everything (schemas/public-api).",
+    "The e2e pseudo-terminal cases (e2e_cli_m02 and e2e_run_m02) start their child with a cleared environment, so the child loses HEIMDALL_E2E_BIN and execs the build host's CARGO_BIN_EXE_heimdall path; off the build host they fail with 'exec failed: No such file or directory' (Linux run). A test-harness defect, escalated; those Linux rows stay in_progress.",
+    "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration; the owners' keys, agents, ~/.ssh and Git configuration are never test material (m02-plan §0; ADR-0007 §9).",
+    "Redaction: the build host's name is three characters long, so the macOS harness's host-name redaction also rewrote parts of ordinary words in macos/ (the os= fact in host.txt and some crate and selftest names read '<host>'); over-redaction only. run-windows.sh stopped before its build-log redaction when the host was unreachable; windows/build.txt was redacted afterwards with the same m02_redact helper (build host home, user, TMPDIR) by M02-W5-run."
+  ],
+  "blocked_on": "the WSL2 disposable distribution on the Windows 11 PC: reached through the same PC endpoint, which was unreachable during the run; also needs HM_WSL_ROOTFS (the pinned image on the PC) or HM_WSL_DOWNLOAD=1; the Windows 11 x64 PC: its WSL ssh endpoint (HM_SSH_CONFIG) did not accept a connection during the run (03:56Z-04:47Z, 22 attempts, connection timed out; the PC itself answered). Needs the owner to bring that endpoint up (WSL running with its sshd on the PC)"
+}

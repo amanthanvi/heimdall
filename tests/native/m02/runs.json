@@ -1,0 +1,240 @@
+{
+  "$comment": "Configuration of the M02 native runs (m02-plan §4) for m02-evidence.py. TEMPLATE: no native run has happened yet. The native-run unit sets build_commit, started_at, artifacts_root (one directory per build, e.g. tests/evidence/artifacts/m02/exit-<commit>), environment, artifact digests and commands, regenerates required-inventory.json at that commit (with fresh --scan reports), and only then runs --write. Every logs, commands_logs and facts path below is relative to artifacts_root; a missing file stops the generator before anything is written. The wave-5 harness unit ran no native run: its harnesses were exercised against stubs and a fake host tree only (tools/validation/native-harness-selftest.sh), the cross-builds were built (HM_BUILD_ONLY=1), and required-inventory.json was generated at that tree. Regenerate it with refresh-inventory.sh at the build commit before --write: it records the digest of the sources it came from, and the generator refuses any other.",
+  "case_index": "tests/native/m02/case-index.json",
+  "required_inventory": "tests/native/m02/required-inventory.json",
+  "summary_out": "tests/evidence/artifacts/m02/exit-PENDING/case-summary.json",
+  "artifacts_root": "tests/evidence/artifacts/m02/exit-PENDING",
+  "build_commit": null,
+  "artifact_digest": null,
+  "started_at": null,
+  "environment": {},
+  "commands": [
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/run-macos.sh <artifacts_root>/macos",
+    "tests/native/m02/run-linux.sh <artifacts_root>/linux <linuxhost>",
+    "HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> tests/native/m02/run-windows.sh <artifacts_root>/windows",
+    "HM_SSH_CONFIG=<owner host config> HM_HOST=<winhost> HM_WSL_ROOTFS=<pinned image> tests/native/m02/run-wsl-distro.sh <artifacts_root>/wsl-distro",
+    "python3 -I tests/native/m02/m02-evidence.py --config tests/native/m02/runs.json --write",
+    "python3 -I tools/validation/validate-records.py"
+  ],
+  "evidence_paths": [
+    "tests/native/m02/run-macos.sh",
+    "tests/native/m02/run-linux.sh",
+    "tests/native/m02/run-windows.sh",
+    "tests/native/m02/run-wsl-distro.sh",
+    "tests/native/m02/scenario-ordinary-ssh.sh",
+    "tests/native/m02/target-root.sh",
+    "tests/native/m02/lib.sh",
+    "tests/native/m02/remote-lib.sh",
+    "tests/native/m02/pty-answer.py",
+    "tests/native/m02/platform-tests.py",
+    "tests/native/m02/refresh-inventory.sh",
+    "tests/native/m02/selftest.sh",
+    "tests/native/m02/m02-evidence.py",
+    "tests/native/m02/runs.json",
+    "tests/native/m02/required-inventory.json"
+  ],
+  "common_limitations": [
+    "Status discipline (m02-plan, M01 rule E15): verified rows mean the required tests ran and passed on that platform in this run; not an independent review of the units.",
+    "Linux and Windows binaries are cross-built on the macOS host with zig and run natively on the hosts; tests that read the repository at its compile-time path run on the build host only (case-index.json build_host_paths): a platform-neutral one counts as run elsewhere, any other keeps its row in_progress (harness gap).",
+    "Proptest regression files resolve at compile-time source paths: persisted regression seeds replay on macOS only; the fixed default seeds run everywhere.",
+    "Every fixture is disposable: per-run keys, the loopback fixture sshd, disposable ssh-agents with a scratch HOME, scratch configuration; the owners' keys, agents, ~/.ssh and Git configuration are never test material (m02-plan §0; ADR-0007 §9)."
+  ],
+  "platforms": {
+    "macos": {
+      "label": "macos-arm64 (build host)",
+      "logs": [
+        "macos/check.txt",
+        "macos/observations.txt"
+      ],
+      "commands_logs": [
+        "macos/commands.txt"
+      ],
+      "facts": [
+        "macos/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "linux": {
+      "label": "linux-x86_64 (linux-a)",
+      "logs": [
+        "linux/tests.txt"
+      ],
+      "commands_logs": [
+        "linux/commands.txt"
+      ],
+      "facts": [
+        "linux/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "windows": {
+      "label": "windows-11-x86_64",
+      "logs": [
+        "windows/tests.txt"
+      ],
+      "commands_logs": [
+        "windows/commands.txt"
+      ],
+      "facts": [
+        "windows/host.txt"
+      ],
+      "artifact_digest": null
+    },
+    "wsl-distro": {
+      "label": "wsl2-disposable-distribution (Ubuntu 24.04.5 image)",
+      "logs": [
+        "wsl-distro/tests.txt"
+      ],
+      "commands_logs": [
+        "wsl-distro/commands.txt"
+      ],
+      "facts": [
+        "wsl-distro/host.txt"
+      ],
+      "artifact_digest": null
+    }
+  },
+  "extra_rows": {},
+  "records": {
+    "A01": {
+      "case_id": "A01",
+      "path": "tests/evidence/m02-a01-existing-access.json",
+      "requirement_ids": [
+        "R-UX-01",
+        "R-UX-04",
+        "R-DI-06"
+      ],
+      "summary": "Existing access and repository-free use: no remote change, no key export, no mandatory prefix, unaffected aliases keep their behaviour, a personal profile without a repository; ordinary ssh, git, scp and sftp without -F in the disposable WSL distribution.",
+      "limitations": []
+    },
+    "A11": {
+      "case_id": "A11",
+      "path": "tests/evidence/m02-a11-provider-interaction.json",
+      "requirement_ids": [
+        "R-CR-01",
+        "R-CR-08",
+        "R-AP-06"
+      ],
+      "summary": "Ordinary access first-class; non-interactive use returns explicit interaction or capability state, without a popup or an unapproved fallback (fresh eligibility, fallback clearance, F23 confirm constraint).",
+      "limitations": []
+    },
+    "A21": {
+      "case_id": "A21",
+      "path": "tests/evidence/m02-a21-passive-doctor.json",
+      "requirement_ids": [
+        "R-SS-02"
+      ],
+      "summary": "The default doctor runs no executable, provider contact, signing, network or mutation; explicit probes are classified and bounded. executed_config_commands is 'constructs found before execution', never complete; config_tree_changed compares two observed snapshots.",
+      "limitations": []
+    },
+    "A22": {
+      "case_id": "A22",
+      "path": "tests/evidence/m02-a22-configuration-precedence.json",
+      "requirement_ids": [
+        "R-SS-01",
+        "R-RT-04"
+      ],
+      "summary": "Relevant behaviour correct, dynamic unknowns stay unknown, unrelated content and newer edits survive, generation deterministic: parser/evaluator corpus against each client's ssh -G, the projection transaction (commit points, recovery, quarantine, Git name transitions), setup admission.",
+      "limitations": []
+    },
+    "A27": {
+      "case_id": "A27",
+      "path": "tests/evidence/m02-a27-child-integrity.json",
+      "requirement_ids": [
+        "R-SS-04",
+        "R-RT-05"
+      ],
+      "summary": "No stdout contamination or shell injection; child streams and status preserved; setup failure distinguishable (prelaunch_failed, indeterminate); Windows pseudoconsole Ctrl-C and resize.",
+      "limitations": []
+    },
+    "A35": {
+      "case_id": "A35",
+      "path": "tests/evidence/m02-a35-reference-matrix.json",
+      "requirement_ids": [
+        "R-UX-01",
+        "R-CR-01",
+        "R-CR-08",
+        "R-SS-03"
+      ],
+      "summary": "Verified executable and identity used; exact limitations; existing-auth not second-class: real disposable ssh-agent x ssh, git, scp, sftp x ordinary alias and run-bound.",
+      "limitations": []
+    },
+    "R-RT-05": {
+      "case_id": "R-RT-05",
+      "path": "tests/evidence/m02-r-rt-05-no-blind-replay.json",
+      "requirement_ids": [
+        "R-RT-05"
+      ],
+      "summary": "No blind replay: run retries never relaunch, attempted applies are reconciled and never reapplied, recovery is idempotent.",
+      "limitations": []
+    },
+    "ADR-0006-13.20-3": {
+      "case_id": "ADR-0006-13.20-3",
+      "path": "tests/evidence/m02-adapter-call-bounds.json",
+      "requirement_ids": [
+        "R-RT-04"
+      ],
+      "summary": "ADR-0006 §13.20 item 3: every real-adapter call is bounded; a hung preparation's cleanup runs without a restart (R-RT-04).",
+      "limitations": []
+    },
+    "R-SE-04": {
+      "case_id": "R-SE-04",
+      "path": "tests/evidence/m02-r-se-04-host-trust.json",
+      "requirement_ids": [
+        "R-SE-04"
+      ],
+      "summary": "Host trust is never weakened: render refuses host-verification directives; a substituted host key fails closed and nothing is written to known_hosts.",
+      "limitations": []
+    },
+    "T06": {
+      "case_id": "T06",
+      "path": "tests/evidence/m02-t06-clean-uninstall.json",
+      "requirement_ids": [],
+      "summary": "Clean local uninstall: user bytes and effective configuration restored, remaining items reported; incomplete rollback keeps artifacts and purge refuses; the disposable WSL distribution with a real home.",
+      "limitations": []
+    },
+    "A participant can connect without a mandatory work wrapper": {
+      "case_id": "m02-exit-no-mandatory-wrapper",
+      "path": "tests/evidence/m02-exit-no-mandatory-wrapper.json",
+      "requirement_ids": [],
+      "summary": "plan §5 M02 exit: a participant connects with ordinary ssh and no mandatory work wrapper (scripted in the disposable WSL distribution; the human walkthrough is owner input B7).",
+      "limitations": []
+    },
+    "No remote authentication change, key export, or provider-policy bypass was needed": {
+      "case_id": "m02-exit-no-remote-change",
+      "path": "tests/evidence/m02-exit-no-remote-change.json",
+      "requirement_ids": [],
+      "summary": "plan §5 M02 exit: no remote authentication change, key export or provider-policy bypass was needed.",
+      "limitations": []
+    },
+    "Does not claim managed unattended access until M03": {
+      "case_id": "m02-exit-no-unattended-claim",
+      "path": "tests/evidence/m02-exit-no-unattended-claim.json",
+      "requirement_ids": [],
+      "summary": "plan §5 M02 exit: managed unattended access is not claimed before M03 (capability_unavailable).",
+      "limitations": []
+    },
+    "M02 exit cases (m02-plan §3)": {
+      "case_id": "m02-exit-claims",
+      "path": "tests/evidence/m02-exit-claims.json",
+      "requirement_ids": [
+        "R-AP-06",
+        "R-CR-01",
+        "R-CR-08",
+        "R-DI-06",
+        "R-RT-04",
+        "R-RT-05",
+        "R-SE-04",
+        "R-SS-01",
+        "R-SS-02",
+        "R-SS-03",
+        "R-SS-04",
+        "R-UX-01",
+        "R-UX-04"
+      ],
+      "summary": "m02-plan §3: every M02 exit case per platform, all rows from one build.",
+      "limitations": []
+    }
+  }
+}

@@ -4,9 +4,9 @@ P┌Owner decision dec_declare1 (declare┐
 >│expires 09:15:00Z (in 14m)          │n
 O│Exactly what approve applies to:    │
  │Heimdall will treat this key as     │n
- │Tab: deny instead · Esc: send       │
- │nothing                             │
+ │needing no confirmation and will    │
+ │Tab: deny · Esc: send nothing       │
  │Approve? Type yes to confirm [y/N]: │
  │_                                   │
- └────────────────────────────────────┘
-type yes, Enter · Tab approve/deny · Esc
+ └ 12 more rows below (PgDn, End) ────┘
+Up/Down PgUp/PgDn Home/End · Esc cancel

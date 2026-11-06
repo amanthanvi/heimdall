@@ -4,9 +4,9 @@ P┌Owner decision dec_apply1 (apply_pro┐
  │expires 09:15:00Z (in 14m)          │n
 O│Exactly what approve applies to:    │
  │Intent apply · aliases 1 added, 0   │n
- │Tab: deny instead · Esc: send       │
- │nothing                             │
+ │changed, 0 removed · 2 file(s) · Git│
+ │Tab: deny · Esc: send nothing       │
  │Approve? Type yes to confirm [y/N]: │
  │ye_                                 │
- └────────────────────────────────────┘
-type yes, Enter · Tab approve/deny · Esc
+ └ 24 more rows below (PgDn, End) ────┘
+Up/Down PgUp/PgDn Home/End · Esc cancel

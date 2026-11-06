@@ -264,10 +264,49 @@ pub(crate) fn encode_line(record: &RunRecord) -> Option<Vec<u8>> {
 
 /// Scratch directories for this crate's tests: a fresh, owner-only directory under
 /// the system temporary directory, removed (exactly that directory) on drop.
+///
+/// Also the fork gate (Unix): see [`scratch::fork_gate`].
 #[cfg(test)]
 pub(crate) mod scratch {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Serializes this test binary's process creation with the tests that assert how a
+    /// descriptor closes.
+    ///
+    /// A child made by `fork` or `posix_spawn` holds a copy of every descriptor its
+    /// parent had open at that moment, close-on-exec ones included, until its `exec`
+    /// closes them. A test thread that drops a pipe's reader and then expects `EPIPE`
+    /// therefore sees the write succeed when another test thread's spawn copied the
+    /// reader and has not yet reached `exec` (observed on macOS: about 4 in 100 runs of
+    /// this crate's tests, each time with spawns of the exec tests in flight). The
+    /// copy dies within a few hundred microseconds, so the flake is intermittent and
+    /// the test passes alone.
+    ///
+    /// The rule: every spawn in these tests goes through [`spawn`], which holds the
+    /// gate for the whole call (it returns after the child's `exec`), and a test whose
+    /// outcome depends on a descriptor's last holder closing holds [`fork_gate`] from
+    /// before it creates the descriptor until it has observed the outcome.
+    #[cfg(unix)]
+    static FORK_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Hold the fork gate. A poisoned gate (a test panicked holding it) still serves:
+    /// it protects no data.
+    #[cfg(unix)]
+    pub(crate) fn fork_gate() -> std::sync::MutexGuard<'static, ()> {
+        FORK_GATE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// `command.spawn()` under the fork gate.
+    #[cfg(unix)]
+    pub(crate) fn spawn(
+        command: &mut std::process::Command,
+    ) -> std::io::Result<std::process::Child> {
+        let _gate = fork_gate();
+        command.spawn()
+    }
 
     /// One scratch directory.
     #[derive(Debug)]
@@ -604,9 +643,13 @@ mod tests {
         }
     }
 
+    /// One round of the fd protocol over a fresh pipe: a whole line, then the reader
+    /// closes and the next write is an error, not a signal. The caller holds the fork
+    /// gate ([`scratch::fork_gate`]): the outcome depends on this test's reader being
+    /// the pipe's last holder once it is dropped, and a concurrent spawn would hold a
+    /// copy of it until its `exec`.
     #[cfg(unix)]
-    #[test]
-    fn fd_protocol_writes_whole_lines_and_epipe_is_an_error_not_a_signal() {
+    fn fd_protocol_round(_gate: &std::sync::MutexGuard<'static, ()>) {
         use std::io::Read as _;
         let (mut reader, writer) = std::io::pipe().unwrap();
         let mut channel =
@@ -634,6 +677,52 @@ mod tests {
                 .unwrap_err(),
             MetaError::Write
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fd_protocol_writes_whole_lines_and_epipe_is_an_error_not_a_signal() {
+        fd_protocol_round(&scratch::fork_gate());
+    }
+
+    /// The fork gate holds: with another thread spawning children in a loop through
+    /// the gate, every closed reader is seen as closed. A spawner that bypasses the gate
+    /// makes this test fail on its first rounds with the same `Ok(())` where `EPIPE` is
+    /// expected (checked by hand when the gate was added).
+    #[cfg(unix)]
+    #[test]
+    fn a_closed_reader_is_never_masked_by_a_concurrent_spawn() {
+        use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let spawned = std::sync::Arc::new(AtomicU32::new(0));
+        let spawner = {
+            let (stop, spawned) = (stop.clone(), spawned.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let mut child = scratch::spawn(
+                        std::process::Command::new("/bin/sh")
+                            .args(["-c", ":"])
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null()),
+                    )
+                    .unwrap();
+                    child.wait().unwrap();
+                    spawned.fetch_add(1, Ordering::Relaxed);
+                }
+            })
+        };
+        // Rounds run until the spawner has made progress between them, so the two
+        // threads interleave for real (the gate is released between rounds).
+        let mut rounds = 0_u32;
+        while rounds < 300 || spawned.load(Ordering::Relaxed) < 20 {
+            fd_protocol_round(&scratch::fork_gate());
+            rounds += 1;
+            std::thread::yield_now();
+            assert!(rounds < 100_000, "the spawner made no progress");
+        }
+        stop.store(true, Ordering::Relaxed);
+        spawner.join().unwrap();
     }
 
     #[test]

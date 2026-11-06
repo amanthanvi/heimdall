@@ -1862,38 +1862,94 @@ fn usage_failures_keep_human_help_version_and_errors() {
 }
 
 /// ⟨M02⟩ `w0_m02_cli_commands_report_not_available_and_never_panic` (m02-plan U0b
-/// wave-0 acceptance; §5 item 4). Hosted here, a `heimdall` package target, because
-/// only such a target gets the real binary (wave-0 verify E6). Every M02 command of
-/// the U0 clap tree, run through the real binary, exits 2 with M01's "not available
-/// in this build" envelope (`USAGE_ERROR`, effect `none`), never panics, and never
-/// contacts the runtime: the Heimdall home it names is never created (an on-demand
-/// start or a client connection would create it). An argument canary built at run
-/// time never reaches any output. `run` and `connect` left this list when wave 3b
-/// wired them (m02-plan U8); `heimdall::cli::tests::
-/// run_and_connect_parse_and_refuse_before_the_runtime` and `e2e_run_m02` cover them.
+/// wave-0 acceptance; §5 item 4), repurposed by ADR-0007 §12.30 item 4. Hosted here, a
+/// `heimdall` package target, because only such a target gets the real binary (wave-0
+/// verify E6). The wave-0 envelope is retired, so **no** M02 command answers M01's "not
+/// available" text any more: every M02 command (`setup`, `connect`, `run`, `doctor`,
+/// `tui`, `destination`, `identity`, `profile`, `uninstall`), run through the real
+/// binary, is answered by its own handler with its own exit status, never with that
+/// text, never panics, and never starts a runtime (no `instance.json` appears under the
+/// Heimdall home it names). Each line is one that answers without a runtime: a refusal
+/// before any contact, a read-only command (which never starts the runtime), the
+/// passive doctor or an uninstall with no state store.
+///
+/// **Isolation.** Every process gets a cleared environment: `PATH`, a scratch `HOME`,
+/// the scratch Heimdall home, the scratch SSH home (`HEIMDALL_TEST_SSH_HOME`, the debug
+/// build's test configuration; a release build refuses it before reading anything),
+/// `GIT_CONFIG_NOSYSTEM=1` and no `SSH_AUTH_SOCK`, so nothing reads the account's own
+/// SSH files, Git configuration or agent. The passive doctor and the agent lookup run on
+/// Unix only. An argument canary built at run time never reaches
+/// any output.
 #[test]
 fn w0_m02_cli_commands_report_not_available_and_never_panic() {
-    // ⟨M02⟩ W4-U9: `setup`, `doctor`, `destination`, `identity`, `profile` and
-    // `uninstall` are wired and leave this list (`e2e_cli_m02` covers them, with the
-    // argument canary).
-    // ⟨M02⟩ W4-U10: `tui` is wired and leaves it too (`e2e_tui_m02` covers its
-    // refusals before any terminal or runtime contact).
-    let lines: Vec<Vec<&str>> = Vec::new();
+    let retired = ["not available", "in this build"].join(" ");
+    let canary = format!("{}ARG_W0", heimdall_testkit::CANARY_PREFIX);
+    let mut lines: Vec<(Vec<String>, i32)> = vec![
+        (sv(&["setup", "repair", "nonsense", "rerender"]), 2),
+        (sv(&["connect", "--", "-oProxyCommand=x"]), 2),
+        (sv(&["run", "--", "tool"]), 127),
+        (sv(&["doctor", "--active-probe", "everything"]), 2),
+        (sv(&["tui"]), 2),
+        (sv(&["destination", "list"]), 5),
+        (
+            sv(&[
+                "destination",
+                "add",
+                "lab",
+                "--hostname",
+                "h.example.invalid",
+            ]),
+            2,
+        ),
+        (sv(&["identity", "list"]), 5),
+        (vec!["identity".into(), "remove".into(), canary.clone()], 2),
+        (sv(&["profile", "list"]), 5),
+        (sv(&["profile", "create", "p", "--pair", "no-colon"]), 2),
+        (sv(&["uninstall"]), 0),
+    ];
+    if cfg!(unix) {
+        lines.push((sv(&["doctor", "--no-local-exec"]), 0));
+        lines.push((
+            sv(&[
+                "identity",
+                "adopt",
+                "--from-agent",
+                "--active-probe",
+                "agent",
+            ]),
+            5,
+        ));
+    }
     let scratch = tempfile::tempdir().expect("scratch");
-    for (i, line) in lines.iter().enumerate() {
-        let home = scratch.path().join(format!("home-{i}"));
+    let mut commands = BTreeSet::new();
+    for (i, (line, expected)) in lines.iter().enumerate() {
+        commands.insert(line[0].clone());
+        let root = scratch.path().join(format!("w0-{i}"));
+        let home = root.join("heimdall");
+        let account = root.join("account");
+        std::fs::create_dir_all(account.join(".ssh")).unwrap();
         let mut cmd = Command::new(bin());
         cmd.arg("--json")
             .arg("--non-interactive")
             .arg("--home")
             .arg(&home)
-            .args(line);
-        for v in TEST_VARS {
-            cmd.env_remove(v);
-        }
-        cmd.env_remove("HEIMDALL_LOG")
+            .args(line)
+            .env_clear()
             .env("HEIMDALL_HOME", &home)
+            .env("HEIMDALL_TEST_SSH_HOME", &account)
+            .env("HOME", &account)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", account.join(".gitconfig"))
             .stdin(Stdio::null());
+        if cfg!(windows) {
+            for k in ["SystemRoot", "PATH", "TEMP", "TMP"] {
+                if let Some(v) = std::env::var_os(k) {
+                    cmd.env(k, v);
+                }
+            }
+        } else {
+            cmd.env("PATH", "/usr/bin:/bin");
+        }
         let out = cmd.output().expect("spawn heimdall");
         let out = Out {
             code: out.status.code().unwrap_or(-1),
@@ -1902,25 +1958,47 @@ fn w0_m02_cli_commands_report_not_available_and_never_panic() {
         };
         scan("stdout", &out.stdout);
         scan("stderr", &out.stderr);
-        assert_eq!(out.code, 2, "{line:?}: {out:?}");
+        assert!(!out.stdout.contains(&canary) && !out.stderr.contains(&canary));
         assert!(!out.stderr.contains("panicked"), "{line:?}: {out:?}");
-        let env = out.json();
-        assert_eq!(env["code"], "USAGE_ERROR", "{line:?}: {env}");
-        assert_eq!(env["data"]["error"]["effect_status"], "none", "{line:?}");
-        assert!(
-            env["data"]["error"]["message"]
-                .as_str()
-                .is_some_and(|m| m.contains("not available")),
-            "{line:?}: {env}"
+        assert_eq!(out.code, *expected, "{line:?}: {out:?}");
+        for text in [&out.stdout, &out.stderr] {
+            assert!(
+                !text.to_ascii_lowercase().contains(&retired),
+                "{line:?} answered the retired text: {out:?}"
+            );
+        }
+        // `run` and `connect` keep stdout for the launched program: their envelope is
+        // on stderr (spec §10.4).
+        let env = last_json(&out.stdout)
+            .or_else(|| last_json(&out.stderr))
+            .unwrap_or_else(|| panic!("{line:?}: no envelope: {out:?}"));
+        assert_ne!(
+            env["data"]["error"]["message"].as_str().map(str::to_owned),
+            Some(format!("this command is {retired} (planned for M02)")),
+            "{line:?}"
         );
         assert!(
-            !home.exists(),
-            "{line:?} created the Heimdall home, so it reached for the runtime"
+            !home.join("run").join("instance.json").exists(),
+            "{line:?} started a runtime"
         );
     }
-    assert_eq!(
-        std::fs::read_dir(scratch.path()).map(Iterator::count).ok(),
-        Some(0),
-        "nothing was created under the scratch directory"
-    );
+    let expected: BTreeSet<String> = [
+        "setup",
+        "connect",
+        "run",
+        "doctor",
+        "tui",
+        "destination",
+        "identity",
+        "profile",
+        "uninstall",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    assert_eq!(commands, expected, "every M02 command is exercised");
+}
+
+fn sv(items: &[&str]) -> Vec<String> {
+    items.iter().map(|s| (*s).to_owned()).collect()
 }

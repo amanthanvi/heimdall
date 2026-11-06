@@ -11,6 +11,13 @@
 //!   surrounding whitespace ignored), default **No** (ADR-0006 §3.1). The modal shows
 //!   the exact recorded request from the runtime's latest listing, which opening it
 //!   refreshes; Enter on anything else, Escape and Ctrl-C send nothing.
+//! * **A typed yes is accepted only once the last row of what it confirms has been on
+//!   screen** (ADR-0007 §12.31 item 3). The content of a decision, an authorization and
+//!   a repair is never truncated; it wraps and scrolls (arrows, PgUp/PgDn, Home/End)
+//!   above the fixed prompt. The view reports each frame to the modal's [`Reading`], and
+//!   a `yes` before a frame drew the last row is refused: discarded, the modal stays
+//!   open and says so. Keys queued behind each other show nothing, so they cannot
+//!   outrun the screen.
 //! * A probe level that runs the real configuration tree (`evaluate`,
 //!   `host_verification`, `authentication`) first shows the authorization text, "runs
 //!   your configuration's commands with whatever effects they have", with the file:line
@@ -23,6 +30,8 @@
 //!   submitted only after a typed `yes` (QR12: a client-side confirmation, no decision
 //!   record). A repair counts as done only when the refreshed listing shows no held
 //!   operation (ADR-0007 §12.19 item 7).
+
+use std::cell::Cell;
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::{DoctorReport, FindingSeverity};
@@ -279,7 +288,7 @@ pub(crate) const NONE_FOUND_TEXT: &str =
     "none found now; the configuration can change before ssh reads it";
 
 /// The longest typed confirmation kept.
-const MAX_TYPED: usize = 16;
+pub(crate) const MAX_TYPED: usize = 16;
 
 /// A typed `y`/`yes` (case-insensitive, surrounding whitespace ignored); anything else
 /// is No (ADR-0006 §3.1).
@@ -341,6 +350,100 @@ pub(crate) fn runs_real_tree(level: ProbeLevel) -> bool {
     )
 }
 
+/// What a frame showed of a confirmation's content (written by the view).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Drawn {
+    /// Fingerprint of the content drawn (what the owner is asked to confirm).
+    pub content: u64,
+    /// Rows the content takes at the width drawn.
+    pub total: usize,
+    /// Rows of content the frame had room for.
+    pub viewport: usize,
+}
+
+/// How far the owner has read a confirmation's content (ADR-0007 §12.31 item 3).
+///
+/// The content of a decision, an authorization or a repair is never truncated: it is
+/// wrapped to the modal's width and scrolled while the prompt stays fixed. The view
+/// records here what each frame **actually drew** ([`Reading::record`]); the model
+/// accepts a typed `yes` only when a frame has drawn the content's last row
+/// ([`Reading::end_shown`]). Keys that were queued behind each other and never reached
+/// a frame therefore show nothing, and a typed yes cannot outrun the screen.
+///
+/// The "last row drawn" fact is bound to a fingerprint of the content, so a content that
+/// changes while the modal is open (a replaced record, a plan that arrives) must have
+/// its own end drawn again.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Reading {
+    /// The first content row requested on screen (the view clamps it to the content).
+    pub scroll: usize,
+    /// The last `yes` was refused because the end had not been shown (until the next
+    /// key).
+    pub refused: bool,
+    /// The geometry of the last frame.
+    drawn: Cell<Option<Drawn>>,
+    /// The fingerprint of the content whose last row a frame has drawn.
+    end_seen: Cell<Option<u64>>,
+}
+
+impl Reading {
+    /// The view's report of one frame: `content` drawn as rows `scroll..scroll +
+    /// viewport` of `total`.
+    pub(crate) fn record(&self, content: u64, total: usize, viewport: usize, scroll: usize) {
+        self.drawn.set(Some(Drawn {
+            content,
+            total,
+            viewport,
+        }));
+        if viewport > 0 && scroll.saturating_add(viewport) >= total {
+            self.end_seen.set(Some(content));
+        }
+    }
+
+    /// The geometry of the last frame, if one was drawn.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn drawn(&self) -> Option<Drawn> {
+        self.drawn.get()
+    }
+
+    /// Whether a frame has drawn the last row of the content last drawn.
+    #[must_use]
+    pub(crate) fn end_shown(&self) -> bool {
+        match (self.end_seen.get(), self.drawn.get()) {
+            (Some(seen), Some(drawn)) => seen == drawn.content,
+            _ => false,
+        }
+    }
+
+    /// Whether the last frame could not show the whole content at once.
+    #[must_use]
+    pub(crate) fn scrollable(&self) -> bool {
+        self.drawn.get().is_some_and(|d| d.total > d.viewport)
+    }
+
+    /// Scroll for `key` (Up/Down one row, PgUp/PgDn a page less one row so no row is
+    /// skipped, Home/End the ends); `false` if `key` is not a scroll key.
+    pub(crate) fn scroll_key(&mut self, key: Key) -> bool {
+        let drawn = self.drawn.get();
+        let last = drawn.map(|d| d.total.saturating_sub(d.viewport));
+        let page = drawn.map_or(1, |d| d.viewport.saturating_sub(1).max(1));
+        let clamp = |row: usize| last.map_or(row, |m| row.min(m));
+        let at = clamp(self.scroll);
+        self.scroll = match key {
+            Key::Up => at.saturating_sub(1),
+            Key::Down => clamp(at.saturating_add(1)),
+            Key::PageUp => at.saturating_sub(page),
+            Key::PageDown => clamp(at.saturating_add(page)),
+            Key::Home => 0,
+            Key::End => last.unwrap_or(usize::MAX),
+            _ => return false,
+        };
+        self.refused = false;
+        true
+    }
+}
+
 /// The decision modal: the exact recorded request and a typed confirmation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecisionPrompt {
@@ -350,8 +453,8 @@ pub(crate) struct DecisionPrompt {
     pub verdict: Verdict,
     /// What was typed.
     pub input: String,
-    /// Scroll offset of the recorded request.
-    pub scroll: u16,
+    /// How far the recorded request has been read.
+    pub reading: Reading,
 }
 
 /// The real-tree authorization modal.
@@ -365,6 +468,8 @@ pub(crate) struct AuthPrompt {
     pub executed: Option<Vec<String>>,
     /// What was typed.
     pub input: String,
+    /// How far the authorization text and the list have been read.
+    pub reading: Reading,
 }
 
 /// The held-repair confirmation modal.
@@ -378,6 +483,8 @@ pub(crate) struct RepairPrompt {
     pub plan: Option<Result<RepairPlan, String>>,
     /// What was typed.
     pub input: String,
+    /// How far the plan has been read.
+    pub reading: Reading,
 }
 
 /// A probe's result view.
@@ -796,7 +903,7 @@ impl App {
                         id,
                         verdict: Verdict::Approve,
                         input: String::new(),
-                        scroll: 0,
+                        reading: Reading::default(),
                     }));
                 }
             }
@@ -1106,7 +1213,7 @@ impl App {
             id,
             verdict: Verdict::Approve,
             input: String::new(),
-            scroll: 0,
+            reading: Reading::default(),
         }));
         // The contract: fetch the exact recorded request before deciding. The modal
         // always shows the record from the latest listing.
@@ -1119,6 +1226,7 @@ impl App {
             repair,
             plan: None,
             input: String::new(),
+            reading: Reading::default(),
         }));
         vec![Effect::Worker(Command::PreviewRepair { operation, repair })]
     }
@@ -1289,15 +1397,11 @@ impl App {
                     Verdict::Deny => Verdict::Approve,
                 };
                 p.input.clear();
+                p.reading.refused = false;
                 (Some(Modal::Decision(p)), Vec::new())
             }
-            Key::Up | Key::Down | Key::PageUp | Key::PageDown => {
-                p.scroll = match key {
-                    Key::Up => p.scroll.saturating_sub(1),
-                    Key::Down => p.scroll.saturating_add(1),
-                    Key::PageUp => p.scroll.saturating_sub(10),
-                    _ => p.scroll.saturating_add(10),
-                };
+            Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
+                p.reading.scroll_key(key);
                 (Some(Modal::Decision(p)), Vec::new())
             }
             Key::Enter => {
@@ -1316,6 +1420,9 @@ impl App {
                     ));
                     return (None, Vec::new());
                 }
+                if Self::refuse_unread(&mut p.reading, &mut p.input) {
+                    return (Some(Modal::Decision(p)), Vec::new());
+                }
                 let verb = match p.verdict {
                     Verdict::Approve => "approve",
                     Verdict::Deny => "deny",
@@ -1331,9 +1438,23 @@ impl App {
             }
             other => {
                 Self::type_into(&mut p.input, other);
+                p.reading.refused = false;
                 (Some(Modal::Decision(p)), Vec::new())
             }
         }
+    }
+
+    /// A typed `yes` is accepted only once a frame has drawn the last row of the content
+    /// it confirms (ADR-0007 §12.31 item 3). If none has, the answer is refused: it is
+    /// discarded (the owner types it again after reading), the modal stays open and says
+    /// so. Returns whether it was refused.
+    fn refuse_unread(reading: &mut Reading, input: &mut String) -> bool {
+        if reading.end_shown() {
+            return false;
+        }
+        input.clear();
+        reading.refused = true;
+        true
     }
 
     fn probe_menu_key(alias: String, selected: usize, key: Key) -> (Option<Modal>, Vec<Effect>) {
@@ -1362,6 +1483,7 @@ impl App {
                             level,
                             executed: None,
                             input: String::new(),
+                            reading: Reading::default(),
                         })),
                         vec![Effect::Worker(Command::PrepareProbe { alias, level })],
                     )
@@ -1392,6 +1514,10 @@ impl App {
                 self.declined(&p, "cancelled");
                 (None, Vec::new())
             }
+            Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
+                p.reading.scroll_key(key);
+                (Some(Modal::Authorization(p)), Vec::new())
+            }
             Key::Enter => {
                 if p.executed.is_none() {
                     // The static pass has not answered: the text is not shown yet, so
@@ -1401,6 +1527,9 @@ impl App {
                 if !typed_yes(&p.input) {
                     self.declined(&p, Self::not_confirmed_reason(&p.input));
                     return (None, Vec::new());
+                }
+                if Self::refuse_unread(&mut p.reading, &mut p.input) {
+                    return (Some(Modal::Authorization(p)), Vec::new());
                 }
                 (
                     Some(Modal::Probe(ProbeView {
@@ -1418,6 +1547,7 @@ impl App {
             }
             other => {
                 Self::type_into(&mut p.input, other);
+                p.reading.refused = false;
                 (Some(Modal::Authorization(p)), Vec::new())
             }
         }
@@ -1439,6 +1569,10 @@ impl App {
                 ));
                 (None, Vec::new())
             }
+            Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
+                p.reading.scroll_key(key);
+                (Some(Modal::Repair(p)), Vec::new())
+            }
             Key::Enter => {
                 let digest = match &p.plan {
                     Some(Ok(plan)) => plan.digest.clone(),
@@ -1452,6 +1586,9 @@ impl App {
                         Self::not_confirmed_reason(&p.input)
                     ));
                     return (None, Vec::new());
+                }
+                if Self::refuse_unread(&mut p.reading, &mut p.input) {
+                    return (Some(Modal::Repair(p)), Vec::new());
                 }
                 self.status = Some(format!(
                     "{} submitted for {}; it is done only when no held operation remains",
@@ -1469,6 +1606,7 @@ impl App {
             }
             other => {
                 Self::type_into(&mut p.input, other);
+                p.reading.refused = false;
                 (Some(Modal::Repair(p)), Vec::new())
             }
         }
@@ -1726,6 +1864,13 @@ pub(crate) mod tests {
         text.chars().flat_map(|c| app.key(Key::Char(c))).collect()
     }
 
+    /// One frame at 120×40, as the event loop draws before it reads a key: the open
+    /// confirmation records what the frame showed, and a typed yes needs the end of its
+    /// content to have been drawn.
+    pub(crate) fn read(app: &App) {
+        crate::tui::view::draw_once(app, 120, 40);
+    }
+
     fn worker(effects: &[Effect]) -> Vec<Command> {
         effects
             .iter()
@@ -1834,6 +1979,7 @@ pub(crate) mod tests {
         }
         press(&mut app, &[Key::Char('k')]);
         plan(&mut app);
+        read(&app);
         type_text(&mut app, "yes");
         assert_eq!(
             worker(&press(&mut app, &[Key::Enter])),
@@ -1896,6 +2042,7 @@ pub(crate) mod tests {
         // A typed yes (any case, surrounding spaces) approves exactly this record.
         for yes in ["yes", "YES", " y ", "Yes"] {
             press(&mut app, &[Key::Enter]);
+            read(&app);
             type_text(&mut app, yes);
             assert_eq!(
                 worker(&press(&mut app, &[Key::Enter])),
@@ -1910,6 +2057,7 @@ pub(crate) mod tests {
         press(&mut app, &[Key::Enter, Key::Tab]);
         assert!(worker(&press(&mut app, &[Key::Enter])).is_empty());
         press(&mut app, &[Key::Enter, Key::Tab]);
+        read(&app);
         type_text(&mut app, "y");
         assert_eq!(
             worker(&press(&mut app, &[Key::Enter])),
@@ -1921,6 +2069,7 @@ pub(crate) mod tests {
         // A record no longer listed is never decided, even after yes.
         press(&mut app, &[Key::Enter]);
         app.catalog.decisions.clear();
+        read(&app);
         type_text(&mut app, "yes");
         assert!(worker(&press(&mut app, &[Key::Enter])).is_empty());
     }
@@ -1985,6 +2134,7 @@ pub(crate) mod tests {
                 press(&mut app, &[Key::Char('p')]);
                 press(&mut app, &keys);
                 prepared(&mut app, level, &executed);
+                read(&app);
                 type_text(&mut app, "yes");
                 assert_eq!(
                     worker(&press(&mut app, &[Key::Enter])),
@@ -2035,6 +2185,63 @@ pub(crate) mod tests {
                 }]
             );
         }
+    }
+
+    /// ADR-0007 §12.31 item 3: the scroll keys move a page less one row (so no row is
+    /// skipped between two frames), stop at both ends, and the end counts as shown only
+    /// for the content whose last row a frame drew.
+    #[test]
+    fn reading_scrolls_without_skipping_and_remembers_the_end_per_content() {
+        let mut r = Reading::default();
+        assert!(!r.end_shown() && !r.scrollable(), "no frame yet");
+        assert!(!r.scroll_key(Key::Char('a')) && !r.scroll_key(Key::Enter));
+        // A frame of 5 rows over 30: pages of 4, one row of overlap.
+        let frame = |r: &Reading, content| r.record(content, 30, 5, r.scroll.min(25));
+        frame(&r, 1);
+        assert!(r.scrollable() && !r.end_shown());
+        let mut seen = vec![r.scroll];
+        for _ in 0..8 {
+            assert!(r.scroll_key(Key::PageDown));
+            frame(&r, 1);
+            seen.push(r.scroll);
+        }
+        assert_eq!(seen, [0, 4, 8, 12, 16, 20, 24, 25, 25]);
+        assert!(r.end_shown(), "the page that reached row 29 was drawn");
+        // Back up and to both ends.
+        for (key, to) in [
+            (Key::PageUp, 21),
+            (Key::Up, 20),
+            (Key::Down, 21),
+            (Key::Home, 0),
+            (Key::Up, 0),
+            (Key::End, 25),
+            (Key::Down, 25),
+        ] {
+            assert!(r.scroll_key(key));
+            frame(&r, 1);
+            assert_eq!(r.scroll, to, "{key:?}");
+        }
+        // The same content stays read wherever the view is; changed content is not.
+        r.scroll_key(Key::Home);
+        frame(&r, 1);
+        assert!(r.end_shown());
+        frame(&r, 2);
+        assert!(!r.end_shown(), "another content, drawn from its start");
+        r.scroll_key(Key::End);
+        frame(&r, 2);
+        assert!(r.end_shown());
+        // Without a frame in between the keys move a request, and nothing is shown.
+        let mut fresh = Reading::default();
+        fresh.scroll_key(Key::End);
+        assert!(!fresh.end_shown());
+        // A screen with no room for a row shows no row.
+        let none = Reading::default();
+        none.record(3, 30, 0, 0);
+        assert!(!none.end_shown() && none.scrollable());
+        // Content that fits is read at the first frame.
+        let fits = Reading::default();
+        fits.record(4, 3, 8, 0);
+        assert!(fits.end_shown() && !fits.scrollable());
     }
 
     /// m02-plan U10 `search_never_probes` (model level; end to end with a counting

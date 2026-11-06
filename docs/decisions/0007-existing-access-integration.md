@@ -4075,6 +4075,156 @@ integrates and before the final native runs at the M02 exit build.
    `crates/heimdall/src/tui/{view,model}.rs`, `crates/launch/src/meta.rs` and their tests.
    Then the native runs are repeated at the resulting exit build.
 
+### 12.32 Rulings on the wave-5 escalations and native runs; wave 5c (orchestrator, 2026-11-06)
+
+Sources: the four wave-5 unit reports, the integrator's report and the native-run report
+(workflow `wf_aec0e2ec-a5e`). check.sh exited 0 three times for the integrator, with 1665
+tests passed and 0 failed. Every item of §12.30 and §12.31 is done, except item 6's
+`manual_mode` (item 1 below).
+* The intermittent pipe test is diagnosed and fixed (§12.31 item 4). Cause: a sibling test's
+  `spawn()` copies every open descriptor into the child until its exec. Failures were 44 in
+  1000 runs before the fix and 0 in 1000 after.
+* The native runs at bcad82de plus the uncommitted tree:
+  * macOS: 1664 passed, 1 failed (`a27_ctrl_c_reaches_child_once`, intermittent);
+  * Linux devbox: 1519 passed, 29 failed (mostly a test-harness defect; four real
+    findings);
+  * Windows and WSL: blocked, because the PC's WSL SSH endpoint did not accept
+    connections.
+* Fourteen `m02-*.json` records were written, all `blocked` under the lowest-row rule.
+
+1. **An edited P is resolved by `rollback` only (amends §12.30 item 6).** Manual mode
+   concerns the user file, not Heimdall's own P, so it is not a resolution of
+   `managed_file_edited`. `rollback` keeps the edited P as `ssh_config.hm-conflict-<gen>`
+   (§5.5), and a later apply needs a decision. Item 6 is done.
+2. **The §5.5 snapshot is the writer's, not the CLI's.** `ProjectionConfig` gains
+   `state_dir`.
+   * The writer copies the original user file to `<state>/backups/ssh_config.<ts>.orig`
+     before its first user-file step, through `sys::create_owner_only_exclusive`. It
+     copies the original global Git file the same way, to
+     `<state>/backups/gitconfig.<ts>.orig`.
+   * API callers and the TUI's held repairs are covered as well.
+   * The CLI hook is removed, keeping its stale-base refusal as a writer precondition.
+   * Owner: W5c-app.
+3. **`HM_REPO_ROOT` is the harness interface for repository paths.** Tests that read the
+   repository (schemas, golden files, snapshots, the hook binary) resolve it through one
+   testkit function. It honours `HM_REPO_ROOT` at run time and otherwise falls back to the
+   compile-time path. The native harnesses set it, so those tests run on Linux and
+   Windows. `case-index.json`'s `build_host_paths` then shrinks to the tests that truly
+   need the build host. Owner: W5c-harness.
+4. **Windows coverage of the CLI cases.**
+   * The `--json` and `--non-interactive` cases of `cli_m02` (uninstall, doctor, setup
+     preview and status, catalog) run on every platform.
+   * The pty cases are `platform_only` macOS and Linux, with a rationale, as M01 did for
+     its pty cases (ADR-0006 §13.13 item 5).
+   * Windows interactive confirmation is the pseudoconsole drivers' row, which waits on B5.
+   * Owner: W5c-harness.
+5. **A plan whose diff does not fit is refused, never cut.** A preview whose full diff
+   exceeds `MAX_DIFF_BYTES` is refused before anything is journaled:
+   `CAPABILITY_UNAVAILABLE`, reason `plan_too_large`. No client ever receives a truncated
+   diff (ADR-0006 §3.1; the Q03 class). Owner: W5c-app.
+6. **The e2e pty keeps its window size.** `Pty` holds its slave descriptor for its
+   lifetime, so the cases that open it at 40×120 or 24×80 really run at that size. The
+   affected cases are re-run, and their assertions are corrected where the real size
+   changes them. Owner: W5c-harness.
+7. **Q01's prompt counts every table it discards.** The store gains read-only per-table
+   counts. The prompt shows operations, grants, decisions, catalog records, events and
+   idempotency records. Owner: W5c-app.
+8. **Ratified:**
+   * Q01 confirms before the rollback, so `--non-interactive uninstall --purge-state`
+     exits 3 whether or not the rollback would complete;
+   * the TUI discards a `yes` typed before the end has been shown;
+   * the integrator's `stop_runtime` fix waits for `instance.json` to be removed;
+   * check.sh's test step uses `--no-fail-fast`;
+   * the TUI wrapping property uses proptest.
+9. **`a27_ctrl_c_reaches_child_once`** failed on macOS natively and in two harness runs.
+   It is diagnosed and fixed at its cause, as §12.31 item 4 was. A retry or `#[ignore]`
+   is not a fix. Owner: W5c-harness.
+10. **Harness defects, all fixed by W5c-harness:**
+    * the e2e `Pty::start` helpers clear the environment and so lose `HEIMDALL_E2E_BIN`;
+      they pass it explicitly;
+    * `run-macos.sh` puts its scratch under `/tmp`, because the per-user TMPDIR
+      overflows `SUN_LEN`;
+    * `a27_exec_failure_with_failed_meta_write_is_indeterminate` opens its FIFO with a
+      bound;
+    * `run-windows.sh` redacts before it exits on an unreachable host;
+    * host-name redaction replaces whole words only;
+    * the evidence generator does not count tests of a platform the run marks
+      unavailable.
+11. **OpenSSH 9.6p1 (the devbox client) disagrees in three ways.** The evaluator gates
+    these on the client version (§12.15 item 4):
+    * (a) a client that refuses `Match sessiontype` makes such a file invalid for that
+      client (`invalid`, nothing determined);
+    * (b) `${VAR}` expansion of `User` and `SetEnv`, and of `Include`, applies only to
+      clients that do it. The version boundary is taken from the corpus test on both
+      clients, never assumed;
+    * (c) the first-pass and final-pass `IdentityFile` difference is diagnosed against
+      9.6p1's `ssh -G` and fixed or gated.
+    * An unknown client version takes the strictest reading.
+    * The corpus test runs on both clients. W5c-sshconf may run `ssh -G -F <scratch>` on
+      the devbox, in a scratch directory, for this.
+12. **Default identities: the superset rule is restored (amends §12.17 item 9).**
+    9.6p1's default list contains `id_xmss` and `id_dsa`, which Heimdall's six-name list
+    lacks. A list that is not a superset can let an unknown default key be offered, which
+    breaks fail-closed. `DEFAULT_IDENTITIES` becomes the union over the supported clients
+    and the pinned manuals. The per-client lists are recorded in the matrix. Owner:
+    W5c-sshconf.
+13. **git 2.43.0 refused both Git items as `unmanageable_file`.** This is diagnosed on the
+    devbox in scratch. If Heimdall misreads git 2.43, the fix is in Heimdall. If git 2.43
+    lacks a behaviour Heimdall needs, the Git item is gated on the git version with its
+    own reason and recorded in the matrix. Owner: W5c-git.
+14. **The Docker supplementary arm64 row is `deferred_with_decision`.** It is
+    supplementary and not part of the exit evidence. Linux arm64 stays blocked on B9, and
+    the matrix says not tested.
+15. **Windows and WSL: the remote route into WSL is gone.** A read-only diagnostic on the
+    PC, run through T3 with no elevation and no change, found the following:
+    * Ubuntu (WSL 3.0.3, systemd) is running, and its `sshd` listens on `0.0.0.0:2222`.
+    * WSL is in NAT mode, and the only Windows-side forward of 2222 is `wslrelay` on
+      `127.0.0.1` (loopback only).
+    * There is no portproxy rule, and nothing listens on 2222 for other machines.
+    * Windows' own `sshd` holds port 22.
+
+    Restoring a remote route needs one of the following, each requiring elevation or
+    `wsl --shutdown`, which the delegation does not allow the orchestrator:
+    * mirrored networking with a Hyper-V firewall rule;
+    * an elevated `portproxy` with a firewall rule;
+    * Tailscale inside WSL.
+
+    That is an **owner input**. Meanwhile, the Windows run may go through a T3 agent on the
+    PC itself (local mode, item 16), if the PC has the toolchain for it. That keeps the
+    same scratch-only, non-elevated rules, and the fixture `sshd` stays on WSL loopback.
+16. **Wave 5c**, four units, then the integrator, then the native runs at the resulting
+    exit build:
+    * **W5c-sshconf:** items 11 and 12;
+    * **W5c-git:** item 13;
+    * **W5c-app:** items 2, 5 and 7;
+    * **W5c-harness:** items 3, 4, 6, 9 and 10, plus the **Windows local-mode runner**
+      (item 17).
+17. **Windows local mode.**
+    * The PC has rustup with Rust 1.98.1 (msvc), Visual Studio Build Tools 2026,
+      PowerShell 7 and Git 2.55. WSL has `sshd`, OpenSSH 9.6p1 and git 2.43.
+    * `tests/native/m02/run-windows-local.ps1` runs **on the PC**, launched by a T3 agent
+      there. Its steps:
+      1. Clone the public repository at the exit commit into a fresh scratch directory.
+      2. Install the pinned toolchain into that scratch directory (`RUSTUP_HOME` and
+         `CARGO_HOME` point there), never into the owner's rustup.
+      3. Build the workspace tests natively for `x86_64-pc-windows-msvc`.
+      4. Start the fixture `sshd` in WSL scratch on `127.0.0.1` through `wsl.exe`.
+      5. Run every test binary and the e2e suites with timeouts and real exit codes.
+      6. Record `ssh -V` (Windows and WSL), `git --version` and the toolchain.
+      7. Redact `<winuser>`, `<winhost>`, `<winhome>` and SIDs; scan for canaries.
+      8. Write one results bundle with per-test results in the format `m02-evidence.py`
+         reads.
+      9. Remove the build and toolchain scratch and the WSL scratch, keeping only the
+         bundle until it has been imported.
+    * Nothing is elevated, and no service, firewall, registry, ssh-agent, `~/.ssh` or
+      WSL configuration is touched. There is no `wsl --shutdown`.
+    * The bundle reaches the build host inside the T3 agent's report as gzip and base64,
+      and is decoded into `tests/evidence/artifacts/m02/<label>/windows/`.
+    * The evidence names the target honestly: native msvc build and run on the Windows 11
+      x64 PC, Windows OpenSSH 10.3p1. The plan's in-box 9.5p2 was not present.
+    * The orchestrator runs it after wave 5c integrates, together with the macOS and
+      devbox runs.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
@@ -4119,6 +4269,11 @@ integrates and before the final native runs at the M02 exit build.
   `config_tree_changed` (§6). ⟨r5⟩ It also records Git's lock holder K, and that a lock
   left after a crash on a filesystem without birth time is the owner's to remove.
 * ⟨r5⟩ The runtime bounds every real adapter call (`Limits.adapter_call_timeout`, §7).
+* ⟨§12.30 item 9⟩ An unknown local account has no dedicated `UnresolvedReason`. Conditions
+  that read the account (`Match localuser`, `Match user` while the remote user may be the
+  local account, `%u`, `%r`) are `Unknown` or `TokenUnavailable`, and the doctor words its
+  `identity_selection_undetermined` finding from that. The account is unknown on Windows
+  until the native lookup lands (§12.28 item 4).
 * ⟨§12.16⟩ Residual, stated in the compatibility matrix: the **default** agent is the
   `SSH_AUTH_SOCK` of whatever session runs `ssh`. Consent to a state that uses the default
   agent covers "the session's agent", not a particular endpoint. An explicit variable

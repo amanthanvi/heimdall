@@ -54,6 +54,8 @@ rustix = { workspace = true, features = ["event", "termios"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# Property tests (fixed seed, >= 256 cases), as in the other crates.
+proptest = { workspace = true }
 # M02-U8 `e2e_run_m02` (tests only): the U7 process fixtures (scratch home, fake agent).
 # Test builds only; the production graph keeps default features off (finding B).
 heimdall-testkit = { workspace = true, default-features = false, features = ["app", "fixtures"] }

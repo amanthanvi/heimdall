@@ -3981,3 +3981,227 @@ async fn remove_destination_marks_projection_stale_and_changes_no_file() {
         ssh.aliases
     );
 }
+
+// --- ADR-0007 §12.30 item 6: a conflict that changes nothing ------------------------------
+
+/// The open setup operations of the scratch environment.
+fn open_setup_ids(w: &World) -> Vec<OperationId> {
+    w.store
+        .transaction(|tx| tx.open_setup_operations(&env_id()))
+        .unwrap()
+}
+
+/// `effect` refused by the driver with `CONFIG_CONFLICT` and `reason` before admission:
+/// effect `none`, no operation, no decision, no writer call and nothing written.
+async fn assert_refused_unchanged(
+    w: &World,
+    kind: &str,
+    plan: &SetupPlan,
+    request: &str,
+    reason: &str,
+) -> OpError {
+    assert!(
+        plan.files.is_empty(),
+        "the plan changes nothing: {:?}",
+        plan.files
+    );
+    assert!(
+        plan.findings
+            .iter()
+            .any(|f| f.reason.as_deref() == Some(reason)),
+        "the plan reports {reason}: {:?}",
+        plan.findings
+    );
+    let before = w.tree();
+    let decisions = w.decisions().len();
+    let applies = w.writer.applies.load(Ordering::SeqCst);
+    for caller in [attended(), unattended()] {
+        let e = w
+            .effect(&caller, kind, &plan.plan_digest, request)
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+        assert_eq!(e.reason.as_deref(), Some(reason), "{e:?}");
+        assert_eq!(e.effect_status, EffectStatus::None, "{e:?}");
+        assert!(e.operation_id.is_none(), "nothing is admitted: {e:?}");
+        assert!(e.message.contains("nothing was written"), "{}", e.message);
+    }
+    assert!(open_setup_ids(w).is_empty(), "no setup operation is open");
+    assert_eq!(w.decisions().len(), decisions, "no decision record");
+    assert_eq!(w.writer.applies.load(Ordering::SeqCst), applies);
+    assert_eq!(w.tree(), before, "nothing written");
+    w.effect(&attended(), kind, &plan.plan_digest, request)
+        .await
+        .unwrap_err()
+}
+
+/// ADR-0007 §12.30 item 6: the setup driver itself (not only the CLI) refuses a plan
+/// that reports a conflict but changes nothing, with `CONFIG_CONFLICT` and the
+/// conflict's reason, before anything is journaled: an apply over a managed file
+/// another writer edited (`managed_file_edited`, whose refusal names the rollback that
+/// resolves it), an apply over a conditional block (`include_conditional`), and a
+/// rollback whose block was edited (`marker_edited`, ADR-0007 §5.5 step 1). A plan with
+/// no conflict that changes nothing is not refused.
+#[tokio::test]
+async fn a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_driver() {
+    // managed_file_edited.
+    let w = World::new().await;
+    w.catalog_alpha().await;
+    w.apply_approved("r-apply").await;
+    // No conflict and nothing to change: an unchanged projection is not refused.
+    let unchanged = w
+        .preview(PreviewIntent::Apply { include_git: false })
+        .await
+        .unwrap();
+    let conflict = |f: &heimdall_contract::doctor::Finding| {
+        f.reason.as_ref().is_some_and(|r| {
+            serde_json::from_value::<ConflictKind>(serde_json::Value::String(r.clone())).is_ok()
+        })
+    };
+    assert!(unchanged.files.is_empty(), "{:?}", unchanged.files);
+    assert!(
+        !unchanged.findings.iter().any(conflict),
+        "{:?}",
+        unchanged.findings
+    );
+    let ok = w
+        .effect(
+            &unattended(),
+            "apply",
+            &unchanged.plan_digest,
+            "r-unchanged",
+        )
+        .await
+        .unwrap();
+    assert_eq!(ok["__code"], serde_json::json!("OK"), "{ok}");
+    let edited = b"# edited by another writer\nHost alpha\n    User someone-else\n";
+    std::fs::write(w.p(), edited).unwrap();
+    let plan = w
+        .preview(PreviewIntent::Apply { include_git: false })
+        .await
+        .unwrap();
+    let e = assert_refused_unchanged(&w, "apply", &plan, "r-edited", "managed_file_edited").await;
+    assert!(
+        e.message.contains("resolve it with a rollback") && e.message.contains("hm-conflict"),
+        "the refusal names the rollback that resolves it: {}",
+        e.message
+    );
+    assert_eq!(
+        std::fs::read(w.p()).unwrap(),
+        edited,
+        "P is never overwritten"
+    );
+
+    // include_conditional.
+    let w = World::new().await;
+    w.catalog_alpha().await;
+    w.apply_approved("r-apply").await;
+    let user = std::fs::read_to_string(w.user()).unwrap();
+    std::fs::write(w.user(), format!("Host early\n    User fixture\n\n{user}")).unwrap();
+    let plan = w
+        .preview(PreviewIntent::Apply { include_git: false })
+        .await
+        .unwrap();
+    assert_refused_unchanged(&w, "apply", &plan, "r-cond", "include_conditional").await;
+
+    // marker_edited on rollback.
+    let w = World::new().await;
+    w.catalog_alpha().await;
+    w.apply_approved("r-apply").await;
+    let user = std::fs::read_to_string(w.user()).unwrap();
+    let include = user
+        .lines()
+        .find(|l| l.trim_start().starts_with("Include"))
+        .unwrap()
+        .to_owned();
+    std::fs::write(
+        w.user(),
+        user.replace(&include, &format!("{include} # an owner's note")),
+    )
+    .unwrap();
+    let record = w.record();
+    let plan = w
+        .preview(PreviewIntent::Rollback {
+            keep_key_files: false,
+            items: [ProjectionItem::Ssh].into_iter().collect(),
+        })
+        .await
+        .unwrap();
+    assert_refused_unchanged(&w, "rollback", &plan, "r-rb", "marker_edited").await;
+    assert_eq!(
+        w.record(),
+        record,
+        "the projection record still manages the item"
+    );
+}
+
+/// ADR-0007 §12.30 item 6: `managed_file_edited` is resolved by `rollback`, which keeps
+/// the edited P as `ssh_config.hm-conflict-<generation>` (§5.5), never by `rerender`:
+/// a rerender of an edited P plans no write and the driver refuses it with the
+/// conflict, P byte-for-byte as edited. (A rerender of a P that is gone writes it
+/// again: `rerender_repair_to_consented_state_needs_no_decision`.)
+#[tokio::test]
+async fn managed_file_edited_is_resolved_by_rollback_and_never_by_rerender() {
+    let w = World::new().await;
+    std::fs::write(w.user(), "Host other\n    User fixture\n").unwrap();
+    let original = std::fs::read(w.user()).unwrap();
+    w.catalog_alpha().await;
+    w.apply_approved("r-apply").await;
+    let edited = b"# edited by another writer\nHost alpha\n    User someone-else\n";
+    std::fs::write(w.p(), edited).unwrap();
+    let rerender = w
+        .preview(PreviewIntent::Repair {
+            conflict: ConflictKind::ManagedFileEdited,
+            resolution: RepairResolution::Rerender,
+            operation: None,
+        })
+        .await
+        .unwrap();
+    assert_refused_unchanged(&w, "repair", &rerender, "r-rerender", "managed_file_edited").await;
+    assert_eq!(
+        std::fs::read(w.p()).unwrap(),
+        edited,
+        "rerender never overwrites it"
+    );
+
+    let rollback = w
+        .preview(PreviewIntent::Rollback {
+            keep_key_files: false,
+            items: [ProjectionItem::Ssh].into_iter().collect(),
+        })
+        .await
+        .unwrap();
+    assert!(!rollback.files.is_empty(), "the rollback removes the block");
+    let done = match w
+        .effect(&attended(), "rollback", &rollback.plan_digest, "r-rollback")
+        .await
+    {
+        Ok(v) => v,
+        Err(e) if e.code == Code::ApprovalRequired => {
+            w.decide(e.next.decision_ref.as_deref().unwrap(), Verdict::Approve)
+                .await
+                .unwrap();
+            w.effect(&attended(), "rollback", &rollback.plan_digest, "r-rollback")
+                .await
+                .unwrap()
+        }
+        Err(e) => panic!("{e:?}"),
+    };
+    assert_eq!(done["__code"], serde_json::json!("OK"), "{done}");
+    assert_eq!(
+        std::fs::read(w.user()).unwrap(),
+        original,
+        "the user file restored"
+    );
+    let generation = w.record().unwrap().items[&ProjectionItem::Ssh].generation;
+    let kept = w
+        .home
+        .config_dir
+        .join(format!("ssh_config.hm-conflict-{generation}"));
+    assert_eq!(
+        std::fs::read(&kept).ok().as_deref(),
+        Some(&edited[..]),
+        "the edited P is kept as a conflict file"
+    );
+    assert!(!w.p().exists());
+}

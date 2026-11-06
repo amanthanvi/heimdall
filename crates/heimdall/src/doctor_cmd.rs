@@ -25,6 +25,15 @@
 //!   stdin without `--non-interactive` cannot confirm: exit 3, nothing runs. An alias
 //!   whose tree the static pass cannot fully read is declined
 //!   (`config_not_fully_readable`) and is not offered in the prompt.
+//! * **The authorization step has exactly two outcomes** (ADR-0007 §12.31 item 2, Q02):
+//!   authorized (a typed `yes`, or `--non-interactive` with the flag) or not authorized.
+//!   When no alias can be offered, nothing is asked and nothing is authorized: "nothing
+//!   runnable" (no usable alias) and "the configuration could not be read" (no alias
+//!   whose tree the static pass could fully read, or the alias listing itself could not
+//!   be read). The run is then given no authorization, so no real-tree level can run
+//!   whatever a later pass sees, and every real-tree record of the invocation is
+//!   `declined` with the step's reason (`config_not_fully_readable`, or
+//!   `config_commands_not_authorized` when nothing was runnable).
 //! * `--active-probe agent` records a lapse (`WithdrawDeclaration { revision, reason:
 //!   listing_missing }`) for each declared identity the listing lacked, only when the
 //!   runtime is already running; otherwise the finding `interaction_declaration_lapsed`
@@ -41,9 +50,7 @@ use std::path::PathBuf;
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::catalog::{CatalogRequest, WithdrawReason};
-use heimdall_contract::doctor::{
-    AliasDefinition, DoctorReport, Finding, FindingSeverity, ProbeOutcome, finding,
-};
+use heimdall_contract::doctor::{AliasDefinition, DoctorReport, Finding, FindingSeverity, finding};
 use heimdall_contract::envelope::{Envelope, NextAction, ResourceRef, Warning};
 use heimdall_contract::ids::IdentityId;
 use heimdall_contract::provider::{InteractionKind, ProbeLevel};
@@ -118,14 +125,24 @@ pub(crate) async fn doctor<P: Prompter>(
     p: &mut P,
 ) -> Outcome {
     let wants_real_tree = REAL_TREE.iter().any(|l| request.levels.contains(l));
-    if wants_real_tree
-        && request.allow_config_commands
-        && let Err(o) = authorize(ctx, local, &request, p).await
-    {
-        return o;
+    // ADR-0007 §12.31 item 2 (Q02): a skipped authorization never authorizes. The run is
+    // given the flag only when the step authorized; otherwise it runs without it (so no
+    // real-tree level can run, whatever its own pass sees) and every real-tree record is
+    // declined with the step's reason.
+    let mut run_request = request.clone();
+    let mut not_authorized = None;
+    if wants_real_tree && request.allow_config_commands {
+        match authorize(ctx, local, &request, p).await {
+            Ok(Authorization::Authorized) => {}
+            Ok(Authorization::NotAuthorized(reason)) => {
+                run_request.allow_config_commands = false;
+                not_authorized = Some(reason);
+            }
+            Err(o) => return o,
+        }
     }
     let local2 = local.clone();
-    let req2 = request.clone();
+    let req2 = run_request;
     let report =
         match tokio::task::spawn_blocking(move || heimdall_localenv::doctor::run(&local2, &req2))
             .await
@@ -136,6 +153,9 @@ pub(crate) async fn doctor<P: Prompter>(
             }
         };
     let mut report = report;
+    if let Some(reason) = not_authorized {
+        decline_real_tree(&mut report, reason);
+    }
     if request.levels.contains(&ProbeLevel::Agent) {
         record_lapses(ctx, &mut report).await;
     }
@@ -155,18 +175,40 @@ pub(crate) async fn doctor<P: Prompter>(
     Outcome::of(env).with_human(human)
 }
 
-/// The prompt text for `--allow-config-commands` over `aliases` (module docs). `None`
-/// when no alias can run (each is declined `config_not_fully_readable`): then no prompt
-/// is shown.
-pub(crate) fn authorization_text(local: &LocalContext, aliases: &[String]) -> Option<String> {
+/// What the `--allow-config-commands` authorization step gave (ADR-0007 §12.31 item 2,
+/// Q02): exactly one of two outcomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Authorization {
+    /// A typed `yes` on an interactive TTY, or `--non-interactive` with the flag (the
+    /// flag itself is the authorization, as documented; every probe record says so).
+    Authorized,
+    /// Nothing was asked, so nothing was authorized: no alias could be offered. The
+    /// reason is a `decline_reason`: `config_not_fully_readable` when the configuration
+    /// could not be read (an alias's tree, or the alias listing), otherwise
+    /// `config_commands_not_authorized` (nothing runnable). Every real-tree level of the
+    /// invocation is declined with it ([`decline_real_tree`]).
+    NotAuthorized(&'static str),
+}
+
+/// The prompt text for `--allow-config-commands` over `aliases` (module docs). When no
+/// alias can run, no prompt is shown and the error is the reason nothing was offered
+/// ([`Authorization::NotAuthorized`]): `config_not_fully_readable` when an alias was left
+/// out because the static pass could not fully read its tree, otherwise
+/// `config_commands_not_authorized` (no alias, or none usable on a command line).
+pub(crate) fn authorization_text(
+    local: &LocalContext,
+    aliases: &[String],
+) -> Result<String, &'static str> {
     let mut found: Vec<String> = Vec::new();
     let mut runnable = false;
+    let mut unreadable = false;
     for alias in aliases {
         if !heimdall_localenv::probe::alias_is_usable(alias) {
             continue;
         }
         let pass = heimdall_localenv::probe::static_pass(local, alias, None);
         if pass.not_fully_readable {
+            unreadable = true;
             continue;
         }
         runnable = true;
@@ -178,7 +220,11 @@ pub(crate) fn authorization_text(local: &LocalContext, aliases: &[String]) -> Op
         }
     }
     if !runnable {
-        return None;
+        return Err(if unreadable {
+            heimdall_contract::doctor::decline_reason::CONFIG_NOT_FULLY_READABLE
+        } else {
+            heimdall_contract::doctor::decline_reason::CONFIG_COMMANDS_NOT_AUTHORIZED
+        });
     }
     let list = if found.is_empty() {
         format!("  {NONE_FOUND_TEXT}")
@@ -189,22 +235,27 @@ pub(crate) fn authorization_text(local: &LocalContext, aliases: &[String]) -> Op
             .collect::<Vec<_>>()
             .join("\n")
     };
-    Some(format!(
+    Ok(format!(
         "--allow-config-commands {AUTHORIZATION_TEXT}.\nConfiguration commands the static pass found for {}:\n{list}\nAllow the probes to run your configuration?\n",
         aliases.join(", ")
     ))
 }
 
-/// The typed `yes` for `--allow-config-commands` on an interactive TTY (module docs).
+/// The authorization step for `--allow-config-commands` (module docs; ADR-0007 §12.31
+/// item 2): the typed `yes` on an interactive TTY, or the flag itself under
+/// `--non-interactive`. When no alias can be offered nothing is asked and the step is
+/// [`Authorization::NotAuthorized`], never an authorization. A refusal (anything but
+/// `yes`, or a non-TTY stdin without `--non-interactive`) is the `Err` outcome: exit 3,
+/// nothing runs.
 async fn authorize<P: Prompter>(
     ctx: &Ctx,
     local: &LocalContext,
     request: &DoctorRequest,
     p: &mut P,
-) -> Result<(), Outcome> {
+) -> Result<Authorization, Outcome> {
     if ctx.non_interactive {
         // The flag itself is the authorization; every probe record says so.
-        return Ok(());
+        return Ok(Authorization::Authorized);
     }
     if !ctx.interactive() {
         return Err(Outcome::of(not_confirmed(
@@ -223,20 +274,46 @@ async fn authorize<P: Prompter>(
             let mut passive = DoctorRequest::passive();
             passive.local_queries = LocalQueries::Disabled;
             let l = local.clone();
-            tokio::task::spawn_blocking(move || heimdall_localenv::doctor::run(&l, &passive))
+            match tokio::task::spawn_blocking(move || heimdall_localenv::doctor::run(&l, &passive))
                 .await
-                .map(|r| r.aliases.into_iter().map(|a| a.alias).collect())
-                .unwrap_or_default()
+            {
+                Ok(r) => r.aliases.into_iter().map(|a| a.alias).collect(),
+                // The listing could not be read: nothing is offered, nothing authorized.
+                Err(_) => {
+                    return Ok(Authorization::NotAuthorized(
+                        heimdall_contract::doctor::decline_reason::CONFIG_NOT_FULLY_READABLE,
+                    ));
+                }
+            }
         }
     };
-    let Some(text) = authorization_text(local, &aliases) else {
-        return Ok(());
+    let text = match authorization_text(local, &aliases) {
+        Ok(text) => text,
+        Err(reason) => return Ok(Authorization::NotAuthorized(reason)),
     };
     let answer = p.ask(&text).await;
     if answer == Answer::Yes {
-        Ok(())
+        Ok(Authorization::Authorized)
     } else {
         Err(Outcome::of(not_confirmed(None, None, answer.reason())))
+    }
+}
+
+/// ADR-0007 §12.31 item 2 (Q02): after a run whose authorization step did not authorize
+/// (so the run itself had no `allow_config_commands`, and none of its real-tree levels
+/// ran anything), every real-tree record becomes `declined` with the step's `reason`,
+/// whatever that run's own pass saw: a usable or an unusable alias, a tree readable now
+/// or not, or no alias at all (the level's `*` record). Those levels are then declined,
+/// never performed.
+fn decline_real_tree(report: &mut DoctorReport, reason: &'static str) {
+    for r in report
+        .probes
+        .iter_mut()
+        .filter(|r| REAL_TREE.contains(&r.level))
+    {
+        *r = heimdall_localenv::probe::declined(r.level, &r.target, reason);
+        report.levels_performed.remove(&r.level);
+        report.levels_declined.insert(r.level);
     }
 }
 
@@ -317,6 +394,14 @@ async fn record_lapses(ctx: &Ctx, report: &mut DoctorReport) {
             reason: Some(if recorded { "recorded" } else { "not_recorded" }.to_owned()),
         });
     }
+}
+
+/// The SSH paths this invocation uses ([`ssh_paths`] under its own test configuration):
+/// the account's, or the debug build's scratch home.
+pub(crate) fn account_ssh_paths() -> Result<SshPaths, Outcome> {
+    let hooks = crate::testcfg::launch_hooks(&|n| std::env::var_os(n))
+        .map_err(|m| crate::setup_cmd::usage(&m))?;
+    ssh_paths(&hooks)
 }
 
 /// The SSH paths: the account's, or the test configuration's scratch home.
@@ -480,19 +565,19 @@ pub(crate) fn projection_conflict(ctx: &Ctx) -> Result<Option<ConflictKind>, Str
     Ok(conflict)
 }
 
-/// Whether every requested real-tree level was declined (for the tests).
-#[allow(dead_code)]
-pub(crate) fn declined_everywhere(report: &DoctorReport, level: ProbeLevel) -> bool {
-    report
-        .probes
-        .iter()
-        .filter(|r| r.level == level)
-        .all(|r| r.outcome == ProbeOutcome::Declined)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Whether every record of `level` was declined.
+    #[cfg(unix)]
+    fn declined_everywhere(report: &DoctorReport, level: ProbeLevel) -> bool {
+        report
+            .probes
+            .iter()
+            .filter(|r| r.level == level)
+            .all(|r| r.outcome == heimdall_contract::doctor::ProbeOutcome::Declined)
+    }
 
     struct Script {
         answers: Vec<Answer>,
@@ -585,7 +670,19 @@ mod tests {
             ),
         )
         .unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(authorization_text(&local, &["lab".to_owned()]), None);
+        assert_eq!(
+            authorization_text(&local, &["lab".to_owned()]),
+            Err(heimdall_contract::doctor::decline_reason::CONFIG_NOT_FULLY_READABLE)
+        );
+        // Nothing runnable for another reason (no alias, none usable): not authorized,
+        // with its own reason.
+        for aliases in [&[][..], &["-oProxyCommand=x".to_owned()][..]] {
+            assert_eq!(
+                authorization_text(&local, aliases),
+                Err(heimdall_contract::doctor::decline_reason::CONFIG_COMMANDS_NOT_AUTHORIZED),
+                "{aliases:?}"
+            );
+        }
     }
 
     /// Interactive: anything but `yes` exits 3 and runs nothing (no level performed);
@@ -653,15 +750,172 @@ mod tests {
             non_interactive: true,
             ..tty()
         };
-        assert!(
+        assert!(matches!(
             block_on(authorize(
                 &ni,
                 &local,
                 &request(&[ProbeLevel::Evaluate], true),
                 &mut p
-            ))
-            .is_ok()
-        );
+            )),
+            Ok(Authorization::Authorized)
+        ));
         assert!(p.shown.is_empty());
+    }
+
+    /// The reviewer's interleaving (ADR-0007 §12.31 item 2, Q02), deterministic: a
+    /// disposable `ssh` on the scratch `PATH` whose `-V` query (a local query of the
+    /// doctor's own run, after the authorization step) rewrites the user configuration
+    /// into `inert`, and whose every other invocation (the `evaluate` level's `ssh -G`)
+    /// creates the marker. Returns the scratch directory, the context and the marker.
+    #[cfg(unix)]
+    fn rewriting_ssh(initial: &str, inert: &str) -> (tempfile::TempDir, LocalContext, PathBuf) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (dir, mut local) = scratch_context(initial);
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap_or_else(|e| panic!("{e}"));
+        let marker = dir.path().join("evaluation-ran");
+        let stub = bin.join("ssh");
+        std::fs::write(
+            &stub,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = \"-V\" ]; then\n  printf '{}' > '{}'\n  echo 'OpenSSH_9.9p1, LibreSSL 3.3.6' >&2\n  exit 0\nfi\n: > '{}'\nexit 0\n",
+                inert.replace('\n', "\\n"),
+                local.paths.user_config.display(),
+                marker.display()
+            ),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755))
+            .unwrap_or_else(|e| panic!("{e}"));
+        local.env = Env::from_vars([
+            ("HOME", local.paths.account_home.display().to_string()),
+            ("PATH", bin.display().to_string()),
+        ]);
+        (dir, local, marker)
+    }
+
+    /// The `level` records of `out`'s report.
+    #[cfg(unix)]
+    fn records(out: &Outcome, level: &str) -> Vec<serde_json::Value> {
+        out.env.data["probes"]
+            .as_array()
+            .map(|p| p.iter().filter(|r| r["level"] == level).cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// ADR-0007 §12.31 item 2 (Q02), the reviewer's reproduction: the alias's tree has an
+    /// `Include` the static pass cannot expand, so the authorization step offers nothing
+    /// and asks nothing (a TTY that would answer no `yes`). Before the doctor's own run
+    /// evaluates anything, its `ssh -V` query makes the tree readable and inert. A skipped
+    /// authorization is not authorized: no evaluation runs (no marker), and the
+    /// `evaluate` record is declined with the step's reason, `config_not_fully_readable`,
+    /// although the run's own pass could read the tree. Exit 0, as for any completed
+    /// doctor.
+    #[cfg(unix)]
+    #[test]
+    fn q02_unreadable_then_readable_tree_runs_no_evaluation() {
+        let inert = "Host lab\n    HostName 127.0.0.1\n    Port 9\n";
+        let (_d, local, marker) = rewriting_ssh(
+            &format!("Include ${{HM_FIXTURE_UNSET_VARIABLE}}/x.conf\n{inert}"),
+            inert,
+        );
+        assert_eq!(
+            authorization_text(&local, &["lab".to_owned()]),
+            Err(heimdall_contract::doctor::decline_reason::CONFIG_NOT_FULLY_READABLE),
+            "the step offers nothing"
+        );
+        let mut request = request(&[ProbeLevel::Evaluate], true);
+        request.local_queries = LocalQueries::Enabled;
+        let mut p = Script {
+            answers: vec![Answer::No],
+            shown: Vec::new(),
+        };
+        let out = block_on(doctor(&tty(), &local, request, &mut p));
+        assert_eq!(
+            std::fs::read_to_string(&local.paths.user_config)
+                .ok()
+                .as_deref(),
+            Some(inert),
+            "the interleaving happened: the run's own query made the tree readable"
+        );
+        assert!(p.shown.is_empty(), "nothing was asked: {:?}", p.shown);
+        assert!(!marker.exists(), "no evaluation ran");
+        assert_eq!(out.exit, ExitCode::Success);
+        let eval = records(&out, "evaluate");
+        assert_eq!(eval.len(), 1, "{eval:?}");
+        assert_eq!(eval[0]["outcome"], "declined", "{eval:?}");
+        assert_eq!(
+            eval[0]["decline_reason"], "config_not_fully_readable",
+            "{eval:?}"
+        );
+        assert_eq!(eval[0]["authorization"], serde_json::json!([]), "{eval:?}");
+        let data = &out.env.data;
+        assert!(
+            data["levels_declined"]
+                .as_array()
+                .is_some_and(|l| l.contains(&serde_json::json!("evaluate"))),
+            "{data}"
+        );
+        assert!(
+            !data["levels_performed"]
+                .as_array()
+                .is_some_and(|l| l.contains(&serde_json::json!("evaluate"))),
+            "{data}"
+        );
+    }
+
+    /// ADR-0007 §12.31 item 2 (Q02), "nothing runnable": with no `--alias` and no alias
+    /// in the configuration, the step offers nothing and asks nothing. The doctor's own
+    /// `ssh -V` query then adds alias `lab` to the tree, so the run's own alias list
+    /// names it; still no level of the real tree runs for it (no marker), and each of the
+    /// three real-tree levels is declined with `config_commands_not_authorized`.
+    #[cfg(unix)]
+    #[test]
+    fn q02_nothing_runnable_then_an_alias_appears_runs_nothing() {
+        let (_d, local, marker) =
+            rewriting_ssh("", "Host lab\n    HostName 127.0.0.1\n    Port 9\n");
+        let mut request = request(
+            &[
+                ProbeLevel::Evaluate,
+                ProbeLevel::HostVerification,
+                ProbeLevel::Authentication,
+            ],
+            true,
+        );
+        request.aliases = None;
+        request.local_queries = LocalQueries::Enabled;
+        let mut p = Script {
+            answers: vec![Answer::Yes],
+            shown: Vec::new(),
+        };
+        let out = block_on(doctor(&tty(), &local, request, &mut p));
+        assert!(p.shown.is_empty(), "nothing was asked: {:?}", p.shown);
+        assert!(!marker.exists(), "nothing of the real tree ran");
+        assert_eq!(out.exit, ExitCode::Success);
+        assert!(
+            out.env.data["aliases"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|a| a["alias"] == "lab")),
+            "the run's own pass found the alias: {}",
+            out.env.data
+        );
+        let report: DoctorReport = serde_json::from_value(out.env.data.clone())
+            .unwrap_or_else(|e| panic!("the report: {e}"));
+        for level in REAL_TREE {
+            assert!(declined_everywhere(&report, level), "{level:?}");
+            assert!(report.levels_declined.contains(&level), "{level:?}");
+            assert!(!report.levels_performed.contains(&level), "{level:?}");
+        }
+        for level in ["evaluate", "host_verification", "authentication"] {
+            let r = records(&out, level);
+            assert!(!r.is_empty(), "{level}");
+            for record in &r {
+                assert_eq!(record["outcome"], "declined", "{level}: {record}");
+                assert_eq!(
+                    record["decline_reason"], "config_commands_not_authorized",
+                    "{level}: {record}"
+                );
+            }
+        }
     }
 }

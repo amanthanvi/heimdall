@@ -1,0 +1,699 @@
+{
+  "description": "M02-U11 case index (m02-plan revision 5 §3, §4): every exit case and claim mapped to its Cargo test targets and tests, per platform. tests: {target: [name | prefix*] | \"*\"}; a name ending in '*' matches every test whose full name or last segment starts with the rest, and '*' alone is the whole target. Patterns are resolved into required-inventory.json from the build host's sources (m02-evidence.py --generate-inventory) and never from run logs. platform_only: {\"<target>\" | \"<target>::<test prefix>\": [platforms]} limits where a test exists (#[cfg] gating, read from the cross-built binaries' symbols with platform-tests.py). build_host_paths: tests that read the repository at its compile-time path; remote harnesses skip them, a neutral one counts as run on the build host, any other is a harness gap that keeps the row in_progress. child_entries: #[ignore]d child-process entry points, never required. scenario_targets: harness-defined steps (not Cargo tests) logged in the same format. observation_targets: the Cargo test targets whose tests print `observation` lines (ADR-0007 [I]/[U] facts: exchange and birth-time support, client and Git observations); every remote run uses --show-output, and run-macos.sh runs these once more through cargo with --show-output because check.sh discards passing output. blocked_rows: per case, the platform rows that need an owner input (m02-plan §7), always blocked with that input named.",
+  "build_host": "macos",
+  "observation_targets": [
+    "integration_doctor",
+    "integration_git_observe",
+    "integration_projection_replace",
+    "integration_sshconf_vs_ssh_g"
+  ],
+  "platforms": {
+    "macos": {
+      "runs": "cargo"
+    },
+    "linux": {
+      "runs": "cargo"
+    },
+    "windows": {
+      "runs": "cargo"
+    },
+    "wsl-distro": {
+      "runs": "scenario"
+    }
+  },
+  "build_host_paths": {
+    "contracts": {
+      "neutral": true,
+      "reason": "schema, golden and example files under schemas/ and tests/contracts/golden, read at the compile-time path (platform-neutral)"
+    },
+    "integration_runtime::config_schema_export_matches_checked_in_file": {
+      "neutral": true,
+      "reason": "compares the exported configuration schema with schemas/configuration at the compile-time path (platform-neutral)"
+    },
+    "integration_projection_replace::own_sources_never_remove_outside_the_quarantine": {
+      "neutral": true,
+      "reason": "static scan of the crate sources at the compile-time path (platform-neutral)"
+    },
+    "integration_projection::production_code_never_unlinks_outside_quarantine": {
+      "neutral": true,
+      "reason": "static scan of the crate sources at the compile-time path (platform-neutral)"
+    },
+    "model_projection_recovery::recovery_table_rows_each_decide_as_their_row": {
+      "neutral": true,
+      "reason": "pure decision over the ADR-0007 §5.7 table, read from docs/ at the compile-time path (platform-neutral)"
+    },
+    "model_operations::u0b_adapter_bound::u0b_every_adapter_call_is_bounded": {
+      "neutral": true,
+      "reason": "static scan of crates/app/src at the compile-time path (platform-neutral)"
+    },
+    "model_operations::u0b_adapter_bound::u02_adapters_prepare_from_reads_no_store_or_live_source": {
+      "neutral": true,
+      "reason": "static scan of crates/adapters/src and crates/app/src at the compile-time path (platform-neutral)"
+    },
+    "model_sshconf_parse::corpus_files_are_inert_and_self_contained": {
+      "neutral": true,
+      "reason": "pure parse of tests/fixtures/sshconf/corpus at the compile-time path (platform-neutral)"
+    },
+    "model_sshconf_parse::corpus_roots_walk_cleanly_in_bytewise_order": {
+      "neutral": true,
+      "reason": "pure parse of tests/fixtures/sshconf/corpus at the compile-time path (platform-neutral)"
+    },
+    "model_sshconf_parse::corpus_lexer_file_splits_as_ssh_g_printed": {
+      "neutral": true,
+      "reason": "pure parse of tests/fixtures/sshconf/corpus at the compile-time path (platform-neutral)"
+    },
+    "heimdall_launch-unit::meta::tests::encoding_matches_the_committed_examples": {
+      "neutral": true,
+      "reason": "golden comparison with schemas/examples at the compile-time path (platform-neutral)"
+    },
+    "heimdall-unit::tui::view::tests::testbackend_snapshots_at_40x12_and_120x40": {
+      "neutral": true,
+      "reason": "golden TestBackend snapshots read at the compile-time path (platform-neutral rendering)"
+    },
+    "heimdall_domain-unit::operation::tests::journaled_kinds_golden_matches_operation_kind_names": {
+      "neutral": true,
+      "reason": "golden file read at the compile-time path (platform-neutral)"
+    },
+    "heimdall_domain-unit::projection::tests::rendered_is_built_only_by_the_renderers": {
+      "neutral": true,
+      "reason": "static scan of the crate sources at the compile-time path (platform-neutral)"
+    },
+    "model_operations::u0b_phase2::u0b_setup_without_projection_writer_is_capability_unavailable": {
+      "neutral": false,
+      "reason": "builds its requests from schemas/examples at the compile-time path; runs the runtime over the platform store"
+    },
+    "model_operations::wave0_fail_closed::w0_setup_and_catalog_on_a_session_are_never_dispatched": {
+      "neutral": false,
+      "reason": "builds its requests from schemas/examples at the compile-time path; runs a real IPC session (Unix socket or named pipe)"
+    },
+    "integration_projection_recovery_rows::recovery_table_rows_each_have_a_test_vector": {
+      "neutral": false,
+      "reason": "reads the ADR-0007 §5.7 rows from docs/ at the compile-time path, then runs every vector on the platform file system"
+    },
+    "integration_testkit_fixtures::counting_proxy_in_front_of_a_disposable_ssh_agent": {
+      "neutral": false,
+      "reason": "uses env!(\"CARGO_BIN_EXE_hm-fixture-hook\"), the build host's path, instead of HookBinary::locate (HM_FIXTURE_HOOK)"
+    },
+    "integration_testkit_fixtures::hook_modes_behave_as_documented": {
+      "neutral": false,
+      "reason": "uses env!(\"CARGO_BIN_EXE_hm-fixture-hook\"), the build host's path, instead of HookBinary::locate (HM_FIXTURE_HOOK)"
+    },
+    "integration_testkit_fixtures::disposable_agent_runs_with_scratch_home": {
+      "neutral": false,
+      "reason": "uses env!(\"CARGO_BIN_EXE_hm-fixture-hook\"), the build host's path, instead of HookBinary::locate (HM_FIXTURE_HOOK)"
+    },
+    "integration_testkit_fixtures::f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed": {
+      "neutral": false,
+      "reason": "uses env!(\"CARGO_BIN_EXE_hm-fixture-hook\"), the build host's path, instead of HookBinary::locate (HM_FIXTURE_HOOK)"
+    },
+    "integration_sshconf_vs_ssh_g::corpus_basic_patterns_wildcards_negation_and_first_value_match_ssh_g": {
+      "neutral": false,
+      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
+    },
+    "integration_sshconf_vs_ssh_g::corpus_identity_list_matches_ssh_g": {
+      "neutral": false,
+      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
+    },
+    "integration_sshconf_vs_ssh_g::corpus_nested_includes_and_bytewise_glob_order_match_ssh_g": {
+      "neutral": false,
+      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
+    },
+    "integration_sshconf_vs_ssh_g::include_state_is_restored_after_included_file": {
+      "neutral": false,
+      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
+    },
+    "integration_sshconf_vs_ssh_g::corpus_unsupported_syntax_loads_and_matches_ssh_g": {
+      "neutral": false,
+      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
+    },
+    "integration_sshconf_vs_ssh_g::corpus_retired_keywords_are_accepted_by_the_client": {
+      "neutral": false,
+      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
+    },
+    "integration_sshconf_vs_ssh_g::corpus_lexer_matches_ssh_g_and_command_text_is_the_raw_rest_of_the_line": {
+      "neutral": false,
+      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
+    },
+    "integration_sshconf_vs_ssh_g::bom_and_crlf_acceptance": {
+      "neutral": false,
+      "reason": "copies tests/fixtures/sshconf/corpus from the compile-time path, then compares with this platform's ssh -G"
+    },
+    "e2e_cli_m02::u9_usage_errors_exit_2_before_any_runtime_contact": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    },
+    "e2e_cli_m02::unix::a22_cli_setup_conflict_then_repair": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    },
+    "e2e_cli_m02::unix::multi_operation_repair_is_complete_only_when_doctor_reports_none_left": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    },
+    "e2e_cli_m02::unix::a22_cli_held_operation_status_retry_and_keep": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    },
+    "e2e_cli_m02::unix::a11_noninteractive_errors_exit_codes": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    },
+    "e2e_cli_m02::unix::a21_cli_doctor_json_validates_against_schema": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    },
+    "e2e_cli_m02::unix::catalog_commands_round_trip_and_declare_interaction_follows_the_confirmation_contract": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    },
+    "e2e_cli_m02::unix::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    },
+    "e2e_cli_m02::unix::uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses": {
+      "neutral": false,
+      "reason": "validates every envelope against schemas/public-api read at the compile-time path (fn schema)"
+    }
+  },
+  "groups": {
+    "A01": {
+      "title": "A01: no remote change, no key export, no mandatory prefix, unaffected aliases still work, personal profile without a repository",
+      "requirement_ids": [
+        "R-UX-01",
+        "R-UX-04",
+        "R-DI-06"
+      ],
+      "tests": {
+        "model_sshconf_eval": [
+          "unaffected_names_keep_their_behaviour",
+          "managed_values_are_determined_whatever_follows",
+          "identity_selection_reports_fingerprint_and_backing"
+        ],
+        "integration_projection": [
+          "a22_apply_then_rollback_*",
+          "private_key_files_never_opened"
+        ],
+        "integration_projection_replace": [
+          "private_key_files_never_opened"
+        ],
+        "e2e_cli_m02": [
+          "a01_*"
+        ],
+        "model_setup": [
+          "catalog_*"
+        ],
+        "e2e_setup_dispatch": [
+          "e2e_catalog_then_ensure_bind_*"
+        ],
+        "wsl_ordinary_ssh": [
+          "a01_ordinary_git_without_f",
+          "a01_ordinary_scp_without_f",
+          "a01_ordinary_sftp_without_f",
+          "a01_ordinary_ssh_alias_without_f",
+          "a01_provider_agent_accepted_key_is_the_adopted_one",
+          "a01_setup_apply_writes_the_users_real_ssh_config",
+          "a01_unaffected_alias_effective_config_unchanged"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "macos-arm64 ordinary ssh without -F (a real ~/.ssh/config)",
+          "status": "blocked",
+          "blocked_on": "B3: a disposable macOS standard user account (admin consent to create and delete it)"
+        },
+        {
+          "platform": "windows-11 ordinary ssh without -F (a real %USERPROFILE%\\.ssh\\config)",
+          "status": "blocked",
+          "blocked_on": "B2: the disposable second Windows account (one elevation consent; ADR-0004 §3, P-W05)"
+        },
+        {
+          "platform": "linux-arm64 native",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (ADR-0004 §4)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ]
+    },
+    "A11": {
+      "title": "A11: ordinary access first-class; non-interactive use returns explicit interaction or capability state without a popup or unapproved fallback",
+      "requirement_ids": [
+        "R-CR-01",
+        "R-CR-08",
+        "R-AP-06"
+      ],
+      "tests": {
+        "integration_adapters": [
+          "a11_*",
+          "a35_identity_selected_by_public_key_with_identities_only",
+          "prepare_marks_uncleared_fallback_entries",
+          "prepared_facts_from_outcome_drop_interaction_fields"
+        ],
+        "heimdall_domain-unit": [
+          "*domain_eligibility_rule_table",
+          "*domain_fallback_clearance_rule_table"
+        ],
+        "e2e_run_m02": [
+          "a11_*"
+        ],
+        "integration_testkit_fixtures": [
+          "f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed"
+        ],
+        "model_operations": [
+          "m02_integration::u0b_eligibility_is_recomputed_per_result_never_taken_from_prepared_facts"
+        ],
+        "e2e_setup_dispatch": [
+          "declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher"
+        ],
+        "e2e_cli_m02": [
+          "a11_*",
+          "a35_wrong_key_exclusive_selection_fails_without_fallback"
+        ],
+        "integration_doctor": [
+          "a21_noninteractive_authentication_refused_*"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "1Password live rows (every platform)",
+          "status": "blocked",
+          "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m02-plan §7)"
+        },
+        {
+          "platform": "windows-11 system agent (\\\\.\\pipe\\openssh-ssh-agent), incl. its confirm-constrained row",
+          "status": "blocked",
+          "blocked_on": "B4: a disposable Windows host whose system ssh-agent service may hold test keys (ADR-0004 §3, P-W11)"
+        },
+        {
+          "platform": "hardware-key touch-required row",
+          "status": "blocked",
+          "blocked_on": "B6: a hardware security key (FIDO2) owned for testing"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "A21": {
+      "title": "A21: default doctor does no exec, provider contact, signing, network or mutation; explicit probes classified and bounded",
+      "requirement_ids": [
+        "R-SS-02"
+      ],
+      "tests": {
+        "integration_doctor": "*",
+        "e2e_cli_m02": [
+          "a21_cli_*"
+        ],
+        "e2e_tui_m02": [
+          "pty::search_never_probes",
+          "pty::config_commands_authorization_requires_typed_yes"
+        ],
+        "heimdall-unit": [
+          "tui::model::tests::config_commands_authorization_requires_typed_yes"
+        ]
+      },
+      "evidence_wording": "executed_config_commands is 'constructs found before execution', never complete; config_tree_changed compares two observed snapshots and cannot see a change reverted before the second (ADR-0007 §6).",
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "A22": {
+      "title": "A22: relevant behaviour correct; dynamic unknowns stay unknown; unrelated content and newer edits survive; generation deterministic",
+      "requirement_ids": [
+        "R-SS-01",
+        "R-RT-04"
+      ],
+      "tests": {
+        "model_sshconf_parse": "*",
+        "model_sshconf_eval": "*",
+        "model_sshconf_edit": "*",
+        "model_sshconf_consent": "*",
+        "adversarial_sshconf_hostile": "*",
+        "heimdall_sshconf-unit": "*",
+        "integration_sshconf_vs_ssh_g": "*",
+        "integration_git_observe": "*",
+        "integration_projection": "*",
+        "integration_projection_replace": "*",
+        "integration_projection_git": "*",
+        "integration_projection_recovery_rows": "*",
+        "model_projection_recovery": "*",
+        "model_setup": "*",
+        "e2e_setup_dispatch": [
+          "simultaneous_setup_admissions_admit_exactly_one"
+        ],
+        "integration_store": [
+          "m02::*"
+        ],
+        "model_operations": [
+          "u0b_phase2::u0b_setup_admission_goes_through_insert_setup_operation"
+        ],
+        "heimdall_domain-unit": [
+          "*setup_intent_content_wire_forms",
+          "*file_identity_wire_forms_with_birth"
+        ],
+        "e2e_cli_m02": [
+          "a22_cli_*"
+        ],
+        "wsl_ordinary_ssh": [
+          "a22_rename_exchange_supported_on_the_home_fs"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows-11 file-symlink reparse-point row",
+          "status": "blocked",
+          "blocked_on": "B10: Windows Developer Mode on the Windows PC, or one elevation, to create a file symbolic link"
+        }
+      ],
+      "not_counted": "ADR-0007 §5.9 unsupported concurrency cases, incl. the ReplaceFileW internal window ([U]) and writes into the quarantine; stated, not counted.",
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ]
+    },
+    "A27": {
+      "title": "A27: no stdout contamination or shell injection; child streams and status preserved; setup failure distinguishable",
+      "requirement_ids": [
+        "R-SS-04",
+        "R-RT-05"
+      ],
+      "tests": {
+        "e2e_run_m02": [
+          "a27_*",
+          "a11_*",
+          "windows_holder_*"
+        ],
+        "heimdall_launch-unit": "*",
+        "e2e_cli_m01": [
+          "w0_m02_cli_commands_report_not_available_and_never_panic"
+        ],
+        "windows_launch": [
+          "ctrlc.break",
+          "ctrlc.event",
+          "ctrlc.keystroke",
+          "resize"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows-11 interactive console Ctrl-C and resize (conhost or Windows Terminal)",
+          "status": "blocked",
+          "blocked_on": "B5: an operator at the Windows console (ADR-0004 §3, P-W07, P-A06)"
+        }
+      ],
+      "limitation": "the SIGPIPE test records a limitation, not fidelity",
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "A35": {
+      "title": "A35: verified executable and identity used; exact limitations; existing-auth not second-class",
+      "requirement_ids": [
+        "R-UX-01",
+        "R-CR-01",
+        "R-CR-08",
+        "R-SS-03"
+      ],
+      "tests": {
+        "integration_adapters": [
+          "a35_identity_selected_by_public_key_with_identities_only",
+          "adapters_never_send_*"
+        ],
+        "integration_testkit_fixtures": [
+          "many_keys_exhaust_max_auth_tries_without_identities_only",
+          "client_command_never_adds_selection_options"
+        ],
+        "e2e_run_m02": [
+          "a27_git_*",
+          "a27_scp_*",
+          "git_run_*"
+        ],
+        "e2e_cli_m02": [
+          "a35_*",
+          "a01_*"
+        ],
+        "integration_git_observe": "*",
+        "wsl_ordinary_ssh": [
+          "a01_ordinary_ssh_alias_without_f",
+          "a01_ordinary_git_without_f",
+          "a01_ordinary_scp_without_f",
+          "a01_ordinary_sftp_without_f"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "1Password (every platform)",
+          "status": "blocked",
+          "blocked_on": "B1: a disposable 1Password account with disposable SSH keys on a host where its agent may run (m02-plan §7)"
+        },
+        {
+          "platform": "windows-11 system agent",
+          "status": "blocked",
+          "blocked_on": "B4: a disposable Windows host whose system ssh-agent service may hold test keys (ADR-0004 §3, P-W11)"
+        },
+        {
+          "platform": "linux-arm64 native",
+          "status": "blocked",
+          "blocked_on": "B9: a native Linux arm64 host (ADR-0004 §4)"
+        }
+      ],
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ]
+    },
+    "R-RT-05": {
+      "title": "R-RT-05: no blind replay",
+      "requirement_ids": [
+        "R-RT-05"
+      ],
+      "tests": {
+        "e2e_run_m02": [
+          "run_retry_with_same_request_id_never_relaunches_automatically"
+        ],
+        "model_setup": [
+          "restart_reconciles_attempted_apply_never_reapplies*"
+        ],
+        "model_operations": [
+          "*u0b_restart_dispatches_every_operation_kind"
+        ],
+        "contracts": [
+          "*journaled_operation_kinds_match_their_request_kind"
+        ],
+        "integration_projection": [
+          "a22_update_crash_*",
+          "held_step_moves_nothing_and_reobserves_at_restart",
+          "recovery_generated_observations_preserve_every_entry"
+        ],
+        "integration_projection_recovery_rows": [
+          "recovery_table_rows_each_have_a_test_vector"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "ADR-0006-13.20-3": {
+      "title": "ADR-0006 §13.20 item 3: bounded real-adapter calls; a hung preparation's cleanup runs without a restart (R-RT-04)",
+      "requirement_ids": [
+        "R-RT-04"
+      ],
+      "tests": {
+        "model_operations": [
+          "u0b_adapter_bound::*",
+          "m02_integration::u0b_restart_keeps_withdrawal_and_cleanup_intent_recovery",
+          "m02_integration::u0b_confirm_with_prepared_facts_keeps_cleanup_ownership",
+          "m02_integration::u0b_inspect_grants_keeps_cleanup_pending",
+          "m02_integration::u0b_admit_keeps_backpressure_order"
+        ],
+        "integration_adapters": [
+          "adapters_stop_all_work_when_dropped"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "R-SE-04": {
+      "title": "R-SE-04: host trust never weakened",
+      "requirement_ids": [
+        "R-SE-04"
+      ],
+      "tests": {
+        "heimdall_sshconf-unit": [
+          "render::*"
+        ],
+        "e2e_cli_m02": [
+          "*host_key_substitution_fails_closed_and_nothing_written_to_known_hosts"
+        ],
+        "integration_doctor": [
+          "a21_host_verification_*"
+        ],
+        "heimdall_localenv-unit": [
+          "known_hosts::*"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "T06": {
+      "title": "T06: clean local uninstall",
+      "requirement_ids": [],
+      "tests": {
+        "e2e_cli_m02": [
+          "*uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items",
+          "*uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses"
+        ],
+        "wsl_ordinary_ssh": [
+          "t06_uninstall_restores_effective_config",
+          "t06_uninstall_restores_user_bytes"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows",
+        "wsl-distro"
+      ]
+    }
+  },
+  "exit_claims": {
+    "A participant can connect without a mandatory work wrapper": {
+      "tests": {
+        "e2e_cli_m02": [
+          "*a01_cli_adopt_*"
+        ],
+        "wsl_ordinary_ssh": [
+          "a01_setup_apply_writes_the_users_real_ssh_config",
+          "a01_ordinary_ssh_alias_without_f",
+          "a01_ordinary_git_without_f",
+          "a01_ordinary_scp_without_f",
+          "a01_ordinary_sftp_without_f"
+        ]
+      },
+      "blocked_rows": [
+        {
+          "platform": "the human participant walkthrough",
+          "status": "blocked",
+          "blocked_on": "B7: the owner as participant (a short walkthrough of setup and ordinary ssh on a disposable account)"
+        }
+      ],
+      "note": "the WSL disposable distribution shows ordinary ssh without -F; the human part is an owner input (B7).",
+      "declared_platforms": [
+        "wsl-distro"
+      ]
+    },
+    "No remote authentication change, key export, or provider-policy bypass was needed": {
+      "tests": {
+        "e2e_cli_m02": [
+          "*a01_no_remote_change",
+          "*a01_no_key_export"
+        ],
+        "integration_adapters": [
+          "adapters_never_send_*",
+          "a35_identity_selected_by_public_key_with_identities_only"
+        ],
+        "model_sshconf_eval": [
+          "identity_selection_reports_fingerprint_and_backing"
+        ]
+      },
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "Does not claim managed unattended access until M03": {
+      "tests": {
+        "integration_adapters": [
+          "a11_unattended_minimum_is_capability_unavailable_*"
+        ],
+        "model_operations": [
+          "*u0b_unattended_minimum_*"
+        ]
+      },
+      "note": "matrix labels are U11's matrix rows (docs/compatibility/matrix.md), not a test.",
+      "declared_platforms": [
+        "macos",
+        "linux",
+        "windows"
+      ]
+    },
+    "M02 exit cases (m02-plan §3)": {
+      "groups": [
+        "A01",
+        "A11",
+        "A21",
+        "A22",
+        "A27",
+        "A35",
+        "R-RT-05",
+        "ADR-0006-13.20-3",
+        "R-SE-04",
+        "T06"
+      ]
+    }
+  },
+  "child_entries": {
+    "e2e_cli_m02::terminal::pty_child": "pseudo-terminal child entry point (#[ignore]; run only as a child of the pty cases)",
+    "e2e_run_m02::terminal::pty_child": "pseudo-terminal child entry point (#[ignore]; run only as a child of the pty cases)",
+    "e2e_tui_m02::pty::pty_child": "pseudo-terminal child entry point (#[ignore]; run only as a child of the pty cases)",
+    "heimdall_launch-unit::handoff::tests::handoff_child": "child entry point (#[ignore]; re-executed by the handoff tests)",
+    "heimdall_launch-unit::unix::tests::exec_child": "child entry point (#[ignore]; re-executed by the exec tests)",
+    "integration_runtime::fd_hygiene::detached_spawn_probe": "child entry point (#[ignore]; M01)",
+    "integration_runtime::u8b::launcher_child_service": "child entry point (#[ignore]; M01)"
+  },
+  "scenario_targets": {
+    "wsl_ordinary_ssh": {
+      "platforms": [
+        "wsl-distro"
+      ],
+      "source": "tests/native/m02/scenario-ordinary-ssh.sh",
+      "steps": {
+        "a01_setup_apply_writes_the_users_real_ssh_config": "setup apply (typed yes on a pty) changes the disposable user's real ~/.ssh/config",
+        "a01_ordinary_ssh_alias_without_f": "ssh <alias> true, no -F, no isolation options, SSH_AUTH_SOCK at an empty decoy agent",
+        "a01_ordinary_git_without_f": "git ls-remote and git clone <alias>:<scratch repo> with no GIT_SSH_COMMAND",
+        "a01_ordinary_scp_without_f": "scp to and from <alias>, bytes compared",
+        "a01_ordinary_sftp_without_f": "sftp -b put/get through <alias>, bytes compared",
+        "a01_unaffected_alias_effective_config_unchanged": "ssh -G of an alias the projection does not manage is identical before and after apply",
+        "a01_provider_agent_accepted_key_is_the_adopted_one": "the fixture sshd log accepts only the adopted key's fingerprint",
+        "a22_rename_exchange_supported_on_the_home_fs": "renameat2(RENAME_EXCHANGE) works on the disposable home's file system (ext4 exchange support)",
+        "t06_uninstall_restores_user_bytes": "uninstall: ~/.ssh/config is byte-identical to the original",
+        "t06_uninstall_restores_effective_config": "uninstall: ssh -G <alias> no longer shows the managed values"
+      }
+    },
+    "windows_launch": {
+      "platforms": [
+        "windows"
+      ],
+      "source": "tests/native/windows-launch/Invoke-WindowsLaunch.ps1",
+      "steps": {
+        "ctrlc.event": "CTRL_C_EVENT on the pseudoconsole reaches the child once (a27_ctrl_c_reaches_child_once)",
+        "ctrlc.keystroke": "^C typed into the pseudoconsole reaches the child once",
+        "ctrlc.break": "CTRL_BREAK_EVENT (recorded, not gating in the driver)",
+        "resize": "ResizePseudoConsole reaches the child (a27_resize_reaches_child)"
+      }
+    }
+  }
+}

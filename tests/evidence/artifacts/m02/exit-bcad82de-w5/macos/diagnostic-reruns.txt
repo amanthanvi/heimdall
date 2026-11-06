@@ -1,0 +1,7 @@
+Diagnostic reruns on the build host after the recorded macOS run (not part of the harness run, not used by any record).
+TMPDIR: the macOS per-user default. Same working tree and ./target.
+
+* cargo test -q -p heimdall --locked --test e2e_run_m02 -- --exact terminal::a27_ctrl_c_reaches_child_once, 12 times serially: exit 0 in all 12.
+* cargo test -q -p heimdall --locked --test e2e_run_m02 (the whole target, its default parallelism), 5 times serially: exit 0 in all 5 (50 passed, 0 failed, 1 ignored each; 10.3-12.8 s).
+* In the recorded run (check.txt) the same test failed once: "heimdall did not finish" (run_m02.rs:307), the target took 32.53 s.
+  Reading: an intermittent failure under load, not reproduced alone or in the target alone. Escalated; never retried away.

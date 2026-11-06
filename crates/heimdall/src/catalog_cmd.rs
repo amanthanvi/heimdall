@@ -11,8 +11,11 @@
 //!   `--non-interactive` it is refused unless `--active-probe agent` is given; a
 //!   non-TTY stdin without `--non-interactive` cannot confirm (exit 3). It sends one
 //!   identity-listing request to the session's agent and adopts the one identity the
-//!   agent lists (several: refused, naming their fingerprints, so the owner adopts one
-//!   with `--pub`). For each declared identity at that endpoint the listing lacks, it
+//!   agent lists, or with `--fingerprint <fp>` the listed one with that fingerprint
+//!   (ADR-0007 §12.30 item 12; several without it: refused, naming their fingerprints,
+//!   so the owner chooses one with `--fingerprint` or adopts it with `--pub`; an
+//!   unlisted fingerprint is `NOT_FOUND`). For each declared identity at that endpoint
+//!   the listing lacks, it
 //!   records the lapse (`WithdrawDeclaration { revision, reason: listing_missing }`)
 //!   only when the runtime was already running; otherwise it reports `recorded: false`
 //!   and the exact command (QR9).
@@ -489,17 +492,9 @@ async fn adopt_from_agent<P: Prompter>(
             "command": (!recorded).then(|| format!("heimdall identity withdraw-declaration {identity}")),
         }));
     }
-    let chosen = match listing.identities.as_slice() {
-        [one] => one,
-        [] => return Outcome::of(failure(Code::NotFound, "the agent lists no identity", None)),
-        many => {
-            let fps: Vec<&str> = many.iter().map(|i| i.fingerprint.as_str()).collect();
-            return usage(&format!(
-                "the agent lists {} identities ({}); adopt one with --pub FILE",
-                many.len(),
-                fps.join(", ")
-            ));
-        }
+    let chosen = match choose_listed(&listing.identities, a.fingerprint.as_deref()) {
+        Ok(c) => c,
+        Err(o) => return o,
     };
     let request = CatalogRequest::AdoptIdentity {
         identity: IdentitySpec {
@@ -516,6 +511,52 @@ async fn adopt_from_agent<P: Prompter>(
         map.insert("lapses".to_owned(), serde_json::Value::Array(notes));
     }
     out
+}
+
+/// ⟨M02⟩ ADR-0007 §12.30 item 12: the one listed identity `identity adopt --from-agent`
+/// adopts. With `--fingerprint`, the listed identity with exactly that fingerprint
+/// (`NOT_FOUND` when the agent lists none: the given value is never echoed, the listed
+/// fingerprints are named instead); without it, the only one listed (several: a usage
+/// error naming their fingerprints and both ways to choose one).
+fn choose_listed<'a>(
+    listed: &'a [heimdall_ipc::agent_client::AgentIdentity],
+    fingerprint: Option<&str>,
+) -> Result<&'a heimdall_ipc::agent_client::AgentIdentity, Outcome> {
+    let fps = || {
+        listed
+            .iter()
+            .map(|i| i.fingerprint.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    if let Some(wanted) = fingerprint {
+        return listed
+            .iter()
+            .find(|i| i.fingerprint == wanted)
+            .ok_or_else(|| {
+                Outcome::of(failure(
+                    Code::NotFound,
+                    &format!(
+                        "the agent lists no identity with that fingerprint (it lists: {}); nothing was adopted",
+                        if listed.is_empty() { "none".to_owned() } else { fps() }
+                    ),
+                    None,
+                ))
+            });
+    }
+    match listed {
+        [one] => Ok(one),
+        [] => Err(Outcome::of(failure(
+            Code::NotFound,
+            "the agent lists no identity",
+            None,
+        ))),
+        many => Err(usage(&format!(
+            "the agent lists {} identities ({}); choose one with --fingerprint <FINGERPRINT>, or adopt it with --pub FILE",
+            many.len(),
+            fps()
+        ))),
+    }
 }
 
 /// Declared identities at `endpoint` (in force now) whose fingerprint `listed` lacks,
@@ -728,4 +769,68 @@ async fn edit_pairs(
         },
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use heimdall_ipc::agent_client::AgentIdentity;
+
+    fn listed(n: u8) -> AgentIdentity {
+        AgentIdentity {
+            key_type: "ssh-ed25519".to_owned(),
+            fingerprint: format!("SHA256:fixture-{n}"),
+            public_blob: vec![n; 4],
+        }
+    }
+
+    /// ADR-0007 §12.30 item 12: `identity adopt --from-agent --fingerprint <fp>` adopts
+    /// exactly the listed identity with that fingerprint; an unlisted one is `NOT_FOUND`
+    /// (the given value never echoed); without it, several listed is a usage error that
+    /// names their fingerprints and `--fingerprint`, and one listed is adopted.
+    #[test]
+    fn from_agent_fingerprint_chooses_one_listed_identity() {
+        let many = [listed(1), listed(2), listed(3)];
+        let chosen = choose_listed(&many, Some("SHA256:fixture-2"))
+            .unwrap_or_else(|o| panic!("{:?}", o.env.code));
+        assert_eq!(chosen, &many[1]);
+        let Err(missing) = choose_listed(&many, Some("SHA256:HEIMDALL_CANARY_not-listed")) else {
+            panic!("an unlisted fingerprint is refused");
+        };
+        assert_eq!(missing.env.code, Code::NotFound);
+        let text = serde_json::to_string(&missing.env).unwrap_or_default();
+        assert!(!text.contains("HEIMDALL_CANARY"), "{text}");
+        assert!(text.contains("SHA256:fixture-3"), "{text}");
+        let Err(several) = choose_listed(&many, None) else {
+            panic!("several listed need a choice");
+        };
+        assert_eq!(several.env.code, Code::UsageError);
+        let text = serde_json::to_string(&several.env).unwrap_or_default();
+        assert!(
+            text.contains("--fingerprint") && text.contains("SHA256:fixture-1"),
+            "{text}"
+        );
+        let one = [listed(7)];
+        assert_eq!(choose_listed(&one, None).ok(), Some(&one[0]));
+        assert_eq!(
+            choose_listed(&[], None).err().map(|o| o.env.code),
+            Some(Code::NotFound)
+        );
+        // `--fingerprint` needs `--from-agent`: with `--pub`, or alone, it does not parse.
+        use clap::Parser as _;
+        for line in [
+            &[
+                "identity",
+                "adopt",
+                "--pub",
+                "k.pub",
+                "--fingerprint",
+                "SHA256:x",
+            ][..],
+            &["identity", "adopt", "--fingerprint", "SHA256:x"],
+        ] {
+            let argv = std::iter::once("heimdall").chain(line.iter().copied());
+            assert!(crate::cli::Cli::try_parse_from(argv).is_err(), "{line:?}");
+        }
+    }
 }

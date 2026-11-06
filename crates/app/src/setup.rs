@@ -390,6 +390,50 @@ fn decision_needed(plan: &ProjectionPlan, intent: &SetupIntent) -> bool {
             || !intent.consent.items.is_empty())
 }
 
+/// ⟨M02⟩ ADR-0007 §12.30 item 6: the refusal of a plan that reports a conflict but
+/// changes nothing. A plan with no file step whose findings name a configuration
+/// conflict (a `problem` finding whose reason is a [`ConflictKind`]: P edited by another
+/// writer, an edited, duplicated or conditional block) cannot make the catalog
+/// effective, remove the projection or resolve the conflict, so it is refused before
+/// admission: `CONFIG_CONFLICT` with the conflict as its reason, effect `none`, and
+/// nothing journaled or written. A held repair (`retry_held`, `keep_held`) is built
+/// from the held operation's observation and is never refused here.
+fn unchanged_conflict(plan: &ProjectionPlan) -> Option<OpError> {
+    if held_repair(&plan.view.intent).is_some() || !plan.files.is_empty() {
+        return None;
+    }
+    let (kind, message) = plan.view.findings.iter().find_map(|f| {
+        if f.severity != FindingSeverity::Problem {
+            return None;
+        }
+        let kind: ConflictKind =
+            serde_json::from_value(serde_json::Value::String(f.reason.clone()?)).ok()?;
+        Some((kind, f.message.clone()))
+    })?;
+    let name = wire_name(&kind)?;
+    let next = match kind {
+        ConflictKind::ManagedFileEdited => format!("; {}", managed_file_edited_resolutions()),
+        _ => String::new(),
+    };
+    Some(
+        OpError::new(
+            Code::ConfigConflict,
+            format!("setup cannot proceed: {message} ({name}); nothing was written{next}"),
+        )
+        .with_reason(&name)
+        .with_effect(EffectStatus::None),
+    )
+}
+
+/// ADR-0007 §12.30 item 6: how a `managed_file_edited` conflict is resolved. A
+/// `rerender` never overwrites the edited file (its plan writes nothing, so it is
+/// refused like this one). Only `rollback` is named: the writer's `manual_mode` plan for
+/// an edited P reports the same conflict and changes nothing (escalated, W5-fix), so
+/// naming it would send the owner into the same refusal.
+fn managed_file_edited_resolutions() -> &'static str {
+    "the edited managed file is never overwritten, by a rerender either; resolve it with a rollback, which keeps the edited file as ssh_config.hm-conflict-<generation>"
+}
+
 /// The longest prefix of `text` within `max` bytes, at a character boundary.
 fn bounded(text: &str, max: usize) -> String {
     if text.len() <= max {
@@ -874,6 +918,15 @@ impl Operations {
             }
         }
         let planned = self.find_plan(writer, kind, digest).await?;
+        // ADR-0007 §12.30 item 6: a plan that reports a conflict but changes nothing
+        // is refused before admission; nothing is journaled or written. While another
+        // setup operation is open (a held one above all), admission's
+        // `setup_in_progress`, which names it and its repairs, answers instead.
+        if let Some(e) = unchanged_conflict(&planned.plan)
+            && !self.any_setup_open().await?
+        {
+            return Err(e);
+        }
         let request_json =
             serde_json::to_value(request).map_err(|_| internal("request is not serializable"))?;
         let admission = SetupAdmission {
@@ -960,6 +1013,14 @@ impl Operations {
             }
         }
         Err(stale())
+    }
+
+    /// Whether any setup operation of this environment is open or unresolved.
+    async fn any_setup_open(&self) -> Result<bool, OpError> {
+        let environment = self.environment().clone();
+        self.local_write(move |tx, _| tx.open_setup_operations(&environment))
+            .await
+            .map(|open| !open.is_empty())
     }
 
     /// `retry_held` and `keep_held` for each held setup operation of this environment.
@@ -1201,6 +1262,10 @@ async fn prepare_and_apply(
     };
     if planned.plan.view.plan_digest != intent.plan_digest {
         return fail_unwritten(ops, &op.id, stale()).await;
+    }
+    // ADR-0007 §12.30 item 6, for an operation admitted before the refusal existed.
+    if let Some(e) = unchanged_conflict(&planned.plan) {
+        return fail_unwritten(ops, &op.id, e).await;
     }
     if decision_needed(&planned.plan, intent) {
         match op.state {

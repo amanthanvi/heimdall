@@ -25,8 +25,10 @@ trap 'rm -f "${test_log}"' EXIT
 
 # `cargo test`, with its combined output (cargo's `Running` lines are on stderr, the
 # harness's `running N tests` lines on stdout) shown and also kept for discovery.
+# `--no-fail-fast`: a failing target never hides the targets after it (the step still
+# exits nonzero when any test fails).
 test_step() {
-    cargo test --workspace --locked "$@" 2>&1 | tee "${test_log}"
+    cargo test --workspace --locked --no-fail-fast "$@" 2>&1 | tee "${test_log}"
     return "${PIPESTATUS[0]}"
 }
 

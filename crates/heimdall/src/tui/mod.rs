@@ -29,6 +29,10 @@
 //! (from another process: Ctrl-C at the keyboard is a key in raw mode). Every exit,
 //! and a panic of the TUI's thread, restores the terminal first ([`term`]).
 //!
+//! **Entry.** `heimdall tui`, and a bare `heimdall` with a terminal on stdin and stdout
+//! and neither `--json` nor `--non-interactive` (overview §3; ADR-0007 §12.30 item 5;
+//! `cli::bare`, which leaves every other bare invocation to `status`).
+//!
 //! **Refusals before the terminal is touched** (usage, exit 2): `--json` (the TUI has
 //! no machine output), `--non-interactive` (the TUI is interactive), a stdin or stdout
 //! that is not a terminal, and a `HEIMDALL_TEST_*` variable in a release build.

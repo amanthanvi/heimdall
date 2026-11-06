@@ -1,0 +1,26 @@
+Windows 11 PC reachability during M02-W5-run (ssh through HM_SSH_CONFIG to the PC's WSL endpoint; BatchMode, ConnectTimeout 20-60 s; error text reduced to its class).
+The PC's Tailscale node answered 'tailscale ping' at about 03:58Z (time not logged; pong in 3 ms), and a TCP connect to its port 22 succeeded, so the PC was up; the WSL ssh endpoint the configuration names never accepted a connection.
+about 03:56Z (time not logged) attempt 0 exit 255 timed out (ConnectTimeout 20)
+about 03:57Z (time not logged) attempt 0b exit 255 timed out (ConnectTimeout 60)
+04:02:31Z attempt 1 exit 255 timed out
+04:04:31Z attempt 2 exit 255 timed out
+04:06:31Z attempt 3 exit 255 timed out
+04:08:31Z attempt 4 exit 255 timed out
+04:10:31Z attempt 5 exit 255 timed out
+04:12:31Z attempt 6 exit 255 timed out
+04:14:31Z attempt 7 exit 255 timed out
+04:16:31Z attempt 8 exit 255 timed out
+04:18:31Z attempt 9 exit 255 timed out
+04:20:31Z attempt 10 exit 255 timed out
+04:22:31Z attempt 11 exit 255 timed out
+04:24:31Z attempt 12 exit 255 timed out
+04:26:31Z attempt 13 exit 255 timed out
+04:28:31Z attempt 14 exit 255 timed out
+04:30:31Z attempt 15 exit 255 timed out
+04:32:31Z attempt 16 exit 255 timed out
+04:34:31Z attempt 17 exit 255 timed out
+04:36:31Z attempt 18 exit 255 timed out
+04:38:31Z attempt 19 exit 255 timed out
+04:40:31Z attempt 20 exit 255 timed out
+04:46:50Z attempt 21 exit 255 timed out
+run-windows.sh at 2026-11-06T04:47:28Z: its remote create step exited 255 (commands.txt); nothing was created on the host.

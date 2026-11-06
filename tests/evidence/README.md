@@ -45,3 +45,49 @@ and key path, never by value. The prefix alone, used as a scan pattern, is
 allowed. Synthetic canary values may appear in fixtures and test inputs that
 define them; a canary value anywhere else (program output, logs, arguments,
 artifacts, redacted evidence) is a defect (ADR-0004 §4).
+
+## M02 additions (existing-access slice; `tests/native/m02/`)
+
+M02 records are `tests/evidence/m02-*.json`, one per exit case or claim of m02-plan §3,
+written by `tests/native/m02/m02-evidence.py --write` from `tests/native/m02/runs.json`. Raw,
+redacted harness output lives under `tests/evidence/artifacts/m02/exit-<commit>/<platform>/`
+(`check.txt` or `tests.txt`, `observations.txt` on macOS, `host.txt`, `commands.txt`,
+`skipped.txt`, `canary-scan.txt`). One build, one directory: every row of every record comes
+from the same build commit.
+
+- **One record, one row per platform.** `observed_result.rows` has a row per declared
+  platform (macOS, Linux, Windows, the WSL disposable distribution) plus a row for each
+  owner-input gap. The record's `status` is its lowest row (the order above), so one blocked
+  row makes the record `blocked`.
+- **Blocked rows name their input.** A row is `blocked` only for a platform that is missing, a
+  capability that is missing, or an owner input of m02-plan §7 (B1 to B10), and `blocked_on`
+  names it exactly, for example `B3: a disposable macOS standard user account`. A test that
+  did not run on a platform that was available is `in_progress` with the reason on the row:
+  `incomplete_run`, `harness_gap_not_run` (a test that reads the repository at its
+  compile-time path and cannot run off the build host), or `no_applicable_test` (m02-plan §4
+  declares the row but no indexed test exists on that platform). Never `blocked`, never
+  `verified`.
+- **Required tests come from the case index, never from a run.** `case-index.json` maps each
+  case to its tests; `required-inventory.json` resolves those patterns against the sources and
+  the cross-built binaries' symbols (`#[cfg]`), and records the digest of the sources it came
+  from. The generator refuses another digest (regenerate with
+  `tests/native/m02/refresh-inventory.sh` at the build commit), a test that ran but is not in
+  the inventory, and a required test that is absent from every log.
+- **Native means native.** A cross-build, a stub, a mock or emulation closes no native claim.
+  `tools/validation/native-harness-selftest.sh` exercises every M02 harness against stubs and
+  a fake host tree: that is harness evidence only. It never appears in a record as product
+  evidence and carries no product requirement ID.
+- **Settled facts are recorded with their observation.** A test that settles an ADR-0007 `[I]`
+  or `[U]` fact (exchange support per file system, birth time, each client's and Git's
+  behaviour) prints a line starting with `observation`. The harnesses keep those lines
+  (`--show-output`), and the row of a platform carries `observations` for the tests that
+  passed there. A fact not observed on a target stays `[I]` for that target.
+- **Evidence wording for A21.** `executed_config_commands` is described as "constructs found
+  before execution", never as complete, and `config_tree_changed` as a comparison of two
+  observed snapshots (it cannot see a change reverted before the second one).
+- **In-process reconstructions are labelled** as such, as in M01 N06. The ADR-0007 §5.9
+  unsupported concurrency cases are stated in the compatibility matrix, not counted as
+  evidence.
+- **Redaction.** Host, user and home names, domain SIDs and non-loopback addresses are
+  replaced before anything is saved. Each harness then scans every artifact for those values
+  and for the canary prefix; a hit fails the run.

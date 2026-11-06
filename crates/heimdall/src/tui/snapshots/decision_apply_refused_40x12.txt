@@ -1,0 +1,12 @@
+ 1 Over  2 Dest  3 Prof [4 Acti] [!!]
+P┌Owner decision dec_apply1 (apply_pro┐
+>│Recorded 09:00:00Z (30s ago) ·      │p
+ │expires 09:15:00Z (in 14m)          │n
+O│Exactly what approve applies to:    │
+ │Intent apply · aliases 1 added, 0   │n
+ │changed, 0 removed · 2 file(s) · Git│
+ │Tab: deny · Esc: send nothing       │
+ │Approve? Type yes to confirm [y/N]: │
+ │_                                   │
+ └ yes refused: 24 more rows below ───┘
+Read to the end first (PgDn, End) · Esc

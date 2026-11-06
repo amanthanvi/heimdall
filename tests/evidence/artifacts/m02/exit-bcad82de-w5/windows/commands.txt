@@ -1,0 +1,4 @@
+exit 0: cargo test --target x86_64-pc-windows-gnu --workspace --no-run --locked (zig linker/CC shims)
+exit 0: run plan from case-index.json build_host_paths
+exit 0: go build argvdump.exe (GOOS=windows GOARCH=amd64, -trimpath) for the pseudoconsole drivers
+exit 255: remote: create the run directories exclusively (run M02-U11-4db5049fda4ad546)

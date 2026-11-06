@@ -104,9 +104,10 @@ use heimdall_contract::envelope::{NextAction, ResourceRef};
 use heimdall_contract::ids::DecisionId;
 use heimdall_contract::provider::{EndpointKind, ProbeLevel};
 use heimdall_contract::setup::{
-    ConflictKind, ConsentNeed, ConsentReason, ConsentReasonKind, FileChange, GitApplicability,
-    GitConfigChange, GitGlobalFile, PlanDigest, PreviewIntent, ProjectionFileRole, ProjectionItem,
-    RepairResolution, SetupMode, SetupPlan, manual_reason,
+    AliasKind, AliasPreview, BehaviorSummary, ConflictKind, ConsentNeed, ConsentReason,
+    ConsentReasonKind, FileChange, GitApplicability, GitConfigChange, GitGlobalFile, PlanDigest,
+    PreviewIntent, ProjectionFileRole, ProjectionItem, RepairResolution, SetupMode, SetupPlan,
+    manual_reason,
 };
 use heimdall_domain::projection::{
     Base, BehaviorState, ConsentRecord, ConsentedStates, FileRole, FileStep, ItemId, ItemRecord,
@@ -1659,6 +1660,8 @@ impl<'a> Builder<'a> {
                         item: id.clone(),
                         digest: restore.digest.clone(),
                     });
+                    out.aliases
+                        .push(alias_preview(name, &current, &after_state, &restore));
                     kept.push((id.clone(), after_state.clone(), restore.clone()));
                     if now.contains_key(name) {
                         out.changed.push(name.clone());
@@ -1865,7 +1868,14 @@ impl<'a> Builder<'a> {
             manual_reasons: self.manual,
             files: self.changes,
             git: self.git,
-            aliases: Vec::new(),
+            // ADR-0007 §5.1, §12.30 item 7: the restore column comes from the preview
+            // itself, for every alias an apply adds or changes (a first adoption's
+            // aliases, each with its restore state); a rollback lists none.
+            aliases: if rollback {
+                Vec::new()
+            } else {
+                decided.aliases.clone()
+            },
             consent,
             unaffected_names_checked: 0,
             findings: self.findings,
@@ -1899,6 +1909,9 @@ struct Decided {
     record: ConsentRecord,
     /// The restore column.
     restore: Vec<ItemRestore>,
+    /// ⟨M02⟩ ADR-0007 §12.30 item 7: each alias the plan adds or changes, with its
+    /// before, after and restore states (`SetupPlan.aliases`).
+    aliases: Vec<AliasPreview>,
     added: Vec<String>,
     changed: Vec<String>,
     removed: Vec<String>,
@@ -1977,6 +1990,33 @@ fn sections(p: &[u8]) -> BTreeMap<String, Vec<u8>> {
         }
     }
     out
+}
+
+/// ⟨M02⟩ ADR-0007 §12.30 item 7: one managed alias of a plan, with its behaviour now,
+/// after the plan and on restore (its section removed now: §5.1's restore column), each
+/// as its behaviour digest. The directives are not listed (the digests are what the plan
+/// digest and the consent bind), so for a first adoption the restore state is the
+/// alias's state without Heimdall's section, with no directive of its own.
+fn alias_preview(
+    alias: &str,
+    current: &BehaviorState,
+    after: &BehaviorState,
+    restore: &BehaviorState,
+) -> AliasPreview {
+    let summary = |s: &BehaviorState| BehaviorSummary {
+        digest: s.digest.as_str().to_owned(),
+        directives: Vec::new(),
+    };
+    AliasPreview {
+        alias: alias.to_owned(),
+        kind: AliasKind::Managed,
+        before: summary(current),
+        after: summary(after),
+        restore: Some(summary(restore)),
+        changes: Vec::new(),
+        inherited: Vec::new(),
+        identity_selection: None,
+    }
 }
 
 /// `bytes` with every Heimdall block removed (the restore column's user file).

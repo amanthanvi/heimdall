@@ -9,9 +9,13 @@
 //! `doctor`, `tui`, `destination`, `identity`, `profile` and `uninstall` carry
 //! their full M02 argument trees, each handled in its own file (`setup_cmd`,
 //! `connect_cmd`, `run_cmd`, `doctor_cmd`, `tui`, `catalog_cmd`, `uninstall_cmd`).
-//! Every handler is wired (⟨M02⟩ wave 4); none answers M01's "not available in
-//! this build" envelope ([`not_available`]) any more. The envelope and its wave-0
-//! tests stay until the orchestrator retires them (§5 item 4, fail-closed landing).
+//! Every handler is wired (⟨M02⟩ wave 4). M01's "not available in this build"
+//! envelope and its helpers are retired (ADR-0007 §12.30 item 4); the two wave-0 tests
+//! now assert that no M02 command answers that text.
+//!
+//! **A bare `heimdall`** (no subcommand) opens the TUI when stdin and stdout are
+//! terminals and neither `--json` nor `--non-interactive` is given (overview §3; ADR-0007
+//! §12.30 item 5); otherwise it is `status`, which never starts the runtime.
 //!
 //! Every command except `service run` and `schema` is a client of the runtime's
 //! control endpoint (overview §3); nothing here authorizes access. Effectful
@@ -79,7 +83,7 @@ pub struct Cli {
     /// Override the Heimdall home directory (fixtures and tests).
     #[arg(long, global = true, env = "HEIMDALL_HOME", value_name = "DIR")]
     pub home: Option<PathBuf>,
-    /// Subcommand; with none, the runtime status.
+    /// Subcommand; with none, the TUI on a terminal, otherwise the runtime status.
     #[command(subcommand)]
     pub command: Option<Command>,
 }
@@ -403,6 +407,17 @@ pub struct IdentityAdoptArgs {
     /// Explicit probe level authorizing the agent listing (`agent`).
     #[arg(long = "active-probe", value_name = "LEVEL", requires = "from_agent")]
     pub active_probe: Option<String>,
+    /// With `--from-agent`: adopt the listed identity with this fingerprint
+    /// (`SHA256:…`); needed when the agent lists several. (`requires` alone does not
+    /// hold for a flag, which always has a value; refusing `--pub` makes `--from-agent`
+    /// the only way to parse it.)
+    #[arg(
+        long,
+        value_name = "FINGERPRINT",
+        requires = "from_agent",
+        conflicts_with = "pub_file"
+    )]
+    pub fingerprint: Option<String>,
     /// Label.
     #[arg(long)]
     pub label: Option<String>,
@@ -749,28 +764,22 @@ fn usage(message: &str) -> Envelope<serde_json::Value> {
     error_value(error(Code::UsageError, message))
 }
 
-/// M01's "not available in this build" text, unchanged (m02-plan §5 item 4).
-// ⟨M02⟩ W4-U10: since `tui` is wired, no M02 handler answers this envelope any more;
-// the wave-0 acceptance tests still name it (integrator: remove with them).
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const NOT_AVAILABLE_MESSAGE: &str =
-    "this command is not available in this build (planned for M02)";
-
-/// The envelope a command answers until its unit lands: `USAGE_ERROR`, effect
-/// `none`, next `fix_request` (M01's envelope for `setup`, `connect`, `run`,
-/// `doctor` and `tui`).
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn not_available_envelope() -> Envelope<serde_json::Value> {
-    usage(NOT_AVAILABLE_MESSAGE)
+/// What a bare `heimdall` (no subcommand) runs (module docs; ADR-0007 §12.30 item 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Bare {
+    /// The TUI: stdin and stdout are terminals, no `--json`, no `--non-interactive`.
+    Tui,
+    /// `status`: anything else (no terminal, machine output, or no prompts allowed).
+    Status,
 }
 
-/// Print [`not_available_envelope`] and return its exit code (2). Builds no async
-/// runtime, opens no store and never contacts the runtime.
-#[allow(dead_code)]
-pub(crate) fn not_available(ctx: &Ctx) -> ExitCode {
-    let env = not_available_envelope();
-    output::emit(&env, ctx.json);
-    output::exit_code_for(env.code, false)
+/// The reading of a bare `heimdall` for these flags and terminals.
+pub(crate) fn bare(json: bool, non_interactive: bool, stdin_tty: bool, stdout_tty: bool) -> Bare {
+    if !json && !non_interactive && stdin_tty && stdout_tty {
+        Bare::Tui
+    } else {
+        Bare::Status
+    }
 }
 
 /// Whether the raw argument list requests machine output: an exact `--json`
@@ -855,7 +864,17 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
         Some(Command::Uninstall(args)) => return uninstall_cmd::run(&ctx, args),
-        None => Command::Status,
+        // ADR-0007 §12.30 item 5: a bare `heimdall` on a terminal opens the TUI;
+        // without one, or with `--json` or `--non-interactive`, it is `status`.
+        None => match bare(
+            ctx.json,
+            ctx.non_interactive,
+            ctx.stdin_tty,
+            std::io::stdout().is_terminal(),
+        ) {
+            Bare::Tui => return tui::run(tui::TuiConfig::from_ctx(&ctx)),
+            Bare::Status => Command::Status,
+        },
         Some(c) => c,
     };
     let rt = match service_cmd::current_thread() {
@@ -1141,6 +1160,19 @@ pub(crate) trait Session {
     async fn request(&mut self, request: Request) -> Envelope<serde_json::Value>;
     /// Send `Attend` for this session.
     async fn attend(&mut self) -> Envelope<serde_json::Value>;
+    /// Run just before a setup effect for `plan` (the previewed `SetupPlan`) is first
+    /// submitted; an error is printed and nothing is submitted. The control session
+    /// takes the §5.5 snapshot of the original SSH configuration
+    /// ([`crate::setup_cmd::snapshot_before_edit`]); the default does nothing, so the
+    /// unit tests' scripted sessions touch no file.
+    fn before_effect(
+        &mut self,
+        ctx: &Ctx,
+        plan: &serde_json::Value,
+    ) -> Result<(), Box<Envelope<serde_json::Value>>> {
+        let _ = (ctx, plan);
+        Ok(())
+    }
 }
 
 impl Session for Client {
@@ -1149,6 +1181,13 @@ impl Session for Client {
     }
     async fn attend(&mut self) -> Envelope<serde_json::Value> {
         Client::attend(self).await
+    }
+    fn before_effect(
+        &mut self,
+        ctx: &Ctx,
+        plan: &serde_json::Value,
+    ) -> Result<(), Box<Envelope<serde_json::Value>>> {
+        crate::setup_cmd::snapshot_before_edit(ctx, plan, heimdall_contract::Timestamp::now())
     }
 }
 
@@ -1701,29 +1740,90 @@ mod tests {
         Cli::command().debug_assert();
     }
 
-    /// One command line per M02 command and action of the U0 clap tree (m02-plan
-    /// U9 command list, U8 `run`/`connect`, U10 `tui`).
-    const M02_COMMAND_LINES: &[&[&str]] = &[
-        // ⟨M02⟩ W4-U9: `setup`, `doctor`, `destination`, `identity`, `profile` and
-        // `uninstall` are wired (their parse coverage is `setup_cmd::tests::
-        // u9_command_lines_parse`), so they leave this list.
-        // ⟨M02⟩ W4-U10: `tui` is wired and leaves it too (its refusals before any
-        // terminal or runtime contact are in `e2e_tui_m02`).
+    /// M01's retired "not available" text (ADR-0007 §12.30 item 4), built at run time
+    /// so that the source scan below never finds this test's own needle.
+    fn retired_text() -> String {
+        ["not available", "in this build"].join(" ")
+    }
+
+    /// The source of every module that answers an M02 command (m02-plan U8, U9, U10),
+    /// and of the dispatch and output shared by all of them.
+    const M02_SOURCES: &[(&str, &str)] = &[
+        ("cli.rs", include_str!("cli.rs")),
+        ("output.rs", include_str!("output.rs")),
+        ("setup_cmd.rs", include_str!("setup_cmd.rs")),
+        ("connect_cmd.rs", include_str!("connect_cmd.rs")),
+        ("run_cmd.rs", include_str!("run_cmd.rs")),
+        ("launch_flow.rs", include_str!("launch_flow.rs")),
+        ("doctor_cmd.rs", include_str!("doctor_cmd.rs")),
+        ("catalog_cmd.rs", include_str!("catalog_cmd.rs")),
+        ("uninstall_cmd.rs", include_str!("uninstall_cmd.rs")),
+        ("tui/mod.rs", include_str!("tui/mod.rs")),
+        ("tui/model.rs", include_str!("tui/model.rs")),
+        ("tui/view.rs", include_str!("tui/view.rs")),
+        ("tui/worker.rs", include_str!("tui/worker.rs")),
     ];
 
-    /// `w0_m02_cli_commands_report_not_available_and_never_panic`, in-process form
-    /// (⟨M02⟩ wave 3b: `run` and `connect` are wired by U8 and leave this list; their
-    /// argument trees and their refusals before any runtime contact are checked by
-    /// `run_and_connect_parse_and_refuse_before_the_runtime`)
-    /// (m02-plan U0b, §5 item 4; the binary-level form is hosted by a `heimdall`
-    /// package target, wave-0 verify E6). Every M02 command parses, answers M01's
-    /// "not available in this build" envelope with exit 2, and never contacts the
-    /// runtime: the Heimdall home it names is never created (an on-demand start or
-    /// a client connection would create or read it).
+    /// One command line per M02 command whose own handler refuses it before any
+    /// runtime, terminal or account-file contact, with the handler's exit status.
+    /// (`uninstall` and `identity adopt --from-agent` read the account's SSH directory
+    /// or agent first, so their through-the-binary check, with a scratch SSH home, is
+    /// `e2e_cli_m01::w0_m02_cli_commands_report_not_available_and_never_panic`.)
+    const M02_COMMAND_LINES: &[(&[&str], ExitCode)] = &[
+        (
+            &["setup", "repair", "nonsense", "rerender"],
+            ExitCode::Usage,
+        ),
+        (&["connect", "--", "-oProxyCommand=x"], ExitCode::Usage),
+        (&["run", "--", "/bin/sh"], ExitCode::Usage),
+        (&["doctor", "--active-probe", "everything"], ExitCode::Usage),
+        (&["tui"], ExitCode::Usage),
+        (
+            &[
+                "destination",
+                "add",
+                "lab",
+                "--hostname",
+                "h.example.invalid",
+            ],
+            ExitCode::Usage,
+        ),
+        (&["identity", "remove", "not an identity"], ExitCode::Usage),
+        (
+            &["profile", "create", "p", "--pair", "no-colon"],
+            ExitCode::Usage,
+        ),
+    ];
+
+    /// `w0_m02_cli_commands_report_not_available_and_never_panic`, in-process form,
+    /// repurposed (ADR-0007 §12.30 item 4; m02-plan U0b, §5 item 4; the binary-level
+    /// form is hosted by a `heimdall` package target, wave-0 verify E6). The wave-0
+    /// envelope is retired, so **no** M02 command may answer its text:
+    ///
+    /// * no line of code (comments aside) of any module answering an M02 command
+    ///   carries the retired text, so no handler can print it;
+    /// * every M02 command parses and is answered by its own handler: each line of
+    ///   [`M02_COMMAND_LINES`] gets its handler's refusal and exit status, and never
+    ///   reaches for the runtime (no runtime directory is created under the scratch
+    ///   Heimdall home it names).
     #[test]
     fn w0_m02_commands_answer_not_available_and_never_contact_the_runtime() {
+        let needle = retired_text();
+        for (name, source) in M02_SOURCES {
+            for (n, line) in source.lines().enumerate() {
+                let code = line.trim_start();
+                if code.starts_with("//") {
+                    continue;
+                }
+                assert!(
+                    !code.contains(&needle),
+                    "{name}:{}: an M02 command still answers the retired text",
+                    n + 1
+                );
+            }
+        }
         let scratch = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-        for (i, line) in M02_COMMAND_LINES.iter().enumerate() {
+        for (i, (line, expected)) in M02_COMMAND_LINES.iter().enumerate() {
             let home = scratch.path().join(format!("home-{i}"));
             let home_arg = home.to_string_lossy().into_owned();
             let argv: Vec<&str> = ["heimdall", "--json", "--non-interactive", "--home"]
@@ -1738,28 +1838,51 @@ mod tests {
                     cli.command,
                     Some(
                         Command::Setup(_)
+                            | Command::Connect(_)
+                            | Command::Run(_)
                             | Command::Doctor(_)
                             | Command::Tui
                             | Command::Destination(_)
                             | Command::Identity(_)
                             | Command::Profile(_)
-                            | Command::Uninstall(_)
                     )
                 ),
                 "{line:?} is an M02 command"
             );
-            let exit = dispatch(cli);
-            assert_eq!(exit, ExitCode::Usage, "{line:?}");
+            assert_eq!(dispatch(cli), *expected, "{line:?}");
             assert!(
-                !home.exists(),
-                "{line:?} touched the Heimdall home, so it reached for the runtime"
+                !home.join("run").exists(),
+                "{line:?} reached for the runtime"
             );
         }
-        assert_eq!(
-            std::fs::read_dir(scratch.path()).map(Iterator::count).ok(),
-            Some(0),
-            "nothing was created anywhere under the scratch directory"
-        );
+    }
+
+    /// ADR-0007 §12.30 item 5: a bare `heimdall` opens the TUI only with a terminal on
+    /// stdin and stdout and neither `--json` nor `--non-interactive`; every other
+    /// combination is `status`.
+    #[test]
+    fn bare_heimdall_is_the_tui_only_on_a_terminal_without_json() {
+        for json in [false, true] {
+            for non_interactive in [false, true] {
+                for stdin_tty in [false, true] {
+                    for stdout_tty in [false, true] {
+                        let expected = if !json && !non_interactive && stdin_tty && stdout_tty {
+                            Bare::Tui
+                        } else {
+                            Bare::Status
+                        };
+                        assert_eq!(
+                            bare(json, non_interactive, stdin_tty, stdout_tty),
+                            expected,
+                            "json {json}, non-interactive {non_interactive}, stdin {stdin_tty}, stdout {stdout_tty}"
+                        );
+                    }
+                }
+            }
+        }
+        // A bare line parses with no subcommand.
+        let cli = Cli::try_parse_from(["heimdall"]).unwrap_or_else(|e| panic!("{:?}", e.kind()));
+        assert!(cli.command.is_none());
     }
 
     /// ⟨M02⟩ U8 (wave 3b): `run` and `connect` keep their argument trees, and every
@@ -1830,23 +1953,6 @@ mod tests {
             Some(b"owner bytes".to_vec()),
             "an existing --meta-file is never written"
         );
-    }
-
-    #[test]
-    fn not_available_envelope_is_m01s_usage_error_with_no_effect() {
-        let env = not_available_envelope();
-        assert_eq!(env.code, Code::UsageError);
-        let value = serde_json::to_value(&env).unwrap_or_else(|e| panic!("serialize: {e}"));
-        let error = &value["data"]["error"];
-        assert_eq!(error["code"], "USAGE_ERROR", "{value}");
-        assert_eq!(error["effect_status"], "none", "{value}");
-        assert_eq!(error["message"], NOT_AVAILABLE_MESSAGE, "{value}");
-        assert_eq!(
-            output::exit_code_for(env.code.clone(), false),
-            ExitCode::Usage
-        );
-        // The envelope is fixed text: no argument of any command can reach it.
-        assert!(!value.to_string().contains("HEIMDALL_CANARY"), "{value}");
     }
 
     #[test]

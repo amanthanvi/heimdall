@@ -1,0 +1,7 @@
+exit 0: fixture sshd preflight (non-root, 127.0.0.1) started and stopped by exact PID
+exit 1: bash tools/validation/check.sh (TMPDIR in scratch; inherited agent, Git and Heimdall variables unset)
+exit 101: cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output (TMPDIR in scratch)
+exit 0: the home .ssh directory and Git configuration metadata unchanged by the run
+exit 0: canary-prefix scan over saved output (count = 0)
+exit 0: leak scan: saved files still naming the host, the user or the home (0)
+exit 0: remove exactly the run's scratch directory, then check it is absent

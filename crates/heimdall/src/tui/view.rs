@@ -10,6 +10,13 @@
 //! Rendering never queries the terminal (no cursor-position request; the backend
 //! refuses one) and draws only when something changed, so the screen is not
 //! continually repainted (spec §12.2).
+//!
+//! **Confirmations are never truncated** (ADR-0007 §12.31 item 3): a decision, an
+//! authorization and a repair wrap long lines, stack the diff's columns when the cells
+//! do not fit side by side, and scroll above a prompt that stays fixed. The one place
+//! where drawing writes state is the report each such frame makes to the modal's
+//! [`Reading`]: which rows it drew, so the model can tell when the last one has been on
+//! screen.
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::{
@@ -26,8 +33,9 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use super::data::{Decision, Runtime, clean};
 use super::model::{
-    AUTHORIZATION_TEXT, ActivityRow, App, AuthPrompt, DecisionPrompt, Health, Item, Modal,
-    NONE_FOUND_TEXT, PROBE_LEVELS, ProbeView, RepairPrompt, Screen, Tab, level_name,
+    AUTHORIZATION_TEXT, ActivityRow, App, AuthPrompt, DecisionPrompt, Health, Item, MAX_TYPED,
+    Modal, NONE_FOUND_TEXT, PROBE_LEVELS, ProbeView, Reading, RepairPrompt, Screen, Tab,
+    level_name,
 };
 
 /// The decision text of a `DeclareInteraction` decision (ADR-0007 §7, verbatim).
@@ -156,10 +164,11 @@ pub(crate) fn render(frame: &mut Frame<'_>, app: &App) {
             render_scrolled(frame, body, operation_lines(app, id, theme), app.scroll);
         }
     }
-    render_footer(frame, app, footer, theme);
     if let Some(modal) = &app.modal {
         render_modal(frame, app, modal, body, theme);
     }
+    // After the modal: its footer hint reads what the modal's frame has just recorded.
+    render_footer(frame, app, footer, theme);
 }
 
 fn render_header(frame: &mut Frame<'_>, app: &App, area: Rect, theme: Theme) {
@@ -218,8 +227,21 @@ fn screen_hint(app: &App) -> &'static str {
     }
 }
 
+/// The footer while a modal is open. A confirmation whose content does not fit says how
+/// to read on, and after a refused `yes` that the end has to be shown first.
 fn modal_hint(app: &App) -> &'static str {
+    let reading = match &app.modal {
+        Some(Modal::Decision(p)) => Some(&p.reading),
+        Some(Modal::Authorization(p)) => Some(&p.reading),
+        Some(Modal::Repair(p)) => Some(&p.reading),
+        _ => None,
+    };
+    let (refused, scrollable) = reading.map_or((false, false), |r| (r.refused, r.scrollable()));
     match &app.modal {
+        _ if refused => "Read to the end first (PgDn, End) · Esc",
+        Some(Modal::Decision(_) | Modal::Authorization(_) | Modal::Repair(_)) if scrollable => {
+            "Up/Down PgUp/PgDn Home/End · Esc cancel"
+        }
         Some(Modal::Decision(_)) => "type yes, Enter · Tab approve/deny · Esc cancel",
         Some(Modal::Authorization(_) | Modal::Repair(_)) => "type yes, Enter · Esc cancel",
         Some(Modal::ProbeMenu { .. }) => "Up/Down choose · Enter run · Esc close",
@@ -948,12 +970,11 @@ fn operation_lines(app: &App, id: &str, theme: Theme) -> Vec<Line<'static>> {
 
 // ---- modals --------------------------------------------------------------------------
 
-/// A modal's parts: title, scrollable content, the fixed prompt under it, and the
-/// content's scroll offset.
+/// A plain modal's parts (key help, the probe menu, a probe's result): title, content
+/// and the content's scroll offset. Confirmations are [`ConfirmParts`].
 struct ModalParts {
     title: String,
     content: Vec<Line<'static>>,
-    prompt: Vec<Line<'static>>,
     scroll: u16,
 }
 
@@ -965,17 +986,266 @@ fn wrapped_rows(lines: &[Line<'static>], width: u16) -> u16 {
     u16::try_from(rows).unwrap_or(u16::MAX)
 }
 
+// ---- confirmations: wrapped, scrollable content over a fixed prompt --------------------
+//
+// A decision, an authorization and a repair ask the owner to type `yes` to what the
+// content says (ADR-0006 §3.1). Nothing of that content may be cut off (ADR-0007 §12.31
+// item 3): long lines wrap onto further rows, the diff falls back to stacked columns
+// when its cells do not fit side by side, and what does not fit the modal scrolls
+// (arrows, PgUp/PgDn, Home/End) above a prompt that stays fixed. The bottom border says
+// how many rows remain below, and the model accepts a typed `yes` only once a frame has
+// drawn the last row (`Reading`).
+
+/// Display width of `s` in terminal cells.
+fn cells(s: &str) -> usize {
+    Span::raw(s).width()
+}
+
+/// Display width of one character.
+fn char_cells(c: char) -> usize {
+    let mut buf = [0u8; 4];
+    cells(c.encode_utf8(&mut buf))
+}
+
+/// The shortest whitespace-free token that is broken after a path separator.
+const PATH_LIKE: usize = 12;
+
+/// Whether a row may end after `chars[k - 1]`: after whitespace, or after a path
+/// separator inside a token long enough to be a path (`[y/N]` stays whole).
+fn breaks_after(chars: &[char], k: usize) -> bool {
+    let c = chars[k - 1];
+    if c.is_whitespace() {
+        return true;
+    }
+    if c != '/' && c != '\\' {
+        return false;
+    }
+    let before = chars[..k]
+        .iter()
+        .rev()
+        .take_while(|c| !c.is_whitespace())
+        .count();
+    let after = chars[k..]
+        .iter()
+        .take_while(|c| !c.is_whitespace())
+        .take(PATH_LIKE)
+        .count();
+    before + after >= PATH_LIKE
+}
+
+/// `text` as rows of at most `width` cells. **Every character lands in a row**; only the
+/// whitespace that is itself the break between two rows is not carried over. A row
+/// prefers to end after a space (or a path separator in a long token) when one lies in
+/// its second half, and breaks mid-word otherwise. Continuation rows of an indented line
+/// are indented two further spaces (never more than half the width), so they read as
+/// continuations.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    if cells(text) <= width {
+        return vec![text.to_owned()];
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let lead = chars.iter().take_while(|c| **c == ' ').count();
+    let hang = if lead == 0 {
+        0
+    } else {
+        (lead + 2).min(width / 2)
+    };
+    let mut rows = Vec::new();
+    let mut start = 0;
+    let mut indent = 0;
+    while start < chars.len() {
+        let room = width.saturating_sub(indent).max(1);
+        let (mut used, mut end) = (0, start);
+        while let Some(c) = chars.get(end) {
+            let w = char_cells(*c);
+            if used + w > room {
+                break;
+            }
+            used += w;
+            end += 1;
+        }
+        if end == start {
+            // A character wider than the room still takes a row of its own.
+            end += 1;
+        }
+        // The row ends exactly where a word ends: the whitespace between it and the next
+        // word is the break itself and is not carried onto the next row.
+        let at_word_end = chars.get(end).is_some_and(|c| c.is_whitespace());
+        if end < chars.len() && !at_word_end {
+            let half = start + (end - start) / 2;
+            if let Some(k) = (half + 1..=end).rev().find(|k| breaks_after(&chars, *k)) {
+                end = k;
+            }
+        }
+        let mut row = " ".repeat(indent);
+        row.extend(&chars[start..end]);
+        rows.push(row);
+        start = end;
+        if at_word_end {
+            while chars.get(start).is_some_and(|c| c.is_whitespace()) {
+                start += 1;
+            }
+        }
+        indent = hang;
+    }
+    rows
+}
+
+/// `line` wrapped to `width` cells ([`wrap_text`]); every row keeps the line's style.
+/// The confirmation content is built of single-style lines.
+fn wrap_line(line: &Line<'_>, width: usize) -> Vec<Line<'static>> {
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+    wrap_text(&text, width)
+        .into_iter()
+        .map(|row| Line::styled(row, line.style))
+        .collect()
+}
+
+fn wrap_lines(lines: &[Line<'_>], width: usize) -> Vec<Line<'static>> {
+    lines.iter().flat_map(|l| wrap_line(l, width)).collect()
+}
+
+/// A fingerprint of what a confirmation asks the owner to confirm.
+fn fingerprint(parts: &[&str]) -> u64 {
+    use std::hash::{Hash as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for part in parts {
+        part.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// A confirmation, before layout.
+struct ConfirmParts {
+    title: String,
+    /// The content, one logical line per entry (wrapped at layout).
+    content: Vec<Line<'static>>,
+    /// Fingerprint of what the content asks to confirm.
+    key: u64,
+    /// The prompt as it is now.
+    prompt: Vec<Line<'static>>,
+    /// Worst-case forms of the prompt (the longest verb with a full answer typed), so
+    /// its rows, and the room left for the content, do not change as the owner types.
+    prompt_reserve: Vec<Vec<Line<'static>>>,
+    /// Fill the body (a decision), or fit the content when it is short.
+    fill: bool,
+}
+
+/// How the status in the bottom border reads: how many rows remain below, that the end
+/// is on screen, or that a `yes` was refused because it was not. Nothing when the whole
+/// content fits.
+fn confirm_status(
+    reading: &Reading,
+    scrollable: bool,
+    below: usize,
+    theme: Theme,
+) -> Option<Line<'static>> {
+    let rows = if below == 1 { "row" } else { "rows" };
+    if reading.refused {
+        let text = if below > 0 {
+            format!(" yes refused: {below} more {rows} below ")
+        } else {
+            " yes refused: the end is not on screen ".to_owned()
+        };
+        return Some(Line::styled(text, theme.bold()));
+    }
+    if below > 0 {
+        return Some(Line::styled(
+            format!(" {below} more {rows} below (PgDn, End) "),
+            theme.dim(),
+        ));
+    }
+    scrollable.then(|| Line::styled(" end of the content ", theme.dim()))
+}
+
+/// Lay a confirmation out, draw it and report what was drawn to its `reading`.
+fn render_confirm(
+    frame: &mut Frame<'_>,
+    body: Rect,
+    parts: ConfirmParts,
+    reading: &Reading,
+    theme: Theme,
+) {
+    let width = body.width.saturating_sub(2).clamp(10, 110);
+    let inner_width = usize::from(width.saturating_sub(2)).max(1);
+    let rows = wrap_lines(&parts.content, inner_width);
+    let prompt = wrap_lines(&parts.prompt, inner_width);
+    let reserve = parts
+        .prompt_reserve
+        .iter()
+        .map(|p| wrap_lines(p, inner_width).len())
+        .chain([prompt.len()])
+        .max()
+        .unwrap_or(0);
+    // Inner rows: the prompt keeps its (worst-case) rows and the content at least one.
+    let most = usize::from(body.height).saturating_sub(2).max(1);
+    let prompt_rows = reserve.min(most - 1);
+    let room = most - prompt_rows;
+    let inner_rows = if parts.fill {
+        most
+    } else {
+        rows.len().clamp(1, room) + prompt_rows
+    };
+    let height = u16::try_from(inner_rows + 2)
+        .unwrap_or(u16::MAX)
+        .min(body.height);
+    let area = Rect::new(
+        body.x + (body.width.saturating_sub(width)) / 2,
+        body.y + (body.height.saturating_sub(height)) / 2,
+        width.min(body.width),
+        height,
+    );
+    frame.render_widget(Clear, area);
+    let mut block = Block::new()
+        .borders(Borders::ALL)
+        .title(Span::styled(clean(&parts.title), theme.bold()));
+    let inner = block.inner(area);
+    let prompt_height = u16::try_from(prompt_rows)
+        .unwrap_or(u16::MAX)
+        .min(inner.height.saturating_sub(1));
+    let [content_area, prompt_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(prompt_height)]).areas(inner);
+    // What is drawn is what is recorded: the clamped offset and the rows that fit.
+    let viewport = usize::from(content_area.height);
+    let last = rows.len().saturating_sub(viewport);
+    let scroll = reading.scroll.min(last);
+    let end = (scroll + viewport).min(rows.len());
+    reading.record(parts.key, rows.len(), viewport, scroll);
+    if let Some(status) = confirm_status(reading, rows.len() > viewport, rows.len() - end, theme) {
+        block = block.title_bottom(status);
+    }
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(rows[scroll..end].to_vec()), content_area);
+    if prompt_height > 0 {
+        // A prompt that does not fit loses its top rows, never the line being typed.
+        let from = prompt.len().saturating_sub(usize::from(prompt_height));
+        frame.render_widget(Paragraph::new(prompt[from..].to_vec()), prompt_area);
+    }
+}
+
 fn render_modal(frame: &mut Frame<'_>, app: &App, modal: &Modal, body: Rect, theme: Theme) {
     let width = body.width.saturating_sub(2).clamp(10, 110);
     let inner_width = width.saturating_sub(2);
     let parts = match modal {
+        Modal::Decision(p) => {
+            let parts = decision_modal(app, p, usize::from(inner_width), theme);
+            render_confirm(frame, body, parts, &p.reading, theme);
+            return;
+        }
+        Modal::Authorization(p) => {
+            render_confirm(frame, body, authorization_parts(p), &p.reading, theme);
+            return;
+        }
+        Modal::Repair(p) => {
+            render_confirm(frame, body, repair_parts(p), &p.reading, theme);
+            return;
+        }
         Modal::Help => ModalParts {
             title: "Keys".to_owned(),
             content: help_lines(),
-            prompt: Vec::new(),
             scroll: 0,
         },
-        Modal::Decision(p) => decision_modal(app, p, inner_width, theme),
         Modal::ProbeMenu { alias, selected } => {
             let mut content = vec![plain(format!(
                 "Explicit probes for {alias}; each names its level:"
@@ -990,25 +1260,20 @@ fn render_modal(frame: &mut Frame<'_>, app: &App, modal: &Modal, body: Rect, the
             ModalParts {
                 title: "Probes".to_owned(),
                 content,
-                prompt: Vec::new(),
                 scroll: 0,
             }
         }
-        Modal::Authorization(p) => authorization_parts(p),
-        Modal::Repair(p) => repair_parts(p),
         Modal::Probe(v) => ModalParts {
             title: format!("{} probe: {}", level_name(v.level), v.alias),
             content: probe_lines(app, v),
-            prompt: Vec::new(),
             scroll: v.scroll,
         },
     };
-    let prompt_rows = wrapped_rows(&parts.prompt, inner_width);
     let content_rows = wrapped_rows(&parts.content, inner_width);
-    let height = if matches!(modal, Modal::Decision(_) | Modal::Probe(_)) {
+    let height = if matches!(modal, Modal::Probe(_)) {
         body.height
     } else {
-        content_rows.saturating_add(prompt_rows).saturating_add(2)
+        content_rows.saturating_add(2)
     }
     .clamp(3, body.height.max(3));
     let area = Rect::new(
@@ -1023,29 +1288,18 @@ fn render_modal(frame: &mut Frame<'_>, app: &App, modal: &Modal, body: Rect, the
         .title(Span::styled(clean(&parts.title), theme.bold()));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    // The prompt keeps its rows (the content above it scrolls), leaving one row of
-    // content at least.
-    let prompt_rows = prompt_rows.min(inner.height.saturating_sub(1));
-    let [content_area, prompt_area] =
-        Layout::vertical([Constraint::Min(1), Constraint::Length(prompt_rows)]).areas(inner);
     frame.render_widget(
         Paragraph::new(parts.content)
             .wrap(Wrap { trim: false })
             .scroll((parts.scroll, 0)),
-        content_area,
+        inner,
     );
-    if prompt_rows > 0 {
-        frame.render_widget(
-            Paragraph::new(parts.prompt).wrap(Wrap { trim: false }),
-            prompt_area,
-        );
-    }
 }
 
 fn help_lines() -> Vec<Line<'static>> {
     [
         "1-4, Tab, Shift-Tab   switch view (Overview, Destinations, Profiles, Activity)",
-        "Up/Down, PgUp/PgDn    move or scroll",
+        "Up/Down, PgUp/PgDn    move or scroll; Home/End go to the first and last row",
         "Enter                 open the selected item",
         "/                     search the list (in memory; never probes)",
         "c                     connect: hand the terminal to ssh <alias>",
@@ -1055,7 +1309,8 @@ fn help_lines() -> Vec<Line<'static>> {
         "R                     refresh, re-running the passive static pass",
         "S                     start the runtime (the TUI never starts it itself)",
         "Esc, q                back; q on a view quits; Ctrl-C quits",
-        "Confirmations need a typed yes; anything else is No and sends nothing.",
+        "Confirmations need a typed yes once their last row has been on screen;",
+        "anything else is No and sends nothing.",
     ]
     .into_iter()
     .map(plain)
@@ -1122,9 +1377,18 @@ fn count(request: &serde_json::Value, key: &str) -> String {
     }
 }
 
-/// The before, after and restore columns of an `ApplyProjection` record: side by side
-/// when `width` allows, one under the other otherwise.
-fn apply_projection_lines(d: &Decision, width: u16, theme: Theme) -> Vec<Line<'static>> {
+/// `s` padded with spaces to `width` cells.
+fn pad(s: &str, width: usize) -> String {
+    format!("{s}{}", " ".repeat(width.saturating_sub(cells(s))))
+}
+
+/// The gap between side-by-side columns.
+const COLUMN_GAP: usize = 2;
+
+/// The before, after and restore columns of an `ApplyProjection` record. Side by side
+/// when every cell fits its column in `width` cells; otherwise one under the other,
+/// where a long line wraps at layout. A cell is never cut (ADR-0007 §12.31 item 3).
+fn apply_projection_lines(d: &Decision, width: usize, theme: Theme) -> Vec<Line<'static>> {
     let r = &d.request;
     let s = |k: &str| {
         r.get(k)
@@ -1147,40 +1411,50 @@ fn apply_projection_lines(d: &Decision, width: u16, theme: Theme) -> Vec<Line<'s
     lines.push(plain(format!("Plan digest {}", s("plan_digest"))));
     let (before, after) = diff_columns(r.get("diff_text").and_then(|v| v.as_str()).unwrap_or(""));
     let restore = restore_column(r);
-    if width >= 78 {
-        let w = usize::from(width / 3);
-        let cell = |t: &str| {
-            let t: String = t.chars().take(w.saturating_sub(1)).collect();
-            format!("{t:<w$}")
+    let columns = [
+        ("Before", &before),
+        ("After", &after),
+        ("Restore", &restore),
+    ];
+    let widths: Vec<usize> = columns
+        .iter()
+        .map(|(title, col)| {
+            col.iter()
+                .map(|l| cells(l))
+                .chain([cells(title)])
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    if widths.iter().sum::<usize>() + 2 * COLUMN_GAP <= width {
+        let gap = " ".repeat(COLUMN_GAP);
+        let join = |cell: &dyn Fn(usize) -> String| {
+            (0..3)
+                .map(|i| pad(&cell(i), widths[i]))
+                .collect::<Vec<_>>()
+                .join(&gap)
+                .trim_end()
+                .to_owned()
         };
         lines.push(Line::styled(
-            format!("{}{}{}", cell("Before"), cell("After"), cell("Restore"))
-                .trim_end()
-                .to_owned(),
+            join(&|i| columns[i].0.to_owned()),
             theme.bold(),
         ));
         let n = before.len().max(after.len()).max(restore.len());
-        for i in 0..n {
-            let get = |v: &Vec<String>| v.get(i).cloned().unwrap_or_default();
-            lines.push(plain(
-                format!(
-                    "{}{}{}",
-                    cell(&get(&before)),
-                    cell(&get(&after)),
-                    cell(&get(&restore))
-                )
-                .trim_end()
-                .to_owned(),
-            ));
+        for row in 0..n {
+            lines.push(plain(join(&|i| {
+                columns[i].1.get(row).cloned().unwrap_or_default()
+            })));
         }
     } else {
-        for (title, col) in [
-            ("Before", &before),
-            ("After", &after),
-            ("Restore", &restore),
-        ] {
+        for (title, col) in columns {
             lines.push(Line::styled(format!("{title}:"), theme.bold()));
-            lines.extend(col.iter().map(|l| plain(l.clone())));
+            // The empty cells only keep the side-by-side rows level: not a stacked line.
+            lines.extend(
+                col.iter()
+                    .filter(|l| !l.is_empty())
+                    .map(|l| plain(l.clone())),
+            );
         }
     }
     lines
@@ -1213,13 +1487,39 @@ fn declare_lines(d: &Decision) -> Vec<Line<'static>> {
     ]
 }
 
-fn decision_modal(app: &App, p: &DecisionPrompt, width: u16, theme: Theme) -> ModalParts {
+/// The worst-case answer typed, to reserve the prompt's rows before anything is typed.
+fn full_answer() -> String {
+    "W".repeat(MAX_TYPED)
+}
+
+/// A decision's fixed prompt: the keys it takes, and the typed confirmation.
+fn decision_prompt(verdict: Verdict, input: &str, theme: Theme) -> Vec<Line<'static>> {
+    let verb = match verdict {
+        Verdict::Approve => "Approve",
+        Verdict::Deny => "Deny",
+    };
+    vec![
+        Line::styled(
+            format!(
+                "Tab: {} · Esc: send nothing",
+                match verdict {
+                    Verdict::Approve => "deny",
+                    Verdict::Deny => "approve",
+                }
+            ),
+            theme.dim(),
+        ),
+        prompt_line(verb, input).style(theme.bold()),
+    ]
+}
+
+fn decision_modal(app: &App, p: &DecisionPrompt, width: usize, theme: Theme) -> ConfirmParts {
     let verb = match p.verdict {
         Verdict::Approve => "Approve",
         Verdict::Deny => "Deny",
     };
     let Some(d) = app.catalog.decisions.iter().find(|d| d.id == p.id) else {
-        return ModalParts {
+        return ConfirmParts {
             title: format!("Owner decision {}", p.id),
             content: vec![
                 plain(
@@ -1227,8 +1527,10 @@ fn decision_modal(app: &App, p: &DecisionPrompt, width: u16, theme: Theme) -> Mo
                 ),
                 plain("There is no recorded request to show, and nothing can be sent."),
             ],
+            key: fingerprint(&["not pending", &p.id]),
             prompt: vec![plain("Esc closes.")],
-            scroll: 0,
+            prompt_reserve: Vec::new(),
+            fill: true,
         };
     };
     let mut content = vec![plain(format!(
@@ -1254,37 +1556,38 @@ fn decision_modal(app: &App, p: &DecisionPrompt, width: u16, theme: Theme) -> Mo
         }
     }
     content.push(plain(IMITATION_TEXT));
-    ModalParts {
+    // What the owner confirms is the record itself, not its age.
+    let key = fingerprint(&[&d.id, &d.kind, &d.request.to_string()]);
+    let worst = full_answer();
+    ConfirmParts {
         title: format!("Owner decision {} ({})", d.id, clean(&d.kind)),
         content,
-        prompt: vec![
-            Line::styled(
-                format!(
-                    "Tab: {} instead · Esc: send nothing",
-                    match p.verdict {
-                        Verdict::Approve => "deny",
-                        Verdict::Deny => "approve",
-                    }
-                ),
-                theme.dim(),
-            ),
-            prompt_line(verb, &p.input).style(theme.bold()),
-        ],
-        scroll: p.scroll,
+        key,
+        prompt: decision_prompt(p.verdict, &p.input, theme),
+        prompt_reserve: [Verdict::Approve, Verdict::Deny]
+            .into_iter()
+            .map(|v| decision_prompt(v, &worst, theme))
+            .collect(),
+        fill: true,
     }
 }
 
-fn authorization_parts(p: &AuthPrompt) -> ModalParts {
+fn authorization_parts(p: &AuthPrompt) -> ConfirmParts {
     let mut content = vec![plain(format!(
         "The {} level for {} {AUTHORIZATION_TEXT}.",
         level_name(p.level),
         p.alias
     ))];
     let mut prompt = Vec::new();
+    let mut prompt_reserve = Vec::new();
+    let mut key = vec!["authorization", level_name(p.level), &p.alias];
     match &p.executed {
-        None => content.push(plain(
-            "Reading your configuration first (static pass; nothing executes)...",
-        )),
+        None => {
+            key.push("pending");
+            content.push(plain(
+                "Reading your configuration first (static pass; nothing executes)...",
+            ));
+        }
         Some(found) => {
             content.push(plain("Configuration commands the static pass found:"));
             if found.is_empty() {
@@ -1292,44 +1595,61 @@ fn authorization_parts(p: &AuthPrompt) -> ModalParts {
             }
             for f in found {
                 content.push(plain(format!("  {}", clean(f))));
+                key.push(f);
             }
             content.push(plain(
                 "Without a typed yes the level is declined (config_commands_not_authorized) and nothing runs.",
             ));
             prompt.push(prompt_line("Authorize", &p.input));
+            prompt_reserve.push(vec![prompt_line("Authorize", &full_answer())]);
         }
     }
-    ModalParts {
+    ConfirmParts {
         title: format!("Authorize {}", level_name(p.level)),
         content,
+        key: fingerprint(&key),
         prompt,
-        scroll: 0,
+        prompt_reserve,
+        fill: false,
     }
 }
 
-fn repair_parts(p: &RepairPrompt) -> ModalParts {
+fn repair_parts(p: &RepairPrompt) -> ConfirmParts {
     let mut content = vec![plain(p.repair.sentence())];
     let mut prompt = Vec::new();
+    let mut prompt_reserve = Vec::new();
+    let mut key = vec!["repair", p.repair.name(), &p.operation];
     match &p.plan {
-        None => content.push(plain("Previewing the repair (nothing changes yet)...")),
+        None => {
+            key.push("pending");
+            content.push(plain("Previewing the repair (nothing changes yet)..."));
+        }
         Some(Err(e)) => {
+            key.push("refused");
             content.push(plain(format!("The preview was refused: {}", clean(e))));
             prompt.push(plain("Nothing can be sent. Esc closes."));
         }
         Some(Ok(plan)) => {
+            key.push(&plan.digest);
             content.push(plain(format!("Plan digest {}", clean(&plan.digest))));
-            content.extend(plan.lines.iter().map(|l| plain(format!("  {}", clean(l)))));
+            for line in &plan.lines {
+                content.push(plain(format!("  {}", clean(line))));
+                key.push(line);
+            }
             content.push(plain(
                 "It is done only when the refreshed listing shows no held operation.",
             ));
             prompt.push(prompt_line("Submit this repair", &p.input));
+            prompt_reserve.push(vec![prompt_line("Submit this repair", &full_answer())]);
         }
     }
-    ModalParts {
+    ConfirmParts {
         title: format!("Repair {}: {}", p.operation, p.repair.name()),
         content,
+        key: fingerprint(&key),
         prompt,
-        scroll: 0,
+        prompt_reserve,
+        fill: false,
     }
 }
 
@@ -1425,6 +1745,29 @@ fn probe_lines(app: &App, v: &ProbeView) -> Vec<Line<'static>> {
         lines.push(plain("No record for this level."));
     }
     lines
+}
+
+/// Draw `app` once into a `w`×`h` test backend, as the event loop does before it reads a
+/// key: the open confirmation records what the frame showed. The rows, trailing spaces
+/// trimmed.
+#[cfg(test)]
+pub(crate) fn draw_once(app: &App, w: u16, h: u16) -> Vec<String> {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    let mut terminal = Terminal::new(TestBackend::new(w, h)).unwrap_or_else(|e| panic!("{e}"));
+    terminal
+        .draw(|f| render(f, app))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let buffer = terminal.backend().buffer().clone();
+    (0..h)
+        .map(|y| {
+            (0..w)
+                .map(|x| buffer.cell((x, y)).map_or(" ", |c| c.symbol()))
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1643,15 +1986,12 @@ mod tests {
         );
         // Narrow: the columns stack, each still present.
         let (rows, _) = draw(&app, 40, 12);
-        let mut narrow = app.clone();
-        if let Some(Modal::Decision(p)) = &mut narrow.modal {
-            p.scroll = 0;
-        }
-        let all: Vec<String> = (0..40u16)
+        let narrow = app.clone();
+        let all: Vec<String> = (0..40usize)
             .flat_map(|s| {
                 let mut a = narrow.clone();
                 if let Some(Modal::Decision(p)) = &mut a.modal {
-                    p.scroll = s;
+                    p.reading.scroll = s;
                 }
                 draw(&a, 40, 12).0
             })
@@ -1788,6 +2128,500 @@ mod tests {
                 c.symbol()
             );
         }
+    }
+
+    // ---- confirmations are never truncated, scroll, and gate the yes (ADR-0007 §12.31 item 3)
+
+    /// The sizes of the regressions (columns × rows): the roomy screen, and the smallest
+    /// the snapshots cover.
+    const SIZES: [(u16, u16); 2] = [(120, 40), (40, 12)];
+
+    fn reading(app: &App) -> &Reading {
+        match app.modal.as_ref().unwrap() {
+            Modal::Decision(p) => &p.reading,
+            Modal::Authorization(p) => &p.reading,
+            Modal::Repair(p) => &p.reading,
+            other => panic!("not a confirmation: {other:?}"),
+        }
+    }
+
+    fn reading_mut(app: &mut App) -> &mut Reading {
+        match app.modal.as_mut().unwrap() {
+            Modal::Decision(p) => &mut p.reading,
+            Modal::Authorization(p) => &mut p.reading,
+            Modal::Repair(p) => &mut p.reading,
+            other => panic!("not a confirmation: {other:?}"),
+        }
+    }
+
+    /// Whitespace removed: wrapping may break a line at a space or inside a word, never
+    /// drop a character, so what the owner reads, squashed, is what was recorded.
+    fn squash(s: &str) -> String {
+        s.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    /// The content rows the open confirmation shows in one frame at `w`×`h`, read off the
+    /// screen between the modal's borders.
+    fn content_rows(app: &App, w: u16, h: u16) -> Vec<String> {
+        let (rows, buffer) = draw(app, w, h);
+        let top = u16::try_from(rows.iter().position(|r| r.contains('┌')).unwrap()).unwrap();
+        let symbol = |x: u16, y: u16| buffer.cell((x, y)).map_or(" ", |c| c.symbol());
+        let left = (0..w).find(|x| symbol(*x, top) == "┌").unwrap();
+        let right = (left..w).find(|x| symbol(*x, top) == "┐").unwrap();
+        let viewport = u16::try_from(reading(app).drawn().unwrap().viewport).unwrap();
+        (top + 1..top + 1 + viewport)
+            .map(|y| {
+                (left + 1..right)
+                    .map(|x| symbol(x, y))
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// Every content row of the open confirmation, collected the way the owner reads it:
+    /// frame after frame, one row further down each time.
+    fn read_everything(app: &App, w: u16, h: u16) -> Vec<String> {
+        let mut app = app.clone();
+        draw(&app, w, h);
+        let d = reading(&app).drawn().unwrap();
+        let mut all = vec![String::new(); d.total];
+        for scroll in 0..=d.total.saturating_sub(d.viewport) {
+            reading_mut(&mut app).scroll = scroll;
+            // A frame taller than the content has blank rows below it: not content.
+            for (i, row) in content_rows(&app, w, h).into_iter().enumerate() {
+                if let Some(slot) = all.get_mut(scroll + i) {
+                    *slot = row;
+                }
+            }
+        }
+        all
+    }
+
+    /// 600 cases, fixed seed unless `PROPTEST_RNG_SEED` is set (reproduces).
+    fn wrapping_config() -> proptest::test_runner::Config {
+        use proptest::test_runner::{Config, FileFailurePersistence, RngSeed};
+        let mut c = Config {
+            cases: 600,
+            failure_persistence: Some(Box::new(FileFailurePersistence::WithSource(
+                "proptest-regressions",
+            ))),
+            ..Config::default()
+        };
+        if matches!(c.rng_seed, RngSeed::Random) {
+            c.rng_seed = RngSeed::Fixed(0x5eed_1234_abcd_ef01);
+        }
+        c
+    }
+
+    proptest::proptest! {
+        #![proptest_config(wrapping_config())]
+
+        /// The wrapping drops no character and no row is wider than the width, whatever
+        /// the text: generated over a small alphabet of the troublesome characters
+        /// (spaces, separators, wide and combining characters), with an optional indent.
+        #[test]
+        fn wrapping_keeps_every_character_within_the_width(
+            indent in 0usize..6,
+            body in proptest::collection::vec(
+                proptest::sample::select("ab c/\\ .-_:日本é\u{301} ~".chars().collect::<Vec<char>>()),
+                0..120,
+            ),
+            width in 3usize..63,
+        ) {
+            let text: String = " ".repeat(indent) + &body.into_iter().collect::<String>();
+            let rows = wrap_text(&text, width);
+            proptest::prop_assert!(!rows.is_empty(), "{text:?}");
+            proptest::prop_assert_eq!(
+                squash(&rows.concat()),
+                squash(&text),
+                "no character is dropped or added: {:?} at {}", text, width
+            );
+            for row in &rows {
+                proptest::prop_assert!(cells(row) <= width, "{row:?} wider than {width}: {text:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn wrapping_breaks_at_spaces_and_paths_and_marks_continuations() {
+        assert_eq!(wrap_text("short", 10), ["short"]);
+        assert_eq!(
+            wrap_text("alpha beta gamma delta", 12),
+            ["alpha beta ", "gamma delta"]
+        );
+        // A path breaks after a separator; an indented line's continuation is indented.
+        assert_eq!(
+            wrap_text("  Include /srv/heimdall/ssh_config.d/alpha.conf", 28),
+            ["  Include /srv/heimdall/", "    ssh_config.d/alpha.conf"]
+        );
+        // `[y/N]` is not a path: it stays whole.
+        assert_eq!(
+            wrap_text("Authorize? Type yes to confirm [y/N]: _", 36),
+            ["Authorize? Type yes to confirm ", "[y/N]: _"]
+        );
+        // A word longer than the row is broken inside.
+        assert_eq!(wrap_text("abcdefghij", 4), ["abcd", "efgh", "ij"]);
+    }
+
+    /// The long-diff fixture: the line a decision applies has its meaningful suffix, and
+    /// a second long cell, far beyond any column.
+    const LONG_INCLUDE: &str = "Include ~/.config/heimdall/ssh_config.d/generated/production-fleet/final-segment-READABLE-TAIL.conf";
+    const LONG_JUMP: &str = "ProxyJump bastion-one.example.invalid,bastion-two.example.invalid,last-hop.example.invalid:2222";
+
+    fn long_diff_app() -> App {
+        let mut app = populated();
+        let d = app
+            .catalog
+            .decisions
+            .iter_mut()
+            .find(|d| d.id == "dec_apply1")
+            .unwrap();
+        d.request["diff_text"] = serde_json::json!(format!(
+            "--- ~/.ssh/config\n+# >>> heimdall managed include\n+{LONG_INCLUDE}\n--- ~/.config/heimdall/ssh_config\n-Host alpha\n-  HostName old.example.invalid\n+Host alpha\n+  HostName alpha.example.invalid\n+  {LONG_JUMP}\n"
+        ));
+        press(&mut app, &[Key::Char('4'), Key::Enter]);
+        app
+    }
+
+    /// ADR-0007 §12.31 item 3 (Q03), at 120×40 and 40×12: a diff whose meaningful suffix
+    /// lies beyond the cell width is readable in full. The cells that do not fit side by
+    /// side stack, and what is longer than the modal wraps; scrolling reaches every row.
+    #[test]
+    fn a_decision_diff_with_a_suffix_beyond_the_cell_width_is_readable_in_full() {
+        for (w, h) in SIZES {
+            let app = long_diff_app();
+            let everything = read_everything(&app, w, h);
+            let text = squash(&everything.concat());
+            for must in [LONG_INCLUDE, LONG_JUMP, "READABLE-TAIL.conf", "2222"] {
+                assert!(
+                    text.contains(&squash(must)),
+                    "{w}x{h}: {must:?} is not readable in full: {everything:#?}"
+                );
+            }
+            // The cells do not fit three across: the columns stack.
+            let joined = everything.join("\n");
+            for heading in ["Before:", "After:", "Restore:"] {
+                assert!(joined.contains(heading), "{w}x{h}: {heading}");
+            }
+            // The last row is the disclosure that closes every confirmation.
+            assert!(
+                squash(everything.last().unwrap()).ends_with(&squash("could imitate it.")),
+                "{w}x{h}: {everything:#?}"
+            );
+        }
+        // Control: short cells stay side by side at 120 columns (restore column test),
+        // and the stacked form needs no scrolling there for the original fixture.
+        let mut app = populated();
+        press(&mut app, &[Key::Char('4'), Key::Enter]);
+        let rows = content_rows(&app, 120, 40);
+        assert!(
+            rows.iter()
+                .any(|r| r.contains("Before") && r.contains("After")),
+            "{rows:#?}"
+        );
+    }
+
+    fn inventory(n: usize) -> Vec<String> {
+        (1..=n)
+            .map(|i| format!("~/.ssh/config:{}", i * 2))
+            .collect()
+    }
+
+    fn authorization_with(entries: &[String]) -> App {
+        let mut app = populated();
+        press(
+            &mut app,
+            &[Key::Char('2'), Key::Char('p'), Key::Down, Key::Enter],
+        );
+        app.apply(crate::tui::model::Update::ProbePrepared {
+            alias: "alpha".to_owned(),
+            level: ProbeLevel::Evaluate,
+            executed: entries.to_vec(),
+            not_fully_readable: false,
+        });
+        app
+    }
+
+    /// ADR-0007 §12.31 item 3 (Q04), at 120×40 and 40×12: the last entry of a
+    /// 15-construct inventory is reached by keyboard alone, no row is skipped on the way,
+    /// and the modal says how much is left below.
+    #[test]
+    fn the_last_entry_of_a_15_construct_inventory_is_reachable_by_keyboard() {
+        let entries = inventory(15);
+        let last = "~/.ssh/config:30";
+        for (w, h) in SIZES {
+            let mut app = authorization_with(&entries);
+            let first = draw(&app, w, h).0.join("\n");
+            let tall = h >= 40;
+            assert_eq!(
+                first.contains(last),
+                tall,
+                "{w}x{h}: only the tall screen shows the whole inventory at once\n{first}"
+            );
+            if !tall {
+                assert!(
+                    first.contains("more rows below (PgDn, End)"),
+                    "the modal says what remains\n{first}"
+                );
+            }
+            // PgDn only: every entry crosses the screen on the way down.
+            let mut seen = std::collections::BTreeSet::new();
+            let mut presses = 0;
+            loop {
+                let screen = draw(&app, w, h).0.join("\n");
+                for e in &entries {
+                    if screen.contains(e.as_str()) {
+                        seen.insert(e.clone());
+                    }
+                }
+                if screen.contains(last) {
+                    break;
+                }
+                presses += 1;
+                assert!(
+                    presses < 30,
+                    "{w}x{h}: never reached the last entry\n{screen}"
+                );
+                press(&mut app, &[Key::PageDown]);
+            }
+            assert_eq!(
+                seen.len(),
+                entries.len(),
+                "{w}x{h}: no entry skipped: {seen:?}"
+            );
+            // At the end the modal says so, and the keys go back up (Home, Up, PgUp).
+            if !tall {
+                press(&mut app, &[Key::End]);
+                let end = draw(&app, w, h).0.join("\n");
+                assert!(end.contains("end of the content"), "{end}");
+                assert!(end.contains("Without a typed yes"), "{end}");
+                press(&mut app, &[Key::Home]);
+                assert!(!draw(&app, w, h).0.join("\n").contains(last));
+                press(&mut app, &[Key::End, Key::Up, Key::PageUp]);
+                assert!(reading(&app).scroll < reading(&app).drawn().unwrap().total);
+            }
+            // Down alone gets there too.
+            let mut app = authorization_with(&entries);
+            for _ in 0..40 {
+                press(&mut app, &[Key::Down]);
+                draw(&app, w, h);
+            }
+            assert!(draw(&app, w, h).0.join("\n").contains(last), "{w}x{h}");
+        }
+    }
+
+    /// The three confirmations at 40×12, each with content taller than the screen.
+    fn tall_confirmations() -> Vec<(&'static str, App)> {
+        let mut decision = populated();
+        press(&mut decision, &[Key::Char('4'), Key::Down, Key::Enter]);
+        let auth = authorization_with(&inventory(15));
+        let mut repair = populated();
+        press(
+            &mut repair,
+            &[
+                Key::Char('4'),
+                Key::Down,
+                Key::Down,
+                Key::Enter,
+                Key::Char('k'),
+            ],
+        );
+        repair.apply(crate::tui::model::Update::RepairPlan {
+            operation: "op_held1".to_owned(),
+            repair: crate::tui::model::HeldRepair::Keep,
+            plan: Ok(crate::tui::model::RepairPlan {
+                digest: "d".repeat(64),
+                lines: (1..=15)
+                    .map(|i| format!("stays in place: ~/.ssh/file{i}"))
+                    .collect(),
+            }),
+        });
+        vec![
+            ("decision", decision),
+            ("authorization", auth),
+            ("repair", repair),
+        ]
+    }
+
+    /// ADR-0007 §12.31 item 3: a typed yes is accepted only once a frame has drawn the
+    /// last row of the content; before that the answer is refused, discarded, and the
+    /// modal says so.
+    #[test]
+    fn yes_is_refused_until_the_end_has_been_shown() {
+        let sent = |effects: &[crate::tui::model::Effect]| !effects.is_empty();
+        for (kind, app) in tall_confirmations() {
+            let (w, h) = (40, 12);
+            let mut app = app;
+            // Nothing drawn yet: nothing was shown, so nothing is accepted.
+            type_text(&mut app, "yes");
+            assert!(
+                !sent(&press(&mut app, &[Key::Enter])),
+                "{kind}: before any frame"
+            );
+            // A frame that shows the start only.
+            draw(&app, w, h);
+            assert!(
+                reading(&app).scrollable() && !reading(&app).end_shown(),
+                "{kind}"
+            );
+            type_text(&mut app, "yes");
+            assert!(
+                !sent(&press(&mut app, &[Key::Enter])),
+                "{kind}: end not shown"
+            );
+            assert!(reading(&app).refused, "{kind}");
+            let rows = draw(&app, w, h).0;
+            let screen = rows.join("\n");
+            assert!(
+                screen.contains("yes refused"),
+                "{kind}: the modal says so\n{screen}"
+            );
+            assert!(
+                screen.contains("Read to the end first"),
+                "{kind}: the footer too\n{screen}"
+            );
+            assert!(
+                screen.contains("[y/N]"),
+                "{kind}: the prompt stays\n{screen}"
+            );
+            // The refused answer was discarded: Enter alone is the default No.
+            let Some(input) = (match app.modal.as_ref() {
+                Some(Modal::Decision(p)) => Some(&p.input),
+                Some(Modal::Authorization(p)) => Some(&p.input),
+                Some(Modal::Repair(p)) => Some(&p.input),
+                _ => None,
+            }) else {
+                panic!("{kind}: the modal stays open");
+            };
+            assert!(input.is_empty(), "{kind}: {input:?}");
+            // Scrolling to the end without a frame in between shows nothing: the keys
+            // that follow (queued behind it) are still refused.
+            press(&mut app, &[Key::End, Key::Home]);
+            type_text(&mut app, "yes");
+            assert!(
+                !sent(&press(&mut app, &[Key::Enter])),
+                "{kind}: End then Home, no frame"
+            );
+            press(&mut app, &[Key::End]);
+            type_text(&mut app, "yes");
+            assert!(
+                !sent(&press(&mut app, &[Key::Enter])),
+                "{kind}: End, no frame"
+            );
+            // PgDn frame by frame reaches the end, and then the yes is accepted.
+            let mut guard = 0;
+            while !reading(&app).end_shown() {
+                press(&mut app, &[Key::PageDown]);
+                draw(&app, w, h);
+                guard += 1;
+                assert!(guard < 30, "{kind}");
+            }
+            let screen = draw(&app, w, h).0.join("\n");
+            assert!(screen.contains("end of the content"), "{kind}\n{screen}");
+            type_text(&mut app, "yes");
+            assert!(
+                sent(&press(&mut app, &[Key::Enter])),
+                "{kind}: the end was shown"
+            );
+        }
+    }
+
+    /// Once the end has been on screen it stays shown for the same content, wherever the
+    /// owner scrolls back to; a content that changes must be read to its end again; and a
+    /// screen tall enough for everything needs no scrolling at all.
+    #[test]
+    fn the_end_stays_shown_for_the_same_content_and_not_for_changed_content() {
+        let sent = |effects: &[crate::tui::model::Effect]| !effects.is_empty();
+        // Same content: End (framed), Home (framed), then yes.
+        let mut app = authorization_with(&inventory(15));
+        draw(&app, 40, 12);
+        press(&mut app, &[Key::End]);
+        draw(&app, 40, 12);
+        press(&mut app, &[Key::Home]);
+        draw(&app, 40, 12);
+        assert!(reading(&app).end_shown());
+        type_text(&mut app, "yes");
+        assert!(sent(&press(&mut app, &[Key::Enter])));
+        // Changed content: a decision of another kind grows below the row being shown.
+        let mut app = populated();
+        let other = |extra: usize| crate::tui::data::Decision {
+            id: "dec_other".to_owned(),
+            kind: "other_kind".to_owned(),
+            created_at: Some(crate::tui::model::tests::t("2026-11-03T09:00:00Z")),
+            expires_at: Some(crate::tui::model::tests::t("2026-11-03T09:15:00Z")),
+            expired: false,
+            request: serde_json::Value::Object(
+                (0..4 + extra)
+                    .map(|i| (format!("field{i:02}"), serde_json::json!(i)))
+                    .collect(),
+            ),
+        };
+        app.catalog.decisions.push(other(0));
+        app.modal = Some(Modal::Decision(crate::tui::model::DecisionPrompt {
+            id: "dec_other".to_owned(),
+            verdict: heimdall_contract::request::Verdict::Approve,
+            input: String::new(),
+            reading: Reading::default(),
+        }));
+        press(&mut app, &[Key::End]);
+        draw(&app, 40, 12);
+        press(&mut app, &[Key::End]);
+        draw(&app, 40, 12);
+        assert!(reading(&app).end_shown());
+        app.catalog.decisions.retain(|d| d.id != "dec_other");
+        app.catalog.decisions.push(other(12));
+        draw(&app, 40, 12);
+        assert!(
+            !reading(&app).end_shown(),
+            "the replaced record's end was not shown"
+        );
+        type_text(&mut app, "yes");
+        assert!(!sent(&press(&mut app, &[Key::Enter])));
+        press(&mut app, &[Key::End]);
+        draw(&app, 40, 12);
+        type_text(&mut app, "yes");
+        assert!(sent(&press(&mut app, &[Key::Enter])));
+        // A tall screen shows everything at once: the first frame is enough.
+        let mut app = authorization_with(&inventory(15));
+        draw(&app, 120, 40);
+        assert!(!reading(&app).scrollable() && reading(&app).end_shown());
+        type_text(&mut app, "yes");
+        assert!(sent(&press(&mut app, &[Key::Enter])));
+    }
+
+    /// A terminal too small to show any content cannot confirm: nothing is accepted, and
+    /// nothing panics at any size.
+    #[test]
+    fn a_terminal_too_small_to_show_the_content_confirms_nothing() {
+        for (kind, app) in tall_confirmations() {
+            for (w, h) in [(9, 3), (10, 3), (10, 4), (12, 5), (20, 6), (40, 8)] {
+                let mut app = app.clone();
+                draw(&app, w, h);
+                type_text(&mut app, "yes");
+                let effects = press(&mut app, &[Key::Enter]);
+                assert!(
+                    effects.is_empty(),
+                    "{kind} {w}x{h}: the end of a tall content is not on a tiny screen"
+                );
+            }
+        }
+    }
+
+    /// The refused state, deliberately recorded (40×12): the answer is gone, the prompt
+    /// stays fixed under the content, and the border says what remains.
+    #[test]
+    fn the_refusal_is_visible_in_the_modal() {
+        let mut app = populated();
+        press(&mut app, &[Key::Char('4'), Key::Enter]);
+        draw(&app, 40, 12);
+        type_text(&mut app, "yes");
+        press(&mut app, &[Key::Enter]);
+        let (rows, _) = draw(&app, 40, 12);
+        snapshot("decision_apply_refused_40x12", &rows);
+        let (plain_rows, _) = draw(&no_color(&app), 40, 12);
+        assert_eq!(rows, plain_rows, "the refusal is told in text");
     }
 
     #[test]

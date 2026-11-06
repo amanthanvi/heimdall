@@ -743,6 +743,7 @@ dependencies = [
  "heimdall-sshconf",
  "heimdall-store",
  "heimdall-testkit",
+ "proptest",
  "ratatui",
  "rustix",
  "serde",

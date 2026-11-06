@@ -8,5 +8,5 @@
  │  ~/.ssh/config:12                  │
  │Authorize? Type yes to confirm      │
  │[y/N]: _                            │
- └────────────────────────────────────┘
-type yes, Enter · Esc cancel
+ └ 3 more rows below (PgDn, End) ─────┘
+Up/Down PgUp/PgDn Home/End · Esc cancel

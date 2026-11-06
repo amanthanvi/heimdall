@@ -3572,6 +3572,13 @@ fn eligibility_refusal_reason(reason: Option<&str>) -> &'static str {
 /// The refusal is `INTERACTION_REQUIRED` with `next: interact` and the provider's
 /// interaction (never a `decision_ref`, spec §5.5), as `prepare_error` maps the
 /// adapter's own refusal. `None` when every pair still holds (or there is no pair).
+///
+/// ⟨M02⟩ ADR-0007 §12.30 item 8: `next.provider_interaction.kind` is the refused pair's
+/// fresh interaction kind, as the CLI's pre-launch check names it
+/// (`heimdall::launch_flow::refusal_provider`): a pair whose fresh kind is `none` (its
+/// own key needs nothing, but a fallback it relies on is no longer cleared) is
+/// `unknown`, since which interaction ssh's other key needs is not known, and so is a
+/// pair whose identity left the catalog ([`refused_interaction_kind`]).
 fn noninteractive_commit_refusal(
     tx: &mut Txn<'_>,
     pairs: &[PairIntegration],
@@ -3589,6 +3596,7 @@ fn noninteractive_commit_refusal(
     let Some((kind, reason, entries)) = refused else {
         return Ok(None);
     };
+    let kind = refused_interaction_kind(kind);
     let provider = existing_access_provider(mechanism).unwrap_or(ProviderKind::Unknown);
     let mut error = OpError::from_adapter_for(
         &AdapterError::InteractionRequired(InteractionRequirement::ProviderDialog),
@@ -3613,6 +3621,18 @@ fn noninteractive_commit_refusal(
         error = error.with_entries(entries);
     }
     Ok(Some(error))
+}
+
+/// ⟨M02⟩ ADR-0007 §12.30 item 8: the interaction a non-interactive refusal names for the
+/// refused pair's fresh `kind`, aligned with the pre-launch check: a refusal never names
+/// `none` (that would say no interaction is needed), so `none` is `unknown`; every other
+/// kind, `unknown` included, is named as it is.
+fn refused_interaction_kind(kind: InteractionKind) -> InteractionKind {
+    if kind == InteractionKind::None {
+        InteractionKind::Unknown
+    } else {
+        kind
+    }
 }
 
 /// ⟨M02⟩ The fallback clearance half of [`noninteractive_commit_refusal`]: for each

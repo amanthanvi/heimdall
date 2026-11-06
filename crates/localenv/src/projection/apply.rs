@@ -185,6 +185,144 @@ pub(super) fn held_steps(
     Ok(out)
 }
 
+// --- the original's snapshot (ADR-0007 §5.5) --------------------------------------------
+
+/// The longest file a snapshot copies (the §5.3 read bound).
+const SNAPSHOT_MAX: u64 = 1 << 20;
+
+/// What [`snapshot_original`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Snapshot {
+    /// The original's bytes were copied to this new file.
+    Written(PathBuf),
+    /// A snapshot of this name was taken before an earlier first edit; it is never
+    /// replaced, and nothing was written.
+    Exists(PathBuf),
+    /// The file does not exist: there is no original to copy.
+    Absent,
+    /// The file's bytes are not the ones the plan was computed from; nothing was
+    /// written (the plan's own base check refuses the edit).
+    Changed,
+}
+
+/// ⟨M02⟩ ADR-0007 §5.5 "Snapshots" (§12.30 item 7): before the first edit of a user
+/// file, copy its original bytes to `<backups>/<name>.<UTC timestamp>.orig`, so the owner
+/// can recover it by hand. Heimdall never restores a snapshot automatically, and only
+/// `uninstall --purge-state` deletes one.
+///
+/// * The first edit is the one with no `<name>.*.orig` in `backups` yet: an existing
+///   snapshot is kept as it is ([`Snapshot::Exists`]) and nothing is written.
+/// * `file` must be a regular file (never followed through a link) of at most 1 MiB;
+///   an absent file has no original ([`Snapshot::Absent`]). With `expected` (the plan's
+///   base digest, lowercase hex), bytes with another digest write nothing
+///   ([`Snapshot::Changed`]).
+/// * `backups` is created when missing (0700 on Unix; on Windows it inherits the state
+///   directory's ACL) and must be a real directory; the copy is created new and
+///   owner-only through `sys::create_owner_only_exclusive` (0600 on Unix; a protected
+///   owner-only DACL on Windows), synced, and renamed into place from a dot-named
+///   staging file, so a reader never sees a
+///   partial snapshot. Nothing is ever removed or replaced: a staging
+///   file a failed or raced copy leaves behind stays (production code unlinks nothing
+///   outside the quarantine) and, being dot-named, is never taken for a snapshot.
+/// * The timestamp is the UTC second of `now` as `YYYYMMDDTHHMMSSZ` (no `:`, which
+///   Windows names cannot hold).
+///
+/// # Errors
+/// Any I/O failure (the caller then submits nothing), an over-long file, a file that is
+/// not regular, or a `backups` that is not a directory.
+pub fn snapshot_original(
+    file: &Path,
+    backups: &Path,
+    name: &str,
+    expected: Option<&str>,
+    now: Timestamp,
+) -> std::io::Result<Snapshot> {
+    use std::io::{Read as _, Write as _};
+    let invalid =
+        |what: &str| std::io::Error::new(std::io::ErrorKind::InvalidInput, what.to_owned());
+    if let Some(existing) = existing_snapshot(backups, name)? {
+        return Ok(Snapshot::Exists(existing));
+    }
+    let meta = match std::fs::symlink_metadata(file) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Snapshot::Absent),
+        Err(e) => return Err(e),
+    };
+    if !meta.file_type().is_file() {
+        return Err(invalid("the file to snapshot is not a regular file"));
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(file)?
+        .take(SNAPSHOT_MAX + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > SNAPSHOT_MAX {
+        return Err(invalid("the file to snapshot exceeds the read bound"));
+    }
+    if expected.is_some_and(|d| Sha256Hex::of(&bytes).as_str() != d) {
+        return Ok(Snapshot::Changed);
+    }
+    match std::fs::symlink_metadata(backups) {
+        Ok(m) if m.file_type().is_dir() => {}
+        Ok(_) => return Err(invalid("the backups path is not a directory")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(false);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt as _;
+                builder.mode(0o700);
+            }
+            builder.create(backups)?;
+        }
+        Err(e) => return Err(e),
+    }
+    let stamp = snapshot_stamp(now);
+    let target = backups.join(format!("{name}.{stamp}.orig"));
+    let staging = backups.join(format!(".{name}.{stamp}.orig.tmp"));
+    // Unix 0600 with `O_NOFOLLOW`; Windows a protected owner-only DACL (§5.5).
+    let mut out = crate::sys::create_owner_only_exclusive(&staging)?;
+    out.write_all(&bytes)?;
+    out.sync_all()?;
+    drop(out);
+    if std::fs::symlink_metadata(&target).is_ok() {
+        // Another first edit's copy landed meanwhile: it is kept.
+        return Ok(Snapshot::Exists(target));
+    }
+    std::fs::rename(&staging, &target)?;
+    Ok(Snapshot::Written(target))
+}
+
+/// The first `<name>.*.orig` in `backups` (sorted), if any; a missing directory has none.
+fn existing_snapshot(backups: &Path, name: &str) -> std::io::Result<Option<PathBuf>> {
+    let prefix = format!("{name}.");
+    let mut found: Vec<PathBuf> = match std::fs::read_dir(backups) {
+        Ok(rd) => rd
+            .filter_map(Result::ok)
+            .filter(|e| {
+                e.file_name()
+                    .to_str()
+                    .is_some_and(|n| n.starts_with(&prefix) && n.ends_with(".orig"))
+            })
+            .map(|e| e.path())
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    found.sort();
+    Ok(found.into_iter().next())
+}
+
+/// `now`'s UTC second as `YYYYMMDDTHHMMSSZ`.
+fn snapshot_stamp(now: Timestamp) -> String {
+    let text = now.to_string();
+    let second: String = text
+        .chars()
+        .take(19)
+        .filter(|c| c.is_ascii_digit() || *c == 'T')
+        .collect();
+    format!("{second}Z")
+}
+
 // --- step classification -------------------------------------------------------------
 
 /// Where a step's file lives: its directory and its name in it.

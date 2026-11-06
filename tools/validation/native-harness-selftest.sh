@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Local self-test of the Windows native harnesses (reviews B01 and B03):
-# tests/native/windows-ipc/run-native.sh, tests/native/m01/run-windows.sh and
-# their scratch helpers tests/native/windows-ipc/scratch-lib.sh.
+# Local self-test of the native harnesses: the Windows ones (reviews B01 and B03:
+# tests/native/windows-ipc/run-native.sh, tests/native/m01/run-windows.sh and their
+# scratch helpers tests/native/windows-ipc/scratch-lib.sh) and the M02 ones
+# (tests/native/m02: run-linux.sh, run-macos.sh, run-windows.sh, run-wsl-distro.sh,
+# scenario-ordinary-ssh.sh, target-root.sh and their helpers), through
+# tests/native/m02/selftest.sh and the evidence generator's Python tests.
 #
 # Reaches no host and builds nothing: `ssh`, `scp`, `cargo`, `rustc` and `zig`
 # are stubs first on PATH (the ssh stub accepts only the fake alias and runs the
@@ -21,6 +24,12 @@
 #   B03  windows-ipc: the windows:: subset passes but a later suite fails -> the
 #        harness exits nonzero, and commands.txt keeps both exits. m01: a failing
 #        binary -> nonzero.
+#
+#   M02  tests/native/m02/selftest.sh (its own checks, listed in that file's header: the
+#        helpers, run-linux/macos/windows/wsl-distro with stubs and a fake host tree, the
+#        scenario in its isolated mode when a debug heimdall and a sshd exist) and
+#        tests/native/m02/test_m02_evidence.py (the evidence generator, platform scans and
+#        pty driver); their counts are added to this script's.
 #
 # Usage: tools/validation/native-harness-selftest.sh [root]
 #   root  directory holding tests/native/... (default: this checkout); another
@@ -221,6 +230,8 @@ grep_q() { grep -qF -- "$1" "$2" 2>/dev/null; }
 run_name() { sed -n 's/.*create the run directories exclusively (run \(.*\))$/\1/p' "$1" | head -1; }
 differ() { [ -n "$1" ] && [ -n "$2" ] && [ "$1" != "$2" ]; }
 starts_with() { case "$1" in "$2"*) return 0 ;; esac; return 1; }
+# exit_agrees RC FAILS: a self-test exits 0 exactly when it reports no failure.
+exit_agrees() { { [ "$1" = 0 ] && [ "$2" = 0 ]; } || { [ "$1" != 0 ] && [ "$2" != 0 ]; }; }
 
 # --- harness scenarios ---------------------------------------------------------
 
@@ -363,6 +374,40 @@ if [ -f "$lib" ]; then
     check "B01 lib: remove deletes exactly the created directory" exact
 else
     check "B01 lib: tests/native/windows-ipc/scratch-lib.sh exists" false
+fi
+
+# --- M02 harnesses -------------------------------------------------------------------------
+
+m02_dir="$root/tests/native/m02"
+if [ -f "$m02_dir/selftest.sh" ]; then
+    bash "$m02_dir/selftest.sh" "$root" >"$T/m02-selftest.out" 2>&1 </dev/null
+    m02_rc=$?
+    # Its checks, line by line (a failure names itself), then its totals join ours.
+    cat "$T/m02-selftest.out"
+    m02_line=$(grep '^m02-selftest: ' "$T/m02-selftest.out" | tail -1)
+    m02_pass=$(printf '%s\n' "$m02_line" | sed -n 's/^m02-selftest: \([0-9][0-9]*\) passed.*/\1/p')
+    m02_fail=$(printf '%s\n' "$m02_line" | sed -n 's/^m02-selftest: [0-9][0-9]* passed, \([0-9][0-9]*\) failed.*/\1/p')
+    if [ -n "$m02_pass" ] && [ -n "$m02_fail" ]; then
+        passes=$((passes + m02_pass))
+        fails=$((fails + m02_fail))
+        check "M02 selftest: its exit code agrees with its totals ($m02_pass passed, $m02_fail failed)" \
+            exit_agrees "$m02_rc" "$m02_fail"
+    else
+        check "M02 selftest: it ran to its summary line" false
+    fi
+else
+    check "M02 selftest: tests/native/m02/selftest.sh exists" false
+fi
+if [ -f "$m02_dir/test_m02_evidence.py" ]; then
+    PYTHONDONTWRITEBYTECODE=1 python3 -I "$m02_dir/test_m02_evidence.py" >"$T/m02-py.out" 2>&1
+    py_n=$(sed -n 's/^Ran \([0-9]*\) tests.*/\1/p' "$T/m02-py.out" | tail -1)
+    check "M02 evidence generator, platform scan and pty driver unit tests (${py_n:-0} tests)" \
+        grep -q '^OK$' "$T/m02-py.out"
+    if ! grep -q '^OK$' "$T/m02-py.out"; then
+        grep -E '^(FAIL|ERROR):' "$T/m02-py.out" | head -20
+    fi
+else
+    check "M02 evidence tests: tests/native/m02/test_m02_evidence.py exists" false
 fi
 
 echo "native-harness-selftest: $passes passed, $fails failed"

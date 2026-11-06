@@ -34,7 +34,7 @@ Opera│Heimdall will treat this key as needing no confirmation and will launch 
      │                                                                                                            │
      │                                                                                                            │
      │                                                                                                            │
-     │Tab: deny instead · Esc: send nothing                                                                       │
+     │Tab: deny · Esc: send nothing                                                                               │
      │Approve? Type yes to confirm [y/N]: _                                                                       │
      └────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 type yes, Enter · Tab approve/deny · Esc cancel

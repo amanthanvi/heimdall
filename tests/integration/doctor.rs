@@ -1294,6 +1294,90 @@ fn doctor_shows_a_file_outside_the_home_as_written() {
     assert!(!fx.ssh_started());
 }
 
+/// ADR-0007 §12.30 item 10 (the §12.28 item 6 residual): the passive doctor's
+/// `config_files` listing and the provenance of an include failure show a file outside
+/// the account home as the configuration names it (through
+/// `ConfigSet::written_path_of`), never in its canonical form. The included file is
+/// reached through a symlinked directory; inside it, one `Include` cannot be expanded
+/// statically (an unset variable) and one names an unreadable file. The listing, both
+/// findings' provenance and the unreadable file's own entry all show the link's path,
+/// and the real directory's name appears nowhere in the report.
+#[cfg(unix)]
+#[test]
+fn doctor_lists_config_files_and_include_failures_as_written() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fx::new();
+    let outside = tempfile::tempdir().unwrap();
+    let real = outside.path().join("hm-fixture-real-dir");
+    std::fs::create_dir_all(&real).unwrap();
+    let link = outside.path().join("hm-fixture-link-dir");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let unreadable = real.join("unreadable.conf");
+    std::fs::write(&unreadable, "Host z\n").unwrap();
+    std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = std::fs::read(&unreadable).is_ok();
+    std::fs::write(
+        real.join("extra.conf"),
+        format!(
+            "Include ${{HM_FIXTURE_UNSET_VARIABLE}}/x.conf\nInclude {}\n",
+            qp(&link.join("unreadable.conf"))
+        ),
+    )
+    .unwrap();
+    let written = link.join("extra.conf");
+    fx.config(&format!(
+        "Include {}\nHost {ALIAS}\n  HostName 127.0.0.1\n",
+        qp(&written)
+    ));
+    let mut request = DoctorRequest::passive();
+    request.aliases = Some(Vec::new());
+    request.local_queries = LocalQueries::Disabled;
+    let report = run(&fx.ctx(), &request);
+    std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let shown = written.display().to_string();
+    let listed: Vec<&str> = report
+        .config_files
+        .iter()
+        .map(|f| f.path_display.as_str())
+        .collect();
+    assert!(listed.contains(&shown.as_str()), "{listed:?}");
+    assert!(
+        listed.contains(&"~/.ssh/config"),
+        "the user file under the home: {listed:?}"
+    );
+    let at = |line: u32| {
+        report.findings.iter().any(|f| {
+            f.provenance
+                .as_ref()
+                .is_some_and(|p| p.path_display == shown && p.line == line)
+        })
+    };
+    assert!(
+        at(1),
+        "the unexpandable Include, as written: {:?}",
+        report.findings
+    );
+    if !readable {
+        assert!(
+            at(2),
+            "the unreadable Include, as written: {:?}",
+            report.findings
+        );
+        let unreadable_shown = link.join("unreadable.conf").display().to_string();
+        assert!(
+            report
+                .config_files
+                .iter()
+                .any(|f| f.path_display == unreadable_shown && !f.readable),
+            "{:?}",
+            report.config_files
+        );
+    }
+    let text = serde_json::to_string(&report).unwrap();
+    assert!(!text.contains("hm-fixture-real-dir"), "{text}");
+    assert!(!fx.ssh_started());
+}
+
 // --- reads that must not block, local queries ------------------------------------------------
 
 #[cfg(unix)]

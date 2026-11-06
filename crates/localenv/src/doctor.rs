@@ -326,6 +326,36 @@ pub fn path_display(path: &Path, home: &Path) -> String {
     text(path)
 }
 
+/// ADR-0007 §12.30 item 10: `path` (a path as the configuration names it) for display:
+/// `~/…` under the account home, the home's canonical form included; anything else as
+/// given.
+fn written_display(ctx: &LocalContext, path: &Path) -> String {
+    let plain = ctx.paths.display(path);
+    if plain.starts_with('~') {
+        plain
+    } else {
+        path_display(path, &ctx.paths.account_home)
+    }
+}
+
+/// ADR-0007 §12.30 item 10: `span` as file:line with its file as written
+/// ([`ConfigSet::written_path_of`]), never in its canonical form; a root's span keeps
+/// [`provenance`]'s root path.
+fn written_provenance(
+    ctx: &LocalContext,
+    set: &ConfigSet,
+    roots: &Roots,
+    span: heimdall_sshconf::parse::Span,
+) -> ConfigProvenance {
+    match set.written_path_of(span.source) {
+        Some(path) => ConfigProvenance {
+            path_display: written_display(ctx, path),
+            line: span.line,
+        },
+        None => provenance(ctx, set, roots, span),
+    }
+}
+
 /// ADR-0007 §12.26 item 7: `provenance` shown through [`path_display`]. A display
 /// that already starts at `~` is kept; any other is read as the path it shows (the
 /// evaluator's display of a file it could not place under the home it was given) and
@@ -593,7 +623,13 @@ impl Doctor<'_> {
             } else {
                 ConfigFileRole::User
             };
-            let display = ctx.paths.display(&visit.canonical);
+            // ADR-0007 §12.30 item 10: the path as the configuration names it (the
+            // written path), never its canonical form.
+            let display = written_display(
+                ctx,
+                set.written_path_of(visit.source)
+                    .unwrap_or(visit.canonical.as_path()),
+            );
             let (sha, bytes) = digests
                 .get(&visit.canonical)
                 .map_or((None, None), |(d, n)| (Some(d.clone()), Some(*n)));
@@ -641,7 +677,7 @@ impl Doctor<'_> {
             self.permissions(&visit.canonical, &display, visit.origin);
         }
         for failure in &record.failures {
-            let display = ctx.paths.display(&failure.path);
+            let display = written_display(ctx, &failure.path);
             if seen.insert(failure.path.clone()) {
                 files.push(ConfigFileObservation {
                     path_display: display.clone(),
@@ -659,7 +695,9 @@ impl Doctor<'_> {
                     bytes: None,
                 });
             }
-            let prov = failure.at.map(|span| provenance(ctx, &set, &roots, span));
+            let prov = failure
+                .at
+                .map(|span| written_provenance(ctx, &set, &roots, span));
             let (code, reason) = if failure.error.is_bound() {
                 (finding::BOUND_EXCEEDED, None)
             } else {
@@ -682,7 +720,7 @@ impl Doctor<'_> {
                 .pattern
                 .as_ref()
                 .is_some_and(|p| !p.to_string_lossy().contains(['*', '?', '[']));
-            let prov = provenance(ctx, &set, &roots, inc.span);
+            let prov = written_provenance(ctx, &set, &roots, inc.span);
             match &inc.arg.matches {
                 Ok(m) if m.is_empty() && literal => self.add(
                     finding::INCLUDE_MISSING,

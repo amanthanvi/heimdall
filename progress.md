@@ -658,3 +658,32 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - S01 and R01 closed.
   - The intermittent test is identified: `heimdall-launch` `meta::tests::fd_protocol_writes_whole_lines_and_epipe_is_an_error_not_a_signal`.
   - ADR-0007 §12.31: fixed in wave 5b (W5b-fix), then native runs repeated at the exit build.
+- Wave 5 (`wf_0a557c90-850`) failed: all 4 agents hit Claude 429 rate limits after 1.1M tokens. They left partial work, uncommitted:
+  - W5-fix: 18 files;
+  - W5-harness: tests/native/m02/, 13 files, about 4100 lines.
+  - The tree compiles. No process was left running.
+- Relaunched (2026-11-05) as workflow `wf_aec0e2ec-a5e`. Every unit continues its partial work. Wave 5b (§12.31) is folded in, so the native runs happen once, at the exit build. Units:
+  - W5-fix (Opus): §12.30 items and Q02;
+  - W5-harness (Sonnet);
+  - W5-tui (Sonnet): Q03 and Q04;
+  - W5-safety (Sonnet): Q01 and the flaky launch pipe test;
+  - then the integrator, then W5-run (native macOS, devbox, Windows 11; evidence; matrix; exit draft).
+- **M02 wave 5** (`wf_aec0e2ec-a5e`): all 6 agents done.
+  - W5-fix: §12.30 items and Q02.
+  - W5-harness: tests/native/m02 harnesses, case index, evidence generator, self-test.
+  - W5-tui: Q03 and Q04.
+  - W5-safety:
+    - Q01;
+    - the intermittent pipe test, diagnosed: a sibling `spawn()` copies the pipe fd into its child; fixed with a fork gate; 44/1000 failures before, 0/1000 after.
+  - check.sh: the integrator ran it three times and I ran it once, all exit 0, 1665 passed, 0 failed.
+  - Native runs at bcad82de plus the tree:
+    - macOS 1664/1 (intermittent `a27_ctrl_c_reaches_child_once`);
+    - devbox 1519/29 (pty harness defect, OpenSSH 9.6p1 differences, git 2.43 refusal);
+    - Windows blocked.
+  - 14 m02 records, all blocked (lowest-row rule). Matrix rows and `docs/architecture/m02-exit-draft.md` added.
+- Windows diagnosis (read-only T3 agent on the PC):
+  - WSL sshd is healthy on 2222, but NAT mode leaves only a loopback relay, so no remote route exists. Restoring one needs owner action (elevation or `wsl --shutdown`).
+  - The PC has rustup 1.98.1 (msvc), VS Build Tools 2026, pwsh 7, Windows OpenSSH 10.3p1, and WSL OpenSSH 9.6p1 with git 2.43.
+  - Decision (§12.32 item 17): the Windows run goes through a local-mode runner started by a T3 agent on the PC, with the toolchain installed in scratch.
+- ADR-0007 §12.32 rules on the wave-5 escalations and defines wave 5c: W5c-sshconf, W5c-git, W5c-app, W5c-harness. A §13 entry for §12.30 item 9 is added.
+- Artifact scan: the only hits are synthetic self-test fixtures. Real user and host names: 0, except the devbox host name, which is the generic label "devbox".

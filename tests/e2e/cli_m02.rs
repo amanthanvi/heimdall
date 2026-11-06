@@ -1554,10 +1554,150 @@ mod unix {
         let again = ni(&w, &["setup", "apply", "--request-id", "r-pty-yes"]);
         assert_eq!(again.code, Some(6), "{again:?}");
         assert_eq!(again.code_str(), "REQUEST_CONFLICT");
+        // ADR-0007 §12.30 item 12: that is correct, and the CLI says why.
+        let message = again.json()["data"]["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        assert!(
+            message.contains("request ID r-pty-yes was already used for an earlier setup plan")
+                && message.contains("new request ID"),
+            "{message}"
+        );
+        assert_envelope_valid(&again.json());
         assert_eq!(w.tree(), tree);
         assert_eq!(
             user(&w).matches("# >>> heimdall managed include").count(),
             1
+        );
+    }
+
+    /// ADR-0007 §5.1, §5.5 and §12.30 item 7 through the CLI: the first adoption's
+    /// preview shows each alias with its restore column; `setup apply` copies the
+    /// original user file, before its first edit, to
+    /// `<state>/backups/ssh_config.<UTC timestamp>.orig` (0600, the original bytes) and
+    /// `setup status` lists it; a later rollback (which edits the file again) adds no
+    /// snapshot and leaves the first one as it was.
+    #[test]
+    fn setup_apply_snapshots_the_original_and_previews_the_restore_column() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (w, _) = single(false);
+        let original = std::fs::read(&w.home.user_config).unwrap();
+        let preview = ni(&w, &["setup", "preview"]);
+        assert_eq!(preview.code, Some(0), "{preview:?}");
+        let aliases = preview.json()["data"]["aliases"].clone();
+        let alpha = aliases
+            .as_array()
+            .and_then(|a| a.iter().find(|a| a["alias"] == ALPHA))
+            .unwrap_or_else(|| panic!("the plan lists alpha: {aliases}"));
+        assert_eq!(alpha["kind"], "managed", "{alpha}");
+        assert_eq!(
+            alpha["restore"]["digest"].as_str().map(str::len),
+            Some(64),
+            "{alpha}"
+        );
+        let human = w.cli(&["--non-interactive", "setup", "preview"]);
+        assert!(
+            human.stdout.contains("Alias alpha (managed)")
+                && human.stdout.contains("restore: digest"),
+            "{human:?}"
+        );
+        let backups = w.home.state_dir.join("backups");
+        assert!(!backups.exists(), "a preview takes no snapshot");
+        let (code, _, t) = owner(&w, &["setup", "apply"]);
+        assert_eq!(code, Some(0), "{t}");
+        let snapshots = || -> Vec<PathBuf> {
+            let mut v: Vec<PathBuf> = std::fs::read_dir(&backups)
+                .map(|rd| rd.filter_map(Result::ok).map(|e| e.path()).collect())
+                .unwrap_or_default();
+            v.sort();
+            v
+        };
+        let taken = snapshots();
+        assert_eq!(taken.len(), 1, "{taken:?}");
+        let name = taken[0].file_name().unwrap().to_string_lossy().into_owned();
+        assert!(
+            name.starts_with("ssh_config.") && name.ends_with("Z.orig") && name.len() == 32,
+            "{name}"
+        );
+        assert_eq!(
+            std::fs::read(&taken[0]).unwrap(),
+            original,
+            "the original bytes"
+        );
+        assert_eq!(
+            std::fs::metadata(&taken[0]).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_ne!(
+            std::fs::read(&w.home.user_config).unwrap(),
+            original,
+            "the apply edited the user file after the copy"
+        );
+        let status = ni(&w, &["setup", "status"]);
+        let listed = status.json()["data"]["backups"].clone();
+        assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
+        assert!(listed[0].as_str().unwrap().ends_with(&name), "{listed}");
+        let (code, _, t) = owner(&w, &["setup", "rollback"]);
+        assert_eq!(code, Some(0), "{t}");
+        assert_eq!(snapshots(), taken, "no second snapshot");
+        assert_eq!(std::fs::read(&taken[0]).unwrap(), original);
+    }
+
+    /// ADR-0007 §12.30 item 12: with an agent that lists several identities,
+    /// `identity adopt --from-agent` (the explicit agent probe) is a usage error naming
+    /// their fingerprints and `--fingerprint`; `--fingerprint <fp>` adopts exactly that
+    /// listed identity; an unlisted fingerprint is `NOT_FOUND` and adopts nothing.
+    #[test]
+    fn identity_adopt_from_agent_fingerprint_chooses_one_listed_identity() {
+        let w = World::new(2);
+        let agent = w.agent.endpoint().locator();
+        let at_agent: [(&str, &OsStr); 1] = [("SSH_AUTH_SOCK", agent.as_os_str())];
+        let base = [
+            "--json",
+            "--non-interactive",
+            "identity",
+            "adopt",
+            "--from-agent",
+            "--active-probe",
+            "agent",
+        ];
+        let adopted = |w: &World| {
+            w.cli(&["--json", "--non-interactive", "identity", "list"])
+                .json()["data"]["identities"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        };
+        let several = w.cli_with(&base, &at_agent);
+        assert_eq!(several.code, Some(2), "{several:?}");
+        let message = several.json()["data"]["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        for k in &w.keys {
+            assert!(message.contains(&k.fingerprint()), "{message}");
+        }
+        assert!(message.contains("--fingerprint"), "{message}");
+        assert!(adopted(&w).is_empty());
+        let unlisted = heimdall_testkit::agent::FixtureKey::generate().fingerprint();
+        let mut line = base.to_vec();
+        line.extend(["--fingerprint", unlisted.as_str()]);
+        let missing = w.cli_with(&line, &at_agent);
+        assert_eq!(missing.code_str(), "NOT_FOUND", "{missing:?}");
+        assert!(adopted(&w).is_empty(), "nothing adopted");
+        let wanted = w.keys[1].fingerprint();
+        let mut line = base.to_vec();
+        line.extend(["--fingerprint", wanted.as_str()]);
+        let chosen = w.cli_with(&line, &at_agent);
+        assert_eq!(chosen.code, Some(0), "{chosen:?}");
+        let list = adopted(&w);
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0]["fingerprint"], wanted, "{list:?}");
+        assert_eq!(
+            list[0]["identity_id"],
+            chosen.json()["data"]["identity_id"],
+            "{chosen:?}"
         );
     }
 
@@ -1833,6 +1973,73 @@ mod unix {
                 "{level}: {t}"
             );
         }
+    }
+
+    /// ADR-0007 §12.31 item 2 (Q02), the reviewer's reproduction through the real binary
+    /// on a pty: alias `lab`'s tree has an `Include` the static pass cannot expand (an
+    /// unset variable), so the authorization step offers nothing and shows no prompt;
+    /// a disposable `ssh` first on `PATH` rewrites the configuration into a readable,
+    /// inert one when the doctor's own run queries `ssh -V`, and creates a marker when
+    /// anything else runs it (the `evaluate` level's `ssh -G`). The skipped authorization
+    /// authorizes nothing: exit 0, no prompt, no marker, and the `evaluate` probe is
+    /// declined with the step's reason although the tree is readable by then.
+    #[test]
+    fn q02_cli_skipped_authorization_runs_no_evaluation_after_the_tree_becomes_readable() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let w = World::new(1);
+        let inert = "Host lab\n    HostName 127.0.0.1\n    Port 9\n";
+        w.home
+            .write_user_config(&format!(
+                "Include ${{HM_FIXTURE_UNSET_VARIABLE}}/x.conf\n{inert}"
+            ))
+            .unwrap();
+        let bin = w.home.root.join("q02-bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let marker = w.home.root.join("q02-evaluation-ran");
+        let stub = bin.join("ssh");
+        std::fs::write(
+            &stub,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = \"-V\" ]; then\n  printf '{}' > '{}'\n  echo 'OpenSSH_9.9p1, LibreSSL 3.3.6' >&2\n  exit 0\nfi\n: > '{}'\nexit 0\n",
+                inert.replace('\n', "\\n"),
+                w.home.user_config.display(),
+                marker.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut env = w.env();
+        for (k, v) in &mut env {
+            if k == "PATH" {
+                *v = format!("{}:/usr/bin:/bin", bin.display()).into();
+            }
+        }
+        let (code, t) = terminal::answer(
+            &env,
+            &w.home.root,
+            &[
+                "doctor",
+                "--alias",
+                "lab",
+                "--active-probe",
+                "evaluate",
+                "--allow-config-commands",
+            ],
+            b"n\n",
+        );
+        assert_eq!(
+            std::fs::read_to_string(&w.home.user_config).unwrap(),
+            inert,
+            "the interleaving happened: {t}"
+        );
+        assert_eq!(code, Some(0), "{t}");
+        assert!(!t.contains("[y/N]"), "no prompt was shown: {t}");
+        assert!(!marker.exists(), "no evaluation ran: {t}");
+        assert!(
+            t.contains("Probe evaluate lab: declined (config_not_fully_readable)"),
+            "{t}"
+        );
+        assert!(!t.contains("authorized by"), "{t}");
     }
 
     /// m02-plan U9 `a21_cli_inventory_wording_never_claims_completeness`: the
@@ -2148,10 +2355,10 @@ mod unix {
         std::fs::create_dir_all(&q).unwrap();
         std::fs::set_permissions(&q, std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::write(q.join("managed_ssh-9-00ff"), b"foreign bytes\n").unwrap();
-        let out = ni(&w, &["uninstall", "--purge-state"]);
-        assert_eq!(out.code, Some(6), "{out:?}");
-        let env = out.json();
-        assert_envelope_valid(&env);
+        // A purge is confirmed first (ADR-0007 §12.31 item 1), so this runs on a
+        // terminal with the owner's typed yes; the incomplete rollback then refuses it.
+        let (code, env, t) = owner(&w, &["uninstall", "--purge-state"]);
+        assert_eq!(code, Some(6), "{t}");
         assert_eq!(env["data"]["error"]["effect_status"], "partial", "{env}");
         let kinds: Vec<&str> = env["data"]["remaining"]
             .as_array()
@@ -2173,6 +2380,178 @@ mod unix {
         );
         let quarantine = env["data"]["quarantine"].to_string();
         assert!(quarantine.contains("managed_ssh-9-00ff"), "{quarantine}");
+        // The confirmation listed the quarantine as kept before the owner answered.
+        assert!(
+            t.contains("Conflict and quarantine copies, kept")
+                && t.contains(".hm-quarantine")
+                && t.find(".hm-quarantine") < t.find("[y/N]"),
+            "{t}"
+        );
+    }
+
+    /// A disposable snapshot in the state directory, as `setup apply` leaves one.
+    fn plant_backup(w: &World) -> (PathBuf, &'static [u8]) {
+        let dir = w.home.state_dir.join("backups");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("ssh_config.20260101T000000Z.orig");
+        let bytes: &'static [u8] = b"Host disposable\n    HostName backup.example.invalid\n";
+        std::fs::write(&file, bytes).unwrap();
+        (file, bytes)
+    }
+
+    /// ADR-0007 §12.31 item 1 (Q01; Q6): `uninstall --purge-state` is refused without a
+    /// typed yes, with everything kept, and nothing changed (the runtime still serves,
+    /// the projection and the user file are as they were). The reviewer's reproduction
+    /// (`--non-interactive`, stdin from /dev/null) and a bare non-TTY stdin exit 3
+    /// `INTERACTION_REQUIRED` with no `decision_ref` before anything is read or started;
+    /// on a terminal, a no, an unrecognised answer and end of input exit 3 the same way,
+    /// after the prompt listed the database with its counts and the backup. A refusal is
+    /// final: it is not the incomplete-rollback refusal (exit 6) and purges nothing.
+    #[test]
+    fn uninstall_purge_state_is_refused_without_a_typed_yes_and_keeps_everything() {
+        let (w, _) = single(true);
+        let (backup, backup_bytes) = plant_backup(&w);
+        let db = w.home.state_dir.join("state.db");
+        let tree = w.tree();
+        let intact = |what: &str| {
+            assert!(db.exists(), "{what}: the state database is kept");
+            assert_eq!(
+                std::fs::read(&backup).unwrap(),
+                backup_bytes,
+                "{what}: the backup is kept"
+            );
+            assert_eq!(w.tree(), tree, "{what}: nothing else changed");
+            assert!(w.serving(), "{what}: the runtime was not stopped");
+        };
+        let refused = |env: &Value, why: &str| {
+            assert_envelope_valid(env);
+            assert_eq!(env["code"], "INTERACTION_REQUIRED", "{env}");
+            assert!(
+                env["next"]["decision_ref"].is_null(),
+                "client-side: no decision_ref: {env}"
+            );
+            assert_eq!(env["data"]["error"]["effect_status"], "none", "{env}");
+            let message = env["data"]["error"]["message"].as_str().unwrap_or_default();
+            assert!(
+                message.contains("--purge-state not confirmed")
+                    && message.contains("nothing was changed")
+                    && message.contains(why),
+                "{why}: {message}"
+            );
+        };
+        // Unattended: the flag stands in for nothing here.
+        for (args, why) in [
+            (
+                &["--json", "--non-interactive", "uninstall", "--purge-state"][..],
+                "--non-interactive",
+            ),
+            (
+                &["--json", "uninstall", "--purge-state"][..],
+                "stdin is not a terminal",
+            ),
+        ] {
+            let out = w.cli(args);
+            assert_eq!(out.code, Some(3), "{why}: {out:?}");
+            refused(&out.json(), why);
+            assert!(
+                !out.stdout.contains("State database:") && !out.stderr.contains("State database:"),
+                "nothing was listed or asked: {out:?}"
+            );
+            intact(why);
+        }
+        // Attended, but not a typed yes.
+        for (answer, why) in [
+            (&b"no\n"[..], "answered no"),
+            (&b"sure\n"[..], "answered no"),
+            (&b"\x04"[..], "end of input"),
+        ] {
+            let (code, t) = terminal::answer(
+                &w.env(),
+                &w.home.root,
+                &["--json", "uninstall", "--purge-state"],
+                answer,
+            );
+            assert_eq!(code, Some(3), "{answer:?}: {t}");
+            refused(&terminal::envelope(&t), why);
+            // What would have been discarded was shown before the answer.
+            let prompt_at = t.find("[y/N]").unwrap_or_else(|| panic!("no prompt: {t}"));
+            let shown = &t[..prompt_at];
+            for needle in [
+                "--purge-state permanently deletes",
+                "State database:",
+                "operations:",
+                "1 identities, 1 destinations, 1 profiles",
+                "Backups of your original files (1):",
+                "ssh_config.20260101T000000Z.orig",
+            ] {
+                assert!(shown.contains(needle), "{answer:?}: {needle}: {t}");
+            }
+            assert_eq!(t.matches("[y/N]").count(), 1, "asked once: {t}");
+            intact(why);
+        }
+    }
+
+    /// ADR-0007 §12.31 item 1: with the attended typed yes the purge is done: the
+    /// database and the backups are deleted, the runtime stopped, the report says so, and
+    /// what was discarded was listed before the answer. Nothing to roll back here, so the
+    /// purge prompt is the only prompt.
+    #[test]
+    fn uninstall_purge_state_with_a_typed_yes_discards_the_state() {
+        let (w, _) = single(false);
+        let (backup, _) = plant_backup(&w);
+        let db = w.home.state_dir.join("state.db");
+        assert!(db.exists());
+        let (code, env, t) = owner(&w, &["uninstall", "--purge-state"]);
+        assert_eq!(code, Some(0), "{t}");
+        assert_eq!(env["code"], "OK", "{env}");
+        assert_eq!(env["data"]["purged"], true, "{env}");
+        assert_eq!(env["data"]["runtime_stopped"], true, "{env}");
+        assert!(!db.exists(), "the state database is deleted");
+        assert!(!backup.exists(), "the backup is deleted");
+        assert!(!w.home.state_dir.join("backups").exists());
+        let kinds: Vec<&str> = env["data"]["remaining"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["kind"].as_str().unwrap())
+            .collect();
+        assert!(
+            !kinds.contains(&"state_store") && !kinds.contains(&"backup"),
+            "{env}"
+        );
+        assert_eq!(t.matches("[y/N]").count(), 1, "one prompt: {t}");
+        let shown = &t[..t.find("[y/N]").unwrap()];
+        for needle in [
+            "State database:",
+            "1 identities, 1 destinations, 1 profiles",
+            "Backups of your original files (1):",
+            "ssh_config.20260101T000000Z.orig",
+        ] {
+            assert!(shown.contains(needle), "{needle}: {t}");
+        }
+    }
+
+    /// The full uninstall: after a purge was confirmed, the rollback of an installed
+    /// projection runs as usual (the user file is restored byte for byte, P and the
+    /// keys are removed) and the state is then purged.
+    #[test]
+    fn uninstall_purge_state_confirmed_then_rolls_back_and_purges() {
+        let (w, _) = single(true);
+        let db = w.home.state_dir.join("state.db");
+        assert_ne!(user(&w), USER, "the projection is installed");
+        let (code, env, t) = owner(&w, &["uninstall", "--purge-state"]);
+        assert_eq!(code, Some(0), "{t}");
+        assert_eq!(env["data"]["purged"], true, "{env}");
+        assert_eq!(user(&w), USER, "restored byte for byte");
+        assert!(!w.p().exists(), "P removed");
+        assert!(!db.exists(), "the state database is deleted");
+        let purge_at = t.find("--purge-state permanently deletes");
+        assert!(purge_at.is_some(), "the loss was listed: {t}");
+        let first_prompt = t.find("[y/N]").unwrap();
+        assert!(
+            purge_at.unwrap() < first_prompt,
+            "listed before the first answer: {t}"
+        );
     }
 }
 
@@ -2572,21 +2951,27 @@ mod ssh {
         std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
 
-    /// m02-plan U9 `a01_personal_profile_without_repository` (Q3): the working
-    /// directory has no `.git`; ordinary ssh and `connect` work; `run --profile
-    /// personal` (no standing policy) passes after one attended decision on a terminal.
+    /// m02-plan U9 `a01_personal_profile_without_repository` (Q3), in the plan's wording
+    /// (ADR-0007 §12.30 item 1): the working directory has no `.git`; the adopted key is
+    /// **undeclared** (no interaction declaration, so nothing relies on one); ordinary
+    /// ssh and `connect` work; an **interactive** `run --profile personal` (a terminal,
+    /// no `--non-interactive`; no standing policy covers `personal`) asks for exactly one
+    /// attended owner decision, and after the typed `yes` the launch runs: the server
+    /// accepts the adopted key and nothing is left pending.
     #[test]
     fn a01_personal_profile_without_repository() {
         use std::os::unix::fs::PermissionsExt as _;
         let f = Fix::build(World::new(1), &[0], 6, "");
         f.apply();
-        let id =
-            f.w.cli(&["--json", "--non-interactive", "identity", "list"])
-                .json()["data"]["identities"][0]["identity_id"]
-                .as_str()
-                .unwrap()
-                .to_owned();
-        f.w.declare(&IdentityId::parse(&id).unwrap());
+        let listed =
+            f.w.cli(&["--json", "--non-interactive", "identity", "list"]);
+        let identity = listed.json()["data"]["identities"][0].clone();
+        assert!(identity["identity_id"].is_string(), "{identity}");
+        assert!(
+            identity["declaration"].is_null() && identity["declared_at"].is_null(),
+            "the adopted key is undeclared: {identity}"
+        );
+        assert_ne!(identity["interaction_basis"], "declared", "{identity}");
         let cwd = f.w.home.root.join("not-a-repo");
         std::fs::create_dir_all(&cwd).unwrap();
         assert!(!cwd.join(".git").exists());
@@ -2644,9 +3029,34 @@ mod ssh {
         );
         argv.extend([ALPHA.to_owned(), "true".to_owned()]);
         let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let accepted_before = f.accepted().len();
         let (code, t) = terminal::answer(&f.w.env(), &cwd, &refs, b"yes\n");
         assert_eq!(code, Some(0), "{t}");
         assert_eq!(t.matches("[y/N]").count(), 1, "exactly one decision: {t}");
+        assert!(
+            !t.contains("INTERACTION_REQUIRED"),
+            "the approved interactive run is never refused for interaction: {t}"
+        );
+        let accepted = f.accepted();
+        assert!(
+            accepted.len() > accepted_before
+                && accepted[accepted_before..].iter().all(|fp| *fp == f.fp(0)),
+            "the launch logged in with the adopted key: {accepted:?}"
+        );
+        let pending =
+            f.w.cli(&["--json", "--non-interactive", "decision", "list"]);
+        assert_eq!(
+            pending.json()["data"]["decisions"].as_array().map(Vec::len),
+            Some(0),
+            "nothing left pending: {pending:?}"
+        );
+        // Still undeclared: the one decision was the profile's, not a declaration.
+        let after =
+            f.w.cli(&["--json", "--non-interactive", "identity", "list"]);
+        assert!(
+            after.json()["data"]["identities"][0]["declaration"].is_null(),
+            "{after:?}"
+        );
         assert_eq!(f.decoy(), 0);
     }
 

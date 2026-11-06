@@ -6561,3 +6561,122 @@ impl StageSink for StoreSink {
             .map_err(|e| SinkError(e.to_string()))
     }
 }
+
+// --- ADR-0007 §12.30 item 7: the restore column and the original's snapshot ---------------
+
+/// ADR-0007 §5.1, §12.30 item 7: a first adoption's `SetupPlan` carries its aliases, each
+/// managed, with its before, after and restore states; the restore state is the alias's
+/// behaviour with its section removed now (for a first adoption, its state without
+/// Heimdall's section: the same digest as before) and lists no directive. The plan
+/// digest does not change with the listing (two previews agree). A rollback lists none.
+#[test]
+fn first_adoption_plan_carries_its_aliases_with_their_restore_state() {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), "Host other\n    User fixture\n").unwrap();
+    let spec = fx.spec(&["alpha", "beta"], None);
+    let plan = fx.preview(&spec, &Fx::apply_intent());
+    let names: Vec<&str> = plan.view.aliases.iter().map(|a| a.alias.as_str()).collect();
+    assert_eq!(names, ["alpha", "beta"], "{:?}", plan.view.aliases);
+    for a in &plan.view.aliases {
+        assert_eq!(a.kind, heimdall_contract::setup::AliasKind::Managed);
+        let restore = a.restore.as_ref().expect("the restore column");
+        assert!(restore.directives.is_empty(), "{restore:?}");
+        assert_eq!(restore.digest.len(), 64, "{restore:?}");
+        assert_eq!(
+            restore.digest, a.before.digest,
+            "nothing of its own on restore"
+        );
+        assert_ne!(a.after.digest, a.before.digest, "the plan adds it");
+    }
+    // The summary's restore column and the view's agree.
+    let summary = plan
+        .summary
+        .as_ref()
+        .expect("a first adoption needs a decision");
+    for r in &summary.restore {
+        let name = r.item.0.trim_start_matches("alias:");
+        let a = plan.view.aliases.iter().find(|a| a.alias == name).unwrap();
+        assert_eq!(a.restore.as_ref().unwrap().digest, r.digest.as_str());
+    }
+    assert_eq!(
+        fx.preview(&spec, &Fx::apply_intent()).view.plan_digest,
+        plan.view.plan_digest
+    );
+    // After the adoption, a rollback's plan lists no alias.
+    let (_, sink) = fx.adopt(&["alpha"]);
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.aliases = Vec::new();
+    let rollback = fx.preview(&spec, &Fx::rollback_intent());
+    assert!(
+        rollback.view.aliases.is_empty(),
+        "{:?}",
+        rollback.view.aliases
+    );
+}
+
+/// ADR-0007 §5.5 "Snapshots" (§12.30 item 7): `snapshot_original` copies the original
+/// bytes once, owner-only, as `<name>.<YYYYMMDDTHHMMSSZ>.orig` in a 0700 `backups`
+/// directory it creates; a later call keeps that snapshot and writes nothing; an absent
+/// file has no original; bytes that are not the plan's base are not copied; a link is
+/// never followed. Nothing is removed (no staging file is left behind).
+#[test]
+fn snapshot_original_copies_the_original_once_owner_only() {
+    use heimdall_localenv::projection::apply::{Snapshot, snapshot_original};
+    let fx = Fx::new();
+    let backups = fx.home.state_dir.join("backups");
+    let now: heimdall_contract::Timestamp = "2026-11-03T09:08:07.654Z".parse().unwrap();
+    // No file: nothing to copy, nothing created (the scratch home creates it empty).
+    std::fs::remove_file(fx.user()).unwrap();
+    assert_eq!(
+        snapshot_original(fx.user(), &backups, "ssh_config", None, now).unwrap(),
+        Snapshot::Absent
+    );
+    assert!(!backups.exists());
+    let original = b"Host other\n    User fixture\n";
+    std::fs::write(fx.user(), original).unwrap();
+    // Not the plan's base: nothing written.
+    assert_eq!(
+        snapshot_original(
+            fx.user(),
+            &backups,
+            "ssh_config",
+            Some(&"00".repeat(32)),
+            now
+        )
+        .unwrap(),
+        Snapshot::Changed
+    );
+    let base = Sha256Hex::of(original);
+    let first =
+        snapshot_original(fx.user(), &backups, "ssh_config", Some(base.as_str()), now).unwrap();
+    let expected = backups.join("ssh_config.20261103T090807Z.orig");
+    assert_eq!(first, Snapshot::Written(expected.clone()));
+    assert_eq!(std::fs::read(&expected).unwrap(), original);
+    assert_eq!(
+        std::fs::metadata(&expected).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(&backups).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    // A later edit is never snapshotted again: the first original is kept.
+    std::fs::write(fx.user(), b"Host other\n    User changed\n").unwrap();
+    let later: heimdall_contract::Timestamp = "2026-11-04T00:00:00Z".parse().unwrap();
+    assert_eq!(
+        snapshot_original(fx.user(), &backups, "ssh_config", None, later).unwrap(),
+        Snapshot::Exists(expected.clone())
+    );
+    assert_eq!(std::fs::read(&expected).unwrap(), original);
+    let names: Vec<String> = std::fs::read_dir(&backups)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, ["ssh_config.20261103T090807Z.orig"], "{names:?}");
+    // A link is never followed.
+    let other = fx.home.state_dir.join("other-backups");
+    let link = fx.ssh_dir().join("linked-config");
+    std::os::unix::fs::symlink(fx.user(), &link).unwrap();
+    assert!(snapshot_original(&link, &other, "ssh_config", None, now).is_err());
+    assert!(!other.exists());
+}

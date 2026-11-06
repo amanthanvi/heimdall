@@ -1,0 +1,14 @@
+First macOS run of M02-W5-run (run-macos.sh, 2026-11-06T04:02:20Z to 2026-11-06T04:38:53Z). Kept as harness evidence; not used by any record.
+
+* Result: run-macos.sh exit 1; check.sh exit 1 (test step 101: 1257 passed, 408 failed, 7 ignored); observation pass exit 101.
+* Cause (read from check.txt): run-macos.sh puts the tests' TMPDIR at <TMPDIR>/hm-m02-macos.XXXXXX/tmp. With the macOS per-user TMPDIR (49 bytes) the
+  test fixtures' Unix socket paths exceed SUN_LEN: 74 panics "ScratchHome::new failed: path must be shorter than SUN_LEN", 17 "FakeAgent::start failed:
+  path must be shorter than SUN_LEN", and runtime start failures (SERVICE_UNAVAILABLE "the runtime did not become ready in time"). A harness defect, not a
+  product result. The second run (macos/) set TMPDIR=/tmp for run-macos.sh, so the tests' TMPDIR was /private/tmp/hm-m02-macos.XXXXXX/tmp (37 bytes).
+* Hang: in this run e2e_run_m02::a27_exec_failure_with_failed_meta_write_is_indeterminate blocked for about 27 minutes in open(2) of its pause FIFO for
+  writing (macOS 'sample' of the test process: the test thread in OpenOptions::open -> __open), after the heimdall child it waits for had already exited
+  (a zombie child, no heimdall process left). The test has no bound on that open. At 04:35:24Z the M02-W5-run agent opened that FIFO's read end in the
+  run's own scratch directory (O_RDONLY|O_NONBLOCK, closed after 3 s), which let the test continue; nothing was killed. A test-robustness defect
+  (unbounded FIFO open) to fix in the test; escalated.
+* Redaction: the build host's name is three characters long, so the harness's host-name redaction also rewrote parts of ordinary
+  words ('<host>' inside the OS name and some crate names). Over-redaction only; the same holds for macos/.

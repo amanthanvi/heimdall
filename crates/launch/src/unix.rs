@@ -209,22 +209,26 @@ pub(crate) mod tests {
 
     impl ChildRun {
         pub(crate) fn start(entry: &str, scenario: &str, dir: &Path) -> ChildRun {
-            let child = Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    entry,
-                    "--ignored",
-                    "--nocapture",
-                    "--test-threads=1",
-                    "-q",
-                ])
-                .env(SCENARIO, scenario)
-                .env(DIR, dir)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap();
+            // Through the fork gate: a descriptor another test thread holds open
+            // while this spawn runs is copied into the child until its `exec`
+            // (`meta::scratch::fork_gate`).
+            let child = crate::meta::scratch::spawn(
+                Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        entry,
+                        "--ignored",
+                        "--nocapture",
+                        "--test-threads=1",
+                        "-q",
+                    ])
+                    .env(SCENARIO, scenario)
+                    .env(DIR, dir)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null()),
+            )
+            .unwrap();
             ChildRun { child: Some(child) }
         }
 
@@ -572,7 +576,11 @@ pub(crate) mod tests {
     }
 
     fn mkfifo(path: &Path) {
-        let status = Command::new("mkfifo").arg(path).status().unwrap();
+        // Through the fork gate, like `ChildRun::start`.
+        let status = crate::meta::scratch::spawn(Command::new("mkfifo").arg(path))
+            .unwrap()
+            .wait()
+            .unwrap();
         assert!(status.success());
     }
 

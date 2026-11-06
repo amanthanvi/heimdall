@@ -13661,10 +13661,33 @@ mod s01_fresh_eligibility_at_commit {
         })
     }
 
+    /// `identity`'s fresh interaction now, by the one domain rule over the store's rows
+    /// at `t0` (what the commit transaction reads).
+    fn eligibility_now(w: &World, identity: &IdentityId) -> InteractionKind {
+        let (record, declaration) = w
+            .store
+            .transaction(|tx| {
+                Ok((
+                    tx.identity(identity)?,
+                    tx.interaction_declaration(identity)?,
+                ))
+            })
+            .unwrap();
+        let record = record.expect("the identity");
+        let endpoint = record
+            .source
+            .endpoint()
+            .cloned()
+            .expect("an agent endpoint");
+        heimdall_domain::catalog::eligibility(&record, declaration.as_ref(), &endpoint, t0())
+            .interaction
+    }
+
     /// The refusal's shape (ADR-0007 §7): `INTERACTION_REQUIRED` with `reason`, the
     /// provider resource, `next: interact` with the native agent and the refused pair's
-    /// fresh interaction `kind` (as the runtime's own readiness refusal names it), and
-    /// no `decision_ref`; then no binding for the work, and its grant never `active`.
+    /// fresh interaction `kind` as the CLI's pre-launch check names it (ADR-0007 §12.30
+    /// item 8: `none` is named `unknown`), and no `decision_ref`; then no binding for the
+    /// work, and its grant never `active`.
     fn assert_refused_at_commit(
         w: &World,
         e: &OpError,
@@ -13821,12 +13844,20 @@ mod s01_fresh_eligibility_at_commit {
             )
             .await);
         assert!(s.withdrawn.load(Ordering::SeqCst));
-        // The adopted pair itself is still declared `none` (fresh).
+        // ADR-0007 §12.30 item 8: the adopted pair itself is still declared `none`
+        // (fresh), but the refusal names the refused pair's interaction as the CLI's
+        // pre-launch check does: `none` would say nothing is needed, so it is `unknown`.
+        let fresh = eligibility_now(&w, &a.identity.id);
+        assert_eq!(
+            fresh,
+            InteractionKind::None,
+            "the pair's own key is declared"
+        );
         assert_refused_at_commit(
             &w,
             &e,
             "fallback_identity_interaction",
-            InteractionKind::None,
+            InteractionKind::Unknown,
             "s01-f-w",
         );
         assert_eq!(
