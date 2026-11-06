@@ -3397,6 +3397,24 @@ one switch.
    - **Cancelling before any absence check:** a foreign system-form record cancelled before any absence check may return to `planned`. From there it can reach `withdrawn`, because no unresolved residual is yet known. The bundle's entry is unaffected.
    - **`requested_at` and `committed_at`:** both are optional on the wire, so M01 and M02 documents still decode. M03 always fills them.
 
+### 17.13 Orchestrator rulings on the round-5 check; the design gate (2026-11-06)
+
+Source: `tests/evidence/artifacts/review-m03-design/round5-final-codex.md`. It found no blocker. R4-02, R4-03 and R4-04 are closed. R4-01's admission holes are closed, and a replay of the round-4 traces bears this out: the 24.6 s flood now commits at 9.6 s, and the early pre-check trace is refused.
+
+1. **R5-01: the narrowing's commit time is a derived, reported bound, never an abort.**
+   - **Safety:** the property that matters is that new signatures and delegations stop at the pending mark. That is unchanged. Every gate holder is individually bounded, so a narrowing waits until it holds its gates. It is never aborted for time. Its commit time is reported (`committed_at − requested_at`).
+   - **The formula:** the design states the bound with every holder counted, including signers, delegations, connection registration and other narrowings, and with the actual number of subtree reads: `(r + 1) × t_read` for `r` roots. It gives the budgets: `t_read`, and the maximum set size and root count per narrowing.
+   - **Cleanup:** a narrowing's cleanup, which includes closing processes, runs **after** its gates are released, per §17.4 item 6. Text that implies otherwise is corrected.
+   - **20 s:** this is no longer a guarantee. It is a target, checked by deterministic tests at the stated budgets.
+   - **Tests:** the multi-root countermodel and the overlapping-narrowing countermodel become deterministic tests. Each asserts commit within its derived bound, and that nothing is enqueued after the mark.
+2. **R5-02: one shared `/proc/<pid>/stat` parser for both fields.**
+   - The parser finds the last `)`. In the suffix after it, the process group is token 3 and the start time is token 20, and both are validated.
+   - The scripts and the Rust side use the same rule. Fixtures cover `comm` values with spaces and with parentheses.
+3. **The design gate.** Once revision 6 applies items 1 and 2, the M03 design gate closes on the orchestrator's check of those edits, and there is no further review round. The rationale:
+   - five review rounds have run, each narrower than the last;
+   - the remaining items are a bound derivation and a parsing rule, not safety defects;
+   - the implementation units must carry the countermodel tests above, and the code review of wave 0 re-checks the gate protocol against the code.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):
