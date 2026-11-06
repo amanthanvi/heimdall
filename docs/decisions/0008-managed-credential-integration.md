@@ -1,12 +1,12 @@
 # ADR-0008 — Managed credential integration (M03): the B1 signer and issuer, scoped enrollment, deadline and connection control, lock behaviour
 
-**Status:** proposed, revision 5 · **Date:** 2026-11-06 · **Tasks:** M03-T00-design (revision 1),
-M03-T00-design-fix (revisions 2–5)
-**Revision 5** applies the round-4 re-check
-(`tests/evidence/artifacts/review-m03-design/round4-recheck-codex.md`, findings M03-R4-01–R4-04 and its
-per-shell probe table) under the orchestrator's rulings in §17.10, with §17.9's rulings on Q26–Q28.
-Text it changed is marked **⟨r5⟩**, and §23 maps each finding to the sections that changed. Where a
-ruling could not be applied exactly as written, the ruling is kept and §17.11 asks the question (Q29).
+**Status:** proposed, revision 6 · **Date:** 2026-11-06 · **Tasks:** M03-T00-design (revision 1),
+M03-T00-design-fix (revisions 2–6)
+**Revision 6**, the last design fix, applies the round-5 final check
+(`tests/evidence/artifacts/review-m03-design/round5-final-codex.md`, findings M03-R5-01 and R5-02)
+under the orchestrator's rulings in §17.13, with §17.12's ruling on Q29. Text it changed is marked
+**⟨r6⟩**, and §24 maps each finding to the sections that changed. It raises no new question. Under
+§17.13 item 3, the design gate closes on the orchestrator's check of these edits.
 **Revision 4** applies the round-3 targeted re-check
 (`tests/evidence/artifacts/review-m03-design/round3-recheck-codex.md`, findings M03-R3-01–R3-05) under
 the orchestrator's rulings in §17.7. Text it changed is marked **⟨r4⟩**, and §22 maps each R3 finding to
@@ -119,6 +119,7 @@ this ADR adds.
 | ⟨r3⟩ M-F32 | `awk`'s `printf "%c"` depends on the locale. bwk awk 20200816 writes one byte for a code of 128 or more; gawk in a UTF-8 locale is reported to write a multibyte sequence | Observed for bwk awk by reviewer B; gawk is [I]. The scripts set `LC_ALL=C` (D5 §6.3). Settled by `non_ascii_registry_bytes_per_target_shell` (U5) |
 | ⟨r4⟩ M-F33 | dash's built-in `kill` rejects `kill -0 -- -PGID` ("Illegal number: -", exit 2), and accepts `kill -s 0 -- -PGID` (exit 0 on a live group); `/bin/kill -0 -- -PGID` exits 0. POSIX `kill` recognizes the symbolic name `0` for `-s`, and POSIX `ps` has `-A` and the `pgid` field. Today's signing transport awaits `write_all` and then `flush` on the socket inside the request path (`ipc/src/signing.rs`) | Observed by the round-3 re-check (scratch model) and in the code at `3d335e7d`; the POSIX statements are [I] (POSIX.1-2017, not pinned). Settled per shell by `group_probe_and_listing_per_target_shell` (U5) |
 | ⟨r5⟩ M-F34 | **The per-shell group proof, as observed.** dash 0.5.12-12, bash 5.2.37 as `sh` and macOS `sh` (bash 3.2.57) classify a live child `live` (C/K/L 0/0/0), an empty group `empty` (0/1/0), and invalid syntax and injected disagreements `unproven`. BusyBox 1.37.0 `ash` rejects `--` in `kill` ("invalid number '--'"), so every case is `unproven`. BusyBox `ps` rejects `-p` (exit 1). bash as `sh` printed argument errors for a malformed option and still returned 0. A genuine same-user `EPERM` could not be produced | Observed by the round-4 re-check (`round4-recheck-codex.md`), in containers from pinned official images and on native macOS. D5 §6.3's shell table records it; Q29 |
+| ⟨r6⟩ M-F35 | `/proc/<pid>/stat` field 2 (`comm`) is written in parentheses and may contain spaces, `(` and `)`; the state, ppid and pgrp follow it (Linux v6.12 `fs/proc/array.c`). A whitespace count misreads the process group as soon as `comm` holds a space or a `)` | Observed by the round-5 check (`round5-final-codex.md`): in a container where only `comm` changed and the real process group was 1, `$5` gave 1, 0 and `(` for `plain`, `has space` and `a ) b ( c`; the suffix rule gave 1 each time. D5 §6.3's shared parser |
 
 ### 1.3 ADR-0005 §9.3: where each open item goes
 
@@ -369,58 +370,129 @@ only through the claim table (D12).
        **Why one round suffices.** Every delegation holds its whole ancestor chain shared, the root
        included. So once the narrowing holds a root exclusively, no member can be added anywhere in
        that root's subtree. Every subtree is therefore frozen from the moment its root is held, and the
-       round-1 re-validation cannot grow the set. A re-validation that nevertheless differs is a defect:
-       it is reported, and the narrowing does not commit (fail closed).
+       round-1 re-validation cannot grow the set. ⟨§17.14⟩ A re-validation that nevertheless differs
+       is a defect. It is reported (`narrowing_set_grew`), and the narrowing runs a further round
+       under the same rules: mark the new members, release every gate, reacquire in global order,
+       re-validate. A revocation is never left uncommitted. The pending marks already stop new
+       signatures and delegations, so an extra round costs only time, which is reported.
      * **Order within a narrowing:**
        1. acquire the gates (rounds 0 and, if needed, 1);
        2. commit;
-       3. destroy the keys, unlist the identities, and remove the slot and binding files, **while the
-          gates are held**;
+       3. ⟨r6⟩ zeroize the keys and unlist the identities **while the gates are held**. This is in-memory
+          work, bounded per grant by `ε` (§17.4 item 6: keys are destroyed and identities unlisted under
+          the gate);
        4. release the gates, ⟨r4⟩ and clear the pending marks;
-       5. close processes: owned masters and owned dedicated connections (D7 item 2, D8).
+       5. ⟨r6⟩ **then the cleanup**, outside every gate (§17.13 item 1; §17.4 item 6): remove the slot and
+          binding files, and close processes, both owned masters and owned dedicated connections (D7
+          item 2, D8). Revision 5 removed the files under the gates, so another narrowing waiting for
+          those gates also waited for file I/O (M03-R5-01).
 
-       Closing never happens under a gate, so a 5 s master close cannot lengthen any signer's wait.
-     * **No gate, no narrowing.** A narrowing never commits without every gate it needs. Its wait is
-       bounded because every holder is bounded:
-       * a signer by `signing_holder_max` (5 s: a 2 s fresh read, a 1 s signature and ⟨r4⟩ at most 2 s
-         waiting for capacity), enforced by the permit's expiry and the cancellations above;
-       * a delegation by `delegation_gate_hold_max` (10 s).
+       Neither file removal nor process closing ever happens under a gate. So a 5 s master close, or a
+       slow file system, cannot lengthen a signer's or another narrowing's wait.
+     * ⟨r6⟩ **Earlier marks go first** (M03-R5-01, overlapping narrowings). Each narrowing gets a
+       sequence number when it sets its marks. Before it queues for a gate, it checks whether that grant
+       is covered (itself or an ancestor) by the mark of a still-running narrowing with a **smaller**
+       sequence number. If so, it waits for that narrowing to finish instead of queuing.
+       * So a later narrowing never holds a gate that an earlier one still needs, and an earlier
+         narrowing never waits for a later one. Without this rule, a later narrowing could take a gate
+         during an earlier one's round-1 release and hold it through its own wait.
+       * Deadlock cannot arise. A narrowing that defers holds only gates the earlier narrowing does not
+         cover; if the earlier one covered any of them, it would have deferred there first.
+     * **No gate, no narrowing.** A narrowing never commits without every gate it needs. ⟨r6⟩ **It is
+       never aborted for time** (§17.13 item 1). It waits until it holds its gates, because every holder
+       of a gate is individually bounded. Its commit time, `committed_at − requested_at`, is
+       **reported**, together with the derived bound below and the terms it used.
+       * **The holders, all counted** (⟨r6⟩ revision 5 omitted the last two):
+         * a signer: `signing_holder_max` (5 s: a 2 s fresh read, a 1 s signature and at most 2 s
+           waiting for capacity), enforced by the permit's expiry and the cancellations above;
+         * a delegation: `delegation_gate_hold_max` (10 s), aborted fail-closed on overrun;
+         * ⟨r6⟩ a **connection registration** (D8 item 2, Windows): one store transaction under the gate
+           taken shared, at most `connection_registration_txn_max` (2 s). It checks the mark first, and
+           a registration that finds it refuses (`connection_registration_refused`, reason
+           `narrowing_pending`; the launcher kills the still-suspended child), so only registrations
+           admitted before the mark can make a narrowing wait;
+         * ⟨r6⟩ **another narrowing**: under "earlier marks go first", only narrowings with a smaller
+           sequence number can make this one wait. Each holds its gates through its acquisition, its
+           commit and its in-memory key destruction, and never through cleanup.
+       * `H` = `signing_gate_max_wait` = 10 s, the largest of the first three bounds.
 
-       ⟨r4⟩ **The overall wait bound** is `(rounds + 1) × signing_gate_max_wait` (§17.7 item 3). With at
-       most one reacquisition round, that is `2 × signing_gate_max_wait`.
-       `signing_gate_max_wait` is at least `delegation_gate_hold_max`: it is **10 s**, so
-       `narrowing_gate_wait_max` is **20 s** (Q27, ruled in §17.9 item 2).
+       ⟨r4⟩ Revision 4 stated the bound as `(rounds + 1) × signing_gate_max_wait` = 20 s, and ⟨r5⟩ revision
+       5 re-derived it as `signing_gate_max_wait + 2·n·ε + 3·t_read`. ⟨r6⟩ That undercounted the round-1
+       reads: with `r` roots, round 1 reads `r` subtrees and then re-validates, `(r + 1)·t_read`. The
+       re-check's forest (8 roots, 9 grants, a pre-mark delegation ending at 9.9 s, 2 s reads)
+       committed at 29.9 s, against 16.0 s predicted, and enforcing a 20 s ceiling would have aborted a
+       valid narrowing. Revision 6 restates the bound (§17.13 item 1).
 
-       ⟨r5⟩ **The bound, re-derived** from the authoritative mark (§17.10 item 1). Let `t₀` be the moment
-       the narrowing sets its marks.
+       ⟨r6⟩ **The derived bound.**
+       * **Notation**, for a narrowing N:
+         * `n` is the number of grants in its set;
+         * `r` is the number of roots of its set (members whose parent is not in the set);
+         * `t₀` is the moment it sets its marks;
+         * `E(N)` is the set of still-running narrowings with a smaller sequence number whose marks
+           cover a grant in N's set.
        * **Assumptions:**
-         * A1. Every holder admitted **before** `t₀` ends within its own bound: a signer within
-           `signing_holder_max` (5 s) of its fresh read, enforced by the permit's expiry and the
-           cancellations of steps 5 and 6; a delegation within `delegation_gate_hold_max` (10 s) of its
-           start, aborted on overrun. Both are at most `signing_gate_max_wait`, so every pre-mark holder
-           has ended by `t₀ + signing_gate_max_wait`.
-         * A2. Every holder that acquires a gate **after** `t₀` finds the mark at its first check, and
-           releases the gate after an in-memory lookup that never awaits (time `ε`).
-         * A3. Gates are fair: once the narrowing queues for a gate exclusively, no later shared request
-           is granted ahead of it. Tokio's `RwLock` is fair, and the gate type must keep that property
-           (`gate_is_fair_writer_not_starved`).
-         * A4. No delegation can start under a marked grant (A2 again), so the set can grow only through
-           delegations admitted before `t₀`, and each of those ends by `t₀ + signing_gate_max_wait`.
-         * A5. The set holds at most `n` grants, and each store re-read (round 0's re-read, round 1's
-           subtree re-reads, the final re-validation) takes at most `t_read`.
-       * **Derivation.** Round 0 waits at each gate only for pre-mark holders (A1) and for `ε` holders
-         (A2, A3), so it completes by `t₀ + signing_gate_max_wait + n·ε + t_read`. Any growth came from
-         pre-mark delegations, all of which ended before round 0 completed (A4). Round 1 therefore meets
-         no pre-mark holder: every gate it reacquires is held at most for `ε`, so it adds at most
-         `n·ε + 2·t_read`.
-       * **So the commit waits at most** `signing_gate_max_wait + 2·n·ε + 3·t_read` after `t₀`. That is
-         within `(rounds + 1) × signing_gate_max_wait` = 20 s whenever `2·n·ε + 3·t_read` is under 10 s,
-         which it is for any set the M01 limits allow. `narrowing_gate_wait_max` (20 s) stays the
-         enforced ceiling. Exceeding it is a defect: it is reported as one, and the gate is never
-         bypassed.
-       * **The re-check's 24.6 s trace** came from post-mark signers holding full bounds and from
-         round-1 descendants left unmarked; A2 and the round-1 marking remove both, and
-         `post_mark_flood_and_round_one_descendants_commit_within_bound` replays it.
+         * A1. Every gate holder admitted **before** its covering mark ends within its own bound, so
+           within `H` of that mark.
+         * A2. Every holder that acquires a gate **after** a covering mark finds it at its first check,
+           and releases the gate after an in-memory lookup that never awaits (`ε`).
+         * A3. Gates are fair: once a narrowing queues for a gate exclusively, no later shared request is
+           granted ahead of it (`gate_is_fair_writer_not_starved`).
+         * A4. No delegation or registration can start under a covered grant, so a set grows only
+           through holders admitted before `t₀`.
+         * A5. Each store read of a set or a subtree takes at most `t_read`, and the tombstone
+           transaction at most `t_commit`.
+       * **Reads.**
+         * Before the mark: one read of the set.
+         * After the mark: round 0's re-read (1), then, only if the set grew, round 1's `r` subtree
+           reads and its re-validation (`r + 1`).
+         * At most `r + 3` reads in all.
+       * **Work.** For any narrowing X, define `R(X) = (r_X + 3)·t_read + 4·n_X·ε + t_commit`. That
+         covers its reads, its marking, two acquisition rounds and its key destruction (each `ε` per
+         grant), and its tombstone transaction.
+       * **The bound:**
+
+         ```
+         committed_at(N) − requested_at(N)  ≤  H + R(N) + Σ_{X ∈ E(N)} R(X)
+         ```
+
+       * **Why it holds:**
+         * Every pre-mark holder of N's gates has ended by `t₀ + H` (A1).
+         * Every later holder costs `ε` (A2, A3).
+         * An earlier narrowing X in `E(N)` was marked no later than `t₀`, so its own pre-mark holders
+           had also ended by `t₀ + H`, and it finishes after at most `R(X)` more.
+         * By induction over the sequence numbers, the earliest narrowing in any chain waits for no
+           other narrowing, so `H` is counted **once**.
+         * Round 1 meets no pre-mark holder: every growth came from holders admitted before `t₀`, and
+           all of them had ended before round 0 completed (A4).
+       * **Budgets** (plan §5 item 17; the values at which the target is tested, not limits that abort
+         anything):
+         * `t_read` = `narrowing_read_budget` = 150 ms;
+         * `n_max` = `narrowing_set_budget` = 256 grants;
+         * `r_max` = `narrowing_root_budget` = 16 roots;
+         * `t_commit` = `narrowing_commit_budget` = 200 ms;
+         * `ε` = `pending_check_budget` = 1 ms.
+
+         At these budgets, `R ≤ 19 × 0.15 + 4 × 256 × 0.001 + 0.2 ≈ 4.07 s`.
+       * **The 20 s target** (§17.13 item 1). It is **a target, not a guarantee**, and deterministic
+         tests check it at the budgets:
+         * a narrowing with no earlier overlapping narrowing commits within `H + R ≈ 14.1 s`;
+         * a narrowing behind one earlier overlapping narrowing commits within `H + 2R ≈ 18.2 s`.
+
+         Beyond the budgets, or with more overlap, the derived bound is still computed and reported.
+         A narrowing past 20 s is reported (`narrowing_over_target`, with its terms), and is **never
+         aborted**. `narrowing_gate_wait_max` is no longer an enforced ceiling; it is the 20 s target.
+       * **The re-check's traces**, as deterministic tests:
+         * the round-4 flood (24.6 s under revision 4, 9.6 s under revision 5) commits within its derived
+           bound (`post_mark_flood_and_round_one_descendants_commit_within_bound`);
+         * ⟨r6⟩ the **multi-root countermodel**: 8 roots, 9 grants, a pre-mark delegation ending at 9.9 s,
+           2 s reads, no post-mark holder. It committed at 29.9 s; its derived bound is
+           `H + (8 + 3) × 2 s + ε terms ≈ 32 s`;
+         * ⟨r6⟩ the **overlapping-narrowing countermodel**: an earlier narrowing whose file cleanup is held
+           at 5 s and whose reads are at the budget, and a later one sharing some of its grants. The
+           later one commits within `H + R(earlier) + R(later)`, without waiting for the earlier one's
+           cleanup.
+
+         Each of them also asserts that nothing is enqueued after the mark.
    * ⟨r3⟩ **Who writes the bodies.** `app::managed::SigningGates` and its exclusive acquisition are
      written by **U0b phase 1** (wave 0), and U10 only wires them (§17.4 item 6; B R2-01). U0b phase 1
      needs them because the narrowing paths of its rows 5 and 20 call them, and revocation is reachable
@@ -452,7 +524,26 @@ only through the claim table (D12).
        reacquires in global order, and both narrowings complete;
      * ⟨r4⟩ `reacquisition_round_never_grows_set` (U0b row 20: delegations at every depth race the
        round-1 reacquisition);
-     * ⟨r4⟩ `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait` (U0b row 20);
+     * ⟨r4⟩ `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait` (U0b row 20). ⟨r6⟩ Replaced by
+       `narrowing_commit_within_derived_bound_and_reported`: the formula it checked undercounted the
+       reads, and the bound is now reported, not enforced;
+     * ⟨r6⟩ `multi_root_countermodel_within_derived_bound` (U0b row 20; §17.13 item 1). The round-5
+       check's forest: 8 roots, 9 grants, a pre-mark delegation ending at 9.9 s, 2 s reads, no post-mark
+       holder. The commit must come within `H + R(N)` (about 32 s at these reads), and nothing may be
+       enqueued after the mark;
+     * ⟨r6⟩ `overlapping_narrowings_countermodel_within_derived_bound` (U0b row 20). An earlier narrowing
+       whose cleanup is held at 5 s, and a later one sharing grants with it. The later one commits within
+       `H + R(earlier) + R(later)`, without waiting for the cleanup, and nothing is enqueued after either
+       mark;
+     * ⟨r6⟩ `signer_multi_root_countermodel_within_derived_bound` and
+       `signer_overlapping_narrowings_countermodel_within_derived_bound` (U2: the same two countermodels,
+       through real signer endpoints and outbound queues);
+     * ⟨r6⟩ `narrowing_commit_target_20s_at_budgets` (U0b row 20: with no earlier overlap, and with one,
+       at the §5 item 17 budgets);
+     * ⟨r6⟩ `narrowing_never_aborts_for_time_reports_over_target` (U0b row 20);
+     * ⟨r6⟩ `later_narrowing_defers_to_earlier_mark_no_deadlock` (U0b row 20);
+     * ⟨r6⟩ `slot_files_removed_only_after_gates_released` (U0b row 20);
+     * ⟨r6⟩ `registration_refused_while_pending` (U0b row 26);
      * ⟨r5⟩ `post_mark_flood_and_round_one_descendants_commit_within_bound` (U0b row 20; §17.10 item 1).
        Deterministic replay of the re-check's first trace, which committed at 24.6 s under revision 4.
        Pre-mark holders are present, post-mark signers keep arriving, and a pre-mark delegation adds
@@ -473,7 +564,10 @@ only through the claim table (D12).
      The linearization model (U3) covers activation, re-issue, lock revocation, ⟨r3⟩ delegation and
      concurrent cascades against the gate (F24; B R2-03), ⟨r4⟩ the capacity-then-release order, and the
      release-and-reacquire round, ⟨r5⟩ with the mark checked where step 4, the delegation path and the
-     release check now check it, and both re-check traces as fixed cases.
+     release check now check it, and both re-check traces as fixed cases. ⟨r6⟩ It also replays the round-5
+     multi-root and overlapping-narrowing countermodels, each asserting commit within its derived bound
+     and nothing enqueued after the mark (§17.13 item 1; `model_multi_root_countermodel_within_derived_bound`,
+     `model_overlapping_narrowings_countermodel_within_derived_bound`).
 
 4. **Purpose (spec §7.2).** The signed data must parse, with the established `ssh-encoding` reader, as
    an SSH user-authentication request (RFC 4252 §7):
@@ -1300,8 +1394,9 @@ paused writer append after its lock was taken away (reviewer A's model produced 
    ```
 
    * `$$` is the script's shell, the session's process-group leader (M-F30). The script first checks
-     that its own process group equals `$$`, ⟨r5⟩ read as the shell table below says (field 5 of
-     `/proc/$$/stat` on Linux, `ps -o pgid= -p $$` on macOS and the BSDs; Q29). If not, it exits **33**
+     that its own process group equals `$$`, ⟨r5⟩ read as the shell table below says (⟨r6⟩ on Linux,
+     token 3 after the last `)` of `/proc/$$/stat`, through the shared parser below; `ps -o pgid= -p $$`
+     on macOS and the BSDs; Q29). If not, it exits **33**
      (`no_process_group`) before taking the lock;
    * `$START` and `$BOOT` are the start identity and boot identity from the table below, as lowercase
      hex (`od`), so the link's contents use only `[0-9a-f-]`;
@@ -1398,9 +1493,9 @@ and L the listing `ps -A -o pgid=`. The probes ran in containers from
 
 | Target (shell) | Start identity | Resolution | Boot identity | ⟨r5⟩ Process group of `$$` | ⟨r4⟩ Group probe and control | ⟨r4⟩ Listing | ⟨r5⟩ Observed (round-4 re-check) | ⟨r5⟩ Fence outcome | POSIX status |
 |---|---|---|---|---|---|---|---|---|---|
-| dash **0.5.12-12** (Debian 13, Ubuntu 24.04) | field 22 (`starttime`) of `/proc/$$/stat`, read with `awk` after the last `)` | clock ticks since boot | `/proc/sys/kernel/random/boot_id` | field 5 of `/proc/$$/stat` (Q29 default); `ps -o pgid= -p $$` also works | built-in `kill -s 0 -- -PGID`. `kill -0 -- -PGID` is rejected (round 3), so it is not used | procps `ps -A -o pgid=` | live child 0/0/0 → live; empty group 0/1/0 → empty; invalid syntax 2/2/0 → unproven; injected disagreements (3 branches) → unproven | **automatic recovery** (gone by agreement) | start, boot identity and process group **not POSIX** (Linux procfs; read with POSIX `awk` and `cat`); probe and listing **POSIX** |
+| dash **0.5.12-12** (Debian 13, Ubuntu 24.04) | ⟨r6⟩ token 20 after the last `)` of `/proc/$$/stat` (field 22, `starttime`), through the shared parser | clock ticks since boot | `/proc/sys/kernel/random/boot_id` | ⟨r6⟩ token 3 after the last `)` of `/proc/$$/stat` (field 5), the same parser (Q29); `ps -o pgid= -p $$` also works | built-in `kill -s 0 -- -PGID`. `kill -0 -- -PGID` is rejected (round 3), so it is not used | procps `ps -A -o pgid=` | live child 0/0/0 → live; empty group 0/1/0 → empty; invalid syntax 2/2/0 → unproven; injected disagreements (3 branches) → unproven | **automatic recovery** (gone by agreement) | start, boot identity and process group **not POSIX** (Linux procfs; read with POSIX `awk` and `cat`); probe and listing **POSIX** |
 | bash **5.2.37** as `sh` (Linux) | as for dash | as for dash | as for dash | as for dash | built-in `kill -s 0 -- -PGID` | procps `ps -A -o pgid=` | live child 0/0/0 → live; empty 0/1/0 → empty; invalid syntax 1/1/0 → unproven; disagreements → unproven | **automatic recovery** | as for dash |
-| BusyBox **1.37.0** `ash` (Alpine) | as for dash | as for dash | as for dash | field 5 of `/proc/$$/stat` (Q29 default). **`ps -p` is unsupported** (exit 1), so a literal `ps -o pgid= -p $$` stops the script with exit 33 | built-in `kill` **rejects `--`** ("invalid number '--'") | BusyBox `ps -A -o pgid=` (exit 0) | live child 1/1/0 → unproven; empty group 1/2/0 → unproven; invalid syntax 1/1/0 → unproven; disagreements → unproven | **always `unproven`: manual recovery only.** Automatic recovery is never claimed for BusyBox (§17.10 item 5) | as for dash |
+| BusyBox **1.37.0** `ash` (Alpine) | as for dash | as for dash | as for dash | ⟨r6⟩ token 3 after the last `)` of `/proc/$$/stat` (field 5), the shared parser (Q29). **`ps -p` is unsupported** (exit 1), so a literal `ps -o pgid= -p $$` stops the script with exit 33 | built-in `kill` **rejects `--`** ("invalid number '--'") | BusyBox `ps -A -o pgid=` (exit 0) | live child 1/1/0 → unproven; empty group 1/2/0 → unproven; invalid syntax 1/1/0 → unproven; disagreements → unproven | **always `unproven`: manual recovery only.** Automatic recovery is never claimed for BusyBox (§17.10 item 5) | as for dash |
 | macOS `/bin/sh` (**bash 3.2.57** in POSIX mode) | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | `ps -o pgid= -p $$` (works) | built-in `kill -s 0 -- -PGID` | BSD `ps -A -o pgid=` | live child 0/0/0 → live; empty 0/1/0 → empty; invalid syntax 1/1/0 → unproven; disagreements → unproven | **automatic recovery** | start and boot identity **not POSIX** (`lstart` is a BSD `ps` field; `sysctl` is not POSIX); process group, probe and listing **POSIX** |
 | FreeBSD, NetBSD and OpenBSD `sh` | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | `ps -o pgid= -p $$` [I] | built-in `kill -s 0 -- -PGID` [I] | BSD `ps -A -o pgid=` [I] | not run | [I]: no M03 target runs them | as for macOS |
 | Anything else (`uname -s` not recognized) | — | — | — | — | — | — | — | The mutating scripts exit 30 (`start_identity_unavailable`) before the lock; `inspect` still runs | — |
@@ -1420,6 +1515,48 @@ and L the listing `ps -A -o pgid=`. The probes ran in containers from
   `leader_absent_live_mutation_child_never_gone_per_shell` runs on dash, bash as `sh`, BusyBox `ash` and
   the macOS `sh` (§17.7 item 1). The BSD row has no M03 target, and is reported as such. ⟨r5⟩ For
   BusyBox, the expected result of every fencing row is `unproven` and manual recovery, as observed.
+
+⟨r6⟩ **The shared `/proc/<pid>/stat` parser** (§17.13 item 2; M03-R5-02). On Linux, the process group
+and the start time both come from one line, read by **one rule**, in the scripts and in Rust alike:
+1. Read the whole file. A command name may contain a newline, so a line-based read is not enough.
+2. Find the **last** `)`. Field 2 (`comm`) is written in parentheses, and it may itself contain spaces,
+   `(` and `)`; the kernel emits the state, ppid and pgrp after it (Linux v6.12 `fs/proc/array.c`).
+3. Split the suffix after it on whitespace. **Token 3 is the process group** (field 5), and **token 20
+   is the start time** (field 22, clock ticks since boot).
+4. Validate. There must be at least 20 tokens, and token 1 must be a single state letter. Token 3 must
+   be decimal and at least 1, and token 20 must be decimal. Anything else is invalid:
+   * a mutating script then exits 30 (`start_identity_unavailable`);
+   * `fence` reports `unproven`;
+   * the Rust caller returns no identity.
+
+Why it is needed: a whitespace field count (`awk '{print $5}'`) reads the wrong token as soon as `comm`
+holds a space or a `)`. The round-5 check observed this in a container where only `comm` changed and
+the real process group was 1:
+* `plain` gave 1;
+* `has space` gave 0;
+* `a ) b ( c` gave `(`.
+
+The suffix rule gave 1 in all three cases.
+
+* **In the scripts** (`heimdall_registry::script`), one POSIX `awk` program:
+
+  ```sh
+  awk '{ b = b $0 "\n" } END { i = length(b); while (i > 0 && substr(b, i, 1) != ")") i--;
+        if (i == 0) exit 2; n = split(substr(b, i + 1), f, " ");
+        if (n < 20 || f[1] !~ /^[A-Za-z]$/ || f[3] !~ /^[0-9]+$/ || f[3] + 0 < 1 ||
+            f[20] !~ /^[0-9]+$/) exit 2; print f[3], f[20] }' "/proc/$P/stat"
+  ```
+
+  `$P` is `$$` for the script's own shell, or the holder's `PID` in `fence`.
+* **In Rust**, the pure function is `heimdall_domain::procstat::parse(&str) -> Result<ProcStat { state,
+  pgid, start_ticks }, ProcStatError>`.
+  * M01's `runtime::platform::process_start_time` already cuts at the last `)`. It moves onto this
+    function, and keeps its rule that `Z` and `X` are not alive.
+  * The supervisor's owned-connection checks (D8) use it too.
+* **One rule, checked twice.** The same fixtures go through both, and they must agree: synthetic lines,
+  and live processes whose `comm` is `plain`, `has space`, `a ) b ( c`, `)(` and a name with a newline.
+  The tests are `procstat_fixtures_rust_and_awk_agree` and `procstat_live_comm_fixtures_per_linux_shell`
+  (plan U5, U11).
 
 **Scripts** (generated by `heimdall_registry::script`; release builds byte-compare them against
 goldens, and the test configuration adds pause points):
@@ -1988,9 +2125,10 @@ plan §1.2).
       * ⟨r5⟩ **The mark is authoritative** (§17.10 item 1). It is checked in the fresh read under the
         gate, after every awaited acquisition, and in the release check. It covers every descendant
         through the ancestor check, and new descendants are marked before round 1 releases any gate.
-      * The wait is bounded by `narrowing_gate_wait_max` = `(rounds + 1) × signing_gate_max_wait` (20 s;
-        Q27). ⟨r5⟩ The derivation and its assumptions are in D2 item 3a: the commit comes within
-        `signing_gate_max_wait` plus small in-memory and re-read terms.
+      * ⟨r6⟩ **The revocation is never aborted for time** (§17.13 item 1). It waits until it holds its
+        gates. Its commit time, `committed_at − requested_at`, is reported, with the derived bound of
+        D2 item 3a: `H + R(N) + Σ_{X ∈ E(N)} R(X)`. Earlier marks go first. 20 s is a target, tested at
+        the budgets, not a guarantee.
       * The revocation never proceeds without the gates.
       * ⟨r5⟩ **Timestamps** (§17.10 item 3; M03-R4-03). `requested_at` is captured when the revoke
         operation is first admitted, before step 0's wait, and stored with the operation.
@@ -2001,12 +2139,18 @@ plan §1.2).
       endpoint is refused, and none was enqueued after it (D2 item 3a). `local_applied: true` is
       acknowledged only after this commit (M01).
    2. In the same call, **while the gates are held**, the managed adapter's `revoke(grant)` runs for
-      the grant and every descendant in the cascade. It zeroizes K_env, drops it from every endpoint,
-      and removes the slot and binding files.
+      the grant and every descendant in the cascade. It zeroizes K_env and drops it from every endpoint.
+      ⟨r6⟩ That is in-memory work, bounded per grant by `ε`. The slot and binding files are no longer
+      removed here (step 4; §17.13 item 1).
    3. ⟨r3⟩ Release the gates.
-   4. ⟨r3⟩ **Then**, still before returning, close the owned masters (`-O exit`, then the exact PID) and
-      the **owned dedicated connections, under either policy** (ADR-0005 §6.1, Q4 b). Closing runs after
-      the gates are released, so it never lengthens a signer's wait.
+   4. ⟨r3⟩ **Then**, still before returning, ⟨r6⟩ the cleanup runs, outside every gate (§17.4 item 6,
+      §17.13 item 1):
+      * remove the slot and binding files, by generation;
+      * close the owned masters (`-O exit`, then the exact PID) and the **owned dedicated connections,
+        under either policy** (ADR-0005 §6.1, Q4 b).
+
+      Cleanup runs after the gates are released, so it never lengthens a signer's or another
+      narrowing's wait.
    5. **Residual** (spec §6.7). `latest_possible_credential_expiry` is the maximum `valid_before` over
       every `reserved` or `published` entry for the cascade, delivered or not. Only `voided` entries are
       excluded (ADR-0005 §3.5).
@@ -2765,6 +2909,9 @@ apply both. Questions raised by revision 4 are in §17.8.
 ⟨r5⟩ §17.9 rules Q26–Q28 (each default accepted), and §17.10 rules the round-4 findings; the D
 sections apply both. Questions raised by revision 5 are in §17.11.
 
+⟨r6⟩ §17.12 rules Q29 (the default accepted), and §17.13 rules the round-5 findings and closes the design
+gate on the check of revision 6. Revision 6 raises no question.
+
 * **Q1. The issuer has no listening endpoint** (D3 item 2). ADR-0006 §2.1 says the issuer path is "fixed
   now". **Recommended:** keep `EndpointKind::Issuer` and its path reserved and never bound. The issuer is
   a child reached only through inherited pipes, and a test asserts the path never exists. *Why:* it
@@ -3374,8 +3521,9 @@ one switch.
       would fail `failed_unwritten`, which is more than "recovery is manual".
   * **Options:**
     * (a) on Linux, read the process group from field 5 of `/proc/$$/stat`, the same source as the start
-      identity. Every Linux shell then uses it, and `ps -o pgid= -p $$` remains for macOS and the
-      BSDs. BusyBox targets can enroll and remove; only their fence stays `unproven` (its control
+      identity (⟨r6⟩ through the shared parser of D5 §6.3: token 3 after the last `)`, never a whitespace
+      field count; §17.13 item 2). Every Linux shell then uses it, and `ps -o pgid= -p $$` remains for
+      macOS and the BSDs. BusyBox targets can enroll and remove; only their fence stays `unproven` (its control
       fails, because `kill` rejects `--`), so recovery there is manual, as the ruling says.
       **Recommended**;
     * (b) keep `ps -o pgid= -p $$` everywhere, and disclose that BusyBox targets cannot run any remote
@@ -3414,6 +3562,20 @@ Source: `tests/evidence/artifacts/review-m03-design/round5-final-codex.md`. It f
    - five review rounds have run, each narrower than the last;
    - the remaining items are a bound derivation and a parsing rule, not safety defects;
    - the implementation units must carry the countermodel tests above, and the code review of wave 0 re-checks the gate protocol against the code.
+
+### 17.14 Orchestrator rulings on revision 6; the M03 design gate closes (2026-11-06)
+
+1. **Revision 6's choices, all accepted:**
+   - only in-memory key destruction and identity unlisting stay under the gates, which reconciles §17.4 item 6 with §17.13 item 1;
+   - the new "earlier marks go first" rule;
+   - the proposed budgets: `t_read` 150 ms, at most 256 grants and 16 roots per narrowing, `t_commit` 200 ms, `ε` 1 ms;
+   - beyond two overlapping earlier narrowings, the 20 s target is exceeded and reported, never enforced.
+2. **A revocation always commits.** The "set grew again" defect no longer stops the commit. The narrowing reports `narrowing_set_grew` and runs a further round, as amended in D2 item 3a above. A test injects that defect and asserts that the commit happens and that nothing is enqueued after the mark.
+3. **The M03 design gate is closed.** This follows the §17.13 item 3 rule, on the orchestrator's check of revision 6:
+   - R5-01 is closed: D2 item 3a, D7 item 2 and plan U0b row 20 carry the derived bound, its budgets, the countermodel tests, and cleanup after release.
+   - R5-02 is closed: the shared `procstat` parser, plan U0 and U0b row 28, and the U5 cross-checks.
+
+   Wave 0 of M03 may start. Its code review re-checks the gate protocol and the fencing scripts against the code.
 
 ## 18. Consequences
 
@@ -3589,6 +3751,9 @@ Source: `tests/evidence/artifacts/review-m03-design/round5-final-codex.md`. It f
 * ⟨r5⟩ A BusyBox release accepts `--` in `kill` and `-p` in `ps`, so its fence could become automatic.
   That needs a new ruling, because §17.10 item 5 claims manual recovery only.
 * ⟨r5⟩ The orchestrator rules Q29 differently from its default.
+* ⟨r6⟩ Deterministic tests or field reports show a narrowing's reported commit time routinely above the
+  20 s target at the stated budgets, or above its derived bound. Above the bound means an assumption
+  (A1–A5) is wrong.
 
 ---
 
@@ -3712,3 +3877,16 @@ defaults, now marked ruled.
 | M03-R4-03: no request and commit times in the revocation result | 3 | D7 item 2 step 0 (capture points, replay); D12 item 1; §15 |
 | M03-R4-04: exit 44 read as "nothing signalled" | 4 | D5 §6.3 (exit 44 means no unlock, and no further signal; the signals sent are reported and audited), the `fence` row; §6.7 |
 | Per-shell probe table (ruling 5) | 5 | D5 §6.3 shell table (observed rows for dash 0.5.12, bash 5.2 as `sh`, BusyBox 1.37.0 and macOS `sh`; BusyBox always `unproven`, manual recovery); M-F34; §17.11 Q29 |
+
+---
+
+## 24. ⟨r6⟩ Change log (revision 6, the last design fix; task M03-T00-design-fix)
+
+The two round-5 findings, with the §17.13 ruling that decided each and where this ADR closes it. The
+plan's change log (m03-plan §13) lists the plan-side changes. §17.12's ruling on Q29 is the D sections'
+default. Revision 6 raises no new question.
+
+| Finding | Ruling | Closed in this ADR |
+|---|---|---|
+| M03-R5-01: the bound undercounted round 1's reads and omitted holders; a 20 s ceiling would abort a valid narrowing | 1 | D2 item 3a: the order within a narrowing (key destruction only under the gates; file removal and process closing after release); "earlier marks go first"; never aborted for time; every holder counted (signers, delegations, connection registration, other narrowings); reads `r + 3` in all, of which round 1 is `(r + 1)·t_read`; the bound `H + R(N) + Σ R(X)`; the budgets; 20 s as a target; the two countermodel tests. D7 item 2 steps 0, 2 and 4 |
+| M03-R5-02: a field-5 lookup without the last-`)` rule | 2 | D5 §6.3: the shared `/proc/<pid>/stat` parser (the last `)`, token 3 for the process group, token 20 for the start time, validation, the awk text, `domain::procstat::parse`, fixtures with spaces, parentheses and a newline); the lock's process-group check; the shell table's start-identity and process-group cells; M-F35; §17.11 Q29 note |

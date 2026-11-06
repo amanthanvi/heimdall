@@ -1,6 +1,6 @@
-# M03 work breakdown (managed credentials and meaningful deadline behaviour): revision 5
+# M03 work breakdown (managed credentials and meaningful deadline behaviour): revision 6
 
-**Status:** proposed, revision 5 (tasks M03-T00-design and M03-T00-design-fix).
+**Status:** proposed, revision 6 (tasks M03-T00-design and M03-T00-design-fix).
 * Revision 1 had two independent reviews, both "proceed after fixes":
   `tests/evidence/artifacts/review-m03-design/round1-a-codex.md` (findings M03-R01–R15) and
   `round1-b-opus.md` (F01–F27).
@@ -22,6 +22,11 @@
   §17.2 (Q18–Q21), §17.5 (Q22–Q25) and §17.8 (Q26–Q28), all ruled, and ⟨r5⟩ §17.11 (Q29).
 * ⟨r5⟩ After revision 5 the design gate closes after one last targeted check of R4-01 and R4-02 only
   (ADR-0008 §17.10).
+* ⟨r6⟩ Revision 5 had a final round-5 check, `round5-final-codex.md` (M03-R5-01 and R5-02; "ready after
+  fixes", no blocker). **Revision 6**, the last design fix, applies it under ADR-0008 §17.13 items 1 and
+  2, with §17.12's ruling on Q29. Text changed by it is marked **⟨r6⟩**, and §13 maps both findings to
+  its changes. It raises no question. Under §17.13 item 3, the design gate closes on the orchestrator's
+  check of these edits, and the code review of wave 0 re-checks the gate protocol against the code.
 
 **Inputs:**
 * plan §5 M03 (T01–T06, exit evidence), §3 G04 and G09, §6, §10, §13 (the eleven requirements M03
@@ -71,10 +76,8 @@ Code that its driver has not yet replaced **fails closed** instead:
 
 The wave-0 acceptance tests in U0b prove each of these.
 
-**Not decided by this plan:** ⟨r5⟩ ADR-0008 §17.11 Q29 (Q26–Q28 are ruled in §17.9, Q22–Q25 in §17.6,
-Q18–Q21 in §17.3, and Q1–Q17 and P1–P9 in §17.1). Units build against the recommended default stated
-there. Where a unit depends on it, it says so, and the integrator flips the switch if the ruling
-differs.
+**Not decided by this plan:** ⟨r6⟩ nothing. Every question is ruled: Q29 in ADR-0008 §17.12, Q26–Q28 in
+§17.9, Q22–Q25 in §17.6, Q18–Q21 in §17.3, and Q1–Q17 and P1–P9 in §17.1. Units build to the rulings.
 
 ---
 
@@ -393,6 +396,14 @@ ADR-0008 §18.
     * exit 44's meaning (no unlock; no further signal) and the HM1 key `fence_signals`;
     * the process-group source per target (Linux `/proc/$$/stat` field 5; Q29 default) and the observed
       shell table.
+  * ⟨r6⟩ **Revision 6's frozen additions** (ADR-0008 §17.13):
+    * the narrowing protocol's revision-6 rules (D2 item 3a): only key destruction and identity
+      unlisting happen under the gates, and file removal and process closing come after release;
+      "earlier marks go first"; a narrowing is never aborted for time; the commit time is reported with
+      its derived bound `H + R(N) + Σ_{X ∈ E(N)} R(X)`; the budgets of §5 item 17; 20 s as a target;
+    * `heimdall_domain::procstat::{parse, ProcStat, ProcStatError}`, the shared `/proc/<pid>/stat`
+      parser (last `)`, token 3 = process group, token 20 = start time, validated), with its body in
+      U0b row 28; and the scripts' `awk` mirror of it (D5 §6.3).
 * **Tests:**
   * `contract_code_table_unchanged_30_rows`;
   * `contract_reason_golden` (every §5 item 14 reason with its code);
@@ -434,6 +445,10 @@ ADR-0008 §18.
     `manual_removal_pending → abandoned`, with `pending_until_line_removed` kept; and a cancel after
     `ca_not_held` that stays in `manual_removal_pending` (or returns to `held`), never `planned` or
     `withdrawn`;
+  * ⟨r6⟩ `procstat_parse_golden` (§17.13 item 2): the synthetic fixture lines (U11), including `comm`
+    values with spaces, `(`, `)` and a newline, give the expected process group and start time. Malformed
+    lines (fewer than 20 suffix tokens, a non-decimal or zero process group, a non-decimal start time, no
+    `)`) are rejected;
   * ⟨r5⟩ `revoke_data_timestamps_golden` (§17.10 item 3). `schemas/examples/revoke-data.managed.json`
     carries `requested_at` and `committed_at`, and round-trips exactly. An M01/M02 `RevokeData` without
     them still decodes (`revoke_data_without_timestamps_decodes`);
@@ -492,14 +507,15 @@ ADR-0008 §18.
 | 17 | Restart recovery dispatches M01/M02 kinds | M03 journaled kinds stay **unresolved** at restart and are reported in `runtime_lifecycle` with `{phase: unresolved, kind, reason: owner_reconcile}` (ADR-0008 D5 §6.4) | 1 | `w0_open_enrollment_operations_stay_unresolved_at_restart` |
 | 18 | Uninstall knows M02's owned artifacts | Uninstall lists remaining enrollments (non-final states) and refuses `--purge-state` while any remain, unless `--keep-remote-enrollments` is given (ADR-0008 §18). The CLI body is U12 | 1 (refusal), U12 (CLI) | `uninstall_refuses_purge_with_live_enrollments` |
 | 19 | `holders::holder_pass` releases bindings on an observed exit | ⟨r2⟩ The holder and the **owned connection** are separate records (ADR-0008 D8 item 2; §17.1 item 8). ⟨r3⟩ On Unix the `dedicated` `owned_connections` row is written **at bind**, in the `BindForm::Launch` transaction, with the **expected image** (the verified client's path), when the launch's program is that client; it is cleared on an observed exit or a failed exec (§17.4 item 8; B R2-12). On Windows the row comes from the launcher's `Connections::Register` (row 26), never from the holder. The closing is U7's | 1 | `holder_registers_dedicated_only_for_verified_ssh`; ⟨r2⟩ `windows_holder_never_registers_connection_itself`; ⟨r3⟩ `unix_connection_row_written_at_bind_with_expected_image` |
-| ⟨r2⟩ 20 | Revocation, cutoff and narrowing paths in `operations.rs` commit without any signer coordination | Each narrowing path takes the **signing gate exclusively** for every affected grant (cascade included) before its commit: `revoke`, the cascade, authority withdrawn at re-validation, a cutoff set or moved earlier, environment-permission removal, lock revocation (row 25), and an enrollment hold or removal that degrades a pair (U10). ⟨r3⟩ The order is ADR-0008 D2 item 3a's (§17.4 item 6; B R2-03): gates ancestors first, then by grant ID; keys destroyed, identities unlisted and files removed **under** the gates; the gates released; **then** processes closed. A narrowing never commits without its gates. ⟨r4⟩ As amended by §17.7 item 3 (M03-R3-03): **(1)** the narrowing first sets the in-memory **pending mark** on every grant of the set it read, so no new signer or delegation starts on them; **(2)** round 0 acquires the set's gates in global order and re-reads the set; **(3)** if the set grew, it releases **every** gate and reacquires the whole set in global order, re-reading each root's subtree as soon as that root's gate is held, then re-validates (round 1; never a gate acquired out of order); **(4)** creating a delegation holds the gates of the parent **and every ancestor** shared, in global order, until the child's first install (`delegation_gate_hold_max`, aborting fail-closed on overrun; ADR-0008 Q26 default), so a held root freezes its subtree and one round suffices; **(5)** the wait is bounded by `narrowing_gate_wait_max` = `(rounds + 1) × signing_gate_max_wait` (20 s with the Q27 default); a round-1 re-validation that differs is a reported defect, and nothing commits. ⟨r5⟩ As amended by §17.10 item 1 (M03-R4-01): **(6)** the mark covers a grant whose ancestor is marked; **(7)** delegations re-check it after each awaited ancestor-gate acquisition and before the child's first install, and abort fail-closed when they find it; **(8)** round 1 marks every newly found descendant **before** releasing any gate; **(9)** the wait bound is re-derived (ADR-0008 D2 item 3a, assumptions A1–A5): the commit comes within `signing_gate_max_wait + 2·n·ε + 3·t_read` of the mark, inside the 20 s ceiling | 1 | `revoke_takes_gate_before_commit`; `cutoff_earlier_takes_gate`; `revalidation_withdrawal_takes_gate`; `gate_released_after_keys_destroyed`; ⟨r3⟩ `delegation_during_revocation_child_never_signs_after_ack`; `two_concurrent_cascades_no_deadlock_no_late_signature`; `revoke_closes_processes_only_after_gates_released`; `delegation_overrun_aborts_fail_closed_entries_counted`; ⟨r4⟩ `gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock` (the re-check's H/L interleaving); `reacquisition_round_never_grows_set`; `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait`; `pending_mark_refuses_new_signers_and_delegations`; `delegation_holds_ancestor_chain_in_global_order`; ⟨r5⟩ `post_mark_flood_and_round_one_descendants_commit_within_bound` (the re-check's 24.6 s trace, replayed deterministically: it must now commit within `narrowing_gate_wait_max`); `ancestor_pending_covers_descendant_created_after_mark`; `round_one_marks_new_descendants_before_releasing_gates`; `delegation_rechecks_pending_after_each_awaited_acquisition_and_before_install` |
+| ⟨r2⟩ 20 | Revocation, cutoff and narrowing paths in `operations.rs` commit without any signer coordination | Each narrowing path takes the **signing gate exclusively** for every affected grant (cascade included) before its commit: `revoke`, the cascade, authority withdrawn at re-validation, a cutoff set or moved earlier, environment-permission removal, lock revocation (row 25), and an enrollment hold or removal that degrades a pair (U10). ⟨r3⟩ The order is ADR-0008 D2 item 3a's (§17.4 item 6; B R2-03): gates ancestors first, then by grant ID; keys destroyed and identities unlisted **under** the gates (⟨r6⟩ in-memory only); the gates released; **then** ⟨r6⟩ the cleanup: slot and binding files removed, and processes closed (§17.13 item 1). A narrowing never commits without its gates. ⟨r4⟩ As amended by §17.7 item 3 (M03-R3-03): **(1)** the narrowing first sets the in-memory **pending mark** on every grant of the set it read, so no new signer or delegation starts on them; **(2)** round 0 acquires the set's gates in global order and re-reads the set; **(3)** if the set grew, it releases **every** gate and reacquires the whole set in global order, re-reading each root's subtree as soon as that root's gate is held, then re-validates (round 1; never a gate acquired out of order); **(4)** creating a delegation holds the gates of the parent **and every ancestor** shared, in global order, until the child's first install (`delegation_gate_hold_max`, aborting fail-closed on overrun; ADR-0008 Q26 default), so a held root freezes its subtree and one round suffices; **(5)** the wait is bounded by `narrowing_gate_wait_max` = `(rounds + 1) × signing_gate_max_wait` (20 s with the Q27 default); a round-1 re-validation that differs is a reported defect, and nothing commits. ⟨r5⟩ As amended by §17.10 item 1 (M03-R4-01): **(6)** the mark covers a grant whose ancestor is marked; **(7)** delegations re-check it after each awaited ancestor-gate acquisition and before the child's first install, and abort fail-closed when they find it; **(8)** round 1 marks every newly found descendant **before** releasing any gate; **(9)** the wait bound is re-derived (ADR-0008 D2 item 3a, assumptions A1–A5): the commit comes within `signing_gate_max_wait + 2·n·ε + 3·t_read` of the mark, (⟨r6⟩ restated in (12) below). ⟨r6⟩ As amended by §17.13 item 1 (M03-R5-01): **(10)** slot and binding files are removed **after** the gates are released, with process closing; only key destruction and identity unlisting stay under the gates. **(11)** "Earlier marks go first": a narrowing waits for any still-running narrowing with a smaller sequence number whose marks cover a gate it needs, instead of queuing for that gate. **(12)** A narrowing is **never aborted for time**. It reports `committed_at − requested_at` with its derived bound `H + R(N) + Σ_{X ∈ E(N)} R(X)`, where `R(X) = (r_X + 3)·t_read + 4·n_X·ε + t_commit` and every holder is counted (signers, delegations, connection registrations, earlier narrowings). Past the 20 s target it reports `narrowing_over_target` | 1 | `revoke_takes_gate_before_commit`; `cutoff_earlier_takes_gate`; `revalidation_withdrawal_takes_gate`; `gate_released_after_keys_destroyed`; ⟨r3⟩ `delegation_during_revocation_child_never_signs_after_ack`; `two_concurrent_cascades_no_deadlock_no_late_signature`; `revoke_closes_processes_only_after_gates_released`; `delegation_overrun_aborts_fail_closed_entries_counted`; ⟨r4⟩ `gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock` (the re-check's H/L interleaving); `reacquisition_round_never_grows_set`; `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait`; `pending_mark_refuses_new_signers_and_delegations`; `delegation_holds_ancestor_chain_in_global_order`; ⟨r5⟩ `post_mark_flood_and_round_one_descendants_commit_within_bound` (the re-check's 24.6 s trace, replayed deterministically: it must now commit within `narrowing_gate_wait_max`); `ancestor_pending_covers_descendant_created_after_mark`; `round_one_marks_new_descendants_before_releasing_gates`; `delegation_rechecks_pending_after_each_awaited_acquisition_and_before_install`; ⟨r6⟩ `multi_root_countermodel_within_derived_bound` (§17.13 item 1: 8 roots, 9 grants, a pre-mark delegation ending at 9.9 s, 2 s reads; commit within `H + R(N)`, nothing enqueued after the mark); `overlapping_narrowings_countermodel_within_derived_bound` (an earlier narrowing with a 5 s cleanup and budget-sized reads, a later one sharing grants; commit within `H + R(earlier) + R(later)`, nothing enqueued after either mark); `narrowing_commit_target_20s_at_budgets` (no earlier overlap, and one); `narrowing_never_aborts_for_time_reports_over_target`; `later_narrowing_defers_to_earlier_mark_no_deadlock`; `slot_files_removed_only_after_gates_released`; `narrowing_commit_within_derived_bound_and_reported` (replaces revision 4's `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait`) |
 | ⟨r2⟩ 21 | `IntegrationSnapshot` has observations, identities, declarations and executables; `prepare_from` forbids store and live reads (`ports.rs`) | `IntegrationSnapshot.managed: Option<ManagedSources>` (enrollments and issuing-CA sets, slots, claims, issuer status, the driver's `ManagedPrepared`). The managed effect driver `app::managed::drive_preparation` runs ADR-0008 D6 item 1 around the `ManagedEffects` port, with every store transaction outside the adapter bound. Existing-access adapters are unchanged (D6 item 0; §17.1 item 12) | 1 (types, fail closed), 2 (driver) | `existing_access_prepare_contract_unchanged`; `managed_prepare_from_without_driver_results_is_protocol_error`; `driver_never_runs_store_work_inside_adapter_bound` |
 | ⟨r2⟩ 22 | Catalog actions are M02's eight | The ninth, `SetPreference` (§5 item 4b), and the preference's issuing-CA set (`pair_preferences.issuing_cas`; F05) | 1 | `set_preference_refused_without_verified_enrollment`; `issuing_ca_set_updated_by_e5_and_removal` |
 | ⟨r2⟩ 23 | Restart recovery does not know CA retirement | A CA in `retiring` or `unloaded` resumes its retirement at start (ADR-0008 D4 item 3); the issuer child is told not to load a `retiring` CA | 1 | `retirement_resumes_at_start_from_each_state` |
 | ⟨r3⟩ 24 | — | **The signing-gate bodies**: `app::managed::SigningGates` (one async reader-writer lock per grant, created with the first credential instance and dropped with the last), the shared permit and the exclusive multi-gate acquisition in lock order. Written here, in wave 0, because rows 5 and 20 call them and revocation is reachable by request; U10 only wires them (§17.4 item 6; B R2-01) | 1 | `gate_shared_and_exclusive_semantics`; `exclusive_acquisition_follows_lock_order`; `w0_no_reachable_todo` covers the gate paths; ⟨r5⟩ `gate_is_fair_writer_not_starved` (assumption A3 of the re-derived bound: a queued exclusive request is never overtaken by later shared ones; §17.10 item 1) |
 | ⟨r3⟩ 25 | — | **`Operations::on_session_lock(LockEpoch)`**: in one pass, revoke every `revoke_on_lock` grant (cause `session_locked`) through row 20's narrowing, then `acknowledge(epoch)`. Moved here from U9, because `operations.rs` is integrator-only (§17.4 item 9; B R2-17) | 1 | `on_session_lock_revokes_then_acknowledges`; `epoch_acknowledged_only_after_revocations_commit` |
-| ⟨r3⟩ 26 | — | **`Operations::register_owned_connection(binding, pid, created_at, image)`** for the Windows `Connections::Register`: the row is committed under the grant's signing gate taken **shared**, in a transaction that re-checks the grant (not ended, no tombstone on it or an ancestor, deadline not passed, `Safe` time, current generation); otherwise `connection_registration_refused` (ADR-0008 D8 item 2; §17.4 item 8; A R2-08) | 1 | `register_refused_for_ended_or_tombstoned_grant`; `register_ordered_with_revocation_by_gate` |
+| ⟨r3⟩ 26 | — | **`Operations::register_owned_connection(binding, pid, created_at, image)`** for the Windows `Connections::Register`: the row is committed under the grant's signing gate taken **shared**, in a transaction that re-checks the grant (not ended, no tombstone on it or an ancestor, deadline not passed, `Safe` time, current generation); otherwise `connection_registration_refused` (ADR-0008 D8 item 2; §17.4 item 8; A R2-08). ⟨r6⟩ It checks the pending mark first, and a registration that finds it refuses (`connection_registration_refused`, reason `narrowing_pending`; the launcher kills the still-suspended child). Its transaction is bounded by `connection_registration_txn_max` (2 s), one of the holders the derived bound counts (§17.13 item 1) | 1 | `register_refused_for_ended_or_tombstoned_grant`; `register_ordered_with_revocation_by_gate`; ⟨r6⟩ `registration_refused_while_pending` |
 | ⟨r5⟩ 27 | `RevokeData { local_applied, remote_pending, latest_possible_credential_expiry }` (`contract/src/request.rs`); a revoke is idempotent by `request_id` | **Revocation timestamps** (ADR-0008 D7 item 2; §17.10 item 3; M03-R4-03). `requested_at` is taken from the runtime's wall clock when the revoke operation is first admitted, before any gate wait, and stored in the operation's intent. `committed_at` is read **inside** the tombstone transaction and stored with the tombstone, apart from any later cleanup or obligation work. `RevokeData` reports both, and a replay of the same `request_id` returns the stored originals, never new readings | 1 | `revoke_requested_at_captured_at_admission_before_gate_wait`; `revoke_committed_at_read_inside_tombstone_transaction`; `revoke_replay_returns_original_timestamps`; `committed_at_unaffected_by_cleanup_retries` |
+| ⟨r6⟩ 28 | `runtime::platform::process_start_time` (Linux) parses `/proc/<pid>/stat` itself: it cuts at the last `)`, rejects `Z` and `X`, and takes field 22 | **The shared `/proc/<pid>/stat` parser** (ADR-0008 D5 §6.3; §17.13 item 2; M03-R5-02). The body of `domain::procstat::parse`: read the whole text, find the last `)`, split the suffix on whitespace, take token 3 as the process group and token 20 as the start time, and validate (at least 20 tokens; token 1 a single letter; token 3 decimal and ≥ 1; token 20 decimal). `process_start_time` calls it, keeping its `Z`/`X` rule, and so does the supervisor's owned-connection check (U7). The scripts' `awk` text (U5) is checked against it on the same fixtures | 1 | `procstat_parse_golden` (U0's fixtures); `platform_start_time_uses_shared_parser_semantics_unchanged`; `procstat_comm_with_spaces_parentheses_and_newline` |
 
 * **Wave-0 acceptance** (all of these must pass before wave 1):
   * every row above;
@@ -672,6 +688,11 @@ ADR-0008 §18.
       and the gate is taken at t = 9 s. The fresh read under the gate refuses, and no signature is
       released);
     * ⟨r5⟩ `release_check_refuses_when_mark_set_after_admission`;
+    * ⟨r6⟩ `signer_multi_root_countermodel_within_derived_bound` (§17.13 item 1: the round-5 forest,
+      through real signer endpoints and outbound queues; commit within its derived bound, and no signature
+      enqueued after the mark);
+    * ⟨r6⟩ `signer_overlapping_narrowings_countermodel_within_derived_bound` (the same, for two
+      overlapping narrowings, the earlier one with a 5 s cleanup);
     * `sign_during_revoke_is_linearized`: across 1000 uncontrolled interleavings, added **on top of**
       the deterministic tests, a signature either is enqueued before the tombstone commit or is
       refused;
@@ -763,8 +784,11 @@ ADR-0008 §18.
     with delegations at every depth (§17.7 items 2 and 3), ⟨r5⟩ with the mark checked where it is now
     authoritative (the fresh read, each awaited acquisition, the release check) and both round-4
     re-check traces as fixed cases: the post-mark flood with round-1 descendants (it must commit within
-    the bound) and the request pre-checked before the mark (it must be refused) (§17.10 item 1), with a
-    crash at each step. Pass:
+    the bound) and the request pre-checked before the mark (it must be refused) (§17.10 item 1), ⟨r6⟩ and
+    the round-5 multi-root and overlapping-narrowing countermodels, each checked for commit within its
+    derived bound and for nothing enqueued after the mark (§17.13 item 1;
+    `model_multi_root_countermodel_within_derived_bound`,
+    `model_overlapping_narrowings_countermodel_within_derived_bound`), with a crash at each step. Pass:
     * no certificate is published once any predicate fails;
     * the issuer refuses whenever its read-only snapshot shows a failing predicate;
     * a receiver with a stale generation, a tombstone or an unsafe deadline discards;
@@ -943,8 +967,13 @@ ADR-0008 §18.
         `kill` rejects `--` and its `ps` rejects `-p`; recovery there is manual only, and is never
         claimed automatic;
       * ⟨r5⟩ the script's process-group check (fence step 1, and the fence's control) reads field 5 of
-        `/proc/$$/stat` on Linux and `ps -o pgid= -p $$` on macOS and the BSDs (ADR-0008 Q29 default),
-        so `append` and `remove` still run on BusyBox targets.
+        `/proc/$$/stat` on Linux and `ps -o pgid= -p $$` on macOS and the BSDs (ADR-0008 Q29, ruled in
+        §17.12), so `append` and `remove` still run on BusyBox targets. ⟨r6⟩ On Linux every read of
+        `/proc/<pid>/stat`, for the process group and for the start identity, of `$$` or of the holder's
+        `PID`, goes through **the shared parser's `awk` text** (ADR-0008 D5 §6.3; §17.13 item 2). It finds
+        the last `)`, takes token 3 (the process group) and token 20 (the start time) of the suffix, and
+        validates both. A whitespace field count is never used. An invalid read exits 30 in a mutating
+        script, and makes `fence` report `unproven`.
 
     Under the test configuration only, `HM_PAUSE <name>` points are inserted, ⟨r3⟩ including
     `after_lock`, `before_write` (between the final re-check and the write) and `before_ln`.
@@ -1126,6 +1155,13 @@ ADR-0008 §18.
       unlocked or redispatched);
     * ⟨r5⟩ `busybox_append_and_remove_run_with_proc_process_group` (Q29 default: the group-leader check
       reads `/proc/$$/stat` field 5, so BusyBox targets enroll and remove);
+    * ⟨r6⟩ `procstat_fixtures_rust_and_awk_agree` (§17.13 item 2: every U11 fixture line goes through the
+      scripts' `awk` text, on each Linux target shell, and through `domain::procstat::parse`, and the two
+      agree on the process group, the start time and the rejections);
+    * ⟨r6⟩ `procstat_live_comm_fixtures_per_linux_shell` (live processes whose `comm` is `plain`, `has
+      space`, `a ) b ( c`, `)(` and a name with a newline, in U11's shell containers and on the Docker
+      Debian target. The scripts read the right process group and start time for each, where
+      `awk '{print $5}'` would read 1, 0 and `(` for the first three);
     * ⟨r5⟩ `shell_table_matches_round4_observed_rows` (dash 0.5.12, bash 5.2 as `sh`, BusyBox 1.37.0 and
       macOS `sh`: control, probe and listing exits for a live child, an empty group, invalid syntax and
       injected disagreements, as `round4-recheck-codex.md` records them);
@@ -1757,6 +1793,13 @@ ADR-0008 §18.
     added at build time, with the network attached only for that step) and
     `alpine@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a`. Each has a
     MANIFEST row (§17.9 item 5), and each runs without a network.
+  * ⟨r6⟩ `procstat::Fixtures` (§17.13 item 2; M03-R5-02):
+    * **synthetic `/proc/<pid>/stat` lines**, with `comm` set to `plain`, `has space`, `a ) b ( c`, `)(`, a
+      15-byte name, and a name with a newline. There are also malformed lines: no `)`, fewer than 20
+      suffix tokens, a non-decimal or zero process group, and a non-decimal start time;
+    * **live processes** in the Linux shell containers and the Docker Debian target, whose `comm` is set
+      to those names. Each is a renamed copy of a scratch program, or uses `prctl(PR_SET_NAME)`, and runs
+      in its own process group, so the expected values are known.
   * ⟨r4⟩ `shells::ProbeShim`: a wrapper shell that rejects `kill -s 0 -- -PGID`, and a `ps` shim whose
     listing disagrees with the probe, for the unproven cases.
 * **Tests:**
@@ -1778,7 +1821,8 @@ ADR-0008 §18.
   * ⟨r3⟩ `pause_hooks_stop_and_continue_exact_group`;
   * ⟨r3⟩ `managed_run_context_sets_binding_endpoint`;
   * ⟨r4⟩ `shell_containers_run_each_shell_as_group_leader`;
-  * ⟨r4⟩ `probe_shims_produce_syntax_error_and_disagreement`.
+  * ⟨r4⟩ `probe_shims_produce_syntax_error_and_disagreement`;
+  * ⟨r6⟩ `procstat_fixtures_cover_spaces_parentheses_and_newline`.
 * **Acceptance:** the tests pass; MANIFEST rows record owner, image, versions, reset and cleanup.
 * **Depends on:** U0, and the U4 ceremony for `TestCa` (its test goes green after U4).
 
@@ -1973,7 +2017,7 @@ arm64, Linux x86-64 (devbox) and Windows 11 x64, plus the WSL disposable distrib
 | Exit claim / case | Proven by (tests) | Records | Platforms (§4) |
 |---|---|---|---|
 | **A03**: fresh authentications succeed through desktop and vault lock without the original vault staying unlocked; the configured lock-revokes alternative behaves differently, as disclosed | U13's lock procedure (§4.4): `a03_fresh_logins_while_locked_continue`, `a03_new_grant_while_locked_under_standing_policy` (D1, issuer under lock), `a03_lock_revokes_ends_grant_and_fresh_login_fails`, `a03_vault_stand_in_locked_agent_does_not_matter`, ⟨r2⟩ each grant on its own pairs and attributed by certificate key ID (F09). U9 `macos_lock_signal_observed`, `windows_lock_signal_observed`, ⟨r2⟩ `lock_then_unlock_while_consumer_paused_still_revokes`. U2 and U10 `reissue_after_runtime_process_restart_same_boot` (the recovery row). U4 `windows_dpapi_round_trip_across_processes` during lock | `m03-a03-lock-continuity.json`; `m03-p1-macos-screen-lock.json`; `m03-pw1-windows-lock.json` | macOS (lock rule; ⟨r2⟩ a test-store, debug-profile run: mechanism evidence only, so no macOS claim, F03). Windows (lock rule; ⟨r2⟩ a **release-profile** run on the product DPAPI store, `HEIMDALL_HOME` in scratch, so claim-eligible). **Blocked rows:** the macOS login-keychain product row (B3), Linux desktop (B11), the 1Password vault row (B1), the Windows system-agent vault row (B4) |
-| **A07**: new local use fails immediately; descendants and stale callbacks cannot reactivate; remote-pending effects and the maximum residual are truthful | U3 the linearization model (⟨r2⟩ with re-issue, lock revocation and the signing gate; F24). U2 ⟨r2⟩ `sign_paused_after_precheck_then_revoke_is_refused`, `sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit`, `no_signature_enqueued_after_revocation_acknowledged`, then `sign_during_revoke_is_linearized` and `destroyed_key_makes_installed_certificate_unusable`. U6 `revoke_during_each_issuance_step`, `revoke_with_unreachable_destination_reports_bounded_remote_effect`, `revoke_cascades_to_children_destroying_their_keys`, `stale_approval_cannot_reactivate_after_revoke`, ⟨r2⟩ `slow_server_clock_residual_bounded_by_measurement`, `unmeasured_residual_reported_nominally_expired_never_cleared`, `revoke_destroys_keys_under_exclusive_gate`. U0b rows 6 and 20, ⟨r3⟩ with `delegation_during_revocation_child_never_signs_after_ack`, `two_concurrent_cascades_no_deadlock_no_late_signature` and `revoke_closes_processes_only_after_gates_released`. ⟨r3⟩ U2 `sign_crossing_deadline_after_fresh_read_not_released`, `sign_budget_overrun_expires_permit_nothing_released`; ⟨r4⟩ `deadline_crossed_while_enqueue_blocked_nothing_released`, `deadline_crossed_between_capacity_and_release_check_refused`. ⟨r4⟩ U0b rows 1 and 20: `enqueue_after_release_check_never_waits`, `gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock`, `reacquisition_round_never_grows_set`, `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait`; ⟨r5⟩ `post_mark_flood_and_round_one_descendants_commit_within_bound`, `ancestor_pending_covers_descendant_created_after_mark`, `round_one_marks_new_descendants_before_releasing_gates`; U2 `precheck_before_mark_then_gate_after_mark_refused`, `release_check_refuses_when_mark_set_after_admission`; U0b row 27 `revoke_committed_at_read_inside_tombstone_transaction`, `revoke_replay_returns_original_timestamps`. U9 `lock_revocation_between_reserve_and_publish_voids`. U4 `key_only_restore_reports_unbounded_unknown` | `m03-a07-revocation.json` | All. The disconnected-**runner** variant is `deferred_with_decision` to M06 (G07; plan §5 M06). A07's M01 model rows stay as recorded |
+| **A07**: new local use fails immediately; descendants and stale callbacks cannot reactivate; remote-pending effects and the maximum residual are truthful | U3 the linearization model (⟨r2⟩ with re-issue, lock revocation and the signing gate; F24). U2 ⟨r2⟩ `sign_paused_after_precheck_then_revoke_is_refused`, `sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit`, `no_signature_enqueued_after_revocation_acknowledged`, then `sign_during_revoke_is_linearized` and `destroyed_key_makes_installed_certificate_unusable`. U6 `revoke_during_each_issuance_step`, `revoke_with_unreachable_destination_reports_bounded_remote_effect`, `revoke_cascades_to_children_destroying_their_keys`, `stale_approval_cannot_reactivate_after_revoke`, ⟨r2⟩ `slow_server_clock_residual_bounded_by_measurement`, `unmeasured_residual_reported_nominally_expired_never_cleared`, `revoke_destroys_keys_under_exclusive_gate`. U0b rows 6 and 20, ⟨r3⟩ with `delegation_during_revocation_child_never_signs_after_ack`, `two_concurrent_cascades_no_deadlock_no_late_signature` and `revoke_closes_processes_only_after_gates_released`. ⟨r3⟩ U2 `sign_crossing_deadline_after_fresh_read_not_released`, `sign_budget_overrun_expires_permit_nothing_released`; ⟨r4⟩ `deadline_crossed_while_enqueue_blocked_nothing_released`, `deadline_crossed_between_capacity_and_release_check_refused`. ⟨r4⟩ U0b rows 1 and 20: `enqueue_after_release_check_never_waits`, `gate_set_growth_hl_interleaving_releases_and_reacquires_no_deadlock`, `reacquisition_round_never_grows_set`, `narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait`; ⟨r5⟩ `post_mark_flood_and_round_one_descendants_commit_within_bound`, `ancestor_pending_covers_descendant_created_after_mark`, `round_one_marks_new_descendants_before_releasing_gates`; U2 `precheck_before_mark_then_gate_after_mark_refused`, `release_check_refuses_when_mark_set_after_admission`; U0b row 27 `revoke_committed_at_read_inside_tombstone_transaction`, `revoke_replay_returns_original_timestamps`. ⟨r6⟩ U0b row 20 `multi_root_countermodel_within_derived_bound`, `overlapping_narrowings_countermodel_within_derived_bound`, `narrowing_commit_target_20s_at_budgets`, `narrowing_never_aborts_for_time_reports_over_target`; U2 `signer_multi_root_countermodel_within_derived_bound`, `signer_overlapping_narrowings_countermodel_within_derived_bound`. U9 `lock_revocation_between_reserve_and_publish_voids`. U4 `key_only_restore_reports_unbounded_unknown` | `m03-a07-revocation.json` | All. The disconnected-**runner** variant is `deferred_with_decision` to M06 (G07; plan §5 M06). A07's M01 model rows stay as recorded |
 | **A09**: existing access survives; only owned records change; uncertain outcomes reconcile; newer edits are not overwritten; rotation; rollback | U5: protocol, negative, interleaving, lost-response, ⟨r2⟩ target-binding, maintenance-invocation and fencing tests (incl. `first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss`). ⟨r3⟩ U5 `writer_paused_just_before_write_no_duplicate_no_loss`, the host-trust tests (`wrong_key_with_inherited_known_hosts_command_refused_before_mutation` and the rest), `maintenance_inside_managed_run_context_zero_managed_signatures`, `registry_dir_bootstrap_journaled_shown_in_plan_then_locked`, `truncated_script_does_nothing_at_every_truncation_point`, `start_identity_per_target_shell`. U10 the revision-3 recovery-path tests (U10's list). ⟨r4⟩ U5 `leader_absent_live_mutation_child_never_gone_per_shell` (dash, bash as `sh`, BusyBox `ash`, macOS `sh`), `group_probe_and_listing_per_target_shell`, the unproven-case tests. U10 the foreign-removal route tests and the target-change tests. U0 `foreign_removal_paths_golden`, `target_change_outcomes_golden`. ⟨r5⟩ U10 `foreign_system_form_abandon_keeps_pending_until_line_removed`, `foreign_system_form_cancel_after_ca_not_held_never_planned_or_withdrawn`, `fence_audit_keeps_signals_sent_on_unproven`. U5 `terminate_then_unproven_reports_signals_sent_exit_44`, `busybox_fence_always_unproven_manual_recovery`, `busybox_append_and_remove_run_with_proc_process_group`, `shell_table_matches_round4_observed_rows`. U10 `enroll_*`, `rotation_two_accounts_one_unreachable`, ⟨r2⟩ `rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable`, `step_refused_when_route_changed_after_approval`, `enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check`, `foreign_removal_from_second_installation_with_different_catalog`, `abandon_from_outcome_unknown_remove_unknown_and_rollback_pending`, `enroll_remove_lists_affected_grants_and_degrades_them`. U6 ⟨r2⟩ `rotation_keeps_ensure_working_per_account`. U0 ⟨r2⟩ `enrollment_recovery_paths_each_tested`. U11 `registry_guard_refuses_non_scratch_paths`; the harness's owner-digest check. The disclosed remove window is recorded as a limitation (U5); ⟨r3⟩ revision 2's fence window is closed (§17.4 item 2) | `m03-a09-enrollment.json` | All (Windows as the client to the WSL fixture sshd ⟨M02?⟩ M7). Docker default-path rows on macOS; WSL default-path rows on Windows; the devbox default path is covered by WSL (B8, not a declared row). ⟨r2⟩ **Blocked rows** (F26): enrollment with 1Password as the existing access (B1), with the Windows system agent (B4), and with a touch-required key (B6) |
 | **A10**: only the intended access succeeds where enforcement is claimed; no issuer key or broader certificate escapes; unsupported scope is labelled | U5 `verify_positive_one_signature_negative_zero`, ⟨r2⟩ the negative-inconclusive tests, `principals_not_enforced_detected_and_rolled_back` (⟨r3⟩ on the both-principals fixture), ⟨r3⟩ `principals_not_enforced_system_form_via_echoing_principals_command`, `bare_cert_authority_line_is_verification_failed`, `verification_failed_when_server_reads_another_registry`. U10 a two-host flow per form (`a10_narrow_certificate_refused_on_other_host_account_form`, `a10_narrow_certificate_refused_on_other_host_system_form`). U3 `ceiling_two_principals`, `issuer_path_never_exists_through_runtime_lifecycle`. U2 `environment_endpoint_lists_only_materialized_bindings` (no CA listed). U13 ⟨r2⟩ `a10_bound_consumer_issuer_reachability_recorded` (renamed; per platform, with positive controls, what a same-user worker can do; F10). U6 `report_*` (unverified pairs report `unknown`; existing access reports `client_routing`) | `m03-a10-scope-issuer.json` | All. Docker `ca1`/`ca2` and `enrollable`/`enrollable2` on macOS; two `LoopbackSshd` per form everywhere; the WSL distribution's sshd in both forms. The Linux Secret Service reachability row is blocked (B11) |
 | **A23**: owned admission and closure match the policy; no certificate-only enforcement assumption; unmanaged and remote-process limits are reported accurately; OpenSSH stop behaviour tested | U7 (all its tests, ⟨r2⟩ including the Windows ownership tests, ⟨r3⟩ the registration-ordering tests, and `two_successive_bindings_share_the_slot_mux_path_through_ordinary_ssh`). U8 `p_renders_owned_master_control_path_when_enabled`, ⟨r3⟩ the foreground tests, ⟨r2⟩ `deadline_wording_follows_identity_selection`, the `connect` flow tests. U6 report fields `owned_multiplexing`, `existing_connections`, `remote_processes`, `unmanaged_connections`. U12 `managed_readiness_detail_exact_deadline_strings` | `m03-a23-deadline-connections.json` | macOS and devbox (real masters); Windows (dedicated connections through the job object and registration; multiplexing reported and enforced as unavailable) |
@@ -2731,9 +2775,15 @@ and `connections/1` are **declared and not offered** in wave 0, and offered in p
 | ⟨r2⟩ `signing_enqueue_timeout` | 2 s | ⟨r4⟩ the wait for outbound **capacity**, before the release check; the permit's expiry cancels it earlier. The enqueue itself never waits (§17.7 item 2) |
 | ⟨r3⟩ `signing_budget` | 1 s | `KeyVault::sign` on the blocking pool; overrun expires the permit |
 | ⟨r3⟩ `signing_holder_max` | 5 s | 2 s fresh read + 1 s signature + 2 s enqueue; part of the permit's expiry |
-| ⟨r2⟩ `signing_gate_max_wait` | ⟨r4⟩ **10 s** (was 5 s) | ⟨r4⟩ the longest any holder keeps a gate: max(`signing_holder_max`, `delegation_gate_hold_max`); one acquisition round waits at most this, given the pending mark (ADR-0008 Q27) |
+| ⟨r2⟩ `signing_gate_max_wait` | ⟨r4⟩ **10 s** (was 5 s) | ⟨r4⟩ the longest any holder keeps a gate: max(`signing_holder_max`, `delegation_gate_hold_max`, ⟨r6⟩ `connection_registration_txn_max`). It is `H` in the derived bound (ADR-0008 D2 item 3a) |
 | ⟨r3⟩ `delegation_gate_hold_max` | 10 s | a delegation holds ⟨r4⟩ the gates of the parent and every ancestor shared until the child's first install (Q26); overrun aborts fail-closed |
-| ⟨r3⟩ `narrowing_gate_wait_max` | ⟨r4⟩ **20 s** (was 10 s) | ⟨r4⟩ `(rounds + 1) × signing_gate_max_wait`, with at most one reacquisition round (§17.7 item 3); exceeding it is a reported defect, never a bypass |
+| ⟨r3⟩ `narrowing_gate_wait_max` | 20 s | ⟨r6⟩ **a target, not a ceiling** (§17.13 item 1). Tests check it at the budgets below: within `H + R ≈ 14.1 s` with no earlier overlapping narrowing, and `H + 2R ≈ 18.2 s` with one. A narrowing is never aborted for time. Past 20 s it reports `narrowing_over_target`, with its derived bound and terms |
+| ⟨r6⟩ `connection_registration_txn_max` | 2 s | the Windows registration's transaction under the shared gate (U0b row 26) |
+| ⟨r6⟩ `narrowing_read_budget` (`t_read`) | 150 ms | one store read of a set or a subtree; the derived bound uses `(r + 3)·t_read` reads in all, of which round 1 is `(r + 1)·t_read` |
+| ⟨r6⟩ `narrowing_set_budget` (`n_max`) | 256 grants | the set size at which the 20 s target is tested; a larger set still proceeds, and its bound is reported |
+| ⟨r6⟩ `narrowing_root_budget` (`r_max`) | 16 roots | the root count at which the target is tested; likewise reported, never refused |
+| ⟨r6⟩ `narrowing_commit_budget` (`t_commit`) | 200 ms | the tombstone transaction |
+| ⟨r6⟩ `pending_check_budget` (`ε`) | 1 ms | the in-memory mark check, one gate step, or one key destruction |
 | `issuer_request_timeout` | 10 s | inside the 30 s adapter-call bound |
 | `issuer_start_timeout` | 5 s | |
 | `issuer_signatures_per_minute` | 600 | |
@@ -2887,7 +2937,8 @@ pair `{"t":"unload","ca_fingerprint":…}` → `{"t":"unloaded","ca_fingerprint"
   `kill -s 0 -- -PGID`, and the listing `ps -A -o pgid=` (with the shell's own group as its control);
   "empty" and "live" only when the methods agree; HM1 keys `group_control`, `group_probe`,
   `group_listed`, and `fence` gains `unproven`; ⟨r5⟩ `fence_signals` (empty, `TERM` or `TERM,KILL`); the
-  process group is read from field 5 of `/proc/$$/stat` on Linux (Q29);
+  process group and the start time are read on Linux by ⟨r6⟩ the shared `/proc/<pid>/stat` parser's `awk`
+  text (last `)`, token 3, token 20, validated; Q29; §17.13 item 2);
 * ⟨r3⟩ the fence: `ln -s "hm1-<token>-<pid>-<start hex>-<boot hex>-<not_after>"
   <dir>/.hm-lock.<registry name>`; any existing lock is `busy`; the not-after checked before the lock
   and before the write; release by the owning contents only; a stale lock broken only by `fence` after
@@ -2980,8 +3031,7 @@ The table below is kept as revision 3 raised it:
 
 ⟨r5⟩ **Ruled** in ADR-0008 §17.9 (each default accepted): Q26–Q28 above.
 
-⟨r5⟩ **Open: raised by revision 5** (ADR-0008 §17.11). The ruling is kept; units build against the
-default below, behind one switch.
+⟨r5⟩ **Raised by revision 5** (ADR-0008 §17.11), ⟨r6⟩ now ruled in §17.12 with its default accepted:
 
 | # | Question | Recommended default |
 |---|---|---|
@@ -3254,3 +3304,27 @@ where this plan closes it. ADR-0008 §23 lists the design-side changes.
 | M03-R4-03 | 3 | §5 item 9 (`requested_at`, `committed_at`, capture points, replay); U0 `revoke_data_timestamps_golden`; U0b row 27 and its tests; U10 `revoke_result_reports_requested_and_committed_at` |
 | M03-R4-04 | 4 | U5 (exit 44: no unlock, no further signal; `fence_signals`; `terminate_then_unproven_reports_signals_sent_exit_44`); U10 `fence_audit_keeps_signals_sent_on_unproven`; §5 item 21 |
 | Per-shell probe table | 5 | U5 (the observed rows; `busybox_fence_always_unproven_manual_recovery`, `shell_table_matches_round4_observed_rows`, `fence_decision_ignores_diagnostics_uses_exit_status`; the Q29 default and `busybox_append_and_remove_run_with_proc_process_group`); U11 (the re-check's image digests); §6.1 Q29 |
+
+---
+
+## 13. ⟨r6⟩ Change log (revision 6, the last design fix; task M03-T00-design-fix)
+
+Both round-5 findings (`round5-final-codex.md`), with the ADR-0008 §17.13 ruling that decided each and
+where this plan closes it. ADR-0008 §24 lists the design-side changes.
+
+| Finding | Ruling | Closed in this plan |
+|---|---|---|
+| M03-R5-01 | 1 | U0b row 20: cleanup after release; earlier marks first; never aborted for time; the derived bound with every holder counted; and the tests `multi_root_countermodel_within_derived_bound`, `overlapping_narrowings_countermodel_within_derived_bound`, `narrowing_commit_target_20s_at_budgets`, `narrowing_never_aborts_for_time_reports_over_target`, `later_narrowing_defers_to_earlier_mark_no_deadlock` and `slot_files_removed_only_after_gates_released`. U0b row 26 (registration checks the mark; its transaction bound). U2: the two signer-side countermodel tests. U3: the model replays both countermodels. U0 frozen list. §5 item 17 (`H`, the budgets, 20 s as a target). §3 A07 |
+| M03-R5-02 | 2 | U0 (`procstat_parse_golden`; frozen `domain::procstat`); U0b row 28 (the parser's body; `platform.rs` moved onto it); U5 (the `awk` mirror for every Linux read of `/proc/<pid>/stat`; `procstat_fixtures_rust_and_awk_agree`, `procstat_live_comm_fixtures_per_linux_shell`); U11 (`procstat::Fixtures`, with spaces, parentheses and a newline in `comm`); §5 item 21; §6.1 Q29 |
+
+**The restated bound** (ADR-0008 D2 item 3a):
+
+```
+committed_at(N) − requested_at(N)  ≤  H + R(N) + Σ_{X ∈ E(N)} R(X)
+R(X) = (r_X + 3)·t_read + 4·n_X·ε + t_commit
+```
+
+* `H` = `signing_gate_max_wait` = 10 s;
+* `E(N)` is the set of earlier-marked, still-running narrowings that overlap N;
+* the budgets are `t_read` = 150 ms, `n_max` = 256, `r_max` = 16, `t_commit` = 200 ms and `ε` = 1 ms;
+* the 20 s target is checked at these budgets.
