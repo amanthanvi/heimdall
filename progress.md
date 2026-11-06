@@ -842,3 +842,4 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - B (Opus): ready after fixes, 9 majors and 9 minors (among them `principals_not_enforced` unproducible by its fixture, reproduced by a loopback probe).
   - Records: `round2-{a-codex,b-opus}.md`. Rulings: ADR-0008 §17.4, items 1–12.
   - Next: revision 3, then a targeted re-check of the R2 findings only.
+- M03 design revision 3 (author thread): every §17.4 ruling applied (⟨r3⟩); plan 248 KB, ADR-0008 263 KB. It adds the host-trust option table (`NoHostAuthenticationForLocalhost=no` added after checking the pinned sources), the start-identity table per target shell, a symlink lock, a ready handshake and `ApproveTargetChange`. Q22–Q25 ruled in ADR-0008 §17.6 (each default accepted). Next: a targeted re-check of the round-2 findings (Codex).

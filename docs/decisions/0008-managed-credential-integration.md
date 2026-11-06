@@ -1,7 +1,13 @@
 # ADR-0008 — Managed credential integration (M03): the B1 signer and issuer, scoped enrollment, deadline and connection control, lock behaviour
 
-**Status:** proposed, revision 2 · **Date:** 2026-11-06 · **Tasks:** M03-T00-design (revision 1),
-M03-T00-design-fix (revision 2)
+**Status:** proposed, revision 3 · **Date:** 2026-11-06 · **Tasks:** M03-T00-design (revision 1),
+M03-T00-design-fix (revisions 2 and 3)
+**Revision 3** applies the two independent round-2 reviews
+(`tests/evidence/artifacts/review-m03-design/round2-a-codex.md`, findings A R2-01–R2-09;
+`round2-b-opus.md`, findings B M03-R2-01–R2-18) under the orchestrator's rulings in §17.4, and
+§17.3's rulings on Q18–Q21. Text it changed is marked **⟨r3⟩**, and §21 maps each R2 finding to the
+sections that changed. Where a ruling could not be applied as written, or conflicts with an earlier
+ADR, the ruling is kept and §17.5 asks the question (Q22–Q25).
 **Revision 2** applies the two independent round-1 reviews
 (`tests/evidence/artifacts/review-m03-design/round1-a-codex.md`, findings M03-R01–R15;
 `round1-b-opus.md`, findings F01–F27) under the orchestrator's rulings in §17.1. Text changed by it is
@@ -93,6 +99,14 @@ this ADR adds.
 | ⟨r2⟩ M-F22 | `ssh -v` writes the remote software version, the host-key match, each public key or certificate offered, the server's acceptance or "Authentications that can continue", and the final authentication result to stderr. The exact wording is client-version-specific | [I]; the per-client patterns are recorded and tested by `verify_trace_patterns_per_client` (U5); an unrecorded client is `verification_inconclusive` (D5 §6.5) |
 | ⟨r2⟩ M-F23 | POSIX `mkdir` fails if the directory exists (an atomic test-and-create, usable as a lock); POSIX `awk 'BEGIN { srand(); print srand() }'` prints the current time in seconds since the Epoch (POSIX `date` has no `%s`) | [I] (POSIX.1-2017, not pinned). Settled per remote shell by `registry_protocol_on_target_shell` and `remote_clock_reading_per_target` (U5) |
 | ⟨r2⟩ M-F24 | `rusqlite` transactions release the store's connection mutex when they return (`crates/store/src/lib.rs` `transaction`), so an authorization read cannot by itself hold anything across the signature | Observed (R01) |
+| ⟨r3⟩ M-F25 | The host-trust sources of the pinned ssh_config(5): `UserKnownHostsFile` (`none` documented); `GlobalKnownHostsFile` (no `none` documented); `KnownHostsCommand`, which supplies "a list of host keys, in addition to those listed in UserKnownHostsFile and GlobalKnownHostsFile" (no `none` documented); `VerifyHostKeyDNS yes`, under which "the client will implicitly trust keys that match a secure fingerprint from DNS"; `UpdateHostKeys`, which adds server-sent keys to `UserKnownHostsFile`; `CheckHostIP yes`, which adds addresses "regardless of the setting of StrictHostKeyChecking"; `NoHostAuthenticationForLocalhost`, which can "disable host authentication for localhost". Command-line options are read first, and the first value obtained wins. `IgnoreUnknown` "will not be applied to unknown options that appear before it" | [S01], [S02] (pinned snapshots). Observed by reviewer A (OpenSSH 10.5p1, loopback): key A was approved in the generated file, the server's key was B, and an inherited `KnownHostsCommand` printed B. ssh accepted B (exit 0). With `-o KnownHostsCommand=none` it failed host verification (exit 255). Whether `none` is a keyword or a command name is Q22 |
+| ⟨r3⟩ M-F26 | `sh -s` executes each complete line of its input as it arrives, so a truncated script runs its prefix and can exit 0 | Observed by reviewer B with `/bin/sh` and `dash`: the prefix created the lock and the token. Settled by `truncated_script_does_nothing_at_every_truncation_point` (U5) |
+| ⟨r3⟩ M-F27 | A `cert-authority` line **without** `principals=` accepts only certificates whose principals include the account name, so it refuses **both** verification certificates. With `principals="hm:dst1:acct"`, the positive is accepted and the negative refused | Observed by reviewer B (OpenSSH 10.5p1, loopback, scratch CA). The `principals_not_enforced` fixture is rebuilt on this (D13 item 2) |
+| ⟨r3⟩ M-F28 | `ssh -G` with D8's dedicated options kept an inherited `ForkAfterAuthentication yes`. `-f` sets the same option from the command line | Observed by reviewer A. D8 item 2 pins it |
+| ⟨r3⟩ M-F29 | With revision 2's maintenance pins, `SSH_AUTH_SOCK` pointing at a fixture managed agent and the managed `IdentityFile` and `CertificateFile` inherited, ssh authenticated with the managed certificate (exit 0) despite `CertificateFile=none`. M02's launcher sets `SSH_AUTH_SOCK` to the binding endpoint for a managed `run` (`launch/src/env.rs`) | Observed by reviewer A (loopback), and in the code at `95603af6`. D5 §6.3 now resolves the endpoint without `SSH_AUTH_SOCK` |
+| ⟨r3⟩ M-F30 | **Process identity on a target.** POSIX `ps -o` names `pid`, `ppid`, `pgid`, `etime`, `comm` and `args`, but no start time: `lstart` is a BSD and procps extension, and BusyBox `ps` lacks it. Linux `/proc/<pid>/stat` field 22 is the start time in clock ticks since boot, and `/proc/sys/kernel/random/boot_id` names the boot. POSIX `kill` with a negative PID signals a process group, and a process ID is not reused while a process group with that ID exists. sshd runs a non-pty session's command in a new session, so the `$$` of `exec /bin/sh -s` is its process-group leader | [I] (POSIX.1-2017 and OpenSSH `session.c`; neither is pinned). Settled per target by `start_identity_per_target_shell` and `holder_is_process_group_leader_per_target` (U5) |
+| ⟨r3⟩ M-F31 | POSIX `ln -s <contents> <name>` creates a symbolic link in one `symlink()` call and fails if `<name>` exists. The exception is an existing **directory** at `<name>`: `ln` then creates the link inside it. `ls -l` prints a link as `<name> -> <contents>` | [I] (POSIX.1-2017, not pinned). Settled by `lock_symlink_is_exclusive_per_target` (U5) |
+| ⟨r3⟩ M-F32 | `awk`'s `printf "%c"` depends on the locale. bwk awk 20200816 writes one byte for a code of 128 or more; gawk in a UTF-8 locale is reported to write a multibyte sequence | Observed for bwk awk by reviewer B; gawk is [I]. The scripts set `LC_ALL=C` (D5 §6.3). Settled by `non_ascii_registry_bytes_per_target_shell` (U5) |
 
 ### 1.3 ADR-0005 §9.3: where each open item goes
 
@@ -238,15 +252,33 @@ only through the claim table (D12).
      1. parse and purpose-check (item 4);
      2. a **pre-check** authorization (an unlocked read, used only to refuse early);
      3. take the grant's gate **shared**, waiting at most `signing_gate_wait` (1 s), else refuse;
-     4. a **fresh** authorization read under the gate. This is the check that admits;
-     5. `KeyVault::sign`;
-     6. hand the response frame to the connection's outbound buffer, bounded by
+     4. a **fresh** authorization read under the gate. This is the check that admits.
+        * ⟨r3⟩ It returns a `SignPermit` that carries an **absolute expiry**: the earliest of the
+          grant's wall-clock deadline, the end of its continuous budget, every applicable admission
+          limit, and the holder bound (this step's start + `signing_holder_max`) (§17.4 item 6;
+          A R2-06, B R2-01);
+     5. `KeyVault::sign`.
+        * ⟨r3⟩ It runs on the blocking pool under `signing_budget` (1 s). The async task that holds
+          the gate awaits it with that timeout.
+        * On overrun the task drops the permit and the gate. When the late signature arrives, it finds
+          no permit and is discarded;
+     6. ⟨r3⟩ **the release check**, immediately before the enqueue. Two things must hold:
+        * the permit has not expired, on both clocks;
+        * the read-only time assessment is still `Safe`.
+
+        If either fails, the response is `SSH_AGENT_FAILURE` instead of the signature;
+     7. hand the response frame to the connection's outbound buffer, bounded by
         `signing_enqueue_timeout` (2 s). A response that cannot be enqueued in time is dropped, and the
         connection is closed without it;
-     7. release the gate.
+     8. release the gate.
 
-     The `SignPermit` returned at step 4 is the shared guard: `ipc::signing::serve` drops it only after
-     step 6. **The enqueue at step 6 is the linearized effect.**
+     The `SignPermit` returned at step 4 is the shared guard.
+     * ⟨r3⟩ It crosses into `ipc` as an opaque `ipc::signing::PermitGuard`, a boxed `ReleaseCheck`
+       trait object defined in `ipc` (§18). `ipc` therefore needs no edge to `app`.
+     * `ipc::signing::serve` runs step 6's check through it and drops it only after step 7.
+     * **The enqueue at step 7 is the linearized effect.**
+     * ⟨r3⟩ So a request admitted just before D is never released after D, even when no state changes
+       in between.
    * **Narrowing commits:**
      * a revocation (explicit, cascade, `revoke_on_lock`, and authority withdrawn at re-validation);
      * a cutoff that is set or moved earlier;
@@ -255,23 +287,62 @@ only through the claim table (D12).
      * every other change that narrows a grant.
 
      Each takes the gate **exclusively**, for every grant it affects (the cascade included), **before**
-     its store commit. A revocation holds the gate until the grant's keys are destroyed (D7 item 2), and
-     other narrowings hold it until their commit.
-   * **Bound.** A shared holder is bounded: 2 s of authorization, the signature, and 2 s of enqueue.
-     So a narrowing waits at most `signing_gate_max_wait` (5 s). A holder that exceeds its bound is
-     cancelled (its response dropped and its connection closed), so the bound holds.
-   * **Result:** every signature is either enqueued before the narrowing's commit or refused. None is
-     enqueued after a revocation has been acknowledged.
-   * **Tests (U2):**
-     * `sign_paused_after_precheck_then_revoke_is_refused`: deterministic. The signer is paused right
+     its store commit. ⟨r3⟩ The rest of the order is §17.4 item 6's (B R2-03):
+     * **Lock order.** Gates are always acquired in one global order: **ancestors first, then by grant
+       ID** (sorted by delegation depth, then ID).
+       * A shared holder holds one gate and waits for nothing else.
+       * So no wait cycle can form between two narrowings, or between a narrowing and a signer.
+     * **The cascade set is re-read under the gates.** After acquiring the gates of the set it read:
+       * the narrowing re-reads the descendants in a transaction;
+       * it acquires the gate of any new descendant (each sorts after its held parent);
+       * it repeats until a re-read adds nothing.
+
+       This terminates. Creating a delegation holds the parent's gate **shared** until the child's
+       first install, so no child can appear under a gate the narrowing already holds exclusively.
+       * That hold is bounded by `delegation_gate_hold_max` (10 s).
+       * On overrun, the delegation is aborted fail-closed: the child's instance is destroyed, and its
+         entries stay counted.
+     * **Order within a narrowing:**
+       1. acquire the gates;
+       2. commit;
+       3. destroy the keys, unlist the identities, and remove the slot and binding files, **while the
+          gates are held**;
+       4. release the gates;
+       5. close processes: owned masters and owned dedicated connections (D7 item 2, D8).
+
+       Closing never happens under a gate, so a 5 s master close cannot lengthen any signer's wait.
+     * **No gate, no narrowing.** A narrowing never commits without every gate it needs. Its wait is
+       bounded because every holder is bounded:
+       * a signer by `signing_holder_max` (5 s: a 2 s fresh read, a 1 s signature and a 2 s enqueue),
+         enforced by the permit's expiry and the cancellation above;
+       * a delegation by `delegation_gate_hold_max` (10 s).
+
+       So a narrowing waits at most `narrowing_gate_wait_max` (10 s). Exceeding it is a defect. It is
+       reported as one, and the gate is never bypassed.
+   * ⟨r3⟩ **Who writes the bodies.** `app::managed::SigningGates` and its exclusive acquisition are
+     written by **U0b phase 1** (wave 0), and U10 only wires them (§17.4 item 6; B R2-01). U0b phase 1
+     needs them because the narrowing paths of its rows 5 and 20 call them, and revocation is reachable
+     by request.
+   * **Result:** every signature is either enqueued before the narrowing's commit, while its permit is
+     unexpired, or refused. None is enqueued after a revocation has been acknowledged, or after the
+     grant's deadline.
+   * **Tests (U2, and U0b row 20):**
+     * `sign_paused_after_precheck_then_revoke_is_refused`. Deterministic: the signer is paused right
        after the pre-check authorization; the revocation commits; the signer is resumed; its fresh read
-       under the gate refuses;
-     * `sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit`;
+       under the gate refuses (§17.3 item 4);
+     * `sign_paused_inside_gate_delays_revoke_and_is_enqueued_before_commit` (§17.3 item 4);
      * `no_signature_enqueued_after_revocation_acknowledged`;
+     * ⟨r3⟩ `sign_crossing_deadline_after_fresh_read_not_released`. The signer is paused after the
+       fresh read; the virtual clock crosses D with no edit to any state; the signer is resumed; and
+       the release check refuses;
+     * ⟨r3⟩ `sign_budget_overrun_expires_permit_nothing_released`;
+     * ⟨r3⟩ `delegation_during_revocation_child_never_signs_after_ack` (U0b row 20);
+     * ⟨r3⟩ `two_concurrent_cascades_no_deadlock_no_late_signature` (U0b row 20);
+     * ⟨r3⟩ `revoke_closes_processes_only_after_gates_released` (U0b row 20);
      * the uncontrolled-interleaving test, added on top, never instead.
 
-     The linearization model (U3) covers activation, re-issue and lock revocation against the gate
-     (F24).
+     The linearization model (U3) covers activation, re-issue, lock revocation, ⟨r3⟩ delegation and
+     concurrent cascades against the gate (F24; B R2-03).
 
 4. **Purpose (spec §7.2).** The signed data must parse, with the established `ssh-encoding` reader, as
    an SSH user-authentication request (RFC 4252 §7):
@@ -593,7 +664,8 @@ A K_ca compromise means rotation (D4).
      ⟨r2⟩ **Early removal is allowed**, before the old CA's latest `reserved`/`published`
      `valid_before` **for that pair** has passed. The removal preview then warns which live grants
      hold a certificate under the old CA for that pair. Which of those grants are degraded is §17.1
-     item 15's rule, held by Q20 for the case where another verified enrollment remains.
+     item 15's rule. ⟨r3⟩ §17.3 item 3 ruled the case where another verified enrollment remains (Q20
+     (a)): every grant under the old CA for that pair is degraded (D5 §6.8).
    * ⟨r2⟩ **Retirement** (`issuer retire <fingerprint>`, attended decision `RetireIssuer`; §17.1
      item 11) is a **durable transition**. It is allowed only when every enrollment of that CA is final
      or `abandoned` (§17.1 item 7). The CA moves through these states, each persisted before the
@@ -628,13 +700,17 @@ A K_ca compromise means rotation (D4).
 5. **Recovery bundle (`heimdall issuer bundle --out <path> [--redact hostnames]`)**, read-only. A
    versioned JSON file of **public metadata only**:
    * CA public keys and fingerprints, and backup digests and dates;
-   * per enrollment: marker, destination ID, ⟨r2⟩ the alias, hostname and port when not redacted,
-     account, registry path, form, state, the full public CA line's SHA-256 (`line_sha256`);
+   * per enrollment:
+     * marker, destination ID, account, form, state;
+     * ⟨r2⟩ the alias, hostname and port, when not redacted;
+     * ⟨r3⟩ the **canonical registry** `{path, resolved_by: explicit | remote_home}`: the path
+       validated by D5 §6.1, never its display form, which M3 forbids parsing back (B R2-07);
+     * the full public CA line's SHA-256 (`line_sha256`);
    * the removal instructions.
 
    It is refreshed automatically: `issuer status` and every enrollment change report its staleness.
 
-   ⟨r2⟩ **Foreign removal** (§17.1 item 11; M03-R12, F07) goes from another device with existing
+   ⟨r2⟩ **Foreign removal** (§17.1 item 11; M03-R12, F07) is run from another device that has existing
    access:
 
    ```
@@ -644,23 +720,41 @@ A K_ca compromise means rotation (D4).
    * **The target** is the full public removal descriptor `ForeignRemovalTarget`:
      * the **local alias** on this device;
      * the bundle's destination ID (as a label: destination IDs are per installation);
+     * ⟨r3⟩ the bundle's hostname and port;
      * account, marker;
      * the CA **public key**;
      * `line_sha256`;
-     * registry path and form.
+     * ⟨r3⟩ the canonical registry `{path, resolved_by}`, and the form.
 
      The decision `RemoveEnrollment` and the request hash cover all of it.
    * **Before connecting**, the line is rebuilt from the CA public key, the principal and the marker,
      and its SHA-256 is checked against `line_sha256`. A mismatch refuses.
    * **A redacted bundle is refused clearly** (`bundle_redacted`): without hostnames, the local
      alias's evaluated host cannot be cross-checked against the bundle's host.
+   * ⟨r3⟩ **The host cross-check is exact equality** (§17.4 item 10; B R2-07).
+     * The local alias's evaluated `HostName` and `Port` (from the `TargetEvaluator`, as for any
+       approved target) must equal the bundle's hostname and port, byte for byte.
+     * Anything else refuses with `CAPABILITY_UNAVAILABLE`, reason `bundle_host_mismatch`, before any
+       connection.
+     * No resolution, alias matching or "same address" reasoning is attempted.
    * **The route and host key** are this device's: its catalog's alias, approved for the removal
      like any remote step (D5 §6.3).
+   * ⟨r3⟩ **The state machine is the enrollment removal sub-machine, keyed by marker** (§17.4 item 10):
+     * a foreign removal record moves `planned → removing | withdrawn`, then `removing → removed |
+       remove_unknown | held`, then `remove_unknown → removed | removing | abandoned`;
+     * these are exactly D5 §6.2's events, with the D5 §6.3 fence;
+     * a lost reply is reconciled by D5 §6.7, with the marker as the key ("marker absent" means
+       applied);
+     * `ForeignRemovalRecord.state` is that subset of `EnrollmentState`, checked by the same
+       `transition` function (plan §5 item 16).
    * **Records.** Foreign removals live in their own table `foreign_removals`, with **no foreign key**
      to `issuers`, because the CA is not registered here.
    * **System form.** A system-form entry in a bundle is never removed by Heimdall. It gets the manual
      instructions of D5 §6.9.
-   * **Test:** `foreign_removal_from_second_installation_with_different_catalog` (U10).
+   * **Tests (U10):**
+     * `foreign_removal_from_second_installation_with_different_catalog`;
+     * ⟨r3⟩ `foreign_removal_lost_reply_reconciled_by_marker`;
+     * ⟨r3⟩ `foreign_removal_refuses_bundle_host_mismatch`.
 
    This is the ADR-0005 §6.3 lost-issuing-device primitive; the guided flow is M07 (§8).
 
@@ -732,7 +826,8 @@ The preview refuses, writing nothing, unless all of these hold:
 | Exactly one non-revoked known host key for (HostName, Port) is found in the user's known-hosts files, hashed entries included, and its raw key is available | `host_trust_undetermined` |
 | ⟨r2⟩ `--account`, when given, equals the catalog's account for the destination (§17.1 item 2) | `USAGE_ERROR`, reason `account_override_refused` |
 | ⟨r2⟩ An existing-access identity is adopted for the alias, and its kind can drive the steps: an agent-held key (native agent, 1Password) or a key file used through an agent or loaded from a file (ADR-0007 §7) (§17.1 item 14; F13) | `pair_not_adopted`; `existing_access_kind_unsupported` for a password-only or keyboard-interactive account, which the catalog cannot represent in M03 (disclosed; §8 of the plan) |
-| No enrollment for this (pair, CA) is in a non-final state | `CONFIG_CONFLICT`, `already_enrolled` |
+| ⟨r3⟩ The existing-access **endpoint** is concrete and is not Heimdall's (§6.3; §17.4 item 4; Q24) | `existing_access_endpoint_unrecorded` (the identity's record names no endpoint, and the alias's own `IdentityAgent` does not determine one); `existing_access_endpoint_is_heimdall` (it is, or resolves to, a Heimdall endpoint) |
+| No enrollment for this (pair, CA) is in a non-final state other than ⟨r3⟩ `abandoned` (§17.4 item 5: re-enrolling an abandoned pair uses a new marker, and the old residual stays listed; Q25) | `CONFIG_CONFLICT`, `already_enrolled` |
 | `--registry-path`, when given, is absolute POSIX, ≤ 255 bytes, from `[A-Za-z0-9._/-]`, with no `..` component | `USAGE_ERROR` |
 
 The preview is **local and passive**. It contacts nothing; reading the remote registry is a step of
@@ -740,7 +835,14 @@ The preview is **local and passive**. It contacts nothing; reading the remote re
 * destination and account;
 * ⟨r2⟩ the approved target (HostName, Port, User, empty proxy chain, host key);
 * ⟨r2⟩ the **existing-access invocation** every remote step will use (§6.3), with the identity and
-  its endpoint;
+  ⟨r3⟩ its **concrete endpoint**, resolved as §6.3 says and never from `SSH_AUTH_SOCK` (§17.4 item 4);
+* ⟨r3⟩ the **host-trust pins** of §6.3, which make the approved host key the only trust source
+  (§17.4 item 1);
+* ⟨r3⟩ the **conditional bootstrap step**: "if the registry's directory is absent, create it, mode
+  0700" (§6.3; §17.4 item 3). It is part of the approved plan, so `apply` never creates a directory
+  the owner did not see;
+* ⟨r3⟩ that `reconcile` may stop **Heimdall's own** stale script on the destination: TERM, then KILL,
+  of the exact process group its lock recorded (§6.3, §6.7). Nothing else is ever signalled;
 * the registry path: given, or `$HOME/.ssh/authorized_keys` resolved by the remote shell;
 * the exact line;
 * the CA fingerprint;
@@ -761,6 +863,13 @@ The preview is **local and passive**. It contacts nothing; reading the remote re
 * `registry: { path_display, resolved_by: explicit | remote_home }`;
 * `line_sha256`;
 * ⟨r2⟩ `target: ApprovedTarget { hostname, port, user, host_key }`, the approved target;
+* ⟨r3⟩ `existing_access: { identity, endpoint, public_key_file }`, with the concrete endpoint approved
+  with the plan (§6.3);
+* ⟨r3⟩ `hold: Option<{ reason, evidence_based: bool }>`;
+* ⟨r3⟩ `removal_origin: Option<{ state, evidence }>`: the state and evidence a manual removal began
+  from, persisted so that cancelling returns there (§17.4 item 5);
+* ⟨r3⟩ `late_write: Option<{ step_token, not_after_remote }>`: the "possible late write" residual of
+  an uncertain append that was left for `withdrawn` or `abandoned` (§6.7);
 * `state`, `verified_at`, `evidence: { client, server, verified_by_operation, ⟨r2⟩ clock:
   ClockMeasurement | unmeasured }`;
 * `created_at`, `updated_at`.
@@ -771,29 +880,38 @@ The marker is `heimdall:<enrollment-id>`. It is opaque and is the add's idempote
 M03-R07, F06). It has 20 states. **Every** documented recovery path has a test, not only every pair of
 the table (plan U0 `enrollment_recovery_paths_each_tested`).
 
+⟨r3⟩ Revision 3 changes transitions, not states (§17.4 item 5; A R2-05, B R2-05, B R2-06):
+* cancelling a manual removal returns to the state it began from;
+* system trust the owner may have installed stays listed until its absence is verified;
+* `held` has owner-driven exits;
+* a retry of the initial verification runs under the still-open `enrollment.apply`;
+* a lock holder that cannot be proven gone ends in `held`, for manual recovery, never in a redispatch
+  (§17.4 item 2).
+
 | State | Form | Meaning | Allowed transitions (event) |
 |---|---|---|---|
 | `planned` | both | Operation admitted, awaiting the owner decision | `applying` (account: `EnrollAccount` approved); `manual_pending` (system: `EnrollSystemForm` approved); `withdrawn` (denied, cancelled, or the decision is stale; nothing written) |
-| `applying` | account | The approved operation is running; nothing remote is known written | `applied_unverified` (append confirmed, or `already_present` with the exact line); `outcome_unknown` (the step's result was lost or timed out); `failed_unwritten` (refused before any write: not manageable, provider locked, host trust, route changed, window expired); `held` (post-write check failed); stays `applying` on `busy` (bounded retries, §6.3) |
-| `outcome_unknown` | account | The append may or may not have applied | `applied_unverified` (reconcile: exactly one exact line); `applying` (reconcile: marker absent **and** the fencing conditions of §6.7 hold, within the approval's validity, on an attended session); `held` (damaged line or two marker lines); ⟨r2⟩ `withdrawn` (marker absent after fencing and the approval lapsed: `DECISION_STALE`, `approval_lapsed`); ⟨r2⟩ `abandoned` (owner); stays while unreachable or while the old step's lock may still be live |
-| `held` | both | Our marker or trust is present but wrong, or a check failed in a way that needs the owner. Nothing automatic happens | `removing` (account: `RemoveEnrollment`); `manual_removal_pending` (system); `abandoned` |
-| `applied_unverified` | account | The exact line is present; no positive and negative verification has passed | `verifying`; `removing` (`RemoveEnrollment`); `abandoned` |
-| `manual_pending` | system | Approved; waiting for the owner to apply the sshd lines (§6.9) | `verifying` (owner confirms applied); `withdrawn` (owner cancels: Heimdall wrote nothing) |
-| `verifying` | both | The **initial** verification (§6.5) is running | `verified` (pass); `rollback_pending` (account: failure with refusal evidence, or principals not enforced); `manual_pending` (system: failure or inconclusive, with the finding); `applied_unverified` (account: inconclusive or unreachable); ⟨r2⟩ `held` (host-key mismatch: no rollback over an untrusted host; or system form with principals not enforced) |
-| `verified` | both | Positive passed with exactly one signature and the negative was refused with full refusal evidence (§6.5). `destination_scope: verified_server_principals` may be claimed for the pair | ⟨r2⟩ `reverifying`; `removing` (account: `RemoveEnrollment`); `manual_removal_pending` (system) |
-| ⟨r2⟩ `reverifying` | both | A **later** verification (§6.5, owner or supervisor). Never removes anything (§17.1 item 5) | `verified` (pass: freshness renewed; **or** unreachable or inconclusive: unchanged freshness and a doctor finding); `held` (failure: `principals_not_enforced`, or positive refused with refusal evidence; grants under that CA for that pair degraded) |
-| `rollback_pending` | account | The initial verification failed; removing our line under the enrollment decision | `verification_failed` (removed); ⟨r2⟩ `rollback_unknown` (the remove step's result was lost); `held` (`registry_changed` three times, or not rewritable: manual instructions); ⟨r2⟩ `abandoned` |
-| ⟨r2⟩ `rollback_unknown` | account | The rollback's removal may or may not have applied. It keeps the **rollback** purpose | `verification_failed` (reconcile: marker absent); `rollback_pending` (reconcile: present); `abandoned`; stays while unreachable |
+| `applying` | account | The approved operation is running; nothing remote is known written | `applied_unverified` (append confirmed, or `already_present` with the exact line); `outcome_unknown` (the result of an append, ⟨r3⟩ or of a bootstrap, was lost or timed out); `failed_unwritten` (refused before any write: not manageable, provider locked, host trust, route changed, ⟨r3⟩ not-after passed, parent directory absent, endpoint changed); `held` (post-write check failed); stays `applying` on `busy` (bounded retries, §6.3) and ⟨r3⟩ after a confirmed bootstrap |
+| `outcome_unknown` | account | The append may or may not have applied | `applied_unverified` (reconcile: exactly one exact line); `applying` (reconcile: marker absent, ⟨r3⟩ **the old holder proven gone**, and the other conditions of §6.7, within the approval's validity, on an attended session); `held` (damaged line or two marker lines; ⟨r3⟩ or `lock_holder_unresolved` after `holder_termination_attempts` reconciles); ⟨r2⟩ `withdrawn` (marker absent after fencing and the approval lapsed: `DECISION_STALE`, `approval_lapsed`; ⟨r3⟩ it keeps the `late_write` residual until that clears); ⟨r2⟩ `abandoned` (owner; ⟨r3⟩ with the `late_write` residual); stays while unreachable, or while the old holder may still be alive |
+| `held` | both | Our marker or trust is present but wrong, or a check failed in a way that needs the owner. Nothing automatic happens. ⟨r3⟩ `hold.reason` says which | `removing` (account: `RemoveEnrollment`, ⟨r3⟩ which carries a **freshly evaluated target** when the hold is a host-key change); `manual_removal_pending` (system; origin `held`); `abandoned`; ⟨r3⟩ `reverifying` (owner, `enroll verify`, for an **evidence-based** hold only: `principals_not_enforced`, positive refused, or verification failed after the approval lapsed); ⟨r3⟩ `reverifying` (decision `ApproveTargetChange` approved, for a `host_key_changed` hold: the new host key, shown as a diff against the approved one, replaces it); ⟨r3⟩ `applied_unverified` or `withdrawn` (the manual-recovery reconcile of a `lock_holder_unresolved` hold, §6.7: one exact line, or none; never a redispatch) |
+| `applied_unverified` | account | The exact line is present; no positive and negative verification has passed | `verifying` (⟨r3⟩ through `reconcile` while the `enrollment.apply` approval is valid; through `enroll verify` after it has lapsed); `removing` (`RemoveEnrollment`); `abandoned` |
+| `manual_pending` | system | Approved; waiting for the owner to apply the sshd lines (§6.9) | `verifying` (owner confirms applied); ⟨r3⟩ `manual_removal_pending` (owner cancels: the owner may already have installed the lines, so the entry stays until their absence is verified; origin `manual_pending`); ⟨r3⟩ `abandoned` |
+| `verifying` | both | The **initial** verification (§6.5) is running | `verified` (pass); `rollback_pending` (account: failure with refusal evidence, or principals not enforced, ⟨r3⟩ **while the approval is valid**); ⟨r3⟩ `held` (account: the same failure after the approval lapsed; removal needs `RemoveEnrollment`); `manual_pending` (system: failure or inconclusive, with the finding); `applied_unverified` (account: inconclusive or unreachable); ⟨r2⟩ `held` (host-key mismatch: no rollback over an untrusted host; or the system form with principals not enforced) |
+| `verified` | both | Positive passed with exactly one signature and the negative was refused with full refusal evidence (§6.5). `destination_scope: verified_server_principals` may be claimed for the pair | ⟨r2⟩ `reverifying`; `removing` (account: `RemoveEnrollment`); `manual_removal_pending` (system; origin `verified`) |
+| ⟨r2⟩ `reverifying` | both | A **later** verification (§6.5, owner or supervisor). Never removes anything (§17.1 item 5) | `verified` (pass: freshness renewed; **or**, when it started from `verified`, unreachable or inconclusive: unchanged freshness and a doctor finding); `held` (failure: `principals_not_enforced`, or positive refused with refusal evidence; grants under that CA for that pair degraded). ⟨r3⟩ When it started from `held`, an unreachable or inconclusive result returns to `held` with its reason unchanged |
+| `rollback_pending` | account | The initial verification failed; removing our line under the enrollment decision | `verification_failed` (removed); ⟨r2⟩ `rollback_unknown` (the remove step's result was lost); `held` (`registry_changed` three times, or not rewritable: manual instructions; ⟨r3⟩ or `lock_holder_unresolved`); ⟨r2⟩ `abandoned` |
+| ⟨r2⟩ `rollback_unknown` | account | The rollback's removal may or may not have applied. It keeps the **rollback** purpose | `verification_failed` (reconcile: marker absent); `rollback_pending` (reconcile: present, ⟨r3⟩ the old holder proven gone); ⟨r3⟩ `held` (`lock_holder_unresolved`); `abandoned`; stays while unreachable |
 | `removing` | account | **Explicit** owner-decided removal running (`RemoveEnrollment`) | `removed`; `remove_unknown`; `held` |
-| `remove_unknown` | account | The explicit removal may or may not have applied. It keeps the **explicit removal** purpose | `removed` (reconcile: marker absent); `removing` (reconcile: present); ⟨r2⟩ `abandoned`; stays while unreachable |
-| ⟨r2⟩ `manual_removal_pending` | system | The owner is to remove the sshd lines; Heimdall shows them | `removal_verifying` (owner confirms removed); `verified` (owner cancels) |
-| ⟨r2⟩ `removal_verifying` | system | The absence check runs (§6.9) | `removed` (absence verified); `manual_removal_pending` (still accepted, or inconclusive) |
-| `verification_failed`, `removed`, `withdrawn`, `failed_unwritten` | — | Final; no trust of ours remains, as last observed. `removed` for the system form means **absence verified**, never "removed by Heimdall" | none |
-| `abandoned` | both | The owner gave the account up while unreachable, held or uncertain. Trust may remain. Reported `pending_until_line_removed`; listed by uninstall and the bundle | `removing` (account, a new `RemoveEnrollment`); `manual_removal_pending` (system) |
+| `remove_unknown` | account | The explicit removal may or may not have applied. It keeps the **explicit removal** purpose | `removed` (reconcile: marker absent); `removing` (reconcile: present, ⟨r3⟩ the old holder proven gone); ⟨r3⟩ `held` (`lock_holder_unresolved`); ⟨r2⟩ `abandoned`; stays while unreachable |
+| ⟨r2⟩ `manual_removal_pending` | system | The owner is to remove the sshd lines; Heimdall shows them. ⟨r3⟩ `removal_origin` holds the state and evidence it began from | `removal_verifying` (owner confirms removed); ⟨r3⟩ **the origin state, with its evidence restored** (owner cancels: `verified`, `held`, `abandoned` or `manual_pending`) |
+| ⟨r2⟩ `removal_verifying` | system | The absence check runs (§6.9) | `removed` (absence verified); ⟨r3⟩ `withdrawn` (absence verified, and the origin was `manual_pending`, so no verification ever passed); `manual_removal_pending` (still accepted, or inconclusive; origin kept) |
+| `verification_failed`, `removed`, `withdrawn`, `failed_unwritten` | — | Final; no trust of ours remains, as last observed. `removed` for the system form means **absence verified**, never "removed by Heimdall". ⟨r3⟩ A `withdrawn` record may still carry the `late_write` residual (§6.7), listed until an inspect after its not-after shows absence | none |
+| `abandoned` | both | The owner gave the account up while unreachable, held or uncertain. Trust may remain. Reported `pending_until_line_removed`; listed by uninstall and the bundle. ⟨r3⟩ It is **outside** the uniqueness rule: a new enrollment of the pair uses a new marker, and this record stays listed (Q25) | `removing` (account: a new `RemoveEnrollment`, whose reconcile may break this enrollment's own stale lock once its holder is proven gone, §6.7); `manual_removal_pending` (system; origin `abandoned`) |
 
 A pair is usable for managed issuance only through a `verified` enrollment (`reverifying` counts as
-`verified` while it runs). Those are the only states that add the CA to the pair's issuable set. ⟨r2⟩
-**CA retirement** requires every enrollment of that CA to be final or `abandoned` (D4 item 3).
+`verified` while it runs, ⟨r3⟩ when it started from `verified`, never from `held`). Those are the
+only states that add the CA to the pair's issuable set. ⟨r2⟩ **CA retirement** requires every
+enrollment of that CA to be final or `abandoned` (D4 item 3).
 
 ### 6.3 The remote registry protocol
 
@@ -808,9 +926,12 @@ journal:
    * ⟨r2⟩ It re-evaluates the route (below) and refuses with `route_changed` on any difference.
    * ⟨r2⟩ At most **one step is outstanding** per enrollment (§17.1 item 6).
    * It writes the stage receipt first: `Attempted` (effect token = the marker) for `append` and
-     `remove`, `started` for `inspect`. Only then does it return the step: `{stage, step_token,
-     script, client, pins, alias, remote_command, timeout_ms, hard_deadline}`, where `step_token` is
+     `remove`, ⟨r3⟩ `Attempted` (effect token = the marker plus `:dir`) for `bootstrap`, and `started`
+     for `inspect`. Only then does it return the step: `{stage, step_token, script, client, pins,
+     alias, remote_command, timeout_ms, hard_deadline, ⟨r3⟩ not_after_remote}`, where `step_token` is
      128 random bits.
+   * ⟨r3⟩ A mutating step needs a fresh remote clock reading: an `inspect` of the same operation less
+     than `enrollment_inspect_max_age` (10 min) old. Otherwise `Step` returns an `inspect` first.
 2. The CLI runs the invocation below on its own terminal. It then sends `Enrollment::StepResult {
    operation_id, step_token, exit_status, stdout, stderr_excerpt }`.
    * ⟨r2⟩ It is accepted from the owner role only.
@@ -835,31 +956,98 @@ or stay held; it cannot make one verify.
 `TargetEvaluator` for the alias and compares the result with the approved target. A difference in
 HostName, Port, User, proxy chain or the known host key, or a target that is no longer determined,
 refuses the step with `CAPABILITY_UNAVAILABLE`, reason `route_changed`. A new enrollment decision is
-needed. The step's stage receipt is not written in that case.
+needed. The step's stage receipt is not written in that case. ⟨r3⟩ It also re-validates the approved
+existing-access endpoint (below); a change refuses with `existing_access_changed`.
 
 **Invocation.** Every remote step is **one** `ssh` process:
 * the verified client from M02's client inventory, named in the step;
 * the user's ordinary configuration for everything not pinned (P included);
-* ⟨r2⟩ the **pins**, all passed with `-o` (command-line values are read first and win, F1):
+* ⟨r2⟩ the **pins**, all passed with `-o`. Command-line values are read first and win (F1). ⟨r3⟩ They
+  are also parsed before any configuration file, so a configured `IgnoreUnknown` cannot hide one, and a
+  pin a client does not know fails the step before it connects (M-F25). The M02 client floor (9.5) knows
+  every pin below.
   * **target** (§17.1 item 2): `HostName=<approved>`, `Port=<approved>`, `User=<approved>`,
-    `ProxyCommand=none`, `ProxyJump=none`, `HostKeyAlias=hm-target-<16 hex>`,
-    `UserKnownHostsFile=<runtime_dir>/e/<16 hex>/known_hosts`, `GlobalKnownHostsFile=<runtime_dir>/e/<16
-    hex>/empty`, `StrictHostKeyChecking=yes`, `CheckHostIP=no`, `UpdateHostKeys=no`. The known_hosts
-    file is written by the runtime before it returns the step, owner-only, and holds exactly one line:
-    the alias with the approved host key;
+    `ProxyCommand=none`, `ProxyJump=none`, ⟨r3⟩ `CanonicalizeHostname=no`;
+  * ⟨r3⟩ **host trust** (§17.4 item 1; A R2-01). The approved host key is the **only** trust source.
+    The pins, and the reason each one is needed, are in the table below;
   * **existing access** (§17.1 item 4; M03-R04), for **every** remote step, the initial append
-    included. The maintenance steps (rotation, removal, rollback, reconcile) are what the ruling names;
-    the initial append gets the same pins so that one invocation is shown and approved:
-    * `IdentityAgent=<the identity's endpoint, or SSH_AUTH_SOCK for an identity used through the
-      session's agent>`;
+    included (§17.3 item 5):
+    * ⟨r3⟩ `IdentityAgent=<the approved concrete endpoint>`;
     * `IdentityFile=<the adopted public key file>`, `IdentitiesOnly=yes`;
-    * `CertificateFile=none`, held by Q19 (M-F20);
+    * `CertificateFile=none` (§17.3 item 2; M-F20);
     * `ControlMaster=no`, `ControlPath=none`;
   * **narrowing:** `BatchMode=<yes when non-interactive>`, `ForwardAgent=no`,
-    `ClearAllForwardings=yes`, `PermitLocalCommand=no`, `RequestTTY=no`;
-* `-T`, then the alias, then the remote command `exec /bin/sh -s`.
+    `ClearAllForwardings=yes`, `PermitLocalCommand=no`, `RequestTTY=no`, ⟨r3⟩
+    `ForkAfterAuthentication=no` (§17.4 item 7);
+* `-T`, then the alias, then ⟨r3⟩ the fixed remote command `printf 'HM1 ready\n'; exec /bin/sh -s`.
 
-The script is written to the child's stdin.
+⟨r3⟩ **The ready handshake** (B R2-04). The CLI writes the script to ssh's stdin only **after** it has
+read the line `HM1 ready` from ssh's stdout.
+* The line proves three things at that moment: authentication finished, the remote session is
+  running, and the CLI is alive.
+* A CLI that dies while ssh waits on a provider approval or a passphrase has written nothing. So a
+  stale approval can never deliver an old script later.
+* Any output before `HM1 ready` (a noisy login rc) is a `registry_unsupported` refusal, and the script
+  is never sent.
+
+⟨r3⟩ **The host-trust pins, and why each is needed** (§17.4 item 1). The list was checked against the
+pinned ssh_config(5) and ssh(1) that ADR-0003 points to (`docs/sources/snapshots/S01.txt.gz` and
+`S02.txt.gz`; M-F25):
+
+| Option | Pin | What it would otherwise do | Why the pin covers it |
+|---|---|---|---|
+| `UserKnownHostsFile` | the generated `<runtime_dir>/e/<16 hex>/known_hosts`. It is owner-only and holds exactly one plain line: the alias and the approved key, with no marker, no pattern and no hashed name | The default `~/.ssh/known_hosts` and `~/.ssh/known_hosts2`, or any configured list. Any of them may trust another key | One file, written and digest-checked by the runtime before it returns the step. The first value wins, and the directive takes the whole list |
+| `GlobalKnownHostsFile` | an empty generated file | `/etc/ssh/ssh_known_hosts` and `ssh_known_hosts2`, or any configured list | ssh_config(5) documents no `none` for it, so an empty file is used (§17.3 item 5) |
+| `KnownHostsCommand` | `none` | Runs a command whose output adds host keys "in addition to" the files: reviewer A's reproduction | `none` is not documented for this option in the pinned page: **Q22**. Each client's handling is recorded, and the wrong-key test refuses before any mutation |
+| `VerifyHostKeyDNS` | `no` | With `yes`, trusts a key matching a DNSSEC-secured SSHFP record | `no` is documented |
+| `HostKeyAlgorithms` | exactly the approved key's algorithms: its key type, or for RSA `rsa-sha2-512,rsa-sha2-256`. Never a `-cert-v01@openssh.com` type | Lets the server present another key type, or a host certificate | No other key and no certificate can be negotiated, so `@cert-authority` lines and `CASignatureAlgorithms` never come into play |
+| `HostKeyAlias` | `hm-target-<16 hex>` | The lookup uses the host name and port as configured, so how the user's files spell them would matter | The lookup name is the generated one, present only in the generated file |
+| `StrictHostKeyChecking` | `yes` | `ask`, `accept-new`, `no` or `off` add unknown keys or accept changed ones | Documented: it never adds a key and refuses a changed one. An unknown key is refused without a prompt |
+| `CheckHostIP` | `no` | With `yes`, it checks and **adds** address entries "regardless of the setting of StrictHostKeyChecking", and runs `KnownHostsCommand` once more | `no` is documented, and nothing is written |
+| `UpdateHostKeys` | `no` | Adds server-sent keys to the user file after authentication | `no` is documented. The generated file is also re-checked by digest before each step |
+| `NoHostAuthenticationForLocalhost` | `no` | With `yes`, it **disables host authentication** for a loopback destination, and every M03 fixture is one | **Not in §17.4 item 1's list.** The check added it, because the ruling asks for every option that affects host trust. Its wrong-key fixture test runs on loopback |
+| `ControlMaster`, `ControlPath` | `no`, `none` | A mux client reuses an existing master, whose host was authenticated under **its own** options, so this invocation's check is skipped | `none` is documented to disable sharing |
+| `ProxyCommand`, `ProxyJump`, `CanonicalizeHostname` | `none`, `none`, `no` | They change which server is reached; canonicalization also re-parses the configuration under a new name | Route pins. Trust still rests on the key; the route is pinned so that the approved destination is the one reached (§17.1 item 2) |
+
+* **Not pinned, because they can only refuse.** The user's values apply: `RevokedHostKeys` (a missing
+  file refuses every host), `RequiredRSASize`, and `CASignatureAlgorithms` (host certificates are
+  excluded anyway).
+* **Not pinned, because they write or display only.** `HashKnownHosts`, `VisualHostKey` and
+  `FingerprintHash` change how keys are written or shown, and nothing is written.
+* **Options outside the pinned sources** are Q23 (a vendor patch's GSSAPI key exchange).
+* **The effective configuration is checked.** Before the first step of an operation, the runtime runs
+  the client's `ssh -G` with exactly the step's pins and alias. Unless every option in the table has its
+  pinned value, it refuses with `host_trust_unpinnable`.
+
+⟨r3⟩ **The existing-access endpoint** (§17.4 item 4; A R2-04).
+* **It is resolved from the catalog identity record**, never from any process's `SSH_AUTH_SOCK`:
+  * `native_agent`: the record's endpoint;
+  * `onepassword`: the record's endpoint, when it names one;
+  * a record that names none (1Password at its default, or a public-key-file identity used through an
+    agent) is **Q24**. Default until ruled: the alias's own `IdentityAgent`, statically evaluated from
+    the user's configuration **with P's managed block excluded**. When that is unset, `none` or
+    undetermined, the preview refuses with `existing_access_endpoint_unrecorded`; the remedy is to
+    record the endpoint on the catalog identity (M02's catalog update).
+* **It is shown and approved.** The plan names the endpoint, and the decision and the request hash
+  cover it.
+* **It is refused** (`existing_access_endpoint_is_heimdall`) if it is, or resolves to, a Heimdall
+  managed endpoint:
+  * any path under the runtime directory;
+  * any name in the signer's endpoint registry (environment, binding and verification endpoints,
+    Windows pipe names included);
+  * any symlink resolving to one of those.
+* **It is re-validated before every step**: unchanged, present, owned by the user, and still not
+  Heimdall's. Otherwise the step is refused with `existing_access_changed`, which needs a new
+  decision.
+* **Why it holds.**
+  * The pinned `IdentityAgent` is read first, so neither P nor a managed `run`'s `SSH_AUTH_SOCK` can
+    select Heimdall's signer.
+  * `IdentitiesOnly` with the adopted public key keeps the managed key file from being offered.
+  * `maintenance_inside_managed_run_context_zero_managed_signatures` runs maintenance from inside a
+    managed `run`, whose `SSH_AUTH_SOCK` is the binding endpoint, and asserts zero signatures on every
+    Heimdall endpoint.
+
+The script is written to the child's stdin, ⟨r3⟩ after the ready line.
 
 * **Why the managed credential is never used.** The pinned `IdentityAgent` replaces P's environment
   endpoint, and K_env lives only in Heimdall's signer, which that agent cannot reach. So a maintenance
@@ -868,56 +1056,144 @@ The script is written to the child's stdin.
 * ⟨r2⟩ **ADR-0007 §9 item 1** keeps tests from adding `IdentityFile`, `HostName` and similar options,
   so that the configuration under test is what decides. These pins are product behaviour, pinning the
   approved target and identity, and are tested as product output.
-* The remote login shell interprets only `exec /bin/sh -s`. Every value is a validated literal inside
-  the script, in single quotes:
+* The remote login shell interprets only ⟨r3⟩ the fixed remote command. Every value is a validated
+  literal inside the script, in single quotes:
   * the line's character set (`[A-Za-z0-9+/=,:" ._@-]`) contains no `'`;
   * paths are validated (§6.1).
 * Host trust is never weakened. A host-key failure (exit 255 with "Host key verification failed")
   maps to `HOST_TRUST_CHANGED`.
 
+⟨r3⟩ **The step runner's lifetime** (§17.4 item 2; B R2-04). `SshStepRunner` ties ssh to the CLI:
+* **Unix:**
+  * ssh runs in its own process group, and the CLI kills the group on drop and on every signal it
+    handles;
+  * on Linux the child also gets `PR_SET_PDEATHSIG(SIGKILL)`;
+  * macOS has no parent-death signal. The ready handshake covers that case: a dead CLI never writes the
+    script, and its closed pipe ends ssh's input.
+* **Windows:** ssh runs in a kill-on-close job object owned by the CLI (M02's `JobObject` primitive),
+  so the CLI's death ends it.
+
 Bounds:
 * stdout ≤ 512 KiB and stderr ≤ 64 KiB (excerpt 4 KiB), read concurrently;
 * connect 30 s;
 * total 120 s, or 300 s for an interactive step that may wait on a provider approval;
-* ⟨r2⟩ the step's **hard deadline** is its issue time + `timeout_ms` + the script's mutation window
-  (60 s) + 30 s, on the runtime's continuous clock.
+* ⟨r2⟩ the step's **hard deadline** is its issue time + `timeout_ms` + 60 s + 30 s, on the runtime's
+  continuous clock.
+  * ⟨r3⟩ It is persisted together with the wall-clock deadline and the boot ID (B R2-11).
+  * After a local reboot the continuous value is void. The deadline then counts as passed only once
+    **safe** wall time has passed the wall deadline, which means after `time confirm` (Q13);
+* ⟨r3⟩ the step's **remote not-after** (B R2-04):
+
+  ```
+  not_after_remote = T + (c_issue − c_read) + timeout_ms + 60 s
+  ```
+
+  * `T` is the remote clock reading of the operation's latest `inspect`;
+  * `c_read` is the local continuous time at which that reading arrived;
+  * the remote clock has passed `not_after_remote` by the hard deadline, with 30 s to spare for the
+    reading's resolution and drift.
 
 **Output.** Line-oriented: `HM1 <key>=<value>`. Values are decimal, a fixed token, or lowercase hex
-produced by `od -An -v -tx1`, never raw bytes. The first line must be `HM1 v=1`. Otherwise the remote
-shell is not POSIX, or something printed before the script ran, and the step fails with
-`registry_unsupported`, writing nothing.
+produced by `od -An -v -tx1`, never raw bytes. ⟨r3⟩ The first line is the ready line, and the first line
+of the script's own output must be `HM1 v=1`. Otherwise the remote shell is not POSIX, or something
+printed before the script ran, and the step fails with `registry_unsupported`, writing nothing.
 
-**Utilities** (M-F10, M-F23): `sh`, `id`, `ls`, `test`, `cat`, `cmp`, `od`, `tail`, `grep`, `awk`,
-`mkdir`, `chmod`, `mv`, `rm`, `printf`. No `stat`, `sha256sum`, `base64`, `xxd` or `date +%s`, because
-none is POSIX.
+**Utilities** (M-F10, M-F23, ⟨r3⟩ M-F30, M-F31): `sh`, `id`, `ls`, `test`, `cat`, `cmp`, `od`, `tail`,
+`grep`, `awk`, `mkdir`, `chmod`, `mv`, `rm`, `printf`, ⟨r3⟩ `ln`, `kill`, `ps` and `uname`, plus the
+start-identity sources below. No `stat`, `sha256sum`, `base64`, `xxd`, `readlink` or `date +%s`, because
+none of them is POSIX.1-2017.
 
-⟨r2⟩ **Fencing: a per-account lock** (§17.1 item 6; M03-R06). Every mutating script (`append`,
-`remove`) runs its critical section under a lock beside the registry:
-1. **Take the lock:** `mkdir <registry dir>/.hm-lock.<registry name>` (atomic; M-F23). Write the step's
-   token into `token` inside it, and record the script's start time from `awk` (M-F23).
-2. A lock that already exists, with another token, makes the script exit **40 `busy`** with nothing
-   changed. The runtime retries a busy step with bounded, jittered backoff (3 attempts), then reports
-   `CONFIG_CONFLICT`, reason `registry_busy`.
-3. **Just before the mutation**, the script re-checks two things:
-   * the elapsed time since its start is within the **mutation window** (60 s), else it exits **41
-     `window_expired`** with nothing changed;
-   * the lock still holds its own token, else it exits **42 `lock_lost`** with nothing changed.
-4. It then mutates, reads back, and **releases** the lock by removing exactly its own lock directory
-   (the token is checked first).
+⟨r3⟩ **Script hardening** (§17.4 item 2; B R2-10, B R2-14).
+* **A truncated script does nothing.** Every script is one function, `hm_main() { … }`, called on its
+  **last** line (`hm_main`). A stream cut anywhere before that line leaves either an incomplete
+  definition, which is a syntax error so nothing runs, or a complete one that is never called (M-F26). A
+  golden test cuts every script at every byte offset and runs each prefix on every target shell.
+* **One locale.** The function's first statement is `export LC_ALL=C` (M-F32).
+* **One umask.** `umask 077` follows it.
 
-A lock whose step's **hard deadline** has passed is **stale**. Only `reconcile` breaks it (§6.7): it
-renames it aside (`mv <lock> <lock>.stale.<16 hex>`), re-reads the registry, and then removes the
-renamed directory. A script that resumes after its lock was broken therefore exits 41 or 42 without
-writing.
+⟨r3⟩ **Fencing: a per-registry lock that records its holder, broken only on proven termination**
+(§17.4 item 2; A R2-02, B R2-04). This replaces revision 2's `mkdir` lock and rename-aside, which let a
+paused writer append after its lock was taken away (reviewer A's model produced two marker lines).
+
+1. **The holder record is the lock.** Every mutating script (`append`, `remove`) takes the lock with one
+   atomic call (M-F31):
+
+   ```sh
+   ln -s "hm1-$TOKEN-$$-$START-$BOOT-$NOT_AFTER" "$DIR/.hm-lock.$NAME"
+   ```
+
+   * `$$` is the script's shell, the session's process-group leader (M-F30). The script first checks
+     that `ps -o pgid= -p $$` equals `$$`. If not, it exits **33** (`no_process_group`) before taking
+     the lock;
+   * `$START` and `$BOOT` are the start identity and boot identity from the table below, as lowercase
+     hex (`od`), so the link's contents use only `[0-9a-f-]`;
+   * before `ln`, a **directory** at the lock name (which would make `ln` create the link inside it)
+     exits 30;
+   * after `ln`, `ls -ld` must show a link whose contents are exactly the script's own. Otherwise the
+     script exits 30, after removing only a link it created inside a foreign directory.
+2. **Before the lock**, the script checks two more things:
+   * that the registry's directory exists. If it is absent, the script exits **32**
+     (`registry_dir_absent`), distinct from `busy`, with nothing changed (§17.4 item 3; A R2-03);
+   * the remote clock against `NOT_AFTER`. If that has passed, it exits **41** (`not_after_passed`).
+3. **A lock that already exists** makes the script exit **40 `busy`**, with nothing changed, whoever
+   holds it.
+   * A lock carrying another enrollment's token is `busy` for every other enrollment. No enrollment ever
+     breaks another's lock (§17.4 item 2).
+   * The runtime retries a busy step with bounded, jittered backoff (3 attempts). It then reports
+     `CONFIG_CONFLICT`, reason `registry_busy`, and shows the lock's holder record.
+4. **Immediately before the write**, the script re-checks two things:
+   * the link still holds its own contents, else **42 `lock_lost`**;
+   * the remote clock has not passed `NOT_AFTER`, else **41**.
+5. It then mutates, reads back, and **releases** the lock by removing the link after checking its
+   contents.
+
+**Breaking a lock** is done only by `reconcile` of the **same** enrollment (§6.7), and only once the
+holder is **proven gone**. Age alone never proves it. The `fence` script runs under the same pins,
+reads the holder record (`PID`, `START`, `BOOT`), and decides:
+* **gone**, in any of these cases:
+  * the boot identity differs;
+  * `PID` exists with a **different** start identity. A PID is not reused while its process group has
+    members, so the holder's group was already empty when the PID was reused (M-F30);
+  * `PID` does not exist, and no process is in process group `PID` (`kill -0 -- -PID` fails);
+* **alive** otherwise: `PID` exists with the same start identity (a zombie included), or `PID` does not
+  exist but its group still has members, which can only be the holder's children.
+
+An **alive** holder whose `NOT_AFTER` has passed on the remote clock may be **terminated**:
+1. `kill -s TERM -- -PID`, then wait up to 5 s;
+2. `kill -s KILL -- -PID`, which also ends a stopped process, then wait up to 5 s;
+3. prove again.
+
+The identity is re-checked before each signal. Only a `gone` result removes the link. If the proof still
+fails (a process in uninterruptible sleep, for example), nothing is removed, and the step stays `busy` or
+uncertain. After `holder_termination_attempts` (3) reconciles, the record is `held`
+(`lock_holder_unresolved`), with manual instructions. **It is never redispatched** (§6.7).
+
+⟨r3⟩ **The start identity per target shell** (§17.4 item 2; M-F30). The command depends on the
+target's userland, not on the shell, because `$$` means the same in every target shell:
+
+| Target (shell) | Start identity | Resolution | Boot identity | POSIX status |
+|---|---|---|---|---|
+| Linux: Debian 13 and Ubuntu 24.04 `dash`; bash as `sh`; BusyBox `ash` | field 22 (`starttime`) of `/proc/$$/stat`, read with `awk` after the last `)` | clock ticks since boot | `/proc/sys/kernel/random/boot_id` | **Not POSIX** (Linux procfs). The reads use only POSIX `awk` and `cat` |
+| macOS `/bin/sh` (bash in POSIX mode, or the configured `sh`) | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | **Not POSIX**: `lstart` is a BSD `ps` field, and `sysctl` is not POSIX |
+| FreeBSD, NetBSD and OpenBSD `sh` | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | **Not POSIX**, as above. [I]: no M03 target runs them |
+| Anything else (`uname -s` not recognized) | — | — | — | The mutating scripts exit 30 (`start_identity_unavailable`) before the lock; `inspect` still runs |
+
+* **Why not POSIX `ps -o etime=`.** It gives the elapsed time, but "now minus elapsed" moves with
+  rounding between two reads, so any tolerance would accept a reused PID. It is rejected.
+* **The 1 s resolution** leaves a PID reused **within the same second** indistinguishable on macOS and
+  the BSDs. With the group check and the boot identity this window is small, and it is disclosed.
+* **Evidence.** `start_identity_per_target_shell` records each target's values.
 
 **Scripts** (generated by `heimdall_registry::script`; release builds byte-compare them against
 goldens, and the test configuration adds pause points):
 
 | Script | Does | Exit codes |
 |---|---|---|
-| `inspect` | Resolves the registry path. Reports the directory (present/absent; mode string from `ls -ldn`; owned by `id -u`), the file kind (`regular`, `absent`, `symlink`, `other`), link count, mode string, owner, size, whether the last byte is `0a`, the number of lines containing the marker, the content as hex (≤ 128 KiB), ⟨r2⟩ the lock state (`none`, or `held` with its token and age from the remote clock), and the remote clock reading | 0 ok; 30 not manageable (reports why); 31 too large |
-| `append` | ⟨r2⟩ Under the lock. (1) Directory: `mkdir -m 0700` when absent; refuse when not owned by `id -u` or group/world-writable (M-F11). (2) File: when present, it must be regular, not a symlink, have link count 1, be owned by `id -u`, and carry no ACL, xattr or label indicator (a character after the 10-character mode string). (3) **If any line already contains the marker, exit 10 without writing** (idempotent). (4) The window and token re-check. (5) If the file is non-empty and its last byte, read **now** with `tail -c 1`, is not a newline, write one first. (6) Append the line with `>>`, or, when absent, create it with `set -C` and `>` and then `chmod 600`. (7) Emit the new content as hex. (8) Release the lock | 0 written; 10 already present (nothing written); 30 not manageable; 31 too large; ⟨r2⟩ 40 busy; 41 window expired; 42 lock lost |
-| `remove` | ⟨r2⟩ Under the lock. Gets the expected preimage and post-image as hex in quoted here-documents, decoded by `awk` `printf "%c"` (registry files are text without NUL; a NUL in the preimage refuses with 30). (1) The checks of `append` step (2), with the directory present. (2) Decode both into `.hm-pre.<nonce>` and `.hm-post.<nonce>` in the registry's directory, with umask 077, then `chmod` the post-image to the registry's permission bits read from `ls -ldn` (only `rw-`/`r--` bit patterns; anything else refuses with 30). (3) `cmp -s <registry> .hm-pre.<nonce>` or **exit 20 without renaming**. (4) The window and token re-check. (5) `mv -f .hm-post.<nonce> <registry>`. (6) Remove `.hm-pre.<nonce>` and emit the new content as hex. (7) Release the lock. A trap removes both temporary files on every exit path | 0 renamed; 20 changed since read (nothing renamed); 30 not manageable; 31 too large; ⟨r2⟩ 40 busy; 41 window expired; 42 lock lost |
+| `inspect` | Resolves the registry path. Reports: the directory (present or absent; its mode string from `ls -ldn`; whether it is owned by `id -u`); the file kind (`regular`, `absent`, `symlink`, `other`); link count, mode string, owner and size; whether the last byte is `0a`; the number of lines containing the marker; the content as hex (≤ 128 KiB); ⟨r3⟩ the lock state (`none`, or `held` with its holder record); and the remote clock reading | 0 ok; 30 not manageable (reports why); 31 too large |
+| ⟨r3⟩ `bootstrap` | Creates the registry's directory with `mkdir -m 0700 <dir>` (never `-p`) when it is absent (§17.4 item 3). Before: the **parent** must exist, be a directory and not a symlink, be owned by `id -u` or by root, and not be group- or world-writable. After: `ls -ldn` must show a directory, not a symlink, owned by `id -u`, with mode `drwx------`. A single `mkdir` is atomic and needs no lock; run twice, it reports already present | 0 created; 11 already present (checked as above); 30 not manageable; **33 parent absent** |
+| `append` | ⟨r3⟩ Under the lock: (1) Directory: present (else 32); refuse when not owned by `id -u`, or group- or world-writable (M-F11). (2) File: when present, it must be regular, not a symlink, have link count 1, be owned by `id -u`, and carry no ACL, xattr or label indicator (a character after the 10-character mode string). (3) **If any line already contains the marker, exit 10 without writing** (idempotent). (4) The link and not-after re-check. (5) If the file is non-empty and its last byte, read **now** with `tail -c 1`, is not a newline, write one first. (6) Append the line with `>>`; when the file is absent, create it with `set -C` and `>` and then `chmod 600`. (7) Emit the new content as hex. (8) Release the lock | 0 written; 10 already present (nothing written); 30 not manageable; 31 too large; ⟨r3⟩ 32 directory absent; 33 no process group; 40 busy; 41 not-after passed; 42 lock lost |
+| `remove` | ⟨r2⟩ Under the lock. It gets the expected preimage and post-image as hex in quoted here-documents, decoded by `awk` `printf "%c"` ⟨r3⟩ under `LC_ALL=C` (registry files are text without NUL; a NUL in the preimage refuses with 30). (1) The checks of `append` step (2), with the directory present. (2) Decode both into `.hm-pre.<nonce>` and `.hm-post.<nonce>` in the registry's directory, with umask 077, then `chmod` the post-image to the registry's permission bits read from `ls -ldn` (only `rw-`/`r--` bit patterns; anything else refuses with 30). (3) `cmp -s <registry> .hm-pre.<nonce>`, or **exit 20 without renaming**. (4) The link and not-after re-check. (5) `mv -f .hm-post.<nonce> <registry>`. (6) Remove `.hm-pre.<nonce>` and emit the new content as hex. (7) Release the lock. A trap removes both temporary files on every exit path | 0 renamed; 20 changed since read (nothing renamed); 30 not manageable; 31 too large; ⟨r3⟩ 32, 33, 40, 41 and 42 as for `append` |
+| ⟨r3⟩ `fence` | Reads the lock's holder record and reports `gone`, `alive` or `none`. With `--terminate`, allowed only once the holder's `NOT_AFTER` has passed on the remote clock, it sends TERM and then KILL to the exact process group, proves again, and removes the link only on `gone` | 0 `gone` (link removed) or `none`; **43 `alive`** (nothing removed); 30 not manageable |
 
 **Disclosed windows** (stated in every preview and confirmation; ADR-0005 §3.3):
 * an administrator write between `append` step (5) and its write can join the administrator's line to
@@ -925,11 +1201,14 @@ goldens, and the test configuration adds pause points):
   it automatically;
 * an administrator write between `remove` step (3) and (5) is lost, and cannot be detected afterwards.
   It is a few system calls in one remote command;
-* ⟨r2⟩ a script suspended **between** its window and token re-check (step 4) and its write, beyond
-  its hard deadline, could still write after reconcile broke its lock. The post-write and reconcile
-  checks then see two marker lines (`held`) or a missing line, and nothing rewrites automatically.
-  Administrators do not take Heimdall's lock, so the lock fences Heimdall's own steps only;
-* on a network file system, `O_APPEND` and `mkdir` may not be atomic [I].
+* ⟨r3⟩ revision 2's window **is closed**: a script suspended between its re-check and its write, which
+  could write after its lock was broken. A lock is now broken only once its holder's whole process group
+  is proven gone, so a paused writer is either terminated first or keeps its lock
+  (`writer_paused_just_before_write_no_duplicate_no_loss`);
+* ⟨r3⟩ a PID reused within the same second, on a target whose start identity has 1 s resolution
+  (above), and a group emptied and its number reused between `fence`'s check and its signal;
+* administrators do not take Heimdall's lock, so the lock fences only Heimdall's own steps;
+* on a network file system, `O_APPEND`, `symlink` and `mkdir` may not be atomic [I].
 
 **The post-write check** (after `append`, from its own output, with no extra round trip). Pass requires
 both:
@@ -954,7 +1233,8 @@ existing-access invocation and `plan_digest`.
 | E0 admit | operation row and intent (the plan); record `planned`; decision `EnrollAccount` (or `EnrollSystemForm`, §6.9) | — | — | Retry with the same key returns it (ADR-0006 §7) |
 | E1 approve | decision consumed; approval basis in the intent; record `applying` | — | — | Re-driven on owner reconcile |
 | E2 inspect | stage receipt `enroll.inspect.started` | read only | `enroll.inspect.observed {preimage_sha256, size, tail_newline, marker_lines, file_kind, dir_state, lock, remote_clock}` | Re-run: reads are safe |
-| E3 append | ⟨r2⟩ route re-evaluated; stage receipt **`Attempted`, effect token = marker**, with the step token and hard deadline | **append**, under the lock | `Confirmed {post_sha256}` with record `applied_unverified`; or `NotApplied {busy \| window_expired \| lock_lost \| refused}`; or `Uncertain` with record and operation `outcome_unknown` (`registry_outcome_unknown`) | Unresolved; reconcile per §6.7. **Never re-run blindly**; the script itself refuses a second line (exit 10) |
+| ⟨r3⟩ E2b bootstrap (only when E2 found the registry's directory absent; §17.4 item 3) | stage receipt **`Attempted`, effect token = marker + `:dir`** | **`mkdir -m 0700`** of the registry's directory (§6.3 `bootstrap`), with no lock | `Confirmed` (created, or 11 already present and checked), then E3; `NotApplied {parent_absent \| refused}` with record `failed_unwritten`; or `Uncertain` | Re-inspect: present and checked → continue at E3; absent → the bootstrap may run again. A second `mkdir` creates at most the same empty directory, so a late first one does no harm |
+| E3 append | ⟨r2⟩ route re-evaluated; stage receipt **`Attempted`, effect token = marker**, with the step token and hard deadline | **append**, under the lock | `Confirmed {post_sha256}` with record `applied_unverified`; or `NotApplied {busy \| ⟨r3⟩ not_after_passed \| lock_lost \| dir_absent \| refused}`; or `Uncertain` with record and operation `outcome_unknown` (`registry_outcome_unknown`) | Unresolved; reconcile per §6.7. **Never re-run blindly**; the script itself refuses a second line (exit 10) |
 | E4 verify | `enroll.verify.started`; verification issuance entries reserved and published (§6.5) | independent logins (no mutation) | `enroll.verify.passed {client, server, signatures: 1, negative_evidence, clock}` or `enroll.verify.failed {reason, evidence}` or `enroll.verify.inconclusive {reason}` | Re-run verification with fresh certificates. The old entries stay counted until their `valid_before` |
 | E5 record | — | — | **One transaction:** record `verified` with its evidence; ⟨r2⟩ add the CA to the pair preference's issuing-CA set; **only if the pair is not already managed with its projection applied**, set the preference to `managed_certificate` with `projection: pending` (§6.6; F05); operation `succeeded`, next `setup_apply` only in that case | If E4 passed and E5 did not commit: re-verify, then record |
 | E5′ rollback (E4 failed) | record `rollback_pending`; `Attempted` (token = marker plus `:rm`) | **remove**, through the pinned existing access, under the lock | record `verification_failed` (removed), or ⟨r2⟩ `rollback_unknown` | As E3, through reconcile |
@@ -1001,6 +1281,11 @@ ADR-0005 §3.3, as implemented:
      user's known-hosts files write the host and port;
    * `GlobalKnownHostsFile` = an empty generated file, `CheckHostIP no`;
    * `StrictHostKeyChecking yes`, `UpdateHostKeys no`, `CanonicalizeHostname no`;
+   * ⟨r3⟩ the rest of §6.3's host-trust pins: `KnownHostsCommand none`, `VerifyHostKeyDNS no`,
+     `HostKeyAlgorithms` limited to the approved key's algorithms, and `NoHostAuthenticationForLocalhost
+     no` (§17.4 item 1). `-F` already drops every user and system configuration file, so these state
+     the defaults explicitly and keep one tested pin set;
+   * ⟨r3⟩ `ForkAfterAuthentication no` (§17.4 item 7);
    * `IdentityAgent` = the verification endpoint, `IdentitiesOnly yes`, `IdentityFile <K_verify.pub>`,
      `CertificateFile <the positive or negative certificate>`;
    * `PreferredAuthentications publickey`, `PasswordAuthentication no`, `KbdInteractiveAuthentication
@@ -1022,9 +1307,17 @@ ADR-0005 §3.3, as implemented:
    * **Only lag matters.** A destination clock ahead of local time ends acceptance earlier, never
      later.
    * **Freshness.** A measurement older than the verification freshness (Q11) counts as `unmeasured`.
-5. ⟨r2⟩ **Evidence from the `-v` trace** (§17.1 item 3; M03-R03, F01). The trace patterns are
-   recorded per client version (`verify_trace_patterns`, plan U5; M-F22). A client whose patterns are
-   not recorded makes every result `verification_inconclusive`. For each attempt the Verifier extracts:
+5. ⟨r2⟩ **Evidence from the `-v` trace** (§17.1 item 3; M03-R03, F01).
+   * ⟨r3⟩ The trace patterns are keyed by **upstream release family** (§17.4 item 11; B R2-09):
+     * `portable`, for OpenSSH portable and the distribution builds of it;
+     * `win32`, for Win32-OpenSSH.
+
+     Each family carries the version ranges recorded from real runs (`verify_trace_patterns`, plan U5;
+     M-F22).
+   * A client outside every recorded range makes every result `verification_inconclusive`. The doctor
+     then reports `client_trace_family_unrecorded`, naming the family and the version.
+
+   For each attempt the Verifier extracts:
 
    | Event | Meaning |
    |---|---|
@@ -1049,7 +1342,17 @@ events are needed.
 | pass | accepted, or any signature recorded | `principals_not_enforced`: a high-severity finding. Account: rollback (`rollback_pending`); system: `held` | `held` (`principals_not_enforced`); grants under that CA for that pair degraded (`pair_unenrolled`); removal needs `RemoveEnrollment` |
 | refused | — | `verification_failed`: the registry is probably not the server's authoritative one (spec §7.4), or certificates are unsupported. Account: rollback; system: back to `manual_pending` with the finding. No Recipe A in M03 (Q4) | `held` (positive refused); grants degraded as above; removal needs its decision |
 | host key mismatch | — | `HOST_TRUST_CHANGED`. **No rollback attempt**: existing access would fail host verification too. Record `held`, remedy `review_host_trust` | `held`, remedy `review_host_trust` |
-| inconclusive, either attempt | | account: back to `applied_unverified`, so `enroll verify` retries (the line stays, and no grant uses it); system: `manual_pending` | `verified` with **unchanged** freshness, and a doctor finding `reverification_inconclusive` |
+| inconclusive, either attempt | | Account: back to `applied_unverified`. The line stays, and no grant uses it. ⟨r3⟩ The retry runs through `enroll reconcile`, under the still-open `enrollment.apply`, while its approval is valid. After the approval has lapsed it runs through `enroll verify`, and a failure then goes to `held`, with removal needing `RemoveEnrollment` (§17.4 item 5; B R2-06). System: `manual_pending` | `verified` with **unchanged** freshness, and a doctor finding `reverification_inconclusive`. ⟨r3⟩ From a hold: `held`, reason unchanged |
+| ⟨r3⟩ positive refused while the destination's clock is skewed beyond the validity allowance | — | `verification_inconclusive`, reason `destination_clock_skew`, and **no rollback** (§17.4 item 11; B R2-13). The finding names the measured offset; ADR-0005 §3.6 diagnoses a server clock error separately | the same: inconclusive, nothing changed |
+
+⟨r3⟩ **The skew rule.** The known offset is the remote clock reading of the operation's E2 `inspect` (the
+initial verification) or the enrollment's last fresh `ClockMeasurement` (re-verification), with its
+uncertainty (1 s plus the round trip).
+* The clock is **skewed beyond the allowance** when that interval reaches a lag of 60 s or more (the
+  certificate is not yet valid there; `valid_after` = now − 60 s), or a lead of 300 s or more (already
+  expired there).
+* Without a known offset, a refused positive is classified as refused.
+* A refusal that a clock fault could explain is therefore never rolled back as a failure.
 
 `log_attestation` is reported `unavailable` (ADR-0005 §3.3). The server log is only the test oracle, in
 the fixtures.
@@ -1075,6 +1378,11 @@ the fixtures.
     refusal evidence. A transport failure is not contrary evidence.
 
   Invalidated evidence reports `destination_scope: unknown` for the pair until re-verified.
+
+  ⟨r3⟩ **A client or CA change is not contrary evidence** (§17.4 item 11; B R2-09). The supervisor then
+  re-verifies the pair **promptly**: within `reverify_prompt_delay` (10 min), with bounded, jittered
+  retries. So a routine OpenSSH update does not leave the pair unverified until day 80. A host-key change
+  is never re-verified automatically: it needs `ApproveTargetChange` (§6.2).
 * **The supervisor re-verifies** each `verified` pair before its window lapses: after 80 days, with
   bounded jittered retries. Re-verification is non-interactive, uses the managed credential path only
   for the verification certificates (D5 item 2), and **changes nothing remotely**.
@@ -1108,33 +1416,55 @@ the fixtures.
 `heimdall enroll reconcile <operation>`, owner role (F20). For a step that is `Uncertain`, it runs
 `inspect` through the pinned existing access (§6.3) and classifies.
 
-⟨r2⟩ **Fencing first** (§17.1 item 6). Reconcile looks at the lock state in the inspect result before
-the marker:
-* **Lock held with the old step's token, before that step's hard deadline:** the old script may
-  still be running. Nothing is decided, and the operation stays `outcome_unknown`, with next
-  `reconcile` after the deadline.
-* **Lock held after the hard deadline:** it is stale. Reconcile breaks it by renaming it aside
-  (`mv … .stale.<16 hex>`), runs `inspect` again, then removes the renamed directory, and classifies
-  that second read.
-* **No lock:** classify directly.
+⟨r3⟩ **Fencing first: proven termination, never a lock taken away from a live writer** (§17.4 item 2;
+A R2-02). Reconcile reads the lock state in the inspect result before it reads the marker:
+* **No lock**, or a lock with **another enrollment's** token (which is `busy` for this one): classify
+  directly. The other enrollment's lock is never touched.
+* **A lock with this enrollment's step token:** reconcile runs `fence` (§6.3):
+  * `gone`: the link is removed, `inspect` runs again, and that second read is classified;
+  * `alive`, with the step's `NOT_AFTER` not yet passed on the remote clock: nothing is decided. The
+    operation stays uncertain, with next `reconcile` after the hard deadline;
+  * `alive` after it: `fence --terminate` (TERM, then KILL, of the exact process group, then the proof
+    again). A `gone` result continues as above; still `alive` stays uncertain;
+  * after `holder_termination_attempts` (3) reconciles without a proof, the record is `held`
+    (`lock_holder_unresolved`).
+    * The owner gets the lock path, its holder record, and the commands to check the process and
+      remove the link by hand.
+    * `enroll reconcile <op> --after-manual-recovery` then re-inspects and classifies **without** any
+      redispatch: one exact line gives `applied_unverified`, and none gives `withdrawn` with the
+      `late_write` residual.
 
 | Observation (after fencing) | Meaning | Action |
 |---|---|---|
 | Exactly one marker line, equal to the expected line | Applied | `Confirmed`, then `applied_unverified`, then continue at E4 |
-| No marker line | Not applied | A redispatch of E3 is allowed **only** when all hold (Q7 as amended): the same approved target and effect, re-checked by the route re-evaluation; the old step's hard deadline has passed and its lock is gone or was broken (so the old script can no longer write: it exits 41 or 42); the approval is within its validity (24 h after `Decide approve`, measured on safe time); and an **attended** session (F20). Then back to `applying`, and E3 runs again with the same marker and line. ⟨r2⟩ **An absence read alone never authorizes a redispatch.** If the approval lapsed: `DECISION_STALE`, reason `approval_lapsed`, and the record goes `withdrawn` |
+| No marker line | Not applied | A redispatch of E3 is allowed **only** when all of these hold (Q7 as amended): the same approved target, endpoint and effect, re-checked by the route re-evaluation; ⟨r3⟩ the old step's holder **proven gone**, meaning its lock was removed by `fence`, or was never taken and its `NOT_AFTER` has passed on the remote clock, so it can no longer pass its own checks; the approval within its validity (24 h after `Decide approve`, measured on safe time); and an **attended** session (F20). Then back to `applying`: E3 runs again with the same marker and line, and a new not-after. ⟨r2⟩ **An absence read alone never authorizes a redispatch.** If the approval lapsed: `DECISION_STALE`, reason `approval_lapsed`, and the record goes `withdrawn`, ⟨r3⟩ with the `late_write` residual |
 | Marker present but the line differs, or more than one marker line | Damaged | `held` (`registry_line_damaged`). The owner gets the exact line numbers and bytes |
 | Unreachable, authentication failed, `busy` | Unknown | Stays `outcome_unknown`. `DESTINATION_UNREACHABLE`, the provider's code, or `registry_busy`. No retry loop: the owner retries |
 
 For a removal or rollback step, the same table applies with "marker absent" meaning applied, and the
 record keeps its purpose (`remove_unknown` or `rollback_unknown`, §6.2).
 
+⟨r3⟩ **The `late_write` residual** (§17.4 item 2). A record that leaves an uncertain append for
+`withdrawn` or `abandoned` keeps `{step_token, not_after_remote}`, and reports `possible_late_write`.
+* It clears when an `inspect` whose remote clock reading is past `not_after_remote` shows no marker
+  line and no lock with that token. By then, a script that had not taken the lock fails its own
+  not-after check, and one that had would still hold the lock.
+* Until it clears, it is listed with the enrollment, in uninstall and in the bundle.
+
 **Nothing is ever appended blindly:** the script refuses a second line by marker, whatever the local
-state says (spec §7.5). **Test** (plan U5):
-`first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss`. The first script is
-paused after taking its lock; its step times out; reconcile waits out the hard deadline, breaks the
-lock and redispatches; then the first script is resumed. It exits 41 or 42 and writes nothing, and the
-registry holds exactly one line. A companion test pauses the first script at the disclosed window and
-records the limitation.
+state says (spec §7.5). **Tests** (plan U5):
+* `first_script_survives_timeout_resumes_after_reconcile_no_duplicate_no_loss`. The first script is
+  paused after taking its lock, and its step times out. Reconcile waits out the hard deadline,
+  terminates the holder, proves it gone, removes the lock and redispatches. The first script never
+  resumes, and the registry holds exactly one line;
+* ⟨r3⟩ `writer_paused_just_before_write_no_duplicate_no_loss` (§17.4 item 2). The first script is
+  stopped (SIGSTOP) **between its final re-check and its write**. After the not-after, reconcile
+  terminates its group (KILL ends the stopped process), proves it gone and redispatches. Exactly one
+  line results, and nothing else is lost;
+* ⟨r3⟩ `script_started_after_not_after_writes_nothing_exit_41` (B R2-04);
+* ⟨r3⟩ `unprovable_holder_held_for_manual_recovery_never_redispatched`;
+* ⟨r3⟩ `other_enrollments_lock_is_busy_never_broken`;
+* ⟨r3⟩ `late_write_residual_cleared_only_by_inspect_after_not_after`.
 
 ### 6.8 Removal and rollback (compare-then-rename)
 
@@ -1143,7 +1473,10 @@ The decision shows:
 * the pinned existing-access invocation;
 * the approved target;
 * every live grant that holds a certificate **under this enrollment's CA** for the pair, with the
-  pair residual.
+  pair residual;
+* ⟨r3⟩ for a `held` record whose hold is a host-key change, the **freshly evaluated target**. The
+  removal then runs against the newly found key, shown as a diff against the approved one (§17.4
+  item 5; B R2-05). Without it, every removal step would be refused `route_changed`.
 
 Then:
 1. `inspect`;
@@ -1160,10 +1493,10 @@ Then:
 * only grants holding a certificate **under the removed CA** for that pair are affected; grants under
   another CA are not;
 * **early removal** is allowed, with the preview's warning;
-* the ruling says these grants are degraded "only when no verified enrollment remains for the pair".
-  Its case where another verified enrollment does remain is held by **Q20**: the affected grants' old
-  certificates stop authenticating on that pair, and ADR-0005 §3.5 re-issues only after key loss or for
-  a delegated child.
+* ⟨r3⟩ **every** grant holding a certificate under the removed CA for that pair is degraded, whether or
+  not another verified enrollment remains. §17.3 item 3 ruled Q20 (a). The "no verified enrollment
+  remains" clause governs only the pair's **preference**, which stays `managed_certificate` while
+  another verified CA remains; new grants use that CA.
 
 Degraded grants get `pair_unenrolled`. They are not revoked locally; the owner may revoke them. Rollback
 after a failed verification (E5′) is the same procedure, under the original decision, with the
@@ -1188,6 +1521,12 @@ plan §1.2).
      verification runs (`verifying`). Only its pass records `form: system, state: verified`.
   4. A failure or an inconclusive result returns to `manual_pending` with the finding. Heimdall wrote
      nothing, so there is nothing to roll back.
+  5. ⟨r3⟩ **Cancelling** from `manual_pending` (§17.4 item 5; A R2-05). The owner may already have
+     installed the lines, so the record does **not** become `withdrawn`.
+     * It goes to `manual_removal_pending`, with origin `manual_pending`, and shows the lines to
+       delete if they were applied.
+     * It becomes `withdrawn` only after the absence check passes.
+     * The owner may instead `abandon` it, and it stays listed.
 * **Remove.**
   1. `heimdall enroll remove <enrollment>` on a system-form enrollment changes nothing remote. It
      shows the exact lines to delete and moves the record to `manual_removal_pending`. That is
@@ -1195,8 +1534,12 @@ plan §1.2).
   2. When the owner confirms (`enroll verify <enrollment> --absence`), an **absence check** runs
      (`removal_verifying`): a positive verification certificate for the pair must be **refused**, with
      the full refusal evidence of §6.5.
-  3. Only then is the record `removed`. An accepted or inconclusive result returns to
-     `manual_removal_pending`.
+  3. Only then is the record `removed` (or `withdrawn`, when the origin was `manual_pending`). An
+     accepted or inconclusive result returns to `manual_removal_pending`, with its origin kept.
+  4. ⟨r3⟩ **Cancelling** a manual removal returns the record to `removal_origin`: the state **and the
+     evidence** it began from (§17.4 item 5). Those are persisted when the removal begins: `verified`
+     with its verification evidence and freshness, `held` with its reason, `abandoned`, or
+     `manual_pending`. The record never moves to `verified` without that evidence.
 
   A system-form enrollment is **never reported as removed automatically**.
 * **Re-verification** behaves as in §6.5's re-verification column.
@@ -1373,34 +1716,36 @@ plan §1.2).
    | Supervisor | owned masters closed; strict owned connections closed (D8) | at the admission deadline, `TIME_UNCERTAIN`, revocation, release |
    | Cleanup executor | key destruction, endpoint and slot removal, by generation | after any end, bounded |
 
-2. **Revocation order** (spec §6.7; R-AU-04). M01's revoke path, with M03's managed step:
+2. **Revocation order** (spec §6.7; R-AU-04). M01's revoke path, with M03's managed step. ⟨r3⟩ The order
+   is D2 item 3a's (§17.4 item 6; B R2-03):
    0. ⟨r2⟩ Take the **signing gate exclusively** for the grant and every descendant in the cascade (D2
-      item 3a), waiting at most `signing_gate_max_wait`.
+      item 3a). ⟨r3⟩ The gates are taken ancestors first, then by grant ID, and the descendants are
+      re-read under the gates until the set is stable. The wait is bounded by
+      `narrowing_gate_wait_max`, and the revocation never proceeds without the gates.
    1. Tombstone, cascade and generation in one transaction. From this commit, every signature on every
       endpoint is refused, and none was enqueued after it (D2 item 3a). `local_applied: true` is
       acknowledged only after this commit (M01).
-   2. In the same call, before returning **and before releasing the gates**, the managed adapter's
-      `revoke(grant)`:
-      * for the grant and every descendant in the cascade: zeroize K_env and drop it from every
-        endpoint, and remove the slot and binding files;
-      * close owned masters (`-O exit`, then the exact PID) and **owned dedicated connections, under
-        either policy** (ADR-0005 §6.1, Q4 b);
-      * compute the residual.
-   3. **Residual** (spec §6.7). `latest_possible_credential_expiry` is the maximum `valid_before` over
+   2. In the same call, **while the gates are held**, the managed adapter's `revoke(grant)` runs for
+      the grant and every descendant in the cascade. It zeroizes K_env, drops it from every endpoint,
+      and removes the slot and binding files.
+   3. ⟨r3⟩ Release the gates.
+   4. ⟨r3⟩ **Then**, still before returning, close the owned masters (`-O exit`, then the exact PID) and
+      the **owned dedicated connections, under either policy** (ADR-0005 §6.1, Q4 b). Closing runs after
+      the gates are released, so it never lengthens a signer's wait.
+   5. **Residual** (spec §6.7). `latest_possible_credential_expiry` is the maximum `valid_before` over
       every `reserved` or `published` entry for the cascade, delivered or not. Only `voided` entries are
       excluded (ADR-0005 §3.5).
       * `remote_effects` lists one row per (destination, account) with an unexpired entry:
         `latest_valid_before`, ⟨r2⟩ `destination_clock` (the enrollment's `ClockMeasurement`, or
         `unmeasured`), and `status` from item 3.
       * After a key-only restore (D4 item 4) the status is `unbounded_unknown` and no bound exists.
-   4. ⟨r2⟩ **Owned connections** (F15). The revoke result lists every owned connection of the cascade,
+   6. ⟨r2⟩ **Owned connections** (F15). The revoke result lists every owned connection of the cascade,
       each `{id, kind, state: closing | closed | unverified}`. It also carries the fixed note
       `ordinary_connections_not_closed`: connections that ordinary `ssh` opened through P, and any
       unmanaged connection, are not closed (D8 item 2).
-   5. Release the gates.
 
-   If any part of step 2 fails, a cleanup intent is written in the settling transaction (M01 §13.19
-   item 2). Denial already holds from step 1.
+   If any part of step 2 or step 4 fails, a cleanup intent is written in the settling transaction (M01
+   §13.19 item 2). Denial already holds from step 1.
 
 3. ⟨r2⟩ **Remote residuals after expiry** (§17.1 item 10, which replaces Q12; M03-R10). B1 has no
    remote revocation action at capability 2 (no KRL), so its remote part never needs adapter rounds.
@@ -1496,44 +1841,78 @@ plan §1.2).
    * `heimdall connect`; or
    * `heimdall run` whose resolved program is that client.
 
+   ⟨r3⟩ **Owned connections stay in the foreground** (§17.4 item 7; A R2-07; M-F28). Ownership names the
+   process the launcher started, and a client that forks after authentication would leave it.
+   * Every product-generated invocation pins `-o ForkAfterAuthentication=no`: `connect`, the owned
+     masters (item 3), the remote steps (D5 §6.3) and the verification (D5 §6.5).
+   * For `run` of the verified client, the launcher inserts `-o ForkAfterAuthentication=no -o
+     ControlMaster=no -o ControlPath=none` right after the program name. They are then read before the
+     user's arguments and before every configuration file.
+   * Arguments that would still move the connection out of the launched process are **refused before
+     launch** for an owned connection: `CONFIG_CONFLICT`, reason `owned_connection_option_conflict`,
+     writing `prelaunch_failed`. They are:
+     * `-f`, alone or bundled (as in `-fN`);
+     * `-M`, `-S` and `-O`;
+     * any `-o` form of `ForkAfterAuthentication`, `ControlMaster`, `ControlPath` or `ControlPersist`.
+   * Tests (U8 for `connect` and `run`; U7 for the masters' `owned_master_pins_fork_after_authentication_no`):
+     `owned_launch_pins_fork_after_authentication_no`;
+     `inherited_fork_after_authentication_yes_stays_in_foreground`;
+     `run_ssh_with_f_refused_for_owned_connection`; `run_ssh_conflicting_control_options_refused`.
+
    ⟨r2⟩ **The binding holder and the controlled connection process are separate records** (§17.1
    item 8; M03-R08, F02). The binding's `Launch` holder (M02: the launcher's own PID and start token)
    stays the reference that keeps the binding. The **owned connection** is a separate
    `owned_connections` row naming the process that carries the connection: its PID, its start or
    creation time, and its verified executable.
    * **Unix.** `run` and `connect` `exec` the client, so the connection process **is** the holder
-     process (same PID, same start time). The row is written in the transaction that records the
-     holder (U0b row 19), with kind `dedicated`. **Before signalling**, the supervisor re-verifies the
-     start time **and** that the process image is the verified client (`/proc/<pid>/exe` on Linux,
-     `proc_pidpath` on macOS). A process still running `heimdall` (an exec that failed) is not an
-     owned connection.
+     process (same PID, same start time).
+     * ⟨r3⟩ The row is written **at bind**, in the binding's own transaction, before the launcher execs.
+       It has kind `dedicated` and the **expected image**, the verified client's path (§17.4 item 8;
+       B R2-12). So a revocation in the interval between bind and exec already finds it.
+     * **Before every signal**, the supervisor re-verifies the start time **and** that the process image
+       is the expected one (`/proc/<pid>/exe` on Linux, `proc_pidpath` on macOS).
+     * ⟨r3⟩ A process still running `heimdall` (the exec not yet done, or failed) is not signalled. It
+       cannot authenticate after the narrowing, because the signer refuses. The next supervisor pass
+       checks it again once the exec has happened. An exec that failed clears the row together with the
+       holder.
    * **Windows.** The launcher spawns the client and waits, so the two are different processes. ⟨r2⟩ A
      managed launch whose program is the verified client:
-     1. creates the child **suspended**, assigns it to a new job object with
-        `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and without breakaway, then resumes it (the suspended
-        start keeps any grandchild inside the job; `localenv::sys::JobObject::spawn_contained`);
-     2. registers the child's PID and creation time durably as the owned connection, through
-        `Request::Connections(Register { binding_id, pid, created_at })` (owner role), **before** the
-        binding reports strict control for it;
-     3. if registration fails, it fails closed: it closes the job, which kills the client before or
-        just after it connects, and writes `prelaunch_failed` with reason
-        `connection_registration_failed`.
+     1. creates the child **suspended**, and assigns it to a new job object with
+        `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and without breakaway
+        (`localenv::sys::JobObject::spawn_contained`);
+     2. ⟨r3⟩ registers it **while it is still suspended** (§17.4 item 8; A R2-08), through
+        `Request::Connections(Register { binding_id, pid, created_at, image })` (owner role).
+        * The runtime commits the row **under the grant's signing gate, taken shared**, in a
+          transaction that re-checks the grant: not ended, no tombstone on it or an ancestor, deadline
+          not passed, time `Safe`, generation current.
+        * A grant that fails any check refuses the registration (`connection_registration_refused`).
+        * A narrowing takes the gate exclusively before its commit, so every registration is ordered
+          with every revocation. Either the row exists before the revocation commits, and the
+          revocation closes it, or the registration is refused;
+     3. resumes the child's main thread **only after** a successful registration reply. A refusal, or
+        any failure, closes the job, which kills the still-suspended client, and writes
+        `prelaunch_failed` with reason `connection_registration_failed`;
+     4. ⟨r3⟩ a revocation that commits **between** registration and resume finds the row and terminates
+        the registered process; the job holds any child it might have started. Resuming a terminated
+        process does nothing.
 
      The launcher's death then ends the client too: the job closes with the launcher's last handle.
      Revocation and a strict deadline end the exact `ssh.exe` through a handle opened on the
-     registered PID with its creation time checked.
+     registered PID, with its creation time checked.
+   * ⟨r3⟩ Tests (U7; U0b rows 19 and 26): `windows_register_while_suspended_under_gate`;
+     `windows_register_refused_for_ended_grant_child_never_resumed`;
+     `windows_revoke_between_register_and_resume_kills_child`;
+     `windows_pause_before_register_then_revoke_refuses_registration`;
+     `unix_connection_row_written_at_bind_with_expected_image`;
+     `unix_revoke_between_bind_and_exec_not_signalled_then_closed_after_exec`.
    * ⟨r2⟩ **The M02 "no job object" rule** (`launch/windows.rs`; ADR-0007 §8 and §11) was checked, as
      §17.1 item 8 requires. Its reason is that kill-on-close "kills grandchildren left running on
      purpose after a normal exit; not exec-equivalent" (M-F21).
-     * **For an owned connection** (the child is the verified `ssh`), the ruling applies without
-       conflict. Ending the connection is its purpose. The grandchildren killed at a normal exit are
-       ssh's own (a `ProxyCommand` or `LocalCommand` helper), and that narrow residual is disclosed.
-       ADR-0007 §8's "if the launcher is terminated, the child keeps running" no longer holds for
-       managed `ssh` launches, and the disclosure is amended.
-     * **For `run` of any other program on a managed binding**, the M02 rationale applies in full.
-       §17.1 item 8's wording, "a managed launch", could be read to include it. That conflict is
-       **Q18**. Until it is ruled, units build the job object behind one predicate,
-       `launch_uses_kill_on_close_job(binding, program)`, so the integrator can flip it.
+     * ⟨r3⟩ **§17.3 item 1 ruled Q18 (a).** The job object applies only to launches whose program is
+       the verified `ssh`. ADR-0007 §8 is amended for those launches alone, and the narrow residual is
+       disclosed: ssh's own `ProxyCommand` or `LocalCommand` helpers end with it.
+     * `run` of any other program keeps M02's semantics, and reports `not_controlled`.
+     * The predicate `launch_uses_kill_on_close_job(binding, program)` stays, now fixed to that ruling.
 
    | Event | graceful | strict |
    |---|---|---|
@@ -1566,8 +1945,9 @@ plan §1.2).
    3. **`bind`** with `BindForm::Launch { executable, holder }`, the launcher's own PID and start token
       as M02 does for `run`.
    4. **Launch** the verified client with the binding's endpoint and files on the command line (D10
-      item 4). On Windows this goes through the contained, registered spawn above; on Unix through
-      `exec`, which makes the connection row the holder's process.
+      item 4), ⟨r3⟩ in the foreground: `ForkAfterAuthentication=no`, and the option refusals above. On
+      Windows this goes through the contained spawn, registered while still suspended; on Unix through
+      `exec`, the connection row having been written at bind.
    5. **On exit:** the holder release (M02 `holder_pass`) drops the reference, and the
       owned-connection row is cleared on the observed exit.
 
@@ -1595,7 +1975,8 @@ plan §1.2).
      * `-o ControlMaster=yes`, `-o ControlPersist=no`, `-o ControlPath=<the slot's path>`;
      * `-o IdentityAgent=<binding endpoint>`, `-o IdentitiesOnly=yes`,
        `-o IdentityFile=<binding key.pub>`, `-o CertificateFile=<binding cert>`;
-     * `-o ClearAllForwardings=yes`, `-o ExitOnForwardFailure=yes`, `-o BatchMode=yes`;
+     * `-o ClearAllForwardings=yes`, `-o ExitOnForwardFailure=yes`, `-o BatchMode=yes`, ⟨r3⟩
+       `-o ForkAfterAuthentication=no` (item 2);
      * `-- <alias>`.
 
      It is recorded as a `ManagedResource` (`Process`, generation-tagged), and in `owned_connections`
@@ -1754,6 +2135,14 @@ plan §1.2).
    slot is free. An absent `IdentityFile` makes ssh fail closed for that alias. It warns and offers
    nothing from P, though inherited user entries may still be offered (M-F4; identity selection below).
 
+   ⟨r3⟩ **Ordinary `ssh <alias>` works only while a binding holds the slot** (§17.4 item 12; B R2-18).
+   After `setup apply`, a managed alias whose slot is `free` fails closed, and automatic activation on
+   first use is M05. This is disclosed wherever the owner meets it:
+   * `EnrollmentResult.next` after a pass, and the `ApplyProjection` preview, say that ordinary
+     `ssh <alias>` needs a held slot, and give the command that holds one (`heimdall run …` or
+     `heimdall bind materialize …`);
+   * the doctor and the TUI report `slot_free` for such an alias, with the same command.
+
    | Slot state | Event | Next |
    |---|---|---|
    | `free` | `bind materialize` of a managed binding for this pair, or `run` auto-materialize | `held(binding, g+1)`: files written, then the endpoint lists the key |
@@ -1767,7 +2156,8 @@ plan §1.2).
 4. **`connect`** launches ssh for a managed binding with command-line options pointing at the
    **binding's** endpoint and files:
    * `-o IdentityAgent=…`, `-o IdentityFile=…`, `-o CertificateFile=…`;
-   * `-o IdentitiesOnly=yes`, `-o ControlMaster=no`, `-o ControlPath=none`.
+   * `-o IdentitiesOnly=yes`, `-o ControlMaster=no`, `-o ControlPath=none`, ⟨r3⟩
+     `-o ForkAfterAuthentication=no` (D8 item 2).
 
    Command-line values win (F1), so `connect` works for any managed binding, materialized or not, and
    its connection is an owned dedicated connection (D8). ⟨r2⟩ Its ensure, bind and ownership flow is
@@ -1941,11 +2331,16 @@ plan §1.2).
    | ⟨r2⟩ `LoopbackSshd` fault modes (`testkit::sshd::Faults`): stop between attempts, close the port, `MaxStartups 1:100:1` with a held connection, reset after the version exchange | account | U11 helpers driven by U5 | the negative verification's inconclusive cases (§17.1 item 3) |
    | ⟨r2⟩ A clock-lagging destination: a fixture sshd whose own `sshd_config` sets `PATH` for its sessions (`SetEnv`) to a scratch directory whose `awk` wrapper reports the time minus a fixed lag. No system clock is changed | account | U11; never a system clock change | the destination-clock measurement and the residual bound computed from it (§17.1 item 10). A server that really accepts certificates late is not reproduced: the fixture's sshd validates with the real clock, and containers share the host kernel's clock |
    | ⟨r2⟩ A second Heimdall installation (`HEIMDALL_HOME` in a second scratch, its own catalog and destination IDs) | account | U10 e2e | foreign removal from a bundle (§17.1 item 11; F07) |
+   | ⟨r3⟩ Wrong-key destinations: a `LoopbackSshd` whose host key is **not** the approved one, with each of: an inherited `KnownHostsCommand` that prints that key; an inherited user or global known-hosts file that lists it; an inherited `NoHostAuthenticationForLocalhost yes` | account | U11 fixtures, driven by U5 | every remote step refuses before any mutation (§17.4 item 1) |
+   | ⟨r3⟩ The `principals_not_enforced` fixtures (M-F27). Account form: a line listing **both** principals, `principals="hm:<dest>:<acct>,hm:verify-negative:<nonce>"`, written at a pause hook once the verification's nonce is known. System form: an `AuthorizedPrincipalsCommand` (with `%k`) that prints the presented certificate's principals. The bare `cert-authority` line without `principals=` is a separate `verification_failed` case | account, system | U11, driven by U5 | `principals_not_enforced` is actually produced (§17.4 item 11; B R2-08) |
 
 3. **Concurrent writers.** In the test configuration only, the scripts carry pause points (`HM_PAUSE
    <name>` lines). Each blocks on a FIFO named in the test's scratch until the test releases it. The test
    injects administrator edits at each point, before and after the final check, for add, remove and
    rotation (ADR-0005 §9.3 R1). A golden test proves that release scripts contain no pause point.
+   ⟨r3⟩ The points include `before_write` (after the final re-check) and `nonce_known` (once a
+   verification's negative nonce exists). A truncation harness cuts each script at every byte offset
+   (§17.4 items 2 and 11).
 
 4. **The registry guard** (`testkit::registry::RegistryGuard`). Every enrollment a test runs must target
    a registry under its scratch directory, inside a disposable container, or inside the disposable WSL
@@ -1955,7 +2350,9 @@ plan §1.2).
 
 5. **Keys.** Per-run keys only. In the test configuration K_env generation may take a seed
    (`HEIMDALL_TEST_KEY_SEED`), so A33 can scan every output for the exact private bytes: raw, hex and
-   base64. Release builds ignore the variable, which a test proves. Fixture public keys are committed
+   base64. ⟨r3⟩ Release builds **refuse** the
+   variable with exit 2, as M01 and M02 do (`testcfg.rs`), which `release_build_refuses_m03_test_gates`
+   proves (§17.4 item 12; B R2-15). Fixture public keys are committed
    only where a file header says so.
 
 6. **Oracles.**
@@ -1992,7 +2389,8 @@ ADR-0006 revision 4. The exact shapes are in m03-plan §5. Everything is additiv
 * **Requests:**
   * `Request::Issuer`: status, register (which covers init, rotate-begin and restore), unlock, retire,
     bundle;
-  * `Request::Enrollment`: preview, apply, verify (⟨r2⟩ presence or absence), remove, reconcile,
+  * `Request::Enrollment`: preview, apply, verify (⟨r2⟩ presence or absence, ⟨r3⟩ or a target change
+    approved through `ApproveTargetChange`), remove, reconcile (⟨r3⟩ with `after_manual_recovery`),
     abandon, and the client-executed `step` and `step_result` (D5 §6.3; owner role);
   * `Request::Connections`: close (owner role, narrowing), ⟨r2⟩ and `register` for a Windows owned
     connection (D8 item 2);
@@ -2001,7 +2399,8 @@ ADR-0006 revision 4. The exact shapes are in m03-plan §5. Everything is additiv
   `InspectSubject::{Enrollments, Issuer, Connections}`.
 * **Operation kinds:** `enrollment.apply`, `enrollment.verify`, `enrollment.remove`.
 * **Decision kinds:** `RegisterIssuer`, `RetireIssuer`, `EnrollAccount`, ⟨r2⟩ `EnrollSystemForm`,
-  `RemoveEnrollment`.
+  `RemoveEnrollment` (⟨r3⟩ optionally carrying a freshly evaluated target), ⟨r3⟩ `ApproveTargetChange`
+  (D5 §6.2).
 * **Capabilities:** `issuer/1`, `enrollment/1`, `managed-credentials/1`, `connections/1`, offered only
   when their drivers land.
 * **Fields on existing types:**
@@ -2015,7 +2414,7 @@ ADR-0006 revision 4. The exact shapes are in m03-plan §5. Everything is additiv
   * ⟨r2⟩ `IssuanceRefusal::CaRetiring`; the CA states `retiring`, `unloaded`, `deleted`, `retired`
     (D4 item 3).
 * ⟨r2⟩ **New ports** (§18): `ManagedEffects`, `TargetEvaluator`, and the signing gate's `SignPermit`
-  in `SignatureAuthority`.
+  in `SignatureAuthority`; ⟨r3⟩ `VerificationEndpoints`, and `ipc::signing::{PermitGuard, ReleaseCheck}`.
 * **Events:** `EventType::{Enrollment, Connection, SessionLock}`.
 * **Codes:** no new code. The new stable sub-reasons go in `data.error.reason`.
 * **Store:** migration `0006_managed_credentials`, `SCHEMA_VERSION` 6. ⟨r2⟩ It adds the
@@ -2055,11 +2454,17 @@ ADR-0006 revision 4. The exact shapes are in m03-plan §5. Everything is additiv
 | ⟨r2⟩ Maintenance through P | After the projection switch, P selects the managed agent, key and certificate, so rotation, removal and reconcile would depend on the credential they repair (M03-R04). The existing identity is pinned instead |
 | ⟨r2⟩ A negative verification passing on exit status and zero signatures | A closed port, a reset or `MaxStartups` would yield `verified` (M03-R03, F01). Refusal evidence from the `-v` trace is required (D5 §6.5) |
 | ⟨r2⟩ Re-verification that rolls back on failure | A later verification is decision-free and must change nothing remotely (M03-R05, F06b; §17.1 item 5) |
-| ⟨r2⟩ An unfenced append after a timeout | A first script that survives its timeout can append after a redispatch, giving two lines (M03-R06). A remote lock and a mutation window fence it (D5 §6.3) |
+| ⟨r2⟩ An unfenced append after a timeout | A first script that survives its timeout can append after a redispatch, giving two lines (M03-R06). A remote lock and a mutation window fence it (D5 §6.3). ⟨r3⟩ Revised: the lock now records its holder and is broken only on proven termination (rows below) |
 | ⟨r2⟩ A `watch` channel for lock events | It keeps only the last value, so a quick unlock erases the lock (M03-R09). A latched epoch is used (D9 item 3) |
 | ⟨r2⟩ Clearing a residual at local `valid_before` | The destination's clock may lag (M03-R10). Bounded completion needs a measurement; without one the residual is `nominally_expired`, never cleared (D7 item 3) |
 | ⟨r2⟩ A per-master random `ControlPath` rendered into P | P changes only through approved setup transactions (M03-R15, F16). A stable per-slot path is used (D8 item 3) |
 | ⟨r2⟩ An `app` → `enroll` call while `enroll` implements an `app` port | A crate cycle (M03-R13). The pure protocol code moved to `heimdall-registry`, below `app` (§18) |
+| ⟨r3⟩ Breaking a stale lock by renaming it aside after the hard deadline | A paused writer that has already passed its checks still appends (A R2-02; reviewer A's model). Replaced by proven termination of the recorded process group (D5 §6.3) |
+| ⟨r3⟩ A mutation window measured from the script's own start | A script delivered late (a stale approval releasing buffered stdin) gets a fresh window (B R2-04). Replaced by an absolute remote not-after and the ready handshake (D5 §6.3) |
+| ⟨r3⟩ `IdentityAgent=SSH_AUTH_SOCK` for maintenance | A managed `run` sets `SSH_AUTH_SOCK` to the binding endpoint, so maintenance authenticated with the managed certificate (A R2-04; M-F29). Replaced by the approved concrete endpoint |
+| ⟨r3⟩ Relying on the known-hosts file pins alone | An inherited `KnownHostsCommand` supplied an unapproved key (A R2-01; M-F25). Every trust source is pinned, and the effective configuration is checked (D5 §6.3) |
+| ⟨r3⟩ The start identity from POSIX `ps -o etime` | "Now minus elapsed" moves with rounding between reads, so any tolerance would accept a reused PID (D5 §6.3) |
+| ⟨r3⟩ Breaking another enrollment's lock once its holder is proven gone | Ruled out by §17.4 item 2: such a lock is `busy`. Only that enrollment's own reconcile, or a `RemoveEnrollment` of it, may break it |
 
 ---
 
@@ -2071,6 +2476,11 @@ differs.
 ⟨r2⟩ The orchestrator's rulings are in §17.1: Q6, Q7, Q11, Q12, Q14 and Q17 are amended there, and the
 D sections carry the amended rules. The text of Q1–Q17 below is revision 1's, kept for the record.
 Questions raised by revision 2 are in §17.2.
+
+⟨r3⟩ §17.3 rules Q18–Q21 (each default accepted), and §17.4 rules the round-2 findings; the D sections
+apply both. Questions raised by revision 3 are in §17.5. ⟨r3⟩ Q8 below is refined by §17.4 item 3: the
+directory is created by a separate, journaled `bootstrap` step (D5 §6.3, §6.4 E2b), not inside the
+append.
 
 * **Q1. The issuer has no listening endpoint** (D3 item 2). ADR-0006 §2.1 says the issuer path is "fixed
   now". **Recommended:** keep `EndpointKind::Issuer` and its path reserved and never bound. The issuer is
@@ -2269,6 +2679,9 @@ Each question below concerns a §17.1 ruling that could not be applied exactly a
 conflicts with an earlier ADR. In each case the ruling is kept in the D sections. Units build against
 the recommended answer, behind one switch the integrator can flip.
 
+⟨r3⟩ All four are ruled in §17.3, each with its default accepted. The text is kept for the record, and
+the D sections now state the rulings.
+
 * **Q18. Which launches get the kill-on-close job object** (§17.1 item 8; D8 item 2)?
   * **The check the ruling asked for.** M02's "no job object" note (`crates/launch/src/windows.rs`
     module doc: "No job object") rests on ADR-0007 §8, which says "kill-on-close would kill
@@ -2445,15 +2858,110 @@ Below, "A" refers to reviewer A's IDs and "B" to reviewer B's. Every finding is 
     - **R2-16:** the text is synced with §17.3, and every blocked record is listed: B3, B11 and B12 included.
     - **R2-18:** the enrollment result, the apply preview, the doctor and the TUI all disclose that ordinary `ssh <alias>` works only while a binding holds the slot (`slot_free`, with the command to fix it). Auto-activation stays M05.
 
+### 17.5 ⟨r3⟩ Questions raised by revision 3 (rulings kept; evidence and options)
+
+As in §17.2: each question concerns a §17.4 ruling that could not be applied exactly as written, or that
+conflicts with an earlier ADR. The ruling is kept in the D sections, and units build against the
+recommended default, behind one switch.
+
+* **Q22. `KnownHostsCommand=none`** (§17.4 item 1; D5 §6.3).
+  * **Evidence.** The pinned ssh_config(5) (`S01`) says the command supplies keys "in addition to those
+    listed in UserKnownHostsFile and GlobalKnownHostsFile", and that "if the command exits abnormally or
+    returns a non-zero exit status then the connection is terminated". It documents `none` for
+    `UserKnownHostsFile`, `IdentityAgent`, `IdentityFile`, `ControlPath`, `ProxyCommand`, `ProxyJump`
+    and `PKCS11Provider`, but **not** for `KnownHostsCommand` (M-F25).
+  * **Why the review's run does not settle it.** Reviewer A's run shows only that the wrong-key case was
+    refused (exit 255). A client that ran a command named `none` would refuse that case too. It would
+    also run a program named `none`, if one were on `PATH`.
+  * **Options:**
+    * (a) keep `KnownHostsCommand=none` as ruled, and prove per client that it is a keyword.
+      `known_hosts_command_none_is_a_keyword_per_client` connects with the **approved** key (exit 0)
+      while `PATH` holds a fixture program named `none`, which would print a wrong key and records any
+      invocation. The client passes only if that program never ran; a client that fails is refused for
+      remote steps (`host_trust_unpinnable`). **Recommended**;
+    * (b) pin `KnownHostsCommand=<absolute path of the running heimdall> internal known-hosts-empty`, a
+      documented use (a command that prints nothing and exits 0), at the cost of one process per
+      connection;
+    * (c) both: (a) where the keyword is proven, (b) elsewhere.
+  * **Default until ruled:** (a).
+* **Q23. Host-trust options outside the pinned sources** (§17.4 item 1).
+  * **Evidence.** The ruling asks for every ssh option that can affect host trust, and the pinned
+    sources are upstream OpenSSH's pages.
+    * Distribution builds (Debian, Ubuntu, Fedora) carry a GSSAPI key-exchange patch. Its
+      `GSSAPIKeyExchange` lets Kerberos authenticate the server, so the host-key check can be bypassed
+      [I].
+    * The option appears nowhere in S01 or S02, and an upstream client rejects it as a bad option. So
+      it cannot be pinned unconditionally.
+  * **Options:**
+    * (a) the effective-configuration check of D5 §6.3 also reads `gssapikeyexchange` when the
+      client's `ssh -G` prints it. If it is present, the step adds `-o GSSAPIKeyExchange=no` (that
+      client knows the option), and the check requires `no`. If it is absent, nothing is added.
+      **Recommended**;
+    * (b) refuse remote steps on any client whose `ssh -G` prints an option this design does not know;
+    * (c) leave vendor options out of scope, disclosed.
+  * **Default until ruled:** (a).
+* **Q24. The existing-access endpoint when the catalog record names none** (§17.4 item 4).
+  * **Evidence.** M02's catalog (`crates/domain/src/catalog.rs`, `IdentitySource`) records:
+    * an endpoint for `native_agent`;
+    * an optional one for `onepassword`, present "when not the documented default";
+    * only a `.pub` path for `public_key_file`, whose private key "is used through an agent" (ADR-0007
+      F9).
+
+    M02 recognizes 1Password only through configured `IdentityAgent` references
+    (`localenv/src/agents.rs`). So for those two kinds, "resolved from the catalog identity record"
+    yields no endpoint.
+  * **Options:**
+    * (a) take the alias's own `IdentityAgent`, statically evaluated from the user's configuration with
+      P's managed block excluded. When it is unset, `none` or undetermined, refuse with
+      `existing_access_endpoint_unrecorded`, and ask the owner to record the endpoint on the identity.
+      Never `SSH_AUTH_SOCK`. **Recommended**;
+    * (b) as (a), but fall back to the runtime's start-time environment snapshot of `SSH_AUTH_SOCK`,
+      when that is not a Heimdall endpoint;
+    * (c) refuse enrollment for every identity whose record names no endpoint.
+  * **Default until ruled:** (a).
+* **Q25. Re-enrolling an abandoned pair can leave two lines of the same CA** (§17.4 item 5).
+  * **Evidence.** The ruling puts `abandoned` outside the uniqueness rule, with a new marker. An
+    abandoned line usually stays on the account. So after a re-enrollment under the same CA, the account
+    holds two Heimdall lines, while ADR-0005 §3.3 says "each enrolled account gets one line".
+  * **Options:**
+    * (a) allow it. The new enrollment's E2 `inspect` reports the abandoned marker's line, the result's
+      `next` offers `enroll remove <abandoned>`, and both lines are listed until then. Both trust only
+      the same principal under the same CA, so no access widens. **Recommended**;
+    * (b) the re-enrollment's approved plan also removes the abandoned line, in the same operation and
+      under the same decision;
+    * (c) refuse re-enrollment while the abandoned line is observed (`abandoned_line_present`).
+  * **Default until ruled:** (a).
+
+---
+
+### 17.6 Orchestrator rulings on revision 3's questions (2026-11-06)
+
+1. **Q22:** the default is accepted. `KnownHostsCommand=none` stays. Each recorded client family proves that a fixture program named `none` on `PATH` never runs, and a client that fails that proof is refused for remote steps.
+2. **Q23:** the default is accepted. `GSSAPIKeyExchange=no` is pinned wherever the client's `ssh -G` lists the option. Upstream clients that reject the option are recorded as not having it.
+3. **Q24:** the default is accepted. When the catalog records no agent endpoint, the agent is the alias's own `IdentityAgent`, evaluated with P's managed block excluded. It is refused if it resolves to a Heimdall-managed endpoint, or to nothing usable. It is never taken from `SSH_AUTH_SOCK`.
+4. **Q25:** the default is accepted. Re-enrolling an abandoned pair is allowed. The preview reports the old line under the same CA and offers its removal, and the old line stays listed as a residual until removed. This amends ADR-0005 §3.3 ("one line") for the abandoned case only.
+5. **Revision 3's design choices, all accepted:**
+   - the atomic `ln -s` lock that encodes its holder;
+   - the `HM1 ready` handshake;
+   - the "gone" test applied to the holder's whole process group, with no enrollment ever breaking another's lock;
+   - the `run ssh` argument insertion and refusals;
+   - the `ApproveTargetChange` decision;
+   - the `NoHostAuthenticationForLocalhost=no` pin.
+
+   The windows revision 3 discloses as residuals stay disclosed: PID reuse within 1 s on BSD/macOS, process-group reuse between check and signal, and lock atomicity on network file systems. Each is reported, and none is claimed closed.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):
   * ⟨r2⟩ `heimdall-registry` (**pure**, no I/O): the registry line, marker, scripts and their goldens,
-    the HM1 parser, post-image construction and the step classification (`classify_step`);
+    the HM1 parser, post-image construction and the step classification (`classify_step`); ⟨r3⟩ and
+    the **enrollment plan**, `plan::build`, with the D5 §6.1 preconditions and `plan_digest` (§17.4
+    item 9; B R2-02). `app` calls it directly, through no port;
   * `heimdall-credential`: vault, certificates, purpose parsing, session-bind, the signer, endpoints;
   * `heimdall-issuer`: child, protocol, client, the `SecretStore` trait and its product
     implementations, backup, ceremony, bundle;
-  * `heimdall-enroll` (I/O): the CLI-side `SshStepRunner` and the runtime-side `Verifier`.
+  * `heimdall-enroll` (I/O): the CLI-side `SshStepRunner` and the runtime-side `Verifier`. ⟨r3⟩ It holds
+    I/O only.
 
   New modules: `heimdall-adapters::managed`, `heimdall-runtime::{connections, session_lock}`, `heimdall-app::{enrollment, issuer, managed, lock, issuance_ro}`, and ⟨r2⟩
   `heimdall-localenv::target` (the `TargetEvaluator`, with raw host keys in `known_hosts`).
@@ -2488,7 +2996,7 @@ Below, "A" refers to reviewer A's IDs and "B" to reviewer B's. Every finding is 
   registry   → contract, domain                          (new, pure)
   app        → contract, domain, store, registry         (+ registry)
   credential → contract, domain, ipc, app                (new; calls SignatureAuthority,
-                                                          implements VerificationEndpoint)
+                                                          implements ⟨r3⟩ VerificationEndpoints)
   issuer     → contract, domain, store, app, credential  (new; app::issuance_ro, IssuerPort)
   enroll     → contract, domain, registry, app           (new; implements VerificationRunner)
   localenv   → (unchanged edges)                         (+ implements app::ports::TargetEvaluator)
@@ -2507,11 +3015,33 @@ Below, "A" refers to reviewer A's IDs and "B" to reviewer B's. Every finding is 
     and `issuer`.
   * **Ports carry what flows upward:** `TargetEvaluator` (localenv → app), `ManagedEffects`
     (adapters → app), `IssuerPort` (issuer → app), `VerificationRunner` (enroll → app),
-    `SignatureAuthority` and `VerificationEndpoint` (credential ↔ app), `SessionLockSource` and
+    `SignatureAuthority` and ⟨r3⟩ `VerificationEndpoints` (credential ↔ app), `SessionLockSource` and
     `ConnectionControl` (runtime → app).
   * U0 adds `tools/validation/crate_graph.py` to `check.sh` (`crate-graph` step). It parses the
     manifests, fails on any production cycle, and fails if `app` gains an edge to `credential`, `issuer`,
     `enroll`, `adapters`, `localenv` or `runtime`.
+  * ⟨r3⟩ **Revision 3** (§17.4 item 9; A R2-09, B R2-02). Two edges that revision 2 would have needed
+    are avoided by construction, and the check is tightened:
+    * **No `ipc → app` edge.** `ipc::signing` defines the trait `ReleaseCheck { fn may_release(&self)
+      -> bool }` and `PermitGuard(Box<dyn ReleaseCheck + Send + Sync>)`. `heimdall-credential` wraps
+      `app::managed::SignPermit` in it; credential already depends on both.
+    * **The enrollment plan is below `app`.** `EnrollmentPlan::build` lives in `heimdall-registry`, and
+      its input types (`TargetEvaluation`, `ApprovedTarget`, the catalog view) in `domain`.
+    * **The verification lifecycle goes through a factory port**, `app::ports::VerificationEndpoints`,
+      implemented by `heimdall-credential`. `create(operation) -> Box<dyn VerificationSession>` returns
+      a session that:
+      * generates and registers K_verify, returning its public key;
+      * installs a certificate line;
+      * counts signatures and session-binds, and exposes its locator;
+      * on drop, zeroizes the key and removes the endpoint.
+
+      `app::enrollment::run_verification` reserves and publishes through `Operations`, signs through
+      `IssuerPort`, and never names `credential`.
+    * **The `crate-graph` step** resolves **package names** to crates. It reads `[dependencies]`,
+      `[target.'cfg(…)'.dependencies]` and optional dependencies (features included). It fails on any
+      production cycle, and on a forbidden edge: `app` to `credential`, `issuer`, `enroll`, `adapters`,
+      `localenv` or `runtime`, and `ipc` to anything but `contract`. Its mutant fixtures are a cycle and
+      an `ipc → app` edge (`crate_graph_step_rejects_cycle_and_ipc_to_app_edge`).
 * **The `unsafe` inventory** gains three modules (overview §9), each with its own invariant table:
   * `crates/credential/src/sys.rs`: `mlock`/`munlock`, `VirtualLock`/`VirtualUnlock`,
     `prctl(PR_SET_DUMPABLE)`, `setrlimit(RLIMIT_CORE)`;
@@ -2541,7 +3071,7 @@ Below, "A" refers to reviewer A's IDs and "B" to reviewer B's. Every finding is 
   reopen condition "M03/M04 need P to carry CertificateFile" is met by that revision. ⟨r2⟩ So is
   "ControlPath" for the stable per-slot mux path (D8 item 3).
 * ⟨r2⟩ **ADR-0007 §8 is amended for owned `ssh` connections on Windows** (kill-on-close job; the
-  launcher's death ends the client), pending Q18 for other programs.
+  launcher's death ends the client). ⟨r3⟩ §17.3 item 1 ruled Q18: other programs keep M02's semantics.
 * ⟨r2⟩ **ADR-0005 is amended** by §17.1 items 10 (destination-clock measurement; §3.6) and 13 (per-pair
   runtime evidence; §7.4 row 1), as the rulings state.
 * **M02 residuals handed to M03** (ADR-0007 §13):
@@ -2580,7 +3110,12 @@ Below, "A" refers to reviewer A's IDs and "B" to reviewer B's. Every finding is 
   clock measurement cannot run there.
 * ⟨r2⟩ A client accepts `-o CertificateFile=none` in a way that lets P's certificate reach Heimdall's
   signer during maintenance (Q19), or `maintenance_invocation_never_contacts_heimdall_signer` fails.
-* ⟨r2⟩ The orchestrator rules Q18–Q21 differently from their defaults.
+* ⟨r3⟩ A target client runs `KnownHostsCommand=none` as a command, or accepts a key outside the
+  generated file in any wrong-key fixture (Q22, Q23).
+* ⟨r3⟩ A target's sshd does not make the session's shell a process-group leader, or the target's start
+  identity cannot be read (M-F30), so the fence cannot run there.
+* ⟨r3⟩ `maintenance_inside_managed_run_context_zero_managed_signatures` fails on any client.
+* ⟨r3⟩ The orchestrator rules Q22–Q25 differently from their defaults.
 
 ---
 
@@ -2633,3 +3168,42 @@ change log (m03-plan §9) lists the plan-side changes.
 | F25 `StepResult.stdout` too large | 18, P7 | D5 §6.3 |
 | F26 the lowest-row rule in the exit mapping | 17 | m03-plan §3 (plan-side) |
 | F27 freshness becomes a chore | Q11 | D5 §6.5 (supervisor re-verification) |
+
+---
+
+## 21. ⟨r3⟩ Change log (revision 3, task M03-T00-design-fix)
+
+Every round-2 finding, with the §17.4 ruling that decided it and where this ADR closes it. "A" is
+reviewer A (`round2-a-codex.md`), "B" is reviewer B (`round2-b-opus.md`). The plan's change log
+(m03-plan §10) lists the plan-side changes. §17.3's rulings on Q18–Q21 are applied in D2 item 3a, D5
+§6.3 and §6.8, D8 item 2, §18 and §19.
+
+| Finding | Ruling | Closed in this ADR |
+|---|---|---|
+| A R2-01 inherited `KnownHostsCommand` defeats the key pin (blocker) | 1 | D5 §6.3 (host-trust pin table, `NoHostAuthenticationForLocalhost` added by the check, the effective-configuration check); §6.5 item 3; M-F25; D13 item 2 (wrong-key fixtures); §17.5 Q22, Q23 |
+| A R2-02 stale writer appends after its lock is broken (blocker) | 2 | D5 §6.3 (holder-recording lock, proven termination, not-after, start identity per target shell); §6.7 (fencing first, `late_write`, the paused-writer test); §6.2 (`lock_holder_unresolved`); M-F30, M-F31; §16 |
+| A R2-03 lock acquisition fails when the registry directory is absent | 3 | D5 §6.3 (`bootstrap` script, exits 32 and 33); §6.4 (E2b); §6.1 (shown in the plan) |
+| A R2-04 maintenance reaches the managed signer through `SSH_AUTH_SOCK` | 4 | D5 §6.1 (endpoint precondition); §6.3 (existing-access endpoint); M-F29; §17.5 Q24 |
+| A R2-05 system-form cancel paths unsafe | 5 | D5 §6.2 (`removal_origin`; `manual_pending` cancel); §6.9 (enroll item 5, remove item 4) |
+| A R2-06 no expiry check at the enqueue; unbounded `sign` | 6 | D2 item 3a (permit expiry, `signing_budget`, release check); §18 (`PermitGuard`) |
+| A R2-07 owned connections may fork | 7 | D8 item 2 (foreground; option refusals); D5 §6.3 and §6.5 item 3; D8 item 3; D10 item 4; M-F28 |
+| A R2-08 Windows resume before registration; registration not ordered with revocation | 8 | D8 item 2 (Windows steps 2–4) |
+| A R2-09 verification lifecycle has no port; `ipc → app` edge | 9 | §18 (`VerificationEndpoints`, `PermitGuard`, the plan in `heimdall-registry`, the tightened check) |
+| B M03-R2-01 gate bodies land after their callers | 6 | D2 item 3a ("Who writes the bodies") |
+| B M03-R2-02 `SignPermit` crate; `EnrollmentPlan::build` above `app` | 9 | §18 |
+| B M03-R2-03 cascade set, lock order, closing under the gate | 6 | D2 item 3a (lock order, re-read, delegation hold, order within a narrowing, bounds); D7 item 2 |
+| B M03-R2-04 script start unbounded; stale stdin | 2 | D5 §6.3 (not-after, ready handshake, step-runner lifetime); §6.7 (`late_write`, `script_started_after_not_after_writes_nothing_exit_41`) |
+| B M03-R2-05 `held` has no owner exit; re-enrollment blocked | 5 | D5 §6.2 (`held` exits, `ApproveTargetChange`, `abandoned` outside the uniqueness rule); §6.8 (fresh target); §6.1 (uniqueness row); §17.5 Q25 |
+| B M03-R2-06 initial-verification retry under a lapsed approval | 5 | D5 §6.2 (`verifying`, `applied_unverified`); §6.5 (classification) |
+| B M03-R2-07 foreign removal state and host cross-check | 10 | D4 item 5 |
+| B M03-R2-08 `principals_not_enforced` fixture cannot produce it | 11 | M-F27; D13 item 2 |
+| B M03-R2-09 client updates strand verification | 11 | D5 §6.5 item 5 (release families, doctor finding); freshness (prompt re-verification) |
+| B M03-R2-10 truncated script runs a prefix | 2 | D5 §6.3 (script hardening); M-F26 |
+| B M03-R2-11 hard deadline void after a reboot | 2 | D5 §6.3 (bounds: wall deadline and boot ID) |
+| B M03-R2-12 Unix row written after bind | 8 | D8 item 2 (Unix) |
+| B M03-R2-13 destination lag classified as failure | 11 | D5 §6.5 (`destination_clock_skew`, the skew rule) |
+| B M03-R2-14 `awk %c` locale | 2 | D5 §6.3 (`LC_ALL=C`); M-F32 |
+| B M03-R2-15 release builds "ignore" the test variables | 12 | D13 item 5 |
+| B M03-R2-16 Q18–Q21 read as open; blocked list incomplete | 12 | header; §17 intro; §17.2 note; D2 item 3a (Q21); D5 §6.3 (Q19), §6.8 (Q20); D8 item 2 (Q18); §18; §19. The blocked records are listed in m03-plan §3 and §7 |
+| B M03-R2-17 U9 wave, port signature, operations body | 9 | plan-side (m03-plan U9, U0b, §2) |
+| B M03-R2-18 ordinary `ssh` needs a held slot, undisclosed | 12 | D10 item 2 |
