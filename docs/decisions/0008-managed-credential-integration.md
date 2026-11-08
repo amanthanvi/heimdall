@@ -3577,6 +3577,41 @@ Source: `tests/evidence/artifacts/review-m03-design/round5-final-codex.md`. It f
 
    Wave 0 of M03 may start. Its code review re-checks the gate protocol and the fencing scripts against the code.
 
+### 17.15 Orchestrator rulings on the wave-0 escalations (2026-11-08)
+
+Source: the wave-0 integrator's escalation index (109 rows). Wave 0 was integrated with `check.sh` exiting 0 on two consecutive runs (2010 passed). Rulings made during the wave:
+
+- **S1 and its follow-up.** The uniqueness index covers only states on the enrollment path, including `manual_pending`. A `held` row that a removal reached, which has `removal_origin` set, is outside it. A cancel that names the wrong origin is refused.
+- **G-Q1.** A narrowing with no gated grant commits in a single transaction. Any gated member puts the whole set through the full protocol.
+- **O-Q4.** No `interaction_required` reason in wave 0.
+
+The rulings below are applied in wave 0 before its review.
+
+1. **G-Q13.** A gate entry is never dropped while it has a holder or a pending mark. In addition, the release of a grant's last instance takes that grant's gate exclusively (U10 does the same).
+2. **B2-Q3.** A signature frame without a permit is sent only when its grant has no signing gate, the same condition as G-Q1. For a gated grant it is refused and recorded.
+3. **R4.** A `nominally_expired` obligation keeps its record, because it never shows as cleared (§17.1 item 10).
+   - The grant may still become `revoked`: the obligation blocks nothing else.
+   - A record with only `bounded_complete` obligations may be removed.
+4. **X-Q1.** System-form records refuse the manual-recovery events. The system form uses only the §6.9 manual removal and verification states.
+5. **X-Q2.** §6.7 wins. A damaged line found while reconciling a removal or a rollback moves to `held`, and keeps its `removal_origin`.
+6. **X-Q3.** Manual recovery of a removal keeps the removal's purpose:
+   - line absent: `removed`;
+   - line present: `held`, with `removal_origin` kept, never `applied_unverified`.
+7. **X-Q4.** `plan_digest` is bare 64-character lowercase hex.
+
+Accepted without change:
+
+8. **G-Q2 and G-Q3**, on one condition. `TimeGate::peek` is replaced by U3's `assess_read_only` before the U2 signer lands; that is a wave-2 acceptance criterion.
+9. **A1-Q1/Q2, C-Q1/V-E4 and V-E2.**
+10. **D-Q2.** The three informational zbus 5 advisories are accepted. M08's cargo-deny carries the ignore, to be revisited at secret-service 6.
+
+Decided now, implemented in later waves:
+
+11. **D-Q3.** Key generation uses only the operating system's CSPRNG, through `getrandom`.
+12. **R3.** The M01 `[session] lock_behavior` key stays, as a floor. It is merged fail-closed with the standing policy: `revoke` wins from either side. U9 implements it.
+
+**The other open rows.** The integrator's recorded readings stand as provisional defaults. Each later unit's brief lists the rows in its scope, to confirm or escalate.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):
