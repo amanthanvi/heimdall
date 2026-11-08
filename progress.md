@@ -882,3 +882,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - The first import was refused: an "unredacted Unix home path" false positive, `<scratch>/home/.gitconfig`, a fixture's own `home` directory. The importer now exempts a dot segment (a user name never starts with "."), with a regression test and a mutation check (103 tests OK). The bundle then imported: 1341 results, digest 442ba289….
     - `windows_launch` (the pseudoconsole drivers) did not run, because it needs `-ArgvDump`. argvdump.exe was cross-built here with Go (sha256 409f9f0b…) and copied to the PC.
   - WSL disposable distribution: run-wsl-distro.sh local mode (b024b994). The Linux heimdall cross-built at b024b994 is byte-identical to the exit build's (sha256 09d04d50…, linux/build.txt line 220); it was copied to `%LOCALAPPDATA%\hm-m02-wsl-1c734111`.
+- Running (2026-11-08):
+  - PC agent: the WSL disposable-distribution run in local mode (b024b994, prebuilt exit-build binary), then a second Windows run of 1e69263d with `-ArgvDump` (the pseudoconsole drivers).
+  - **M03 wave 0** (U0 skeleton and contract revision 4, plus U0b phase 1, as one change set): an integrator agent (Opus 5.5 high, worktree from 410ec237), with questions in `.m03-wave0-questions.md`. A Codex code review follows.
+  - Note: the local `claudeAgent` provider is not authenticated; local Claude delegates use `claude-cpamc`.
+- Still to do for the M02 exit:
+  - import the WSL run and the second Windows bundle;
+  - runs.json and digests for exit-1e69263d, then `m02-evidence.py --write`;
+  - the compatibility matrix and the M02 exit record (from `docs/architecture/m02-exit-draft.md`);
+  - remove the PC scratch dirs `hm-m02-exit-ae6d72f2` (the failed attempt), `hm-m02-exit-38e55915` and `hm-m02-wsl-1c734111` once imported.
