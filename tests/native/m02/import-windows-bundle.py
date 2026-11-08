@@ -66,10 +66,12 @@ _SENSITIVE = (
      "an unredacted Windows home path"),
     (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|(?:Default User|All Users|Public|Default)(?=[/\"'<>]|$))[^/\s\"'<>]+"),
      "an unredacted Windows home path"),
-    # A user name never starts with "." (useradd's NAME_REGEX), so `/home/.config`, the
-    # dotfiles of a fixture's own `home` directory under a redacted scratch root
-    # (`<scratch>/home/.gitconfig`, observed in the Windows exit run at 1e69263d), is not a home.
-    (re.compile(r"(?<![\w/.-])/home/(?!<|\.)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
+    # A home under /home, anywhere a name may start. The only exemption (W6W-R01) is a fixture's
+    # own `home` directory inside a redacted root, followed by a dotfile: `<scratch>/home/.gitconfig`
+    # (observed in the Windows exit run at 1e69263d). A bare `/home/.name` is still refused, since a
+    # home directory need not follow user-name rules, and so is `<scratch>/home/name`.
+    (re.compile(r"(?<![\w/.>-])/home/(?!<)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
+    (re.compile(r"(?<=>)/home/(?!<|\.)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
     # The macOS form is not applied right after a lone drive letter (C:/Users/... is the
     # Windows rule's), but it is after any other colon (PATH=...:/Users/x, file:/Users/x).
     (re.compile(r"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\"'<>]|$))[A-Za-z0-9._-]+"),

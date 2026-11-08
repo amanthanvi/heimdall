@@ -4680,6 +4680,30 @@ exit-build binary (sha256 09d04d50…), and the second Windows run of 1e69263d w
 
 **M04's task.** Add the test: a file symbolic link created in scratch under Developer Mode, standing in for the user configuration. It must assert manual mode, and that nothing is written through the link.
 
+### 12.46 Rulings on the wave-6w code review; the M02 exit is held (orchestrator, 2026-11-08)
+
+**Sources.**
+- M02-W6-code-review (Codex GPT-6.1 Sol, independent): `tests/evidence/artifacts/review-m02-code/wave6w.md`. It says "fix first", with W6W-R01–R03 and one weakened assertion.
+- The exit-record pass. It found Windows rows that read `verified` although their declared coverage never ran natively.
+
+1. **W6W-R01 (fixed): the importer exempts only a fixture home's dotfile inside a redacted root.**
+   - A `/home/<name>` path is refused wherever a name may start.
+   - Directly after a placeholder (`<scratch>/home/…`), only a dotfile is exempt.
+   - A bare `/home/.name` is refused, because a home directory need not follow user-name rules. So is `<scratch>/home/name` and `/home/.private/alice/…`.
+   - Regressions were added and mutation-checked. The imported Windows and WSL artifacts were re-scanned with the corrected rule: 0 findings.
+2. **The argv-canary comparison (fixed).** It is exact on Unix. On Windows only `echo`'s own `" \r\n"` suffix is allowed.
+3. **W6W-R02 and W6W-R03 (to the Windows fix wave).**
+   - **R02:** the counting fixture gains an observation of opens that happen before identification. The passivity and no-contact assertions use that count, and the accepted count stays separate.
+   - **R03:** the silent-client test observes the client's EOF concurrently with `accept()`. It asserts that the EOF arrives neither before the bound nor long after it, and the test is mutation-checked with a shortened bound.
+4. **The M02 exit is held.** The evidence generator rates a platform row from the tests that exist for that platform. A planned Windows test that was never written, or that is `cfg(unix)` with no ruling, therefore reads as covered. A coverage audit lists every declared Windows and WSL claim against what ran at ce21a76f, and proposes a case-index mechanism that keeps such a row from `verified` until its test exists and passes. The Windows fix wave then closes the gaps. Known so far:
+   - A35's in-box `ssh`, `scp`, `sftp` and Git transport against a server;
+   - R-SE-04 host-key substitution;
+   - the projection integration binaries, including the `ReplaceFileW` Git name transitions;
+   - the junction reparse row;
+   - `sys::account_name` (§12.28 item 4).
+
+   M02 exits only on a build where those rows ran natively, or were ruled out by a recorded decision.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

@@ -1022,6 +1022,9 @@ class WindowsBundle(unittest.TestCase):
             "a Unix home path": make_bundle({"build.txt": "at /home/someone/src\n"}),
             "a Unix home after a placeholder": make_bundle({"build.txt": "at <scratch>/home/someone/src\n"}),
             "a Unix home whose name has a dot inside": make_bundle({"build.txt": "at /home/some.one/src\n"}),
+            # W6W-R01: a home directory need not follow user-name rules.
+            "a dot-prefixed Unix home": make_bundle({"build.txt": "at /home/.review-fixture-user/private\n"}),
+            "a home under a dot directory": make_bundle({"build.txt": "at /home/.private/alice/src\n"}),
             "a Windows home path": make_bundle({"build.txt": "at C:\\Users\\someone\\src\n"}),
             "a WSL view of a Windows home": make_bundle({"build.txt": "at /mnt/c/Users/someone/x\n"}),
             "a macOS home path": make_bundle({"build.txt": "at /Users/someone/x\n"}),

@@ -989,7 +989,13 @@ fn a27_argv_canary_absent_from_ipc_store_events_logs_errors_batch_refusals_repla
     // `cmd`'s `echo` leaves a space before the redirection and ends the line with CRLF
     // (a Unix `printf` writes the bare value). No assertion may print the canary.
     let got = std::fs::read_to_string(&seen).unwrap();
-    assert!(got.trim_end() == canary, "the child got it");
+    // Exact on Unix; on Windows only `echo`'s own " \r\n" suffix is allowed (W6W review).
+    let expected = if cfg!(windows) {
+        format!("{canary} \r\n")
+    } else {
+        canary.to_string()
+    };
+    assert!(got == expected, "the child got it");
     std::fs::remove_file(&seen).unwrap();
     let replay = run_one("replay", "req-canary", argv.clone(), &[]).code();
     assert!(
