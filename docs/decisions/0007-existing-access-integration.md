@@ -4636,6 +4636,40 @@ mutation-checked the regression.
    - **The ruling:** identify a client only after its first write. The wait is bounded, and a silent client never blocks other clients.
    - **Status:** fixed by unit w6-ipc. A native reproduction failed before the fix (1368 for a default-flags client that writes late; a silent SQOS client was "verified") and passed after it. There are five new Windows tests; each fails with the readiness wait removed. Native results: `heimdall-ipc` 37 passed, the adversarial frame suites passed, `integration_runtime` 52 passed.
 
+### 12.44 Rulings on the WSL local run and the Windows pseudoconsole drivers (orchestrator, 2026-11-08)
+
+**Sources.** The WSL disposable-distribution run in local mode (b024b994), which ran the prebuilt
+exit-build binary (sha256 09d04d50…), and the second Windows run of 1e69263d with `-ArgvDump`.
+
+**What the runs showed.**
+- **WSL run.** The scenario passed: 10 of 10 tests. The user's `~/.ssh/config` was byte-identical
+  after uninstall, and the registered set was unchanged. The script still exited 1, from its own leak
+  scan.
+- **Windows run.** `resize` and `ctrlc.break` passed. `ctrlc.event` and `ctrlc.keystroke` failed:
+  the child saw no interrupt.
+
+1. **The controller distribution's name is personal only when the owner chose it.**
+   - **Cause:** the WSL harness redacted and leak-scanned that name as a case-insensitive substring.
+     The default name `Ubuntu` therefore matched:
+     - the pinned, public image URL in `build.txt`;
+     - the client version string, which was rewritten as `<owner-distro>-3<owner-distro>13.20`.
+   - **A default name:** one equal, case-insensitively, to the controller's own os-release `NAME` or
+     `ID`, or to `NAME-VERSION_ID` (`Ubuntu`, `Ubuntu-24.04`). It identifies nothing about the owner.
+     It is recorded as `controller-distro-name=default (os-release)` and is neither redacted nor
+     leak-scanned.
+   - **Any other name:** personal. It is redacted as a whole word only, as host names are under item
+     10, and leak-scanned the same way.
+2. **Ctrl-C in the pseudoconsole drivers: a harness defect, ruled as for Unix SIGINT in §12.32 item 9.**
+   - **Why it is the harness:** Windows passes a process's "ignore Ctrl-C" attribute
+     (`SetConsoleCtrlHandler(NULL, TRUE)`, or a new process group) on to the processes it creates.
+     Ctrl-Break cannot be ignored that way, and Ctrl-Break worked, which fits an attribute inherited
+     from the agent's process environment. Heimdall's own behaviour is transparent: its child gets
+     the disposition it would get if launched directly.
+   - **The fix:** the driver creates heimdall with Ctrl-C processing enabled. The inherited state is
+     recorded as a host fact (`ctrl-c-inherited=ignored|processed`).
+   - **Confirm first:** the unit confirms the cause natively before fixing it, by running the same
+     drivers with processing restored. If the cause is anything else, it escalates.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
