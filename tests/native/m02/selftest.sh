@@ -219,7 +219,7 @@ fi
 cmd="$*"
 case "$cmd" in
     "bash -s"*)
-        sed "s#/mnt/c#$HM_ST_WINROOT#g" |
+        sed "s#/mnt/c#$HM_ST_WINROOT#g; s#/etc/os-release#$HM_ST_OSRELEASE#g" |
             env HOME="$HM_ST_HOME" PATH="$HM_ST_BIN:$PATH" WSL_DISTRO_NAME="${HM_ST_CONTROLLER:-}" bash -c "$cmd" ;;
     *) env HOME="$HM_ST_HOME" PATH="$HM_ST_BIN:$PATH" bash -c "$cmd" ;;
 esac
@@ -457,6 +457,8 @@ case "${1:-}" in
                 # What a scenario step may print: the local user, host and home and the Windows
                 # ones (redacted before anything is saved).
                 [ "${HM_ST_DISTRO_LEAK:-0}" = 1 ] && echo "observation leak home=$HOME user=$(id -un) host=$(hostname) winuser=fixtureuser winhost=FIXTUREHOST winhome=C:\\Users\\fixtureuser"
+                # An arbitrary scenario line (the controller-distribution-name cases, ADR-0007 §12.44).
+                [ -z "${HM_ST_SCEN_LINE:-}" ] || echo "observation ${HM_ST_SCEN_LINE}"
                 echo "fact ssh-V=OpenSSH_9.9p9 (exit 0)"
                 echo "fact rename-exchange=supported (selftest)"
                 for s in a01_setup_apply_writes_the_users_real_ssh_config a01_ordinary_ssh_alias_without_f \
@@ -576,7 +578,7 @@ harness() {
         "${ssh_env[@]}" \
         HM_ST_LOG="$L" HM_ST_HOST="$HOST" HM_ST_HOME="$H" HM_ST_WINROOT="$W" HM_ST_BIN="$B" \
         HM_ST_BUILD_JSON="$S/build.json" HM_ST_WSLDIR="$S/wsl" HM_ST_SSHD_COPY="$S/sshd-config.copy" \
-        HM_ST_SSHD_PIDS="$S/sshd.pids" HM_ST_IMAGE="$S/image.bin" \
+        HM_ST_SSHD_PIDS="$S/sshd.pids" HM_ST_IMAGE="$S/image.bin" HM_ST_OSRELEASE="$S/os-release" \
         ${extra_env[@]+"${extra_env[@]}"} \
         bash "$r/tests/native/m02/$script" "$@" >"$S/harness.log" 2>&1 </dev/null
     rc=$?
@@ -1504,7 +1506,7 @@ local_distro_world() {
     cat >"$B/bash" <<'EOF'
 #!/bin/bash
 if [ "${1:-}" = -s ]; then
-    sed "s#/mnt/c#$HM_ST_WINROOT#g" | "$HM_ST_REALBASH" "$@"
+    sed "s#/mnt/c#$HM_ST_WINROOT#g; s#/etc/os-release#$HM_ST_OSRELEASE#g" | "$HM_ST_REALBASH" "$@"
     exit $?
 fi
 exec "$HM_ST_REALBASH" "$@"
@@ -1512,7 +1514,9 @@ EOF
     printf '#!/usr/bin/env bash\necho "tar $*" >>"$HM_ST_LOG"\nexec "$HM_ST_REALTAR" "$@"\n' >"$B/tar"
     printf '#!/usr/bin/env bash\necho "scp $*" >>"$HM_ST_LOG"\nexit 1\n' >"$B/scp"
     chmod +x "$B/bash" "$B/tar" "$B/scp"
-    extra_env+=(HM_LOCAL=1 HM_ST_REALBASH="$(command -v bash)" HM_ST_REALTAR="$(command -v tar)")
+    # The controller's name is the harness process's own WSL_DISTRO_NAME in local mode (the extra_env
+    # entry follows the harness' own and wins); a case names another controller by appending its own.
+    extra_env+=(WSL_DISTRO_NAME=OwnerDistroSelftest HM_LOCAL=1 HM_ST_REALBASH="$(command -v bash)" HM_ST_REALTAR="$(command -v tar)")
 }
 # nothing_created: a refused local run created no artifact directory, no temporary directory, no run
 # directory, called no tool, and left the registered set as it was.
@@ -1600,6 +1604,90 @@ extra_env+=(HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$PBSUM" HM_ST_UNREGIS
 harness "$S/repo" run-wsl-distro.sh "$O"
 check "D56 distro local: an unregister that failed is retried by the EXIT trap, locally; the set ends equal, the directories are removed, no ssh" \
     bash -c '[ "$1" != 0 ] && [ "$(grep -c "^wsl --unregister " "$2")" = 2 ] && cmp -s "$3" "$4" && grep -q "^cleanup unregister-exit=0$" "$5" && [ -z "$(ls -A "$6/hm-m00")" ] && [ -z "$(ls -A "$7/localappdata/hm-m00")" ] && ! grep -qE "^(ssh|scp) " "$2"' _ "$rc" "$L" "$S/wsl/registry" "$S/registry.before" "$O/commands.txt" "$H" "$W"
+
+# --- the controller distribution's name (ADR-0007 §12.44 item 1) -------------------------------
+
+# controller_world NAME CONTROLLER LINE [local]: the full-flow world (ssh path, or local mode with a
+# 4th argument) whose controller distribution is CONTROLLER, with an Ubuntu 24.04 os-release (NAME
+# "Ubuntu", ID ubuntu, VERSION_ID "24.04") and LINE as one scenario observation line.
+controller_world() {
+    if [ "${4:-}" = local ]; then
+        local_distro_world "$1"
+        extra_env+=(HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$PBSUM")
+    else
+        distro_world "$1"
+    fi
+    printf 'PRETTY_NAME="Ubuntu 24.04.5 LTS"\nNAME="Ubuntu"\nVERSION_ID="24.04"\nID=ubuntu\n' >"$S/os-release"
+    extra_env+=(HM_ST_CONTROLLER="$2" WSL_DISTRO_NAME="$2" HM_ST_SCEN_LINE="$3")
+}
+# default_name_ok: the checks every default-name run shares (D57..).
+default_name_ok() {
+    [ "$1" = 0 ] && [ "$(grep -c "^controller-distro-name=" "$2")" = 1 ] && grep -qx "controller-distro-name=default (os-release)" "$2" &&
+        grep -qx "observation client OpenSSH_9.6p1 Ubuntu-3ubuntu13.20" "$3" && grep -q "^os=Ubuntu 24.04.5 LTS" "$2" &&
+        grep -q "releases.ubuntu.com/noble/ubuntu-24.04.5-wsl-amd64.wsl" "$4" && ! grep -rq "owner-distro" "$5" &&
+        grep -q "^exit 0: leak scan" "$6" && grep -q "^exit 0: canary-prefix scan" "$6"
+}
+local_default_name_ok() { head -1 "$2" | grep -q "^mode=local " && default_name_ok "$@"; }
+VERSION_LINE="client OpenSSH_9.6p1 Ubuntu-3ubuntu13.20"
+
+controller_world distro-name-default Ubuntu "$VERSION_LINE"
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D57 distro name: a default name (os-release NAME, Ubuntu) is kept: host.txt says default (os-release), a version line stays intact, the leak scan passes with the pinned URL in build.txt, exit 0" \
+    default_name_ok "$rc" "$O/host.txt" "$O/tests.txt" "$O/build.txt" "$O" "$O/commands.txt"
+check "D58 distro name: ...the controller's name itself is in no host.txt line, and every registered distribution is untouched" \
+    bash -c '! grep -qi "^wsldistro" "$1" && cmp -s "$2" "$3"' _ "$O/host.txt" "$S/wsl/registry" "$S/registry.before"
+
+controller_world distro-name-default-nv UBUNTU-24.04 "$VERSION_LINE"
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D59 distro name: NAME-VERSION_ID (UBUNTU-24.04, case-insensitively) is also a default name, with the same outcome" \
+    default_name_ok "$rc" "$O/host.txt" "$O/tests.txt" "$O/build.txt" "$O" "$O/commands.txt"
+
+controller_world distro-name-default-id ubuntu "$VERSION_LINE"
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D60 distro name: os-release ID (ubuntu) is a default name too" \
+    default_name_ok "$rc" "$O/host.txt" "$O/tests.txt" "$O/build.txt" "$O" "$O/commands.txt"
+
+controller_world distro-name-default-local Ubuntu "$VERSION_LINE" local
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D61 distro name local: the same decision in local mode (default name kept, host.txt says default (os-release), mode=local still first, exit 0)" \
+    local_default_name_ok "$rc" "$O/host.txt" "$O/tests.txt" "$O/build.txt" "$O" "$O/commands.txt"
+
+controller_world distro-name-owner ownerbox "name=ownerbox again OWNERBOX"
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D62 distro name: an owner-chosen name is redacted wherever it is a whole word in a saved file, and host.txt says owner-chosen (redacted)" \
+    bash -c '[ "$1" = 0 ] && grep -qx "controller-distro-name=owner-chosen (redacted)" "$2" && [ "$(grep -c "^controller-distro-name=" "$2")" = 1 ] &&
+        grep -qx "observation name=<owner-distro> again <owner-distro>" "$3"' _ "$rc" "$O/host.txt" "$O/tests.txt"
+check "D63 distro name: ...the name is absent from every artifact and from the call log, and the leak scan ran and passed" \
+    bash -c 'none=1; for f in $(find "$1" -type f); do grep -qi ownerbox "$f" && none=0; done; [ "$none" = 1 ] && ! grep -qi ownerbox "$2" && grep -q "^exit 0: leak scan" "$3"' _ "$O" "$L" "$O/commands.txt"
+D_OWNER_OUT="$O"
+D_SCAN_DIR="$S/leakcopy"
+cp -R "$O" "$D_SCAN_DIR"
+printf 'a stray line naming ownerbox\n' >>"$D_SCAN_DIR/tests.txt"
+check "D64 distro name: the leak scan finds an owner-chosen name still in an artifact (count 1, exit 1), and passes the redacted set (count 0, exit 0)" \
+    bash -c '. "$1"; n=$(m02_leak_scan "$2" --word ownerbox); a=$?; m=$(m02_leak_scan "$3" --word ownerbox); b=$?; [ "$n" = 1 ] && [ "$a" = 1 ] && [ "$m" = 0 ] && [ "$b" = 0 ]' _ "$m02/lib.sh" "$D_SCAN_DIR" "$D_OWNER_OUT"
+check "D65 distro name: ...and the harness scans the name as a whole word (a longer word holding it is not a leak)" \
+    bash -c '. "$1"; d=$2; printf "myownerbox ownerboxes toolbox\n" >"$d/tests.txt"; n=$(m02_leak_scan "$d" --word ownerbox); a=$?; [ "$n" = 0 ] && [ "$a" = 0 ] && grep -q -- "--word \"\$wsldistro\"" "$3"' _ "$m02/lib.sh" "$D_SCAN_DIR" "$m02/run-wsl-distro.sh"
+
+controller_world distro-name-wholeword box "a=box b=toolbox c=Box. d=boxes e=my_box f=sandbox"
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D66 distro name: an owner-chosen name inside another word (box in toolbox) is not redacted there; the standalone name is, and the run exits 0" \
+    bash -c '[ "$1" = 0 ] && grep -qx "observation a=<owner-distro> b=toolbox c=<owner-distro>. d=boxes e=my_box f=sandbox" "$2" && grep -qx "controller-distro-name=owner-chosen (redacted)" "$3"' _ "$rc" "$O/tests.txt" "$O/host.txt"
+
+controller_world distro-name-owner-near Ubuntu-22.04 "name=Ubuntu-22.04"
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D67 distro name: a name that is no os-release form (Ubuntu-22.04 on a 24.04 controller) is owner-chosen and redacted" \
+    bash -c '[ "$1" = 0 ] && grep -qx "controller-distro-name=owner-chosen (redacted)" "$2" && grep -qx "observation name=<owner-distro>" "$3" && ! grep -rqi "ubuntu-22.04" "$4"' _ "$rc" "$O/host.txt" "$O/tests.txt" "$O"
+
+controller_world distro-name-no-osrelease Ubuntu "$VERSION_LINE"
+rm -f "$S/os-release"
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D68 distro name: with no readable os-release the name is never taken as default: it is owner-chosen and redacted (so the version line is rewritten) and the leak scan, which now sees the public image URL, fails the run closed" \
+    bash -c '[ "$1" != 0 ] && grep -qx "controller-distro-name=owner-chosen (redacted)" "$2" && grep -qx "observation client OpenSSH_9.6p1 <owner-distro>-3ubuntu13.20" "$3" && grep -q "^exit 1: leak scan" "$4"' _ "$rc" "$O/host.txt" "$O/tests.txt" "$O/commands.txt"
+
+controller_world distro-name-owner-local ownerbox "name=ownerbox again OWNERBOX" local
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D69 distro name local: an owner-chosen name is redacted as a whole word in local mode too, recorded owner-chosen, absent from every artifact, exit 0" \
+    bash -c '[ "$1" = 0 ] && grep -qx "controller-distro-name=owner-chosen (redacted)" "$2" && grep -qx "observation name=<owner-distro> again <owner-distro>" "$3" && ! grep -rqi ownerbox "$4"' _ "$rc" "$O/host.txt" "$O/tests.txt" "$O"
 
 # =============================================================================================
 # T: target-root.sh refusals (it needs root inside the disposable distribution)

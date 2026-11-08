@@ -60,7 +60,9 @@
 # Nothing is elevated; no Windows service, firewall rule, ssh-agent state or the
 # owner's ~/.ssh is touched (the WSL import's own registration is removed by the
 # unregister). Output (redacted as run-windows.sh, plus the controller distribution's
-# name): build.txt, host.txt, tests.txt, commands.txt, canary-scan.txt. Exit: nonzero
+# name when the owner chose it, as a whole word; a default name, equal to the controller's
+# os-release NAME, ID or NAME-VERSION_ID, is not personal and only its classification is
+# recorded as controller-distro-name=; ADR-0007 §12.44 item 1): build.txt, host.txt, tests.txt, commands.txt, canary-scan.txt. Exit: nonzero
 # when a step fails, 3 when an input is missing (the image, tools without
 # HM_WSL_ALLOW_APT, or in local mode the prebuilt binary or its digest), or a canary or leak
 # is found.
@@ -372,7 +374,29 @@ echo "winhome=$("$W/cmd.exe" /c 'echo %USERPROFILE%' | tr -d '\r')"
 echo "wsluser=$(id -un)"
 echo "wslhome=$HOME"
 echo "wslhost=$(hostname)"
-echo "wsldistro=${WSL_DISTRO_NAME:-}"
+# The controller distribution's name is personal only when the owner chose it (ADR-0007 §12.44
+# item 1). A default name equals, case-insensitively, the controller's own os-release NAME or ID,
+# or NAME-VERSION_ID (Ubuntu, Ubuntu-24.04): it identifies nothing and is neither printed,
+# redacted nor leak-scanned. Any other name (or an unreadable os-release) is personal: it is
+# printed here, after the marker only, for the redaction and the leak scan. Decided here, in the
+# controller, in ssh mode and in local mode alike.
+osr() { sed -n "s/^$1=//p" /etc/os-release 2>/dev/null | head -1 | sed "s/^[\"']//; s/[\"']\$//"; }
+wd=${WSL_DISTRO_NAME:-}
+wd_class=unset
+if [ -n "$wd" ]; then
+    wd_class=owner-chosen
+    osn=$(osr NAME)
+    osi=$(osr ID)
+    osv=$(osr VERSION_ID)
+    cands=("$osn" "$osi")
+    if [ -n "$osn" ] && [ -n "$osv" ]; then cands+=("$osn-$osv"); fi
+    lwd=$(printf '%s' "$wd" | tr '[:upper:]' '[:lower:]')
+    for c in "${cands[@]}"; do
+        if [ -n "$c" ] && [ "$(printf '%s' "$c" | tr '[:upper:]' '[:lower:]')" = "$lwd" ]; then wd_class=default; fi
+    done
+fi
+echo "wsldistro-class=$wd_class"
+if [ "$wd_class" = owner-chosen ]; then echo "wsldistro=$wd"; fi
 [ "$urc" = 0 ] || return 1
 return "$src"
 }
@@ -385,11 +409,14 @@ m02_record "$commands" "remote: pinned image, import, prepare, the ordinary-ssh 
 red=$(sed -n '/^---redaction---$/,$p' "$shim/remote.txt")
 val() { printf '%s\n' "$red" | sed -n "s/^$1=//p" | head -1; }
 winuser=$(val winuser); winhost=$(val winhost); winhome=$(val winhome)
-wsluser=$(val wsluser); wslhome=$(val wslhome); wslhost=$(val wslhost); wsldistro=$(val wsldistro)
+wsluser=$(val wsluser); wslhome=$(val wslhome); wslhost=$(val wslhost); wsldistro=$(val wsldistro); wdclass=$(val wsldistro-class)
+# Only an owner-chosen name is carried (the remote prints none otherwise); a default name is neither
+# redacted nor scanned, and the classification alone goes to host.txt.
+[ "$wdclass" = owner-chosen ] || wsldistro=""
 sed '/^---redaction---$/,$d' "$shim/remote.txt" >"$shim/remote.body"
 m02_redact "$shim/remote.body" "$shim/redacted.txt" "$winhome" "<winhome>" "$wslhome" "<wslhome>" "$HOME" "<home>" \
     "$winuser" "<winuser>" --word "$winhost" "<winhost>" --word "$host" "<winhost>" "$wsluser" "<wsluser>" \
-    --word "$wslhost" "<wslhost>" "$wsldistro" "<owner-distro>" "$(id -un)" "<user>"
+    --word "$wslhost" "<wslhost>" --word "$wsldistro" "<owner-distro>" "$(id -un)" "<user>"
 if grep -q '^---tests---$' "$shim/redacted.txt"; then
     sed -n '1,/^---tests---$/p' "$shim/redacted.txt" | sed '$d' >"$out/host.txt"
     sed -n '/^---after---$/,$p' "$shim/redacted.txt" | sed '1d' >>"$out/host.txt"
@@ -402,6 +429,12 @@ if [ "$local_mode" = 1 ]; then
     { echo "mode=local (run inside the WSL controller by an agent on the PC; ADR-0007 §12.32 item 15)"; cat "$out/host.txt"; } >"$shim/host.new"
     cat "$shim/host.new" >"$out/host.txt"
 fi
+case "$wdclass" in
+    default) echo "controller-distro-name=default (os-release)" >>"$out/host.txt" ;;
+    owner-chosen) echo "controller-distro-name=owner-chosen (redacted)" >>"$out/host.txt" ;;
+    unset) echo "controller-distro-name=none (WSL_DISTRO_NAME unset)" >>"$out/host.txt" ;;
+    *) echo "controller-distro-name=not recorded" >>"$out/host.txt" ;;
+esac
 # The scenario's own facts (versions, digests, counts: never a path or a name) join host.txt as
 # key=value lines, where the evidence generator reads versions and facts.
 sed -n 's/^fact \([A-Za-z0-9_.-]*\)=\(.*\)$/\1=\2/p' "$out/tests.txt" >>"$out/host.txt"
@@ -411,7 +444,7 @@ redact_build_log
 hits=$(m02_canary_scan "$out")
 m02_record "$commands" "canary-prefix scan over saved output (count = $hits)" "$([ "$hits" = 0 ] && echo 0 || echo 1)"
 set +e
-leaks=$(m02_leak_scan "$out" "$winhome" "$wslhome" "$HOME" "$winuser" --word "$winhost" --word "$host" "$wsluser" --word "$wslhost" "$wsldistro" "$(id -un)")
+leaks=$(m02_leak_scan "$out" "$winhome" "$wslhome" "$HOME" "$winuser" --word "$winhost" --word "$host" "$wsluser" --word "$wslhost" --word "$wsldistro" "$(id -un)")
 lrc=$?
 set -e
 m02_record "$commands" "leak scan: saved files still naming a host, a user, a home or the controller distribution ($leaks)" "$lrc"
