@@ -17,8 +17,16 @@
 //! the store's own `FaultHook` (`heimdall_testkit::ScriptedFaults`). One test,
 //! `a22_first_adoption_commit_point_crash_as_a_process_abort_reconciles`, is a real
 //! **process abort**: a child process calls `std::process::abort` at the hook and dies
-//! by SIGABRT, and a fresh child process reconciles (ADR-0007 §12.17 item 8).
-#![cfg(unix)]
+//! by SIGABRT, and a fresh child process reconciles (ADR-0007 §12.17 item 8). On
+//! Windows the child dies by `__fastfail` (`STATUS_STACK_BUFFER_OVERRUN`), the
+//! platform's process abort.
+//!
+//! **Windows** (wave 6x, ADR-0007 §12.47): the suite runs natively. A Unix mode is
+//! asserted in its Windows form: 0600/0700 is the protected owner-only DACL Heimdall
+//! creates, mode 000 is a deny-read ACE for the owner (module `win`). A symlink is a
+//! Windows symbolic link (Developer Mode, §12.47 item 7) or a directory junction. A
+//! test that cannot hold on Windows (a FIFO, a group or other bit with no Windows rule,
+//! the single-aside exchange model) is gated per test with its rationale.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -28,6 +36,7 @@
 )]
 
 use std::collections::BTreeMap;
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
@@ -451,7 +460,7 @@ fn first_aliases(
 /// One entry of a scratch tree: identity (inode) and content.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Entry {
-    ino: u64,
+    ino: Ident,
     kind: char,
     bytes: Vec<u8>,
 }
@@ -468,7 +477,7 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Entry>) {
             out.insert(
                 name.clone(),
                 Entry {
-                    ino: m.ino(),
+                    ino: ident(&e.path()),
                     kind: 'd',
                     bytes: Vec::new(),
                 },
@@ -479,7 +488,7 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Entry>) {
             out.insert(
                 name,
                 Entry {
-                    ino: m.ino(),
+                    ino: ident(&e.path()),
                     kind: 'l',
                     bytes: t.to_string_lossy().as_bytes().to_vec(),
                 },
@@ -488,7 +497,7 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Entry>) {
             out.insert(
                 name,
                 Entry {
-                    ino: m.ino(),
+                    ino: ident(&e.path()),
                     kind: 'f',
                     bytes: std::fs::read(e.path()).unwrap_or_default(),
                 },
@@ -714,9 +723,357 @@ fn held_reasons(o: &ItemOutcome) -> Vec<HoldReason> {
     }
 }
 
+/// Write `bytes` and give the file `mode`; on Windows its form: 0600 the protected
+/// owner-only DACL (`heimdall_testkit::win::set_owner_only`), 0644 the DACL the
+/// directory passes on. Mode 000 is [`unreadable`]; no other mode has a Windows form.
 fn write_mode(path: &Path, bytes: &[u8], mode: u32) {
     std::fs::write(path, bytes).unwrap();
+    set_mode(path, mode);
+}
+
+/// Give the existing file `path` the mode `mode`, or its Windows form (as
+/// [`write_mode`]; 0644 is the form of a file just written).
+fn set_mode(path: &Path, mode: u32) {
+    #[cfg(unix)]
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    #[cfg(windows)]
+    match mode {
+        0o600 => heimdall_testkit::win::set_owner_only(path).unwrap(),
+        0o644 => {}
+        other => panic!("mode {other:o} has no Windows form in this suite"),
+    }
+}
+
+/// The owner cannot read a file while this lives: mode 000 on Unix (`restore` sets
+/// 0600 again); on Windows WU-0's deny-read ACE for the owner
+/// (`heimdall_testkit::win::deny_read`), whose original DACL comes back on `restore` or
+/// drop.
+struct Unreadable {
+    #[cfg(unix)]
+    path: PathBuf,
+    #[cfg(windows)]
+    guard: heimdall_testkit::win::DenyRead,
+}
+
+/// Make the file `path` unreadable to its owner ([`Unreadable`]).
+fn unreadable(path: &Path) -> Unreadable {
+    #[cfg(unix)]
+    {
+        set_mode(path, 0o000);
+        Unreadable {
+            path: path.to_path_buf(),
+        }
+    }
+    #[cfg(windows)]
+    Unreadable {
+        guard: heimdall_testkit::win::deny_read(path).unwrap(),
+    }
+}
+
+impl Unreadable {
+    fn restore(self) {
+        #[cfg(unix)]
+        set_mode(&self.path, 0o600);
+        #[cfg(windows)]
+        self.guard.restore().unwrap();
+    }
+}
+
+/// Make `path` owner-only as Heimdall's own directories are (Unix 0700; Windows the
+/// protected owner-only DACL inherited by children, as `QuarantineDir` creates it).
+fn set_private_dir(path: &Path) {
+    #[cfg(unix)]
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    #[cfg(windows)]
+    heimdall_testkit::win::set_owner_only(path).unwrap();
+}
+
+/// `path` is a file of mode 0600 (Windows: the protected owner-only DACL).
+fn assert_owner_only_file(path: &Path, what: &str) {
+    #[cfg(unix)]
+    assert_eq!(
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+        0o600,
+        "{what}"
+    );
+    #[cfg(windows)]
+    win::assert_dacl(path, &win::owner_only(false), what);
+}
+
+/// `path` is a directory of mode 0700 (Windows: the protected owner-only DACL), the
+/// access of a directory that is Heimdall's own.
+fn assert_private_dir(path: &Path, what: &str) {
+    #[cfg(unix)]
+    assert_eq!(
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777,
+        0o700,
+        "{what}"
+    );
+    #[cfg(windows)]
+    win::assert_dacl(path, &win::owner_only(true), what);
+}
+
+/// A user file Heimdall created (`~/.ssh/config`): mode 0600 on Unix; on Windows
+/// Win32-OpenSSH's rule (ADR-0007 §12.48 item 2, `win::assert_client_rule`).
+fn assert_user_file(path: &Path, what: &str) {
+    #[cfg(unix)]
+    assert_owner_only_file(path, what);
+    #[cfg(windows)]
+    win::assert_client_rule(path, what);
+}
+
+/// A user directory Heimdall created (`~/.ssh`): mode 0700 on Unix; on Windows
+/// Win32-OpenSSH's rule, as a protected DACL rather than an inherited one (ADR-0007
+/// §12.48 item 2), so the parent's other principals never reach it.
+fn assert_user_dir(path: &Path, what: &str) {
+    #[cfg(unix)]
+    assert_private_dir(path, what);
+    #[cfg(windows)]
+    {
+        win::assert_client_rule(path, what);
+        let dacl = win::dacl(path);
+        assert!(
+            dacl.starts_with("D:P"),
+            "{what}: protected, not inherited: {}",
+            win::redact(&dacl)
+        );
+    }
+}
+
+/// The identity of the entry at `path`, never following a link: Unix device and inode;
+/// Windows volume serial and 128-bit file ID (`FileIdInfo`).
+type Ident = (u64, u128);
+
+fn ident(path: &Path) -> Ident {
+    #[cfg(unix)]
+    {
+        let m = std::fs::symlink_metadata(path).unwrap();
+        (m.dev(), u128::from(m.ino()))
+    }
+    #[cfg(windows)]
+    {
+        match heimdall_localenv::sys::handle_identity(&win::open_entry(path)).unwrap() {
+            heimdall_domain::projection::FileIdentity::Windows { volume, file_id } => {
+                (volume, u128::from_be_bytes(file_id))
+            }
+            other @ heimdall_domain::projection::FileIdentity::Unix { .. } => {
+                panic!("a Unix identity on Windows: {other:?}")
+            }
+        }
+    }
+}
+
+/// The access of the entry at `path` itself: the Unix mode (octal), or on Windows its
+/// DACL; a Windows reparse point is `reparse` (its target is compared separately, as a
+/// Unix symlink's constant mode says nothing either).
+fn access_of(path: &Path) -> String {
+    let m = std::fs::symlink_metadata(path).unwrap();
+    #[cfg(unix)]
+    {
+        format!("{:o}", m.mode())
+    }
+    #[cfg(windows)]
+    {
+        if m.file_type().is_symlink() {
+            "reparse".to_owned()
+        } else {
+            win::dacl(path)
+        }
+    }
+}
+
+/// A symbolic link at `link` to `target` (Windows: a directory link when the target is
+/// a directory, otherwise a file link; Developer Mode, ADR-0007 §12.47 item 7).
+fn symlink_any(target: &Path, link: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).unwrap();
+    #[cfg(windows)]
+    {
+        let made = if target.is_dir() {
+            std::os::windows::fs::symlink_dir(target, link)
+        } else {
+            std::os::windows::fs::symlink_file(target, link)
+        };
+        made.expect("a symbolic link needs Developer Mode (ADR-0007 §12.47 item 7)");
+    }
+}
+
+/// What this suite needs on Windows beyond WU-0's shared `heimdall_testkit::win` (the
+/// SID, the owner-only form, `set_owner_only`, `deny_read`, and the DACL of an entry
+/// that is not a reparse point): an arbitrary DACL for the cases a Windows rule must
+/// refuse, the file ID and link count of an entry itself (a reparse point included),
+/// Win32-OpenSSH's rule, and junctions. Failure messages show the user's SID as
+/// `<sid>`.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod win {
+    use std::os::windows::ffi::OsStrExt as _;
+    use std::os::windows::fs::OpenOptionsExt as _;
+    use std::os::windows::io::AsRawHandle as _;
+    use std::path::Path;
+    use std::ptr;
+
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::{
+        DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
+        SetKernelObjectSecurity,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_READ_ATTRIBUTES, GetFileInformationByHandle, READ_CONTROL, WRITE_DAC,
+    };
+
+    /// The process user's SID string.
+    pub fn sid() -> String {
+        heimdall_testkit::win::current_user_sid().unwrap()
+    }
+
+    /// The protected owner-only DACL Heimdall creates: the Windows form of 0600 (a
+    /// file) and 0700 (a directory).
+    pub fn owner_only(directory: bool) -> String {
+        heimdall_testkit::win::owner_only_dacl(directory).unwrap()
+    }
+
+    /// The DACL of `path`, which is not a reparse point.
+    pub fn dacl(path: &Path) -> String {
+        heimdall_testkit::win::dacl_sddl(path).unwrap()
+    }
+
+    /// `text` with the user's SID shown as `<sid>`.
+    pub fn redact(text: &str) -> String {
+        text.replace(&sid(), "<sid>")
+    }
+
+    /// The entry at `path` itself (never a link's target), opened with `access`.
+    fn open(path: &Path, access: u32) -> std::fs::File {
+        std::fs::OpenOptions::new()
+            .access_mode(access)
+            .share_mode(7)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+            .unwrap_or_else(|e| panic!("open {}: {e}", path.display()))
+    }
+
+    /// The entry at `path` itself, for its identity.
+    pub fn open_entry(path: &Path) -> std::fs::File {
+        open(path, FILE_READ_ATTRIBUTES)
+    }
+
+    /// The link count of the entry at `path` itself.
+    pub fn nlink(path: &Path) -> u32 {
+        let f = open_entry(path);
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: the handle is open for the call; `info` is writable.
+        let ok = unsafe { GetFileInformationByHandle(f.as_raw_handle(), &mut info) };
+        assert_ne!(ok, 0, "GetFileInformationByHandle");
+        info.nNumberOfLinks
+    }
+
+    /// Frees a `LocalAlloc`ed result exactly once.
+    struct Local(*mut core::ffi::c_void);
+
+    impl Drop for Local {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                // SAFETY: the pointer came from an API that allocates with LocalAlloc
+                // and is freed only here.
+                unsafe { LocalFree(self.0) };
+            }
+        }
+    }
+
+    /// Set exactly the DACL `sddl` on the entry at `path` (a `D:P` DACL is protected),
+    /// for the DACLs a Windows rule must refuse. `SetKernelObjectSecurity` writes the
+    /// descriptor as given, with no inheritance processing (no `D:PAI`).
+    pub fn set_dacl(path: &Path, sddl: &str) {
+        let wide: Vec<u16> = std::ffi::OsStr::new(sddl)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        let mut sd: PSECURITY_DESCRIPTOR = ptr::null_mut();
+        // SAFETY: `wide` is NUL-terminated and outlives the call; `sd` is a valid
+        // out-pointer and the size out-pointer may be null.
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                wide.as_ptr(),
+                SDDL_REVISION_1,
+                &mut sd,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(ok, 0, "SDDL {}", redact(sddl));
+        let sd = Local(sd);
+        let mut info = DACL_SECURITY_INFORMATION;
+        if sddl.starts_with("D:P") {
+            info |= PROTECTED_DACL_SECURITY_INFORMATION;
+        }
+        let f = open(path, READ_CONTROL | WRITE_DAC);
+        // SAFETY: the handle is open with WRITE_DAC for the call; `sd` is a valid
+        // self-relative descriptor alive for it; only the DACL is set.
+        let ok = unsafe { SetKernelObjectSecurity(f.as_raw_handle(), info, sd.0) };
+        assert_ne!(ok, 0, "SetKernelObjectSecurity {}", redact(sddl));
+    }
+
+    /// Assert the DACL of `path` is exactly `expected` (SIDs redacted in the message).
+    pub fn assert_dacl(path: &Path, expected: &str, what: &str) {
+        let found = dacl(path);
+        assert!(
+            found == expected,
+            "{what}: DACL {} (expected {})",
+            redact(&found),
+            redact(expected)
+        );
+    }
+
+    /// The ACEs of an SDDL DACL as (type, rights, trustee).
+    fn aces(dacl: &str) -> Vec<(String, String, String)> {
+        dacl.split('(')
+            .skip(1)
+            .map(|ace| {
+                let fields: Vec<&str> = ace.trim_end_matches(')').split(';').collect();
+                let field = |i: usize| fields.get(i).copied().unwrap_or_default().to_owned();
+                (field(0), field(2), field(5))
+            })
+            .collect()
+    }
+
+    /// Win32-OpenSSH's rule for `~/.ssh` and the user's files in it (ADR-0007 §12.48
+    /// item 2): access only for the user, SYSTEM and Administrators, no other principal
+    /// (no Everyone, Users or Authenticated Users), and full access for the user.
+    pub fn assert_client_rule(path: &Path, what: &str) {
+        let found = dacl(path);
+        let me = sid();
+        let all = aces(&found);
+        assert!(
+            !all.is_empty()
+                && all.iter().all(|(kind, _, who)| {
+                    kind == "A" && (*who == me || who == "SY" || who == "BA")
+                })
+                && all
+                    .iter()
+                    .any(|(_, rights, who)| *who == me && rights == "FA"),
+            "{what}: DACL {} is not user, SYSTEM and Administrators only",
+            redact(&found)
+        );
+    }
+
+    /// A directory junction at `link` to the directory `target`, made by the in-box
+    /// `cmd.exe`'s `mklink /J` (no elevation, no Developer Mode).
+    pub fn junction(target: &Path, link: &Path) {
+        use std::os::windows::process::CommandExt as _;
+        let out = std::process::Command::new(r"C:\Windows\System32\cmd.exe")
+            .raw_arg(format!(
+                "/d /c mklink /J \"{}\" \"{}\"",
+                link.display(),
+                target.display()
+            ))
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "mklink /J: {:?}", out.status);
+    }
 }
 
 /// Replace `path` by a new file (another identity) through a rename, as an editor
@@ -830,6 +1187,126 @@ fn a22_render_is_deterministic_and_reapply_is_noop() {
     );
 }
 
+/// The target `ssh` client: on Windows the in-box Win32-OpenSSH at its absolute path,
+/// elsewhere the `ssh` the testkit finds.
+fn target_ssh() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(r"C:\Windows\System32\OpenSSH\ssh.exe")
+    } else {
+        heimdall_testkit::home::find_program("ssh").expect("the target ssh client is installed")
+    }
+}
+
+/// `ssh -G` (evaluate and print, never connect) for `alias` over the scratch user file,
+/// after the fixture guard, with the testkit's isolation arguments: the printed
+/// configuration, lines without their line ending (Windows prints CRLF).
+fn ssh_g(fx: &Fx, alias: &str) -> Vec<String> {
+    fx.home.check_alias(alias).unwrap();
+    let out = std::process::Command::new(target_ssh())
+        .arg("-G")
+        .args(fx.home.isolation_args())
+        .arg(alias)
+        .env("SSH_AUTH_SOCK", fx.home.decoy_agent().endpoint().locator())
+        .env("HOME", &fx.home.git_home)
+        .env_remove("SSH_ASKPASS")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "ssh -G {alias}: {:?} {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| l.trim_end_matches('\r').to_owned())
+        .collect()
+}
+
+/// The value of `key` in `ssh -G` output, if printed.
+fn g_value<'a>(lines: &'a [String], key: &str) -> Option<&'a str> {
+    lines
+        .iter()
+        .find_map(|l| l.strip_prefix(key)?.strip_prefix(' '))
+}
+
+/// A path compared as clients print it: `/` separators, and on Windows without case.
+fn path_form(text: &str) -> String {
+    if cfg!(windows) {
+        text.replace('\\', "/").to_lowercase()
+    } else {
+        text.to_owned()
+    }
+}
+
+/// m02-plan U4 `rendered_file_loads_on_target_client` (ADR-0007 §4; on Windows the
+/// in-box Win32-OpenSSH): after a first adoption over the owner's configuration,
+/// `ssh -G -F <user file> <alias>` reads the user file, B's `Include` and the rendered
+/// P. The managed alias resolves to P's `HostName`, `User`, `IdentityFile` and
+/// `IdentitiesOnly`, and the owner's own alias still resolves from the user file.
+/// Control: before the adoption the alias resolves to nothing of P. P is LF only with a
+/// trailing newline (§4), so the Windows run settles §4's LF `[I]` for the in-box
+/// client, whose version is recorded as an observation.
+#[test]
+fn rendered_file_loads_on_target_client() {
+    let fx = Fx::new();
+    // The owner's file ends with a fixture-safe default (a scratch key, no agent), so
+    // the testkit guard admits every alias; P's section comes first through B.
+    let scratch_key = fx.home.root.join("no-such-key");
+    let text = format!(
+        "{USER_TEXT}\nHost *\n    IdentitiesOnly yes\n    IdentityAgent none\n    IdentityFile {}\n",
+        heimdall_testkit::home::ssh_config_quote(scratch_key.to_str().unwrap())
+    );
+    std::fs::write(fx.user(), &text).unwrap();
+    let before = ssh_g(&fx, "work");
+    assert_eq!(g_value(&before, "hostname"), Some("work"), "control");
+    let (intent, _sink) = fx.adopt(&["work"]);
+    let p = std::fs::read(fx.p()).unwrap();
+    assert!(!p.contains(&b'\r'), "P is LF only");
+    assert!(p.ends_with(b"\n"), "P ends with a newline");
+    let user = std::fs::read(fx.user()).unwrap();
+    assert!(!user.contains(&b'\r'), "B follows the LF user file");
+    let after = ssh_g(&fx, "work");
+    assert_eq!(
+        g_value(&after, "hostname"),
+        Some("work.example.invalid"),
+        "{after:?}"
+    );
+    assert_eq!(g_value(&after, "user"), Some("fixture"));
+    assert_eq!(g_value(&after, "identitiesonly"), Some("yes"));
+    let key = step_ref(&intent, FileRole::Key).path.clone();
+    let identities: Vec<String> = after
+        .iter()
+        .filter_map(|l| l.strip_prefix("identityfile "))
+        .map(path_form)
+        .collect();
+    assert_eq!(
+        identities.first(),
+        Some(&path_form(&key)),
+        "P's key file first: {identities:?}"
+    );
+    let personal = ssh_g(&fx, "personal");
+    assert_eq!(
+        g_value(&personal, "hostname"),
+        Some("personal.example.invalid")
+    );
+    assert_eq!(g_value(&personal, "user"), Some("me"));
+    let version = std::process::Command::new(target_ssh())
+        .arg("-V")
+        .output()
+        .unwrap();
+    let version = String::from_utf8_lossy(&version.stderr).trim().to_owned();
+    #[allow(clippy::print_stderr)] // an observation for the evidence record
+    {
+        eprintln!(
+            "observation: rendered_file_loads_on_target_client os={} client={version:?} p_newline=lf loads=true",
+            std::env::consts::OS
+        );
+    }
+}
+
 /// ADR-0007 §12.18 item 3 (review X03). A first adoption's marker is derived from the
 /// proposed generation, the role and the plan inputs, never drawn: two previews of an
 /// unchanged first adoption give the same plan digest (§5.4 step 1 recomputes it), for
@@ -922,6 +1399,13 @@ fn a22_first_adoption_previews_reproduce_their_plan_digest() {
     }
 }
 
+/// The user file and `~/.ssh` that Heimdall creates: 0600 and 0700 on Unix. On Windows
+/// they follow Win32-OpenSSH's rule, not owner-only (ADR-0007 §12.48 item 2): only the
+/// user, SYSTEM and Administrators, so a Windows sshd (SYSTEM) can still read
+/// `authorized_keys`. The directory gets that DACL protected, not inherited: this
+/// scratch home's parent, under `%LOCALAPPDATA%`, carries an inherited read ACE for
+/// another account, which an inherited `~/.ssh` would take on. The observed DACL is
+/// recorded.
 #[test]
 fn a22_missing_user_config_created_0600_and_ssh_dir_0700() {
     let fx = Fx::new();
@@ -931,13 +1415,48 @@ fn a22_missing_user_config_created_0600_and_ssh_dir_0700() {
     let (intent, _sink) = fx.adopt(&["work"]);
     let user = step_ref(&intent, FileRole::UserSsh);
     assert_eq!(user.base, heimdall_domain::projection::Base::Absent);
-    let dir = std::fs::metadata(fx.ssh_dir()).unwrap();
-    assert_eq!(dir.permissions().mode() & 0o777, 0o700);
-    let file = std::fs::metadata(fx.user()).unwrap();
-    assert_eq!(file.permissions().mode() & 0o777, 0o600);
+    assert_user_dir(fx.ssh_dir(), "the created ~/.ssh");
+    assert_user_file(fx.user(), "the created user file");
+    #[cfg(windows)]
+    #[allow(clippy::print_stderr)] // an observation for the evidence record
+    {
+        eprintln!(
+            "observation: created ~/.ssh dacl={} user_file dacl={}",
+            win::redact(&win::dacl(fx.ssh_dir())),
+            win::redact(&win::dacl(fx.user()))
+        );
+    }
     let text = std::fs::read_to_string(fx.user()).unwrap();
     assert!(text.starts_with("# >>> heimdall managed include"));
     assert!(leftovers(&fx.tree()).is_empty());
+}
+
+/// The directories Heimdall creates for itself are owner-only: 0700 on Unix, and on
+/// Windows the protected owner-only DACL the quarantine has (ADR-0007 §12.48 item 2).
+/// A first adoption with no configuration directory creates it, `keys/` in it and the
+/// quarantines it settles through; the snapshot directory is checked by the snapshot
+/// tests. `~/.ssh` beside them gets the user's access ([`assert_user_dir`]).
+#[test]
+fn heimdall_directories_are_created_owner_only() {
+    let fx = Fx::new();
+    std::fs::remove_dir(&fx.home.config_dir).unwrap();
+    std::fs::remove_file(fx.user()).unwrap();
+    std::fs::remove_file(fx.ssh_dir().join("known_hosts")).unwrap();
+    std::fs::remove_dir(fx.ssh_dir()).unwrap();
+    let (intent, _sink) = fx.adopt(&["work"]);
+    let keys = Path::new(&step_ref(&intent, FileRole::Key).path)
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    assert_private_dir(&fx.home.config_dir, "the created configuration directory");
+    assert_private_dir(&keys, "the created keys directory");
+    assert_owner_only_file(&fx.p(), "P");
+    assert_user_dir(fx.ssh_dir(), "the created ~/.ssh");
+    assert!(
+        leftovers(&fx.tree()).is_empty(),
+        "{:?}",
+        leftovers(&fx.tree())
+    );
 }
 
 #[test]
@@ -970,7 +1489,7 @@ fn a22_update_never_writes_user_file() {
     std::fs::write(fx.user(), USER_TEXT).unwrap();
     let (_first, sink1, update) = fx.update_plan(&["work"], "lab");
     let _ = sink1;
-    let before = std::fs::symlink_metadata(fx.user()).unwrap();
+    let before = ident(fx.user());
     let bytes = std::fs::read(fx.user()).unwrap();
     let user = step_ref(&update, FileRole::UserSsh);
     assert!(!user.commit, "the update's user step is check-only");
@@ -984,8 +1503,7 @@ fn a22_update_never_writes_user_file() {
             generation: 2
         }]
     );
-    let after = std::fs::symlink_metadata(fx.user()).unwrap();
-    assert_eq!((after.ino(), after.dev()), (before.ino(), before.dev()));
+    assert_eq!(ident(fx.user()), before);
     assert_eq!(std::fs::read(fx.user()).unwrap(), bytes);
     let user_step = step_of(&update, FileRole::UserSsh);
     assert!(
@@ -1057,7 +1575,7 @@ fn a22_race_in_place_write_after_final_check_is_restored() {
         .intent();
     let u = step_of(&intent, FileRole::UserSsh);
     let user = fx.user().to_path_buf();
-    let original = std::fs::symlink_metadata(&user).unwrap().ino();
+    let original = ident(&user);
     let written = format!("{USER_TEXT}Host inplace\n    User me\n");
     let w = written.clone();
     let hook = Hook::new().run(ReplacePoint::BeforeExchange, Some(u), move || {
@@ -1077,10 +1595,7 @@ fn a22_race_in_place_write_after_final_check_is_restored() {
         sink.kinds()
     );
     assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), written);
-    assert_eq!(
-        std::fs::symlink_metadata(fx.user()).unwrap().ino(),
-        original
-    );
+    assert_eq!(ident(fx.user()), original);
     assert!(
         leftovers(&fx.tree()).is_empty(),
         "{:?}",
@@ -1107,13 +1622,51 @@ fn a22_race_symlink_substitution_at_boundary_is_held() {
     let t = target.clone();
     let hook = Hook::new().run(ReplacePoint::BeforeExchange, Some(u), move || {
         let link = user.with_extension("link-tmp");
-        std::os::unix::fs::symlink(&t, &link).unwrap();
+        symlink_any(&t, &link);
         std::fs::rename(&link, &user).unwrap();
     });
     let sink = Sink::default();
     let r = apply_or_crash(fx.hooked(&hook), &intent, &sink)
         .unwrap()
         .unwrap();
+    // Windows (observed natively, wave 6x): `ReplaceFileW` does not exchange the
+    // substituted file symbolic link, so the step is never exchanged and nothing is
+    // displaced. The item is not applied (`concurrent_writer`), S is settled from its
+    // staged name, the link stays at the path intact, its target is untouched (nothing
+    // is written through the link), and a restart moves nothing.
+    if cfg!(windows) {
+        assert_eq!(
+            r.items,
+            vec![ItemOutcome::NotApplied {
+                item: ProjectionItem::Ssh,
+                reason: Some(ConflictKind::ConcurrentWriter)
+            }],
+            "{:?}",
+            sink.kinds()
+        );
+        assert!(!sink.kinds().contains(&format!("{u}:exchanged")));
+        let m = std::fs::symlink_metadata(fx.user()).unwrap();
+        assert!(m.file_type().is_symlink(), "the symlink is intact");
+        assert_eq!(std::fs::read_link(fx.user()).unwrap(), target);
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"Host elsewhere\n",
+            "target untouched"
+        );
+        assert!(
+            leftovers(&fx.tree()).is_empty(),
+            "{:?}",
+            leftovers(&fx.tree())
+        );
+        let tree = fx.tree();
+        let again = restart(&fx, &intent, &sink);
+        assert!(
+            matches!(again[..], [ItemOutcome::NotApplied { .. }]),
+            "{again:?}"
+        );
+        assert_eq!(fx.tree(), tree, "a restart moves nothing");
+        return;
+    }
     assert_eq!(
         held_reasons(&r.items[0]),
         vec![HoldReason::ThirdWriter],
@@ -1184,11 +1737,16 @@ fn a22_race_third_writer_during_restore_preserves_both() {
     let tree = fx.tree();
     // All three entries exist with their bytes; nothing was moved or renamed.
     assert_eq!(std::fs::read(&user).unwrap(), third);
-    let staged = step_ref(&intent, FileRole::UserSsh)
-        .staged_name
+    // The second writer's file is where the exchange left D: the staged name on Unix,
+    // the `ReplaceFileW` backup name on Windows.
+    let displaced = step_ref(&intent, FileRole::UserSsh)
+        .displaced_name
         .clone()
         .unwrap();
-    assert_eq!(std::fs::read(fx.ssh_dir().join(&staged)).unwrap(), second);
+    assert_eq!(
+        std::fs::read(fx.ssh_dir().join(&displaced)).unwrap(),
+        second
+    );
     let s_bytes = std::fs::read(&backup).unwrap();
     assert!(String::from_utf8_lossy(&s_bytes).contains("# >>> heimdall managed include"));
     assert!(!tree.keys().any(|k| k.contains("hm-conflict")));
@@ -1590,7 +2148,7 @@ fn a22_update_user_edit_after_p_exchange_restores_generation_n() {
     let (_first, _s1, update) = fx.update_plan(&["work"], "lab");
     let p = step_of(&update, FileRole::ManagedSsh);
     let gen_n = std::fs::read(fx.p()).unwrap();
-    let gen_n_ino = std::fs::symlink_metadata(fx.p()).unwrap().ino();
+    let gen_n_ino = ident(&fx.p());
     let user = fx.user().to_path_buf();
     let edit = |path: &Path| {
         let mut t = std::fs::read_to_string(path).unwrap();
@@ -1612,7 +2170,7 @@ fn a22_update_user_edit_after_p_exchange_restores_generation_n() {
         sink.kinds()
     );
     assert_eq!(std::fs::read(fx.p()).unwrap(), gen_n, "generation N back");
-    assert_eq!(std::fs::symlink_metadata(fx.p()).unwrap().ino(), gen_n_ino);
+    assert_eq!(ident(&fx.p()), gen_n_ino);
     assert!(
         std::fs::read_to_string(fx.user())
             .unwrap()
@@ -1638,7 +2196,7 @@ fn a22_update_user_edit_after_p_exchange_restores_generation_n() {
 fn a22_first_adoption_check_failure_with_edited_inactive_p_is_held() {
     let fx = Fx::new();
     std::fs::write(fx.user(), USER_TEXT).unwrap();
-    let user_ino = std::fs::symlink_metadata(fx.user()).unwrap().ino();
+    let user_ino = ident(fx.user());
     let intent = fx
         .preview(&fx.spec(&["work", "lab"], None), &Fx::apply_intent())
         .intent();
@@ -1676,10 +2234,7 @@ fn a22_first_adoption_check_failure_with_edited_inactive_p_is_held() {
     );
     // The user file is restored, byte for byte and by identity.
     assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), USER_TEXT);
-    assert_eq!(
-        std::fs::symlink_metadata(fx.user()).unwrap().ino(),
-        user_ino
-    );
+    assert_eq!(ident(fx.user()), user_ino);
     assert!(kinds.contains(&format!("{u}:restored")), "{kinds:?}");
     // The unchanged key files are rolled back; the edited P stays, with the edit.
     for (i, s) in intent.files.iter().enumerate() {
@@ -1748,7 +2303,7 @@ fn a22_update_user_edit_after_p_post_validation_restores_generation_n() {
     let (_first, _s1, update) = fx.update_plan(&["work"], "lab");
     let p = step_of(&update, FileRole::ManagedSsh);
     let gen_n = std::fs::read(fx.p()).unwrap();
-    let gen_n_ino = std::fs::symlink_metadata(fx.p()).unwrap().ino();
+    let gen_n_ino = ident(&fx.p());
     let user = fx.user().to_path_buf();
     let hook = Hook::new().run(ReplacePoint::AfterPostValidate, Some(p), move || {
         let mut t = std::fs::read_to_string(&user).unwrap();
@@ -1767,7 +2322,7 @@ fn a22_update_user_edit_after_p_post_validation_restores_generation_n() {
         }]
     );
     assert_eq!(std::fs::read(fx.p()).unwrap(), gen_n);
-    assert_eq!(std::fs::symlink_metadata(fx.p()).unwrap().ino(), gen_n_ino);
+    assert_eq!(ident(&fx.p()), gen_n_ino);
     assert!(
         std::fs::read_to_string(fx.user())
             .unwrap()
@@ -1968,7 +2523,7 @@ fn a22_crash_after_restore_exchange_before_receipt_is_recognized_as_restored() {
     let (_first, _s1, update) = fx.update_plan(&["work"], "lab");
     let p = step_of(&update, FileRole::ManagedSsh);
     let gen_n = std::fs::read(fx.p()).unwrap();
-    let gen_n_ino = std::fs::symlink_metadata(fx.p()).unwrap().ino();
+    let gen_n_ino = ident(&fx.p());
     let hook = Hook::new()
         .run(
             ReplacePoint::AfterPostValidate,
@@ -1979,7 +2534,7 @@ fn a22_crash_after_restore_exchange_before_receipt_is_recognized_as_restored() {
     let sink = Sink::default();
     assert!(apply_or_crash(fx.hooked(&hook), &update, &sink).is_none());
     // The exchange happened; its receipt did not.
-    assert_eq!(std::fs::symlink_metadata(fx.p()).unwrap().ino(), gen_n_ino);
+    assert_eq!(ident(&fx.p()), gen_n_ino);
     assert!(!sink.kinds().contains(&format!("{p}:restored")));
     let restart_hook = Hook::new();
     let out = reconcile_or_crash(fx.hooked(&restart_hook), &update, &sink)
@@ -2768,7 +3323,7 @@ fn symlink_user_config(fx: &Fx, bytes: &[u8]) -> PathBuf {
     let real = fx.home.root.join("real-config");
     std::fs::write(&real, bytes).unwrap();
     std::fs::remove_file(fx.user()).unwrap();
-    std::os::unix::fs::symlink(&real, fx.user()).unwrap();
+    symlink_any(&real, fx.user());
     real
 }
 
@@ -2878,7 +3433,7 @@ fn v01_manual_mode_unreadable_symlink_target_makes_affected_states_undetermined(
     let dir = fx.home.root.join("config-dir");
     std::fs::create_dir(&dir).unwrap();
     std::fs::remove_file(fx.user()).unwrap();
-    std::os::unix::fs::symlink(&dir, fx.user()).unwrap();
+    symlink_any(&dir, fx.user());
     let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
     assert_eq!(plan.view.mode, SetupMode::Manual);
     assert!(plan.files.iter().any(|s| s.role == FileRole::ManagedSsh));
@@ -2896,13 +3451,14 @@ fn v01_manual_mode_unreadable_symlink_target_makes_affected_states_undetermined(
     let (first, sink) = fx.adopt(&["work"]);
     let with_b = std::fs::read(fx.user()).unwrap();
     let real = symlink_user_config(&fx, &with_b);
-    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o000)).unwrap();
+    // Mode 000 (Windows: a deny-read ACE for the owner).
+    let denied = unreadable(&real);
     // As the other unreadable-file tests here, this runs as an ordinary account.
     let readable = std::fs::read(&real).is_ok();
     let mut spec = update_spec(&fx, &first, &sink, &["work"]);
     spec.aliases[0].hostname = "moved.example.invalid".to_owned();
     let plan = fx.preview(&spec, &Fx::apply_intent());
-    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+    denied.restore();
     assert!(
         !readable,
         "precondition: this account cannot read a mode-000 file"
@@ -3967,7 +4523,7 @@ fn a22_repair_manual_mode_writes_p_never_the_user_file() {
     use heimdall_contract::setup::RepairResolution;
     let fx = Fx::new();
     std::fs::write(fx.user(), USER_TEXT).unwrap();
-    let ino = std::fs::symlink_metadata(fx.user()).unwrap().ino();
+    let ino = ident(fx.user());
     let plan = fx.preview(
         &fx.spec(&["work"], None),
         &repair(ConflictKind::UnmanageableFile, RepairResolution::ManualMode),
@@ -3988,7 +4544,7 @@ fn a22_repair_manual_mode_writes_p_never_the_user_file() {
     assert!(
         shown
             .message
-            .contains(&format!("Include \"{}\"", p.to_str().unwrap())),
+            .contains(&format!("Include \"{}\"", include_target(&p))),
         "{}",
         shown.message
     );
@@ -3999,7 +4555,7 @@ fn a22_repair_manual_mode_writes_p_never_the_user_file() {
     assert!(matches!(r.items[0], ItemOutcome::Applied { .. }), "{r:?}");
     assert!(p.exists());
     assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), USER_TEXT);
-    assert_eq!(std::fs::symlink_metadata(fx.user()).unwrap().ino(), ino);
+    assert_eq!(ident(fx.user()), ino);
 }
 
 fn assert_manual(fx: &Fx, reason: &str) {
@@ -4009,9 +4565,7 @@ fn assert_manual(fx: &Fx, reason: &str) {
     assert_eq!(plan.view.manual_reasons, vec![reason.to_owned()]);
     assert!(plan.files.iter().all(|s| s.role != FileRole::UserSsh));
     assert_eq!(fx.tree(), tree, "a preview writes nothing");
-    let user_before = std::fs::symlink_metadata(fx.user())
-        .ok()
-        .map(|m| (m.ino(), m.mode()));
+    let user_before = entry_state(fx.user());
     let bytes_before = std::fs::read(fx.user()).ok();
     // Manual mode writes P and the key files, and commits them (P is the commit step),
     // so the doctor can verify the owner's block against the record.
@@ -4026,11 +4580,28 @@ fn assert_manual(fx: &Fx, reason: &str) {
         sink.kinds()
     );
     assert!(fx.p().exists());
-    let user_after = std::fs::symlink_metadata(fx.user())
-        .ok()
-        .map(|m| (m.ino(), m.mode()));
+    let user_after = entry_state(fx.user());
     assert_eq!(user_after, user_before, "the user file is unchanged");
     assert_eq!(std::fs::read(fx.user()).ok(), bytes_before);
+}
+
+/// How B's `Include` names P (ADR-0007 §4): the absolute path, written with `/`
+/// separators on Windows.
+fn include_target(p: &Path) -> String {
+    let text = p.to_str().unwrap();
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.to_owned()
+    }
+}
+
+/// The identity and access of the entry at `path` itself (a link is not followed):
+/// Unix inode and mode, Windows file ID and DACL ([`access_of`]); `None` when nothing
+/// is there.
+fn entry_state(path: &Path) -> Option<(Ident, String)> {
+    std::fs::symlink_metadata(path).ok()?;
+    Some((ident(path), access_of(path)))
 }
 
 /// ADR-0007 §12.17 item 9 (caller side): B's target is P's absolute path, never `~`,
@@ -4051,8 +4622,15 @@ fn a22_include_block_names_p_by_absolute_path() {
     let r = writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
     assert!(matches!(r.items[0], ItemOutcome::Applied { .. }), "{r:?}");
     let text = std::fs::read_to_string(fx.user()).unwrap();
-    let p_text = p.to_str().unwrap();
+    let p_text = include_target(&p);
+    #[cfg(unix)]
     assert!(p_text.starts_with('/'));
+    // Windows: an absolute drive path, written with `/` separators (ADR-0007 §4).
+    #[cfg(windows)]
+    assert!(
+        p.is_absolute() && p_text.get(1..3) == Some(":/") && !p_text.contains('\\'),
+        "{p_text}"
+    );
     assert!(text.contains(&format!("Include \"{p_text}\"\n")), "{text}");
     assert!(!text.contains("Include \"~"), "{text}");
     let rb = writer
@@ -4074,7 +4652,13 @@ fn a22_include_block_names_p_by_absolute_path() {
 /// `include_target_glob` as its own manual reason, besides `unmanageable_file`.
 #[test]
 fn a22_include_target_with_glob_metacharacter_is_manual_mode() {
-    for dir in ["cfg[x]", "cfg*", "cfg?"] {
+    // Windows file names cannot hold `*` or `?` (`ERROR_INVALID_NAME`), so on Windows
+    // only the bracket metacharacters can be in P's path.
+    #[cfg(unix)]
+    let dirs = ["cfg[x]", "cfg*", "cfg?"];
+    #[cfg(windows)]
+    let dirs = ["cfg[x]", "cfg]"];
+    for dir in dirs {
         let fx = Fx::new();
         std::fs::write(fx.user(), USER_TEXT).unwrap();
         let mut config = fx.config();
@@ -4104,7 +4688,7 @@ fn a22_include_target_with_glob_metacharacter_is_manual_mode() {
             plan.files.iter().all(|s| s.role != FileRole::UserSsh),
             "{dir}"
         );
-        let ino = std::fs::symlink_metadata(fx.user()).unwrap().ino();
+        let ino = ident(fx.user());
         let r = writer.apply(&plan.intent(), &mut Sink::default()).unwrap();
         assert!(
             matches!(r.items[0], ItemOutcome::Applied { .. }),
@@ -4115,7 +4699,7 @@ fn a22_include_target_with_glob_metacharacter_is_manual_mode() {
             USER_TEXT,
             "{dir}"
         );
-        assert_eq!(std::fs::symlink_metadata(fx.user()).unwrap().ino(), ino);
+        assert_eq!(ident(fx.user()), ino);
         assert!(config.managed_ssh_path().exists(), "{dir}: P written");
     }
 }
@@ -4126,7 +4710,7 @@ fn a22_symlinked_user_config_is_manual_mode() {
     let real = fx.home.root.join("real-config");
     std::fs::write(&real, USER_TEXT).unwrap();
     std::fs::remove_file(fx.user()).unwrap();
-    std::os::unix::fs::symlink(&real, fx.user()).unwrap();
+    symlink_any(&real, fx.user());
     assert_manual(&fx, "unmanageable_file");
     assert_eq!(std::fs::read_to_string(&real).unwrap(), USER_TEXT);
 }
@@ -4139,9 +4723,104 @@ fn a22_hardlinked_user_config_is_manual_mode() {
     assert_manual(&fx, "unmanageable_file");
 }
 
+/// Every entry under `dir` (a link not followed), keyed under `label`: identity, kind
+/// and bytes, as [`Fx::tree`] records them.
+fn listing(dir: &Path, label: &str) -> BTreeMap<String, Entry> {
+    let mut out = BTreeMap::new();
+    walk(dir, label, &mut out);
+    out
+}
+
+/// m02-plan U4 `a22_windows_reparse_point_user_config_is_manual_mode` (A22 "junction
+/// reparse row", ADR-0007 §5.3 steps 1 and 9): `~/.ssh` is a directory junction, made
+/// without elevation or Developer Mode, to a real directory that holds the user
+/// configuration. The directory fails step 1 (a reparse point), so the plan is manual
+/// (`unmanageable_file`) with no user-file step, and the apply writes and commits P and
+/// the key files only. Nothing is written through the junction: it stays a junction to
+/// the same directory, and that directory holds exactly what it held, with the same
+/// identities and bytes (no staged, displaced or quarantine entry).
+#[cfg(windows)]
+#[test]
+fn a22_windows_reparse_point_user_config_is_manual_mode() {
+    let fx = Fx::new();
+    let real = fx.home.root.join("real-ssh");
+    std::fs::create_dir(&real).unwrap();
+    std::fs::write(real.join("config"), USER_TEXT).unwrap();
+    std::fs::write(real.join("known_hosts"), b"").unwrap();
+    std::fs::remove_file(fx.user()).unwrap();
+    std::fs::remove_file(fx.ssh_dir().join("known_hosts")).unwrap();
+    std::fs::remove_dir(fx.ssh_dir()).unwrap();
+    win::junction(&real, fx.ssh_dir());
+    let link = || {
+        let m = std::fs::symlink_metadata(fx.ssh_dir()).unwrap();
+        assert!(m.file_type().is_symlink(), "~/.ssh is a junction");
+        (
+            ident(fx.ssh_dir()),
+            std::fs::read_link(fx.ssh_dir()).unwrap(),
+        )
+    };
+    let (link_before, real_before) = (link(), listing(&real, "real"));
+    assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), USER_TEXT);
+    assert_manual(&fx, "unmanageable_file");
+    assert_eq!(link(), link_before, "the junction is intact");
+    assert_eq!(
+        listing(&real, "real"),
+        real_before,
+        "nothing written through the junction"
+    );
+}
+
+/// ADR-0007 §12.47 item 7 (withdrawing §12.45's deferral; A22's Windows file-symlink
+/// row): the user configuration is a file symbolic link, made in scratch under
+/// Developer Mode, to a regular file in another directory. A reparse point fails step 2,
+/// so the plan is manual (`unmanageable_file`) and nothing is written through the link:
+/// the target keeps its identity, DACL and bytes, its directory gains no entry, and the
+/// link stays a link to the same target.
+#[cfg(windows)]
+#[test]
+fn a22_windows_file_symlink_user_config_is_manual_mode() {
+    let fx = Fx::new();
+    let real_dir = fx.home.root.join("real");
+    std::fs::create_dir(&real_dir).unwrap();
+    let real = real_dir.join("config");
+    std::fs::write(&real, USER_TEXT).unwrap();
+    std::fs::remove_file(fx.user()).unwrap();
+    std::os::windows::fs::symlink_file(&real, fx.user())
+        .expect("a file symbolic link needs Developer Mode (ADR-0007 §12.47 item 7)");
+    let link = || {
+        let m = std::fs::symlink_metadata(fx.user()).unwrap();
+        assert!(m.file_type().is_symlink() && !m.is_dir(), "a file link");
+        (
+            entry_state(fx.user()),
+            std::fs::read_link(fx.user()).unwrap(),
+        )
+    };
+    let (link_before, target_before, dir_before) =
+        (link(), entry_state(&real), listing(&real_dir, "real"));
+    assert_manual(&fx, "unmanageable_file");
+    assert_eq!(link(), link_before, "the link is intact");
+    assert_eq!(
+        entry_state(&real),
+        target_before,
+        "the target's identity and DACL"
+    );
+    assert_eq!(std::fs::read_to_string(&real).unwrap(), USER_TEXT);
+    assert_eq!(
+        listing(&real_dir, "real"),
+        dir_before,
+        "nothing written through the link"
+    );
+}
+
 /// A file owned by another account cannot be made without privileges in a scratch
 /// test; "not writable by this account alone" is covered by group/other write bits on
 /// the file and on its directory (§5.3 steps 1–2), each manual mode.
+///
+/// Unix only: the group and other write bits are a Unix rule of §5.3 steps 1–2. The
+/// Windows rules are a reparse point, the owner SID and the link count, with no DACL
+/// rule for the user file or its directory; a foreign owner SID cannot be set at
+/// Medium integrity (wave 6x, WU-2a).
+#[cfg(unix)]
 #[test]
 fn a22_foreign_owner_or_unwritable_is_manual_mode() {
     let fx = Fx::new();
@@ -4152,7 +4831,7 @@ fn a22_foreign_owner_or_unwritable_is_manual_mode() {
     write_mode(fx.user(), USER_TEXT.as_bytes(), 0o600);
     std::fs::set_permissions(fx.ssh_dir(), std::fs::Permissions::from_mode(0o777)).unwrap();
     assert_manual(&fx, "unmanageable_file");
-    std::fs::set_permissions(fx.ssh_dir(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    set_private_dir(fx.ssh_dir());
 }
 
 fn accepting_client(fx: &Fx) -> ProjectionConfig {
@@ -4416,7 +5095,7 @@ fn a22_in_place_edit_after_forward_exchange_then_rollback_is_held_never_restored
                 .displaced_name
                 .clone()
                 .unwrap();
-            (displaced, std::fs::symlink_metadata(fx.p()).unwrap().ino())
+            (displaced, ident(&fx.p()))
         };
         let p_path = fx.p();
         let hook = Hook::new().run(
@@ -4458,11 +5137,7 @@ fn a22_in_place_edit_after_forward_exchange_then_rollback_is_held_never_restored
             "editor's bytes active"
         );
         let displaced = fx.home.config_dir.join(&gen_n_ino.0);
-        assert_eq!(
-            std::fs::symlink_metadata(&displaced).unwrap().ino(),
-            gen_n_ino.1,
-            "old P aside"
-        );
+        assert_eq!(ident(&displaced), gen_n_ino.1, "old P aside");
         assert!(
             !sink.file_phases(p).iter().any(|ph| matches!(
                 ph,
@@ -4573,9 +5248,44 @@ fn a22_displaced_written_through_open_descriptor_before_settlement_is_kept() {
                 f.sync_all().unwrap();
             });
         let sink = Sink::default();
-        let r = apply_or_crash(fx.hooked(&hook), &update, &sink)
-            .unwrap()
-            .unwrap();
+        let r = apply_or_crash(fx.hooked(&hook), &update, &sink).unwrap();
+        // Windows has no residual window: the checked removal opens the entry with read
+        // sharing only, so while the old descriptor (open for writing) exists that open
+        // fails with a sharing violation (os error 32, as ADR-0007 §12.43 item 4 records
+        // for `projection_replace`). Nothing is written between the check and the
+        // removal (the hook never runs), the entry is kept with its checked bytes, and
+        // once the writer closes, a restart completes the settlement.
+        #[cfg(windows)]
+        if residual {
+            let err = r.unwrap_err();
+            assert!(
+                matches!(&err, ReconcileError::Unavailable(m) if m.contains("os error 32")),
+                "{err:?}"
+            );
+            let q = fx.home.config_dir.join(".hm-quarantine");
+            let kept: Vec<Vec<u8>> = std::fs::read_dir(&q)
+                .unwrap()
+                .map(|e| std::fs::read(e.unwrap().path()).unwrap())
+                .collect();
+            assert_eq!(kept.len(), 1, "{:?}", sink.kinds());
+            assert!(
+                !String::from_utf8_lossy(&kept[0]).contains("old descriptor"),
+                "no write landed after the check"
+            );
+            *fd.lock().unwrap() = None;
+            let again = restart(&fx, &update, &sink);
+            assert!(
+                matches!(again[..], [ItemOutcome::Applied { .. }]),
+                "{again:?}"
+            );
+            assert!(
+                leftovers(&fx.tree()).is_empty(),
+                "{:?}",
+                leftovers(&fx.tree())
+            );
+            continue;
+        }
+        let r = r.unwrap();
         assert_eq!(
             r.items,
             vec![ItemOutcome::Applied {
@@ -4746,7 +5456,7 @@ fn a22_foreign_entry_in_quarantine_slot_is_put_back_never_deleted() {
     let slot = heimdall_localenv::projection::cleaner::slot_name(&l, 1).unwrap();
     let q = fx.home.config_dir.join(".hm-quarantine");
     std::fs::create_dir(&q).unwrap();
-    std::fs::set_permissions(&q, std::fs::Permissions::from_mode(0o700)).unwrap();
+    set_private_dir(&q);
     std::fs::rename(fx.p(), fx.home.root.join("moved-away")).unwrap();
     write_mode(&q.join(&slot), b"foreign\n", 0o600);
     block_on(fx.cleaner().delete(&resource(&fx.env, &l, 1))).unwrap();
@@ -4780,7 +5490,7 @@ fn a22_foreign_entry_in_quarantine_slot_is_put_back_never_deleted() {
     );
     let q = fx.home.config_dir.join(".hm-quarantine");
     std::fs::create_dir_all(&q).unwrap();
-    std::fs::set_permissions(&q, std::fs::Permissions::from_mode(0o700)).unwrap();
+    set_private_dir(&q);
     std::fs::rename(&displaced, fx.home.root.join("old-p")).unwrap();
     write_mode(&q.join(&slot), b"foreign\n", 0o600);
     let out = restart(&fx, &update, &sink);
@@ -4797,6 +5507,267 @@ fn a22_foreign_entry_in_quarantine_slot_is_put_back_never_deleted() {
             ..
         }
     )));
+}
+
+/// What a case plants at a `.hm-quarantine` name; `real` is an owner-only directory it
+/// may point to.
+type BadQuarantine = (&'static str, fn(&Path, &Path));
+
+/// The entries at `.hm-quarantine` that are no quarantine (ADR-0007 §5.3
+/// "Enforcement"): on Unix a symlink and a directory of mode 0755; on Windows a
+/// directory symbolic link (Developer Mode), a junction, and directories whose DACL is
+/// not the protected owner-only one (the inherited ACL, and the form of 0755). A
+/// foreign owner cannot be made without privileges (on Windows, not at Medium
+/// integrity); the owner rule is the same check as the kind and DACL rules.
+fn bad_quarantines() -> Vec<BadQuarantine> {
+    let symlink: BadQuarantine = ("a symbolic link to a private directory", |q, real| {
+        symlink_any(real, q);
+    });
+    #[cfg(unix)]
+    let cases: Vec<BadQuarantine> = vec![
+        symlink,
+        ("a directory of mode 0755", |q, _| {
+            std::fs::create_dir(q).unwrap();
+            std::fs::set_permissions(q, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }),
+    ];
+    #[cfg(windows)]
+    let cases: Vec<BadQuarantine> = vec![
+        symlink,
+        ("a directory junction", |q, real| win::junction(real, q)),
+        ("a directory with the inherited ACL", |q, _| {
+            std::fs::create_dir(q).unwrap();
+        }),
+        ("a directory whose DACL also lets Users read", |q, _| {
+            std::fs::create_dir(q).unwrap();
+            win::set_dacl(q, &format!("{}(A;OICI;FR;;;BU)", win::owner_only(true)));
+        }),
+    ];
+    cases
+}
+
+/// m02-plan U4 `a22_quarantine_symlink_wrong_owner_or_mode_is_manual_mode` (ADR-0007
+/// §5.3 "Enforcement" and step 9): `.hm-quarantine` in the user's directory is not a
+/// quarantine Heimdall can validate, so the plan is manual (`unmanageable_file`) with
+/// no user-file step, and nothing moves: the user file, the entry at the quarantine
+/// name and the directory it may point to are as they were. In a directory of
+/// Heimdall's (P's, the key files'), the preview refuses it too (ADR-0007 §12.48 item
+/// 3): manual with nothing planned, never a settlement that fails after the commit.
+#[test]
+fn a22_quarantine_symlink_wrong_owner_or_mode_is_manual_mode() {
+    for (label, make) in bad_quarantines() {
+        let fx = Fx::new();
+        std::fs::write(fx.user(), USER_TEXT).unwrap();
+        let real = fx.home.root.join("real-q");
+        std::fs::create_dir(&real).unwrap();
+        set_private_dir(&real);
+        let q = fx.ssh_dir().join(".hm-quarantine");
+        make(&q, &real);
+        let state = || (entry_state(&q), listing(&real, "real"));
+        let before = state();
+        let plan = fx.preview(&fx.spec(&["work"], None), &Fx::apply_intent());
+        assert_eq!(plan.view.mode, SetupMode::Manual, "{label}");
+        assert_eq!(
+            plan.view.manual_reasons,
+            vec!["unmanageable_file".to_owned()],
+            "{label}"
+        );
+        assert!(
+            plan.files.iter().all(|s| s.role != FileRole::UserSsh),
+            "{label}"
+        );
+        let user_before = entry_state(fx.user());
+        let r = fx
+            .writer()
+            .apply(&plan.intent(), &mut Sink::default())
+            .unwrap();
+        assert!(
+            matches!(r.items[..], [ItemOutcome::Applied { .. }]),
+            "{label}: {r:?}"
+        );
+        assert_eq!(entry_state(fx.user()), user_before, "{label}: user file");
+        assert_eq!(std::fs::read_to_string(fx.user()).unwrap(), USER_TEXT);
+        assert_eq!(state(), before, "{label}: nothing moved");
+
+        // Heimdall's own directories (ADR-0007 §12.48 item 3): P's directory at a first
+        // adoption and at an update, and the key files' directory at an update.
+        for (place, adopted) in [
+            ("P's directory", false),
+            ("P's directory", true),
+            ("keys/", true),
+        ] {
+            heimdall_directory_quarantine_is_manual_at_preview(label, make, place, adopted);
+        }
+    }
+}
+
+/// One case of `a22_quarantine_symlink_wrong_owner_or_mode_is_manual_mode` in a
+/// directory of Heimdall's: the preview finds the quarantine, never a settlement after
+/// the commit. The item is manual (`unmanageable_file`) with nothing planned and a
+/// finding naming the quarantine, so it needs no decision, the apply writes nothing,
+/// and no entry of the scratch tree (the user file included) moves or changes.
+fn heimdall_directory_quarantine_is_manual_at_preview(
+    label: &str,
+    make: fn(&Path, &Path),
+    place: &str,
+    adopted: bool,
+) {
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let mut spec = fx.spec(&["work"], None);
+    if adopted {
+        let (first, sink) = fx.adopt(&["work"]);
+        spec = fx.spec(&[], Some(sink.record(&fx.env)));
+        spec.aliases = first_aliases(&first, &fx, &["work"]);
+        spec.aliases.push(fx.alias("lab"));
+    }
+    let dir = if place == "keys/" {
+        fx.home.config_dir.join("keys")
+    } else {
+        fx.home.config_dir.clone()
+    };
+    let real = fx.home.root.join("real-q");
+    std::fs::create_dir(&real).unwrap();
+    set_private_dir(&real);
+    let q = dir.join(".hm-quarantine");
+    make(&q, &real);
+    let what = format!("{label}, {place}, adopted={adopted}");
+    let state = || (fx.tree(), entry_state(&q), listing(&real, "real"));
+    let before = state();
+    let plan = fx.preview(&spec, &Fx::apply_intent());
+    assert_eq!(plan.view.mode, SetupMode::Manual, "{what}");
+    assert_eq!(
+        plan.view.manual_reasons,
+        vec!["unmanageable_file".to_owned()],
+        "{what}"
+    );
+    assert!(plan.files.is_empty(), "{what}: {:?}", plan.files);
+    assert!(
+        plan.view
+            .findings
+            .iter()
+            .any(|f| f.code == "unmanageable_file" && f.message.contains(".hm-quarantine")),
+        "{what}: {:?}",
+        plan.view.findings
+    );
+    assert!(!plan.view.consent.decision_required, "{what}");
+    let sink = Sink::default();
+    let r = fx
+        .writer()
+        .apply(&plan.intent(), &mut sink.clone())
+        .unwrap();
+    assert!(r.items.is_empty(), "{what}: {r:?}");
+    assert!(sink.kinds().is_empty(), "{what}: {:?}", sink.kinds());
+    assert_eq!(state(), before, "{what}: nothing moved");
+}
+
+/// m02-plan U4 `a22_quarantine_removed_when_empty_and_kept_with_foreign_entries`
+/// (ADR-0007 §5.3 "The quarantine"): a run removes each quarantine it opened once that
+/// quarantine is empty, and never one that still holds an entry. A foreign entry stays
+/// with its bytes; a conflict artifact (a displaced entry edited before its move) stays
+/// too, and its `settle_conflict` receipt names it, which is what `setup status` lists.
+/// The primitive: `rmdir_if_empty` keeps a quarantine that holds an entry, entry
+/// included, and removes an empty one.
+#[test]
+fn a22_quarantine_removed_when_empty_and_kept_with_foreign_entries() {
+    let quarantine = |dir: &Path| dir.join(".hm-quarantine");
+    // A clean adoption, then an update: no quarantine is left in either directory.
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, _s1, update) = fx.update_plan(&["work"], "lab");
+    for dir in [fx.ssh_dir(), fx.home.config_dir.as_path()] {
+        assert!(!quarantine(dir).exists(), "after the adoption");
+    }
+    let r = fx.writer().apply(&update, &mut Sink::default()).unwrap();
+    assert!(
+        matches!(r.items[..], [ItemOutcome::Applied { .. }]),
+        "{r:?}"
+    );
+    for dir in [fx.ssh_dir(), fx.home.config_dir.as_path()] {
+        assert!(!quarantine(dir).exists(), "after the update");
+    }
+    assert!(
+        leftovers(&fx.tree()).is_empty(),
+        "{:?}",
+        leftovers(&fx.tree())
+    );
+
+    // A foreign entry in P's quarantine: the run settles D and keeps the rest.
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, _s1, update) = fx.update_plan(&["work"], "lab");
+    let q = quarantine(&fx.home.config_dir);
+    std::fs::create_dir(&q).unwrap();
+    set_private_dir(&q);
+    write_mode(&q.join("foreign"), b"foreign\n", 0o600);
+    let r = fx.writer().apply(&update, &mut Sink::default()).unwrap();
+    assert!(
+        matches!(r.items[..], [ItemOutcome::Applied { .. }]),
+        "{r:?}"
+    );
+    assert_eq!(std::fs::read(q.join("foreign")).unwrap(), b"foreign\n");
+    assert_eq!(
+        leftovers(&fx.tree()),
+        vec!["config/.hm-quarantine/foreign".to_owned()],
+        "only the foreign entry is left"
+    );
+
+    // A conflict artifact: D edited in place before its move into the quarantine.
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (_first, _s1, update) = fx.update_plan(&["work"], "lab");
+    let p = step_of(&update, FileRole::ManagedSsh);
+    let displaced = fx.home.config_dir.join(
+        step_ref(&update, FileRole::ManagedSsh)
+            .displaced_name
+            .clone()
+            .unwrap(),
+    );
+    let hook = Hook::new().run(ReplacePoint::BeforeSettleMove, Some(p), move || {
+        write_in_place(&displaced, b"# edited aside\n");
+    });
+    let sink = Sink::default();
+    let r = apply_or_crash(fx.hooked(&hook), &update, &sink)
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(r.items[..], [ItemOutcome::Applied { .. }]),
+        "{r:?}"
+    );
+    let kept = sink
+        .file_phases(p)
+        .iter()
+        .find_map(|ph| match ph {
+            FilePhase::SettleConflict {
+                found: SettleConflictFound::Modified,
+                kept,
+            } => Some(kept.clone()),
+            _ => None,
+        })
+        .expect("settle_conflict{modified}");
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    let q = quarantine(&fx.home.config_dir);
+    assert_eq!(
+        std::fs::read(q.join(&kept[0].name)).unwrap(),
+        b"# edited aside\n",
+        "the artifact the receipt names is kept"
+    );
+
+    // The primitive.
+    let fx = Fx::new();
+    let q = quarantine(&fx.home.config_dir);
+    let open =
+        || heimdall_localenv::sys::QuarantineDir::open_or_create(&fx.home.config_dir).unwrap();
+    let held = open();
+    write_mode(&q.join("entry"), b"an entry\n", 0o600);
+    assert!(
+        !held.rmdir_if_empty().unwrap(),
+        "a quarantine with an entry"
+    );
+    assert_eq!(std::fs::read(q.join("entry")).unwrap(), b"an entry\n");
+    std::fs::remove_file(q.join("entry")).unwrap();
+    assert!(open().rmdir_if_empty().unwrap(), "an empty quarantine");
+    assert!(!q.exists());
 }
 
 // --- settlement order (M2-R01), property over crash points ------------------------------
@@ -5040,25 +6011,36 @@ fn private_key_files_never_opened() {
     std::fs::write(fx.user(), USER_TEXT).unwrap();
     // Private key files the owner keeps beside the public ones, unreadable (mode 000):
     // adoption needs only the public keys.
+    let mut denied = Vec::new();
     for name in ["id_ed25519", "id_ecdsa"] {
-        write_mode(
-            &fx.ssh_dir().join(name),
-            b"HEIMDALL_CANARY_U4C_PRIVATE\n",
-            0o000,
-        );
+        let private = fx.ssh_dir().join(name);
+        std::fs::write(&private, b"HEIMDALL_CANARY_U4C_PRIVATE\n").unwrap();
+        denied.push(unreadable(&private));
         write_mode(
             &fx.ssh_dir().join(format!("{name}.pub")),
             synthetic_public_key().as_bytes(),
             0o644,
         );
     }
+    let access_before: Vec<String> = ["id_ed25519", "id_ecdsa"]
+        .iter()
+        .map(|n| access_of(&fx.ssh_dir().join(n)))
+        .collect();
     let (intent, _sink) = fx.adopt(&["work"]);
     let json = serde_json::to_string(&intent).unwrap();
     heimdall_testkit::assert_no_canary(&json);
-    for name in ["id_ed25519", "id_ecdsa"] {
-        let m = std::fs::metadata(fx.ssh_dir().join(name)).unwrap();
-        assert_eq!(m.permissions().mode() & 0o777, 0, "untouched");
+    for (name, before) in ["id_ed25519", "id_ecdsa"].iter().zip(&access_before) {
+        let private = fx.ssh_dir().join(name);
+        #[cfg(unix)]
+        {
+            let m = std::fs::metadata(&private).unwrap();
+            assert_eq!(m.permissions().mode() & 0o777, 0, "untouched");
+        }
+        // Windows: the deny-read DACL is as it was set, and the file still unreadable.
+        assert_eq!(&access_of(&private), before, "untouched");
+        assert!(std::fs::read(&private).is_err(), "still unreadable");
     }
+    drop(denied);
     let key = step_ref(&intent, FileRole::Key);
     let written = std::fs::read_to_string(&key.path).unwrap();
     assert!(written.starts_with("ssh-ed25519 "));
@@ -5379,8 +6361,14 @@ fn fresh_writer_creates_absent_ssh_config() {
             unreachable!()
         };
         assert_eq!(&Sha256Hex::of(&std::fs::read(fx.user()).unwrap()), sha256);
-        let mode = std::fs::metadata(fx.user()).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(fx.user()).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
+        // Windows: Win32-OpenSSH's rule for a user file (ADR-0007 §12.48 item 2).
+        #[cfg(windows)]
+        assert_user_file(fx.user(), "the created user file");
         if crash {
             let rx = FileSink::read(&dir.join("receipts.jsonl"));
             let kinds: Vec<String> = rx
@@ -5403,9 +6391,12 @@ fn fresh_writer_creates_absent_ssh_config() {
 /// hook, so it dies by SIGABRT with nothing unwound; a second, fresh child process
 /// reconciles from the durable receipts. Two points of the first adoption: after P and
 /// before B's `file.staged` (row F0x, the commit step's S unrecorded), and at the
-/// commit point after B's post-validation, before `item.committed` (row T1).
+/// commit point after B's post-validation, before `item.committed` (row T1). On
+/// Windows `std::process::abort` is `__fastfail(FAST_FAIL_FATAL_APP_EXIT)`: the process
+/// ends at once with `STATUS_STACK_BUFFER_OVERRUN` (0xC0000409), nothing unwound.
 #[test]
 fn a22_first_adoption_commit_point_crash_as_a_process_abort_reconciles() {
+    #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt as _;
     for kind in ["staged", "commit"] {
         let fx = Fx::new();
@@ -5420,10 +6411,17 @@ fn a22_first_adoption_commit_point_crash_as_a_process_abort_reconciles() {
         )
         .unwrap();
         let status = run_child(&fx, &dir, &format!("abort:{kind}:{u}"));
+        #[cfg(unix)]
         assert_eq!(
             status.signal(),
             Some(6),
             "{kind}: a process abort (SIGABRT)"
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            status.code().map(|c| c.cast_unsigned()),
+            Some(0xC000_0409),
+            "{kind}: a process abort (__fastfail, STATUS_STACK_BUFFER_OVERRUN)"
         );
         assert!(
             !dir.join("outcome").exists(),
@@ -5456,6 +6454,15 @@ fn a22_first_adoption_commit_point_crash_as_a_process_abort_reconciles() {
 }
 
 // --- the generated domain on the filesystem (ADR-0007 §5.7 properties) ------------------
+//
+// Windows (wave 6x): the same properties over the Windows names. A replace has two
+// aside names there, the staged name (S before the exchange and after a restore) and
+// the `ReplaceFileW` backup `.config.hm-displaced-<generation>` (V or D after the
+// exchange), so the user shape places S's aside at the first and V's and D's at the
+// second, and fills both when free. No FIFO filler (Windows has no such entry), and
+// no unobservable directory: every account bypasses traverse checks
+// (`SeChangeNotifyPrivilege`), so no directory DACL hides the entries of a directory
+// the way mode 000 does. Unix draws exactly the cases it drew before.
 
 mod generated {
     use super::*;
@@ -5508,6 +6515,8 @@ mod generated {
         HardLink,
         Symlink,
         Dir,
+        // Unix only: Windows has no FIFO directory entry.
+        #[cfg(unix)]
         Fifo,
     }
 
@@ -5574,6 +6583,7 @@ mod generated {
             Just(At::Aside),
             Just(At::Slot)
         ];
+        #[cfg(unix)]
         let filler = prop_oneof![
             Just(Filler::Empty),
             Just(Filler::Empty),
@@ -5582,6 +6592,15 @@ mod generated {
             Just(Filler::Symlink),
             Just(Filler::Dir),
             Just(Filler::Fifo),
+        ];
+        #[cfg(windows)]
+        let filler = prop_oneof![
+            Just(Filler::Empty),
+            Just(Filler::Empty),
+            Just(Filler::File),
+            Just(Filler::HardLink),
+            Just(Filler::Symlink),
+            Just(Filler::Dir),
         ];
         let shape = prop_oneof![
             Just(Shape::User),
@@ -5628,11 +6647,47 @@ mod generated {
     }
 
     fn identity_of(path: &Path) -> FileIdentity {
-        let m = std::fs::symlink_metadata(path).unwrap();
-        FileIdentity::Unix {
-            dev: m.dev(),
-            ino: m.ino(),
-            birth: birth_of(path),
+        #[cfg(unix)]
+        {
+            let m = std::fs::symlink_metadata(path).unwrap();
+            FileIdentity::Unix {
+                dev: m.dev(),
+                ino: m.ino(),
+                birth: birth_of(path),
+            }
+        }
+        #[cfg(windows)]
+        heimdall_localenv::sys::handle_identity(&win::open_entry(path)).unwrap()
+    }
+
+    /// A recorded identity as [`ident`] keys an entry.
+    fn key_of(identity: &FileIdentity) -> Ident {
+        match identity {
+            FileIdentity::Unix { dev, ino, .. } => (*dev, u128::from(*ino)),
+            FileIdentity::Windows { volume, file_id } => (*volume, u128::from_be_bytes(*file_id)),
+        }
+    }
+
+    /// Put `filler` at `path` (`n` names its hard-link source).
+    fn fill_one(filler: Filler, n: usize, tmp: &Path, path: &Path) {
+        match filler {
+            Filler::Empty => {}
+            Filler::File => file(path, b"foreign\n"),
+            Filler::HardLink => {
+                let other = tmp.join(format!("link-src-{n}"));
+                file(&other, b"foreign linked\n");
+                std::fs::hard_link(&other, path).unwrap();
+            }
+            Filler::Symlink => symlink_any(Path::new("/scratch/elsewhere"), path),
+            Filler::Dir => std::fs::create_dir(path).unwrap(),
+            #[cfg(unix)]
+            Filler::Fifo => {
+                let ok = std::process::Command::new("mkfifo")
+                    .arg(path)
+                    .status()
+                    .unwrap();
+                assert!(ok.success());
+            }
         }
     }
 
@@ -5644,7 +6699,7 @@ mod generated {
         i128::try_from(d.as_nanos()).ok()
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn birth_of(path: &Path) -> Option<i128> {
         let m = std::fs::symlink_metadata(path).ok()?;
         let t = m.created().ok()?;
@@ -5675,26 +6730,9 @@ mod generated {
             }
             if *at == At::Slot && c.fill[i] != Filler::Empty && !q.exists() {
                 std::fs::create_dir(q).unwrap();
-                std::fs::set_permissions(q, std::fs::Permissions::from_mode(0o700)).unwrap();
+                set_private_dir(q);
             }
-            match c.fill[i] {
-                Filler::Empty => {}
-                Filler::File => file(path, b"foreign\n"),
-                Filler::HardLink => {
-                    let other = tmp.join(format!("link-src-{i}"));
-                    file(&other, b"foreign linked\n");
-                    std::fs::hard_link(&other, path).unwrap();
-                }
-                Filler::Symlink => std::os::unix::fs::symlink("/scratch/elsewhere", path).unwrap(),
-                Filler::Dir => std::fs::create_dir(path).unwrap(),
-                Filler::Fifo => {
-                    let ok = std::process::Command::new("mkfifo")
-                        .arg(path)
-                        .status()
-                        .unwrap();
-                    assert!(ok.success());
-                }
-            }
+            fill_one(c.fill[i], i, tmp, path);
         }
     }
 
@@ -5728,7 +6766,7 @@ mod generated {
         used.push(at);
         if at == At::Slot && !q.exists() {
             std::fs::create_dir(q).unwrap();
-            std::fs::set_permissions(q, std::fs::Permissions::from_mode(0o700)).unwrap();
+            set_private_dir(q);
         }
         file(path, bytes);
         let id = identity_of(path);
@@ -5746,7 +6784,7 @@ mod generated {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("git");
         std::fs::create_dir(&root).unwrap();
-        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        set_private_dir(&root);
         let q = root.join(".hm-quarantine");
         let holder = heimdall_domain::projection::lock_holder_line(1, [7; 16]);
         let k_staged = format!(".config.lock.hm-1-{}", "ef".repeat(16));
@@ -5874,7 +6912,7 @@ mod generated {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("cfg");
         std::fs::create_dir(&root).unwrap();
-        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        set_private_dir(&root);
         let q = root.join(".hm-quarantine");
         let bytes = b"# managed\nHost work\n".to_vec();
         // L's identity first: the slot name is derived from the locator.
@@ -5897,7 +6935,7 @@ mod generated {
             used.push(c.s.0);
             if c.s.0 == At::Slot {
                 std::fs::create_dir(&q).unwrap();
-                std::fs::set_permissions(&q, std::fs::Permissions::from_mode(0o700)).unwrap();
+                set_private_dir(&q);
             }
             std::fs::rename(&staging, path).unwrap();
             if c.s.1 {
@@ -5955,7 +6993,7 @@ mod generated {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("ssh");
         std::fs::create_dir(&root).unwrap();
-        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        set_private_dir(&root);
         let q = root.join(".hm-quarantine");
         let marker = heimdall_sshconf::render::MarkerId::parse("hm-0123456789abcdef").unwrap();
         let target_path =
@@ -5971,6 +7009,13 @@ mod generated {
             target.extend_from_slice(BASE);
         }
         let staged = format!(".config.hm-1-{}", "ab".repeat(16));
+        // Where the exchange leaves V or D: the staged name on Unix, the `ReplaceFileW`
+        // backup name on Windows (ADR-0007 §5.3 step 5).
+        let displaced = if cfg!(windows) {
+            ".config.hm-displaced-1".to_owned()
+        } else {
+            staged.clone()
+        };
         let step = FileStep {
             role: FileRole::UserSsh,
             path: root.join("config").to_str().unwrap().to_owned(),
@@ -5987,7 +7032,7 @@ mod generated {
             content: block.into_splice(0, 0, None),
             commit: true,
             staged_name: Some(staged.clone()),
-            displaced_name: (!c.create).then(|| staged.clone()),
+            displaced_name: (!c.create).then(|| displaced.clone()),
         };
         let intent = SetupIntent {
             plan_digest: heimdall_contract::setup::PlanDigest::from_sha256([9; 32]),
@@ -5999,22 +7044,25 @@ mod generated {
         };
         intent.validate().unwrap();
         let slot = "cd".repeat(16);
-        let name_of = |at: At| match at {
+        // S's aside is the staged name; V's and D's is the displaced name (one name on
+        // Unix).
+        let name_of = |label: &str, at: At| match at {
             At::Path => Some(root.join("config")),
-            At::Aside => Some(root.join(&staged)),
+            At::Aside if label == "S" => Some(root.join(&staged)),
+            At::Aside => Some(root.join(&displaced)),
             At::Slot => Some(q.join(&slot)),
             At::Nowhere => None,
         };
         // Entities: S (target bytes), V (base bytes, replace only), D (another file).
         let mut ids: BTreeMap<&str, FileIdentity> = BTreeMap::new();
-        let mut used: Vec<At> = Vec::new();
+        let mut used: Vec<PathBuf> = Vec::new();
         let place = |label: &'static str,
                      at: At,
                      bytes: &[u8],
                      modified: bool,
-                     used: &mut Vec<At>,
+                     used: &mut Vec<PathBuf>,
                      ids: &mut BTreeMap<&str, FileIdentity>| {
-            let Some(path) = name_of(at) else {
+            let Some(path) = name_of(label, at) else {
                 // Recorded but nowhere: create it elsewhere for its identity, then drop
                 // it, so the receipts name an entity that is gone.
                 let elsewhere = tmp.path().join(label);
@@ -6022,13 +7070,13 @@ mod generated {
                 ids.insert(label, identity_of(&elsewhere));
                 return true;
             };
-            if used.contains(&at) {
+            if used.contains(&path) {
                 return false;
             }
-            used.push(at);
+            used.push(path.clone());
             if at == At::Slot && !q.exists() {
                 std::fs::create_dir(&q).unwrap();
-                std::fs::set_permissions(&q, std::fs::Permissions::from_mode(0o700)).unwrap();
+                set_private_dir(&q);
             }
             file(&path, bytes);
             ids.insert(label, identity_of(&path));
@@ -6046,34 +7094,25 @@ mod generated {
         if !place("D", c.d, b"another writer\n", false, &mut used, &mut ids) {
             return None;
         }
-        // Fillers at names nothing recorded holds.
-        for (i, at) in [At::Path, At::Aside, At::Slot].into_iter().enumerate() {
-            if used.contains(&at) {
+        // Fillers at names nothing recorded holds: (filler, hard-link source, name). On
+        // Windows the displaced name takes the aside's filler too.
+        let mut free = vec![
+            (0, 0, root.join("config")),
+            (1, 1, root.join(&staged)),
+            (2, 2, q.join(&slot)),
+        ];
+        if displaced != staged {
+            free.insert(2, (1, 3, root.join(&displaced)));
+        }
+        for (i, n, path) in free {
+            if used.contains(&path) {
                 continue;
             }
-            let path = name_of(at).unwrap();
-            if at == At::Slot && c.fill[i] != Filler::Empty && !q.exists() {
+            if i == 2 && c.fill[i] != Filler::Empty && !q.exists() {
                 std::fs::create_dir(&q).unwrap();
-                std::fs::set_permissions(&q, std::fs::Permissions::from_mode(0o700)).unwrap();
+                set_private_dir(&q);
             }
-            match c.fill[i] {
-                Filler::Empty => {}
-                Filler::File => file(&path, b"foreign\n"),
-                Filler::HardLink => {
-                    let other = tmp.path().join(format!("link-src-{i}"));
-                    file(&other, b"foreign linked\n");
-                    std::fs::hard_link(&other, &path).unwrap();
-                }
-                Filler::Symlink => std::os::unix::fs::symlink("/scratch/elsewhere", &path).unwrap(),
-                Filler::Dir => std::fs::create_dir(&path).unwrap(),
-                Filler::Fifo => {
-                    let ok = std::process::Command::new("mkfifo")
-                        .arg(&path)
-                        .status()
-                        .unwrap();
-                    assert!(ok.success());
-                }
-            }
+            fill_one(c.fill[i], n, tmp.path(), &path);
         }
         // Receipts.
         let s_id = ids.get("S").cloned().unwrap();
@@ -6149,7 +7188,7 @@ mod generated {
                         let v = v_id.clone()?;
                         r.push(settling(
                             SettleSource::Displaced,
-                            &staged,
+                            &displaced,
                             &v,
                             Sha256Hex::of(BASE),
                         ));
@@ -6218,7 +7257,7 @@ mod generated {
     /// Every regular entry under `root` (the quarantine included): identity → bytes.
     /// Foreign non-regular entries are recorded by name and kind.
     /// Regular entries by identity, and foreign non-regular entries by kind.
-    type Inventory = (BTreeMap<(u64, u64), Vec<u8>>, BTreeMap<String, char>);
+    type Inventory = (BTreeMap<Ident, Vec<u8>>, BTreeMap<String, char>);
 
     fn inventory(root: &Path) -> Inventory {
         let mut files = BTreeMap::new();
@@ -6236,10 +7275,10 @@ mod generated {
                     if e.file_name() == ".hm-quarantine" {
                         stack.push(e.path());
                     } else {
-                        others.insert(format!("d::{}", m.ino()), 'd');
+                        others.insert(format!("d::{:?}", ident(&e.path())), 'd');
                     }
                 } else if ft.is_file() {
-                    files.insert((m.dev(), m.ino()), std::fs::read(e.path()).unwrap());
+                    files.insert(ident(&e.path()), std::fs::read(e.path()).unwrap());
                 } else {
                     let kind = if ft.is_symlink() { 'l' } else { 'p' };
                     // Foreign entries move only back or to a conflict name (put_back,
@@ -6247,7 +7286,7 @@ mod generated {
                     let target = std::fs::read_link(e.path())
                         .map(|t| t.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    let key = format!("{kind}:{target}:{}", m.ino());
+                    let key = format!("{kind}:{target}:{:?}", ident(&e.path()));
                     others.insert(key, kind);
                 }
             }
@@ -6257,20 +7296,20 @@ mod generated {
 
     /// Entries a durable `file.settled` (or the settlement it closes) allows removing:
     /// the identity and digest a `file.settling` recorded, followed by `file.settled`.
-    fn removable(receipts: &[StageReceipt]) -> Vec<((u64, u64), Sha256Hex)> {
+    fn removable(receipts: &[StageReceipt]) -> Vec<(Ident, Sha256Hex)> {
         let mut out = Vec::new();
-        let mut open: Option<((u64, u64), Sha256Hex)> = None;
+        let mut open: Option<(Ident, Sha256Hex)> = None;
         for r in receipts {
             match &r.local {
                 Some(LocalReceipt::File {
                     phase:
                         FilePhase::Settling {
-                            expected: FileIdentity::Unix { dev, ino, .. },
+                            expected,
                             expected_sha256,
                             ..
                         },
                     ..
-                }) => open = Some(((*dev, *ino), expected_sha256.clone())),
+                }) => open = Some((key_of(expected), expected_sha256.clone())),
                 Some(LocalReceipt::File {
                     phase: FilePhase::Settled { .. },
                     ..
@@ -6332,14 +7371,12 @@ mod generated {
         // The cleaner's ownership rule: the locator's identity and digest.
         if let Some((
             ProjectionLocator {
-                identity: FileIdentity::Unix { dev, ino, .. },
-                sha256,
-                ..
+                identity, sha256, ..
             },
             _,
         )) = &built.locator
         {
-            allowed.push(((*dev, *ino), sha256.clone()));
+            allowed.push((key_of(identity), sha256.clone()));
         }
         // 2, 3: no loss; foreign and modified content preserved.
         for (id, bytes) in &before.0 {
@@ -6401,7 +7438,10 @@ mod generated {
                 return Ok(());
             };
             let before = inventory(&built.root);
-            if c.unobservable {
+            // Windows: no unobservable directory (see the module note).
+            let unobservable = cfg!(unix) && c.unobservable;
+            if unobservable {
+                #[cfg(unix)]
                 std::fs::set_permissions(&built.root, std::fs::Permissions::from_mode(0o000)).unwrap();
             }
             let sink = Sink(Arc::new(Mutex::new(SinkLog {
@@ -6414,7 +7454,7 @@ mod generated {
                 prop_assert!(r.is_ok(), "{:?}", r);
             }
             let outcome = run(&built, &sink, None).expect("no hook").unwrap_or_default();
-            if c.unobservable {
+            if unobservable {
                 // 6 and 8 in the same (unobservable) world: nothing more is written.
                 let n = sink.receipts().len();
                 let again = run(&built, &sink, None).expect("no hook").unwrap_or_default();
@@ -6424,10 +7464,10 @@ mod generated {
                     again
                 );
                 prop_assert_eq!(sink.receipts().len(), n, "{:?}", sink.kinds());
-                std::fs::set_permissions(&built.root, std::fs::Permissions::from_mode(0o700)).unwrap();
+                set_private_dir(&built.root);
             }
             check(&built, &before, &sink, &outcome)?;
-            if c.unobservable {
+            if unobservable {
                 // Making the directory observable again is a change of the world; its
                 // idempotence was checked above, under the same mode.
                 return Ok(());
@@ -6704,18 +7744,8 @@ fn the_writer_snapshots_the_original_user_file_before_its_first_edit() {
         "{name}"
     );
     assert_eq!(std::fs::read(&taken[0]).unwrap(), USER_TEXT.as_bytes());
-    assert_eq!(
-        std::fs::metadata(&taken[0]).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
-    assert_eq!(
-        std::fs::metadata(fx.backups())
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777,
-        0o700
-    );
+    assert_owner_only_file(&taken[0], "the snapshot");
+    assert_private_dir(&fx.backups(), "the backups directory");
     assert_ne!(
         std::fs::read(fx.user()).unwrap(),
         USER_TEXT.as_bytes(),
@@ -6901,6 +7931,17 @@ fn a_user_file_that_changes_before_the_copy_is_not_snapshotted_or_edited() {
     );
 }
 
+/// The absolute path of a verified `ssh` client as the Git item renders it into
+/// `core.sshCommand`: `/usr/bin/ssh` on Unix; on Windows the in-box client (a rooted
+/// path with no drive is not an absolute Windows path).
+fn ssh_client_path() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from(r"C:\Windows\System32\OpenSSH\ssh.exe")
+    } else {
+        PathBuf::from("/usr/bin/ssh")
+    }
+}
+
 /// The global Git file is snapshotted the same way, to `gitconfig.<timestamp>.orig`,
 /// before the Git item's first edit of it (ADR-0007 §5.5, §12.32 item 2). The copy is taken
 /// when the item starts, so it exists whether or not the item then applies on this host's
@@ -6939,7 +7980,7 @@ fn the_writer_snapshots_the_global_git_file_before_its_first_edit() {
     config.clients = ClientInventory {
         candidates: vec![
             candidate(ClientKind::Git, git),
-            candidate(ClientKind::Ssh, PathBuf::from("/usr/bin/ssh")),
+            candidate(ClientKind::Ssh, ssh_client_path()),
         ],
     };
     config.test.git_item_any_default = true;
@@ -6956,10 +7997,7 @@ fn the_writer_snapshots_the_global_git_file_before_its_first_edit() {
     let taken = fx.snapshots("gitconfig");
     assert_eq!((ssh.len(), taken.len()), (1, 1), "{ssh:?} {taken:?}");
     assert_eq!(std::fs::read(&taken[0]).unwrap(), original);
-    assert_eq!(
-        std::fs::metadata(&taken[0]).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
+    assert_owner_only_file(&taken[0], "the Git snapshot");
     assert_eq!(std::fs::read(&ssh[0]).unwrap(), USER_TEXT.as_bytes());
 }
 
@@ -7062,7 +8100,7 @@ fn a_rollback_of_a_p_well_over_the_bound_shows_summaries_and_applies() {
     config.clients = ClientInventory {
         candidates: vec![
             candidate(ClientKind::Git, git),
-            candidate(ClientKind::Ssh, PathBuf::from("/usr/bin/ssh")),
+            candidate(ClientKind::Ssh, ssh_client_path()),
         ],
     };
     config.test.git_item_any_default = true;
@@ -7242,14 +8280,8 @@ fn snapshot_original_copies_the_original_once_owner_only() {
     let expected = backups.join("ssh_config.20261103T090807Z.orig");
     assert_eq!(first, Snapshot::Written(expected.clone()));
     assert_eq!(std::fs::read(&expected).unwrap(), original);
-    assert_eq!(
-        std::fs::metadata(&expected).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
-    assert_eq!(
-        std::fs::metadata(&backups).unwrap().permissions().mode() & 0o777,
-        0o700
-    );
+    assert_owner_only_file(&expected, "the snapshot");
+    assert_private_dir(&backups, "the backups directory");
     // A later edit is never snapshotted again: the first original is kept.
     std::fs::write(fx.user(), b"Host other\n    User changed\n").unwrap();
     let later: heimdall_contract::Timestamp = "2026-11-04T00:00:00Z".parse().unwrap();
@@ -7266,16 +8298,38 @@ fn snapshot_original_copies_the_original_once_owner_only() {
     // A link is never followed.
     let other = fx.home.state_dir.join("other-backups");
     let link = fx.ssh_dir().join("linked-config");
-    std::os::unix::fs::symlink(fx.user(), &link).unwrap();
+    symlink_any(fx.user(), &link);
     assert!(snapshot_original(&link, &other, "ssh_config", None, now).is_err());
     assert!(!other.exists());
 }
 
 // --- ADR-0007 §12.35 item 2 (N02): an existing snapshot must be a valid one ---------------
 
-/// `chmod` to exactly `mode`, whatever the umask.
+/// `chmod` to exactly `mode`, whatever the umask. Windows: the forms of the modes a
+/// valid snapshot and its directory have (a file 0600 and a directory 0700 are the
+/// protected owner-only DACL; a directory 0755 adds read for Users); the other modes
+/// are Unix-only cases.
 fn snap_chmod(path: &Path, mode: u32) {
+    #[cfg(unix)]
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    #[cfg(windows)]
+    {
+        let dir = std::fs::symlink_metadata(path).unwrap().is_dir();
+        let sddl = match (dir, mode) {
+            (false, 0o600) => win::owner_only(false),
+            (true, 0o700) => win::owner_only(true),
+            (true, 0o755) => format!("{}(A;OICI;FR;;;BU)", win::owner_only(true)),
+            (_, other) => panic!("mode {other:o} has no Windows form in this suite"),
+        };
+        win::set_dacl(path, &sddl);
+    }
+}
+
+/// A file with exactly the DACL `sddl` (a Windows-only snapshot case).
+#[cfg(windows)]
+fn snap_file_dacl(path: &Path, bytes: &[u8], sddl: &str) {
+    std::fs::write(path, bytes).unwrap();
+    win::set_dacl(path, sddl);
 }
 
 /// A directory with exactly `mode`.
@@ -7290,8 +8344,9 @@ fn snap_file(path: &Path, bytes: &[u8], mode: u32) {
     snap_chmod(path, mode);
 }
 
-/// Kind (with the link count of a file), mode and bytes (a link's target) of an entry.
-type SnapTree = BTreeMap<String, (String, u32, Vec<u8>)>;
+/// Kind (with the link count of a file), mode (Windows: the DACL) and bytes (a link's
+/// target) of an entry.
+type SnapTree = BTreeMap<String, (String, String, Vec<u8>)>;
 
 /// Everything under `dir` without following a link: kind, mode, link target or bytes.
 fn snap_tree(dir: &Path) -> SnapTree {
@@ -7303,7 +8358,10 @@ fn snap_tree(dir: &Path) -> SnapTree {
             let e = e.unwrap();
             let name = format!("{prefix}/{}", e.file_name().to_string_lossy());
             let m = std::fs::symlink_metadata(e.path()).unwrap();
-            let mode = m.permissions().mode() & 0o7777;
+            #[cfg(unix)]
+            let (mode, nlink) = (format!("{:o}", m.permissions().mode() & 0o7777), m.nlink());
+            #[cfg(windows)]
+            let (mode, nlink) = (access_of(&e.path()), win::nlink(&e.path()));
             if m.is_dir() {
                 out.insert(name.clone(), ("dir".into(), mode, Vec::new()));
                 go(&e.path(), &name, out);
@@ -7319,7 +8377,7 @@ fn snap_tree(dir: &Path) -> SnapTree {
                 );
             } else if m.is_file() {
                 let bytes = std::fs::read(e.path()).unwrap_or_default();
-                out.insert(name, (format!("file{}", m.nlink()), mode, bytes));
+                out.insert(name, (format!("file{nlink}"), mode, bytes));
             } else {
                 // A FIFO is never opened: that would wait for a writer.
                 out.insert(name, ("other".into(), mode, Vec::new()));
@@ -7404,34 +8462,73 @@ fn an_existing_entry_that_is_not_a_valid_snapshot_refuses_the_edit_before_it() {
             snap_mkdir(&fx.backups(), 0o700);
             let real = fx.home.state_dir.join("real");
             snap_file(&real, b"a bystander\n", 0o600);
-            std::os::unix::fs::symlink(&real, fx.backups().join(SNAP_FAKE)).unwrap();
+            symlink_any(&real, &fx.backups().join(SNAP_FAKE));
         }),
         ("a symlink to a directory", |fx| {
             snap_mkdir(&fx.backups(), 0o700);
             let real = fx.home.state_dir.join("real");
             snap_mkdir(&real, 0o700);
-            std::os::unix::fs::symlink(&real, fx.backups().join(SNAP_FAKE)).unwrap();
+            symlink_any(&real, &fx.backups().join(SNAP_FAKE));
         }),
         ("a dangling symlink", |fx| {
             snap_mkdir(&fx.backups(), 0o700);
-            std::os::unix::fs::symlink("nowhere", fx.backups().join(SNAP_FAKE)).unwrap();
+            symlink_any(Path::new("nowhere"), &fx.backups().join(SNAP_FAKE));
         }),
+        // Windows: a directory junction (no Developer Mode needed).
+        #[cfg(windows)]
+        ("a junction to a directory", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            let real = fx.home.state_dir.join("real");
+            snap_mkdir(&real, 0o700);
+            win::junction(&real, &fx.backups().join(SNAP_FAKE));
+        }),
+        // Windows: the snapshot rule is the protected owner-only DACL (`existing_snapshot`);
+        // these are the DACL forms of the Unix mode cases below.
+        #[cfg(windows)]
+        ("a file whose DACL also lets Everyone read", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            let sddl = format!("{}(A;;FR;;;WD)", win::owner_only(false));
+            snap_file_dacl(&fx.backups().join(SNAP_FAKE), b"x\n", &sddl);
+        }),
+        #[cfg(windows)]
+        ("a file whose DACL also lets Users write", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            let sddl = format!("{}(A;;FW;;;BU)", win::owner_only(false));
+            snap_file_dacl(&fx.backups().join(SNAP_FAKE), b"x\n", &sddl);
+        }),
+        #[cfg(windows)]
+        ("a file the owner may only read", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            let sddl = format!("D:P(A;;FR;;;{})", win::sid());
+            snap_file_dacl(&fx.backups().join(SNAP_FAKE), b"x\n", &sddl);
+        }),
+        #[cfg(windows)]
+        ("a file with the inherited (unprotected) owner ACE", |fx| {
+            snap_mkdir(&fx.backups(), 0o700);
+            std::fs::write(fx.backups().join(SNAP_FAKE), b"x\n").unwrap();
+        }),
+        #[cfg(unix)]
         ("a file with mode 0644", |fx| {
             snap_mkdir(&fx.backups(), 0o700);
             snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o644);
         }),
+        #[cfg(unix)]
         ("a file with mode 0660 (group-writable)", |fx| {
             snap_mkdir(&fx.backups(), 0o700);
             snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o660);
         }),
+        #[cfg(unix)]
         ("a file with mode 0666", |fx| {
             snap_mkdir(&fx.backups(), 0o700);
             snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o666);
         }),
+        #[cfg(unix)]
         ("a file with mode 0400", |fx| {
             snap_mkdir(&fx.backups(), 0o700);
             snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o400);
         }),
+        // Unix only: the execute bit has no Windows DACL meaning for a snapshot.
+        #[cfg(unix)]
         ("a file with mode 0700", |fx| {
             snap_mkdir(&fx.backups(), 0o700);
             snap_file(&fx.backups().join(SNAP_FAKE), b"x\n", 0o700);
@@ -7442,6 +8539,8 @@ fn an_existing_entry_that_is_not_a_valid_snapshot_refuses_the_edit_before_it() {
             snap_file(&other, b"x\n", 0o600);
             std::fs::hard_link(&other, fx.backups().join(SNAP_FAKE)).unwrap();
         }),
+        // Unix only: Windows has no FIFO directory entry.
+        #[cfg(unix)]
         ("a FIFO", |fx| {
             snap_mkdir(&fx.backups(), 0o700);
             let made = std::process::Command::new("mkfifo")
@@ -7482,26 +8581,39 @@ fn a_backups_directory_that_is_not_a_private_directory_refuses_the_edit() {
                 let real = fx.home.state_dir.join("elsewhere");
                 snap_mkdir(&real, 0o700);
                 snap_file(&real.join(SNAP_FAKE), b"not an original\n", 0o600);
-                std::os::unix::fs::symlink(&real, fx.backups()).unwrap();
+                symlink_any(&real, &fx.backups());
             },
         ),
         ("a symlink to an empty directory", |fx| {
             let real = fx.home.state_dir.join("elsewhere");
             snap_mkdir(&real, 0o700);
-            std::os::unix::fs::symlink(&real, fx.backups()).unwrap();
+            symlink_any(&real, &fx.backups());
         }),
         ("a dangling symlink", |fx| {
-            std::os::unix::fs::symlink("nowhere", fx.backups()).unwrap();
+            symlink_any(Path::new("nowhere"), &fx.backups());
+        }),
+        // Windows: the reviewer's case through a directory junction.
+        #[cfg(windows)]
+        ("a junction to a directory holding the entry", |fx| {
+            let real = fx.home.state_dir.join("elsewhere");
+            snap_mkdir(&real, 0o700);
+            snap_file(&real.join(SNAP_FAKE), b"not an original\n", 0o600);
+            win::junction(&real, &fx.backups());
         }),
         ("a regular file", |fx| {
             snap_file(&fx.backups(), b"not a directory\n", 0o600);
         }),
+        // Unix only: the group and other write bits of `backups` are a Unix rule
+        // (`private_directory_problem`); on Windows the directory has no DACL rule.
+        #[cfg(unix)]
         ("a group-writable directory", |fx| {
             snap_mkdir(&fx.backups(), 0o770);
         }),
+        #[cfg(unix)]
         ("an other-writable directory", |fx| {
             snap_mkdir(&fx.backups(), 0o707);
         }),
+        #[cfg(unix)]
         ("a world-writable directory", |fx| {
             snap_mkdir(&fx.backups(), 0o777);
         }),
@@ -7590,10 +8702,13 @@ fn snapshot_original_refuses_an_invalid_entry_naming_it_and_accepts_a_valid_one(
         let expected = backups.join(format!("{other}.20261103T090807Z.orig"));
         assert_eq!(made, Snapshot::Written(expected.clone()), "{name}");
         assert_eq!(std::fs::read(&expected).unwrap(), USER_TEXT.as_bytes());
+        #[cfg(unix)]
         assert_eq!(
             std::fs::metadata(&expected).unwrap().permissions().mode() & 0o7777,
             0o600
         );
+        #[cfg(windows)]
+        assert_owner_only_file(&expected, name);
         // It still refuses the first, now beside a valid snapshot of its own name.
         assert!(snapshot_original(fx.user(), &backups, name, None, now).is_err());
 
@@ -7612,23 +8727,32 @@ fn snapshot_original_refuses_an_invalid_entry_naming_it_and_accepts_a_valid_one(
         assert_eq!(std::fs::read(&seed).unwrap(), b"an earlier original\n");
         assert_eq!(std::fs::read_dir(&backups).unwrap().count(), 1, "{name}");
 
-        // A link, a non-directory and a writable directory are no `backups`.
-        for (label, make) in [
+        // A link, a non-directory and a writable directory are no `backups`. The write
+        // bits are a Unix rule; Windows adds a directory junction.
+        #[cfg(unix)]
+        let makes = [
             ("a symlink", 0u8),
             ("a regular file", 1),
             ("a group-writable directory", 2),
             ("an other-writable directory", 3),
-        ] {
+        ];
+        #[cfg(windows)]
+        let makes = [("a symlink", 0u8), ("a regular file", 1), ("a junction", 4)];
+        for (label, make) in makes {
             let fx = Fx::new();
             std::fs::write(fx.user(), USER_TEXT).unwrap();
             let backups = fx.backups();
+            // A private directory holding an invalid entry, for a link to point to.
+            let elsewhere = || {
+                let real = fx.home.state_dir.join("elsewhere");
+                snap_mkdir(&real, 0o700);
+                snap_file(&real.join(&fake), b"x\n", 0o600);
+                real
+            };
             match make {
-                0 => {
-                    let real = fx.home.state_dir.join("elsewhere");
-                    snap_mkdir(&real, 0o700);
-                    snap_file(&real.join(&fake), b"x\n", 0o600);
-                    std::os::unix::fs::symlink(&real, &backups).unwrap();
-                }
+                0 => symlink_any(&elsewhere(), &backups),
+                #[cfg(windows)]
+                4 => win::junction(&elsewhere(), &backups),
                 1 => snap_file(&backups, b"x\n", 0o600),
                 2 => snap_mkdir(&backups, 0o770),
                 _ => snap_mkdir(&backups, 0o707),

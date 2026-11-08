@@ -1086,7 +1086,7 @@ check "M06 macos: the sshd preflight ran on 127.0.0.1 (no Docker) and the fixtur
 check "M07 macos: host.txt has the OS, script, scratch file system, ssh/sshd/git versions" \
     bash -c 'h=$1; grep -q "^os=" "$h" && grep -q "^script=" "$h" && grep -q "^scratch-fs=" "$h" && grep -q "^ssh-V=" "$h" && grep -q "^sshd-V=" "$h" && grep -q "^git-version=git version 0.0.0-selftest (exit 0)$" "$h"' _ "$O/host.txt"
 check "M21 macos: the observation targets of the case index ran once more through cargo with --show-output" \
-    bash -c 'grep -qx "cargo test --workspace --locked --no-fail-fast --test integration_doctor --test integration_git_observe --test integration_projection_replace --test integration_sshconf_vs_ssh_g -- --show-output" "$1" && grep -q "^exit 0: cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output" "$2" && [ -f "$3" ]' _ "$L" "$O/commands.txt" "$O/observations.txt"
+    bash -c 'grep -qx "cargo test --workspace --locked --no-fail-fast --test integration_doctor --test integration_git_observe --test integration_projection --test integration_projection_replace --test integration_sshconf_vs_ssh_g -- --show-output" "$1" && grep -q "^exit 0: cargo test --workspace --locked --no-fail-fast <the observation targets> -- --show-output" "$2" && [ -f "$3" ]' _ "$L" "$O/commands.txt" "$O/observations.txt"
 check "M08 macos: the home .ssh and Git metadata unchanged is recorded with exit 0; scans pass" \
     bash -c 'c=$1; grep -q "^exit 0: the home .ssh directory and Git configuration metadata unchanged by the run" "$c" && grep -q "^exit 0: canary-prefix scan" "$c" && grep -q "^exit 0: leak scan" "$c"' _ "$O/commands.txt"
 check "M09 macos: the scratch directory is gone and the sshd it started too" \

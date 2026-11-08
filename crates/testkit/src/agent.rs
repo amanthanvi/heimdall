@@ -2,7 +2,9 @@
 //!
 //! * [`FakeAgent`]: an in-process SSH agent on a Unix socket (owner-only: `0600` in a
 //!   `0700` scratch directory) or a Windows named pipe (the reviewed `heimdall-ipc`
-//!   listener: protected owner-only DACL, client SID check). Its keys are Ed25519,
+//!   listener's first instance, so its protected owner-only DACL, and the same client
+//!   SID check after the first write; the fixture serves the instances itself so that
+//!   it sees every open, see `pipe` below). Its keys are Ed25519,
 //!   generated in memory per run ([`FixtureKey`]), and their comments are fresh
 //!   `HEIMDALL_CANARY_*` strings, so a leaked comment fails `assert_no_canary`. It
 //!   logs every message it receives ([`AgentContact`]) and signs real Ed25519
@@ -503,7 +505,7 @@ enum FixtureListener {
     #[cfg(unix)]
     Unix(tokio::net::UnixListener, PathBuf),
     #[cfg(windows)]
-    Pipe(heimdall_ipc::windows::Listener),
+    Pipe(pipe::PipeFixture),
 }
 
 impl FixtureListener {
@@ -519,15 +521,7 @@ impl FixtureListener {
                 Ok(FixtureListener::Unix(listener, path.clone()))
             }
             #[cfg(windows)]
-            Endpoint::NamedPipe(name) => {
-                let sid = heimdall_ipc::windows::current_user_sid()?;
-                let listener = heimdall_ipc::windows::Listener::bind(
-                    name,
-                    heimdall_ipc::EndpointKind::Signing,
-                    &sid,
-                )?;
-                Ok(FixtureListener::Pipe(listener))
-            }
+            Endpoint::NamedPipe(name) => Ok(FixtureListener::Pipe(pipe::PipeFixture::bind(name)?)),
             #[allow(unreachable_patterns)]
             _ => Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -536,12 +530,19 @@ impl FixtureListener {
         }
     }
 
-    async fn accept(&self) -> io::Result<BoxStream> {
+    /// The next identified connection. Every client open the listener sees is added
+    /// to `opens` before identification: on Unix each accepted connection, on Windows
+    /// each completed instance connect ([`pipe::PipeFixture::accept`]).
+    async fn accept(&self, opens: &AtomicUsize) -> io::Result<BoxStream> {
         match self {
             #[cfg(unix)]
-            FixtureListener::Unix(l, _) => Ok(Box::new(l.accept().await?.0)),
+            FixtureListener::Unix(l, _) => {
+                let stream = l.accept().await?.0;
+                opens.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(stream))
+            }
             #[cfg(windows)]
-            FixtureListener::Pipe(l) => Ok(Box::new(l.accept().await?.0)),
+            FixtureListener::Pipe(l) => Ok(Box::new(l.accept(opens).await?)),
         }
     }
 
@@ -555,6 +556,179 @@ impl FixtureListener {
             }
             #[cfg(windows)]
             FixtureListener::Pipe(l) => drop(l),
+        }
+    }
+}
+
+/// The fixtures' Windows pipe server (wave-6w review W6W-R02; ADR-0007 §12.46 item 3).
+///
+/// The reviewed listener (`heimdall_ipc::windows::Listener`) identifies a client only
+/// after its first write (ADR-0006 §13.21), and refuses a client that opens the pipe
+/// and sends nothing without returning it. A fixture built on its `accept` therefore
+/// never sees such an open. This server keeps the listener's security and its
+/// identification rule, and observes every open before identification:
+///
+/// * **Security of the pipe:** [`PipeFixture::bind`] lets `Listener::bind` create the
+///   first instance. That refuses a name that already exists (first-instance flag)
+///   and sets the pipe's owner and protected owner-only DACL. Every later instance of
+///   the pipe is checked against that descriptor; observed natively on Windows 11:
+///   an instance created without a descriptor, after the first one closed, reads back
+///   `D:P(A;;FA;;;<user SID>)` with the user as owner, and under a DACL that grants
+///   another SID only this user cannot create an instance at all (os error 5). The
+///   instances here also reject remote clients and use byte mode, as the listener's
+///   do.
+/// * **Opens:** every completed instance connect is one client open, counted before
+///   identification. That includes `ERROR_NO_DATA`, a client that opened the
+///   instance and closed it before the connect completed (the listener discards it).
+/// * **Identification:** as the listener's (ADR-0006 §13.21). Each connection waits,
+///   on its own task, at most `FIRST_WRITE_WAIT` until the client's first write has
+///   been read into the instance, then `heimdall_ipc::windows::client_sid` (remote
+///   refusal and the client token's user) and `heimdall_ipc::endpoint::verify_peer`
+///   against this process's SID decide. A refused or silent client is disconnected
+///   and never served. At most `MAX_PENDING_IDENTIFICATIONS` wait at once; one more
+///   instance keeps listening meanwhile.
+#[cfg(windows)]
+mod pipe {
+    use std::io;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use heimdall_ipc::endpoint::{ExpectedOwner, PeerIdentity, verify_peer};
+    use heimdall_ipc::windows::{
+        FIRST_WRITE_WAIT, Listener, MAX_PENDING_IDENTIFICATIONS, client_sid, current_user_sid,
+    };
+    use tokio::io::Interest;
+    use tokio::net::windows::named_pipe::{NamedPipeServer, PipeMode, ServerOptions};
+    use tokio::task::JoinSet;
+
+    /// `ERROR_NO_DATA` (232): the client closed its end before the connect completed.
+    const ERROR_NO_DATA: i32 = 232;
+
+    /// Instances waiting for the next client and connections being identified.
+    struct State {
+        waiting: Option<NamedPipeServer>,
+        identifying: JoinSet<Option<NamedPipeServer>>,
+    }
+
+    /// One turn of the accept loop.
+    enum Event {
+        Identified(Result<Option<NamedPipeServer>, tokio::task::JoinError>),
+        Connected(io::Result<()>),
+    }
+
+    /// A pipe server for the fixtures (module docs).
+    pub(super) struct PipeFixture {
+        name: String,
+        owner: ExpectedOwner,
+        state: tokio::sync::Mutex<State>,
+    }
+
+    /// One more instance of the pipe `name` (its first instance already exists, so
+    /// the pipe's own descriptor applies).
+    fn instance(name: &str) -> io::Result<NamedPipeServer> {
+        ServerOptions::new()
+            .first_pipe_instance(false)
+            .reject_remote_clients(true)
+            .pipe_mode(PipeMode::Byte)
+            .access_inbound(true)
+            .access_outbound(true)
+            .create(name)
+    }
+
+    /// Wait at most `FIRST_WRITE_WAIT` for the client's first write, then check the
+    /// client token's user against `owner`. A refused client is disconnected.
+    async fn identify(server: NamedPipeServer, owner: ExpectedOwner) -> Option<NamedPipeServer> {
+        let readable = matches!(
+            tokio::time::timeout(FIRST_WRITE_WAIT, server.ready(Interest::READABLE)).await,
+            Ok(Ok(_))
+        );
+        let verified = readable
+            && client_sid(&server).is_ok_and(|sid| {
+                verify_peer(&PeerIdentity::Windows { sid, pid: None }, &owner).is_ok()
+            });
+        if verified {
+            Some(server)
+        } else {
+            let _ = server.disconnect();
+            None
+        }
+    }
+
+    impl PipeFixture {
+        /// Take `name` with the reviewed listener's first instance (owner-only DACL,
+        /// first-instance flag), add this server's own instance, then close the
+        /// listener's. No client knows the random name before this returns.
+        pub(super) fn bind(name: &str) -> io::Result<PipeFixture> {
+            let sid = current_user_sid()?;
+            let first = Listener::bind(name, heimdall_ipc::EndpointKind::Signing, &sid)?;
+            let waiting = instance(name)?;
+            drop(first);
+            Ok(PipeFixture {
+                name: name.to_owned(),
+                owner: ExpectedOwner::Sid(sid),
+                state: tokio::sync::Mutex::new(State {
+                    waiting: Some(waiting),
+                    identifying: JoinSet::new(),
+                }),
+            })
+        }
+
+        /// The next identified connection; every client open seen meanwhile is added
+        /// to `opens`. Cancel-safe: the waiting instance and the connections being
+        /// identified are kept across calls.
+        pub(super) async fn accept(&self, opens: &AtomicUsize) -> io::Result<NamedPipeServer> {
+            let mut state = self.state.lock().await;
+            loop {
+                if state.waiting.is_none() {
+                    state.waiting = Some(instance(&self.name)?);
+                }
+                let State {
+                    waiting,
+                    identifying,
+                } = &mut *state;
+                let room = identifying.len() < MAX_PENDING_IDENTIFICATIONS;
+                let event = tokio::select! {
+                    biased;
+                    Some(done) = identifying.join_next(), if !identifying.is_empty() => {
+                        Event::Identified(done)
+                    }
+                    outcome = async {
+                        match waiting.as_ref() {
+                            Some(instance) => instance.connect().await,
+                            None => Ok(()),
+                        }
+                    }, if room => Event::Connected(outcome),
+                };
+                match event {
+                    Event::Identified(Ok(Some(server))) => return Ok(server),
+                    Event::Identified(Ok(None)) => {}
+                    Event::Identified(Err(err)) => {
+                        if err.is_panic() {
+                            std::panic::resume_unwind(err.into_panic());
+                        }
+                    }
+                    Event::Connected(outcome) => {
+                        // Keep an instance listening before the used one leaves the
+                        // slot; if that fails, the connected instance stays and the
+                        // next call's connect completes at once (counted then).
+                        let next = instance(&self.name)?;
+                        let Some(connected) = state.waiting.replace(next) else {
+                            continue;
+                        };
+                        match outcome {
+                            Ok(()) => {
+                                opens.fetch_add(1, Ordering::SeqCst);
+                                state
+                                    .identifying
+                                    .spawn(identify(connected, self.owner.clone()));
+                            }
+                            Err(err) if err.raw_os_error() == Some(ERROR_NO_DATA) => {
+                                opens.fetch_add(1, Ordering::SeqCst);
+                            }
+                            Err(err) => return Err(err),
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -595,7 +769,12 @@ struct Background {
 }
 
 impl Background {
-    fn spawn<H>(name: &str, endpoint: Endpoint, on_conn: H) -> io::Result<Background>
+    fn spawn<H>(
+        name: &str,
+        endpoint: Endpoint,
+        opens: Arc<AtomicUsize>,
+        on_conn: H,
+    ) -> io::Result<Background>
     where
         H: Fn(BoxStream) -> ConnFuture + Send + 'static,
     {
@@ -626,7 +805,7 @@ impl Background {
                     loop {
                         tokio::select! {
                             _ = shutdown_rx.wait_for(|stop| *stop) => break,
-                            accepted = listener.accept() => match accepted {
+                            accepted = listener.accept(&opens) => match accepted {
                                 Ok(stream) => {
                                     tokio::spawn(on_conn(stream));
                                 }
@@ -722,6 +901,7 @@ pub struct AgentContact {
 
 struct AgentShared {
     log: Mutex<Vec<AgentContact>>,
+    opens: Arc<AtomicUsize>,
     accepted: AtomicUsize,
     open: AtomicUsize,
     approved: watch::Sender<bool>,
@@ -876,6 +1056,7 @@ impl FakeAgent {
         listed.extend(config.keys);
         let shared = Arc::new(AgentShared {
             log: Mutex::new(Vec::new()),
+            opens: Arc::new(AtomicUsize::new(0)),
             accepted: AtomicUsize::new(0),
             open: AtomicUsize::new(0),
             approved: watch::channel(false).0,
@@ -883,9 +1064,12 @@ impl FakeAgent {
             listed,
         });
         let conn_shared = Arc::clone(&shared);
-        let background = Background::spawn("hm-fake-agent", endpoint.clone(), move |s| {
-            Box::pin(serve_agent(s, Arc::clone(&conn_shared)))
-        })?;
+        let background = Background::spawn(
+            "hm-fake-agent",
+            endpoint.clone(),
+            Arc::clone(&shared.opens),
+            move |s| Box::pin(serve_agent(s, Arc::clone(&conn_shared))),
+        )?;
         Ok(FakeAgent {
             endpoint,
             shared,
@@ -915,12 +1099,23 @@ impl FakeAgent {
         self.shared.log.lock().map(|l| l.len()).unwrap_or(0)
     }
 
-    /// Number of connections accepted (on Unix a connection that sends nothing is still
-    /// one; on Windows the pipe listener refuses a client that has sent nothing, as it
-    /// cannot identify it, so that one is not counted).
+    /// Number of connections accepted and identified (on Unix a connection that sends
+    /// nothing is still one; on Windows a client is identified only after its first
+    /// write, so one that sends nothing is refused and not counted here). A test that
+    /// asserts that nothing even opened the endpoint uses [`opens`](Self::opens).
     #[must_use]
     pub fn connections(&self) -> usize {
         self.shared.accepted.load(Ordering::SeqCst)
+    }
+
+    /// Number of client opens of the endpoint, observed before identification: on
+    /// Unix every accepted connection; on Windows every completed pipe-instance
+    /// connect, including a client that opened and closed without writing, which
+    /// identification then refuses (wave-6w review W6W-R02). Each open that is
+    /// identified is also one of [`connections`](Self::connections).
+    #[must_use]
+    pub fn opens(&self) -> usize {
+        self.shared.opens.load(Ordering::SeqCst)
     }
 
     /// Number of connections currently open.
@@ -968,6 +1163,7 @@ impl FakeAgent {
 struct ProxyShared {
     upstream: Endpoint,
     log: Mutex<Vec<u8>>,
+    opens: Arc<AtomicUsize>,
     accepted: AtomicUsize,
 }
 
@@ -1032,12 +1228,16 @@ impl CountingProxy {
         let shared = Arc::new(ProxyShared {
             upstream: upstream.clone(),
             log: Mutex::new(Vec::new()),
+            opens: Arc::new(AtomicUsize::new(0)),
             accepted: AtomicUsize::new(0),
         });
         let conn_shared = Arc::clone(&shared);
-        let background = Background::spawn("hm-counting-proxy", listen.clone(), move |s| {
-            Box::pin(relay(s, Arc::clone(&conn_shared)))
-        })?;
+        let background = Background::spawn(
+            "hm-counting-proxy",
+            listen.clone(),
+            Arc::clone(&shared.opens),
+            move |s| Box::pin(relay(s, Arc::clone(&conn_shared))),
+        )?;
         Ok(CountingProxy {
             endpoint: listen,
             shared,
@@ -1069,10 +1269,17 @@ impl CountingProxy {
 
     /// Number of client connections accepted. On Windows a pipe client that has sent
     /// nothing cannot be identified by the listener and is refused, so it is not
-    /// counted.
+    /// counted; [`opens`](Self::opens) counts it.
     #[must_use]
     pub fn connections(&self) -> usize {
         self.shared.accepted.load(Ordering::SeqCst)
+    }
+
+    /// Number of client opens observed before identification
+    /// ([`FakeAgent::opens`]).
+    #[must_use]
+    pub fn opens(&self) -> usize {
+        self.shared.opens.load(Ordering::SeqCst)
     }
 
     /// Stop.
@@ -1595,5 +1802,85 @@ mod tests {
         assert!(is_fixture_pipe_name(r"\\.\PIPE\Heimdall-HMTEST-ab12-x"));
         assert!(!is_fixture_pipe_name(r"\\.\pipe\openssh-ssh-agent"));
         assert!(!is_fixture_pipe_name(r"\\.\pipe\heimdall-hmtest-"));
+    }
+
+    /// W6W-R02 (ADR-0007 §12.46 item 3): a pipe client that opens and closes without
+    /// writing cannot be identified, so it is never accepted, but it is an open. A
+    /// silent client held open is an open at once and is disconnected unserved at the
+    /// identification bound; a client that writes is counted in both. The fixture's
+    /// instances keep the user as the pipe's owner.
+    #[cfg(windows)]
+    #[test]
+    fn silent_pipe_open_is_observed_before_identification_and_never_accepted() {
+        use heimdall_ipc::windows::FIRST_WRITE_WAIT;
+        let t = Duration::from_secs(5);
+        let scratch = Scratch::new().unwrap();
+        let endpoint = Endpoint::in_scratch(&scratch, "agent").unwrap();
+        let Endpoint::NamedPipe(name) = endpoint.clone() else {
+            panic!("a Windows fixture endpoint is a named pipe");
+        };
+        let agent = FakeAgent::start(
+            endpoint.clone(),
+            FakeAgentConfig {
+                keys: vec![FixtureKey::generate()],
+                mode: AgentMode::Normal,
+            },
+        );
+        assert_eq!((agent.opens(), agent.connections()), (0, 0));
+        let open = || fs::OpenOptions::new().read(true).write(true).open(&name);
+
+        // Opened with default flags (as an ssh client opens the agent pipe) and
+        // closed at once, without a byte.
+        drop(open().unwrap());
+        assert!(
+            agent.wait_until(t, |a| a.opens() == 1),
+            "a silent open was not observed"
+        );
+        // Its identification fails as soon as the close is read; leave time for it.
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(agent.connections(), 0, "a silent client was accepted");
+        assert_eq!(agent.contact_count(), 0);
+
+        // Held open and silent: an open long before the bound, never accepted.
+        let held = open().unwrap();
+        let held_at = Instant::now();
+        assert!(agent.wait_until(Duration::from_secs(2), |a| a.opens() == 2));
+        assert!(held_at.elapsed() < FIRST_WRITE_WAIT);
+        assert_eq!(agent.connections(), 0);
+
+        // A client that writes is identified and served meanwhile.
+        let mut client = AgentConnection::connect(&endpoint, t).unwrap();
+        assert_eq!(client.list().unwrap().len(), 1);
+        assert_eq!((agent.opens(), agent.connections()), (3, 1));
+        drop(client);
+
+        // The held client gets no byte: its read ends when it is disconnected.
+        let mut byte = [0u8; 1];
+        let read = (&held).read(&mut byte);
+        assert!(
+            matches!(read, Ok(0)) || read.is_err(),
+            "refused client got data"
+        );
+        assert!(
+            held_at.elapsed() >= FIRST_WRITE_WAIT - Duration::from_millis(100),
+            "disconnected before the identification bound"
+        );
+        assert_eq!((agent.opens(), agent.connections()), (3, 1));
+        assert_eq!(agent.log().len(), 1);
+
+        // The pipe is still this user's: the production client's owner check passes.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let client = heimdall_ipc::windows::connect_with_owner(
+                Path::new(&name),
+                heimdall_ipc::windows::ServerOwner::CurrentUser,
+            )
+            .await;
+            assert!(client.is_ok(), "the fixture pipe's owner is not this user");
+        });
+        assert!(agent.wait_until(t, |a| a.opens() == 4));
     }
 }

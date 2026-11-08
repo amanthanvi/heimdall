@@ -632,6 +632,68 @@ mod tests {
         );
     }
 
+    /// Windows form: a name that is not valid Unicode is UTF-16 with an unpaired
+    /// surrogate, which NTFS stores as given. Such a program name, a `PATH` match in such
+    /// a directory and a relative explicit path under such a working directory are
+    /// `refused_path`; NUL and empty never resolve.
+    #[cfg(windows)]
+    #[test]
+    fn non_unicode_program_or_location_is_refused_path() {
+        use std::os::windows::ffi::OsStringExt as _;
+        let lone = |prefix: &str, suffix: &str| {
+            let mut units: Vec<u16> = prefix.encode_utf16().collect();
+            units.push(0xD800);
+            units.extend(suffix.encode_utf16());
+            OsString::from_wide(&units)
+        };
+        let s = Scratch::new();
+        let env = env_path(&[s.path()], ";");
+        let root = s.path().to_str().unwrap();
+        assert_eq!(
+            resolve_program(
+                &lone(&format!("{root}\\"), "\\tool.exe"),
+                &env,
+                s.path(),
+                Platform::Windows
+            ),
+            Err(LaunchRefusal::PathNotUnicode)
+        );
+        assert_eq!(
+            resolve_program(&lone("to", "ol"), &env, s.path(), Platform::Windows),
+            Err(LaunchRefusal::PathNotUnicode)
+        );
+        // A non-Unicode directory, on PATH and as the working directory.
+        let dir = s.path().join(lone("d", ""));
+        std::fs::create_dir(&dir).unwrap();
+        assert!(dir.to_str().is_none());
+        write_file(&dir.join("tool.exe"), 0o755);
+        let mut path = dir.clone().into_os_string();
+        path.push(";");
+        let on_path = Env::from_vars([(OsString::from("PATH"), path)]);
+        assert_eq!(
+            resolve_program(OsStr::new("tool"), &on_path, s.path(), Platform::Windows),
+            Err(LaunchRefusal::PathNotUnicode)
+        );
+        assert_eq!(
+            resolve_program(OsStr::new(".\\tool"), &env, &dir, Platform::Windows),
+            Err(LaunchRefusal::PathNotUnicode)
+        );
+        // NUL and empty never resolve.
+        assert_eq!(
+            resolve_program(OsStr::new(""), &env, s.path(), Platform::Windows),
+            Err(LaunchRefusal::NotFound)
+        );
+        assert_eq!(
+            resolve_program(
+                OsStr::new("C:\\Windows\\System32\\cmd.exe\0x"),
+                &env,
+                s.path(),
+                Platform::Windows
+            ),
+            Err(LaunchRefusal::NotFound)
+        );
+    }
+
     #[test]
     fn windows_search_uses_pathext_order_restricted_to_four_extensions() {
         let s = Scratch::new();

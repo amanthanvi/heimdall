@@ -4770,6 +4770,39 @@ The WSL rows are covered, apart from the WSL ext4 birth-time observation.
 5. **The preview validates the quarantine in P's directory (WU-2a's E-2).** An invalid quarantine there makes the item manual mode at preview (§5.3 item 9). Before this, it was found only after the commit, where settlement failed with `Unavailable`.
 6. **The LF question in §4 is settled for Windows.** An LF-only rendered P loads in `OpenSSH_for_Windows_9.5p2` (`ssh -G`, `rendered_file_loads_on_target_client`), observed natively by WU-2a.
 
+### 12.49 Rulings on the wave-6x unit escalations (orchestrator, 2026-11-08)
+
+1. **The launch check compares one pipe spelling on Windows (product fix, found by WU-1).**
+   - **The defect:** P renders a managed alias's agent as `IdentityAgent //./pipe/<name>` (`RenderPath::pipe`). `launch_flow::identity_agent` copied that value as written, and the eligibility check (`eligibility.rs`, step 3) compared it as a string with the declaration's adopted endpoint, `\\.\pipe\<name>`. Both name the same pipe object. On Windows, every non-interactive `run` over a managed alias whose key is declared `none` was therefore refused with `interaction_unknown`.
+   - **The fix:** on Windows, the observed value is read through `agents::locator_for`, which already accepts both spellings. That gives the `\\.\pipe\<name>` form.
+   - **Why it fails closed:** a value that names no pipe keeps its raw form and still fails to match. On Unix nothing changes.
+   - **Native proof:** `e2e_cli_m02` went from 24 of 26 passing to 26 of 26 (WU-1's configurations A and C). The two tests that needed the fix were `ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound` and `ssh::host_key_substitution_fails_closed_and_nothing_written_to_known_hosts`.
+2. **T06's Windows half (D4, §12.47 item 4).** These two JSON tests are T06's Windows `platform_required`:
+   - `e2e_cli_m02::json::uninstall_with_incomplete_rollback_keeps_the_quarantine_json`
+   - `e2e_cli_m02::json::uninstall_with_incomplete_rollback_purge_state_is_refused_json`
+
+   Under `--non-interactive`, the purge is refused with exit 3 (`interaction_required`, effect `none`) before anything runs. The second test asserts that refusal, in the incomplete-rollback state, with nothing purged or changed.
+
+   The exit-6 refusal needs a typed yes on a terminal. On Windows that is deferred to M04's pseudoconsole driver, together with D2 and D3.
+3. **WU-8's pipe fixture design is accepted (W6W-R02).** `PipeFixture` works like this:
+   - it takes the random pipe name with the reviewed `Listener::bind` (protected owner-only DACL, first-instance flag);
+   - it serves further instances through tokio's safe `ServerOptions`, which take the pipe's own descriptor;
+   - it identifies each client after the client's first write, with the reviewed `client_sid` and `verify_peer`, under `FIRST_WRITE_WAIT` and `MAX_PENDING_IDENTIFICATIONS`;
+   - it counts every open before identification, as `opens()`.
+
+   The alternative was a hidden connect hook in `Listener`. That would add a product surface only for tests, so it is not taken. The `crates/testkit/Cargo.toml` comment now describes this design.
+4. **`ssh::a01_personal_profile_without_repository` stays Unix-only and is deferred with D3 to M04.** Two of its parts have no faithful Windows form yet:
+   - its attended `run` decision needs a terminal on stdin, which on Windows needs M04's pseudoconsole driver;
+   - `connect` launches the pinned in-box `ssh.exe`. That client finds the account's real profile from the token, so no scratch home can stand in for it, and without `-F` it would read the owner's real configuration (§9 item 5).
+5. **Intermittent `integration_adapters::prepared_facts_from_outcome_drop_interaction_fields` on Windows.**
+   - **Observed by WU-8:** at baseline 421c8f41 it failed 3 of 50 runs and then 4 of 50 ("agent endpoint absent"). With WU-8's fixture it failed 0 of 50.
+   - **Inferred cause:** the old fixture's handling of pipe instances; this is not proven.
+   - **Rule:** a recurrence in any run reopens this item as a defect owned by the adapters.
+6. **WU-2a sets the protected DACL on a `~/.ssh` it creates, instead of inheriting one.** This applies item 4 of §12.48. The DACL grants the user, SYSTEM and Administrators only.
+   - **Why:** a scratch home under `%LOCALAPPDATA%` inherits a read ACE for another local account, so inheritance alone would break the rule.
+   - **Effect on a real profile:** a real profile's `~/.ssh` inherits exactly those three principals, so the explicit DACL is the same there.
+7. **Declined:** a `LoopbackSshd::authorized_keys()` accessor (WU-1, optional). `a01_no_remote_change` reads the runner's `HM_FIXTURE_SSHD_AUTHORIZED_KEYS` directly.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

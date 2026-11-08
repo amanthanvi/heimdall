@@ -618,18 +618,32 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    /// Windows: a dangling file symbolic link (Developer Mode, B10) is the existing
+    /// entry; `CREATE_NEW` with `FILE_FLAG_OPEN_REPARSE_POINT` neither follows nor
+    /// replaces it.
     #[test]
     fn meta_file_symlink_is_never_followed() {
         let dir = Scratch::new();
         let target = dir.path().join("target");
         let link = dir.path().join("meta.ndjson");
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&target, &link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&target, &link)
+            .expect("a file symbolic link (needs Developer Mode, B10)");
         assert_eq!(
             SideChannel::create_exclusive(&link).unwrap_err(),
             MetaError::Exists
         );
         assert!(!target.exists(), "the dangling link's target was created");
+        #[cfg(windows)]
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the link was replaced"
+        );
     }
 
     #[cfg(unix)]

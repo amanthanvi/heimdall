@@ -20,8 +20,9 @@
 //!
 //! **Canaries.** Every stdout and stderr byte is scanned with `assert_no_canary`.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
-// On every platform: the usage-error case and the `--json`/`--non-interactive` cases of
-// `json` (ADR-0007 §12.32 item 4). The pty cases (`unix`, `ssh`, `terminal`) are Unix-only,
+// On every platform: the usage-error case, the `--json`/`--non-interactive` cases of
+// `json` (ADR-0007 §12.32 item 4) and the fixture-sshd cases of `ssh` (§12.47 item 6). The
+// pty cases (`unix`, `terminal`, and the one terminal-bound case of `ssh`) are Unix-only,
 // so some shared helpers are unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 
@@ -110,7 +111,8 @@ fn assert_envelope_valid(env: &Value) {
 }
 
 // Cross-platform (ADR-0007 §12.32 item 4): the `--json` and `--non-interactive` cases of
-// [`json`] run on every platform; the pty cases ([`unix`], [`ssh`]) on macOS and Linux.
+// [`json`] and the fixture-sshd cases of [`ssh`] run on every platform; the pty cases
+// ([`unix`]) on macOS and Linux.
 mod world {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, PoisonError};
@@ -1828,6 +1830,140 @@ mod json {
         assert!(!w.p().exists(), "P removed");
         assert_eq!(env["data"]["runtime_stopped"], true, "{env}");
     }
+
+    // ---- T06's incomplete rollback (ADR-0007 §12.47 item 4, D4) ---------------------------
+
+    /// A directory made owner-only: Unix `0700`; Windows Heimdall's owner-only DACL
+    /// (testkit `win`), the form its quarantine check accepts (ADR-0007 §12.43 item 3).
+    fn owner_only_dir(dir: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        #[cfg(windows)]
+        heimdall_testkit::win::set_owner_only(dir).unwrap();
+    }
+
+    /// What protects `path`: its Unix mode bits, or its Windows DACL (never printed).
+    fn protection(path: &Path) -> String {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            format!(
+                "{:o}",
+                std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+            )
+        }
+        #[cfg(windows)]
+        {
+            heimdall_testkit::win::dacl_sddl(path).unwrap()
+        }
+    }
+
+    /// The state of m02-plan U9 `uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses`
+    /// (Q6 as qualified): the projection applied, then P edited by the owner (so the
+    /// rollback keeps it as a conflict file), and a foreign entry in an owner-only
+    /// quarantine directory. The world, the quarantine and the entry.
+    fn incomplete_rollback() -> (World, PathBuf, PathBuf) {
+        let (w, _) = single(true);
+        std::fs::write(w.p(), "# edited by the owner\nHost edited\n").unwrap();
+        let q = w.home.config_dir.join(".hm-quarantine");
+        std::fs::create_dir_all(&q).unwrap();
+        owner_only_dir(&q);
+        let entry = q.join("managed_ssh-9-00ff");
+        std::fs::write(&entry, b"foreign bytes\n").unwrap();
+        (w, q, entry)
+    }
+
+    /// ADR-0007 §12.47 item 4 (D4), T06's kept quarantine, through `--json
+    /// --non-interactive` on every platform: with P edited and a foreign quarantine
+    /// entry, `uninstall` reports `CONFIG_CONFLICT` (exit 6, effect `partial`); it keeps
+    /// and lists the state store, the quarantine and the recovery record; the foreign
+    /// entry is kept with its bytes, its directory keeps its owner-only protection (on
+    /// Windows the DACL), and nothing is purged.
+    #[test]
+    fn uninstall_with_incomplete_rollback_keeps_the_quarantine_json() {
+        let (w, q, entry) = incomplete_rollback();
+        let guarded = protection(&q);
+        let out = ni(&w, &["uninstall"]);
+        assert_eq!(out.code, Some(6), "{out:?}");
+        let env = out.json();
+        assert_envelope_valid(&env);
+        assert_eq!(env["code"], "CONFIG_CONFLICT", "{env}");
+        assert_eq!(env["data"]["error"]["effect_status"], "partial", "{env}");
+        let kinds: Vec<&str> = env["data"]["remaining"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["kind"].as_str().unwrap())
+            .collect();
+        for k in ["state_store", "quarantine", "recovery_record"] {
+            assert!(kinds.contains(&k), "{k}: {env}");
+        }
+        assert_eq!(env["data"]["purged"], false, "{env}");
+        assert!(
+            w.home.state_dir.join("state.db").exists(),
+            "the store is kept"
+        );
+        assert_eq!(
+            std::fs::read(&entry).unwrap(),
+            b"foreign bytes\n",
+            "the foreign entry is kept"
+        );
+        assert!(
+            protection(&q) == guarded,
+            "the quarantine keeps its owner-only protection"
+        );
+        let quarantine = env["data"]["quarantine"].to_string();
+        assert!(quarantine.contains("managed_ssh-9-00ff"), "{quarantine}");
+    }
+
+    /// ADR-0007 §12.47 item 4 (D4), T06's refused purge, through `--json
+    /// --non-interactive` on every platform: in the same incomplete-rollback state,
+    /// `uninstall --purge-state` is refused (exit 3 `INTERACTION_REQUIRED`, no
+    /// `decision_ref`, effect `none`) before anything is read or started, so nothing is
+    /// purged or changed: the state store, the edited P, the quarantine with its foreign
+    /// entry and its protection, and the serving runtime. (The refusal with exit 6 after
+    /// a typed yes needs a terminal: ADR-0007 §12.32 item 4.)
+    #[test]
+    fn uninstall_with_incomplete_rollback_purge_state_is_refused_json() {
+        let (w, q, entry) = incomplete_rollback();
+        let guarded = protection(&q);
+        let tree = w.tree();
+        let out = ni(&w, &["uninstall", "--purge-state"]);
+        assert_eq!(out.code, Some(3), "{out:?}");
+        let env = out.json();
+        assert_envelope_valid(&env);
+        assert_eq!(env["code"], "INTERACTION_REQUIRED", "{env}");
+        assert!(env["next"]["decision_ref"].is_null(), "{env}");
+        assert_eq!(env["data"]["error"]["effect_status"], "none", "{env}");
+        let message = env["data"]["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("--purge-state not confirmed")
+                && message.contains("nothing was changed"),
+            "{message}"
+        );
+        assert!(
+            w.home.state_dir.join("state.db").exists(),
+            "the store is kept"
+        );
+        assert_eq!(
+            w.tree(),
+            tree,
+            "nothing changed (P stays as the owner edited it)"
+        );
+        assert_eq!(
+            std::fs::read(&entry).unwrap(),
+            b"foreign bytes\n",
+            "the foreign entry is kept"
+        );
+        assert!(
+            protection(&q) == guarded,
+            "the quarantine keeps its owner-only protection"
+        );
+        assert!(w.serving(), "the runtime was not stopped");
+    }
 }
 
 #[cfg(unix)]
@@ -2892,18 +3028,106 @@ mod unix {
 /// The A01 and A35 cases against the loopback fixture sshd (m02-plan U9 "Tests"; U7's
 /// `LoopbackSshd`, non-root, `127.0.0.1`, per-run keys). Every client gets only the
 /// isolation arguments, after the default-identity guard; `SSH_AUTH_SOCK` is the decoy.
-#[cfg(unix)]
+///
+/// **On Windows** (ADR-0007 §12.47 items 6 and 8, WU-1; audit G-1; m02-plan §4 "fixture pipe
+/// agent × in-box ssh, scp, sftp"): the server is the harness's WSL sshd on `127.0.0.1`,
+/// which `LoopbackSshd::start` adopts, and whose account ([`LoopbackSshd::account`]) is
+/// the catalog destinations' account; the clients are the in-box `ssh.exe`, `scp.exe` and
+/// `sftp.exe`; agent A is the FakeAgent pipe and the decoy B the scratch home's second
+/// pipe at `SSH_AUTH_SOCK`. Setup is applied through `--json --non-interactive`, with the
+/// decision it asks for approved by the attended owner in process: the typed confirmation
+/// is Unix-only (ADR-0007 §12.32 item 4).
+#[cfg(any(unix, windows))]
 mod ssh {
     use heimdall_contract::catalog::CatalogRequest;
     use heimdall_contract::ids::IdentityId;
     use heimdall_testkit::agent::AgentMode;
+    use heimdall_testkit::home::ssh_config_quote;
     use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
 
-    use super::world::World;
+    use super::world::{World, platform_env};
     use super::*;
 
     const ALPHA: &str = "alpha";
 
+    /// One `ssh_config` argument naming `path` (a socket, a pipe or a file): quoted, with
+    /// `\` and `"` escaped, so a Windows path or `\\.\pipe\…` reaches ssh unchanged.
+    fn q(path: &OsStr) -> String {
+        ssh_config_quote(&path.to_string_lossy())
+    }
+
+    /// The account a client logs in as: the harness sshd's when it names one (the WSL
+    /// account of the Windows runs), else this account, which a non-root local sshd
+    /// authenticates.
+    fn account_of(sshd: &LoopbackSshd) -> String {
+        if let Some(account) = sshd.account() {
+            return account.to_owned();
+        }
+        #[cfg(unix)]
+        {
+            account_name()
+        }
+        #[cfg(not(unix))]
+        {
+            panic!("the harness sshd names no account (HM_FIXTURE_SSHD_USER)")
+        }
+    }
+
+    /// `path` as the server names it: the same path where the server shares this
+    /// filesystem (Unix); on Windows the WSL harness sshd's view of the scratch,
+    /// `/mnt/<drive>/…` (WSL's drive automount).
+    fn remote_path(path: &Path) -> String {
+        if cfg!(windows) {
+            let text = path.to_string_lossy();
+            let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+            let (drive, rest) = text
+                .split_once(":\\")
+                .unwrap_or_else(|| panic!("not a drive path: {text}"));
+            format!(
+                "/mnt/{}/{}",
+                drive.to_ascii_lowercase(),
+                rest.replace('\\', "/")
+            )
+        } else {
+            path.display().to_string()
+        }
+    }
+
+    /// `path` for an sftp batch line: as it is on Unix; with `/` separators on Windows,
+    /// which sftp's batch splitting leaves alone and Windows accepts.
+    fn batch_path(path: &Path) -> String {
+        if cfg!(windows) {
+            path.display().to_string().replace('\\', "/")
+        } else {
+            path.display().to_string()
+        }
+    }
+
+    /// `chmod 600` on a private key: on Windows Heimdall's owner-only DACL, the form
+    /// `ssh.exe` accepts for a key file (testkit `win`).
+    fn owner_only_key(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        #[cfg(windows)]
+        heimdall_testkit::win::set_owner_only(path).unwrap();
+    }
+
+    /// The harness sshd's authorized-keys file and its bytes, when the server is the
+    /// harness's (Windows: the WSL sshd reads a file outside the test's scratch).
+    /// `LoopbackSshd` names no accessor for it, so its variable is read here.
+    fn harness_authorized_keys(out: &mut Vec<(PathBuf, Vec<u8>)>) {
+        if cfg!(windows)
+            && let Some(path) = std::env::var_os("HM_FIXTURE_SSHD_AUTHORIZED_KEYS")
+        {
+            let path = PathBuf::from(path);
+            out.push((path.clone(), std::fs::read(&path).unwrap()));
+        }
+    }
+
+    #[cfg(unix)]
     fn account_name() -> String {
         let out = Command::new("/usr/bin/id")
             .arg("-un")
@@ -2921,11 +3145,51 @@ mod ssh {
     }
 
     /// `heimdall --json <args>` on a terminal, `yes` at every prompt.
+    #[cfg(unix)]
     fn owner(w: &World, args: &[&str]) -> (Option<i32>, Value, String) {
         let mut all = vec!["--json"];
         all.extend_from_slice(args);
         let (code, t) = terminal::answer(&w.env(), &w.home.root, &all, b"yes\n");
         (code, terminal::envelope(&t), t)
+    }
+
+    /// `setup apply` as the owner: the exit status, the envelope and the output. On a
+    /// terminal with the owner's typed yes (Unix).
+    #[cfg(unix)]
+    fn setup_apply(w: &World) -> (Option<i32>, Value, String) {
+        owner(w, &["setup", "apply"])
+    }
+
+    /// `setup apply` as the owner (Windows): `--json --non-interactive`; the decision it
+    /// asks for (exit 3 with a `decision_ref`) is approved by the attended owner in
+    /// process, and a new request applies, as in
+    /// `json::setup_preview_apply_and_status_json_on_every_platform`.
+    #[cfg(not(unix))]
+    fn setup_apply(w: &World) -> (Option<i32>, Value, String) {
+        let apply = |w: &World| {
+            let id = w.next_id("cli-apply");
+            w.cli(&[
+                "--json",
+                "--non-interactive",
+                "setup",
+                "apply",
+                "--request-id",
+                id.as_str(),
+            ])
+        };
+        let mut out = apply(w);
+        if out.code == Some(3) {
+            assert_eq!(out.code_str(), "INTERACTION_REQUIRED", "{out:?}");
+            let decision = out.json()["next"]["decision_ref"]
+                .as_str()
+                .unwrap_or_else(|| panic!("a decision reference: {out:?}"))
+                .to_owned();
+            w.approve(&decision);
+            out = apply(w);
+        }
+        let env = out.json();
+        assert_envelope_valid(&env);
+        (out.code, env, format!("{out:?}"))
     }
 
     impl Fix {
@@ -2947,7 +3211,7 @@ mod ssh {
             )
             .unwrap_or_else(|e| panic!("{e}"));
             w.home.trust_host_key(&sshd.host_key_line).unwrap();
-            let account = account_name();
+            let account = account_of(&sshd);
             let text = user
                 .replace("{port}", &sshd.port.to_string())
                 .replace("{account}", &account);
@@ -2964,9 +3228,9 @@ mod ssh {
             }
         }
 
-        /// Apply through the CLI on a terminal (the owner's typed yes).
+        /// Apply through the CLI as the owner ([`setup_apply`]).
         fn apply(&self) {
-            let (code, env, t) = owner(&self.w, &["setup", "apply"]);
+            let (code, env, t) = setup_apply(&self.w);
             assert_eq!(code, Some(0), "{t}");
             assert_eq!(env["code"], "OK", "{env}");
         }
@@ -3045,16 +3309,16 @@ mod ssh {
         )
         .unwrap_or_else(|e| panic!("{e}"));
         w.home.trust_host_key(&sshd.host_key_line).unwrap();
-        let account = account_name();
+        let account = account_of(&sshd);
         let agent = w.agent.endpoint().locator();
         let pubfile = w.home.root.join("k0.pub");
         w.keys[0].write_public(&pubfile).unwrap();
         w.home
             .write_user_config(&format!(
-                "Host obs\n    HostName 127.0.0.1\n    Port {}\n    User {account}\n    IdentityAgent \"{}\"\n    IdentityFile \"{}\"\n    IdentitiesOnly yes\n",
+                "Host obs\n    HostName 127.0.0.1\n    Port {}\n    User {account}\n    IdentityAgent {}\n    IdentityFile {}\n    IdentitiesOnly yes\n",
                 sshd.port,
-                agent.to_str().unwrap(),
-                pubfile.display()
+                q(&agent),
+                q(pubfile.as_os_str())
             ))
             .unwrap();
         let at_agent: [(&str, &OsStr); 1] = [("SSH_AUTH_SOCK", agent.as_os_str())];
@@ -3104,7 +3368,7 @@ mod ssh {
         let listed = w.cli(&["--json", "--non-interactive", "destination", "list"]);
         let text = listed.json()["data"].to_string();
         assert!(text.contains(ALPHA) && text.contains("obs"), "{text}");
-        let (code, _, t) = owner(&w, &["setup", "apply"]);
+        let (code, _, t) = setup_apply(&w);
         assert_eq!(code, Some(0), "{t}");
         let ssh = heimdall_testkit::home::find_program("ssh").unwrap();
         let before = w.agent.contact_count();
@@ -3154,8 +3418,8 @@ mod ssh {
                 .arg("-G")
                 .arg(alias)
                 .env_clear()
-                .env("PATH", "/usr/bin:/bin")
-                .env("HOME", &w.home.git_home)
+                // Unix `PATH=/usr/bin:/bin` and `HOME`; the Windows minimum.
+                .envs(platform_env(&w.home.git_home))
                 .stdin(Stdio::null())
                 .output()
                 .unwrap();
@@ -3191,7 +3455,7 @@ mod ssh {
         let before = (g("one"), g("two"), statics());
         let id = w.adopt(0);
         w.managed(ALPHA, "alpha.example.invalid", None, "fixture", &id);
-        let (code, _, t) = owner(&w, &["setup", "apply"]);
+        let (code, _, t) = setup_apply(&w);
         assert_eq!(code, Some(0), "{t}");
         assert!(
             std::fs::read_to_string(&w.home.user_config)
@@ -3205,13 +3469,15 @@ mod ssh {
     }
 
     /// m02-plan U9 `a01_no_remote_change`: setup and logins change nothing on the server
-    /// (the fixture sshd's authorized-keys digest is unchanged).
+    /// (the fixture sshd's authorized-keys digest is unchanged; on Windows the WSL
+    /// harness sshd's file).
     #[test]
     fn a01_no_remote_change() {
         let f = Fix::build(World::new(1), &[0], 6, "");
         let digest = || {
             let mut files = Vec::new();
             walk_named(&f.w.home.root, "authorized_keys", &mut files);
+            harness_authorized_keys(&mut files);
             assert!(!files.is_empty());
             files
         };
@@ -3234,9 +3500,12 @@ mod ssh {
 
     /// m02-plan U9 `a01_no_key_export`: a private key file holding canary bytes (mode
     /// 000) beside its `.pub`; adopting by `--pub`, setup and a doctor run never read it:
-    /// it stays mode 000, and its bytes appear in no output, managed file or store.
+    /// it stays mode 000, and its bytes appear in no output, managed file or store. On
+    /// Windows "mode 000" is an explicit deny-read ACE for this user, first in the DACL
+    /// (testkit `win::deny_read`), and "stays" is that DACL unchanged.
     #[test]
     fn a01_no_key_export() {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt as _;
         let w = World::new(1);
         w.home
@@ -3249,7 +3518,18 @@ mod ssh {
             format!("-----BEGIN OPENSSH {} KEY-----\n{canary}\n", "PRIVATE"),
         )
         .unwrap();
+        #[cfg(unix)]
         std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o000)).unwrap();
+        #[cfg(windows)]
+        let denied = heimdall_testkit::win::deny_read(&private).unwrap();
+        #[cfg(windows)]
+        let dacl = heimdall_testkit::win::dacl_sddl(&private).unwrap();
+        #[cfg(windows)]
+        assert_eq!(
+            std::fs::read(&private).map_err(|e| e.kind()).err(),
+            Some(std::io::ErrorKind::PermissionDenied),
+            "the private key is unreadable"
+        );
         let pubfile = w.home.ssh_dir.join("id_canary.pub");
         w.keys[0].write_public(&pubfile).unwrap();
         let adopted = w.cli(&[
@@ -3264,12 +3544,33 @@ mod ssh {
         let id =
             IdentityId::parse(adopted.json()["data"]["identity_id"].as_str().unwrap()).unwrap();
         w.managed(ALPHA, "alpha.example.invalid", None, "fixture", &id);
-        let (code, _, t) = owner(&w, &["setup", "apply"]);
+        let (code, _, t) = setup_apply(&w);
         assert_eq!(code, Some(0), "{t}");
         let doctor = w.cli(&["--json", "--non-interactive", "doctor", "--no-local-exec"]);
         assert_eq!(doctor.code, Some(0));
-        let mode = std::fs::metadata(&private).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0, "the private key stays mode 000");
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(&private).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0, "the private key stays mode 000");
+        }
+        #[cfg(windows)]
+        {
+            assert!(
+                heimdall_testkit::win::dacl_sddl(&private).unwrap() == dacl,
+                "the private key stays unreadable (its deny-read DACL is unchanged)"
+            );
+            assert_eq!(
+                std::fs::read(&private).map_err(|e| e.kind()).err(),
+                Some(std::io::ErrorKind::PermissionDenied),
+                "the private key is still unreadable"
+            );
+        }
+        // Windows: the running store holds a byte-range lock on its database file (os
+        // error 33 on a read), so the files are read once the runtime has stopped.
+        #[cfg(windows)]
+        let mut w = w;
+        #[cfg(windows)]
+        w.stop();
         let mut files = Vec::new();
         for dir in [&w.home.config_dir, &w.home.state_dir] {
             for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
@@ -3282,7 +3583,10 @@ mod ssh {
         for bytes in files {
             assert!(!String::from_utf8_lossy(&bytes).contains(&canary));
         }
+        #[cfg(unix)]
         std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        #[cfg(windows)]
+        denied.restore().unwrap();
     }
 
     /// m02-plan U9 `a01_personal_profile_without_repository` (Q3), in the plan's wording
@@ -3292,6 +3596,16 @@ mod ssh {
     /// no `--non-interactive`; no standing policy covers `personal`) asks for exactly one
     /// attended owner decision, and after the typed `yes` the launch runs: the server
     /// accepts the adopted key and nothing is left pending.
+    ///
+    /// Unix-only (escalated in wave 6x, WU-1): its two terminal-bound legs have no faithful
+    /// Windows form in this suite. The attended `run` decision needs a terminal on stdin
+    /// (`Ctx::interactive` is stdin-is-a-terminal without `--non-interactive`, client.rs),
+    /// which on Windows is the pseudoconsole driver deferred to M04 with D2 and D3
+    /// (ADR-0007 §12.47 item 3). And `connect` launches the pinned in-box
+    /// `%WINDIR%\System32\OpenSSH\ssh.exe` (connect_cmd.rs, ADR-0004 E6), so no
+    /// isolation-only wrapper can stand in for it and it would read the account's real
+    /// configuration without `-F` (ADR-0007 §9 item 5).
+    #[cfg(unix)]
     #[test]
     fn a01_personal_profile_without_repository() {
         use std::os::unix::fs::PermissionsExt as _;
@@ -3451,11 +3765,22 @@ mod ssh {
     /// `scp`, `sftp` and Git over the managed alias, and `run`-bound `ssh`, all log in
     /// with exactly the adopted key; the resolved executable is recorded; proxy count
     /// > 0, decoy 0.
+    ///
+    /// On Windows agent A is the FakeAgent pipe holding the adopted key (m02-plan §4
+    /// "fixture pipe agent"; the Windows system agent is B4 and never used), counted at
+    /// the pipe; the remote paths are the WSL server's view of the scratch.
     #[test]
     fn a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound() {
         let mut w = World::new(1);
-        w.attach_real(&[0]);
+        if cfg!(unix) {
+            w.attach_real(&[0]);
+        }
         let f = Fix::build(w, &[0], 6, "");
+        let a_count = |f: &Fix| {
+            f.w.real
+                .as_ref()
+                .map_or_else(|| f.w.agent.contact_count(), |r| r.proxy.count())
+        };
         f.apply();
         let id = IdentityId::parse(
             f.w.cli(&["--json", "--non-interactive", "identity", "list"])
@@ -3465,7 +3790,7 @@ mod ssh {
         )
         .unwrap();
         f.w.declare(&id);
-        let base = f.w.real.as_ref().unwrap().proxy.count();
+        let base = a_count(&f);
         let root = f.w.home.root.clone();
         let mut record = Vec::new();
         // ssh
@@ -3480,7 +3805,7 @@ mod ssh {
             &scp,
             &[
                 local.clone().into(),
-                format!("{ALPHA}:{}", remote.display()).into(),
+                format!("{ALPHA}:{}", remote_path(&remote)).into(),
             ],
         );
         assert!(
@@ -3499,7 +3824,11 @@ mod ssh {
         let fetched = root.join("fetched.bin");
         std::fs::write(
             &batch,
-            format!("get \"{}\" \"{}\"\n", remote.display(), fetched.display()),
+            format!(
+                "get \"{}\" \"{}\"\n",
+                remote_path(&remote),
+                batch_path(&fetched)
+            ),
         )
         .unwrap();
         let out = f.client(&sftp, &["-b".into(), batch.into(), ALPHA.into()]);
@@ -3516,10 +3845,13 @@ mod ssh {
         // git
         let git = heimdall_testkit::home::find_program("git").unwrap();
         let bare = root.join("repo.git");
-        let st = Command::new(&git)
-            .args(["init", "-q", "--bare"])
-            .arg(&bare)
-            .env_clear()
+        let mut init = Command::new(&git);
+        init.args(["init", "-q", "--bare"]).arg(&bare).env_clear();
+        if cfg!(windows) {
+            // Git for Windows needs the platform minimum (`SystemRoot`, `PATH`, `TEMP`).
+            init.envs(platform_env(&f.w.home.git_home));
+        }
+        let st = init
             .env("HOME", &f.w.home.git_home)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", f.w.home.git_home.join(".gitconfig"))
@@ -3530,7 +3862,7 @@ mod ssh {
         words.extend(f.w.home.isolation_args());
         let mut cmd = Command::new(&git);
         cmd.args(["ls-remote"])
-            .arg(format!("{ALPHA}:{}", bare.display()))
+            .arg(format!("{ALPHA}:{}", remote_path(&bare)))
             .env_clear()
             .current_dir(&root);
         for (k, v) in f.w.env() {
@@ -3566,10 +3898,7 @@ mod ssh {
             accepted.iter().all(|a| *a == f.fp(0)),
             "only the adopted key: {accepted:?}"
         );
-        assert!(
-            f.w.real.as_ref().unwrap().proxy.count() > base,
-            "agent A contacted"
-        );
+        assert!(a_count(&f) > base, "agent A contacted");
         assert_eq!(f.decoy(), 0, "decoy B never");
         for (what, exe) in &record {
             eprintln!("a35 matrix: {what} resolved to {}", exe.display());
@@ -3598,22 +3927,21 @@ mod ssh {
     /// The inherited-fallback cases (M2-D01, M2-R05): `Host *` adds `other`, which the
     /// server accepts while rejecting the adopted key.
     fn inherited(file_backed: bool) {
-        use std::os::unix::fs::PermissionsExt as _;
         let w = World::new(2);
         let other_pub = w.home.ssh_dir.join("id_other.pub");
         w.keys[1].write_public(&other_pub).unwrap();
         let entry = if file_backed {
             let private = w.home.ssh_dir.join("id_other");
             w.keys[1].write_private(&private).unwrap();
-            std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+            owner_only_key(&private);
             private
         } else {
             other_pub.clone()
         };
         let user = format!(
-            "Host *\n    IdentityFile \"{}\"\n    IdentityAgent \"{}\"\n",
-            entry.display(),
-            w.agent.endpoint().locator().to_str().unwrap()
+            "Host *\n    IdentityFile {}\n    IdentityAgent {}\n",
+            q(entry.as_os_str()),
+            q(&w.agent.endpoint().locator())
         );
         let f = Fix::build(w, &[1], 6, &user);
         f.apply();
@@ -3696,8 +4024,8 @@ mod ssh {
         let w = World::with_mode(1, AgentMode::ManyKeys(10));
         let agent = w.agent.endpoint().locator();
         let user = format!(
-            "Host plain\n    HostName 127.0.0.1\n    Port {{port}}\n    User {{account}}\n    IdentityAgent \"{}\"\n",
-            agent.to_str().unwrap()
+            "Host plain\n    HostName 127.0.0.1\n    Port {{port}}\n    User {{account}}\n    IdentityAgent {}\n",
+            q(&agent)
         );
         let f = Fix::build(w, &[0], 3, &user);
         f.apply();
@@ -3729,10 +4057,16 @@ mod ssh {
     fn a35_identity_agent_overriding_ssh_auth_sock_is_reported_and_managed_alias_unaffected() {
         let w = World::new(1);
         let decoy = w.home.decoy_agent().endpoint().locator();
-        let user = format!(
-            "Host *\n    IdentityAgent \"{}\"\n",
-            decoy.to_str().unwrap()
-        );
+        let user = format!("Host *\n    IdentityAgent {}\n", q(&decoy));
+        // How the doctor's value names the projected agent A: its socket's file name; on
+        // Windows its pipe's name (`heimdall-hmtest-<random>-agent`).
+        let projected = if cfg!(windows) {
+            let locator = w.agent.endpoint().locator();
+            let text = locator.to_string_lossy();
+            text.rsplit('\\').next().unwrap().to_owned()
+        } else {
+            "agent.sock".to_owned()
+        };
         let f = Fix::build(w, &[0], 6, &user);
         f.apply();
         assert!(f.login(ALPHA).status.success());
@@ -3756,7 +4090,7 @@ mod ssh {
             .cloned()
             .unwrap();
         assert!(
-            agent.to_string().contains("agent.sock"),
+            agent.to_string().contains(&projected),
             "the projected agent: {agent}"
         );
     }
@@ -3778,10 +4112,7 @@ mod ssh {
             .to_owned();
         let decoy = f.w.home.decoy_agent().endpoint().locator();
         for broken in [
-            good.replace(
-                &line,
-                &format!("    IdentityAgent \"{}\"", decoy.to_str().unwrap()),
-            ),
+            good.replace(&line, &format!("    IdentityAgent {}", q(&decoy))),
             good.replace(&format!("{line}\n"), ""),
         ] {
             std::fs::write(&p, &broken).unwrap();

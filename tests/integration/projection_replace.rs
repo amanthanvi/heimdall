@@ -20,12 +20,10 @@ use heimdall_domain::projection::{
     FileRole, FileStep, FingerprintContent, ItemState, RecordedRole, RecoveryState, Rendered,
     RestoreCtx, SettleCtx, Sha256Hex, StepContent, Target, bounds, lock_holder_line,
 };
-#[cfg(unix)]
 use heimdall_localenv::materialize::{
     KeyLineError, PublicKeyLine, key_file_path, public_key_bytes,
 };
 use heimdall_localenv::projection::content::{ContentError, READ_MAX, materialize};
-#[cfg(unix)]
 use heimdall_localenv::projection::replace::Unmanageable;
 use heimdall_localenv::projection::replace::{
     self, DirHandle, Exchanged, Expected, HookAt, IdentitySource, Mode, NameState, PostValidation,
@@ -92,6 +90,90 @@ fn is_at(id: &FileIdentity, path: &Path) -> bool {
 
 fn rendered(bytes: &[u8]) -> Rendered {
     Rendered::from_renderer(bytes.to_vec())
+}
+
+// --- Windows forms of the Unix permission and link fixtures --------------------------
+//
+// Windows has no permission bits (`EntryMeta.perm` is 0 there): the faithful form of a
+// mode is the DACL, read here with PowerShell's `Get-Acl` and changed with `icacls`, so
+// these tests add no FFI. Symbolic links need Developer Mode or one elevation (B10);
+// a junction (a mount-point reparse point) needs neither.
+
+/// The DACL of `path` as SDDL (`Get-Acl`, access section only). `PSModulePath` is
+/// removed: one inherited from PowerShell 7 makes Windows PowerShell fail to load
+/// `Microsoft.PowerShell.Security` (observed natively), and without it Windows
+/// PowerShell uses its own default.
+#[cfg(windows)]
+fn dacl_sddl(path: &Path) -> String {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    let out = std::process::Command::new(
+        Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"),
+    )
+    .args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-Acl -LiteralPath $env:HM_U4A_ACL_PATH).GetSecurityDescriptorSddlForm('Access')",
+    ])
+    .env_remove("PSModulePath")
+    .env("HM_U4A_ACL_PATH", path)
+    .output()
+    .unwrap();
+    assert!(out.status.success(), "Get-Acl failed");
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// The protected owner-only DACL Heimdall creates: one ACE granting this user full
+/// access, inherited by children for a directory (ADR-0007 §5.3 steps 3 and 8).
+#[cfg(windows)]
+fn owner_only_dacl(directory: bool) -> String {
+    let sid = heimdall_ipc::windows::current_user_sid().unwrap();
+    let flags = if directory { "OICI" } else { "" };
+    format!("D:P(A;{flags};FA;;;{sid})")
+}
+
+/// `icacls <path> <args>`; it must succeed.
+#[cfg(windows)]
+fn icacls(path: &Path, args: &[&str]) {
+    let out = std::process::Command::new("icacls")
+        .arg(path)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "icacls {args:?} failed");
+}
+
+/// A distinctive extra ACE (read for `BUILTIN\Users`), so a DACL copied or kept is
+/// told apart from the owner-only one.
+#[cfg(windows)]
+fn grant_users_read(path: &Path) {
+    icacls(path, &["/grant", "*S-1-5-32-545:(R)"]);
+}
+
+/// A file symbolic link at `link` to `target` (Developer Mode is on, B10).
+#[cfg(windows)]
+fn symlink_file(target: &Path, link: &Path) {
+    std::os::windows::fs::symlink_file(target, link)
+        .expect("a file symbolic link (needs Developer Mode, B10)");
+}
+
+/// A directory symbolic link at `link` to `target` (Developer Mode is on, B10).
+#[cfg(windows)]
+fn symlink_dir(target: &Path, link: &Path) {
+    std::os::windows::fs::symlink_dir(target, link)
+        .expect("a directory symbolic link (needs Developer Mode, B10)");
+}
+
+/// A junction (mount-point reparse point) at `link` to `target`.
+#[cfg(windows)]
+fn junction(target: &Path, link: &Path) {
+    let out = std::process::Command::new("cmd.exe")
+        .args(["/d", "/c", "mklink", "/J"])
+        .arg(link)
+        .arg(target)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "mklink /J failed");
 }
 
 /// A whole-target step (P, P_git or a key file).
@@ -723,7 +805,13 @@ fn file_identity_birth_recorded_on_target_fs() {
 // --- validation (§5.3 steps 1, 2, 4) ---------------------------------------------
 
 /// ADR-0007 §5.3 steps 1–2: what is manual mode and what is a conflict.
-#[cfg(unix)]
+///
+/// Windows (§5.3 step 2: a regular file with no reparse tag, owned by the user's SID,
+/// with one link): a file symbolic link and a junction are links, and a hard link is
+/// hard-linked, as on Unix. The permission-bit cases (group-writable, read-only, and
+/// a mode change at the boundary recheck) and the FIFO are Unix only: Windows has no
+/// permission bits (`EntryMeta.perm` is 0, and §5.3 checks no DACL for the user's
+/// file) and no FIFO in a directory.
 #[test]
 fn validate_refuses_unmanageable_and_changed_bases() {
     let d = scratch();
@@ -732,43 +820,61 @@ fn validate_refuses_unmanageable_and_changed_bases() {
     let present = Base::Present { sha256: sha(OLD) };
     let unmanageable = |name: &str| replace::validate(&h, name, &present).unwrap_err();
     write(p, "target", OLD);
+    #[cfg(unix)]
     std::os::unix::fs::symlink(p.join("target"), p.join("link")).unwrap();
+    #[cfg(windows)]
+    symlink_file(&p.join("target"), &p.join("link"));
     assert_eq!(
         unmanageable("link"),
         ReplaceRefusal::Unmanageable(Unmanageable::Link)
     );
+    #[cfg(windows)]
+    {
+        fs::create_dir(p.join("junction-target")).unwrap();
+        junction(&p.join("junction-target"), &p.join("junction"));
+        assert_eq!(
+            unmanageable("junction"),
+            ReplaceRefusal::Unmanageable(Unmanageable::Link)
+        );
+    }
     write(p, "hard", OLD);
     fs::hard_link(p.join("hard"), p.join("hard2")).unwrap();
     assert_eq!(
         unmanageable("hard"),
         ReplaceRefusal::Unmanageable(Unmanageable::HardLinked)
     );
-    write(p, "group", OLD);
-    set_mode(&p.join("group"), 0o664);
-    assert_eq!(
-        unmanageable("group"),
-        ReplaceRefusal::Unmanageable(Unmanageable::ForeignOwner)
-    );
-    write(p, "readonly", OLD);
-    set_mode(&p.join("readonly"), 0o400);
-    assert_eq!(
-        unmanageable("readonly"),
-        ReplaceRefusal::Unmanageable(Unmanageable::ForeignOwner)
-    );
+    #[cfg(unix)]
+    {
+        write(p, "group", OLD);
+        set_mode(&p.join("group"), 0o664);
+        assert_eq!(
+            unmanageable("group"),
+            ReplaceRefusal::Unmanageable(Unmanageable::ForeignOwner)
+        );
+        write(p, "readonly", OLD);
+        set_mode(&p.join("readonly"), 0o400);
+        assert_eq!(
+            unmanageable("readonly"),
+            ReplaceRefusal::Unmanageable(Unmanageable::ForeignOwner)
+        );
+    }
     fs::create_dir(p.join("dir")).unwrap();
     assert!(matches!(
         unmanageable("dir"),
         ReplaceRefusal::Unmanageable(Unmanageable::Io(_))
     ));
-    let fifo = std::process::Command::new("mkfifo")
-        .arg(p.join("fifo"))
-        .status()
-        .unwrap();
-    assert!(fifo.success());
-    assert!(matches!(
-        unmanageable("fifo"),
-        ReplaceRefusal::Unmanageable(Unmanageable::Io(_))
-    ));
+    #[cfg(unix)]
+    {
+        let fifo = std::process::Command::new("mkfifo")
+            .arg(p.join("fifo"))
+            .status()
+            .unwrap();
+        assert!(fifo.success());
+        assert!(matches!(
+            unmanageable("fifo"),
+            ReplaceRefusal::Unmanageable(Unmanageable::Io(_))
+        ));
+    }
     // Conflicts: other content, gone, present where absent was planned, too long.
     write(p, "edited", WRITER);
     assert_eq!(unmanageable("edited"), ReplaceRefusal::BaseChanged);
@@ -792,13 +898,16 @@ fn validate_refuses_unmanageable_and_changed_bases() {
     let v = replace::validate(&h, "target", &present).unwrap();
     assert_eq!(v.bytes.as_deref(), Some(OLD));
     replace::recheck_at(&h, "target", &v).unwrap();
-    set_mode(&p.join("target"), 0o640);
-    assert_eq!(
-        replace::recheck_at(&h, "target", &v),
-        Err(ReplaceRefusal::BaseChanged)
-    );
-    set_mode(&p.join("target"), 0o600);
-    replace::recheck_at(&h, "target", &v).unwrap();
+    #[cfg(unix)]
+    {
+        set_mode(&p.join("target"), 0o640);
+        assert_eq!(
+            replace::recheck_at(&h, "target", &v),
+            Err(ReplaceRefusal::BaseChanged)
+        );
+        set_mode(&p.join("target"), 0o600);
+        replace::recheck_at(&h, "target", &v).unwrap();
+    }
     write_in_place(&p.join("target"), WRITER);
     assert_eq!(
         replace::recheck_at(&h, "target", &v),
@@ -810,47 +919,97 @@ fn validate_refuses_unmanageable_and_changed_bases() {
 }
 
 /// ADR-0007 §5.3 step 1: the directory itself.
-#[cfg(unix)]
+///
+/// Windows (step 1: a non-reparse handle owned by the user's SID): a directory
+/// symbolic link and a junction are links. There are no permission bits to widen, so
+/// the mode cases are Unix only. The Windows form of "a directory that changes after
+/// it was opened no longer validates" is the pin: the handle is held without delete
+/// sharing, so the validated directory cannot be renamed away or replaced while it is
+/// open, and every later step stays relative to it.
 #[test]
 fn dir_handle_refuses_symlink_foreign_mode_and_files() {
     let d = scratch();
     let p = d.path();
     fs::create_dir(p.join("real")).unwrap();
     set_mode(&p.join("real"), 0o700);
+    #[cfg(unix)]
     std::os::unix::fs::symlink(p.join("real"), p.join("alias")).unwrap();
+    #[cfg(windows)]
+    {
+        symlink_dir(&p.join("real"), &p.join("alias"));
+        junction(&p.join("real"), &p.join("junction"));
+        assert_eq!(
+            DirHandle::open(&p.join("junction")).unwrap_err(),
+            Unmanageable::Link
+        );
+    }
     assert_eq!(
         DirHandle::open(&p.join("alias")).unwrap_err(),
         Unmanageable::Link
     );
-    set_mode(&p.join("real"), 0o770);
-    assert_eq!(
-        DirHandle::open(&p.join("real")).unwrap_err(),
-        Unmanageable::ForeignOwner
-    );
-    set_mode(&p.join("real"), 0o755);
-    let h = DirHandle::open(&p.join("real")).unwrap();
-    assert_eq!(h.path(), p.join("real"));
-    write(p, "file", OLD);
-    assert!(matches!(
-        DirHandle::open(&p.join("file")),
-        Err(Unmanageable::Io(_))
-    ));
-    // A directory whose mode changes after it was opened no longer validates.
-    set_mode(&p.join("real"), 0o775);
-    assert!(matches!(
-        replace::validate(&h, "x", &Base::Absent),
-        Err(ReplaceRefusal::Unmanageable(_))
-    ));
+    #[cfg(windows)]
+    {
+        let h = DirHandle::open(&p.join("real")).unwrap();
+        assert_eq!(h.path(), p.join("real"));
+        write(p, "file", OLD);
+        assert!(matches!(
+            DirHandle::open(&p.join("file")),
+            Err(Unmanageable::Io(_))
+        ));
+        let pinned = fs::rename(p.join("real"), p.join("moved")).unwrap_err();
+        assert_eq!(
+            pinned.raw_os_error(),
+            Some(32),
+            "the open handle denies the rename (sharing violation)"
+        );
+        assert!(p.join("real").is_dir() && !p.join("moved").exists());
+        assert!(replace::validate(&h, "x", &Base::Absent).is_ok());
+        drop(h);
+        fs::rename(p.join("real"), p.join("moved")).unwrap();
+    }
+    #[cfg(unix)]
+    {
+        set_mode(&p.join("real"), 0o770);
+        assert_eq!(
+            DirHandle::open(&p.join("real")).unwrap_err(),
+            Unmanageable::ForeignOwner
+        );
+        set_mode(&p.join("real"), 0o755);
+        let h = DirHandle::open(&p.join("real")).unwrap();
+        assert_eq!(h.path(), p.join("real"));
+        write(p, "file", OLD);
+        assert!(matches!(
+            DirHandle::open(&p.join("file")),
+            Err(Unmanageable::Io(_))
+        ));
+        // A directory whose mode changes after it was opened no longer validates.
+        set_mode(&p.join("real"), 0o775);
+        assert!(matches!(
+            replace::validate(&h, "x", &Base::Absent),
+            Err(ReplaceRefusal::Unmanageable(_))
+        ));
+    }
 }
 
 /// A replace stages with the original's permission bits; a create with the mode.
-#[cfg(unix)]
+///
+/// Windows (ADR-0007 §5.3 steps 3 and 5): S is created with the owner-only DACL
+/// whatever the mode, and the original's DACL is kept by the exchange itself
+/// (`ReplaceFileW`), so after the exchange the path has the original's DACL, its extra
+/// ACE included, and S never had it.
 #[test]
 fn stage_keeps_the_original_permission_bits() {
     let d = scratch();
     let p = d.path();
     write(p, "config", OLD);
     set_mode(&p.join("config"), 0o640);
+    #[cfg(windows)]
+    let original_dacl = {
+        grant_users_read(&p.join("config"));
+        let dacl = dacl_sddl(&p.join("config"));
+        assert_ne!(dacl, owner_only_dacl(false));
+        dacl
+    };
     let h = DirHandle::open(p).unwrap();
     let step = whole_step(FileRole::ManagedSsh, &p.join("config"), Some(OLD), NEW, 1);
     let v = replace::validate(&h, "config", &step.base).unwrap();
@@ -863,7 +1022,25 @@ fn stage_keeps_the_original_permission_bits() {
         Mode::OwnerReadWrite,
     )
     .unwrap();
+    #[cfg(unix)]
     assert_eq!(mode_of(&p.join(&s.name)), 0o640);
+    #[cfg(windows)]
+    {
+        assert_eq!(dacl_sddl(&p.join(&s.name)), owner_only_dacl(false));
+        replace::recheck_at(&h, "config", &v).unwrap();
+        let names = StepNames::of(&step).unwrap();
+        let x = replace::exchange_at(&h, &names, &s, Some(&v)).unwrap();
+        assert_eq!(
+            replace::post_validate_at(&h, &names, &x, &v, &s),
+            PostValidation::Valid
+        );
+        assert_eq!(read(p, "config"), NEW);
+        assert_eq!(
+            dacl_sddl(&p.join("config")),
+            original_dacl,
+            "the path keeps the original's DACL"
+        );
+    }
     let key = whole_step(
         FileRole::Key,
         &p.join("k.pub"),
@@ -879,9 +1056,15 @@ fn stage_keeps_the_original_permission_bits() {
         Mode::PublicRead,
     )
     .unwrap();
+    #[cfg(unix)]
     assert_eq!(mode_of(&p.join(&s.name)), 0o644);
+    #[cfg(windows)]
+    assert_eq!(dacl_sddl(&p.join(&s.name)), owner_only_dacl(false));
     let s = replace::stage(&h, &staged_name("p", 3), &m, Mode::OwnerReadWrite).unwrap();
+    #[cfg(unix)]
     assert_eq!(mode_of(&p.join(&s.name)), 0o600);
+    #[cfg(windows)]
+    assert_eq!(dacl_sddl(&p.join(&s.name)), owner_only_dacl(false));
     // An existing staged name is never replaced.
     assert_eq!(
         replace::stage(&h, &staged_name("p", 3), &m, Mode::OwnerReadWrite),
@@ -890,6 +1073,82 @@ fn stage_keeps_the_original_permission_bits() {
 }
 
 // --- quarantine (§5.3 "The quarantine") -------------------------------------------
+
+/// m02-plan U4 quarantine validation: mode exactly 0700, no symlink, a directory. The
+/// owner and mount-point rules, which need privileges to build, are covered by the
+/// unit test `sys::quarantine::tests::quarantine_validation_rules`.
+///
+/// Windows (ADR-0007 §5.3 "Enforcement": an owner-only DACL, no reparse point): the
+/// quarantine is created with exactly the protected owner-only directory DACL; one
+/// with an inherited DACL is refused and left as it was; a directory symbolic link
+/// and a junction (the Windows mount point) are refused even when their target is a
+/// valid quarantine, which stays untouched; a file at the name is refused. Another
+/// owner needs a privilege to build, as on Unix.
+#[cfg(windows)]
+#[test]
+fn quarantine_validation_owner_mode_symlink_mount() {
+    let d = scratch();
+    let p = d.path();
+    let qpath = p.join(".hm-quarantine");
+    let h = DirHandle::open(p).unwrap();
+    // Created lazily with the owner-only DACL and reopened.
+    let q = Quarantine::open_or_create(&h).unwrap();
+    assert_eq!(dacl_sddl(&qpath), owner_only_dacl(true));
+    assert!(Quarantine::open_existing(&h).unwrap().is_some());
+    assert!(q.rmdir_if_empty().unwrap());
+    assert!(!qpath.exists());
+    assert!(Quarantine::open_existing(&h).unwrap().is_none());
+    // An inherited DACL (the Windows form of a wider mode): refused, never changed.
+    fs::create_dir(&qpath).unwrap();
+    let inherited = dacl_sddl(&qpath);
+    assert_ne!(inherited, owner_only_dacl(true));
+    assert_eq!(
+        Quarantine::open_or_create(&h).unwrap_err(),
+        Unmanageable::QuarantineInvalid
+    );
+    assert_eq!(dacl_sddl(&qpath), inherited);
+    fs::remove_dir(&qpath).unwrap();
+    // A link to a valid quarantine elsewhere: refused, and its target untouched.
+    fs::create_dir(p.join("elsewhere")).unwrap();
+    let other = DirHandle::open(&p.join("elsewhere")).unwrap();
+    drop(Quarantine::open_or_create(&other).unwrap());
+    let target = p.join("elsewhere").join(".hm-quarantine");
+    write(&target, "kept", OLD);
+    for link in ["symlink", "junction"] {
+        if link == "symlink" {
+            symlink_dir(&target, &qpath);
+        } else {
+            junction(&target, &qpath);
+        }
+        assert_eq!(
+            Quarantine::open_or_create(&h).unwrap_err(),
+            Unmanageable::QuarantineInvalid,
+            "{link}"
+        );
+        assert_eq!(
+            Quarantine::open_existing(&h).unwrap_err(),
+            Unmanageable::QuarantineInvalid,
+            "{link}"
+        );
+        assert!(
+            Quarantine::open_existing(&other).unwrap().is_some(),
+            "{link}: the target alone is a valid quarantine"
+        );
+        assert_eq!(read(&target, "kept"), OLD, "{link}");
+        assert_eq!(dacl_sddl(&target), owner_only_dacl(true), "{link}");
+        // Removes the link itself, never its target.
+        fs::remove_dir(&qpath).unwrap();
+        assert_eq!(read(&target, "kept"), OLD, "{link}");
+    }
+    drop(other);
+    // A regular file at the name.
+    write(p, ".hm-quarantine", OLD);
+    assert_eq!(
+        Quarantine::open_or_create(&h).unwrap_err(),
+        Unmanageable::QuarantineInvalid
+    );
+    assert_eq!(read(p, ".hm-quarantine"), OLD);
+}
 
 /// m02-plan U4 quarantine validation: mode exactly 0700, no symlink, a directory. The
 /// owner and mount-point rules, which need privileges to build, are covered by the
@@ -1075,6 +1334,49 @@ fn remove_verified_hook_marks_the_residual_window() {
         !qdir.join(&s1).exists(),
         "the checked entry is removed after the hook"
     );
+}
+
+/// A foreign file renamed onto the slot after the final check is not removed.
+/// Windows (ADR-0007 §5.3 step 8.3): the removal deletes through the handle whose file
+/// ID and digest were checked, opened without delete sharing, so the foreign rename
+/// onto the slot is denied while it is held; the checked entry is removed and the
+/// foreign file stays where its writer left it, with its bytes.
+#[cfg(windows)]
+#[test]
+fn remove_verified_rechecks_the_name_before_removal() {
+    let f = Forward::new();
+    let q = Quarantine::open_or_create(&f.handle).unwrap();
+    let qdir = f.path().join(".hm-quarantine");
+    let s1 = slot(1);
+    assert_eq!(
+        replace::settle(&f.handle, &q, &f.staged.name, &f.expected_s, &s1),
+        SettleOutcome::Settled
+    );
+    let (dir, target) = (f.path().to_path_buf(), qdir.join(&s1));
+    let hook = At::new(ReplacePoint::AfterSettleCheck, move || {
+        write(&dir, "foreign.tmp", WRITER);
+        let err = fs::rename(dir.join("foreign.tmp"), &target).unwrap_err();
+        assert_eq!(
+            err.raw_os_error(),
+            Some(5),
+            "the checked delete handle denies the rename onto the slot"
+        );
+        assert_eq!(fs::read(&target).unwrap(), NEW, "checked bytes unchanged");
+    });
+    assert_eq!(
+        q.remove_verified_with(&s1, &f.expected_s, HookAt::new(Some(&hook), 0))
+            .unwrap(),
+        RemoveVerified::Removed
+    );
+    assert_eq!(
+        *hook.fired.lock().unwrap(),
+        vec![ReplacePoint::AfterSettleCheck]
+    );
+    assert!(
+        !qdir.join(&s1).exists(),
+        "only the checked entry is removed"
+    );
+    assert_eq!(read(f.path(), "foreign.tmp"), WRITER);
 }
 
 /// A foreign file renamed onto the slot after the final check is not removed: the
@@ -1669,7 +1971,11 @@ fn observe_step_classifies_each_name() {
 
 /// On Unix, when K's recorded identity has no birth time, every entry at the lock name
 /// is X (ADR-0007 §5.6, QR15); with a birth time, K at the lock is K.
-#[cfg(unix)]
+///
+/// Windows: K at the lock is "provable" always (ADR-0007 §5.7, the lock-holder rows;
+/// F25: the 128-bit file ID is not reused while the volume is mounted). The identity
+/// is the volume serial and file ID with no birth time to drop, so with either
+/// identity source K at the lock is K.
 #[test]
 fn lock_name_without_birth_time_is_foreign() {
     for source in [IdentitySource::Native, IdentitySource::WithoutBirth] {
@@ -1712,6 +2018,15 @@ fn lock_name_without_birth_time_is_foreign() {
         }));
         let obs = replace::observe_step_at(&h, &step, &record, &st, None);
         let has_birth = matches!(k.identity, FileIdentity::Unix { birth: Some(_), .. });
+        // Windows: no birth time exists, and K is provable always (doc above).
+        #[cfg(windows)]
+        let has_birth = {
+            assert!(
+                matches!(k.identity, FileIdentity::Windows { .. }) && !has_birth,
+                "{source:?}"
+            );
+            true
+        };
         if has_birth {
             assert_eq!(
                 obs.path(),
@@ -1917,6 +2232,53 @@ fn stage_names_its_target_only_through_learn_step() {
     assert_eq!(read(p, "config"), OLD);
 }
 
+/// ADR-0007 §12.17 item 1, Windows form: what `learn_step` selects is permission bits,
+/// which Windows does not have (`EntryMeta.perm` is 0). S is created with the
+/// owner-only DACL in every case (ADR-0007 §5.3 step 3): validated and not learned,
+/// learned, and learned but staged at another name. The original's DACL, with its
+/// extra ACE, is never inferred from the staged name's form nor copied from the
+/// learned target; the exchange keeps it (`stage_keeps_the_original_permission_bits`).
+#[cfg(windows)]
+#[test]
+fn stage_names_its_target_only_through_learn_step() {
+    let d = scratch();
+    let p = d.path();
+    write(p, "config", OLD);
+    grant_users_read(&p.join("config"));
+    let original = dacl_sddl(&p.join("config"));
+    assert_ne!(original, owner_only_dacl(false));
+    let step = whole_step(FileRole::ManagedSsh, &p.join("config"), Some(OLD), NEW, 1);
+    let staged = step.staged_name.clone().unwrap();
+    assert!(
+        staged.starts_with(".config.hm-1-"),
+        "the ADR's form names config"
+    );
+    let m = materialize(&step, Some(OLD)).unwrap();
+    // Validated, not learned.
+    let h = DirHandle::open(p).unwrap();
+    replace::validate(&h, "config", &step.base).unwrap();
+    let s = replace::stage(&h, &staged, &m, Mode::OwnerReadWrite).unwrap();
+    assert_eq!(dacl_sddl(&p.join(&s.name)), owner_only_dacl(false));
+    // Learned in a fresh handle.
+    let other = whole_step(FileRole::ManagedSsh, &p.join("config"), Some(OLD), NEW, 2);
+    let h = DirHandle::open(p).unwrap();
+    replace::validate(&h, "config", &other.base).unwrap();
+    h.learn_step(&other);
+    let s = replace::stage(
+        &h,
+        other.staged_name.as_deref().unwrap(),
+        &m,
+        Mode::OwnerReadWrite,
+    )
+    .unwrap();
+    assert_eq!(dacl_sddl(&p.join(&s.name)), owner_only_dacl(false));
+    // Learned, but staged at a name the learned step does not have.
+    let s = replace::stage(&h, &staged_name("config", 3), &m, Mode::OwnerReadWrite).unwrap();
+    assert_eq!(dacl_sddl(&p.join(&s.name)), owner_only_dacl(false));
+    assert_eq!(read(p, "config"), OLD);
+    assert_eq!(dacl_sddl(&p.join("config")), original);
+}
+
 /// `observe_fingerprint`: identity, type, owner, links, length, change time and a
 /// digest, or `unreadable` past 1 MiB; never bytes.
 #[test]
@@ -1973,6 +2335,92 @@ fn observe_fingerprint_records_digests_and_metadata_only() {
 }
 
 // --- key files (A01) -------------------------------------------------------------
+
+/// m02-plan U4 `private_key_files_never_opened`, Windows form: the private key file
+/// gets an empty protected DACL (inheritance removed, no ACE), so no open of it for
+/// reading can succeed, which the test checks first. The key file is still
+/// materialized from the `.pub` alone; it holds only the type and blob (no comment, no
+/// private material), with the owner-only DACL Windows stages every file with
+/// (ADR-0007 §5.3 step 3), and the private key's DACL is unchanged afterwards.
+#[cfg(windows)]
+#[test]
+fn private_key_files_never_opened() {
+    use heimdall_testkit::agent::FixtureKey;
+    let d = scratch();
+    let ssh = d.path().join("ssh");
+    let keys = d.path().join("keys");
+    for dir in [&ssh, &keys] {
+        fs::create_dir(dir).unwrap();
+    }
+    let key = FixtureKey::generate();
+    let private = ssh.join("id_ed25519");
+    key.write_private(&private).unwrap();
+    key.write_public(&ssh.join("id_ed25519.pub")).unwrap();
+    icacls(&private, &["/inheritance:r"]);
+    // Protected (`P`; icacls also sets `AI`) and without a single ACE.
+    let denied = dacl_sddl(&private);
+    assert!(
+        denied.starts_with("D:P") && !denied.contains('('),
+        "the private key file grants nothing: {denied}"
+    );
+    let refused = fs::read(&private).unwrap_err();
+    assert_eq!(refused.kind(), std::io::ErrorKind::PermissionDenied);
+    // Discovery reads the `.pub`; nothing reads the private file.
+    let line =
+        PublicKeyLine::parse(&fs::read_to_string(ssh.join("id_ed25519.pub")).unwrap()).unwrap();
+    assert_eq!(line.as_str(), key.public_line_without_comment());
+    let rel = key_file_path(&key.fingerprint());
+    let name = rel.file_name().unwrap().to_str().unwrap().to_owned();
+    assert_eq!(rel.parent().unwrap(), Path::new("keys"));
+    let r = public_key_bytes(&line);
+    let step = FileStep {
+        role: FileRole::Key,
+        path: keys.join(&name).to_string_lossy().into_owned(),
+        base: Base::Absent,
+        target: Target::Present { sha256: r.sha256() },
+        content: r.into_whole(),
+        commit: false,
+        staged_name: Some(staged_name(&name, 1)),
+        displaced_name: None,
+    };
+    let h = DirHandle::open(&keys).unwrap();
+    let v = replace::validate(&h, &name, &step.base).unwrap();
+    let m = materialize(&step, None).unwrap();
+    let s = replace::stage(
+        &h,
+        step.staged_name.as_deref().unwrap(),
+        &m,
+        Mode::PublicRead,
+    )
+    .unwrap();
+    let names = StepNames::of(&step).unwrap();
+    replace::recheck_at(&h, &name, &v).unwrap();
+    let x = replace::exchange_at(&h, &names, &s, None).unwrap();
+    assert_eq!(
+        replace::post_validate_at(&h, &names, &x, &v, &s),
+        PostValidation::Valid
+    );
+    let written = fs::read_to_string(keys.join(&name)).unwrap();
+    assert_eq!(
+        written,
+        format!(
+            "{}
+",
+            key.public_line_without_comment()
+        )
+    );
+    heimdall_testkit::assert_no_canary(&written);
+    assert!(!written.contains("PRIVATE KEY"));
+    assert_eq!(dacl_sddl(&keys.join(&name)), owner_only_dacl(false));
+    // The private key still grants nothing, and its armor is refused as a key line.
+    assert_eq!(dacl_sddl(&private), denied);
+    assert!(fs::read(&private).is_err());
+    let armor = d.path().join("armor");
+    key.write_private(&armor).unwrap();
+    let text = fs::read_to_string(&armor).unwrap();
+    assert_eq!(PublicKeyLine::parse(&text), Err(KeyLineError::PrivateKey));
+    icacls(&private, &["/reset"]);
+}
 
 /// m02-plan U4 `private_key_files_never_opened`: with the private key file at mode
 /// 000, the key file is still materialized from the `.pub` alone; it holds only the

@@ -1348,13 +1348,26 @@ pub(crate) mod fsentry {
             format!("D:P(A;{flags};FA;;;{sid})")
         }
 
+        /// The protected DACL of a directory Heimdall creates for the user's own files
+        /// (`~/.ssh`, the directory of the global Git file; ADR-0007 §12.48 item 2):
+        /// full access, inherited by children, for SYSTEM, Administrators and the
+        /// process user, and no other principal (Win32-OpenSSH's rule for `~/.ssh`;
+        /// owner-only would keep a Windows sshd, which runs as SYSTEM, from reading
+        /// `authorized_keys`). It is set, never inherited, so other principals on a
+        /// parent do not reach it.
+        fn user_dir_dacl(sid: &str) -> String {
+            format!("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{sid})")
+        }
+
         /// A self-relative owner-only descriptor for a new file or the quarantine.
         fn owner_only_descriptor(directory: bool) -> io::Result<LocalAllocation> {
             let sid = current_sid()?;
-            let sddl: Vec<u16> = OsStr::new(&format!("O:{sid}{}", owner_only_dacl(sid, directory)))
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
+            descriptor_from(&format!("O:{sid}{}", owner_only_dacl(sid, directory)))
+        }
+
+        /// A self-relative descriptor from SDDL text.
+        fn descriptor_from(text: &str) -> io::Result<LocalAllocation> {
+            let sddl: Vec<u16> = OsStr::new(text).encode_wide().chain(Some(0)).collect();
             let mut descriptor: *mut c_void = ptr::null_mut();
             // SAFETY: `sddl` is NUL-terminated and outlives the call; `descriptor` is a
             // valid out-pointer; the size out-pointer may be null.
@@ -1382,8 +1395,22 @@ pub(crate) mod fsentry {
 
         /// `CreateDirectoryW` with an owner-only protected DACL.
         pub(crate) fn create_owner_only_dir(path: &Path) -> io::Result<()> {
-            let descriptor = owner_only_descriptor(true)?;
-            let sa = attributes(&descriptor);
+            create_dir_with(path, &owner_only_descriptor(true)?)
+        }
+
+        /// `CreateDirectoryW` with the protected user-directory DACL ([`user_dir_dacl`]).
+        /// An existing entry at `path` is left as it is; the caller validates it.
+        pub(crate) fn create_user_dir(path: &Path) -> io::Result<()> {
+            let sid = current_sid()?;
+            create_dir_with(
+                path,
+                &descriptor_from(&format!("O:{sid}{}", user_dir_dacl(sid)))?,
+            )
+        }
+
+        /// `CreateDirectoryW` with `descriptor`; an existing name is not an error.
+        fn create_dir_with(path: &Path, descriptor: &LocalAllocation) -> io::Result<()> {
+            let sa = attributes(descriptor);
             let w = wide(path);
             // SAFETY: `w` is NUL-terminated; `sa` and its descriptor outlive the call.
             if unsafe { CreateDirectoryW(w.as_ptr(), &sa) } == 0 {

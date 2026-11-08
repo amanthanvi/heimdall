@@ -447,13 +447,23 @@ fn identity_agent(
     {
         return None;
     }
+    // Windows: P renders a pipe `//./pipe/<name>` (`RenderPath::pipe`), the same pipe as
+    // the `\\.\pipe\<name>` an identity is adopted at; compare one spelling.
+    let locator = match heimdall_localenv::agents::locator_for(value, Platform::current()) {
+        Some(heimdall_localenv::agents::EndpointLocator::NamedPipe(name))
+            if Platform::current().is_windows() =>
+        {
+            name
+        }
+        _ => value.to_owned(),
+    };
     Some(EndpointRef {
         kind: if Platform::current().is_windows() {
             EndpointKind::NamedPipe
         } else {
             EndpointKind::UnixSocket
         },
-        locator: value.to_owned(),
+        locator,
     })
 }
 

@@ -4,6 +4,7 @@
   "observation_targets": [
     "integration_doctor",
     "integration_git_observe",
+    "integration_projection",
     "integration_projection_replace",
     "integration_sshconf_vs_ssh_g"
   ],
@@ -229,6 +230,13 @@
         "macos"
       ],
       "rationale": "#[cfg(target_os = \"macos\")]: the round trip needs a client the encoding table (localenv clients.rs ENCODING_OBSERVATIONS) records as accepting CRLF, and at ce21a76f only macOS 10.3p1 has a row. Linux: the devbox's OpenSSH 9.6p1 has no row, so a CRLF user configuration there is manual mode (fails closed) and the round trip is not reachable. Windows: ADR-0007 §12.47 item 5 (D5) adds 9.5p2, after which the test must run there too (A22 platform_required); widen this entry when it does."
+    },
+    "e2e_cli_m02::ssh::a01_personal_profile_without_repository": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (ADR-0007 §12.49 item 4, deferred with D3 to M04): its attended run decision needs a terminal on stdin, which on Windows is M04's pseudoconsole driver, and connect launches the pinned in-box ssh.exe, which finds the account's real profile from the token, so no scratch home can stand in for it and without -F it would read the owner's real configuration (§9 item 5). The rest of the ssh module runs on Windows."
     }
   },
   "groups": {
@@ -286,6 +294,11 @@
           "platform": "linux-arm64 native",
           "status": "blocked",
           "blocked_on": "B9: a native Linux arm64 host (ADR-0004 §4)"
+        },
+        {
+          "platform": "windows-11 personal profile without a repository (e2e_cli_m02 ssh::a01_personal_profile_without_repository)",
+          "status": "deferred_with_decision",
+          "decision": "ADR-0007 §12.49: item 4 deferred with D3 to M04, which adds the pseudoconsole driver for the attended run decision; connect's in-box ssh.exe reads the token's real profile, so the case needs its own isolation there"
         }
       ],
       "declared_platforms": [
@@ -300,8 +313,7 @@
             "ssh::a01_cli_adopt_observed_and_managed_aliases_then_ordinary_ssh_with_scratch_f",
             "ssh::a01_unaffected_aliases_effective_config_identical_before_after",
             "ssh::a01_no_remote_change",
-            "ssh::a01_no_key_export",
-            "ssh::a01_personal_profile_without_repository"
+            "ssh::a01_no_key_export"
           ],
           "integration_projection": [
             "a22_apply_then_rollback_restores_user_bytes_exactly",
@@ -825,7 +837,9 @@
       "tests": {
         "e2e_cli_m02": [
           "*uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items",
-          "*uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses"
+          "*uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses",
+          "json::uninstall_with_incomplete_rollback_keeps_the_quarantine_json",
+          "json::uninstall_with_incomplete_rollback_purge_state_is_refused_json"
         ],
         "wsl_ordinary_ssh": [
           "t06_uninstall_restores_effective_config",
@@ -837,6 +851,21 @@
         "linux",
         "windows",
         "wsl-distro"
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_cli_m02": [
+            "json::uninstall_with_incomplete_rollback_keeps_the_quarantine_json",
+            "json::uninstall_with_incomplete_rollback_purge_state_is_refused_json"
+          ]
+        }
+      },
+      "blocked_rows": [
+        {
+          "platform": "windows-11 typed-yes purge refusal (exit 6) in the incomplete-rollback state",
+          "status": "deferred_with_decision",
+          "decision": "ADR-0007 §12.49: item 2 under --non-interactive the purge is refused with exit 3 before anything runs (asserted by the JSON test); the exit-6 refusal needs a typed yes on a terminal, deferred with D2/D3 to M04's pseudoconsole driver"
+        }
       ]
     }
   },

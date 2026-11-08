@@ -376,22 +376,26 @@ impl SnapshotDir {
         }
     }
 
-    /// Create the missing backups directory (0700 on Unix; on Windows it inherits the
-    /// state directory's ACL), then open and check it like an existing one, so a
-    /// directory that a racing creator made first is held to the same rules.
+    /// Create the missing backups directory (0700 on Unix; on Windows the protected
+    /// owner-only DACL, as the quarantine gets, ADR-0007 §12.48 item 2), then open and
+    /// check it like an existing one, so a directory that a racing creator made first is
+    /// held to the same rules.
     fn create(path: &Path) -> std::io::Result<Self> {
-        let mut builder = std::fs::DirBuilder::new();
-        builder.recursive(false);
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt as _;
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(false);
             builder.mode(0o700);
+            match builder.create(path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e),
+            }
         }
-        match builder.create(path) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e),
-        }
+        // An existing name is not an error here either; `open` checks what it is.
+        #[cfg(windows)]
+        fsentry::win::create_owner_only_dir(path)?;
         let dir = Self::open(path)?;
         dir.require_private()?;
         Ok(dir)
@@ -1046,13 +1050,18 @@ impl<'a> Run<'a> {
         Ok(Some(d))
     }
 
-    /// The handle of `parent`, creating it owner-only (0700) when it is missing. Only a
-    /// step that creates its file gets here with a missing directory.
-    fn ensure_dir(&mut self, parent: &Path) -> Result<Rc<DirHandle>, ReplaceRefusal> {
+    /// The handle of `parent`, creating it when it is missing for a file of `role`
+    /// ([`create_missing_dir`]). Only a step that creates its file gets here with a
+    /// missing directory.
+    fn ensure_dir(
+        &mut self,
+        parent: &Path,
+        role: FileRole,
+    ) -> Result<Rc<DirHandle>, ReplaceRefusal> {
         if let Some(d) = self.dir(parent)? {
             return Ok(d);
         }
-        create_owner_only_dir(parent)
+        create_missing_dir(parent, DirOwner::of(role))
             .map_err(|e| ReplaceRefusal::Unmanageable(replace::Unmanageable::Io(e)))?;
         self.dir(parent)?.ok_or_else(|| {
             ReplaceRefusal::Unmanageable(replace::Unmanageable::Io("directory vanished".into()))
@@ -1283,7 +1292,7 @@ impl<'a> Run<'a> {
             StepNames::of(step).map_err(|e| ReconcileError::IntentInvalid(e.to_string()))?;
         let staged_name = names.staged.clone();
         let dir = match if from == From::Fresh && step.base == Base::Absent {
-            self.ensure_dir(&parent)
+            self.ensure_dir(&parent, step.role)
         } else {
             self.dir(&parent)
                 .and_then(|d| d.ok_or(ReplaceRefusal::BaseChanged))
@@ -1480,7 +1489,7 @@ impl<'a> Run<'a> {
             .staged_name
             .clone()
             .ok_or_else(|| ReconcileError::IntentInvalid("a step has no staged name".into()))?;
-        let dir = match self.ensure_dir(&parent) {
+        let dir = match self.ensure_dir(&parent, FileRole::GitLock) {
             Ok(d) => d,
             Err(_) => return Ok(Flow::Stop(ConflictKind::UnmanageableFile)),
         };
@@ -3133,17 +3142,63 @@ pub(super) fn managed_aliases(p: &[u8]) -> Vec<String> {
         .collect()
 }
 
-/// Create `dir` and any missing parent owner-only (Unix 0700). Creating a directory
+/// Whose directory a missing parent is, which decides its access when Heimdall creates
+/// it (ADR-0007 §12.48 item 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DirOwner {
+    /// Heimdall's own: P's, the key files' and P_git's directories, under its
+    /// configuration directory. Owner-only.
+    Heimdall,
+    /// The user's: `~/.ssh` (the user file) and the global Git file's directory (B_git
+    /// and its lock). Windows: user, SYSTEM and Administrators (Win32-OpenSSH's rule).
+    User,
+}
+
+impl DirOwner {
+    fn of(role: FileRole) -> Self {
+        match role {
+            FileRole::UserSsh | FileRole::GitInclude | FileRole::GitLock => Self::User,
+            FileRole::ManagedSsh | FileRole::Key | FileRole::GitManaged => Self::Heimdall,
+        }
+    }
+}
+
+/// Create `dir` and any missing parent. Unix: mode 0700 for every directory created,
+/// whoever's it is. Windows: every created level gets its owner's protected DACL, set at
+/// creation rather than inherited ([`DirOwner`]): owner-only for Heimdall's, as the
+/// quarantine (`create_owner_only_dir`), and user, SYSTEM and Administrators for the
+/// user's (`create_user_dir`). An existing level is left as it is. Creating a directory
 /// removes nothing.
-fn create_owner_only_dir(dir: &Path) -> Result<(), String> {
-    let mut b = std::fs::DirBuilder::new();
-    b.recursive(true);
+fn create_missing_dir(dir: &Path, owner: DirOwner) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt as _;
+        let _ = owner;
+        let mut b = std::fs::DirBuilder::new();
+        b.recursive(true);
         b.mode(0o700);
+        b.create(dir).map_err(|e| format!("{:?}", e.kind()))
     }
-    b.create(dir).map_err(|e| format!("{:?}", e.kind()))
+    #[cfg(windows)]
+    {
+        let mut missing = Vec::new();
+        let mut level = Some(dir);
+        while let Some(d) = level {
+            if std::fs::symlink_metadata(d).is_ok() {
+                break;
+            }
+            missing.push(d);
+            level = d.parent();
+        }
+        for d in missing.into_iter().rev() {
+            match owner {
+                DirOwner::Heimdall => fsentry::win::create_owner_only_dir(d),
+                DirOwner::User => fsentry::win::create_user_dir(d),
+            }
+            .map_err(|e| format!("{:?}", e.kind()))?;
+        }
+        Ok(())
+    }
 }
 
 /// The snapshot rules of ADR-0007 §12.35 item 2 that a fixture cannot build without

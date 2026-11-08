@@ -1359,27 +1359,95 @@ mod tests {
         }
     }
 
-    /// W6 bound: a client that stays silent past the first-write bound is
-    /// disconnected after the bound (not before), is never returned as verified,
-    /// and the listener still serves the next client.
+    /// When a silent client thread opened the pipe and when its one read ended.
+    struct SilentRun {
+        /// Just before the successful open: the listener's connect, and so its bound,
+        /// cannot start earlier.
+        before_open: std::time::Instant,
+        /// Just after the open returned.
+        opened: std::time::Instant,
+        /// Just after the read returned (end of stream or the disconnect error).
+        eof: std::time::Instant,
+        read: io::Result<usize>,
+    }
+
+    /// A blocking client that opens the pipe, writes nothing and reads once, timing
+    /// the open and the end of its read ([`SilentRun`]).
+    fn spawn_silent_client(name: &str, open: ClientOpen) -> std::thread::JoinHandle<SilentRun> {
+        use std::io::Read as _;
+        let name = name.to_owned();
+        std::thread::spawn(move || {
+            let mut options = OpenOptions::new();
+            options.read(true).write(true);
+            if let ClientOpen::Identification = open {
+                options.security_qos_flags(SECURITY_IDENTIFICATION);
+            }
+            let mut attempts = 0;
+            let (before_open, mut pipe) = loop {
+                let before_open = std::time::Instant::now();
+                match options.open(&name) {
+                    Ok(pipe) => break (before_open, pipe),
+                    Err(err)
+                        if err.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) && attempts < 80 =>
+                    {
+                        attempts += 1;
+                        std::thread::sleep(Duration::from_millis(25));
+                    }
+                    Err(err) => panic!("{open:?}: the silent client could not open: {err}"),
+                }
+            };
+            let opened = std::time::Instant::now();
+            let mut byte = [0u8; 16];
+            let read = pipe.read(&mut byte);
+            SilentRun {
+                before_open,
+                opened,
+                eof: std::time::Instant::now(),
+                read,
+            }
+        })
+    }
+
+    /// Join a client thread without blocking the runtime, within `limit`; `None` when
+    /// it is still running then (the thread is left to end with its connection).
+    async fn join_within<T>(client: std::thread::JoinHandle<T>, limit: Duration) -> Option<T> {
+        let deadline = std::time::Instant::now() + limit;
+        while !client.is_finished() {
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        Some(client.join().unwrap())
+    }
+
+    /// W6 bound (wave-6w review W6W-R03): a client that stays silent is disconnected
+    /// at the first-write bound, neither before it nor long after it, is never
+    /// returned as verified, and the listener still serves the next client. The
+    /// client's end of stream is observed while `accept` runs, so the time measured
+    /// is the disconnect's, not `accept`'s (which keeps waiting after a refusal).
     #[tokio::test(flavor = "current_thread")]
     async fn silent_client_is_refused_after_the_bound_and_listener_keeps_waiting() {
         let sid = current_user_sid().unwrap();
         let bound = Duration::from_millis(400);
+        // How late after the bound the disconnect may reach the client: scheduling and
+        // the reactor's turn, on a loaded host.
+        let allowance = Duration::from_millis(600);
         for open in [ClientOpen::DefaultFlags, ClientOpen::Identification] {
             let name = unique_pipe("control");
             let listener = Listener::bind(&name, EndpointKind::Control, &sid)
                 .unwrap()
                 .with_first_write_wait(bound);
-            let started = std::time::Instant::now();
-            let silent = spawn_client(&name, open, Duration::ZERO, Vec::new());
-            let accepted =
-                tokio::time::timeout(Duration::from_millis(1500), listener.accept()).await;
+            let silent = spawn_silent_client(&name, open);
+            let (accepted, released) = tokio::join!(
+                tokio::time::timeout(bound + allowance, listener.accept()),
+                join_within(silent, bound + allowance + Duration::from_secs(2)),
+            );
             assert!(accepted.is_err(), "{open:?}: a silent client was returned");
-            let released = join_client(silent).await;
-            let waited = started.elapsed();
-            match released {
-                Ok(bytes) => assert!(bytes.is_empty(), "{open:?}: refused client got data"),
+            let run = released
+                .unwrap_or_else(|| panic!("{open:?}: the silent client was never disconnected"));
+            match &run.read {
+                Ok(n) => assert_eq!(*n, 0, "{open:?}: refused client got data"),
                 Err(err) => assert!(
                     [
                         Some(ERROR_PIPE_NOT_CONNECTED as i32),
@@ -1389,9 +1457,15 @@ mod tests {
                     "{open:?}: {err}"
                 ),
             }
+            let earliest = run.eof.duration_since(run.before_open);
+            let latest = run.eof.duration_since(run.opened);
             assert!(
-                waited >= bound - Duration::from_millis(50),
-                "{open:?}: disconnected before the bound ({waited:?})"
+                earliest >= bound,
+                "{open:?}: disconnected before the bound ({earliest:?} < {bound:?})"
+            );
+            assert!(
+                latest <= bound + allowance,
+                "{open:?}: disconnected long after the bound ({latest:?})"
             );
             // An instance is still waiting: the next client is served.
             let prompt = spawn_client(&name, open, Duration::ZERO, FIRST_FRAME.to_vec());
@@ -1403,7 +1477,10 @@ mod tests {
             server.read_exact(&mut got).await.unwrap();
             assert_eq!(got, FIRST_FRAME, "{open:?}");
             server.write_all(b"ok").await.unwrap();
-            assert_eq!(join_client(prompt).await.unwrap(), b"ok", "{open:?}");
+            let reply = join_within(prompt, Duration::from_secs(2))
+                .await
+                .unwrap_or_else(|| panic!("{open:?}: the prompt client never finished"));
+            assert_eq!(reply.unwrap(), b"ok", "{open:?}");
         }
     }
 

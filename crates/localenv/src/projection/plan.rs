@@ -396,6 +396,7 @@ impl<'a> Builder<'a> {
             self.conflict(ConflictKind::ManagedFileEdited, None);
             return Ok(());
         }
+        let changes_before = self.changes.len();
         let mut aliases = Vec::new();
         let mut key_steps: Vec<FileStep> = Vec::new();
         for a in &self.spec.aliases {
@@ -419,6 +420,48 @@ impl<'a> Builder<'a> {
         self.p_now = self.read(FileRole::ManagedSsh, &p_path)?;
         self.p_after = Some(p.bytes().to_vec());
         let p_step = self.whole_step(FileRole::ManagedSsh, &p_path, p)?;
+        // ADR-0007 §5.3 item 9, §12.48 item 3: a directory this item writes into (P's,
+        // a key file's) whose quarantine does not validate makes the item manual at
+        // preview, and nothing is planned: a settlement there would fail only after the
+        // commit. The plan writes nothing, so it changes nothing and needs no decision.
+        let blocked: Vec<PathBuf> = key_steps
+            .iter()
+            .chain(p_step.iter())
+            .filter_map(|s| Path::new(&s.path).parent().map(Path::to_path_buf))
+            .fold(Vec::new(), |mut dirs, d| {
+                if !dirs.contains(&d) {
+                    dirs.push(d);
+                }
+                dirs
+            })
+            .into_iter()
+            .filter(|d| quarantine_invalid(d))
+            .collect();
+        if !blocked.is_empty() {
+            self.changes.truncate(changes_before);
+            self.p_after = None;
+            self.manual(manual_reason::UNMANAGEABLE_FILE);
+            for dir in &blocked {
+                let message = format!(
+                    "{} holds a {QUARANTINE} that Heimdall cannot validate; nothing is written there",
+                    self.display(dir)
+                );
+                self.findings.push(Finding {
+                    code: manual_reason::UNMANAGEABLE_FILE.to_owned(),
+                    severity: FindingSeverity::Problem,
+                    subject: ResourceRef {
+                        kind: "projection".to_owned(),
+                        id: None,
+                    },
+                    level: ProbeLevel::Static,
+                    provenance: None,
+                    message,
+                    next: NextAction::for_code(Code::ConfigConflict),
+                    reason: None,
+                });
+            }
+            return Ok(());
+        }
         self.added = self.spec.aliases.iter().map(|a| a.alias.clone()).collect();
 
         let user = self.config.paths.user_config.clone();
@@ -2356,6 +2399,17 @@ fn selection_state(selection: &GitSshSelection) -> BehaviorState {
         digest: Sha256Hex::of(&canonical),
         determined: selection.classification != GitSshClassification::Undetermined,
     }
+}
+
+/// Whether the existing directory `dir` holds a quarantine that does not validate
+/// (ADR-0007 §5.3 "Enforcement"; a preview never creates one). A missing directory, or
+/// one without a quarantine, is not; a directory that cannot be opened is left to the
+/// writer's own checks.
+fn quarantine_invalid(dir: &Path) -> bool {
+    if std::fs::symlink_metadata(dir.join(QUARANTINE)).is_err() {
+        return false;
+    }
+    DirHandle::open(dir).is_ok_and(|handle| Quarantine::open_or_create(&handle).is_err())
 }
 
 /// The steps of a manual-mode SSH plan: the key files and P, with P (or, when P is

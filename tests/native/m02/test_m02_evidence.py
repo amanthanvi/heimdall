@@ -1534,6 +1534,9 @@ EXPECTED_DEFERRED_ROWS = {
     "A21": {"windows-11 TUI pty cases (e2e_tui_m02::pty::search_never_probes, config_commands_authorization_requires_typed_yes)"},
     "A11": {CONNECT_ROW},
     "A27": {CONNECT_ROW},
+    # ADR-0007 §12.49 items 4 and 2: deferred with D2/D3 to M04's pseudoconsole drivers.
+    "A01": {"windows-11 personal profile without a repository (e2e_cli_m02 ssh::a01_personal_profile_without_repository)"},
+    "T06": {"windows-11 typed-yes purge refusal (exit 6) in the incomplete-rollback state"},
 }
 
 EXPECTED_BLOCKED_INPUTS = {

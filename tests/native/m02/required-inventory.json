@@ -220,6 +220,7 @@
           "client::tests::keywords_follow_the_observed_boundary",
           "client::tests::match_criteria_follow_the_observed_boundary",
           "client::tests::observations_are_unique_per_version",
+          "client::tests::windows_inbox_9_5p2_row_records_only_what_the_native_run_settled",
           "eval::tests::env_names_lists_every_variable",
           "eval::tests::patterns_follow_openssh",
           "eval::tests::three_valued_slot_keeps_every_candidate_that_may_apply",
@@ -299,6 +300,8 @@
           "a22_marker_moved_into_host_section_reported_conditional",
           "a22_missing_user_config_created_0600_and_ssh_dir_0700",
           "a22_newer_user_edits_elsewhere_survive_rollback",
+          "a22_quarantine_removed_when_empty_and_kept_with_foreign_entries",
+          "a22_quarantine_symlink_wrong_owner_or_mode_is_manual_mode",
           "a22_race_in_place_write_after_final_check_is_restored",
           "a22_race_rename_replace_after_final_check_is_restored",
           "a22_race_symlink_substitution_at_boundary_is_held",
@@ -342,6 +345,7 @@
           "fresh_writer_creates_absent_ssh_config",
           "fresh_writer_executes_intent_without_preview",
           "generated::recovery_generated_observations_preserve_every_entry",
+          "heimdall_directories_are_created_owner_only",
           "held_step_moves_nothing_and_reobserves_at_restart",
           "intent_content_bound_to_digests_or_refused",
           "intent_content_nonsecret_and_bounded",
@@ -355,6 +359,7 @@
           "private_key_files_never_opened",
           "production_code_never_unlinks_outside_quarantine",
           "recovery_decided_abort_reason_is_recorded_and_survives_restart",
+          "rendered_file_loads_on_target_client",
           "settlement_order::a22_settlement_never_precedes_item_committed",
           "snapshot_original_copies_the_original_once_owner_only",
           "snapshot_original_refuses_an_invalid_entry_naming_it_and_accepts_a_valid_one",
@@ -370,6 +375,7 @@
           "v02_rollback_after_subsystem_only_environment_agent_needs_decision"
         ],
         "integration_projection_git": [
+          "fresh_writer_creates_absent_global_git_config",
           "git_apply_records_the_file_b_git_was_written_into",
           "git_apply_releases_k_with_and_without_birth_time",
           "git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win",
@@ -927,6 +933,8 @@
       "tests": {
         "e2e_cli_m02": [
           "json::uninstall_restores_user_bytes_and_effective_config_and_reports_remaining_items",
+          "json::uninstall_with_incomplete_rollback_keeps_the_quarantine_json",
+          "json::uninstall_with_incomplete_rollback_purge_state_is_refused_json",
           "unix::uninstall_with_incomplete_rollback_keeps_artifacts_and_purge_refuses"
         ],
         "wsl_ordinary_ssh": [
@@ -937,8 +945,23 @@
     }
   },
   "platform_extra": {
+    "A21": {
+      "windows": {
+        "integration_doctor": [
+          "a21_default_doctor_windows_execution_constructs_are_inert",
+          "account_name_matches_inbox_ssh_g"
+        ]
+      }
+    },
     "A22": {
       "windows": {
+        "integration_projection": [
+          "a22_windows_file_symlink_user_config_is_manual_mode",
+          "a22_windows_reparse_point_user_config_is_manual_mode"
+        ],
+        "integration_projection_git": [
+          "git_spaced_client_path_is_quoted_and_runs"
+        ],
         "integration_projection_replace": [
           "windows_replace_preserves_dacl",
           "windows_replace_retains_displaced_identity_without_race"
@@ -965,55 +988,7 @@
     }
   },
   "platform_only": {
-    "e2e_cli_m02::ssh::a01_cli_adopt_observed_and_managed_aliases_then_ordinary_ssh_with_scratch_f": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a01_no_key_export": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a01_no_remote_change": [
-      "linux",
-      "macos"
-    ],
     "e2e_cli_m02::ssh::a01_personal_profile_without_repository": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a01_unaffected_aliases_effective_config_identical_before_after": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a35_identity_agent_overriding_ssh_auth_sock_is_reported_and_managed_alias_unaffected": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a35_inherited_identity_fallback_agent_backed_reported_not_exclusive": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a35_inherited_identity_fallback_file_backed_reported_not_exclusive": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a35_mutation_broken_identity_agent_is_detected": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a35_too_many_keys_succeeds_for_managed_alias_only": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::a35_wrong_key_exclusive_selection_fails_without_fallback": [
-      "linux",
-      "macos"
-    ],
-    "e2e_cli_m02::ssh::host_key_substitution_fails_closed_and_nothing_written_to_known_hosts": [
       "linux",
       "macos"
     ],
@@ -1199,18 +1174,6 @@
     "e2e_run_m02::windows_holder_is_launcher_and_forced_launcher_kill_is_reported": [
       "windows"
     ],
-    "e2e_setup_dispatch::declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher": [
-      "linux",
-      "macos"
-    ],
-    "e2e_setup_dispatch::e2e_catalog_then_ensure_bind_carry_pairs_and_selection": [
-      "linux",
-      "macos"
-    ],
-    "e2e_setup_dispatch::simultaneous_setup_admissions_admit_exactly_one": [
-      "linux",
-      "macos"
-    ],
     "e2e_tui_m02::pty::config_commands_authorization_requires_typed_yes": [
       "linux",
       "macos"
@@ -1231,10 +1194,6 @@
       "linux",
       "macos"
     ],
-    "heimdall_launch-unit::handoff::tests::refused_arguments_never_spawn": [
-      "linux",
-      "macos"
-    ],
     "heimdall_launch-unit::meta::tests::a_closed_reader_is_never_masked_by_a_concurrent_spawn": [
       "linux",
       "macos"
@@ -1243,15 +1202,7 @@
       "linux",
       "macos"
     ],
-    "heimdall_launch-unit::meta::tests::meta_file_symlink_is_never_followed": [
-      "linux",
-      "macos"
-    ],
     "heimdall_launch-unit::meta::tests::stdio_descriptors_and_negative_numbers_are_never_adopted": [
-      "linux",
-      "macos"
-    ],
-    "heimdall_launch-unit::resolve::tests::non_unicode_program_or_location_is_refused_path": [
       "linux",
       "macos"
     ],
@@ -1319,722 +1270,33 @@
       "linux",
       "macos"
     ],
-    "integration_doctor::a21_authentication_level_single_identity_fixture_signs_exactly_once": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_change_then_revert_is_undetected_and_inventory_never_complete": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_default_doctor_runs_no_exec_no_agent_no_network_no_mutation": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_evaluate_declined_without_allow_config_commands": [
-      "linux",
-      "macos"
+    "integration_doctor::a21_default_doctor_windows_execution_constructs_are_inert": [
+      "windows"
     ],
     "integration_doctor::a21_fifo_include_does_not_block": [
       "linux",
       "macos"
     ],
-    "integration_doctor::a21_hanging_match_exec_killed_with_group_at_timeout": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_host_verification_offers_nothing_to_sign": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_host_verification_requires_authorization_with_or_without_constructs": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_inert_config_still_requires_allow_config_commands": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_local_queries_listed_and_off_with_no_local_exec": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_match_exec_inserted_after_static_pass_never_runs_unauthorized": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_new_glob_member_after_static_pass_is_reported_and_never_listed": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::a21_unreadable_include_declines_even_with_authorization": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::doctor_lists_config_files_and_include_failures_as_written": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::doctor_reads_localuser_from_the_account_database": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::doctor_shows_a_file_outside_the_home_as_written": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::home_mismatch_makes_a_home_relative_include_not_fully_readable": [
-      "linux",
-      "macos"
-    ],
-    "integration_doctor::home_resolution_matches_ssh_g": [
-      "linux",
-      "macos"
-    ],
-    "integration_git_observe::git_unreadable_include_makes_item_not_applicable": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_apply_then_rollback_restores_user_bytes_exactly": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_bom_or_crlf_on_unaccepting_client_is_manual_mode_unchanged": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_cleanup_crash_after_quarantine_move_completes_on_retry": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_cleanup_entry_modified_after_quarantine_move_is_kept": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_cleanup_target_swapped_at_deletion_is_moved_back": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_continued_create_settlement_never_moves_an_edit_made_before_the_move": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_crash_after_restore_exchange_before_receipt_is_recognized_as_restored": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_crash_before_each_settlement_receipt_completes_settlement": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_crash_before_restore_exchange_restores": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_create_rollback_never_moves_an_edit_made_at_restore_check": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_create_undo_crash_after_restore_started_before_settling_reconciles": [
-      "linux",
-      "macos"
+    "integration_doctor::account_name_matches_inbox_ssh_g": [
+      "windows"
     ],
     "integration_projection::a22_crlf_bom_no_trailing_newline_preserved": [
-      "macos"
-    ],
-    "integration_projection::a22_displaced_entry_removed_by_another_writer_is_conflict_never_settled": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_displaced_missing_or_replaced_after_valid_post_validation_is_held": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_displaced_written_through_open_descriptor_before_settlement_is_kept": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_duplicate_marker_refused": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_edit_inside_marker_block_refuses_removal_and_names_lines": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_edit_of_managed_file_is_never_overwritten": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_exchanged_with_displaced_missing_is_held": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_first_adoption_check_failure_with_edited_inactive_p_is_held": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_first_adoption_commit_point_crash_as_a_process_abort_reconciles": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_first_adoption_crash_after_b_exchange_before_validation_reconciles": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_first_adoption_crash_after_create_exchanged_before_post_validation_reconciles": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_first_adoption_crash_after_p_before_b_reconciles_forward_or_cleans": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_first_adoption_crash_after_p_before_b_reconciles_through_the_store_fault_hook": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_first_adoption_failure_before_commit_leaves_only_inactive_files_then_cleaned": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_first_adoption_previews_reproduce_their_plan_digest": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_foreign_active_entry_after_create_is_held_nothing_moved": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_foreign_entry_in_quarantine_slot_is_put_back_never_deleted": [
-      "linux",
       "macos"
     ],
     "integration_projection::a22_foreign_owner_or_unwritable_is_manual_mode": [
       "linux",
       "macos"
     ],
-    "integration_projection::a22_hardlinked_user_config_is_manual_mode": [
-      "linux",
-      "macos"
+    "integration_projection::a22_windows_file_symlink_user_config_is_manual_mode": [
+      "windows"
     ],
-    "integration_projection::a22_in_place_edit_after_forward_exchange_then_rollback_is_held_never_restored_over": [
-      "linux",
-      "macos"
+    "integration_projection::a22_windows_reparse_point_user_config_is_manual_mode": [
+      "windows"
     ],
-    "integration_projection::a22_in_place_edit_racing_restore_is_kept_in_quarantine_never_deleted": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_include_block_names_p_by_absolute_path": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_include_target_with_glob_metacharacter_is_manual_mode": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_marker_moved_into_host_section_reported_conditional": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_missing_user_config_created_0600_and_ssh_dir_0700": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_newer_user_edits_elsewhere_survive_rollback": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_race_in_place_write_after_final_check_is_restored": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_race_rename_replace_after_final_check_is_restored": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_race_symlink_substitution_at_boundary_is_held": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_race_third_writer_during_restore_preserves_both": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_recovery_before_remaining_file_staged_uses_intent_bytes": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_render_is_deterministic_and_reapply_is_noop": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_repair_manual_mode_writes_p_never_the_user_file": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_repair_move_include_to_top_then_remove_the_conditional_block": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_repair_remove_duplicate_markers_keeps_one_block": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_replacement_onto_displaced_name_during_settlement_survives": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_rollback_keeps_edited_p_under_conflict_name_never_over_another": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_rollback_without_block_commits_and_hands_files_to_the_cleaner": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_same_bytes_new_identity_is_not_deleted_by_cleanup": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_stale_cleanup_generation_n_cannot_delete_n_plus_1": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_symlinked_user_config_is_manual_mode": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_update_crash_after_commit_before_settlement_settles_never_restores": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_update_crash_after_p_exchange_reconciles": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_update_crash_between_post_validation_and_commit_reconciles": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_update_never_writes_user_file": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_update_user_edit_after_commit_is_reported_not_restored": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_update_user_edit_after_p_exchange_restores_generation_n": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_update_user_edit_after_p_post_validation_restores_generation_n": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a22_user_edit_between_preview_and_apply_conflicts_user_config_changed": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a_backups_directory_that_is_not_a_private_directory_refuses_the_edit": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a_created_user_file_or_a_missing_state_dir_takes_no_snapshot": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a_resumed_operation_snapshots_before_the_user_file_step": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a_rollback_of_a_p_well_over_the_bound_shows_summaries_and_applies": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a_snapshot_that_cannot_be_made_leaves_the_item_unwritten": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a_stale_user_file_refuses_the_apply_and_takes_no_snapshot": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a_user_file_that_changes_before_the_copy_is_not_snapshotted_or_edited": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::a_valid_existing_snapshot_is_accepted_and_no_second_copy_is_made": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::an_existing_entry_that_is_not_a_valid_snapshot_refuses_the_edit_before_it": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::child_process_writer_entry": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::consent_first_adoption_needs_a_decision_and_records_the_consented_states": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::consent_plan_affecting_no_item_needs_no_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::consent_rollback_to_the_consented_restore_state_is_waived_else_decided": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::consent_undetermined_state_always_needs_a_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::empty_item_records_are_absent_git_included": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::empty_key_file_is_refused_unavailable": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::first_adoption_plan_carries_its_aliases_with_their_restore_state": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::fresh_writer_creates_absent_ssh_config": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::fresh_writer_executes_intent_without_preview": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::generated::recovery_generated_observations_preserve_every_entry": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::held_step_moves_nothing_and_reobserves_at_restart": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::intent_content_bound_to_digests_or_refused": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::intent_content_nonsecret_and_bounded": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::manual_changed_alias_with_inactive_p_still_needs_a_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::manual_first_adoption_without_b_still_needs_a_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::observe_combines_every_invocation_profile_for_readiness": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::observe_reads_localuser_from_the_account_database": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::observe_reevaluates_aliases_statically_against_the_record": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::observe_with_the_account_unknown_leaves_only_what_reads_it_undetermined": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::preview_consent_reads_localuser_from_the_account_database": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::private_key_files_never_opened": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::production_code_never_unlinks_outside_quarantine": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::recovery_decided_abort_reason_is_recorded_and_survives_restart": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::settlement_order::a22_settlement_never_precedes_item_committed": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::snapshot_original_copies_the_original_once_owner_only": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::snapshot_original_refuses_an_invalid_entry_naming_it_and_accepts_a_valid_one": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::splice_applies_only_to_validated_base": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::the_preview_never_cuts_a_diff": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::the_writer_snapshots_the_global_git_file_before_its_first_edit": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::the_writer_snapshots_the_original_user_file_before_its_first_edit": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::v01_manual_mode_active_b_in_symlinked_user_config_changed_alias_needs_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::v01_manual_mode_repair_with_active_b_and_changed_alias_needs_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::v01_manual_mode_unreadable_symlink_target_makes_affected_states_undetermined": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::v02_match_command_unknown_under_exec_leaves_the_states_undetermined": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::v02_rollback_after_exec_only_hostname_change_needs_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection::v02_rollback_after_subsystem_only_environment_agent_needs_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_apply_records_the_file_b_git_was_written_into": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_apply_releases_k_with_and_without_birth_time": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_both_global_files_present_include_goes_to_first_read_file_and_later_user_values_in_either_win": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_check_failure_with_edited_p_git_is_held_and_keeps_k": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_consent_apply_decided_rollback_to_consented_state_waived": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_crash_with_lock_holding_staged_or_displaced_reconciles": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_doctor_after_apply_reports_no_present_value_for_heimdalls_own": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_editor_write_after_final_check_is_restored": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_existing_core_sshcommand_in_system_or_global_makes_item_not_applicable": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_first_adoption_previews_reproduce_their_plan_digest": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_global_file_in_an_owner_only_directory_is_applicable_under_any_umask": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_include_applied_under_lock_and_rollback_restores_bytes": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_item_not_offered_without_bundled_msys_default": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_lock_held_by_git_is_git_config_locked_nothing_written": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_lock_occupied_by_holder_until_settlement": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_name_transitions_crash_at_every_point_reconciles": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_parse_check_failure_aborts_before_the_commit_point": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_parse_check_that_cannot_run_aborts_as_verified_client_unavailable": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_reapply_finds_b_git_in_the_recorded_file_after_an_xdg_file_appears": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_reapply_with_a_user_value_in_either_global_file_stays_not_applicable": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_reapply_without_a_recorded_file_searches_both_global_files": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_release_of_k_after_hand_over_happens_at_restart_never_earlier": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_restart_keeps_the_recovery_classifier_for_k": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_rollback_after_edit_inside_block_is_marker_edited": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_rollback_after_user_added_value_keeps_user_value": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_rollback_finds_b_git_in_the_file_its_step_wrote_after_an_xdg_file_appears": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_rollback_in_the_shadowed_case_needs_a_decision": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_rollback_over_a_global_file_the_writer_would_refuse_plans_nothing_for_git": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_rollback_trusts_the_recorded_file_over_what_else_the_global_files_hold": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_rollback_without_a_recorded_file_searches_both_global_files": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_user_set_after_include_wins": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_user_value_added_after_apply_still_makes_the_item_not_applicable": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_writer_during_heimdall_lock_fails_cleanly_nothing_lost": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::git_xdg_created_after_apply_shadowed_value_reported": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::lock_claim_order::git_lock_claimed_only_after_staged_receipt": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_git::the_git_snapshot_follows_the_same_rules_as_the_ssh_one": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_recovery_rows::recovery_table_rows_each_have_a_test_vector": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_replace::dir_handle_refuses_symlink_foreign_mode_and_files": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_replace::lock_name_without_birth_time_is_foreign": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_replace::private_key_files_never_opened": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_replace::quarantine_validation_owner_mode_symlink_mount": [
-      "linux",
-      "macos"
+    "integration_projection_git::git_spaced_client_path_is_quoted_and_runs": [
+      "windows"
     ],
     "integration_projection_replace::race_symlink_substitution_at_boundary_is_held": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_replace::remove_verified_rechecks_the_name_before_removal": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_replace::stage_keeps_the_original_permission_bits": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_replace::stage_names_its_target_only_through_learn_step": [
-      "linux",
-      "macos"
-    ],
-    "integration_projection_replace::validate_refuses_unmanageable_and_changed_bases": [
       "linux",
       "macos"
     ],
@@ -2047,219 +1309,11 @@
     "integration_testkit_fixtures::f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed": [
       "linux",
       "macos"
-    ],
-    "integration_testkit_fixtures::many_keys_exhaust_max_auth_tries_without_identities_only": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::a_plan_that_reports_a_conflict_but_changes_nothing_is_refused_by_the_driver": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::a_plan_whose_full_diff_exceeds_the_bound_is_refused_before_anything_is_journaled": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::a_rollback_is_refused_for_its_owner_file_change_alone": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::a_rollback_of_a_p_well_over_the_bound_is_previewed_and_applied": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::apply_after_base_change_is_config_conflict_and_nothing_written": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::apply_executes_exactly_the_decided_plan_digest": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::apply_requires_decision_attended_and_unattended": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::apply_through_operations_snapshots_the_original_user_file": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::catalog_alias_rename_keeps_destination_id": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::changed_plan_same_request_is_request_conflict": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::crash_during_setup_admission_leaves_no_blocker": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::declaration_validity_follows_the_configured_days": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::declaration_written_from_decision_fields_only_and_stale_on_endpoint_change": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::declare_interaction_needs_attended_decision_and_lapses_on_endpoint_change_and_expiry": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::expired_declaration_decision_expires_the_catalog_operation": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::expired_projection_decision_expires_at_decide_tick_and_restart": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::expired_projection_decision_expires_the_operation": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::git_item_reasons_are_contract_reasons": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::held_first_adoption_reports_restored_files": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::held_item_is_outcome_unknown_with_the_held_repair_options": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::held_operation_blocks_setup_except_its_repair": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::held_repair_paused_before_the_writer_refuses_cancel_and_a_second_repair": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::held_repair_preview_binds_content_fingerprints": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::held_repair_retry_continues_and_keep_closes_without_moving": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::include_target_glob_is_its_own_manual_reason": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::inspect_destinations_lists_the_catalog_with_alias_and_definition": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::inspect_profiles_lists_the_catalog_definitions": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::item_record_aliases_merged_when_p_unchanged": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::limited_consumer_refused": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::managed_file_edited_is_resolved_by_rollback_and_never_by_rerender": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::multi_operation_repair_is_offered_again_until_none_left": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::profile_upsert_bumps_revision_and_does_not_widen_existing_grant": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::projection_events_carry_generation_and_change": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::remove_destination_marks_projection_stale_and_changes_no_file": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::remove_profile_refuses_new_work_and_keeps_pinned_snapshots": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::rerender_repair_to_consented_state_needs_no_decision": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::restart_child_aborts_inside_apply": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::restart_reconciles_attempted_apply_never_reapplies": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::restart_reconciles_attempted_apply_never_reapplies_after_a_process_abort": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::rollback_after_match_exec_command_edit_needs_decision": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::rollback_exposing_inherited_hostname_and_agent_added_after_apply_needs_decision": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::rollback_to_consented_restore_needs_no_decision": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::same_request_id_replays_apply": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::second_setup_while_one_is_open_is_setup_in_progress": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::setup_in_progress_persists_across_restart": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::sink_refuses_consent_under_another_decision": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::stale_declaration_decision_is_reissued_bound_to_the_current_identity": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::supervisor_wakes_at_the_earliest_pending_decision_deadline": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::unreadable_receipt_leaves_setup_unresolved_and_reported": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::verified_client_unavailable_at_apply_is_capability_unavailable": [
-      "linux",
-      "macos"
-    ],
-    "model_setup::withdraw_declaration_needs_no_decision": [
-      "linux",
-      "macos"
     ]
   },
   "scanned_platforms": [
     "linux",
     "windows"
   ],
-  "sources_sha256": "28a5087b5358b16760b6b3ec241e562c36ceda97d7b1285d63ba408fa2c836ad"
+  "sources_sha256": "44336a9ead68612f68798f62095856656bb1dc0b2e87fc1a83279e756a7b0797"
 }

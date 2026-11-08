@@ -405,7 +405,9 @@ async fn a11_noninteractive_ensure_never_contacts_provider() {
         0,
         "no message reached the provider"
     );
-    assert_eq!(f.agent.connections(), 0, "no connection was even opened");
+    // Opens, not identified connections: on Windows a client that opens the pipe and
+    // sends nothing is never identified, so only `opens` would see it (W6W-R02).
+    assert_eq!(f.agent.opens(), 0, "no connection was even opened");
 }
 
 #[tokio::test]
@@ -1642,7 +1644,9 @@ async fn adapters_stop_all_work_when_dropped() {
             let _ = tokio::time::timeout(Duration::ZERO, a.reconcile(&g.id, "d")).await;
             let _ = tokio::time::timeout(Duration::ZERO, a.revoke(&g.id, t0())).await;
         }
-        assert_eq!(f.agent.connections(), 0, "{point:?}");
+        // Nothing even opened the endpoint (W6W-R02: `opens` sees a silent open,
+        // which Windows identification refuses and `connections` never counts).
+        assert_eq!(f.agent.opens(), 0, "{point:?}");
 
         // list_identities, dropped at the stall point, for both adapters.
         for p in [&n as &dyn ProviderProbe, &op] {

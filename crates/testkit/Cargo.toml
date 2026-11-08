@@ -61,9 +61,11 @@ getrandom = { workspace = true, optional = true }
 rustix = { workspace = true, optional = true, features = ["process"] }
 
 [target.'cfg(windows)'.dependencies]
-# fixtures (U7): the FakeAgent's and CountingProxy's owner-only named pipes reuse the
-# reviewed pipe listener (protected owner-only DACL, client SID check), so this crate
-# adds no `unsafe` module. `heimdall-ipc` dev-depends on this crate without
+# fixtures (U7): the FakeAgent's and CountingProxy's owner-only named pipes take their
+# name with the reviewed `Listener::bind` (protected owner-only DACL, first instance),
+# serve further instances through tokio's safe `ServerOptions`, and identify each client
+# with the reviewed `client_sid` and `verify_peer`, so this crate adds no `unsafe`
+# module (ADR-0007 §12.49 item 3). `heimdall-ipc` dev-depends on this crate without
 # `fixtures`; with it (workspace feature unification) Cargo builds the ordinary
 # dev-dependency cycle.
 heimdall-ipc = { workspace = true, optional = true }

@@ -170,3 +170,75 @@ mod tests {
         );
     }
 }
+
+/// Windows forms of the handoff tests. The process-group and signal tests above stay
+/// Unix only: a Windows console has no process groups or POSIX signals to keep, and
+/// the Windows handoff is the console control guard (module docs).
+#[cfg(all(test, windows))]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::meta::scratch::Scratch;
+    use crate::resolve::{LaunchRefusal, ProgramKind, Via};
+
+    fn args(list: &[&str]) -> Vec<OsString> {
+        list.iter().map(OsString::from).collect()
+    }
+
+    /// An argument `CreateProcessW` cannot carry (NUL, every target) or that std
+    /// refuses to escape for a batch script (a line break) is refused before anything
+    /// is spawned. The script leaves a mark when it runs; the control run shows that
+    /// the mark appears when a launch is accepted, and no refused launch leaves one.
+    #[test]
+    fn refused_arguments_never_spawn() {
+        let s = Scratch::new();
+        let mark = s.path().join("spawned");
+        let script = s.path().join("mark.cmd");
+        std::fs::write(&script, "@echo off\r\ntype nul > \"%~dp0spawned\"\r\n").unwrap();
+        let batch = ResolvedProgram {
+            path: script.clone(),
+            kind: ProgramKind::Batch,
+            via: Via::Explicit,
+        };
+        let root = std::env::var_os("SystemRoot").unwrap();
+        let cmd = ResolvedProgram {
+            path: Path::new(&root).join("System32").join("cmd.exe"),
+            kind: ProgramKind::Native,
+            via: Via::Explicit,
+        };
+        let none = EnvDelta::default();
+        // The control: an accepted launch runs the script, which leaves its mark.
+        assert_eq!(
+            run_foreground(&batch, &args(&["ok"]), &none),
+            Ok(ChildOutcome::Exited(0))
+        );
+        assert!(mark.exists(), "the control launch did not run the script");
+        std::fs::remove_file(&mark).unwrap();
+
+        let refused = |index: usize| -> Result<ChildOutcome, LaunchFailure> {
+            Err(LaunchFailure::Refused(LaunchRefusal::ArgumentUnescapable {
+                index,
+            }))
+        };
+        // NUL, for a native program (cmd.exe running the script) and for the script.
+        let mut native = args(&["/d", "/c", script.to_str().unwrap()]);
+        native.push(OsString::from("x\0y"));
+        assert_eq!(run_foreground(&cmd, &native, &none), refused(4));
+        assert_eq!(
+            run_foreground(&batch, &args(&["ok", "x\0y"]), &none),
+            refused(2)
+        );
+        // A line break, for the script only.
+        assert_eq!(
+            run_foreground(&batch, &args(&["ok", "line\nbreak"]), &none),
+            refused(2)
+        );
+        assert_eq!(
+            run_foreground(&batch, &args(&["cr\rhere"]), &none),
+            refused(1)
+        );
+        assert!(!mark.exists(), "a refused launch spawned a child");
+    }
+}
