@@ -27,20 +27,43 @@
 # re-checked against the pattern and the before-list) is unregistered, then the
 # directories are removed.
 #
+# Local mode (HM_LOCAL=1; ADR-0007 §12.32 item 15, the WSL counterpart of run-windows-local.ps1):
+# the ssh route into the controller no longer exists, so a local agent on the PC runs this
+# script INSIDE the controller distribution, e.g.
+#   wsl.exe -e bash <clone>/tests/native/m02/run-wsl-distro.sh <artifact-dir>
+# Every step above is the same script body, run by a local `bash -s` (same arguments, stdin and
+# exit-code handling) instead of through ssh, and the tar stream is a local extraction into the
+# same scratch directory; there is no ssh, scp or host alias, and HM_SSH_CONFIG and HM_HOST are
+# neither required nor read. Nothing is built: the Linux heimdall binary is cross-built on the
+# build host (HM_BUILD_ONLY=1 there prints `prebuilt-heimdall=<path>` and `prebuilt-sha256=<hex>`
+# on stdout) and copied to the PC. HM_PREBUILT_HEIMDALL names the copy and HM_PREBUILT_SHA256 is the
+# digest the build host recorded; the run refuses before anything is created when either is
+# missing or the file is not a regular file (exit 3), when the digest is not 64 hex digits (exit
+# 2) or when the file's sha256 differs (exit 1). The verified digest is recorded in build.txt as
+# on the build path, and the staged copy is hashed again before it is shipped. Every safety
+# property is unchanged: exclusive run directories, the pinned image and its digest before any
+# import, the distribution-name pattern, the registered-set comparison, terminate and unregister
+# of that distribution only, the EXIT trap, redaction and the canary and leak scans.
+#
 # Usage: tests/native/m02/run-wsl-distro.sh <artifact-dir>
-#   HM_SSH_CONFIG, HM_HOST  as for run-windows.sh (required unless HM_BUILD_ONLY=1)
+#   HM_SSH_CONFIG, HM_HOST  as for run-windows.sh (required unless HM_BUILD_ONLY=1 or HM_LOCAL=1)
 #   HM_TASK                 scratch directory prefix (default M02-U11-wsl)
 #   HM_WSL_ROOTFS           the pinned image already on the Windows host (C:\... or /mnt/c/...)
 #   HM_WSL_DOWNLOAD         1 = download the pinned image into the run directory
 #   HM_WSL_ALLOW_APT        1 = install missing OpenSSH/Git tools inside the disposable distribution
-#   HM_BUILD_ONLY           1 = cross-build and record the binary's hash, then stop (no ssh)
+#   HM_BUILD_ONLY           1 = cross-build and record the binary's hash, then stop (no ssh); prints
+#                           prebuilt-heimdall=<path> and prebuilt-sha256=<hex> on stdout
+#   HM_LOCAL                1 = local mode (above); not combinable with HM_BUILD_ONLY
+#   HM_PREBUILT_HEIMDALL    local mode: the Linux heimdall binary cross-built on the build host
+#   HM_PREBUILT_SHA256      local mode: the 64-hex sha256 the build host recorded for it
 #
 # Nothing is elevated; no Windows service, firewall rule, ssh-agent state or the
 # owner's ~/.ssh is touched (the WSL import's own registration is removed by the
 # unregister). Output (redacted as run-windows.sh, plus the controller distribution's
 # name): build.txt, host.txt, tests.txt, commands.txt, canary-scan.txt. Exit: nonzero
-# when a step fails, 3 when an input is missing (the image, or tools without
-# HM_WSL_ALLOW_APT), or a canary or leak is found.
+# when a step fails, 3 when an input is missing (the image, tools without
+# HM_WSL_ALLOW_APT, or in local mode the prebuilt binary or its digest), or a canary or leak
+# is found.
 
 set -euo pipefail
 
@@ -49,7 +72,16 @@ ROOTFS_SHA256=bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e
 
 out=${1:?usage: run-wsl-distro.sh <artifact-dir>}
 build_only=${HM_BUILD_ONLY:-0}
-if [ "$build_only" != 1 ]; then
+local_mode=${HM_LOCAL:-0}
+case "$local_mode" in 0 | 1) ;; *) echo "bad HM_LOCAL (0 or 1)" >&2; exit 2 ;; esac
+if [ "$local_mode" = 1 ] && [ "$build_only" = 1 ]; then
+    echo "HM_LOCAL=1 builds nothing: HM_BUILD_ONLY=1 belongs on the build host" >&2
+    exit 2
+fi
+# Local mode never reads HM_SSH_CONFIG or HM_HOST (no ssh); both stay empty.
+ssh_config=""
+host=""
+if [ "$build_only" != 1 ] && [ "$local_mode" != 1 ]; then
     ssh_config=${HM_SSH_CONFIG:?set HM_SSH_CONFIG to the ssh config for the Windows test host}
     host=${HM_HOST:?set HM_HOST to the host alias in HM_SSH_CONFIG}
 fi
@@ -73,15 +105,49 @@ download=${HM_WSL_DOWNLOAD:-0}
 allow_apt=${HM_WSL_ALLOW_APT:-0}
 user=hmtest
 
+# Local mode: the prebuilt binary is checked before anything at all is created (no artifact
+# directory, no temporary directory, no run directory, no import).
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum -- "$1" | cut -d' ' -f1
+    else
+        shasum -a 256 -- "$1" | cut -d' ' -f1
+    fi
+}
+prebuilt=""
+prebuilt_sha=""
+if [ "$local_mode" = 1 ]; then
+    prebuilt=${HM_PREBUILT_HEIMDALL:-}
+    want=$(printf '%s' "${HM_PREBUILT_SHA256:-}" | tr 'A-F' 'a-f')
+    [ -n "$prebuilt" ] || { echo "blocked: set HM_PREBUILT_HEIMDALL to the Linux heimdall binary cross-built on the build host" >&2; exit 3; }
+    [ -n "$want" ] || { echo "blocked: set HM_PREBUILT_SHA256 to the digest the build host recorded" >&2; exit 3; }
+    [ -f "$prebuilt" ] || { echo "blocked: HM_PREBUILT_HEIMDALL is not a regular file" >&2; exit 3; }
+    case "$want" in *[!0-9a-f]*) want="" ;; esac
+    [ "${#want}" = 64 ] || { echo "bad HM_PREBUILT_SHA256 (64 hex digits)" >&2; exit 2; }
+    prebuilt_sha=$(sha256_file "$prebuilt")
+    if [ "$prebuilt_sha" != "$want" ]; then
+        echo "prebuilt heimdall sha256 mismatch: file $prebuilt_sha, expected $want; nothing created" >&2
+        exit 1
+    fi
+fi
+
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 unset CARGO_TARGET_DIR
 
+# One step of the target side: the script body on stdin, run with bash -s and the same
+# arguments, through ssh to the controller, or (local mode) by a local bash from $HOME, as
+# ssh would start it.
 remote() {
     local prelude=$1
     shift
-    { cat "$slib" "$rlib"; printf '%s\n' "$prelude"; cat; } |
-        ssh -F "$ssh_config" -o BatchMode=yes "$host" bash -s -- "$@"
+    if [ "$local_mode" = 1 ]; then
+        { cat "$slib" "$rlib"; printf '%s\n' "$prelude"; cat; } |
+            (cd "$HOME" && bash -s -- "$@")
+    else
+        { cat "$slib" "$rlib"; printf '%s\n' "$prelude"; cat; } |
+            ssh -F "$ssh_config" -o BatchMode=yes "$host" bash -s -- "$@"
+    fi
 }
 
 shim=$(mktemp -d)
@@ -132,26 +198,42 @@ REMOTE
 }
 trap cleanup EXIT
 
-m02_write_shims "$shim"
-cd "$repo"
-set +e
-m02_cargo_build x86_64-unknown-linux-gnu "$shim" "$out/build.txt"
-rc=$?
-set -e
-m02_record "$commands" "cargo test --target x86_64-unknown-linux-gnu --workspace --no-run --locked (zig cc linker/CC shims)" "$rc"
 redact_build_log() { m02_redact "$out/build.txt" "$out/build.txt" "$shim" "<shim>" "${TMPDIR:-/tmp}" "<tmp>" "$HOME" "<home>" "$(id -un)" "<user>"; }
-[ "$rc" = 0 ] || { redact_build_log; exit "$rc"; }
-m02_artifacts "$shim" || { echo "the heimdall binary was not built" >&2; redact_build_log; exit 5; }
-cli=$(cat "$shim/cli.txt")
-{
-    echo "heimdall (Linux, for the disposable distribution) sha256: $(shasum -a 256 "$cli" | cut -d' ' -f1)"
-    echo "toolchain: $(rustc --version); zig $(zig version); target x86_64-unknown-linux-gnu (glibc floor 2.31)"
-    echo "pinned image: $ROOTFS_URL sha256 $ROOTFS_SHA256"
-} >>"$out/build.txt"
-if [ "$build_only" = 1 ]; then
-    redact_build_log
-    echo "heimdall binary ready; pinned image $ROOTFS_URL"
-    exit 0
+if [ "$local_mode" = 1 ]; then
+    # Nothing is built here: the binary and its digest came from the build host's run.
+    echo "mode=local" >>"$commands"
+    m02_record "$commands" "prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host ($prebuilt_sha)" 0
+    cli=$prebuilt
+    {
+        echo "heimdall (Linux, for the disposable distribution) sha256: $prebuilt_sha"
+        echo "prebuilt: cross-built on the build host; sha256 verified here against HM_PREBUILT_SHA256 (mode=local)"
+        echo "pinned image: $ROOTFS_URL sha256 $ROOTFS_SHA256"
+    } >"$out/build.txt"
+else
+    m02_write_shims "$shim"
+    cd "$repo"
+    set +e
+    m02_cargo_build x86_64-unknown-linux-gnu "$shim" "$out/build.txt"
+    rc=$?
+    set -e
+    m02_record "$commands" "cargo test --target x86_64-unknown-linux-gnu --workspace --no-run --locked (zig cc linker/CC shims)" "$rc"
+    [ "$rc" = 0 ] || { redact_build_log; exit "$rc"; }
+    m02_artifacts "$shim" || { echo "the heimdall binary was not built" >&2; redact_build_log; exit 5; }
+    cli=$(cat "$shim/cli.txt")
+    bin_sha=$(shasum -a 256 "$cli" | cut -d' ' -f1)
+    {
+        echo "heimdall (Linux, for the disposable distribution) sha256: $bin_sha"
+        echo "toolchain: $(rustc --version); zig $(zig version); target x86_64-unknown-linux-gnu (glibc floor 2.31)"
+        echo "pinned image: $ROOTFS_URL sha256 $ROOTFS_SHA256"
+    } >>"$out/build.txt"
+    if [ "$build_only" = 1 ]; then
+        redact_build_log
+        echo "heimdall binary ready; pinned image $ROOTFS_URL"
+        # For the orchestrator, who copies the binary to the PC for HM_LOCAL=1 (stdout only).
+        echo "prebuilt-heimdall=$cli"
+        echo "prebuilt-sha256=$bin_sha"
+        exit 0
+    fi
 fi
 
 set +e
@@ -180,12 +262,28 @@ m02_record "$commands" "remote: create the run directories exclusively (run $run
 mkdir "$shim/stage"
 cp "$cli" "$shim/stage/heimdall"
 cp "$here/scenario-ordinary-ssh.sh" "$here/remote-lib.sh" "$here/pty-answer.py" "$here/target-root.sh" "$shim/stage/"
-set +e
-tar -C "$shim/stage" -cf - . | gzip -1 |
-    ssh -F "$ssh_config" -o BatchMode=yes "$host" "tar -xzf - -C \"\$HOME/hm-m00/$run\""
-rc=$?
-set -e
-m02_record "$commands" "tar stream of heimdall and the scenario files into WSL scratch" "$rc"
+if [ "$local_mode" = 1 ]; then
+    # The digest checked above is that of the bytes shipped: hash the staged copy again.
+    set +e
+    [ "$(sha256_file "$shim/stage/heimdall")" = "$prebuilt_sha" ]
+    rc=$?
+    set -e
+    m02_record "$commands" "staged heimdall copy still has the verified sha256" "$rc"
+    [ "$rc" = 0 ] || exit 1
+    # A local extraction into the same scratch directory the ssh path extracts into.
+    set +e
+    [ "$wsl_dir" = "$HOME/hm-m00/$run" ] && tar -C "$shim/stage" -cf - . | tar -xf - -C "$wsl_dir"
+    rc=$?
+    set -e
+    m02_record "$commands" "local tar extraction of heimdall and the scenario files into WSL scratch" "$rc"
+else
+    set +e
+    tar -C "$shim/stage" -cf - . | gzip -1 |
+        ssh -F "$ssh_config" -o BatchMode=yes "$host" "tar -xzf - -C \"\$HOME/hm-m00/$run\""
+    rc=$?
+    set -e
+    m02_record "$commands" "tar stream of heimdall and the scenario files into WSL scratch" "$rc"
+fi
 [ "$rc" = 0 ] || exit 1
 
 set +e
@@ -299,6 +397,10 @@ if grep -q '^---tests---$' "$shim/redacted.txt"; then
 else
     cp "$shim/redacted.txt" "$out/host.txt"
     : >"$out/tests.txt"
+fi
+if [ "$local_mode" = 1 ]; then
+    { echo "mode=local (run inside the WSL controller by an agent on the PC; ADR-0007 §12.32 item 15)"; cat "$out/host.txt"; } >"$shim/host.new"
+    cat "$shim/host.new" >"$out/host.txt"
 fi
 # The scenario's own facts (versions, digests, counts: never a path or a name) join host.txt as
 # key=value lines, where the evidence generator reads versions and facts.

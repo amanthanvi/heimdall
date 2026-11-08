@@ -35,6 +35,10 @@
 #       disposable distribution imported, prepared, used and unregistered by exact name;
 #       the registered set equal afterwards; no `--shutdown`; an interrupted run's EXIT
 #       trap unregisters; an existing distribution of the run's name is never touched.
+#       Local mode (HM_LOCAL=1, ADR-0007 §12.32 item 15): no ssh, scp or tar stream to a host;
+#       the prebuilt binary and its digest refused before anything is created (missing: exit 3,
+#       mismatch: 1, malformed digest: 2); the same safety properties and redaction as the ssh
+#       path; HM_BUILD_ONLY=1 prints prebuilt-heimdall=<path> and prebuilt-sha256=<hex>.
 #   T   target-root.sh refusals.   S   scenario-ordinary-ssh.sh (see below).
 #   P   run-windows-local.ps1 (Windows local mode, ADR-0007 §12.32 item 17) when pwsh is
 #       installed: it parses, its -SelfTest passes, its bundle imports through
@@ -193,6 +197,7 @@ new_world() {
     write_stubs
     build_json
     extra_env=()
+    local_world=0
 }
 
 write_stubs() {
@@ -449,6 +454,9 @@ case "${1:-}" in
                 esac ;;
             scenario-ordinary-ssh.sh)
                 echo "### wsl_ordinary_ssh"
+                # What a scenario step may print: the local user, host and home and the Windows
+                # ones (redacted before anything is saved).
+                [ "${HM_ST_DISTRO_LEAK:-0}" = 1 ] && echo "observation leak home=$HOME user=$(id -un) host=$(hostname) winuser=fixtureuser winhost=FIXTUREHOST winhome=C:\\Users\\fixtureuser"
                 echo "fact ssh-V=OpenSSH_9.9p9 (exit 0)"
                 echo "fact rename-exchange=supported (selftest)"
                 for s in a01_setup_apply_writes_the_users_real_ssh_config a01_ordinary_ssh_alias_without_f \
@@ -552,11 +560,20 @@ build_json() {
 # harness ROOT SCRIPT ARGS...: run a harness in the fake world; sets $rc. Extra
 # environment goes in the array extra_env (NAME=value words).
 extra_env=()
+# local_world=1 (set by local_distro_world): the harness runs as HM_LOCAL=1 would on the PC, inside
+# the controller distribution: neither HM_SSH_CONFIG nor HM_HOST is in its environment, and the
+# controller's name is WSL_DISTRO_NAME.
+local_world=0
 harness() {
     local r=$1 script=$2
     shift 2
-    env HOME="$H" TMPDIR="$S/tmp" PATH="$B:$PATH" \
-        HM_SSH_CONFIG=/dev/null HM_HOST="$HOST" \
+    local unset_env=() ssh_env=(HM_SSH_CONFIG=/dev/null HM_HOST="$HOST")
+    if [ "$local_world" = 1 ]; then
+        unset_env=(-u HM_SSH_CONFIG -u HM_HOST)
+        ssh_env=(WSL_DISTRO_NAME="${HM_ST_CONTROLLER:-}")
+    fi
+    env ${unset_env[@]+"${unset_env[@]}"} HOME="$H" TMPDIR="$S/tmp" PATH="$B:$PATH" \
+        "${ssh_env[@]}" \
         HM_ST_LOG="$L" HM_ST_HOST="$HOST" HM_ST_HOME="$H" HM_ST_WINROOT="$W" HM_ST_BIN="$B" \
         HM_ST_BUILD_JSON="$S/build.json" HM_ST_WSLDIR="$S/wsl" HM_ST_SSHD_COPY="$S/sshd-config.copy" \
         HM_ST_SSHD_PIDS="$S/sshd.pids" HM_ST_IMAGE="$S/image.bin" \
@@ -1459,6 +1476,130 @@ distro_world distro-badrootfs
 extra_env=(HM_WSL_ROOTFS='C:\x"; rm -rf /; echo "')
 harness "$S/repo" run-wsl-distro.sh "$O"
 check "D28 distro: an image path with shell metacharacters is refused with exit 2 before anything runs" bash -c '[ "$1" = 2 ] && [ ! -s "$2" ]' _ "$rc" "$L"
+
+# --- local mode (HM_LOCAL=1; ADR-0007 §12.32 item 15) ------------------------------------------
+
+# HM_BUILD_ONLY=1 on the build host prints the binary's path and digest for the orchestrator.
+new_world distro-build-only-prints
+extra_env=(HM_BUILD_ONLY=1)
+harness "$root" run-wsl-distro.sh "$O"
+D_BIN=$(sed -n 's/^prebuilt-heimdall=//p' "$S/harness.log" | head -1)
+D_SUM=$(sed -n 's/^prebuilt-sha256=//p' "$S/harness.log" | head -1)
+check "D30 distro build-only: stdout has prebuilt-heimdall=<path> and prebuilt-sha256=<hex> (the file's own digest, the one in build.txt)" \
+    bash -c '[ "$1" = 0 ] && [ -f "$2" ] && [ "${#3}" = 64 ] && [ "$(shasum -a 256 "$2" | cut -d" " -f1)" = "$3" ] && grep -q "^heimdall (Linux, for the disposable distribution) sha256: $3$" "$4" && [ "$(grep -c "^prebuilt-" "$5")" = 2 ]' _ "$rc" "$D_BIN" "$D_SUM" "$O/build.txt" "$S/harness.log"
+check "D31 distro build-only: ...and the printed lines are not saved in any artifact" no_grep "prebuilt-" "$O/build.txt"
+
+# local_distro_world NAME: the full-flow world as the local agent on the PC sees it: HM_LOCAL=1, no
+# HM_SSH_CONFIG or HM_HOST in the environment, a Linux heimdall binary copied from the build host
+# ($PB, digest $PBSUM; added to extra_env by each case), and bash, tar and scp stubs that log. A
+# `bash -s` reads the script with the fake Windows tree for /mnt/c (the ssh stub does the same);
+# every other bash call runs the real one.
+local_distro_world() {
+    distro_world "$1"
+    local_world=1
+    mkdir "$S/prebuilt"
+    PB="$S/prebuilt/heimdall"
+    printf '#!/bin/sh\necho "heimdall prebuilt (selftest)"\n' >"$PB"
+    PBSUM=$(shasum -a 256 "$PB" | cut -d' ' -f1)
+    cat >"$B/bash" <<'EOF'
+#!/bin/bash
+if [ "${1:-}" = -s ]; then
+    sed "s#/mnt/c#$HM_ST_WINROOT#g" | "$HM_ST_REALBASH" "$@"
+    exit $?
+fi
+exec "$HM_ST_REALBASH" "$@"
+EOF
+    printf '#!/usr/bin/env bash\necho "tar $*" >>"$HM_ST_LOG"\nexec "$HM_ST_REALTAR" "$@"\n' >"$B/tar"
+    printf '#!/usr/bin/env bash\necho "scp $*" >>"$HM_ST_LOG"\nexit 1\n' >"$B/scp"
+    chmod +x "$B/bash" "$B/tar" "$B/scp"
+    extra_env+=(HM_LOCAL=1 HM_ST_REALBASH="$(command -v bash)" HM_ST_REALTAR="$(command -v tar)")
+}
+# nothing_created: a refused local run created no artifact directory, no temporary directory, no run
+# directory, called no tool, and left the registered set as it was.
+nothing_created() {
+    [ ! -e "$O" ] && [ ! -e "$H/hm-m00" ] && [ ! -e "$W/localappdata/hm-m00" ] && [ -z "$(ls -A "$S/tmp")" ] &&
+        [ ! -s "$L" ] && cmp -s "$S/wsl/registry" "$S/registry.before"
+}
+
+local_distro_world distro-local-pass
+extra_env+=(HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$PBSUM" HM_ST_DISTRO_LEAK=1)
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D32 distro local: the full flow exits 0 with neither HM_SSH_CONFIG nor HM_HOST set" is_zero "$rc"
+check "D33 distro local: no ssh, no scp and no tar stream to a host; the tar is a local extraction into the run directory; nothing is built" \
+    bash -c 'l=$1; ! grep -qE "^(ssh|scp|cargo|go|rustc|zig) " "$l" && ! grep -q "^tar -xzf" "$l" && [ "$(grep -c "^tar -xf - -C $2/hm-m00/" "$l")" = 1 ]' _ "$L" "$H"
+check "D34 distro local: one import and one unregister, both of this run's hm-m02-<hex>, every -d and --terminate targets it, no --shutdown, no other distribution named" \
+    bash -c 'l=$1; [ "$(grep -c "^wsl --import " "$l")" = 1 ] && [ "$(grep -c "^wsl --unregister " "$l")" = 1 ] &&
+        n=$(sed -n "s/^wsl --import \([^ ]*\) .*/\1/p" "$l") && case "$n" in hm-m02-[0-9a-f]*) ;; *) exit 1 ;; esac &&
+        [ "$(grep "^wsl --unregister " "$l" | sed "s/^wsl --unregister //")" = "$n" ] &&
+        ! grep "^wsl -d " "$l" | grep -qv "^wsl -d $n " && ! grep "^wsl --terminate " "$l" | grep -qv "^wsl --terminate $n$" &&
+        ! grep -q -e "--shutdown" "$l" && ! grep -q "OwnerDistroSelftest\|OtherOwnerDistro" "$l"' _ "$L"
+check "D35 distro local: the order is import, prepare, scenario (as the non-root user), terminate, unregister; the registered set equals the one before" \
+    bash -c 'l=$1; a=$(grep -n "^wsl --import " "$l" | cut -d: -f1); b=$(grep -n "target-root.sh" "$l" | head -1 | cut -d: -f1); c=$(grep -n "scenario-ordinary-ssh.sh" "$l" | cut -d: -f1); d=$(grep -n "^wsl --unregister " "$l" | cut -d: -f1);
+        [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] && [ "$c" -lt "$d" ] && grep "scenario-ordinary-ssh.sh" "$l" | grep -q -- "-u hmtest " &&
+        cmp -s "$2" "$3" && grep -q "^registered-set-equal-to-before=yes$" "$4" && grep -q "^distribution-registered-after=no$" "$4" &&
+        [ "$(grep -c "^test .* \.\.\. ok$" "$5")" = 10 ]' _ "$L" "$S/wsl/registry" "$S/registry.before" "$O/host.txt" "$O/tests.txt"
+check "D36 distro local: the run directories and the distribution directory are removed, recorded with exit 0" \
+    bash -c '[ -z "$(ls -A "$1/hm-m00")" ] && [ -z "$(ls -A "$2/localappdata/hm-m00")" ] && grep -q "^exit 0: remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent" "$3"' _ "$H" "$W" "$O/commands.txt"
+check "D37 distro local: build.txt carries the verified sha256 in the build path's line format; commands.txt has mode=local and the prebuilt check as its own exit line" \
+    bash -c 'grep -qx "heimdall (Linux, for the disposable distribution) sha256: $1" "$2" && grep -q "^pinned image: " "$2" && grep -qx "mode=local" "$3" && grep -q "^exit 0: prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host ($1)$" "$3" && grep -q "^exit 0: local tar extraction of heimdall and the scenario files into WSL scratch$" "$3"' _ "$PBSUM" "$O/build.txt" "$O/commands.txt"
+check "D38 distro local: host.txt says mode=local (run inside the WSL controller by an agent on the PC; ADR-0007 §12.32 item 15) and keeps the other facts" \
+    bash -c 'h=$1; [ "$(head -1 "$h")" = "mode=local (run inside the WSL controller by an agent on the PC; ADR-0007 §12.32 item 15)" ] && grep -q "^wsl-version=" "$h" && grep -q "^distributions-before=2$" "$h" && grep -q "^rootfs-sha256=matches the pin$" "$h" && grep -q "^listeners-other=0$" "$h" && grep -q "^ssh-V=OpenSSH_9.9p9 (exit 0)$" "$h"' _ "$O/host.txt"
+check "D39 distro local: the local WSL user, host and home and the Windows user, host and home are redacted as on the ssh path" \
+    bash -c 'grep -qx "observation leak home=<wslhome> user=<wsluser> host=<wslhost> winuser=<winuser> winhost=<winhost> winhome=<winhome>" "$1"' _ "$O/tests.txt"
+check "D40 distro local: ...none of them nor the controller distribution is in any artifact; the canary and leak scans ran and passed" \
+    bash -c '! grep -q "OwnerDistroSelftest\|OtherOwnerDistro" "$1" && grep -q "^exit 0: canary-prefix scan" "$2" && grep -q "^exit 0: leak scan" "$2"' _ "$L" "$O/commands.txt"
+check "D41 distro local: ...and no saved file holds the WSL or Windows user, host or home" \
+    none_of "$O" "OwnerDistroSelftest" "OtherOwnerDistro" "$H" "wslfixturehost" "FIXTUREHOST" "fixtureuser" "$REAL_USER"
+check "D42 distro local: no elevation, no sudo, no ssh-agent state" log_lacks '^(sudo|doas|su|ssh-agent|ssh-add) '
+
+# Refusals happen before anything is created.
+base_env=()
+local_distro_world distro-local-no-binary
+extra_env+=(HM_PREBUILT_SHA256="$PBSUM")
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D43 distro local: no HM_PREBUILT_HEIMDALL -> exit 3" is_n "$rc" 3
+check "D44 distro local: ...and nothing is created, no tool called" nothing_created
+local_distro_world distro-local-no-digest
+extra_env+=(HM_PREBUILT_HEIMDALL="$PB")
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D45 distro local: no HM_PREBUILT_SHA256 -> exit 3" is_n "$rc" 3
+check "D46 distro local: ...and nothing is created, no tool called" nothing_created
+local_distro_world distro-local-not-a-file
+base_env=("${extra_env[@]}")
+extra_env=("${base_env[@]}" HM_PREBUILT_HEIMDALL="$S/prebuilt" HM_PREBUILT_SHA256="$PBSUM")
+harness "$S/repo" run-wsl-distro.sh "$O"
+rc_dir=$rc
+extra_env=("${base_env[@]}" HM_PREBUILT_HEIMDALL="$S/prebuilt/absent" HM_PREBUILT_SHA256="$PBSUM")
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D47 distro local: a directory, or a file that is not there -> exit 3" bash -c '[ "$1" = 3 ] && [ "$2" = 3 ]' _ "$rc_dir" "$rc"
+check "D48 distro local: ...and nothing is created, no tool called" nothing_created
+local_distro_world distro-local-wrong-digest
+base_env=("${extra_env[@]}")
+extra_env=("${base_env[@]}" HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$(printf '%064d' 7)")
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D49 distro local: a digest that differs from the file's -> exit 1, the file's digest named on stderr" \
+    bash -c '[ "$1" = 1 ] && grep -q "sha256 mismatch" "$2" && grep -q "$3" "$2"' _ "$rc" "$S/harness.log" "$PBSUM"
+check "D50 distro local: ...and nothing is created or imported" nothing_created
+extra_env=("${base_env[@]}" HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="not-a-digest")
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D51 distro local: a digest that is not 64 hex digits -> exit 2" is_n "$rc" 2
+check "D52 distro local: ...and nothing is created" nothing_created
+extra_env=("${base_env[@]}" HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$PBSUM" HM_BUILD_ONLY=1)
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D53 distro local: HM_LOCAL=1 with HM_BUILD_ONLY=1 builds nothing -> exit 2" is_n "$rc" 2
+check "D54 distro local: ...and nothing is created" nothing_created
+
+# Cleanup in local mode: a failing scenario step, and an unregister that failed (the EXIT trap).
+local_distro_world distro-local-scenario-fails
+extra_env+=(HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$PBSUM" HM_ST_SCENARIO_FAIL=a01_ordinary_scp_without_f)
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D55 distro local: a failing scenario step -> nonzero exit, a FAILED line, the distribution unregistered, the directories removed" \
+    bash -c '[ "$1" != 0 ] && grep -q "^test a01_ordinary_scp_without_f \.\.\. FAILED$" "$2" && cmp -s "$3" "$4" && [ -z "$(ls -A "$5/hm-m00")" ] && [ -z "$(ls -A "$6/localappdata/hm-m00")" ]' _ "$rc" "$O/tests.txt" "$S/wsl/registry" "$S/registry.before" "$H" "$W"
+local_distro_world distro-local-interrupted
+extra_env+=(HM_PREBUILT_HEIMDALL="$PB" HM_PREBUILT_SHA256="$PBSUM" HM_ST_UNREGISTER_FAIL=once)
+harness "$S/repo" run-wsl-distro.sh "$O"
+check "D56 distro local: an unregister that failed is retried by the EXIT trap, locally; the set ends equal, the directories are removed, no ssh" \
+    bash -c '[ "$1" != 0 ] && [ "$(grep -c "^wsl --unregister " "$2")" = 2 ] && cmp -s "$3" "$4" && grep -q "^cleanup unregister-exit=0$" "$5" && [ -z "$(ls -A "$6/hm-m00")" ] && [ -z "$(ls -A "$7/localappdata/hm-m00")" ] && ! grep -qE "^(ssh|scp) " "$2"' _ "$rc" "$L" "$S/wsl/registry" "$S/registry.before" "$O/commands.txt" "$H" "$W"
 
 # =============================================================================================
 # T: target-root.sh refusals (it needs root inside the disposable distribution)
