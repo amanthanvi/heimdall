@@ -240,8 +240,8 @@
       "blocked_rows": [
         {
           "platform": "windows-11 file-symlink reparse-point row",
-          "status": "blocked",
-          "blocked_on": "B10: Windows Developer Mode on the Windows PC, or one elevation, to create a file symbolic link"
+          "status": "deferred_with_decision",
+          "decision": "ADR-0007 §12.45: B10 is satisfied (Developer Mode on, observed read only 2026-11-08), but no Windows-native file-symlink reparse-point test exists; the test and its native run are deferred to M04 (native realization)"
         }
       ],
       "not_counted": "ADR-0007 §5.9 unsupported concurrency cases, incl. the ReplaceFileW internal window ([U]) and writes into the quarantine; stated, not counted.",

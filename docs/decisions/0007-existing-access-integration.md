@@ -4670,6 +4670,16 @@ exit-build binary (sha256 09d04d50…), and the second Windows run of 1e69263d w
    - **Confirm first:** the unit confirms the cause natively before fixing it, by running the same
      drivers with processing restored. If the cause is anything else, it escalates.
 
+### 12.45 Ruling on the Windows file-symlink row of A22 at the M02 exit (orchestrator, 2026-11-08)
+
+**Status:** `deferred_with_decision` (not counted). Handed to M04 (plan §5 M04, native realization), which is to add the test and run it natively.
+
+**What changed.** A22's Windows file-symlink reparse-point row was `blocked` on B10, "Windows Developer Mode, or one elevation". That input is now satisfied: the exit runs observed `developer-mode=on`, read only. A blocked status no longer describes the row.
+
+**What is missing.** The row has no Windows-native test. The projection tests that cover symlinked user files are `cfg(unix)`, and `integration_projection` has no tests on Windows. Heimdall's Windows handling of a reparse-point user file, which is manual mode under the §5.3 checks, therefore has unit coverage only, with no native row.
+
+**M04's task.** Add the test: a file symbolic link created in scratch under Developer Mode, standing in for the user configuration. It must assert manual mode, and that nothing is written through the link.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

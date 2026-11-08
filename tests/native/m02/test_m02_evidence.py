@@ -1296,10 +1296,13 @@ EXPECTED_CLAIMS = {
     "No remote authentication change, key export, or provider-policy bypass was needed": {"macos", "linux", "windows"},
     "Does not claim managed unattended access until M03": {"macos", "linux", "windows"},
 }
+# ADR-0007 §12.45: an owner-input row whose input is now satisfied but whose native test does not
+# exist yet is deferred with a recorded decision (not counted), never left "blocked".
+EXPECTED_DEFERRED_ROWS = {"A22": {"windows-11 file-symlink reparse-point row"}}
+
 EXPECTED_BLOCKED_INPUTS = {
     "A01": {"B2", "B3", "B9"},
     "A11": {"B1", "B4", "B6"},
-    "A22": {"B10"},
     "A27": {"B5"},
     "A35": {"B1", "B4", "B9"},
     "A participant can connect without a mandatory work wrapper": {"B7"},
@@ -1359,14 +1362,21 @@ class RealFiles(unittest.TestCase):
 
     def test_blocked_rows_name_exactly_the_owner_inputs_of_section_4(self):
         seen = {}
+        deferred = {}
         for sid, sec in list(self.index["groups"].items()) + list(self.index["exit_claims"].items()):
             for row in sec.get("blocked_rows", []):
+                if row["status"] == "deferred_with_decision":
+                    self.assertRegex(row.get("decision", ""), r"^ADR-0007 §12\.\d+: \S", (sid, row))
+                    self.assertNotIn("blocked_on", row, (sid, row))
+                    deferred.setdefault(sid, set()).add(row["platform"])
+                    continue
                 self.assertEqual(row["status"], "blocked", (sid, row))
                 m = re.match(r"^(B\d+): \S", row.get("blocked_on", ""))
                 self.assertIsNotNone(m, f"{sid}: blocked row names no B-input: {row}")
                 seen.setdefault(sid, set()).add(m.group(1))
                 self.assertRegex(self.plan, rf"\| {m.group(1)}[ |]", f"{m.group(1)} is in m02-plan section 7")
         self.assertEqual(seen, EXPECTED_BLOCKED_INPUTS)
+        self.assertEqual(deferred, EXPECTED_DEFERRED_ROWS)
 
     def test_every_scenario_step_has_a_description_and_a_source_file(self):
         for name, sc in self.index["scenario_targets"].items():
@@ -1527,7 +1537,7 @@ class RealFiles(unittest.TestCase):
                 for r in rows:
                     if r.get("harness_gap_not_run") or r.get("no_applicable_test") or r.get("incomplete_run"):
                         self.assertNotIn(r["status"], ("verified", "blocked"), (sid, r["platform"]))
-                if sec.get("blocked_rows"):
+                if any(r["status"] == "blocked" for r in sec.get("blocked_rows", [])):
                     self.assertEqual(rec["status"], "blocked", f"{sid} has an owner-input row")
             t06 = [r for r in summary["groups"]["T06"]["rows"] if r["platform"].startswith("windows")][0]
             if t06_cli_runs_everywhere(inv):
