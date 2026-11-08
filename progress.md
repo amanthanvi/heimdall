@@ -904,3 +904,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Records (`m02-evidence.py --write`, aca07d0c): 8 verified (A21, A22, R-RT-05, adapter call bounds, R-SE-04, T06, no remote change, no unattended claim). 6 are blocked only on owner inputs: A01 (B2, B3, B9), A11 (B1, B4, B6), A27 (B5), A35 (B1, B4, B9), the no-mandatory-wrapper claim (B7), and the aggregate.
   - A22's Windows file-symlink row is `deferred_with_decision` to M04 (ADR-0007 §12.45): B10 is satisfied, but no native test exists.
 - Running: a documentation unit (the M02 exit record and the matrix's M02 rows), the PC scratch cleanup, and M03 wave 0.
+- **M02 is not exited.** The exit-record unit found Windows rows that read `verified` without their declared coverage having run:
+  - **A35:** no Windows test connects `ssh.exe`, `scp.exe` or `sftp.exe` to a server, so "fixture pipe agent × in-box ssh, Git, scp, sftp" is unproven. The transport tests are `cfg(unix)`.
+  - **R-SE-04:** host-key substitution is Unix-only.
+  - **Projection:** the projection integration binaries have no Windows tests, so the `ReplaceFileW` Git name transitions never ran.
+  - **A22:** the planned Windows junction test does not exist.
+  - **Account name:** `sys::account_name` is Unix-only, so §12.28 item 4 is not closed on Windows.
+  - **Review:** no independent review covers the wave-6w product fixes.
+  - **Why the tool missed it:** the generator counts only the tests that exist for a platform. A planned test that was never written is invisible to it.
+- The exit-record text is held (doc worktree t3-80823b54; `/tmp/hm-w6/patches/m02-exit-doc.patch`) until the gaps are closed.
+- Running:
+  - M02-W6-code-review (Codex Sol, the wave-6w product fixes);
+  - an audit of the declared Windows and WSL coverage against the tests that ran (Opus), proposing a case-index mechanism and the Windows fix units.
+- Lesson: the generator's `verified` means "every test that exists passed". Planned coverage needs its own required entries per platform, or a missing test reads as a pass.
