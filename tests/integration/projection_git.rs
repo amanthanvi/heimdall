@@ -14,16 +14,17 @@
 //!
 //! **Crashes** are in-process (the test hook panics; a fresh writer restarts from the
 //! durable receipts), as in `integration_projection`.
-#![cfg(unix)]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
     clippy::too_many_lines,
+    clippy::print_stderr,
     missing_docs
 )]
 
 use std::collections::BTreeMap;
+#[cfg(unix)]
 use std::os::unix::fs::MetadataExt as _;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
@@ -402,7 +403,8 @@ struct Fx {
 impl Fx {
     fn new() -> Fx {
         quiet_crashes();
-        let home = ScratchHome::new();
+        let mut home = ScratchHome::new();
+        canonical_home(&mut home);
         std::fs::create_dir(home.root.join("etc-ssh")).unwrap();
         let system = home.root.join("gitconfig-system");
         std::fs::write(&system, b"").unwrap();
@@ -438,7 +440,7 @@ impl Fx {
 
     /// The environment every Git query and process of the test gets.
     fn git_env(&self) -> Vec<(&'static str, String)> {
-        vec![
+        let mut vars = vec![
             ("HOME", self.home_dir().to_str().unwrap().to_owned()),
             (
                 "XDG_CONFIG_HOME",
@@ -448,7 +450,18 @@ impl Fx {
                 "GIT_CONFIG_SYSTEM",
                 self.system.to_str().unwrap().to_owned(),
             ),
-        ]
+        ];
+        if cfg!(windows) {
+            vars.push(("SystemRoot", std::env::var("SystemRoot").unwrap()));
+            vars.push((
+                "PATH",
+                std::env::join_paths([self.git.parent().unwrap(), ssh_client().parent().unwrap()])
+                    .unwrap()
+                    .into_string()
+                    .unwrap(),
+            ));
+        }
+        vars
     }
 
     fn config(&self) -> ProjectionConfig {
@@ -473,7 +486,7 @@ impl Fx {
                 },
                 ClientCandidate {
                     kind: ClientKind::Ssh,
-                    path: PathBuf::from("/usr/bin/ssh"),
+                    path: ssh_client(),
                     source: ClientSource::Path,
                     version: None,
                     sha256: None,
@@ -481,7 +494,7 @@ impl Fx {
                 },
             ],
         };
-        c.test.git_item_any_default = true;
+        c.test.git_item_any_default = cfg!(unix);
         c
     }
 
@@ -554,12 +567,17 @@ impl Fx {
     /// `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_SYSTEM`, this scratch Git, Heimdall's
     /// configuration directory as the writer uses it. No alias is evaluated.
     fn doctor(&self, queries: LocalQueries) -> DoctorReport {
-        let path = std::env::join_paths([
-            self.git.parent().unwrap(),
-            Path::new("/usr/bin"),
-            Path::new("/bin"),
-        ])
-        .unwrap();
+        let path = if cfg!(windows) {
+            std::env::join_paths([self.git.parent().unwrap(), ssh_client().parent().unwrap()])
+                .unwrap()
+        } else {
+            std::env::join_paths([
+                self.git.parent().unwrap(),
+                Path::new("/usr/bin"),
+                Path::new("/bin"),
+            ])
+            .unwrap()
+        };
         let mut vars: Vec<(std::ffi::OsString, std::ffi::OsString)> = vec![("PATH".into(), path)];
         vars.extend(
             self.git_env()
@@ -593,7 +611,7 @@ impl Fx {
             .then(|| String::from_utf8_lossy(&o.stdout).trim_end().to_owned())
     }
 
-    fn tree(&self) -> BTreeMap<String, (u64, Vec<u8>)> {
+    fn tree(&self) -> BTreeMap<String, (NativeId, Vec<u8>)> {
         let mut out = BTreeMap::new();
         for dir in [self.home_dir().to_path_buf(), self.home.config_dir.clone()] {
             walk(&dir, &dir.file_name().unwrap().to_string_lossy(), &mut out);
@@ -602,7 +620,7 @@ impl Fx {
     }
 }
 
-fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, (u64, Vec<u8>)>) {
+fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, (NativeId, Vec<u8>)>) {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return;
     };
@@ -616,7 +634,14 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, (u64, Vec<u8>)>) {
         if m.is_dir() {
             walk(&e.path(), &name, out);
         } else {
-            out.insert(name, (m.ino(), std::fs::read(e.path()).unwrap_or_default()));
+            #[cfg(unix)]
+            let identity = m.ino();
+            #[cfg(windows)]
+            let identity = identity_at(&e.path());
+            out.insert(
+                name,
+                (identity, std::fs::read(e.path()).unwrap_or_default()),
+            );
         }
     }
 }
@@ -718,6 +743,34 @@ fn git_item_not_offered_without_bundled_msys_default() {
     let fx = Fx::new();
     let mut c = fx.config();
     c.test.git_item_any_default = false;
+    #[cfg(windows)]
+    {
+        let plan = LocalProjection::new(c.clone())
+            .preview(&fx.spec(None), &PreviewIntent::Apply { include_git: true })
+            .unwrap();
+        assert_eq!(
+            plan.view.git.unwrap().applicability,
+            GitApplicability::Applicable,
+            "real Git for Windows bundled MSYS default is applicable"
+        );
+        let isolated_git = fx.home.root.join("without-msys").join("git.exe");
+        std::fs::create_dir(isolated_git.parent().unwrap()).unwrap();
+        std::fs::copy(&fx.git, &isolated_git).unwrap();
+        let path = std::env::join_paths([
+            isolated_git.parent().unwrap(),
+            ssh_client().parent().unwrap(),
+        ])
+        .unwrap()
+        .into_string()
+        .unwrap();
+        let mut vars = fx.git_env();
+        for (k, v) in &mut vars {
+            if *k == "PATH" {
+                v.clone_from(&path);
+            }
+        }
+        c.env = Env::from_vars(vars);
+    }
     let plan = LocalProjection::new(c)
         .preview(&fx.spec(None), &PreviewIntent::Apply { include_git: true })
         .unwrap();
@@ -854,7 +907,7 @@ fn git_include_applied_under_lock_and_rollback_restores_bytes() {
     assert!(applied_git(&r.items), "{r:?} {:?}", sink.kinds());
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
-        Some("'/usr/bin/ssh'")
+        Some(ssh_command().as_str())
     );
     assert!(!fx.lock().exists(), "the lock is released");
     assert!(leftovers(&fx).is_empty(), "{:?}", leftovers(&fx));
@@ -936,7 +989,7 @@ fn git_lock_held_by_git_is_git_config_locked_nothing_written() {
     let intent = fx.plan().intent();
     let before = std::fs::read(fx.global()).unwrap();
     write_lock(&fx.lock(), b"[user]\n\tname = Git is writing\n");
-    let lock = std::fs::symlink_metadata(fx.lock()).unwrap().ino();
+    let lock = identity_at(&fx.lock());
     let sink = Sink::default();
     let r = fx.writer().apply(&intent, &mut sink.clone()).unwrap();
     assert_eq!(
@@ -953,11 +1006,7 @@ fn git_lock_held_by_git_is_git_config_locked_nothing_written() {
         before,
         "global file untouched"
     );
-    assert_eq!(
-        std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-        lock,
-        "lock untouched"
-    );
+    assert_eq!(identity_at(&fx.lock()), lock, "lock untouched");
     let k = step_of(&intent, FileRole::GitLock);
     assert!(
         sink.kinds().contains(&format!("{k}:settled")),
@@ -1014,7 +1063,7 @@ fn git_writer_during_heimdall_lock_fails_cleanly_nothing_lost() {
     );
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
-        Some("'/usr/bin/ssh'")
+        Some(ssh_command().as_str())
     );
     let email = fx.git(&["config", "--global", "--get", "user.email"]);
     assert_eq!(
@@ -1075,7 +1124,7 @@ fn git_crash_with_lock_holding_staged_or_displaced_reconciles() {
         assert!(applied_git(&out), "{point:?} {out:?} {:?}", sink.kinds());
         assert_eq!(
             fx.effective_ssh_command().as_deref(),
-            Some("'/usr/bin/ssh'")
+            Some(ssh_command().as_str())
         );
         assert!(leftovers(&fx).is_empty(), "{point:?} {:?}", leftovers(&fx));
     }
@@ -1501,7 +1550,7 @@ fn git_name_transitions_crash_at_every_point_reconciles() {
                     let hook = hook.crash(point, Some(step));
                     let mut config = fx.hooked(&hook);
                     let mut fresh = fx.config();
-                    if !birth {
+                    if !birth && cfg!(unix) {
                         config.test.identity = IdentitySource::WithoutBirth;
                         fresh.test.identity = IdentitySource::WithoutBirth;
                     }
@@ -1561,12 +1610,13 @@ fn git_name_transitions_crash_at_every_point_reconciles() {
                     if matches!(git, ItemOutcome::Held { .. }) {
                         // A held Git item keeps K at the lock (its release is due only
                         // once every other step is final); nothing else is asserted.
-                    } else if birth {
+                    } else if birth || cfg!(windows) {
                         assert!(!lock_left, "{label}");
                     } else {
                         assert_eq!(lock_left, k_at_lock_at_crash, "{label}");
                     }
-                    if !birth && lock_left && !matches!(git, ItemOutcome::Held { .. }) {
+                    if !birth && cfg!(unix) && lock_left && !matches!(git, ItemOutcome::Held { .. })
+                    {
                         // K4: the lock is never moved or removed without a birth time.
                         let bytes = std::fs::read(fx.lock()).unwrap();
                         assert_eq!(bytes, holder_bytes(&intent), "{label}");
@@ -1644,7 +1694,7 @@ fn git_lock_occupied_by_holder_until_settlement() {
             }
         });
         let mut config = fx.hooked(&hook);
-        if !birth {
+        if !birth && cfg!(unix) {
             config.test.identity = IdentitySource::WithoutBirth;
         }
         let r = apply_or_crash(config, &intent, &Sink::default())
@@ -1687,10 +1737,7 @@ fn git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed() {
         let intent = fx.plan().intent();
         let before = std::fs::read(fx.global()).unwrap();
         write_lock(&fx.lock(), &foreign(&fx, &intent));
-        let lock = (
-            std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-            std::fs::read(fx.lock()).unwrap(),
-        );
+        let lock = (identity_at(&fx.lock()), std::fs::read(fx.lock()).unwrap());
         let sink = Sink::default();
         let r = fx.writer().apply(&intent, &mut sink.clone()).unwrap();
         assert!(matches!(
@@ -1699,10 +1746,7 @@ fn git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed() {
         ));
         assert_eq!(std::fs::read(fx.global()).unwrap(), before);
         assert_eq!(
-            (
-                std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-                std::fs::read(fx.lock()).unwrap()
-            ),
+            (identity_at(&fx.lock()), std::fs::read(fx.lock()).unwrap()),
             lock
         );
         assert!(
@@ -1720,20 +1764,14 @@ fn git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed() {
         let sink = Sink::default();
         assert!(apply_or_crash(fx.hooked(&hook), &intent, &sink).is_none());
         write_lock(&fx.lock(), &foreign(&fx, &intent));
-        let lock = (
-            std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-            std::fs::read(fx.lock()).unwrap(),
-        );
+        let lock = (identity_at(&fx.lock()), std::fs::read(fx.lock()).unwrap());
         let out = restart_with(fx.config(), &intent, &sink);
         assert!(
             matches!(git_outcome(&out), ItemOutcome::NotApplied { .. }),
             "{out:?}"
         );
         assert_eq!(
-            (
-                std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-                std::fs::read(fx.lock()).unwrap()
-            ),
+            (identity_at(&fx.lock()), std::fs::read(fx.lock()).unwrap()),
             lock
         );
         let staged = step_ref(&intent, FileRole::GitLock)
@@ -1756,20 +1794,17 @@ fn git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed() {
             let hook = Hook::new().crash(ReplacePoint::AfterLockClaim, Some(k));
             let mut config = fx.hooked(&hook);
             let mut fresh = fx.config();
-            if !birth {
+            if !birth && cfg!(unix) {
                 config.test.identity = IdentitySource::WithoutBirth;
                 fresh.test.identity = IdentitySource::WithoutBirth;
             }
             let sink = Sink::default();
             assert!(apply_or_crash(config, &intent, &sink).is_none());
-            if birth {
+            if birth || cfg!(windows) {
                 std::fs::remove_file(fx.lock()).unwrap();
                 write_lock(&fx.lock(), &foreign(&fx, &intent));
             }
-            let lock = (
-                std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-                std::fs::read(fx.lock()).unwrap(),
-            );
+            let lock = (identity_at(&fx.lock()), std::fs::read(fx.lock()).unwrap());
             let out = restart_with(fresh, &intent, &sink);
             assert!(
                 !applied_git(&out),
@@ -1777,10 +1812,7 @@ fn git_foreign_lock_with_exact_target_bytes_is_never_claimed_or_removed() {
                 sink.kinds()
             );
             assert_eq!(
-                (
-                    std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-                    std::fs::read(fx.lock()).unwrap()
-                ),
+                (identity_at(&fx.lock()), std::fs::read(fx.lock()).unwrap()),
                 lock,
                 "birth={birth}: the lock is never moved or removed"
             );
@@ -1937,7 +1969,7 @@ fn git_lock_lost_before_b_git_exchange_aborts_and_writes_nothing() {
         std::fs::write(fx.global(), b"[user]\n\tname = Scratch\n").unwrap();
         let intent = fx.plan().intent();
         let mut config = fx.config();
-        if !birth {
+        if !birth && cfg!(unix) {
             config.test.identity = IdentitySource::WithoutBirth;
         }
         let sink = Sink::default();
@@ -1981,7 +2013,7 @@ fn git_apply_releases_k_with_and_without_birth_time() {
             let k = step_of(&intent, FileRole::GitLock);
             let b = step_of(&intent, FileRole::GitInclude);
             let mut config = fx.config();
-            if !birth {
+            if !birth && cfg!(unix) {
                 config.test.identity = IdentitySource::WithoutBirth;
             }
             let sink = Sink::default();
@@ -2063,7 +2095,7 @@ fn git_restart_keeps_the_recovery_classifier_for_k() {
             let hook = Hook::new().crash(point, Some(step));
             let mut config = fx.hooked(&hook);
             let mut fresh = fx.config();
-            if !birth {
+            if !birth && cfg!(unix) {
                 config.test.identity = IdentitySource::WithoutBirth;
                 fresh.test.identity = IdentitySource::WithoutBirth;
             }
@@ -2075,12 +2107,8 @@ fn git_restart_keeps_the_recovery_classifier_for_k() {
                 sink.kinds()
             );
             assert_eq!(fx.lock().exists(), claimed, "{label}: K at the lock");
-            let lock = claimed.then(|| {
-                (
-                    std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-                    std::fs::read(fx.lock()).unwrap(),
-                )
-            });
+            let lock =
+                claimed.then(|| (identity_at(&fx.lock()), std::fs::read(fx.lock()).unwrap()));
             let out = restart_with(fresh, &intent, &sink);
             let kinds = sink.kinds();
             let label = format!("{label}: {kinds:?}");
@@ -2095,7 +2123,7 @@ fn git_restart_keeps_the_recovery_classifier_for_k() {
                     } if kept.iter().any(|e| e.name == ".gitconfig.lock")
                 )
             });
-            if claimed && !birth {
+            if claimed && !birth && cfg!(unix) {
                 // K4 by the recovery classifier: the lock is never moved or removed.
                 assert!(k4, "{label}");
                 assert!(
@@ -2110,10 +2138,7 @@ fn git_restart_keeps_the_recovery_classifier_for_k() {
                     "{label}"
                 );
                 assert_eq!(
-                    Some((
-                        std::fs::symlink_metadata(fx.lock()).unwrap().ino(),
-                        std::fs::read(fx.lock()).unwrap(),
-                    )),
+                    Some((identity_at(&fx.lock()), std::fs::read(fx.lock()).unwrap(),)),
                     lock,
                     "{label}: K left with its identity and bytes"
                 );
@@ -2346,7 +2371,7 @@ fn git_user_set_after_include_wins() {
     let _ = apply_git(&fx);
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
-        Some("'/usr/bin/ssh'")
+        Some(ssh_command().as_str())
     );
     assert!(
         fx.git(&["config", "--global", "core.sshCommand", "ssh -4"])
@@ -2362,6 +2387,7 @@ fn git_user_set_after_include_wins() {
 /// devbox's default) makes a plain `create_dir_all` produce 0775 directories. A fixture
 /// that must produce a directory the writer accepts creates it this way (§12.32 item
 /// 13: the test failed on the devbox for this reason and no other).
+#[cfg(unix)]
 fn create_owner_only_dir_all(path: &Path) {
     use std::os::unix::fs::DirBuilderExt as _;
     std::fs::DirBuilder::new()
@@ -2374,6 +2400,7 @@ fn create_owner_only_dir_all(path: &Path) {
 }
 
 /// `std::fs::set_permissions` with an exact mode.
+#[cfg(unix)]
 fn chmod(path: &Path, mode: u32) {
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
@@ -2383,6 +2410,13 @@ fn chmod(path: &Path, mode: u32) {
 /// `std::fs::write` of a new file is 0664 under a umask of 0002, which the writer
 /// refuses (ADR-0007 §5.3 step 2).
 fn write_private(path: &Path, bytes: &[u8]) {
+    #[cfg(windows)]
+    if !path.exists() {
+        use std::io::Write as _;
+        let mut file = heimdall_localenv::sys::create_owner_only_exclusive(path).unwrap();
+        file.write_all(bytes).unwrap();
+        return;
+    }
     std::fs::write(path, bytes).unwrap();
     chmod(path, 0o600);
 }
@@ -2403,7 +2437,7 @@ fn git_both_global_files_present_include_goes_to_first_read_file_and_later_user_
     );
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
-        Some("'/usr/bin/ssh'")
+        Some(ssh_command().as_str())
     );
     // A `git config --global` value (written to ~/.gitconfig) wins.
     assert!(
@@ -2454,29 +2488,33 @@ fn git_both_global_files_present_include_goes_to_first_read_file_and_later_user_
 #[test]
 fn git_global_file_or_directory_the_writer_would_refuse_is_not_applicable_and_ssh_still_applies() {
     type Setup = fn(&Fx);
-    let cases: [(&str, Setup); 6] = [
+    let cases: &[(&str, Setup)] = &[
+        #[cfg(unix)]
         ("xdg directory group-writable", |fx| {
             let xdg = fx.xdg_dir().join("git").join("config");
             create_owner_only_dir_all(xdg.parent().unwrap());
             write_private(&xdg, b"[user]\n\tname = Xdg\n");
             chmod(xdg.parent().unwrap(), 0o775);
         }),
+        #[cfg(unix)]
         ("xdg directory writable by others", |fx| {
             let xdg = fx.xdg_dir().join("git").join("config");
             create_owner_only_dir_all(xdg.parent().unwrap());
             write_private(&xdg, b"[user]\n\tname = Xdg\n");
             chmod(xdg.parent().unwrap(), 0o707);
         }),
+        #[cfg(unix)]
         ("home directory group-writable", |fx| {
             chmod(fx.home_dir(), 0o775);
         }),
+        #[cfg(unix)]
         ("global file group-writable", |fx| {
             chmod(&fx.global(), 0o664);
         }),
         ("global file a symlink", |fx| {
             let real = fx.home_dir().join("dotfiles-gitconfig");
             std::fs::rename(fx.global(), &real).unwrap();
-            std::os::unix::fs::symlink(&real, fx.global()).unwrap();
+            symlink_file(&real, &fx.global());
         }),
         ("global file hard-linked", |fx| {
             std::fs::hard_link(fx.global(), fx.home_dir().join("gitconfig-second-link")).unwrap();
@@ -2594,7 +2632,7 @@ fn git_xdg_created_after_apply_shadowed_value_reported() {
     write_private(&xdg, b"[core]\n\tsshCommand = ssh -q\n");
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
-        Some("'/usr/bin/ssh'")
+        Some(ssh_command().as_str())
     );
 
     let report = fx.doctor(LocalQueries::Enabled);
@@ -2607,7 +2645,7 @@ fn git_xdg_created_after_apply_shadowed_value_reported() {
     for needed in [
         own_origin.clone(),
         user_origin.clone(),
-        heimdall_localenv::git::value_digest("'/usr/bin/ssh'"),
+        heimdall_localenv::git::value_digest(&ssh_command()),
         heimdall_localenv::git::value_digest("ssh -q"),
     ] {
         assert!(message.contains(&needed), "{needed}: {message}");
@@ -2753,7 +2791,7 @@ fn git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present() 
     );
 
     // The verified client moved: P_git alone is updated, as the Git commit step.
-    let moved = "/opt/heimdall-fixture/bin/ssh";
+    let moved = MOVED_CLIENT;
     let writer = fx.writer_with_client(moved);
     let plan = writer.preview(&spec, &GIT_APPLY).unwrap();
     let git = plan.view.git.clone().unwrap();
@@ -2777,7 +2815,7 @@ fn git_reapply_after_apply_plans_an_update_instead_of_git_ssh_command_present() 
     assert!(applied_git(&r.items), "{r:?} {:?}", sink2.kinds());
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
-        Some("'/opt/heimdall-fixture/bin/ssh'"),
+        Some(format!("'{MOVED_CLIENT}'").as_str()),
         "Git now selects the moved client"
     );
     assert_ne!(std::fs::read(fx.p_git()).unwrap(), p_git_before);
@@ -2832,7 +2870,7 @@ fn git_user_value_added_after_apply_still_makes_the_item_not_applicable() {
         let spec = again(&fx, &spec, &intent, &sink);
         // Even with a client change, which would otherwise be an update.
         let plan = fx
-            .writer_with_client("/opt/heimdall-fixture/bin/ssh")
+            .writer_with_client(MOVED_CLIENT)
             .preview(&spec, &GIT_APPLY)
             .unwrap();
         let git = plan.view.git.clone().unwrap();
@@ -2889,7 +2927,7 @@ fn git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own() {
     std::fs::write(fx.p_git(), b"[core]\n\tsshCommand = edited\n").unwrap();
     let edited = std::fs::read(fx.p_git()).unwrap();
     let plan = fx
-        .writer_with_client("/opt/heimdall-fixture/bin/ssh")
+        .writer_with_client(MOVED_CLIENT)
         .preview(&spec, &GIT_APPLY)
         .unwrap();
     assert!(git_steps(&plan).is_empty(), "{:?}", git_steps(&plan));
@@ -2944,7 +2982,7 @@ fn git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own() {
     std::fs::write(fx.p_git(), b"[core]\n\tsshCommand = theirs\n").unwrap();
     std::fs::write(
         fx.global(),
-        format!("[include]\n\tpath = \"{}\"\n", fx.p_git().display()),
+        format!("[include]\n\tpath = \"{}\"\n", git_path(&fx.p_git())),
     )
     .unwrap();
     let plan = fx.plan();
@@ -2973,13 +3011,16 @@ fn git_p_git_edited_or_not_linked_by_b_git_is_never_taken_for_heimdalls_own() {
 #[test]
 fn git_rollback_over_a_global_file_the_writer_would_refuse_plans_nothing_for_git() {
     type Setup = fn(&Fx);
-    let cases: [(&str, Setup); 4] = [
+    let cases: &[(&str, Setup)] = &[
+        #[cfg(unix)]
         ("global file group-writable", |fx| {
             chmod(&fx.global(), 0o664)
         }),
+        #[cfg(unix)]
         ("global file writable by others", |fx| {
             chmod(&fx.global(), 0o606)
         }),
+        #[cfg(unix)]
         ("home directory group-writable", |fx| {
             chmod(fx.home_dir(), 0o775)
         }),
@@ -3083,7 +3124,8 @@ fn snapshot_names(dir: &Path, prefix: &str) -> Vec<String> {
 /// snapshot is accepted, kept byte for byte, and no second copy is made.
 #[test]
 fn the_git_snapshot_follows_the_same_rules_as_the_ssh_one() {
-    use std::os::unix::fs::{PermissionsExt as _, symlink};
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt as _;
     let original: &[u8] = b"[user]\n\tname = Scratch\n";
     let apply_with_state = |fx: &Fx, prepare: &dyn Fn(&Path)| {
         write_private(&fx.global(), original);
@@ -3107,7 +3149,7 @@ fn the_git_snapshot_follows_the_same_rules_as_the_ssh_one() {
         ("a symlink to a regular file", |b| {
             let real = b.parent().unwrap().join("real");
             write_private(&real, b"a bystander\n");
-            symlink(&real, b.join("gitconfig.fake.orig")).unwrap();
+            symlink_file(&real, &b.join("gitconfig.fake.orig"));
         }),
         ("a file with mode 0644", |b| {
             write_private(&b.join("gitconfig.fake.orig"), b"x\n");
@@ -3162,10 +3204,13 @@ fn the_git_snapshot_follows_the_same_rules_as_the_ssh_one() {
     );
     let seed = backups.join("gitconfig.20200102T030405Z.orig");
     assert_eq!(std::fs::read(&seed).unwrap(), b"an earlier original\n");
+    #[cfg(unix)]
     assert_eq!(
         std::fs::metadata(&seed).unwrap().permissions().mode() & 0o7777,
         0o600
     );
+    #[cfg(windows)]
+    assert_owner_only(&seed);
     assert_ne!(
         std::fs::read(fx.global()).unwrap(),
         original,
@@ -3282,7 +3327,7 @@ fn git_apply_records_the_file_b_git_was_written_into() {
 
     // An update of P_git alone: the commit names no file.
     let spec = again(&fx, &spec, &intent, &sink);
-    let writer = fx.writer_with_client("/opt/heimdall-fixture/bin/ssh");
+    let writer = fx.writer_with_client(MOVED_CLIENT);
     let plan = writer.preview(&spec, &GIT_APPLY).unwrap();
     assert_eq!(git_steps(&plan), vec![FileRole::GitManaged]);
     let update = Sink::default();
@@ -3537,7 +3582,10 @@ fn without_include_file(spec: &ProjectionSpec) -> ProjectionSpec {
     spec
 }
 
+#[cfg(unix)]
 const MOVED_CLIENT: &str = "/opt/heimdall-fixture/bin/ssh";
+#[cfg(windows)]
+const MOVED_CLIENT: &str = "C:/heimdall-fixture/bin/ssh.exe";
 
 /// The Git item of `spec` is applicable, and a preview with the verified client moved plans
 /// an update of P_git alone (the Git commit step: no lock, no B_git) while one with nothing
@@ -3619,7 +3667,7 @@ fn git_reapply_finds_b_git_in_the_recorded_file_after_an_xdg_file_appears() {
     assert!(applied_git(&r.items), "{r:?} {:?}", sink2.kinds());
     assert_eq!(
         fx.effective_ssh_command().as_deref(),
-        Some("'/opt/heimdall-fixture/bin/ssh'"),
+        Some(format!("'{MOVED_CLIENT}'").as_str()),
         "Git now selects the moved client"
     );
     assert_ne!(std::fs::read(fx.p_git()).unwrap(), p_git_before);
@@ -3713,7 +3761,7 @@ fn git_reapply_trusts_the_recorded_file_and_follows_a_block_the_owner_moved() {
     let (spec, intent, sink) = applied_once(&fx);
     let with_block = std::fs::read_to_string(fx.global()).unwrap();
     let p_git = fx.p_git();
-    let copy = with_block.replace(p_git.to_str().unwrap(), "/nonexistent-fixture/gitconfig");
+    let copy = with_block.replace(&git_path(&p_git), "/nonexistent-fixture/gitconfig");
     assert_ne!(copy, with_block, "the copy names another file");
     let xdg = create_xdg(&fx, copy.as_bytes());
     let spec = again(&fx, &spec, &intent, &sink);
@@ -3812,10 +3860,7 @@ fn git_reapply_without_a_recorded_file_searches_both_global_files() {
     let xdg = create_xdg(&fx, b"[user]\n\tname = Xdg\n");
     let text = std::fs::read_to_string(fx.global()).unwrap();
     let edited = text
-        .replace(
-            fx.p_git().to_str().unwrap(),
-            "/nonexistent-fixture/gitconfig",
-        )
+        .replace(&git_path(&fx.p_git()), "/nonexistent-fixture/gitconfig")
         .replacen("\tpath = ", "\tpath =  ", 1);
     std::fs::write(fx.global(), &edited).unwrap();
     let tree = fx.tree();
@@ -3834,10 +3879,7 @@ fn git_reapply_without_a_recorded_file_searches_both_global_files() {
     // Two blocks, one in each file, neither reaching P_git: manual mode.
     let (fx, spec, _) = applied_with_xdg();
     let text = std::fs::read_to_string(fx.global()).unwrap();
-    let unreaching = text.replace(
-        fx.p_git().to_str().unwrap(),
-        "/nonexistent-fixture/gitconfig",
-    );
+    let unreaching = text.replace(&git_path(&fx.p_git()), "/nonexistent-fixture/gitconfig");
     std::fs::write(fx.global(), &unreaching).unwrap();
     create_xdg(&fx, unreaching.as_bytes());
     let tree = fx.tree();
@@ -3908,14 +3950,14 @@ fn git_reapply_without_a_recorded_file_searches_both_global_files() {
 fn git_rollback_in_the_shadowed_case_needs_a_decision() {
     use heimdall_contract::setup::ConsentReasonKind;
     type Setup = fn(&Fx);
-    struct Case {
+    struct Case<'a> {
         label: &'static str,
         before_apply: Setup,
         after_apply: Setup,
         queries: LocalQueries,
         /// The value Git selects after the apply and the owner's change (`None`: Git
         /// cannot read its configuration).
-        effective: Option<&'static str>,
+        effective: Option<&'a str>,
         decision: bool,
         /// The Git item's reason when a decision is needed.
         reason: ConsentReasonKind,
@@ -3943,17 +3985,17 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
     let unreadable_include: Setup = |fx| {
         let dir = fx.home.root.join("not-a-config-file");
         std::fs::create_dir(&dir).unwrap();
-        let text = format!("[include]\n\tpath = {}\n", dir.to_str().unwrap());
+        let text = format!("[include]\n\tpath = {}\n", git_path(&dir));
         create_xdg(fx, text.as_bytes());
     };
-    let heimdall = "'/usr/bin/ssh'";
+    let heimdall = ssh_command();
     let cases = [
         Case {
             label: "no user value",
             before_apply: home_file,
             after_apply: nothing,
             queries: LocalQueries::Enabled,
-            effective: Some(heimdall),
+            effective: Some(&heimdall),
             decision: false,
             reason: ConsentReasonKind::GitSelectionChanged,
             extra_env: &[],
@@ -3963,7 +4005,7 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
             before_apply: home_file,
             after_apply: xdg_value,
             queries: LocalQueries::Enabled,
-            effective: Some(heimdall),
+            effective: Some(&heimdall),
             decision: true,
             reason: ConsentReasonKind::GitSelectionChanged,
             extra_env: &[],
@@ -3973,7 +4015,7 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
             before_apply: home_file,
             after_apply: system_value,
             queries: LocalQueries::Enabled,
-            effective: Some(heimdall),
+            effective: Some(&heimdall),
             decision: true,
             reason: ConsentReasonKind::GitSelectionChanged,
             extra_env: &[],
@@ -3983,7 +4025,7 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
             before_apply: home_file,
             after_apply: xdg_value,
             queries: LocalQueries::Disabled,
-            effective: Some(heimdall),
+            effective: Some(&heimdall),
             decision: true,
             reason: ConsentReasonKind::GitSelectionChanged,
             extra_env: &[],
@@ -4026,7 +4068,7 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
             before_apply: home_file,
             after_apply: xdg_value,
             queries: LocalQueries::Enabled,
-            effective: Some(heimdall),
+            effective: Some(&heimdall),
             decision: true,
             reason: ConsentReasonKind::GitSelectionChanged,
             extra_env: &[
@@ -4109,4 +4151,366 @@ fn git_rollback_in_the_shadowed_case_needs_a_decision() {
         );
         assert_eq!(fx.tree(), tree, "{}: a preview writes nothing", case.label);
     }
+}
+
+#[cfg(windows)]
+fn chmod(path: &Path, mode: u32) {
+    use heimdall_testkit::win;
+    if matches!(mode, 0o600 | 0o700) {
+        win::set_owner_only(path).unwrap();
+        return;
+    }
+    assert!(matches!(mode, 0o644 | 0o400));
+    let sid = win::current_user_sid().unwrap();
+    let (option, grant) = if mode == 0o644 {
+        ("/grant", "*S-1-1-0:(R)".to_owned())
+    } else {
+        ("/grant:r", format!("*{sid}:(R)"))
+    };
+    let icacls = PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/icacls.exe");
+    let out = std::process::Command::new(icacls)
+        .arg(path)
+        .args([option, &grant])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "scratch snapshot ACL mutation failed");
+}
+
+#[cfg(windows)]
+fn assert_owner_only(path: &Path) {
+    assert!(
+        heimdall_testkit::win::is_owner_only(path).unwrap(),
+        "exact protected owner-only DACL required"
+    );
+}
+
+#[cfg(windows)]
+fn create_owner_only_dir_all(path: &Path) {
+    let mut missing = Vec::new();
+    let mut next = path;
+    while !next.exists() {
+        missing.push(next.to_path_buf());
+        next = next.parent().expect("existing scratch ancestor");
+    }
+    std::fs::create_dir_all(path).unwrap();
+    for dir in missing.iter().rev() {
+        chmod(dir, 0o700);
+        assert_owner_only(dir);
+    }
+    assert_owner_only(path);
+}
+
+fn ssh_client() -> PathBuf {
+    if cfg!(windows) {
+        find_program("ssh").expect("in-box ssh on harness PATH")
+    } else {
+        PathBuf::from("/usr/bin/ssh")
+    }
+}
+
+fn ssh_command() -> String {
+    format!("'{}'", ssh_client().to_str().unwrap().replace('\\', "/"))
+}
+
+fn canonical_home(home: &mut ScratchHome) {
+    #[cfg(windows)]
+    {
+        use heimdall_localenv::fs::canonical_path;
+        home.root = canonical_path(&home.root).unwrap();
+        home.git_home = canonical_path(&home.git_home).unwrap();
+        home.ssh_dir = canonical_path(&home.ssh_dir).unwrap();
+        home.config_dir = canonical_path(&home.config_dir).unwrap();
+        home.state_dir = canonical_path(&home.state_dir).unwrap();
+        home.user_config = canonical_path(&home.user_config).unwrap();
+    }
+    #[cfg(not(windows))]
+    let _ = home;
+}
+
+fn symlink_file(target: &Path, link: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(target, link).unwrap();
+}
+
+#[cfg(unix)]
+type NativeId = u64;
+#[cfg(windows)]
+type NativeId = heimdall_domain::projection::FileIdentity;
+
+fn identity_at(path: &Path) -> NativeId {
+    #[cfg(unix)]
+    {
+        std::fs::symlink_metadata(path).unwrap().ino()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        let file = std::fs::OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(0x0020_0000)
+            .open(path)
+            .unwrap();
+        heimdall_localenv::sys::handle_identity(&file).unwrap()
+    }
+}
+
+fn git_path(path: &Path) -> String {
+    let text = path.to_str().unwrap();
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.to_owned()
+    }
+}
+
+/// M2-T02: no cached preview or existing global file is needed by a new writer.
+#[test]
+fn fresh_writer_creates_absent_global_git_config() {
+    let fx = Fx::new();
+    std::fs::remove_file(fx.global()).unwrap();
+    assert!(!fx.global().exists());
+    let plan = fx.plan();
+    let intent = plan.intent();
+    let step = step_ref(&intent, FileRole::GitInclude);
+    assert_eq!(step.base, Base::Absent);
+    assert_eq!(
+        plan.view.git.as_ref().unwrap().applicability,
+        GitApplicability::Applicable
+    );
+    let sink = Sink::default();
+    // A different writer consumes only the durable intent.
+    let applied = LocalProjection::new(fx.config())
+        .apply(&intent, &mut sink.clone())
+        .unwrap();
+    assert!(applied_git(&applied.items));
+    assert_eq!(
+        Sha256Hex::of(&std::fs::read(fx.global()).unwrap()),
+        target_bytes_digest(step)
+    );
+    assert_eq!(
+        fx.effective_ssh_command().as_deref(),
+        Some(ssh_command().as_str())
+    );
+    #[cfg(unix)]
+    assert_eq!(
+        std::fs::metadata(fx.global()).unwrap().mode() & 0o777,
+        0o600
+    );
+    #[cfg(windows)]
+    assert_owner_only(&fx.global());
+    assert!(!fx.lock().exists());
+    assert!(leftovers(&fx).is_empty());
+    let rb = rollback_git(&fx, &intent, &sink);
+    let undone = LocalProjection::new(fx.config())
+        .apply(&rb.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(matches!(
+        git_outcome(&undone.items),
+        ItemOutcome::Applied { .. }
+    ));
+    // ADR-0007 section 5.6: rollback splices out B_git; it does not remove the user's global file.
+    assert_eq!(std::fs::read(fx.global()).unwrap(), b"");
+    assert!(fx.effective_ssh_command().is_none());
+    // Removal steps are the resource cleaner's, not LocalProjection::apply's.
+    let record = record_of(&fx, &intent, &sink);
+    let locator = record.items[&ProjectionItem::Git]
+        .files
+        .iter()
+        .find(|file| file.role == FileRole::GitManaged)
+        .unwrap();
+    heimdall_localenv::projection::cleaner::delete_locator(
+        &fx.config(),
+        locator,
+        intent.generation,
+    )
+    .unwrap();
+    assert!(!fx.p_git().exists());
+    assert!(leftovers(&fx).is_empty());
+}
+
+/// m02-plan U4: the configured spaced client is quoted in P_git, executed by Git's
+/// real MSYS shell locally, and used for an authenticated ls-remote through WU-0.
+#[cfg(windows)]
+#[test]
+fn git_spaced_client_path_is_quoted_and_runs() {
+    use heimdall_contract::provider::{EndpointKind, EndpointRef};
+    use heimdall_testkit::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig, FixtureKey};
+    use heimdall_testkit::home::sh_join;
+    use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
+    use std::process::{Command, Stdio};
+
+    let fx = Fx::new();
+    let spaced_dir = fx.home.root.join("client with spaces");
+    std::fs::create_dir(&spaced_dir).unwrap();
+    let spaced = spaced_dir.join("ssh.exe");
+    std::fs::copy(ssh_client(), &spaced).unwrap();
+    let mut config = fx.config();
+    let paths =
+        SshPaths::with_test_override(fx.home_dir().to_path_buf(), fx.home.root.join("etc-ssh"));
+    config.clients = heimdall_localenv::clients::resolve_clients(
+        &config.env,
+        &paths,
+        &ClientsConfig {
+            ssh: Some(spaced.clone()),
+            git: Some(fx.git.clone()),
+            ..ClientsConfig::default()
+        },
+        LocalQueries::Enabled,
+    );
+    let selected = config.clients.selected(ClientKind::Ssh).unwrap();
+    assert_eq!(selected.source, ClientSource::Configured);
+    assert_eq!(
+        heimdall_localenv::fs::canonical_path(&selected.path).unwrap(),
+        spaced
+    );
+
+    let plan = LocalProjection::new(config.clone())
+        .preview(&fx.spec(None), &GIT_APPLY)
+        .unwrap();
+    assert_eq!(
+        plan.view.git.as_ref().unwrap().applicability,
+        GitApplicability::Applicable
+    );
+    let intent = plan.intent();
+    let sink = Sink::default();
+    let applied = LocalProjection::new(config.clone())
+        .apply(&intent, &mut sink.clone())
+        .unwrap();
+    assert!(applied_git(&applied.items));
+    let command = fx.effective_ssh_command().unwrap();
+    assert_eq!(command, format!("'{}'", git_path(&spaced)));
+    let dirs: Vec<PathBuf> = std::env::split_paths(config.env.get("PATH").unwrap()).collect();
+    let msys = heimdall_localenv::clients::git_bundled_ssh(&dirs, Platform::Windows).unwrap();
+    let shell = msys.parent().unwrap().join("sh.exe");
+    let mut words: Vec<std::ffi::OsString> = vec!["-G".into()];
+    words.extend(fx.home.isolation_args());
+    words.push("quoting.example.invalid".into());
+    let local = Command::new(shell)
+        .args(["-c", &format!("{command} {}", sh_join(&words))])
+        .env_clear()
+        .envs(fx.git_env())
+        .env("ProgramData", &fx.home.root)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        local.status.success(),
+        "MSYS could not execute the rendered spaced client"
+    );
+    assert!(
+        String::from_utf8_lossy(&local.stdout)
+            .lines()
+            .any(|line| line == "hostname quoting.example.invalid")
+    );
+    eprintln!("observation spaced_client_local_quoting=passed");
+
+    // No host/account fallback: the fixture owns its disposable login account.
+    let key = FixtureKey::generate();
+    let fingerprint = key.fingerprint();
+    let provider = FakeAgent::start(
+        Endpoint::in_scratch(fx.home.scratch(), "spaced-client-provider").unwrap(),
+        FakeAgentConfig {
+            keys: vec![key.clone()],
+            mode: AgentMode::Normal,
+        },
+    );
+    let sshd = LoopbackSshd::start(
+        fx.home.scratch(),
+        SshdConfig {
+            authorized: vec![key.public().clone()],
+            ..SshdConfig::default()
+        },
+    )
+    .unwrap_or_else(|_| panic!("pending WU-0: loopback sshd is unavailable"));
+    let account = sshd
+        .account()
+        .expect("WU-0 harness provides the disposable account");
+    fx.home.trust_host_key(&sshd.host_key_line).unwrap();
+    let mut alias = fx.alias("spaced-client");
+    alias.hostname = sshd.host.clone();
+    alias.port = Some(sshd.port);
+    alias.account = AccountName::parse(account).expect("WU-0 account is valid");
+    alias.endpoint = Some(EndpointRef {
+        kind: EndpointKind::NamedPipe,
+        locator: provider.endpoint().locator().into_string().unwrap(),
+    });
+    fx.keys.0.lock().unwrap().insert(
+        alias.identity.as_str().to_owned(),
+        key.public_line_without_comment(),
+    );
+    // Update the SSH projection; the Git projection still holds the spaced command.
+    let spec = ProjectionSpec {
+        environment: fx.env.clone(),
+        aliases: vec![alias],
+        record: Some(record_of(&fx, &intent, &sink)),
+        consent: heimdall_domain::projection::ConsentRecord::default(),
+    };
+    let plan = LocalProjection::new(config.clone())
+        .preview(&spec, &PreviewIntent::Apply { include_git: false })
+        .unwrap();
+    let out = LocalProjection::new(config)
+        .apply(&plan.intent(), &mut Sink::default())
+        .unwrap();
+    assert!(applied_ssh(&out.items));
+    fx.home
+        .check_alias("spaced-client")
+        .expect("scratch identity guard accepts the projected alias");
+    let bare = fx.home.root.join("spaced-client.git");
+    let mut init = Command::new(&fx.git);
+    init.args(["init", "--bare", "--quiet"])
+        .arg(&bare)
+        .env_clear()
+        .envs(fx.git_env());
+    assert!(
+        init.output().unwrap().status.success(),
+        "create scratch bare repository"
+    );
+    let native = git_path(&bare);
+    let remote = format!("/mnt/{}/{}", native[..1].to_ascii_lowercase(), &native[3..]);
+    let isolation = sh_join(&fx.home.isolation_args());
+    let mut git = Command::new(&fx.git);
+    git.args(["ls-remote", &format!("spaced-client:{remote}")])
+        .env_clear()
+        .envs(fx.git_env())
+        .env("ProgramData", &fx.home.root)
+        // ADR-0007 §9: append isolation only to the exact rendered command.
+        .env("GIT_SSH_COMMAND", format!("{command} {isolation}"))
+        .env("GIT_SSH_VARIANT", "ssh")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("SSH_AUTH_SOCK", fx.home.decoy_agent().endpoint().locator())
+        .stdin(Stdio::null());
+    let out = git.output().unwrap();
+    assert!(
+        out.status.success(),
+        "authenticated spaced-client ls-remote failed"
+    );
+    assert!(
+        out.stdout.is_empty(),
+        "the empty bare repository has no refs"
+    );
+    assert!(
+        provider
+            .log()
+            .iter()
+            .any(|contact| contact.key_fp.as_deref() == Some(&fingerprint)),
+        "the projected provider key signed"
+    );
+    assert_eq!(
+        fx.home.decoy_agent().contact_count(),
+        0,
+        "no decoy messages"
+    );
+    assert_eq!(
+        fx.home.decoy_agent().connections(),
+        0,
+        "no decoy connections"
+    );
+    assert!(
+        sshd.accepted_log()
+            .iter()
+            .any(|accepted| accepted.fingerprint == fingerprint),
+        "the server accepted the fixture key"
+    );
 }

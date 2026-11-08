@@ -54,6 +54,9 @@ use crate::agent::{AgentMode, Endpoint, FakeAgent, FakeAgentConfig};
 pub struct Scratch {
     dir: tempfile::TempDir,
     next: AtomicU32,
+    /// The account of a harness sshd adopted in this scratch (`HM_FIXTURE_SSHD_USER`),
+    /// for the `User` line of [`ScratchHome::write_user_config`].
+    fixture_account: OnceLock<String>,
 }
 
 impl Scratch {
@@ -67,7 +70,14 @@ impl Scratch {
         Ok(Scratch {
             dir,
             next: AtomicU32::new(1),
+            fixture_account: OnceLock::new(),
         })
+    }
+
+    /// Record the account of a harness sshd adopted in this scratch (the first one
+    /// wins; every harness server of a run shares the account).
+    pub(crate) fn set_fixture_account(&self, name: &str) {
+        let _ = self.fixture_account.set(name.to_owned());
     }
 
     /// The root.
@@ -362,6 +372,10 @@ impl GuardScope {
         arg.eq_ignore_ascii_case("none")
             || matches!(arg, "SSH_AUTH_SOCK" | "$SSH_AUTH_SOCK" | "${SSH_AUTH_SOCK}")
             || crate::agent::is_fixture_pipe_name(arg)
+            || cfg!(windows)
+                && arg.strip_prefix("//./pipe/").is_some_and(|name| {
+                    crate::agent::is_fixture_pipe_name(&format!(r"\\.\pipe\{name}"))
+                })
             || self.is_scratch_path(arg)
     }
 }
@@ -631,10 +645,20 @@ impl ScratchHome {
 
     /// Write the scratch user configuration (replaces its content).
     ///
+    /// When a harness sshd that names its account (`HM_FIXTURE_SSHD_USER`; the WSL sshd
+    /// of the Windows runs) was started in this scratch before the write, the text is
+    /// followed by `Host *` / `User <account>`: last in the file, so it applies only
+    /// where nothing earlier sets `User` (the first obtained value wins, F1; Heimdall's
+    /// block is first, ADR-0007 D2). This is the only place the name goes; never a
+    /// client's command line (ADR-0007 §9 item 1). Otherwise `text` is written as is.
+    ///
     /// # Errors
     /// The write fails.
     pub fn write_user_config(&self, text: &str) -> io::Result<()> {
-        fs::write(&self.user_config, text)
+        match self.scratch.fixture_account.get() {
+            Some(account) => fs::write(&self.user_config, with_fixture_account(text, account)),
+            None => fs::write(&self.user_config, text),
+        }
     }
 
     /// Append a known-hosts line (for example [`crate::sshd::LoopbackSshd::host_key_line`]).
@@ -817,6 +841,23 @@ impl Default for ScratchHome {
     fn default() -> Self {
         ScratchHome::new()
     }
+}
+
+/// `text`, then `Host *` / `User <account>` in the text's own line ending (see
+/// [`ScratchHome::write_user_config`]).
+fn with_fixture_account(text: &str, account: &str) -> String {
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut out = String::with_capacity(text.len() + account.len() + 24);
+    out.push_str(text);
+    if !text.is_empty() && !text.ends_with('\n') {
+        out.push_str(eol);
+    }
+    out.push_str("Host *");
+    out.push_str(eol);
+    out.push_str("    User ");
+    out.push_str(account);
+    out.push_str(eol);
+    out
 }
 
 /// The remote command the guard's `Exec(Some(_))` evaluation uses: a name no fixture
@@ -1123,6 +1164,46 @@ mod tests {
     }
 
     #[test]
+    fn user_config_gets_the_fixture_account_last_and_only_when_set() {
+        let home = ScratchHome::new();
+        let text = "Host a\n    HostName 127.0.0.1\n";
+        // No harness account: written byte for byte.
+        home.write_user_config(text).unwrap();
+        assert_eq!(fs::read(&home.user_config).unwrap(), text.as_bytes());
+        home.scratch().set_fixture_account("wslfixture");
+        home.write_user_config(text).unwrap();
+        assert_eq!(
+            fs::read_to_string(&home.user_config).unwrap(),
+            format!("{text}Host *\n    User wslfixture\n")
+        );
+        // The first account recorded stays; a missing final newline and CRLF are kept.
+        home.scratch().set_fixture_account("other");
+        assert_eq!(
+            with_fixture_account("Host a", "wslfixture"),
+            "Host a\nHost *\n    User wslfixture\n"
+        );
+        assert_eq!(
+            with_fixture_account("Host a\r\n", "wslfixture"),
+            "Host a\r\nHost *\r\n    User wslfixture\r\n"
+        );
+        assert_eq!(
+            with_fixture_account("", "wslfixture"),
+            "Host *\n    User wslfixture\n"
+        );
+        home.write_user_config("").unwrap();
+        assert_eq!(
+            fs::read_to_string(&home.user_config).unwrap(),
+            "Host *\n    User wslfixture\n"
+        );
+        // The isolation arguments never carry it (ADR-0007 §9 item 1).
+        assert!(
+            home.isolation_args()
+                .iter()
+                .all(|a| !a.to_string_lossy().contains("wslfixture"))
+        );
+    }
+
+    #[test]
     fn version_parsing() {
         let v = parse_openssh_version("OpenSSH_10.3p1, LibreSSL 3.3.6").unwrap();
         assert_eq!((v.major, v.minor, v.portable), (10, 3, Some(1)));
@@ -1139,5 +1220,21 @@ mod tests {
         assert_eq!(ssh_config_quote(r#"C:\x "y""#), r#""C:\\x \"y\"""#);
         assert_eq!(ssh_option_path(Path::new("/tmp/a%b")), "/tmp/a%%b");
         assert_eq!(ssh_option_path(Path::new("/tmp/a b")), "\"/tmp/a b\"");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod rendered_fixture_pipe_guard {
+    use super::{GuardScope, Scratch};
+
+    #[test]
+    fn rendered_fixture_pipe_is_accepted_but_the_system_agent_is_refused() {
+        let scratch = Scratch::new().expect("scratch");
+        let scope = GuardScope::new(scratch.path()).expect("guard scope");
+        assert!(scope.is_fixture_agent(r"\\.\pipe\heimdall-hmtest-regression"));
+        assert!(scope.is_fixture_agent("//./pipe/heimdall-hmtest-regression"));
+        assert!(!scope.is_fixture_agent(r"\\.\pipe\openssh-ssh-agent"));
+        assert!(!scope.is_fixture_agent("//./pipe/openssh-ssh-agent"));
+        assert!(!scope.is_fixture_agent("//./pipe/heimdall-hmtest-"));
     }
 }

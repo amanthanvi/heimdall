@@ -13,16 +13,21 @@ Runs ON the PC (there is no remote route into WSL; §12.32 item 15). Its steps:
      so the owner's rustup, PATH and registry are never touched.
   3. Build every workspace test binary natively for x86_64-pc-windows-msvc (`cargo test
      --workspace --locked --no-run`), and heimdall.exe and hm-fixture-hook.exe.
-  4. Start the fixture sshd in WSL scratch on 127.0.0.1 through wsl.exe (non-root, per-run
-     host key; tests/native/m02/remote-lib.sh), its authorized-keys file and log in the Windows
-     scratch, and check that Windows reaches it (WSL's localhost forwarding; SSH banner).
+  4. Start the fixture sshds in WSL scratch on 127.0.0.1 through wsl.exe (non-root, per-run
+     host keys; tests/native/m02/remote-lib.sh): the default one (MaxAuthTries 6) and a strict
+     one (MaxAuthTries 3, ADR-0007 §12.47 item 8), each with its authorized-keys file and log
+     in the Windows scratch, and check that Windows reaches them (WSL's localhost forwarding;
+     SSH banner).
   5. Run every test binary (the e2e suites included) with --show-output, a per-binary timeout
      and its real exit code; the inherited agent, Git, Heimdall and fixture variables are
      removed, the in-box OpenSSH is first on PATH, HEIMDALL_E2E_BIN, HM_FIXTURE_HOOK,
-     HM_FIXTURE_SSHD_* and HM_REPO_ROOT (the clone) are set, TEMP/TMP are in scratch.
+     HM_FIXTURE_SSHD_* (HM_FIXTURE_SSHD_STRICT_* for the strict sshd, HM_FIXTURE_SSHD_USER for
+     the WSL account the sshds authenticate) and HM_REPO_ROOT (the clone) are set, TEMP/TMP
+     are in scratch.
   6. Record `ssh -V` (Windows in-box, Windows PATH-first, WSL), `git --version` (Windows, WSL;
      scratch HOME, GIT_CONFIG_NOSYSTEM=1), the toolchain and the OS.
-  7. Redact <winuser>, <winhost> (whole words), <winhome>, the WSL user, host and home, SIDs and
+  7. Redact <winuser>, <winhost> (whole words), <winhome>, the WSL user (also exported as
+     HM_FIXTURE_SSHD_USER), host and home, SIDs and
      non-loopback IPv4 addresses; mask any canary value and count it; scan for leaks.
   8. Write one results bundle: the per-test files m02-evidence.py reads (tests.txt with
      "### <target>" and "### <target> exit=N", commands.txt with "exit N: <command>", host.txt
@@ -227,13 +232,105 @@ function Get-CrlfFileCount([string[]]$Paths) {
 }
 
 # What the end-of-run stop step (`echo "stop=$(hm2_stop_recorded ...)"` in WSL) answered: the
-# word after `stop=` on the first such line (`none`, `stopped`, `gone`, `mismatch` or
-# `still-running`), or `no answer` when WSL gave no such line.
-function Get-SshdAtEnd([string]$Output) {
-    $line = ($Output -split "`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ -like 'stop=*' } | Select-Object -First 1
+# word after `<Key>=` (default `stop=`; the strict sshd's is `stopstrict=`) on the first such
+# line (`none`, `stopped`, `gone`, `mismatch` or `still-running`), or `no answer` when WSL gave
+# no such line.
+function Get-SshdAtEnd([string]$Output, [string]$Key = 'stop') {
+    $line = ($Output -split "`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ -like "$Key=*" } | Select-Object -First 1
     if ($null -eq $line) { return 'no answer' }
-    $word = ($line -replace '^stop=', '').Trim()
+    $word = $line.Substring($Key.Length + 1).Trim()
     if ($word) { return $word } else { return 'no answer' }
+}
+
+# ADR-0007 §12.47 item 8 (WU-0): the fixture sshds in WSL scratch. The default one serves
+# `MaxAuthTries 6`; the strict one, in its own directory with its own authorized-keys file and
+# log, serves `MaxAuthTries 3` (heimdall-testkit's LoopbackSshd selects it for a config with
+# max_auth_tries 3 and refuses any other value). Arguments: the WSL scratch directory, then the
+# Windows paths of the authorized-keys file and log of the default and of the strict sshd.
+function Get-SshdStartScript {
+    return @'
+set -u
+d=$1
+ak=$(wslpath -u "$2")
+lg=$(wslpath -u "$3")
+aks=$(wslpath -u "$4")
+lgs=$(wslpath -u "$5")
+hm2_sanitize_env >/dev/null
+if hm2_sshd_start "$d/sshd" "$ak" "$lg"; then
+    p1=$HM2_SSHD_PID
+    echo "port=$HM2_SSHD_PORT"
+    echo "hostkey=$HM2_SSHD_HOSTKEY"
+    p2=""
+    if hm2_sshd_start "$d/sshd-strict" "$aks" "$lgs" 3; then
+        p2=$HM2_SSHD_PID
+        echo "strictport=$HM2_SSHD_PORT"
+        echo "stricthostkey=$HM2_SSHD_HOSTKEY"
+    else
+        echo "strictwhy=$HM2_SSHD_WHY"
+    fi
+    echo "ready=1"
+    wait "$p1" $p2
+else
+    echo "why=$HM2_SSHD_WHY"
+fi
+'@
+}
+
+# The end-of-run stop of both sshds, each by its recorded PID, start time and configuration
+# path (hm2_stop_recorded). Argument: the WSL scratch directory.
+function Get-SshdStopScript {
+    return 'echo "stop=$(hm2_stop_recorded "$1/sshd")"; echo "stopstrict=$(hm2_stop_recorded "$1/sshd-strict")"'
+}
+
+# Whether the strict sshd is accounted for at the end: stopped or gone, or `none` (no record)
+# when it never reported starting.
+function Test-StrictSshdAtEndOk([string]$AtEnd, [bool]$Started) {
+    return ((Test-SshdAtEndOk $AtEnd) -or ($AtEnd -eq 'none' -and -not $Started))
+}
+
+# An account name the fixture can write as `User <name>` unquoted (heimdall-testkit
+# sshd::is_plain_account): ASCII letters, digits, `.`, `_`, `-`, not starting with `-`, at most
+# 64 characters.
+function Test-PlainAccount([string]$Name) {
+    return ($Name -cmatch '^(?!-)[A-Za-z0-9._-]{1,64}$')
+}
+
+# The test environment's HM_FIXTURE_SSHD_* variables: none unless the default sshd is reachable
+# from Windows; the strict sshd's only when it is reachable too; HM_FIXTURE_SSHD_USER (the WSL
+# account the non-root sshds authenticate) only when it is a plain account name.
+function Get-FixtureEnvironment([hashtable]$Fx, [bool]$Reachable, [bool]$StrictReachable, [string]$Ak, [string]$Log, [string]$AkStrict, [string]$LogStrict, [string]$Account) {
+    $e = @{}
+    if (-not $Reachable) { return $e }
+    $e['HM_FIXTURE_SSHD_HOST'] = '127.0.0.1'
+    $e['HM_FIXTURE_SSHD_PORT'] = $Fx['port']
+    $e['HM_FIXTURE_SSHD_HOST_KEY'] = $Fx['hostkey']
+    $e['HM_FIXTURE_SSHD_AUTHORIZED_KEYS'] = $Ak
+    $e['HM_FIXTURE_SSHD_LOG'] = $Log
+    if ($StrictReachable) {
+        $e['HM_FIXTURE_SSHD_STRICT_PORT'] = $Fx['strictport']
+        $e['HM_FIXTURE_SSHD_STRICT_HOST_KEY'] = $Fx['stricthostkey']
+        $e['HM_FIXTURE_SSHD_STRICT_AUTHORIZED_KEYS'] = $AkStrict
+        $e['HM_FIXTURE_SSHD_STRICT_LOG'] = $LogStrict
+    }
+    if (Test-PlainAccount $Account) { $e['HM_FIXTURE_SSHD_USER'] = $Account }
+    return $e
+}
+
+# The run's redaction rules (step 7). The WSL account is personal data like the Windows user
+# (ADR-0007 §12.47 item 8): it is exported to the tests as HM_FIXTURE_SSHD_USER, so it is
+# redacted as <wsluser> and leak-scanned in every saved file, as a substring.
+function Get-RunRedactionRules($Wv, [string]$Run, [string]$UserProfile, [string]$UserName, [string]$ComputerName, [string]$DnsHostName) {
+    $w = if ($Wv) { $Wv } else { @{} }
+    return @(
+        (New-RedactionRule $UserProfile '<winhome>'),
+        (New-RedactionRule ([string]$w['wslhome']) '<wslhome>'),
+        (New-RedactionRule $UserName '<winuser>'),
+        (New-RedactionRule ([string]$w['wsluser']) '<wsluser>'),
+        (New-RedactionRule $ComputerName '<winhost>' -Word),
+        (New-RedactionRule $DnsHostName '<winhost>' -Word),
+        (New-RedactionRule ([string]$w['wslhost']) '<wslhost>' -Word),
+        (New-RedactionRule $Run '<run>')
+    )
 }
 
 # Whether that answer proves no fixture sshd of this run is left running: only `stopped` (it
@@ -326,6 +423,41 @@ function Invoke-SelfTest([string]$OutDir) {
         (Get-CtrlCInheritedFact '{"rows":[]}').StartsWith('unknown') -and (Get-CtrlCInheritedFact '{"facts":"ignored"}').StartsWith('unknown') -and
         (Get-CtrlCInheritedFact (& $drvReport 'Ignored')).StartsWith('unknown') -and (Get-CtrlCInheritedFact (& $drvReport 'ignored; x')).StartsWith('unknown') -and
         (Get-CtrlCInheritedFact '[1]').StartsWith('unknown'))
+    # ADR-0007 §12.47 item 8 (WU-0): the account export, its redaction, the strict sshd.
+    $fxBoth = @{ port = '20001'; hostkey = 'ssh-ed25519 AAAAdefault'; strictport = '20002'; stricthostkey = 'ssh-ed25519 AAAAstrict'; ready = '1' }
+    $fe = Get-FixtureEnvironment $fxBoth $true $true 'S\ak' 'S\log' 'S\aks' 'S\logs' 'wslfixture'
+    Check 'U01 the fixture environment exports the WSL account as HM_FIXTURE_SSHD_USER, beside both sshds'' variables' (
+        $fe['HM_FIXTURE_SSHD_USER'] -ceq 'wslfixture' -and $fe['HM_FIXTURE_SSHD_HOST'] -eq '127.0.0.1' -and $fe['HM_FIXTURE_SSHD_PORT'] -eq '20001' -and
+        $fe['HM_FIXTURE_SSHD_AUTHORIZED_KEYS'] -eq 'S\ak' -and $fe['HM_FIXTURE_SSHD_LOG'] -eq 'S\log' -and
+        $fe['HM_FIXTURE_SSHD_STRICT_PORT'] -eq '20002' -and $fe['HM_FIXTURE_SSHD_STRICT_HOST_KEY'] -eq 'ssh-ed25519 AAAAstrict' -and
+        $fe['HM_FIXTURE_SSHD_STRICT_AUTHORIZED_KEYS'] -eq 'S\aks' -and $fe['HM_FIXTURE_SSHD_STRICT_LOG'] -eq 'S\logs' -and $fe.Count -eq 10)
+    $noUser = @('', '-oProxyCommand=x', 'a b', "a`nHost *", 'dom\u', ('a' * 65)) | ForEach-Object { (Get-FixtureEnvironment $fxBoth $true $true 'a' 'l' 'as' 'ls' $_).ContainsKey('HM_FIXTURE_SSHD_USER') }
+    $noStrict = Get-FixtureEnvironment $fxBoth $true $false 'a' 'l' 'as' 'ls' 'wslfixture'
+    Check 'U02 no account unless it is a plain name; no strict variables unless the strict sshd is reachable; nothing unless the default one is' (
+        -not ($noUser -contains $true) -and (Test-PlainAccount 'a.b_c-d') -and -not $noStrict.ContainsKey('HM_FIXTURE_SSHD_STRICT_PORT') -and
+        $noStrict['HM_FIXTURE_SSHD_USER'] -ceq 'wslfixture' -and (Get-FixtureEnvironment $fxBoth $false $true 'a' 'l' 'as' 'ls' 'wslfixture').Count -eq 0)
+    $runRules = Get-RunRedactionRules @{ wsluser = 'wslfixture'; wslhome = '/home/wslfixture'; wslhost = 'mac' } 'C:\S\hm-m02-local-0' 'C:\Users\fixtureuser' 'fixtureuser' 'FIXTUREHOST' 'fixturehost'
+    $fixOut = "Accepted publickey for wslfixture from 127.0.0.1 port 50000 ssh2: ED25519 SHA256:x`nwslfixture@127.0.0.1: Permission denied (publickey).`nUser WSLFIXTURE`n"
+    $pr = Protect-BundleFiles @{ 'tests.txt' = $fixOut } $runRules
+    Check 'R10 the run''s own rules redact the WSL account in fixture output (any case) and the leak scan finds it when left' (
+        $pr.Leaks -eq 0 -and -not ($pr.Files['tests.txt'] -match '(?i)wslfixture') -and $pr.Files['tests.txt'].Contains('for <wsluser> from 127.0.0.1') -and
+        $pr.Files['tests.txt'].Contains('<wsluser>@127.0.0.1') -and (Get-LeakCount @{ a = 'login as wslfixture' } $runRules) -eq 1 -and
+        (@($runRules | Where-Object { $_.Label -eq '<wsluser>' -and $_.Value -ceq 'wslfixture' -and -not $_.Word }).Count -eq 1))
+    $runRulesNoWsl = Get-RunRedactionRules $null 'C:\S\r' 'C:\Users\fixtureuser' 'fixtureuser' 'FIXTUREHOST' 'fixturehost'
+    Check 'R11 without WSL facts the run''s rules still redact the Windows user, home and host' (
+        (Invoke-Redaction 'C:\Users\fixtureuser on FIXTUREHOST' $runRulesNoWsl) -eq '<winhome> on <winhost>')
+    $ss = Get-SshdStartScript
+    $libPath = Join-Path $PSScriptRoot 'remote-lib.sh'
+    $lib = if (Test-Path -LiteralPath $libPath) { (Get-Content -LiteralPath $libPath -Raw) -replace "`r`n", "`n" } else { '' }
+    Check 'X01 the start script starts a second, strict sshd (MaxAuthTries 3) in its own directory with its own keys and log, and reports it before ready' (
+        $ss.Contains('hm2_sshd_start "$d/sshd" "$ak" "$lg"; then') -and $ss.Contains('hm2_sshd_start "$d/sshd-strict" "$aks" "$lgs" 3;') -and
+        $ss.IndexOf('echo "strictport=') -lt $ss.IndexOf('echo "ready=1"') -and $ss.IndexOf('echo "strictwhy=') -lt $ss.IndexOf('echo "ready=1"') -and
+        $lib.Contains('MaxAuthTries ${5:-6}') -and $lib.Contains('tries=${4:-6}') -and $lib.Contains('hm2_sshd_config "$port" "$dir" "$ak" 1 "$tries"'))
+    $stopOut2 = "stop=stopped`r`nstopstrict=gone`r`n"
+    Check 'X02 the stop step stops both sshds; the strict one counts as stopped only when stopped or gone, or with no record when it never started' (
+        (Get-SshdStopScript).Contains('hm2_stop_recorded "$1/sshd-strict"') -and (Get-SshdAtEnd $stopOut2) -eq 'stopped' -and (Get-SshdAtEnd $stopOut2 'stopstrict') -eq 'gone' -and
+        (Get-SshdAtEnd "stop=stopped`n" 'stopstrict') -eq 'no answer' -and (Test-StrictSshdAtEndOk 'gone' $true) -and (Test-StrictSshdAtEndOk 'none' $false) -and
+        -not (Test-StrictSshdAtEndOk 'none' $true) -and -not (Test-StrictSshdAtEndOk 'mismatch' $false) -and -not (Test-StrictSshdAtEndOk 'no answer' $true))
     $meta = [ordered]@{ commit = ('0' * 40); label = 'windows-selftest'; started_at = '2026-11-06T00:00:00Z'; finished_at = '2026-11-06T00:00:01Z'; exit = 101 }
     $b = New-Bundle $files $meta
     Check 'B01 the bundle is framed by its markers with the payload sha256' ($b.Text.StartsWith($BeginMarker + "`nsha256-gzip: ") -and $b.Text.TrimEnd().EndsWith($EndMarker))
@@ -399,6 +531,7 @@ $wslDir = ''
 $sshdProc = $null
 $sshdErr = $null
 $wv = @{}
+$fx = @{}
 $remoteLib = ''
 
 function Add-Command([int]$Rc, [string]$What) { [void]$commands.Append((Format-CommandLine $Rc $What)) }
@@ -589,25 +722,14 @@ try {
     Add-Fact 'git-version-wsl' $wv['wsl-git-version']
     $ak = Join-Path $sshdDir 'authorized_keys'
     $slog = Join-Path $sshdDir 'sshd.log'
+    $akStrict = Join-Path $sshdDir 'authorized_keys_strict'
+    $slogStrict = Join-Path $sshdDir 'sshd_strict.log'
     [System.IO.File]::WriteAllText($ak, '')
-    $start = $remoteLib + "`n" + @'
-set -u
-d=$1
-ak=$(wslpath -u "$2")
-lg=$(wslpath -u "$3")
-hm2_sanitize_env >/dev/null
-if hm2_sshd_start "$d/sshd" "$ak" "$lg"; then
-    echo "port=$HM2_SSHD_PORT"
-    echo "hostkey=$HM2_SSHD_HOSTKEY"
-    echo "ready=1"
-    wait "$HM2_SSHD_PID"
-else
-    echo "why=$HM2_SSHD_WHY"
-fi
-'@
+    [System.IO.File]::WriteAllText($akStrict, '')
+    $start = $remoteLib + "`n" + (Get-SshdStartScript)
     $psi = [System.Diagnostics.ProcessStartInfo]::new($wsl)
     if ($WslDistro) { $psi.ArgumentList.Add('-d'); $psi.ArgumentList.Add($WslDistro) }
-    foreach ($a in @('-e', 'bash', '-s', '--', $wslDir, $ak, $slog)) { $psi.ArgumentList.Add($a) }
+    foreach ($a in @('-e', 'bash', '-s', '--', $wslDir, $ak, $slog, $akStrict, $slogStrict)) { $psi.ArgumentList.Add($a) }
     $psi.UseShellExecute = $false
     $psi.RedirectStandardInput = $true
     $psi.RedirectStandardOutput = $true
@@ -630,23 +752,44 @@ fi
         if ($line -match '^([a-z]+)=(.*)$') { $fx[$Matches[1]] = $Matches[2].Trim() }
     }
     $fixtureEnv = @{}
-    if ($fx.ContainsKey('ready')) {
+    # Whether Windows reads an SSH banner from 127.0.0.1:<port> (WSL localhost forwarding).
+    $bannerOk = {
+        param($Port)
         $banner = 'unreachable'
         try {
             $c = [System.Net.Sockets.TcpClient]::new()
             $c.ReceiveTimeout = 5000
-            $c.Connect('127.0.0.1', [int]$fx['port'])
+            $c.Connect('127.0.0.1', [int]$Port)
             $buf = [byte[]]::new(8)
             $n = $c.GetStream().Read($buf, 0, 8)
             $banner = [System.Text.Encoding]::ASCII.GetString($buf, 0, $n)
             $c.Close()
         } catch { $banner = 'unreachable' }
-        if ($banner.StartsWith('SSH-2.0-')) {
+        $banner.StartsWith('SSH-2.0-')
+    }
+    if ($fx.ContainsKey('ready')) {
+        if (& $bannerOk $fx['port']) {
             Add-Fact 'fixture-sshd' 'listening on 127.0.0.1 in WSL scratch (non-root, per-run host key)'
             Add-Fact 'fixture-sshd-from-windows' 'reachable (WSL localhost forwarding, SSH banner read)'
             Add-Command 0 'fixture sshd in WSL scratch reachable from Windows on 127.0.0.1'
             Add-Fact 'fixture-sshd-account' $(if ($wv['wsluser'] -ieq $env:USERNAME) { 'same name as the Windows user' } else { 'differs from the Windows user (a non-root sshd authenticates only its own account)' })
-            $fixtureEnv = @{ HM_FIXTURE_SSHD_HOST = '127.0.0.1'; HM_FIXTURE_SSHD_PORT = $fx['port']; HM_FIXTURE_SSHD_HOST_KEY = $fx['hostkey']; HM_FIXTURE_SSHD_AUTHORIZED_KEYS = $ak; HM_FIXTURE_SSHD_LOG = $slog }
+            # ADR-0007 §12.47 item 8 (WU-0): the strict sshd (MaxAuthTries 3) and the account.
+            $strictOk = $fx.ContainsKey('strictport') -and (& $bannerOk $fx['strictport'])
+            if ($strictOk) {
+                Add-Fact 'fixture-sshd-strict' 'listening on 127.0.0.1 in WSL scratch (MaxAuthTries 3; HM_FIXTURE_SSHD_STRICT_*)'
+                Add-Command 0 'strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1'
+            } else {
+                $why = if ($fx.ContainsKey('strictwhy')) { $fx['strictwhy'] } elseif ($fx.ContainsKey('strictport')) { 'not reachable from Windows' } else { 'no answer' }
+                Add-Fact 'fixture-sshd-strict' "unavailable: $why; the MaxAuthTries 3 tests report the fixture unavailable"
+                Add-Command 1 'strict fixture sshd (MaxAuthTries 3) in WSL scratch reachable from Windows on 127.0.0.1'
+            }
+            if (Test-PlainAccount $wv['wsluser']) {
+                Add-Fact 'fixture-sshd-user' 'exported as HM_FIXTURE_SSHD_USER (the WSL account; redacted as <wsluser>)'
+            } else {
+                Add-Fact 'fixture-sshd-user' 'not exported: the WSL account is not a plain account name'
+                Add-Command 1 'HM_FIXTURE_SSHD_USER exported from the WSL account'
+            }
+            $fixtureEnv = Get-FixtureEnvironment $fx $true $strictOk $ak $slog $akStrict $slogStrict $wv['wsluser']
         } else {
             Add-Fact 'fixture-sshd-harness' 'failed: not reachable from Windows; the tests run without HM_FIXTURE_SSHD_*'
             Add-Command 1 'fixture sshd in WSL scratch reachable from Windows on 127.0.0.1'
@@ -716,7 +859,7 @@ fi
     # Each cleanup step reports its own failure and never stops the others or the bundle.
     try {
         if ($wslDir) {
-            $r = Invoke-Wsl ($remoteLib + "`n" + 'echo "stop=$(hm2_stop_recorded "$1/sshd")"' + "`n") @($wslDir) 120
+            $r = Invoke-Wsl ($remoteLib + "`n" + (Get-SshdStopScript) + "`n") @($wslDir) 120
             $atEnd = Get-SshdAtEnd $r.Output
             Add-Fact 'fixture-sshd-at-end' $atEnd
             # Only `stopped` (signalled and gone) or `gone` (already exited) leaves no sshd
@@ -725,6 +868,12 @@ fi
             $ended = Test-SshdAtEndOk $atEnd
             Add-Command $(if ($ended) { 0 } else { 1 }) 'wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run'
             if (-not $ended) { $overall = 1 }
+            # The strict sshd likewise; `none` is accepted only when it never reported starting.
+            $atEndStrict = Get-SshdAtEnd $r.Output 'stopstrict'
+            Add-Fact 'fixture-sshd-strict-at-end' $atEndStrict
+            $endedStrict = Test-StrictSshdAtEndOk $atEndStrict $fx.ContainsKey('strictport')
+            Add-Command $(if ($endedStrict) { 0 } else { 1 }) 'wsl.exe: the recorded strict fixture sshd is stopped (or already gone, or never started) at the end of the run'
+            if (-not $endedStrict) { $overall = 1 }
         }
         if ($null -ne $sshdProc) {
             if (-not $sshdProc.WaitForExit(30000)) { $sshdProc.Kill($true); $sshdProc.WaitForExit() }
@@ -748,16 +897,7 @@ fi
     if (-not $gone) { $overall = 1 }
 
     # 7 and 8. Redact, mask, scan, bundle.
-    $rules = @(
-        (New-RedactionRule $env:USERPROFILE '<winhome>'),
-        (New-RedactionRule $(if ($wv) { $wv['wslhome'] } else { '' }) '<wslhome>'),
-        (New-RedactionRule $env:USERNAME '<winuser>'),
-        (New-RedactionRule $(if ($wv) { $wv['wsluser'] } else { '' }) '<wsluser>'),
-        (New-RedactionRule $env:COMPUTERNAME '<winhost>' -Word),
-        (New-RedactionRule ([System.Net.Dns]::GetHostName()) '<winhost>' -Word),
-        (New-RedactionRule $(if ($wv) { $wv['wslhost'] } else { '' }) '<wslhost>' -Word),
-        (New-RedactionRule $run '<run>')
-    )
+    $rules = Get-RunRedactionRules $wv $run $env:USERPROFILE $env:USERNAME $env:COMPUTERNAME ([System.Net.Dns]::GetHostName())
     $raw = @{ 'tests.txt' = $tests.ToString(); 'commands.txt' = $commands.ToString(); 'host.txt' = $hostFacts.ToString();
         'build.txt' = $build.ToString(); 'skipped.txt' = $skipped.ToString(); 'canary-scan.txt' = '' }
     $p = Protect-BundleFiles $raw $rules

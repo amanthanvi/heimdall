@@ -35,7 +35,9 @@ hm2_sanitize_env() {
     done
     unset SSH_AUTH_SOCK SSH_AGENT_PID SSH_ASKPASS SSH_ASKPASS_REQUIRE DISPLAY \
         HM_FIXTURE_SSHD_HOST HM_FIXTURE_SSHD_PORT HM_FIXTURE_SSHD_HOST_KEY \
-        HM_FIXTURE_SSHD_AUTHORIZED_KEYS HM_FIXTURE_SSHD_LOG HM_FIXTURE_HOOK HM_REPO_ROOT
+        HM_FIXTURE_SSHD_AUTHORIZED_KEYS HM_FIXTURE_SSHD_LOG HM_FIXTURE_SSHD_USER \
+        HM_FIXTURE_SSHD_STRICT_PORT HM_FIXTURE_SSHD_STRICT_HOST_KEY \
+        HM_FIXTURE_SSHD_STRICT_AUTHORIZED_KEYS HM_FIXTURE_SSHD_STRICT_LOG HM_FIXTURE_HOOK HM_REPO_ROOT
     echo "inherited-ssh-auth-sock=$sock (unset for the run)"
     echo "inherited-git-variables=$n_git (unset for the run)"
     echo "inherited-heimdall-variables=$n_hm (unset for the run)"
@@ -137,8 +139,10 @@ hm2_start_time() {
     fi
 }
 
-# hm2_sshd_config PORT DIR AUTHKEYS PENALTIES: the fixture configuration (as in
-# heimdall-testkit's LoopbackSshd: loopback only, public keys only, restrict).
+# hm2_sshd_config PORT DIR AUTHKEYS PENALTIES [MAXAUTHTRIES]: the fixture configuration
+# (as in heimdall-testkit's LoopbackSshd: loopback only, public keys only, restrict).
+# MAXAUTHTRIES defaults to 6; the Windows local runner's strict sshd passes 3
+# (HM_FIXTURE_SSHD_STRICT_*; ADR-0007 §12.47 item 8, WU-0).
 hm2_sshd_config() {
     cat <<EOF
 ListenAddress 127.0.0.1
@@ -160,21 +164,22 @@ AllowAgentForwarding no
 AllowTcpForwarding no
 X11Forwarding no
 UseDNS no
-MaxAuthTries 6
+MaxAuthTries ${5:-6}
 LogLevel VERBOSE
 Subsystem sftp internal-sftp
 EOF
     [ "$4" = 1 ] && echo "PerSourcePenalties no"
 }
 
-# hm2_sshd_start DIR AUTHKEYS LOG: start the fixture sshd (config and host key in DIR,
-# created here with mode 700; authorized keys AUTHKEYS, created empty if absent; log
-# LOG). On success sets HM2_SSHD_PID, HM2_SSHD_PORT, HM2_SSHD_HOSTKEY ("<type> <base64>")
+# hm2_sshd_start DIR AUTHKEYS LOG [MAXAUTHTRIES]: start the fixture sshd (config and host
+# key in DIR, created here with mode 700; authorized keys AUTHKEYS, created empty if
+# absent; log LOG; MaxAuthTries MAXAUTHTRIES, default 6). On success sets HM2_SSHD_PID, HM2_SSHD_PORT, HM2_SSHD_HOSTKEY ("<type> <base64>")
 # and HM2_SSHD_START, writes DIR/state (pid, start time) and returns 0. Otherwise sets
 # HM2_SSHD_WHY (no path, no user) and returns 1.
 hm2_sshd_start() {
-    local dir=$1 ak=$2 log=$3 sshd attempt port pen i
+    local dir=$1 ak=$2 log=$3 tries=${4:-6} sshd attempt port pen i
     HM2_SSHD_PID="" HM2_SSHD_PORT="" HM2_SSHD_HOSTKEY="" HM2_SSHD_START="" HM2_SSHD_WHY=""
+    case "$tries" in '' | *[!0-9]* | 0*) HM2_SSHD_WHY="MaxAuthTries is not a positive number"; return 1 ;; esac
     sshd=$(hm2_sshd_bin) || { HM2_SSHD_WHY="sshd is not installed"; return 1; }
     [ "$(id -u)" != 0 ] || { HM2_SSHD_WHY="refusing to run the fixture sshd as root"; return 1; }
     mkdir -m 700 -- "$dir" 2>/dev/null || { HM2_SSHD_WHY="fixture directory exists or cannot be created"; return 1; }
@@ -185,11 +190,11 @@ hm2_sshd_start() {
     for attempt in 1 2 3 4 5; do
         port=$(hm2_port)
         pen=1
-        hm2_sshd_config "$port" "$dir" "$ak" 1 >"$dir/sshd_config"
+        hm2_sshd_config "$port" "$dir" "$ak" 1 "$tries" >"$dir/sshd_config"
         if ! "$sshd" -t -f "$dir/sshd_config" </dev/null >/dev/null 2>&1; then
             # Servers before OpenSSH 9.8 do not know PerSourcePenalties.
             pen=0
-            hm2_sshd_config "$port" "$dir" "$ak" 0 >"$dir/sshd_config"
+            hm2_sshd_config "$port" "$dir" "$ak" 0 "$tries" >"$dir/sshd_config"
             "$sshd" -t -f "$dir/sshd_config" </dev/null >/dev/null 2>&1 ||
                 { HM2_SSHD_WHY="sshd -t rejected the fixture configuration"; return 1; }
         fi

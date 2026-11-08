@@ -6,7 +6,9 @@
 //! owner-only socket, every process is stopped by its exact PID. No test reads the
 //! owner's `~/.ssh`, agents or keys. Unix-only cases need the host's OpenSSH
 //! (`ssh`, `sshd`, `ssh-agent`, `ssh-add`, `ssh-keygen`); Windows runs them through
-//! the native harness (m02-plan §4).
+//! the native harness (m02-plan §4). The real-login cases run on Windows with the
+//! in-box `ssh.exe` against the harness sshds in WSL (`HM_FIXTURE_SSHD_*`, the strict
+//! one for `MaxAuthTries 3`), logging in as `HM_FIXTURE_SSHD_USER`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -35,9 +37,9 @@ use heimdall_testkit::sshd::pick_loopback_port;
 use heimdall_testkit::agent::{
     AgentOptions, DisposableSshAgent, KeyConstraints, SignControl, StallPoint,
 };
-#[cfg(unix)]
 use heimdall_testkit::assert_no_canary;
-#[cfg(unix)]
+// The real-login cases run on Windows too, against the harness sshd in WSL
+// (HM_FIXTURE_SSHD_*; ADR-0007 §12.47 item 8, WU-0).
 use heimdall_testkit::sshd::{AcceptedKey, LoopbackSshd, SshdConfig};
 
 const T: Duration = Duration::from_secs(5);
@@ -1181,14 +1183,12 @@ fn default_identity_guard_covers_every_invocation_and_session_type() {
 
 // --- real logins through the FakeAgent ------------------------------------------------------
 
-#[cfg(unix)]
 struct Login {
     home: ScratchHome,
     sshd: LoopbackSshd,
     key: FixtureKey,
 }
 
-#[cfg(unix)]
 impl Login {
     fn new(max_auth_tries: u32) -> Login {
         let home = ScratchHome::new();
@@ -1235,7 +1235,6 @@ impl Login {
     }
 }
 
-#[cfg(unix)]
 #[test]
 fn fake_agent_round_trip_with_real_ssh_login() {
     let login = Login::new(6);
@@ -1258,6 +1257,24 @@ fn fake_agent_round_trip_with_real_ssh_login() {
         agents.push(agent);
     }
     login.home.write_user_config(&text).unwrap();
+    // The sshd's account (a harness sshd that names one: the WSL sshd of the Windows
+    // runs) reaches ssh only through the scratch user configuration, last in it; never
+    // the command line (ADR-0007 §9 item 1). Without one the text is written as is.
+    let written = fs::read_to_string(&login.home.user_config).unwrap();
+    match login.sshd.account() {
+        Some(account) => {
+            assert!(written.starts_with(&text));
+            assert!(written.ends_with(&format!("Host *\n    User {account}\n")));
+            assert!(
+                login
+                    .home
+                    .isolation_args()
+                    .iter()
+                    .all(|a| !a.to_string_lossy().contains(account))
+            );
+        }
+        None => assert!(written == text, "written as is"),
+    }
 
     // Normal: a real login, signed by the FakeAgent.
     let out = login.ssh("normal").output().unwrap();
@@ -1328,7 +1345,6 @@ fn fake_agent_round_trip_with_real_ssh_login() {
     assert!(login.home.decoy_agent().log().is_empty());
 }
 
-#[cfg(unix)]
 #[test]
 fn many_keys_exhaust_max_auth_tries_without_identities_only() {
     let login = Login::new(3);
@@ -1358,6 +1374,16 @@ fn many_keys_exhaust_max_auth_tries_without_identities_only() {
         "client reports the server's limit"
     );
     assert!(login.sshd.accepted_log().is_empty());
+    // The server refused exactly MaxAuthTries keys, the config's 3 (on Windows the strict
+    // harness sshd; a harness that ignored the setting would allow 6). None was the
+    // authorized key.
+    let failed = login.sshd.failed_publickey_log();
+    assert_eq!(failed.len(), 3, "MaxAuthTries 3 attempts");
+    assert!(
+        failed
+            .iter()
+            .all(|k| k.fingerprint != login.key.fingerprint())
+    );
     assert!(
         !agent
             .log()
@@ -1370,6 +1396,54 @@ fn many_keys_exhaust_max_auth_tries_without_identities_only() {
     assert!(out.status.success());
     assert_eq!(login.sshd.accepted_log().len(), 1);
     assert_eq!(login.home.decoy_agent().connections(), 0);
+}
+
+/// Fixtures on parallel test threads each log in with their own key and read only their
+/// own logins. A harness sshd is shared by the whole process (one authorized-keys file,
+/// one log), so this holds there only through the fixture's lease and log offset
+/// (ADR-0007 §12.47 item 8, WU-0; audit G-T1 items 3 and 4); local sshds are separate.
+#[test]
+fn parallel_fixtures_keep_their_own_keys_and_logins() {
+    let workers: Vec<_> = (0..3)
+        .map(|_| {
+            std::thread::spawn(|| {
+                let login = Login::new(6);
+                let identity = login.home.ssh_dir.join("authorized_fixture.pub");
+                let agent = fake(
+                    login.home.scratch(),
+                    "par",
+                    AgentMode::Normal,
+                    std::slice::from_ref(&login.key),
+                );
+                login
+                    .home
+                    .write_user_config(&login.alias("par", &agent, &identity, true))
+                    .unwrap();
+                // Two logins, apart: another thread's keys never replace these between.
+                let mut ok = Vec::new();
+                for _ in 0..2 {
+                    let out = login.ssh("par").output().unwrap();
+                    assert_no_canary(&String::from_utf8_lossy(&out.stderr));
+                    ok.push(out.status.success() && out.stdout == b"hm-fixture-login-ok\n");
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                let mine = AcceptedKey {
+                    key_type: "ED25519".to_owned(),
+                    fingerprint: login.key.fingerprint(),
+                };
+                (ok, login.sshd.accepted_log() == [mine.clone(), mine])
+            })
+        })
+        .collect();
+    for w in workers {
+        let (ok, own_log) = w.join().unwrap();
+        assert_eq!(
+            ok,
+            [true, true],
+            "each login succeeds with this fixture's key"
+        );
+        assert!(own_log, "the log shows exactly this fixture's two logins");
+    }
 }
 
 // --- properties (m02-plan §0: 256 cases, fixed seed, `PROPTEST_RNG_SEED` reproduces) ------

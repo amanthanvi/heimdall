@@ -4759,6 +4759,16 @@ The WSL rows are covered, apart from the WSL ext4 birth-time observation.
    - **Found by:** WU-3 natively (`e2e_setup_dispatch` `declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher`).
    - **The fix:** on Windows a record path is compared with `\` read as `/`. On Unix `\` is a file-name character, and the comparison stays exact.
    - **Tests:** `key_matches` unit tests cover both platforms. The native Windows proof is the e2e test above, at the next Windows run.
+2. **Test-only `unsafe` in `heimdall-testkit` is inventoried** (WU-0's escalation, option (a)). `overview.md` §9 lists `testkit/src/win.rs` (DACL helpers) and the `hook.rs` handle-inheritance site as test-only modules. `heimdall-testkit` is a dev-dependency only, so neither reaches a release build.
+3. **WU-0's other readings are accepted:**
+   - **The Unix Docker-fallback harness** refuses settings it cannot honour: a `MaxAuthTries` other than 6 or 3, and LogLevel INFO.
+   - **`run-windows.sh`'s remote mode** is unsupported, because its route into WSL no longer exists (§12.32 item 15). It neither starts the strict sshd nor exports `HM_FIXTURE_SSHD_USER`.
+   - **On Windows without the runner's sshd variables,** the login tests report `SshdUnavailable` instead of compiling out.
+4. **Windows DACLs for directories Heimdall creates (WU-2a's E-1).** The owner of the directory decides its DACL.
+   - **Heimdall's own private directories** (the backups directory, the quarantine, and anything else under its state or config directory) get the protected owner-only DACL `D:P(A;OICI;FA;;;<sid>)` when Heimdall creates them, as the quarantine already does. The backups directory lacked it, which is a product defect.
+   - **A `~/.ssh` directory or user configuration file that Heimdall creates** follows Win32-OpenSSH's own rule instead: the user, SYSTEM and Administrators only, and no other principal. An owner-only `~/.ssh` would stop a Windows sshd, which runs as SYSTEM, from reading `authorized_keys`.
+5. **The preview validates the quarantine in P's directory (WU-2a's E-2).** An invalid quarantine there makes the item manual mode at preview (§5.3 item 9). Before this, it was found only after the commit, where settlement failed with `Unavailable`.
+6. **The LF question in §4 is settled for Windows.** An LF-only rendered P loads in `OpenSSH_for_Windows_9.5p2` (`ssh -G`, `rendered_file_loads_on_target_client`), observed natively by WU-2a.
 
 ## 13. Consequences
 

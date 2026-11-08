@@ -674,16 +674,36 @@ fn git_multiplicity_through_includes_counts_each_origin() {
     assert!(origins.contains(&h.display("inc.conf")));
 }
 
-#[cfg(unix)]
 #[test]
 fn git_unreadable_include_makes_item_not_applicable() {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let h = GitHome::new();
     h.write(".gitconfig", "[include]\n\tpath = locked.conf\n");
     let locked = h.write("locked.conf", "[core]\n\tsshCommand = hidden\n");
+    #[cfg(unix)]
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    #[cfg(windows)]
+    let original_dacl = heimdall_testkit::win::dacl_sddl(&locked).unwrap();
+    #[cfg(windows)]
+    let denied = heimdall_testkit::win::deny_read(&locked).unwrap();
+    #[cfg(windows)]
+    assert!(std::fs::read(&locked).is_err(), "fixture is unreadable");
     let obs = h.observe();
+    #[cfg(unix)]
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
+    #[cfg(windows)]
+    {
+        denied.restore().unwrap();
+        assert!(
+            heimdall_testkit::win::dacl_sddl(&locked).unwrap() == original_dacl,
+            "fixture DACL restored exactly"
+        );
+        assert!(
+            std::fs::read(&locked).is_ok(),
+            "fixture readability restored"
+        );
+    }
     assert!(!obs.unreadable.is_empty());
     assert_eq!(obs.not_applicable_reason(), Some("git_config_unreadable"));
 

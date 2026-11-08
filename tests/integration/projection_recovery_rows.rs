@@ -43,7 +43,6 @@
 //! by the writer's own parse check of B_git's staged bytes in the Git worlds, with the
 //! scratch `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_SYSTEM` only (as
 //! `integration_projection_git` configures it).
-#![cfg(unix)]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -54,6 +53,7 @@
 )]
 
 use std::collections::BTreeMap;
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
@@ -423,6 +423,7 @@ enum Wk {
     /// [`Wk::Git`] with the test-only identity source without birth times (a Unix
     /// filesystem that records none; ADR-0007 F25, QR15): K at the lock is not
     /// provable.
+    #[cfg_attr(windows, allow(dead_code))]
     GitNoBirth,
 }
 
@@ -492,8 +493,22 @@ fn random<const N: usize>() -> [u8; N] {
 }
 
 fn write_mode(path: &Path, bytes: &[u8], mode: u32) {
-    std::fs::write(path, bytes).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    #[cfg(unix)]
+    {
+        std::fs::write(path, bytes).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    #[cfg(windows)]
+    {
+        use std::io::Write as _;
+        assert_eq!(mode, 0o600, "fixture uses owner-only files");
+        if path.exists() {
+            std::fs::write(path, bytes).unwrap();
+        } else {
+            let mut f = heimdall_localenv::sys::create_owner_only_exclusive(path).unwrap();
+            f.write_all(bytes).unwrap();
+        }
+    }
 }
 
 struct World {
@@ -518,14 +533,27 @@ fn config_for(home: &ScratchHome, kind: Wk) -> ProjectionConfig {
         if !system.exists() {
             std::fs::write(&system, b"").unwrap();
         }
-        c.env = Env::from_vars(vec![
+        let mut vars = vec![
             ("HOME", home.git_home.to_str().unwrap().to_owned()),
             (
                 "XDG_CONFIG_HOME",
                 home.git_home.join(".config").to_str().unwrap().to_owned(),
             ),
             ("GIT_CONFIG_SYSTEM", system.to_str().unwrap().to_owned()),
-        ]);
+        ];
+        if cfg!(windows) {
+            vars.push(("SystemRoot", std::env::var("SystemRoot").unwrap()));
+            let git = find_program("git").unwrap();
+            let ssh = ssh_client();
+            vars.push((
+                "PATH",
+                std::env::join_paths([git.parent().unwrap(), ssh.parent().unwrap()])
+                    .unwrap()
+                    .into_string()
+                    .unwrap(),
+            ));
+        }
+        c.env = Env::from_vars(vars);
         c.queries = LocalQueries::Enabled;
         c.clients = ClientInventory {
             candidates: vec![
@@ -539,7 +567,7 @@ fn config_for(home: &ScratchHome, kind: Wk) -> ProjectionConfig {
                 },
                 ClientCandidate {
                     kind: ClientKind::Ssh,
-                    path: PathBuf::from("/usr/bin/ssh"),
+                    path: ssh_client(),
                     source: ClientSource::Path,
                     version: None,
                     sha256: None,
@@ -547,7 +575,7 @@ fn config_for(home: &ScratchHome, kind: Wk) -> ProjectionConfig {
                 },
             ],
         };
-        c.test.git_item_any_default = true;
+        c.test.git_item_any_default = cfg!(unix);
     }
     c
 }
@@ -582,7 +610,8 @@ fn render(intent: &SetupIntent, role: FileRole) {
 
 impl World {
     fn new(kind: Wk) -> World {
-        let home = ScratchHome::new();
+        let mut home = ScratchHome::new();
+        canonical_home(&mut home);
         std::fs::create_dir(home.root.join("etc-ssh")).unwrap();
         let env = EnvironmentId::from_random_bytes(random());
         match kind {
@@ -894,11 +923,16 @@ fn blank() -> RecoveryState {
     }
 }
 
+#[cfg(unix)]
+type TreeInode = u64;
+#[cfg(windows)]
+type TreeInode = u128;
+
 /// One entry of a scratch tree: identity and content (a link's target).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Ent {
     dev: u64,
-    ino: u64,
+    ino: TreeInode,
     link: bool,
     bytes: Vec<u8>,
 }
@@ -911,6 +945,14 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Ent>) {
         let e = e.unwrap();
         let name = format!("{prefix}/{}", e.file_name().to_string_lossy());
         let m = std::fs::symlink_metadata(e.path()).unwrap();
+        #[cfg(unix)]
+        let (dev, ino) = (m.dev(), m.ino());
+        #[cfg(windows)]
+        let (dev, ino) = if m.is_dir() {
+            (0, 0)
+        } else {
+            entry_id(&e.path())
+        };
         if m.is_dir() {
             walk(&e.path(), &name, out);
         } else if m.file_type().is_symlink() {
@@ -918,8 +960,8 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Ent>) {
             out.insert(
                 name,
                 Ent {
-                    dev: m.dev(),
-                    ino: m.ino(),
+                    dev,
+                    ino,
                     link: true,
                     bytes: t.to_string_lossy().as_bytes().to_vec(),
                 },
@@ -928,8 +970,8 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Ent>) {
             out.insert(
                 name,
                 Ent {
-                    dev: m.dev(),
-                    ino: m.ino(),
+                    dev,
+                    ino,
                     link: false,
                     bytes: std::fs::read(e.path()).unwrap_or_default(),
                 },
@@ -939,7 +981,14 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Ent>) {
 }
 
 fn same_inode(id: &FileIdentity, e: &Ent) -> bool {
-    matches!(id, FileIdentity::Unix { dev, ino, .. } if *dev == e.dev && *ino == e.ino)
+    #[cfg(unix)]
+    {
+        matches!(id, FileIdentity::Unix { dev, ino, .. } if *dev == e.dev && *ino == e.ino)
+    }
+    #[cfg(windows)]
+    {
+        matches!(id, FileIdentity::Windows { volume, file_id } if *volume == e.dev && u128::from_le_bytes(*file_id) == e.ino)
+    }
 }
 
 // --- the store-backed sink -----------------------------------------------------------------
@@ -1118,8 +1167,14 @@ impl Bench<'_> {
     }
 
     fn aside(&self) -> PathBuf {
-        self.parent()
-            .join(self.step().staged_name.as_ref().unwrap())
+        let step = self.step();
+        if cfg!(windows) && StepShape::of(step) == StepShape::Replace {
+            let displaced = self.parent().join(step.displaced_name.as_ref().unwrap());
+            if displaced.exists() || std::fs::symlink_metadata(&displaced).is_ok() {
+                return displaced;
+            }
+        }
+        self.parent().join(step.staged_name.as_ref().unwrap())
     }
 
     fn qdir(&self) -> PathBuf {
@@ -1248,10 +1303,31 @@ impl Bench<'_> {
     fn swap(&mut self) -> &mut Self {
         let (p, a) = (self.path(), self.aside());
         if p.exists() || std::fs::symlink_metadata(&p).is_ok() {
-            let tmp = self.parent().join(".rows-swap");
-            std::fs::rename(&p, &tmp).unwrap();
-            std::fs::rename(&a, &p).unwrap();
-            std::fs::rename(&tmp, &a).unwrap();
+            #[cfg(windows)]
+            {
+                let staged = self.step().staged_name.as_ref().unwrap();
+                let displaced = self.step().displaced_name.as_ref().unwrap();
+                let replacement = a.file_name().unwrap().to_str().unwrap();
+                let backup = if replacement == staged {
+                    displaced
+                } else {
+                    staged
+                };
+                heimdall_localenv::sys::replace_file(
+                    &self.parent(),
+                    &self.name(),
+                    replacement,
+                    backup,
+                )
+                .unwrap();
+            }
+            #[cfg(unix)]
+            {
+                let tmp = self.parent().join(".rows-swap");
+                std::fs::rename(&p, &tmp).unwrap();
+                std::fs::rename(&a, &p).unwrap();
+                std::fs::rename(&tmp, &a).unwrap();
+            }
         } else {
             std::fs::rename(&a, &p).unwrap();
         }
@@ -1444,7 +1520,7 @@ impl Bench<'_> {
     }
 
     fn symlink(&mut self, path: &Path) -> &mut Self {
-        std::os::unix::fs::symlink("elsewhere", path).unwrap();
+        symlink_file(Path::new("elsewhere"), path);
         self
     }
 
@@ -1768,7 +1844,12 @@ fn foreign_kept_beside(d: &Done<'_>, occupied: bool) {
         .map(|(n, _)| n)
         .collect();
     assert_eq!(at.len(), 1, "{at:?}");
-    let staged = d.w.intent.files[0].staged_name.clone().unwrap();
+    let step = &d.w.intent.files[0];
+    let staged = if cfg!(windows) {
+        step.displaced_name.clone().unwrap()
+    } else {
+        step.staged_name.clone().unwrap()
+    };
     let name = at[0].rsplit('/').next().unwrap();
     assert!(
         !at[0].contains(".hm-quarantine/"),
@@ -2095,7 +2176,9 @@ fn file_vectors() -> Vec<Vector> {
 /// settlement block.
 fn lock_vectors() -> Vec<Vector> {
     use FileRole::GitLock as Gl;
-    use Wk::{Git, GitNoBirth};
+    use Wk::Git;
+    #[cfg(unix)]
+    use Wk::GitNoBirth;
     let locked = Out::NotApplied(Some(ConflictKind::GitConfigLocked));
     // ADR-0007 §12.20 item 2(b): an abort decided by recovery carries its row's reason,
     // recorded in `item.finished`: `git_config_locked` for K0 and K1 with a foreign
@@ -2331,6 +2414,7 @@ fn lock_vectors() -> Vec<Vector> {
         )
         .check(lock_untouched),
         // K that is not provable: without a birth time, K at the lock name is X.
+        #[cfg(unix)]
         sv(
             "K4",
             GitNoBirth,
@@ -3056,4 +3140,50 @@ fn recovery_table_rows_each_have_a_test_vector() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+fn ssh_client() -> PathBuf {
+    if cfg!(windows) {
+        find_program("ssh").expect("in-box ssh on harness PATH")
+    } else {
+        PathBuf::from("/usr/bin/ssh")
+    }
+}
+
+fn canonical_home(home: &mut ScratchHome) {
+    #[cfg(windows)]
+    {
+        use heimdall_localenv::fs::canonical_path;
+        home.root = canonical_path(&home.root).unwrap();
+        home.git_home = canonical_path(&home.git_home).unwrap();
+        home.ssh_dir = canonical_path(&home.ssh_dir).unwrap();
+        home.config_dir = canonical_path(&home.config_dir).unwrap();
+        home.state_dir = canonical_path(&home.state_dir).unwrap();
+        home.user_config = canonical_path(&home.user_config).unwrap();
+    }
+    #[cfg(not(windows))]
+    let _ = home;
+}
+
+fn symlink_file(target: &Path, link: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(target, link).unwrap();
+}
+
+#[cfg(windows)]
+fn entry_id(path: &Path) -> (u64, u128) {
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        let file = std::fs::OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(0x0020_0000)
+            .open(path)
+            .unwrap();
+        match heimdall_localenv::sys::handle_identity(&file).unwrap() {
+            FileIdentity::Windows { volume, file_id } => (volume, u128::from_le_bytes(file_id)),
+            _ => panic!("native Windows identity expected"),
+        }
+    }
 }

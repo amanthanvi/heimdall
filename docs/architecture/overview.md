@@ -326,6 +326,21 @@ third since M02, ADR-0007 §13):
    `fs::renameat_with` (m02-plan §6 P5; `dependencies.md`). The module's own table
    lists each call with its invariant.
 
+**Test-only modules** (`heimdall-testkit`, a dev-dependency only; never in a release build;
+ADR-0007 §12.48 item 2):
+
+* `crates/testkit/src/win.rs` (`#![allow(unsafe_code)]`, Windows only, feature `fixtures`;
+  wave 6x WU-0): the fixtures' DACL helpers.
+  * **Reading a DACL:** `GetFileSecurityW` with `ConvertSecurityDescriptorToStringSecurityDescriptorW`.
+  * **Setting one:** `SetFileSecurityW`. `SetNamedSecurityInfoW` writes `D:PAI`, which
+    Heimdall's own exact owner-only check refuses. A restore adds `AR`, so that the `AI`
+    flag is kept.
+  * **The current user's SID:** read from the token user, for `PrincipalRef::WindowsUser`.
+  * **Memory:** every `LocalAlloc`ed result is freed exactly once.
+* `crates/testkit/src/hook.rs`, at one `#[allow(unsafe_code)]` site, Windows only: the
+  fixture hook calls `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)` before it
+  spawns, as `runtime::platform::disinherit_standard_handles` does (wave 6w).
+
 Each call is wrapped in a safe function with its invariants documented; no `unsafe`
 leaves any of these modules. Unix IPC needs none (tokio provides `peer_cred`; std
 provides file locks and permission bits).

@@ -1030,6 +1030,8 @@ pub mod home;
 pub mod hook;
 #[cfg(feature = "fixtures")]
 pub mod sshd;
+#[cfg(all(windows, feature = "fixtures"))]
+pub mod win;
 // ADR-0007 §12.32 item 9: the e2e pty cases' session starts with the default terminal
 // signal dispositions, whatever the test runner ignored.
 #[cfg(all(unix, feature = "fixtures"))]
