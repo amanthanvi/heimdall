@@ -873,3 +873,8 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - rounds 3, 4 and 5: targeted Codex checks with probes, per-shell fencing in containers, and executable models.
   - Records: `tests/evidence/artifacts/review-m03-design/`.
   - M03 wave 0 starts after the M02 exit.
+- **M02 exit build 1e69263d** (pushed 2026-11-06). Native runs; artifacts under `tests/evidence/artifacts/m02/exit-1e69263d/`:
+  - macOS: run-macos.sh exit 0. check.sh every step 0: 1760 passed, 0 failed, 8 ignored. Observations: 85 passed. Canary 0, leak 0. Owner ~/.ssh and Git metadata unchanged.
+  - devbox: run-linux.sh exit 0, 1756 passed, 0 failed, 8 ignored. Canary 0, leak 0. ~/.ssh and Git unchanged; scratch removed.
+  - Windows, first attempt (`%LOCALAPPDATA%\hm-m02-exit-ae6d72f2`): exit 1 after 86 s. The build failed with "no space on device", so no tests ran. Cause: my wave-6w dev scratch `hm-m02-windev-c020e3be` had grown to 150 GB (six unit clones, each with its own build). Lesson: give units one shared target, or remove each unit's clone as soon as its patch is integrated.
+  - Windows, second attempt (2026-11-08): a T3 agent removes exactly the dev scratch and the two finished run directories, then reruns. C: had 367 GB free at that point.
