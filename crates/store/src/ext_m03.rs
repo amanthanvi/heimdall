@@ -25,8 +25,8 @@ use heimdall_contract::ids::{
 use heimdall_contract::issuer::{CaState, StoreKind};
 use heimdall_domain::enrollment::{
     EnrollmentEvent, EnrollmentEventKind, EnrollmentRecord, EnrollmentState, ForeignRemovalRecord,
-    InvalidTransition, PairPreference, ProjectionStatus, foreign_transition, in_foreign_subset,
-    marker_for, transition,
+    InvalidTransition, PairPreference, ProjectionStatus, RemovalOrigin, foreign_transition,
+    in_foreign_subset, marker_for, transition,
 };
 use heimdall_domain::issuance::{
     CaEvent, CredentialInstance, CredentialState, InvalidCaTransition, IssuanceEntry,
@@ -156,6 +156,37 @@ fn enrollment_identity_kept(old: &EnrollmentRecord, new: &EnrollmentRecord) -> b
         && old.line_sha256 == new.line_sha256
         && old.existing_access == new.existing_access
         && old.created_at == new.created_at
+}
+
+/// The persisted `removal_origin` rules shared by [`Txn::transition_enrollment`] and
+/// [`Txn::transition_foreign_removal`] (ADR-0008 §17.4 item 5, §17.10 item 2, §17.16):
+/// * a cancel or an absence result names the **persisted** origin (state, and for a
+///   cancel `ca_not_held_seen`); a record without one, or another origin, is refused;
+/// * absence history never downgrades: once the persisted origin has
+///   `ca_not_held_seen`, it is pinned, and an `updated` record that clears, resets or
+///   changes it is refused, whatever the event.
+fn removal_origin_kept(
+    stored: Option<&RemovalOrigin>,
+    updated: Option<&RemovalOrigin>,
+    kind: EnrollmentEventKind,
+) -> bool {
+    let named = match kind {
+        EnrollmentEventKind::OwnerCancelsManualRemoval {
+            origin,
+            ca_not_held_seen,
+        } => Some((origin, Some(ca_not_held_seen))),
+        EnrollmentEventKind::AbsenceVerified { origin } => Some((origin, None)),
+        _ => None,
+    };
+    if let Some((origin, seen)) = named {
+        let agrees = stored.is_some_and(|o| {
+            o.state == origin && seen.is_none_or(|seen| seen == o.ca_not_held_seen)
+        });
+        if !agrees {
+            return false;
+        }
+    }
+    !(stored.is_some_and(|o| o.ca_not_held_seen) && updated != stored)
 }
 
 fn slot_name(state: &SlotState) -> Result<&'static str> {
@@ -493,27 +524,15 @@ impl Txn<'_> {
             record: stored.facts(),
             kind,
         };
-        // A cancel or absence result returns to the **persisted** removal origin
-        // (§17.4 item 5): an event naming another origin is refused.
-        let named_origin = match kind {
-            EnrollmentEventKind::OwnerCancelsManualRemoval {
-                origin,
-                ca_not_held_seen,
-            } => Some((origin, Some(ca_not_held_seen))),
-            EnrollmentEventKind::AbsenceVerified { origin } => Some((origin, None)),
-            _ => None,
-        };
-        if let Some((origin, seen)) = named_origin {
-            let persisted = stored.removal_origin.as_ref();
-            let agrees = persisted.is_some_and(|o| {
-                o.state == origin && seen.is_none_or(|seen| seen == o.ca_not_held_seen)
-            });
-            if !agrees {
-                return Ok(Err(InvalidTransition {
-                    from: expected,
-                    event,
-                }));
-            }
+        if !removal_origin_kept(
+            stored.removal_origin.as_ref(),
+            updated.removal_origin.as_ref(),
+            kind,
+        ) {
+            return Ok(Err(InvalidTransition {
+                from: expected,
+                event,
+            }));
         }
         let next = match transition(expected, event) {
             Ok(next) => next,
@@ -1260,6 +1279,20 @@ impl Txn<'_> {
             return Err(codec::doc_error(
                 "a foreign removal transition keeps its ID and target",
             ));
+        }
+        // ADR-0008 §17.16 (R5): the same origin rules as `transition_enrollment`.
+        if !removal_origin_kept(
+            stored.removal_origin.as_ref(),
+            updated.removal_origin.as_ref(),
+            kind,
+        ) {
+            return Ok(Err(InvalidTransition {
+                from: expected,
+                event: EnrollmentEvent {
+                    record: stored.facts(),
+                    kind,
+                },
+            }));
         }
         let next = match foreign_transition(&stored, kind) {
             Ok(next) => next,

@@ -10,7 +10,10 @@
 //!   time through the [`AuthorizationTime`] seam), and the [`SignPermit`] carries the
 //!   absolute expiry: the earliest of the wall bound, the continuous budget's end, the
 //!   admission limits (the bound includes every applicable cutoff and every ancestor's
-//!   deadline) and the holder bound (`signing_holder_max` from this step's start).
+//!   deadline) and the holder bound (`signing_holder_max` from this step's start),
+//!   each an absolute tokio instant mapped through one paired clock observation taken
+//!   before the read (§17.16, R4): the read's latency never extends a bound, and a
+//!   bound that ended during the read refuses.
 //!   The permit's release check (`SignPermit::may_release`) repeats the pending mark,
 //!   the expiry on both clocks and safe time. The whole call is bounded by
 //!   `signature_authorization_timeout`.
@@ -290,21 +293,35 @@ impl Operations {
                 GateError::Pending => SignRefusal::NarrowingPending,
                 _ => SignRefusal::Unavailable,
             })?;
+        // ⟨§17.16, R4⟩ One paired observation at the step's start, before the
+        // admission read: the tokio instant and the operations clock (wall and
+        // continuous) read together. Every expiry is mapped onto the tokio clock through
+        // this pair, so the authorization's own latency never extends a bound, and the
+        // holder bound runs from here.
         let step_start = Instant::now();
+        let paired = self.inner.config.clock.observe();
         // The fresh read under the gate (dropping `shared` on refusal releases it).
         let auth = self.authorization_read(facts, gid).await?;
-        let now = Instant::now();
-        let safe_wall = auth.safe.wall();
-        let mut continuous = step_start + limits.signing_holder_max;
-        if let Some(end) = auth.budget_end {
-            continuous = continuous.min(now + end.saturating_sub(auth.safe.anchor.continuous));
+        if auth.safe.anchor.boot_id != paired.boot_id {
+            return Err(SignRefusal::TimeUncertain);
         }
-        let to_bound =
-            Duration::try_from(auth.bound.duration_since(safe_wall)).unwrap_or(Duration::ZERO);
-        continuous = continuous.min(now + to_bound);
-        let wall = auth
-            .bound
-            .min(plus(safe_wall, continuous.saturating_duration_since(now)));
+        // The instant at which the continuous clock reads `c`, and the wall clock `w`.
+        let at_continuous = |c: Duration| step_start + c.saturating_sub(paired.continuous);
+        let at_wall = |w: Timestamp| {
+            step_start + Duration::try_from(w.duration_since(paired.wall)).unwrap_or(Duration::ZERO)
+        };
+        let mut continuous = (step_start + limits.signing_holder_max).min(at_wall(auth.bound));
+        if let Some(end) = auth.budget_end {
+            continuous = continuous.min(at_continuous(end));
+        }
+        // A bound that ended while the authorization ran refuses here.
+        if continuous <= Instant::now() {
+            return Err(SignRefusal::DeadlinePassed);
+        }
+        let wall = auth.bound.min(plus(
+            paired.wall,
+            continuous.saturating_duration_since(step_start),
+        ));
         let time: Arc<dyn SafeTime> = Arc::new(AdmittedTime {
             clock: Arc::clone(&self.inner.config.clock),
             admitted: auth.safe.anchor.clone(),

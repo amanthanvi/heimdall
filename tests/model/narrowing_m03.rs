@@ -2734,3 +2734,527 @@ async fn mixed_gated_and_ungated_set_takes_full_protocol_for_whole_set() {
     }
     assert_eq!(lock.acked.lock().unwrap().len(), 1);
 }
+
+// =================================================================================
+// ⟨§17.16, R4; A2⟩ Authorization latency never extends the permit's expiry
+// =================================================================================
+
+/// A store fault hook that, once armed, holds the next transaction at `BeforeCommit`
+/// (after its clock observation) until the test releases it: the authorization's
+/// commit delay, in virtual time.
+#[derive(Default)]
+struct CommitPause {
+    armed: AtomicBool,
+    reached: Notify,
+    release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+}
+
+impl FaultHook for CommitPause {
+    fn at(&self, point: FaultPoint) -> FaultAction {
+        if point == FaultPoint::BeforeCommit && self.armed.swap(false, Ordering::SeqCst) {
+            self.reached.notify_one();
+            if let Some(rx) = self.release.lock().unwrap().take() {
+                let _ = rx.recv();
+            }
+        }
+        FaultAction::Continue
+    }
+}
+
+/// `world()` over a store whose fault hook is a [`CommitPause`].
+async fn latency_world() -> (W, Arc<CommitPause>) {
+    let pause = Arc::new(CommitPause::default());
+    let store = Arc::new(Store::open_in_memory(pause.clone()).unwrap());
+    seed(&store);
+    let clock = TokioClock::new();
+    let sync = ScriptedTimeSync::new(SyncStatus::Synchronized);
+    let fake = FakeCredentialAdapter::new(descriptor(false), vec![FakeStep::Prepare(outcome())]);
+    let limits = Limits::default();
+    let ops = Operations::start(config(&store, &clock, &sync, &fake, limits))
+        .await
+        .unwrap();
+    let hook = Arc::new(Hook::default());
+    ops.set_narrowing_hook(hook.clone());
+    let w = W {
+        store,
+        clock,
+        sync,
+        fake,
+        faults: Arc::new(Faults::default()),
+        limits,
+        ops,
+        hook,
+    };
+    (w, pause)
+}
+
+/// Admit `g` while its authorization transaction is held at commit for `delay` of
+/// virtual time, during which the wall clock also falls `wall_lag` behind.
+async fn admit_with_commit_delay(
+    w: &W,
+    pause: &CommitPause,
+    g: &EnsureData,
+    delay: Duration,
+    wall_lag: Duration,
+) -> Result<SignPermit, SignRefusal> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    *pause.release.lock().unwrap() = Some(rx);
+    pause.armed.store(true, Ordering::SeqCst);
+    let (ops, f) = (w.ops.clone(), facts(g));
+    let task = tokio::spawn(async move { ops.admit(&f).await });
+    pause.reached.notified().await;
+    tokio::time::advance(delay).await;
+    *w.clock.wall_back.lock().unwrap() += wall_lag;
+    tx.send(()).unwrap();
+    task.await.unwrap()
+}
+
+/// Move the clocks so that `left` of `g`'s continuous budget remains; returns the
+/// budget's end as a tokio instant.
+async fn budget_left(w: &W, g: &EnsureData, left: Duration) -> Instant {
+    let anchor = w
+        .store
+        .transaction(|tx| tx.grant_anchor(&g.grant_id))
+        .unwrap()
+        .expect("the grant's anchor");
+    let to_end = anchor.budget_end.saturating_sub(w.clock.continuous());
+    tokio::time::advance(to_end - left).await;
+    assert_eq!(anchor.budget_end.saturating_sub(w.clock.continuous()), left);
+    Instant::now() + left
+}
+
+/// R4 (§17.16): the permit's continuous expiry is an absolute instant from one paired
+/// observation taken before the admission read. A 500 ms authorization-commit delay
+/// and 500 ms of wall lag must not extend it: the release is refused once the
+/// **original** budget has ended, and a request whose budget ended during the
+/// transaction is refused at admit.
+#[tokio::test(start_paused = true)]
+async fn authorization_latency_never_extends_continuous_budget() {
+    let delay = Duration::from_millis(500);
+    let lag = Duration::from_millis(500);
+
+    // 800 ms of budget left when the request starts; the read takes 500 ms.
+    let (w, pause) = latency_world().await;
+    let g = w.root("lat-a").await;
+    w.gate(&g, &[]);
+    let end = budget_left(&w, &g, Duration::from_millis(800)).await;
+    let p = admit_with_commit_delay(&w, &pause, &g, delay, lag)
+        .await
+        .expect("admitted with 300 ms of budget left after the read");
+    assert!(
+        p.expires_at() <= end,
+        "the permit's continuous expiry is past the original budget end by {:?}",
+        p.expires_at() - end
+    );
+    tokio::time::advance(end - Instant::now() - Duration::from_millis(1)).await;
+    assert!(p.may_release(), "still within the original budget");
+    tokio::time::advance(Duration::from_millis(1)).await;
+    assert!(
+        !p.may_release(),
+        "released after the original continuous budget ended"
+    );
+    drop(p);
+
+    // 300 ms of budget left; it ends during the 500 ms read: refused at admit.
+    let (w, pause) = latency_world().await;
+    let g = w.root("lat-b").await;
+    w.gate(&g, &[]);
+    budget_left(&w, &g, Duration::from_millis(300)).await;
+    let r = admit_with_commit_delay(&w, &pause, &g, delay, lag).await;
+    assert_eq!(
+        r.err(),
+        Some(SignRefusal::DeadlinePassed),
+        "a budget that ended during the authorization read must refuse at admit"
+    );
+}
+
+// =================================================================================
+// §17.16 (code review of wave 0): R1, R2, R3
+// =================================================================================
+
+/// Wait until `kind` has marked, or `task` finished without needing to (the mutant).
+async fn marked_or_done<T>(w: &W, kind: NarrowingKind, task: &tokio::task::JoinHandle<T>) {
+    for _ in 0..100_000 {
+        if task.is_finished()
+            || w.hook
+                .at_of(|k, p| k == kind && matches!(p, NarrowingPoint::Marked { .. }))
+                .is_some()
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    panic!("neither marked nor finished");
+}
+
+/// R1: `set_lock_behavior` to `revoke_on_lock` narrows every grant of the profile
+/// before its commit. A permit admitted under `continue` while the source reads
+/// `locked` is refused at release once the change is under way, the commit waits for
+/// it, and afterwards the grant is refused (`session_not_unlocked`).
+#[tokio::test(start_paused = true)]
+async fn set_lock_behavior_revoke_on_lock_narrows_before_commit() {
+    let w = world().await;
+    let lock = TestLock::new(LockState::Locked);
+    w.ops.set_session_lock_source(lock.clone());
+    let g = w.root("a").await;
+    w.gate(&g, &[]);
+    let p = w.admit(&g).await.expect("`continue` admits while locked");
+    let ops = w.ops.clone();
+    let task = tokio::spawn(async move {
+        ops.policy(
+            &owner(),
+            PolicyAction::SetLockBehavior {
+                policy_id: policy_id(),
+                behavior: LockBehavior::RevokeOnLock,
+            },
+        )
+        .await
+        .map(|_| ())
+    });
+    marked_or_done(&w, NarrowingKind::Policy, &task).await;
+    assert!(
+        !p.may_release(),
+        "a permit admitted under `continue` is released after `revoke_on_lock` commits"
+    );
+    let dropped = Instant::now();
+    drop(p);
+    task.await.unwrap().unwrap();
+    let stored = w
+        .store
+        .transaction(|tx| tx.policy(&policy_id()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.lock_behavior, LockBehavior::RevokeOnLock);
+    let committed = w
+        .hook
+        .at_of(|k, p| k == NarrowingKind::Policy && matches!(p, NarrowingPoint::UnderGates { .. }))
+        .unwrap();
+    assert!(committed >= dropped, "the commit waited for the permit");
+    assert_eq!(
+        w.admit(&g).await.unwrap_err(),
+        SignRefusal::SessionNotUnlocked
+    );
+    assert!(w.report(NarrowingKind::Policy).seq.is_some());
+}
+
+/// R2: an environment-permission removal is a narrowing commit through
+/// `Operations::set_environment_permissions`: the old permit is refused at release
+/// before any tick, and the withdrawal commits with the removal.
+#[tokio::test(start_paused = true)]
+async fn environment_permission_removal_narrows_before_commit() {
+    let w = world().await;
+    let g = w.root("a").await;
+    w.gate(&g, &[]);
+    let p = w.admit(&g).await.unwrap();
+    let ops = w.ops.clone();
+    let task = tokio::spawn(async move {
+        ops.set_environment_permissions(
+            &env_id(),
+            EnvironmentPermissions {
+                automatic_activation: false,
+                managed_signing: true,
+                issuer_access: true,
+            },
+        )
+        .await
+        .map(|_| ())
+    });
+    // Any narrowing's mark, or the task's end.
+    for _ in 0..100_000 {
+        if task.is_finished()
+            || w.hook
+                .at_of(|_, p| matches!(p, NarrowingPoint::Marked { .. }))
+                .is_some()
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let committed_early = !w
+        .store
+        .transaction(|tx| tx.environment(&env_id()))
+        .unwrap()
+        .unwrap()
+        .permissions
+        .automatic_activation;
+    assert!(
+        !committed_early,
+        "the permission removal committed while the old permit could still be released"
+    );
+    assert!(
+        !p.may_release(),
+        "the old permit is released after the permission removal commits"
+    );
+    assert!(
+        w.hook
+            .at_of(|k, p| k == NarrowingKind::EnvironmentPermission
+                && matches!(p, NarrowingPoint::Marked { .. }))
+            .is_some(),
+        "the removal itself is the narrowing"
+    );
+    drop(p);
+    task.await.unwrap().unwrap();
+    let e = w
+        .store
+        .transaction(|tx| tx.environment(&env_id()))
+        .unwrap()
+        .unwrap();
+    assert!(!e.permissions.automatic_activation);
+    // No tick ran: the withdrawal committed with the removal.
+    assert_eq!(
+        w.tombstone(&g).unwrap().cause,
+        RevocationCause::AuthorityWithdrawn
+    );
+    assert!(w.admit(&g).await.is_err());
+    let r = w.report(NarrowingKind::EnvironmentPermission);
+    assert_eq!(r.gates_held, 1);
+    // Adding a permission back narrows nothing (the zero-gate commit, no marks).
+    let n = w.hook.reports().len();
+    w.ops
+        .set_environment_permissions(
+            &env_id(),
+            EnvironmentPermissions {
+                automatic_activation: true,
+                managed_signing: true,
+                issuer_access: true,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(w.hook.reports()[n].seq, None);
+}
+
+/// Two roots ordered A < B in the global order.
+async fn ordered_pair(w: &W) -> (EnsureData, EnsureData) {
+    let x = w.root("x").await;
+    let y = w.root("y").await;
+    if x.grant_id < y.grant_id {
+        (x, y)
+    } else {
+        (y, x)
+    }
+}
+
+/// R3, the reviewer's trace: an earlier narrowing marks B; a later one marks {A, B},
+/// takes A and must defer at B. The earlier one then grows to A. The later one has
+/// released A before deferring, so the earlier one takes A at once and finishes; the
+/// later one restarts in global order and takes A, then B. Both within the bound.
+#[tokio::test(start_paused = true)]
+async fn deferral_releases_held_gates_and_restarts_in_global_order() {
+    let w = world().await;
+    let (a, b) = ordered_pair(&w).await;
+    w.gate(&a, &[]);
+    w.gate(&b, &[]);
+    let start = Instant::now();
+    let mut earlier = w.gates().begin_narrowing([b.grant_id.clone()]);
+    earlier.acquire(&b.grant_id).await.unwrap();
+    let (gates, aid, bid) = (w.gates().clone(), a.grant_id.clone(), b.grant_id.clone());
+    let later = tokio::spawn(async move {
+        let mut n = gates.begin_narrowing([aid.clone(), bid.clone()]);
+        n.acquire_all([&aid, &bid]).await.unwrap();
+        (Instant::now(), n.held())
+    });
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    // The earlier narrowing grows onto A: round 1 marks it, releases every gate, and
+    // reacquires in global order (A, then B).
+    earlier.mark([a.grant_id.clone()]);
+    earlier.release_all();
+    let got = tokio::time::timeout(
+        Duration::from_secs(1),
+        earlier.acquire_all([&a.grant_id, &b.grant_id]),
+    )
+    .await;
+    assert!(
+        matches!(got, Ok(Ok(()))),
+        "the earlier narrowing waits for A, held by a later narrowing that defers to it"
+    );
+    let earlier_done = Instant::now();
+    earlier.finish();
+    let (later_done, held) = tokio::time::timeout(Duration::from_secs(60), later)
+        .await
+        .expect("the later narrowing completes")
+        .unwrap();
+    assert_eq!(
+        held,
+        vec![a.grant_id.clone(), b.grant_id.clone()],
+        "global order"
+    );
+    let terms = BoundTerms::of(&w.limits);
+    assert!(earlier_done - start <= terms.bound(2, 2, &[]));
+    assert!(later_done - start <= terms.h + terms.work(2, 2) + terms.work(2, 2));
+}
+
+/// R3 through two real `Operations::policy(Cutoff)` calls: the earlier cutoff waits
+/// for B's pre-mark permit; A is created after its first read; the later cutoff takes
+/// A and defers at B; the earlier one's re-read finds A and its round 1 needs A. Both
+/// commit, each within its derived bound, the later one counting the earlier.
+#[tokio::test(start_paused = true)]
+async fn two_real_policy_cutoffs_overlapping_commit_within_bound() {
+    let w = world().await;
+    // B is the highest of eight grant IDs (the other seven are ungated members of the
+    // profile, which only get marks), so a grant created later sorts before it with
+    // probability 8/9 per draw; 128 draws leave a failure probability below 1e-120.
+    let mut pool = Vec::new();
+    for i in 0..8 {
+        pool.push(w.root(&format!("pool{i}")).await);
+    }
+    let b = pool
+        .into_iter()
+        .max_by(|x, y| x.grant_id.cmp(&y.grant_id))
+        .unwrap();
+    w.gate(&b, &[]);
+    let p = w.admit(&b).await.unwrap();
+    let cutoff = |w: &W, mins: u64| {
+        let (ops, at) = (
+            w.ops.clone(),
+            plus(w.clock.wall(), Duration::from_secs(mins * 60)),
+        );
+        tokio::spawn(async move {
+            ops.policy(
+                &owner(),
+                PolicyAction::Cutoff {
+                    policy_id: policy_id(),
+                    at,
+                },
+            )
+            .await
+            .map(|_| ())
+        })
+    };
+    let first = cutoff(&w, 90);
+    w.hook.wait_marked(NarrowingKind::Cutoff).await;
+    // A: a grant created after the earlier cutoff's first read, sorting before B.
+    let mut a = None;
+    for i in 0..128 {
+        let c = w.root(&format!("cand{i}")).await;
+        if c.grant_id < b.grant_id {
+            a = Some(c);
+            break;
+        }
+    }
+    let a = a.expect("a grant sorting before B");
+    w.gate(&a, &[]);
+    let second = cutoff(&w, 60);
+    w.hook
+        .wait("the later mark", |l| {
+            l.iter()
+                .filter(|(_, _, p)| matches!(p, NarrowingPoint::Marked { .. }))
+                .count()
+                == 2
+        })
+        .await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    drop(p);
+    tokio::time::timeout(Duration::from_secs(120), async {
+        first.await.unwrap().unwrap();
+        second.await.unwrap().unwrap();
+    })
+    .await
+    .expect("both cutoffs commit (no deadlock)");
+    let reports: Vec<NarrowingReport> = w
+        .hook
+        .reports()
+        .into_iter()
+        .filter(|r| r.kind == NarrowingKind::Cutoff)
+        .collect();
+    assert_eq!(reports.len(), 2);
+    let (e, l) = (&reports[0], &reports[1]);
+    assert!(e.seq < l.seq);
+    assert!(e.rounds >= 1, "the earlier cutoff grew onto A: {e:?}");
+    assert!(l.earlier.iter().any(|x| Some(x.seq) == e.seq), "{l:?}");
+    for r in [e, l] {
+        assert!(r.elapsed <= r.bound, "{r:?}");
+    }
+}
+
+/// Commit `action` through `Operations::policy` while a permit for an active grant is
+/// held: the commit must not wait for it (no marks, no gate); the permit stays
+/// releasable and a fresh admission still succeeds.
+async fn commits_without_narrowing(w: &W, g: &EnsureData, action: PolicyAction) {
+    let p = w.admit(g).await.unwrap();
+    let ops = w.ops.clone();
+    let task = tokio::spawn(async move { ops.policy(&owner(), action).await.map(|_| ()) });
+    let done = tokio::time::timeout(Duration::from_secs(5), task).await;
+    assert!(
+        done.is_ok(),
+        "the policy commit waited for an in-flight permit (it was narrowed)"
+    );
+    done.unwrap().unwrap().unwrap();
+    assert!(
+        w.hook
+            .at_of(|_, p| matches!(p, NarrowingPoint::Marked { .. }))
+            .is_none(),
+        "no pending marks"
+    );
+    let r = w.report(NarrowingKind::Policy);
+    assert_eq!((r.seq, r.gates_held), (None, 0), "the no-gate commit");
+    assert!(p.may_release(), "the permit's release check still passes");
+    drop(p);
+    assert!(w.admit(g).await.is_ok(), "a fresh admission still succeeds");
+}
+
+/// §17.16 follow-up (ADR-0006 §13.6 item 1): a pause blocks only new activations; it
+/// does not narrow an active grant's signing authority, so it takes the no-gate commit.
+#[tokio::test(start_paused = true)]
+async fn pause_leaves_active_grant_permit_releasable_and_refuses_new_activation() {
+    let w = world().await;
+    let g = w.root("a").await;
+    w.gate(&g, &[]);
+    commits_without_narrowing(
+        &w,
+        &g,
+        PolicyAction::Pause {
+            policy_id: policy_id(),
+        },
+    )
+    .await;
+    let e = w
+        .ops
+        .ensure(
+            &owner(),
+            EnsureRequest {
+                profile: ProfileId::parse("dev").unwrap(),
+                profile_revision: None,
+                scope: [pair("h1", "deploy")].into_iter().collect(),
+                environment: None,
+                work_id: WorkId::parse("w-new").unwrap(),
+                until: None,
+                required_capabilities: RequiredCapabilities::default(),
+                request_id: RequestId::parse("r-new").unwrap(),
+                interaction: InteractionMode::NonInteractive,
+                wait: WaitMode::Sync { timeout_ms: 30_000 },
+                connection: None,
+            },
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, heimdall_contract::Code::PolicyPaused);
+}
+
+/// §17.16 follow-up: a connection policy towards `strict` governs owned connections,
+/// not signatures; it takes the no-gate commit and the permit stays releasable.
+#[tokio::test(start_paused = true)]
+async fn strict_connection_policy_does_not_narrow_signing_authority() {
+    let w = world().await;
+    let g = w.root("a").await;
+    w.gate(&g, &[]);
+    commits_without_narrowing(
+        &w,
+        &g,
+        PolicyAction::SetConnectionPolicy {
+            policy_id: policy_id(),
+            existing: Some(heimdall_contract::managed::ExistingConnectionsMode::Strict),
+            multiplexing: None,
+        },
+    )
+    .await;
+    let stored = w
+        .store
+        .transaction(|tx| tx.policy(&policy_id()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored.connection.existing,
+        heimdall_contract::managed::ExistingConnectionsMode::Strict
+    );
+}

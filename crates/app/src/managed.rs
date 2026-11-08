@@ -664,7 +664,8 @@ impl Narrowing {
     }
 
     /// ⟨r6⟩ "Earlier marks go first": wait until no still-running narrowing with a
-    /// smaller sequence number covers `grant`. Holds nothing new while it waits.
+    /// smaller sequence number covers `grant`. Takes nothing while it waits;
+    /// [`Self::acquire`] releases every hold before calling it (⟨§17.16 R3⟩).
     pub async fn defer_to_earlier(&self, grant: &GrantId) {
         loop {
             let rx = {
@@ -696,11 +697,18 @@ impl Narrowing {
         self.held.iter().any(|(o, ..)| &o.grant == grant)
     }
 
-    /// Take `grant`'s gate **exclusively**. First, under "earlier marks go first", it
-    /// waits for every still-running earlier narrowing that covers `grant`; then it
-    /// queues for the gate, with no time limit (a narrowing is never aborted for
-    /// time; every holder is individually bounded). The gate must sort after every
-    /// gate already held.
+    /// Take `grant`'s gate **exclusively**, queueing with no time limit (a narrowing
+    /// is never aborted for time; every holder is individually bounded). The gate must
+    /// sort after every gate already held.
+    ///
+    /// "Earlier marks go first", ⟨§17.16 R3⟩ **without holding anything while it
+    /// waits**: when a still-running narrowing with a smaller sequence number covers a
+    /// gate this one is about to take, this narrowing first releases **every**
+    /// exclusive hold (its pending marks stay), waits for the earlier one to finish,
+    /// and then restarts the acquisition in global order: the released gates again,
+    /// then `grant`, each under the same rule. So an earlier narrowing that grows onto
+    /// a gate this one held is never left waiting for it (the deadlock of revision 6's
+    /// "wait while holding").
     ///
     /// # Errors
     /// [`GateError::OutOfOrder`] when `grant` sorts before (or equal to, for another
@@ -715,15 +723,38 @@ impl Narrowing {
         if self.held.last().is_some_and(|(last, ..)| *last >= order) {
             return Err(GateError::OutOfOrder);
         }
-        self.defer_to_earlier(grant).await;
-        let taken = self.gates.lock().hold(&self.gates, grant);
-        // Dropped while deferring: no instance, holder or covering mark was left.
-        let Some((lock, hold)) = taken else {
-            return Ok(Acquired::NoGate);
-        };
-        let guard = lock.write_owned().await;
-        self.held.push((order, guard, hold));
-        Ok(Acquired::Held)
+        // The gates to hold at the end, in global order: those held now, then `grant`.
+        let mut targets: Vec<GrantId> = self.held.iter().map(|(o, ..)| o.grant.clone()).collect();
+        targets.push(grant.clone());
+        'restart: loop {
+            for t in &targets {
+                if self.holds(t) {
+                    continue;
+                }
+                if self.earlier_covering(t).is_some() {
+                    // Release every exclusive hold (marks kept), wait, restart.
+                    self.held.clear();
+                    self.defer_to_earlier(t).await;
+                    continue 'restart;
+                }
+                let Some(o) = self.gates.order(t) else {
+                    continue;
+                };
+                let taken = self.gates.lock().hold(&self.gates, t);
+                // Dropped while deferring: no instance, holder or covering mark was left.
+                let Some((lock, hold)) = taken else {
+                    continue;
+                };
+                let guard = lock.write_owned().await;
+                self.held.push((o, guard, hold));
+            }
+            break;
+        }
+        Ok(if self.holds(grant) {
+            Acquired::Held
+        } else {
+            Acquired::NoGate
+        })
     }
 
     /// Take the gates of `grants` exclusively in global order (ungated ones skipped).

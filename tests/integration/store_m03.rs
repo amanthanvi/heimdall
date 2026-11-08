@@ -2134,3 +2134,167 @@ fn newer_user_version_refused() {
     backup.push(".v7.backup");
     assert!(!PathBuf::from(backup).exists());
 }
+
+// --- ADR-0008 §17.16 (R5): absence history never downgrades ----------------------------
+
+fn seen_origin(state: EnrollmentState, seen: bool) -> heimdall_domain::enrollment::RemovalOrigin {
+    heimdall_domain::enrollment::RemovalOrigin {
+        state,
+        evidence: None,
+        hold: None,
+        ca_not_held_seen: seen,
+    }
+}
+
+/// R5 (the reviewer's trace): a foreign system-form removal whose absence check ended
+/// `ca_not_held` persists `ca_not_held_seen = true`; a cancel claiming `false` is
+/// refused and writes nothing, and so is any later write that clears or resets the
+/// pinned origin. The cancel with the persisted flag is admitted and keeps it.
+#[test]
+fn foreign_removal_cancel_cannot_downgrade_absence_history() {
+    let s = mem();
+    s.transaction(|tx| {
+        let rec = foreign(1, EnrollmentForm::System);
+        tx.insert_foreign_removal(&rec)?;
+        let mut pending = rec.clone();
+        pending.removal_origin = Some(seen_origin(EnrollmentState::Planned, false));
+        for (from, kind) in [
+            (
+                EnrollmentState::Planned,
+                EnrollmentEventKind::ManualRemovalConfirmed,
+            ),
+            (
+                EnrollmentState::ManualRemovalPending,
+                EnrollmentEventKind::OwnerConfirmsRemoved,
+            ),
+        ] {
+            tx.transition_foreign_removal(from, kind, &pending)?
+                .unwrap();
+        }
+        // The absence check cannot pass here: `ca_not_held`, recorded in the origin.
+        let mut seen = pending.clone();
+        seen.removal_origin = Some(seen_origin(EnrollmentState::Planned, true));
+        tx.transition_foreign_removal(
+            EnrollmentState::RemovalVerifying,
+            EnrollmentEventKind::AbsenceNotVerified,
+            &seen,
+        )?
+        .unwrap();
+        let before = tx.foreign_removal(&rec.id)?.unwrap();
+        let before_doc = serde_json::to_string(&before).unwrap();
+        assert_eq!(before.state, EnrollmentState::ManualRemovalPending);
+        assert!(before.removal_origin.as_ref().unwrap().ca_not_held_seen);
+
+        // The trace: a cancel with `ca_not_held_seen: false` (and the record's flag
+        // reset to match) is refused.
+        let downgraded = tx.transition_foreign_removal(
+            EnrollmentState::ManualRemovalPending,
+            EnrollmentEventKind::OwnerCancelsManualRemoval {
+                origin: EnrollmentState::Planned,
+                ca_not_held_seen: false,
+            },
+            &pending,
+        )?;
+        assert!(
+            downgraded.is_err(),
+            "downgrading cancel admitted: {downgraded:?}"
+        );
+        let after = tx.foreign_removal(&rec.id)?.unwrap();
+        assert_eq!(
+            serde_json::to_string(&after).unwrap(),
+            before_doc,
+            "nothing written"
+        );
+
+        // Any other event whose record clears, resets or replaces the pinned origin.
+        let mut cleared = before.clone();
+        cleared.removal_origin = None;
+        let mut moved = before.clone();
+        moved.removal_origin = Some(seen_origin(EnrollmentState::Held, true));
+        for bad in [&pending, &cleared, &moved] {
+            let r = tx.transition_foreign_removal(
+                EnrollmentState::ManualRemovalPending,
+                EnrollmentEventKind::OwnerConfirmsRemoved,
+                bad,
+            )?;
+            assert!(r.is_err(), "{:?}", bad.removal_origin);
+            assert_eq!(
+                serde_json::to_string(&tx.foreign_removal(&rec.id)?.unwrap()).unwrap(),
+                before_doc
+            );
+        }
+        // The cancel naming the persisted flag is admitted (never `planned`) and keeps it.
+        let kept = tx
+            .transition_foreign_removal(
+                EnrollmentState::ManualRemovalPending,
+                EnrollmentEventKind::OwnerCancelsManualRemoval {
+                    origin: EnrollmentState::Planned,
+                    ca_not_held_seen: true,
+                },
+                &before,
+            )?
+            .unwrap();
+        assert_eq!(kept.state, EnrollmentState::ManualRemovalPending);
+        assert_eq!(kept.removal_origin, before.removal_origin);
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// R5 for own enrollments (`transition_enrollment` had the same hole): once the
+/// persisted origin has `ca_not_held_seen`, an `updated` record that clears or resets
+/// it is refused whatever the event, and a cancel naming `false` is refused.
+#[test]
+fn enrollment_transition_cannot_downgrade_absence_history() {
+    let s = mem();
+    let p = pair("dest1", "git");
+    s.transaction(|tx| {
+        tx.insert_issuer(&issuer(1, CaState::Active))?;
+        let mut rec = with_state(
+            enrollment(1, &ca(1), &p),
+            EnrollmentState::ManualRemovalPending,
+        );
+        rec.form = EnrollmentForm::System;
+        rec.removal_origin = Some(seen_origin(EnrollmentState::Verified, true));
+        tx.seed_enrollment(&rec)?;
+        let before = serde_json::to_string(&tx.enrollment(&rec.id)?.unwrap()).unwrap();
+        let mut reset = rec.clone();
+        reset.removal_origin = Some(seen_origin(EnrollmentState::Verified, false));
+        let mut cleared = rec.clone();
+        cleared.removal_origin = None;
+        for bad in [&reset, &cleared] {
+            let r = tx.transition_enrollment(
+                EnrollmentState::ManualRemovalPending,
+                EnrollmentEventKind::OwnerConfirmsRemoved,
+                bad,
+            )?;
+            assert!(r.is_err(), "{:?}", bad.removal_origin);
+        }
+        let cancel = tx.transition_enrollment(
+            EnrollmentState::ManualRemovalPending,
+            EnrollmentEventKind::OwnerCancelsManualRemoval {
+                origin: EnrollmentState::Verified,
+                ca_not_held_seen: false,
+            },
+            &reset,
+        )?;
+        assert!(cancel.is_err());
+        assert_eq!(
+            serde_json::to_string(&tx.enrollment(&rec.id)?.unwrap()).unwrap(),
+            before,
+            "nothing written"
+        );
+        // The same event with the pinned origin kept is admitted.
+        let ok = tx
+            .transition_enrollment(
+                EnrollmentState::ManualRemovalPending,
+                EnrollmentEventKind::OwnerConfirmsRemoved,
+                &rec,
+            )?
+            .unwrap();
+        assert_eq!(ok.state, EnrollmentState::RemovalVerifying);
+        assert_eq!(ok.removal_origin, rec.removal_origin);
+        Ok(())
+    })
+    .unwrap();
+}

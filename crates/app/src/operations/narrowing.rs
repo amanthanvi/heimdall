@@ -52,13 +52,15 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
-use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{EnvironmentId, GrantId, PolicyId};
+use heimdall_contract::ids::{EnvironmentId, GrantId};
+use heimdall_contract::request::PolicyAction;
+use heimdall_contract::{Code, Timestamp};
+use heimdall_domain::environment::{EnvironmentPermissions, EnvironmentRecord};
 use heimdall_store::Txn;
 
 use super::{
     Emit, Ended, Limits, MAX_ANCESTRY, Operations, bound_of, conflict, end_in, grant_context,
-    internal,
+    internal, lock_connection_m03,
 };
 use crate::error::OpError;
 use crate::managed::{GateError, GateOrder, Narrowing, SigningGates};
@@ -81,6 +83,12 @@ pub enum NarrowingKind {
     Cutoff,
     /// The `revoke_on_lock` revocation of a session lock (row 25).
     SessionLock,
+    /// ⟨§17.16 R1⟩ Any other policy action (only `set_lock_behavior` to
+    /// `revoke_on_lock` narrows; the others take the no-gate commit).
+    Policy,
+    /// ⟨§17.16 R2⟩ An environment-permission removal
+    /// ([`Operations::set_environment_permissions`]).
+    EnvironmentPermission,
 }
 
 impl NarrowingKind {
@@ -92,6 +100,8 @@ impl NarrowingKind {
             NarrowingKind::Withdrawal => "withdrawal",
             NarrowingKind::Cutoff => "cutoff",
             NarrowingKind::SessionLock => "session_lock",
+            NarrowingKind::Policy => "policy",
+            NarrowingKind::EnvironmentPermission => "environment_permission",
         }
     }
 }
@@ -914,22 +924,63 @@ pub(super) fn subtree_reader(root: GrantId) -> SetReader {
     })
 }
 
-/// Reading E6c: the set of a cutoff on `policy` at `at` is every `active` or
-/// `degraded` grant of the policy's profile, the policy applicable to it here, whose
-/// bound the cutoff lowers, with its descendants (their bound is at most their
-/// parent's). A later cutoff (widening) lowers nothing: the set is empty.
-pub(super) fn cutoff_reader(env: EnvironmentId, policy: PolicyId, at: Timestamp) -> SetReader {
+/// ⟨§17.16 R1⟩ The set of a policy action, read in a transaction: empty unless the
+/// action reduces the **signing authority of existing grants** as the stored policy is
+/// read in that transaction. When it does: every `active` or `degraded` grant of the
+/// policy's profile, the policy applicable to it here, with its descendants; for a
+/// cutoff (reading E6c), only the grants whose bound it lowers. Which actions narrow
+/// signing authority (the per-signature predicate refuses after their commit):
+/// * `cutoff` set, or moved earlier (the bound, and so the permit's expiry and the
+///   deadline predicate);
+/// * `set_lock_behavior` to `revoke_on_lock` from `continue` (`session_not_unlocked`
+///   while the source does not read `unlocked`).
+///
+/// Which never narrow it, and take the no-gate commit (§17.16 follow-up):
+/// * `pause`: it blocks only new activations and bindings (`POLICY_PAUSED`; ADR-0006
+///   §13.6 item 1), and an active grant's signatures continue (re-validation uses the
+///   pause-free continuing view). A new activation is refused in its own store
+///   transaction, which the store serializes with the pause; no gate is involved;
+/// * `set_connection_policy` (towards `strict` or `disabled` included): it governs
+///   owned connections, not signatures, and `GrantOrigin.connection` is recorded at
+///   creation only; the predicate reads neither;
+/// * `resume`, `clear_cutoff`, a later `cutoff` and widening M03 values: decision
+///   records only.
+pub(super) fn policy_reader(env: EnvironmentId, action: PolicyAction) -> SetReader {
     Arc::new(move |tx: &mut Txn<'_>| {
-        let Some(p) = tx.policy(&policy)? else {
+        let pid = match &action {
+            PolicyAction::Pause { policy_id }
+            | PolicyAction::Resume { policy_id }
+            | PolicyAction::Cutoff { policy_id, .. }
+            | PolicyAction::ClearCutoff { policy_id }
+            | PolicyAction::SetLockBehavior { policy_id, .. }
+            | PolicyAction::SetConnectionPolicy { policy_id, .. } => policy_id.clone(),
+        };
+        let Some(p) = tx.policy(&pid)? else {
             return Ok(Vec::new());
         };
-        if !tx
-            .policies_for(&p.profile, &env)?
-            .iter()
-            .any(|q| q.id == p.id)
+        let narrows = match &action {
+            PolicyAction::Cutoff { at, .. } => p.cutoff_at.is_none_or(|c| *at < c),
+            PolicyAction::SetLockBehavior { .. } => {
+                !lock_connection_m03::widening(&action, &p)
+                    && !lock_connection_m03::unchanged(&action, &p)
+            }
+            PolicyAction::Pause { .. }
+            | PolicyAction::SetConnectionPolicy { .. }
+            | PolicyAction::Resume { .. }
+            | PolicyAction::ClearCutoff { .. } => false,
+        };
+        if !narrows
+            || !tx
+                .policies_for(&p.profile, &env)?
+                .iter()
+                .any(|q| q.id == p.id)
         {
             return Ok(Vec::new());
         }
+        let lowers_to = match &action {
+            PolicyAction::Cutoff { at, .. } => Some(*at),
+            _ => None,
+        };
         let mut out: Vec<GrantId> = Vec::new();
         let mut seen: BTreeSet<GrantId> = BTreeSet::new();
         for g in tx.grants_due(Timestamp::MAX)? {
@@ -940,7 +991,9 @@ pub(super) fn cutoff_reader(env: EnvironmentId, policy: PolicyId, at: Timestamp)
             if ctx.profile.as_ref() != Some(&p.profile) {
                 continue;
             }
-            if at >= bound_of(tx, &env, &g, ctx.profile.as_ref())? {
+            if let Some(at) = lowers_to
+                && at >= bound_of(tx, &env, &g, ctx.profile.as_ref())?
+            {
                 continue;
             }
             let mut ids = vec![g.id.clone()];
@@ -955,32 +1008,101 @@ pub(super) fn cutoff_reader(env: EnvironmentId, policy: PolicyId, at: Timestamp)
     })
 }
 
+/// ⟨§17.16 R2⟩ The set of an environment-permission change: empty unless it removes a
+/// permission the stored record grants; then every `active` or `degraded` grant of
+/// that environment, with its descendants.
+fn permission_reader(env: EnvironmentId, new: EnvironmentPermissions) -> SetReader {
+    Arc::new(move |tx: &mut Txn<'_>| {
+        let Some(e) = tx.environment(&env)? else {
+            return Ok(Vec::new());
+        };
+        if !removes_permission(&e.permissions, &new) {
+            return Ok(Vec::new());
+        }
+        live_grants_of(tx, &env)
+    })
+}
+
+fn removes_permission(old: &EnvironmentPermissions, new: &EnvironmentPermissions) -> bool {
+    (old.automatic_activation && !new.automatic_activation)
+        || (old.managed_signing && !new.managed_signing)
+        || (old.issuer_access && !new.issuer_access)
+}
+
+fn live_grants_of(tx: &mut Txn<'_>, env: &EnvironmentId) -> heimdall_store::Result<Vec<GrantId>> {
+    let mut out: Vec<GrantId> = Vec::new();
+    let mut seen: BTreeSet<GrantId> = BTreeSet::new();
+    for g in tx.grants_due(Timestamp::MAX)? {
+        if !g.state.permits_use() || g.environment != *env || seen.contains(&g.id) {
+            continue;
+        }
+        let mut ids = vec![g.id.clone()];
+        ids.extend(tx.grant_descendants(&g.id)?);
+        for id in ids {
+            if seen.insert(id.clone()) {
+                out.push(id);
+            }
+        }
+    }
+    Ok(out)
+}
+
 impl Operations {
-    /// Reading E6c: a cutoff set or moved earlier commits `commit` (the policy write)
-    /// through the narrowing protocol. Its keys are not destroyed here: the affected
-    /// grants end at the cutoff like expiry (ADR-0008 D7 item 8), and the signer refuses
-    /// from the commit on (the bound is in its fresh read).
-    pub(super) async fn narrow_cutoff<R, F>(
+    /// ⟨M03⟩ §17.16 R2 (overturns reading E6a): change an environment's permissions.
+    /// A change that removes a permission is a narrowing commit: the record is written
+    /// under the narrowing protocol for every live grant of the environment and its
+    /// descendants, and in the same transaction every one of them whose authority it
+    /// withdraws is ended (`end_in`, fresh time; uncertain time ends nothing, and the
+    /// later re-validation stays as recovery). A change that only adds commits as
+    /// before. Every production writer of environment permissions goes through here.
+    ///
+    /// # Errors
+    /// `NOT_FOUND` for an unknown environment; a store failure.
+    pub async fn set_environment_permissions(
         &self,
-        policy: &PolicyId,
-        at: Timestamp,
-        requested_at: Timestamp,
-        commit: F,
-    ) -> Result<R, OpError>
-    where
-        R: Send + 'static,
-        F: FnOnce(&mut Txn<'_>, &mut Emit) -> heimdall_store::Result<R> + Send + 'static,
-    {
-        let reader = cutoff_reader(self.environment().clone(), policy.clone(), at);
-        let n = self
+        environment: &EnvironmentId,
+        permissions: EnvironmentPermissions,
+    ) -> Result<EnvironmentRecord, OpError> {
+        let requested_at = self.inner.config.clock.wall();
+        let gate = self.inner.timegate.in_txn();
+        let own = self.environment().clone();
+        let adapters = self.adapter_infos();
+        let retention = self.retention();
+        let target = environment.clone();
+        let reader = permission_reader(target.clone(), permissions.clone());
+        let narrowed = self
             .narrow(
-                NarrowingKind::Cutoff,
+                NarrowingKind::EnvironmentPermission,
                 requested_at,
                 reader,
-                move |tx, emit, _| commit(tx, emit),
+                move |tx, emit, ctx| {
+                    let Some(mut e) = tx.environment(&target)? else {
+                        return Ok(Err(OpError::new(Code::NotFound, "unknown environment")
+                            .with_resource("environment", None)));
+                    };
+                    let removes = removes_permission(&e.permissions, &permissions);
+                    e.permissions = permissions;
+                    tx.upsert_environment(&e)?;
+                    let mut ended = Ended::default();
+                    if removes && let Ok(safe) = gate.check(tx)? {
+                        for g in live_grants_of(tx, &target)? {
+                            ended.extend(end_in(
+                                tx, emit, &own, &adapters, &gate, &g, &safe, None, retention,
+                            )?);
+                        }
+                    }
+                    ctx.destroy = ended
+                        .withdrawn
+                        .iter()
+                        .flat_map(|(_, all)| all.iter().cloned())
+                        .collect();
+                    Ok(Ok((e, ended)))
+                },
             )
             .await?;
-        Ok(n.value)
+        let (record, ended) = narrowed.value?;
+        self.complete_withdrawals(ended).await;
+        Ok(record)
     }
 
     /// Reading E6b: each withdrawal [`end_in`] detected for a gated cascade, re-run
@@ -1030,11 +1152,12 @@ impl Operations {
 }
 
 impl Operations {
-    /// The policy write of `Operations::policy`: a `cutoff` goes through
-    /// [`Self::narrow_cutoff`] (reading E6c), every other action commits as before.
+    /// ⟨§17.16 R1⟩ The policy write of `Operations::policy`: every action commits
+    /// through the narrowing protocol over [`policy_reader`]'s set (empty, so the
+    /// zero-gate commit, unless the action narrows the stored policy).
     pub(super) async fn policy_commit<R, F>(
         &self,
-        req: &heimdall_contract::request::PolicyAction,
+        req: &PolicyAction,
         requested_at: Timestamp,
         commit: F,
     ) -> Result<R, OpError>
@@ -1042,12 +1165,16 @@ impl Operations {
         R: Send + 'static,
         F: FnOnce(&mut Txn<'_>, &mut Emit) -> heimdall_store::Result<R> + Send + 'static,
     {
-        match req {
-            heimdall_contract::request::PolicyAction::Cutoff { policy_id, at } => {
-                self.narrow_cutoff(policy_id, *at, requested_at, commit)
-                    .await
-            }
-            _ => self.write(commit).await,
-        }
+        let kind = match req {
+            PolicyAction::Cutoff { .. } => NarrowingKind::Cutoff,
+            _ => NarrowingKind::Policy,
+        };
+        let reader = policy_reader(self.environment().clone(), req.clone());
+        let n = self
+            .narrow(kind, requested_at, reader, move |tx, emit, _| {
+                commit(tx, emit)
+            })
+            .await?;
+        Ok(n.value)
     }
 }
