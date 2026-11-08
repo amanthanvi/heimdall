@@ -4704,6 +4704,54 @@ exit-build binary (sha256 09d04d50…), and the second Windows run of 1e69263d w
 
    M02 exits only on a build where those rows ran natively, or were ruled out by a recorded decision.
 
+### 12.47 Rulings on the M02 Windows coverage audit; wave 6x (orchestrator, 2026-11-08)
+
+**Source.** `tests/evidence/artifacts/review-m02-code/windows-coverage-audit.md`, a read-only audit of the declared Windows and WSL coverage at ce21a76f.
+
+**The finding.** 314 required tests do not exist on Windows. Of those, 295 are excluded only by the inventory scan, with no rationale. The generator drops them before it builds a row, so a Windows row read `verified` on model-level tests alone. Specifically:
+- five test files are `#![cfg(unix)]`;
+- no Windows test connects a client to a server;
+- six planned tests were never written;
+- there are two product gaps:
+  - **account name:** `sys::account_name` is missing on Windows;
+  - **encoding data:** 9.5p2's BOM and CRLF behaviour is missing from the encoding table.
+
+The WSL rows are covered, apart from the WSL ext4 birth-time observation.
+
+1. **The guard (WU-6).** The audit's two rules both apply:
+   - **(R1)** a required test that the scan alone excluded on a declared platform keeps that row `in_progress`, unless `case-index.json` gives a rationale for the exclusion;
+   - **(R2)** `platform_required` holds exact test names per case and platform. It is not resolved against the inventory, so a planned test that does not exist reads as not run.
+
+   Rows report `excluded_on_this_platform`. Every Unix-only test that stays Unix-only gets a written rationale; none is left to the scan.
+2. **D1:** the `e2e_cli_m02::ssh::` rationale entry is deleted. It contradicts §12.43 item 5.
+3. **D2 and D3: deferred to M04** (`deferred_with_decision`). These are the TUI pty tests and the interactive `connect` pty test after provider approval. Their model-level twins ran natively. The Windows pseudoconsole path of `heimdall run` is proven natively by `windows_launch` (§12.44 item 2). M04 adds a pseudoconsole driver for the TUI and for `connect`.
+4. **D4:** T06's Windows half is split into JSON tests: the kept quarantine, and the refused purge.
+5. **D5: Windows 9.5p2 joins the client and encoding observation tables** (WU-7). It was observed natively at ce21a76f: BOM and CRLF user configurations load. Such configurations then stop falling to manual mode.
+6. **D6: every other gapped row is fixed in M02.** That covers:
+   - A35's transport;
+   - A01's scratch `-F`;
+   - R-SE-04;
+   - A21's `cmd /c` canary, job containment and authorization;
+   - the projection and Git transactions;
+   - the setup drivers;
+   - A11's fresh eligibility;
+   - the account lookup.
+
+   Only D2 and D3 are deferred.
+7. **D7: the §12.45 deferral is withdrawn.** Developer Mode is on, so the file-symlink row becomes a test in WU-2a. Its row is a `platform_required` entry, not a deferral.
+8. **The units.** Wave 6x takes the audit's units and ownership as given:
+   - WU-0 (fixture sshd: user, strictness, the shared keys lock, log offsets);
+   - WU-1 (CLI transport, plus D4);
+   - WU-2a (projection);
+   - WU-2b (Git projection);
+   - WU-3 (setup drivers);
+   - WU-4 (the doctor and `account_name`);
+   - WU-5 (`run` and `connect`);
+   - WU-6 (the guard, on the build host);
+   - WU-7 (encoding data).
+
+   Each runs natively in its own scratch clone on the PC, at Medium integrity. WU-0, WU-2a, WU-2b, WU-3, WU-6 and WU-7 start now; WU-1, WU-4 and WU-5 start after WU-0 is integrated. A unit removes its build and toolchain when it reports, which avoids repeating the 150 GB of wave 6w.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,
