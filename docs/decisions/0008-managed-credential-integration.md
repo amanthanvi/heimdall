@@ -3612,6 +3612,30 @@ Decided now, implemented in later waves:
 
 **The other open rows.** The integrator's recorded readings stand as provisional defaults. Each later unit's brief lists the rows in its scope, to confirm or escalate.
 
+### 17.16 Orchestrator rulings on the wave-0 code review (2026-11-08)
+
+**Source:** M03-W0-code-review (Codex Sol, independent), `tests/evidence/artifacts/review-m03-code/wave0.md`. Verdict: fix first, with five findings, each reproduced by a probe. Each is accepted, and wave 0 merges into main only after all five are fixed with regressions and the review is re-checked.
+
+1. **R1: changing the lock policy narrows authority.**
+   - A change of `lock_behavior` from `continue` to `revoke_on_lock` narrows authority. It runs the full narrowing protocol for the affected grants and their descendants, before its commit.
+   - Every other authority-reducing policy change does the same.
+   - The provisional reading G-Q10 is overturned.
+2. **R2: removing an environment permission is itself the narrowing.**
+   - The removal transaction runs under the narrowing protocol for the affected grants and their descendants.
+   - The later revalidation is kept as recovery, but is not the protection.
+   - The provisional reading V-E6(a) is overturned.
+3. **R3: never wait while holding gates.**
+   - **Deferring to an earlier narrowing:** a narrowing first releases every exclusive hold it has, keeps its pending marks, and then restarts acquisition in global order.
+   - **Regression tests:** a growing multi-root set with an overlapping narrowing. Both narrowings commit.
+4. **R4: the continuous budget expiry comes from paired clock readings of one observation.**
+   - The permit's continuous expiry is an absolute instant, computed from the continuous anchor and the wall reading taken together in the same observation. It is never `now()` plus the remaining budget after an await.
+   - A budget already expired at that point refuses.
+   - **Regression test:** the delayed-commit trace.
+5. **R5: a foreign cancellation is checked against the persisted facts.**
+   - `transition_foreign_removal` validates a cancellation's `origin` and `ca_not_held_seen` against the persisted `removal_origin`, as `transition_enrollment` does.
+   - The persisted absence-history flag is never downgraded.
+   - **Regression test:** the reviewer's probe trace.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

@@ -16,6 +16,11 @@ What is pinned here:
     required command exited 0 and every negative probe exited as expected; a
     missing platform, a missing capability and an owner-input row are blocked with
     the exact input named; everything else incomplete is in_progress;
+  * the coverage guard (ADR-0007 §12.47 item 1): a required test the scan alone excludes on
+    a declared platform keeps that row in_progress unless a case-index platform_only entry
+    gives the rationale (R1); a platform_required name that did not pass there keeps it
+    in_progress, whether or not the test exists (R2); every row reports
+    excluded_on_this_platform; a case-index exclusion of a test that ran is an error;
   * the lowest-row rule (tests/evidence/README.md), and records valid under
     tests/evidence/record.schema.json;
   * the run plan for the remote harnesses (build_host_paths, whole targets and
@@ -612,6 +617,227 @@ class Applicability(unittest.TestCase):
         self.assertFalse(ev.applicable(INDEX, inv, "t_wild", "child", "macos"), "child entry points never apply")
 
 
+# --- the coverage guard (ADR-0007 §12.47 item 1) ---------------------------------------------
+
+# Scans in which t_wild::w2 does not exist on Windows (#[cfg(unix)], say) and everything exists
+# on Linux: the inventory then records it platform_only macos and linux, and on Windows only
+# w1 and m::w3 survive.
+WIN_SCAN = {
+    "linux": {
+        "t_exact": {"present": 2, "absent": [], "extra": []},
+        "t_wild": {"present": 3, "absent": [], "extra": []},
+        "t_pre": {"present": 3, "absent": [], "extra": []},
+        "t_files": {"present": 1, "absent": [], "extra": []},
+    },
+    "windows": {
+        "t_exact": {"present": 2, "absent": [], "extra": []},
+        "t_wild": {"present": 2, "absent": ["w2"], "extra": []},
+        "t_pre": {"present": 3, "absent": [], "extra": []},
+        "t_files": {"present": 1, "absent": [], "extra": []},
+    },
+}
+
+
+def without(logs, target, name):
+    logs = copy(logs)
+    del logs[target][name]
+    return logs
+
+
+class CoverageGuard(unittest.TestCase):
+    """R1 (a scan-only exclusion needs a rationale), R2 (platform_required exact names) and
+    excluded_on_this_platform, end to end through main()."""
+
+    def scratch(self, index=INDEX, windows_logs=None, **kw):
+        s = Scratch(self, index=index, inventory=None, **kw)
+        digest = ev.sources_digest(s.dir / "src")
+        inv = ev.build_inventory(index, LISTING.get, "macos", copy(WIN_SCAN), digest)
+        (s.dir / "required-inventory.json").write_text(json.dumps(inv))
+        if windows_logs is not None:
+            (s.dir / "windows.log").write_text(log_text(windows_logs, "harness"))
+        return s
+
+    def row(self, summary, sid, prefix, kind="groups"):
+        rows = [r for r in summary[kind][sid]["rows"] if r["platform"].startswith(prefix)]
+        self.assertEqual(len(rows), 1, rows)
+        return rows[0]
+
+    def test_a_scan_only_exclusion_without_a_rationale_keeps_the_row_in_progress(self):
+        s = self.scratch(windows_logs=without(full_logs(), "t_wild", "w2"))
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        win = self.row(summary, "G1", "windows")
+        self.assertEqual(win["status"], "in_progress", "one surviving portable test never makes the row verified")
+        self.assertEqual(win["excluded_without_rationale"], ["t_wild::w2"])
+        self.assertEqual(win["passed"], len(ev.required(json.loads((s.dir / "case-index.json").read_text()),
+                                                       json.loads((s.dir / "required-inventory.json").read_text()),
+                                                       "groups", "G1", "windows")))
+        self.assertNotIn("excluded_without_rationale", self.row(summary, "G1", "linux"))
+        self.assertEqual(self.row(summary, "G1", "linux")["status"], "verified", "the test exists and passed there")
+        self.assertEqual(self.row(summary, "G2", "windows")["status"], "verified", "G2 does not require t_wild")
+
+    def test_a_case_index_rationale_justifies_the_exclusion(self):
+        for key in ("t_wild::w2", "t_wild::w*", "t_wild"):
+            index = copy(INDEX)
+            index["platform_only"] = {key: {"platforms": ["macos", "linux"], "rationale": "synthetic: Unix only by design"}}
+            logs = without(full_logs(), "t_wild", "w2")
+            if key != "t_wild::w2":
+                # A wider entry also leaves out the tests it covers on Windows.
+                logs = {t: {n: r for n, r in v.items() if not (t == "t_wild" and (key == "t_wild" or n.startswith("w")))}
+                        for t, v in logs.items()}
+            s = self.scratch(index=index, windows_logs=logs)
+            rc, summary, err = s.run()
+            self.assertEqual(rc, 0, (key, err))
+            win = self.row(summary, "G1", "windows")
+            self.assertEqual(win["status"], "verified", key)
+            self.assertNotIn("excluded_without_rationale", win, key)
+            self.assertEqual(sum(win["excluded_by_rationale"].values()), win["excluded_on_this_platform"], key)
+            self.assertEqual(list(win["excluded_by_rationale"]), [key], key)
+
+    def test_a_case_index_entry_that_allows_the_platform_justifies_nothing(self):
+        # The most specific case-index entry says the test exists on Windows; the scan's exact
+        # entry says it does not (and wins applicability). That is a missing test, never a reason.
+        index = copy(INDEX)
+        index["platform_only"] = {"t_wild::w*": {"platforms": ["macos", "linux", "windows"], "rationale": "synthetic"}}
+        s = self.scratch(index=index, windows_logs=without(full_logs(), "t_wild", "w2"))
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        win = self.row(summary, "G1", "windows")
+        self.assertEqual(win["status"], "in_progress")
+        self.assertEqual(win["excluded_without_rationale"], ["t_wild::w2"])
+        self.assertNotIn("excluded_by_rationale", win)
+
+    def test_a_platform_required_test_absent_from_the_log_keeps_the_row_in_progress(self):
+        index = copy(INDEX)
+        # e_planned exists nowhere: R2 names are never resolved against the inventory.
+        index["groups"]["G2"]["platform_required"] = {"windows": {"t_exact": ["e1", "e_planned"]}}
+        s = self.scratch(index=index)
+        self.assertNotIn("e_planned", json.dumps(json.loads((s.dir / "required-inventory.json").read_text())))
+        rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 0, err)
+        win = self.row(summary, "G2", "windows")
+        self.assertEqual(win["status"], "in_progress")
+        self.assertEqual(win["platform_required_not_passed"], {"t_exact::e_planned": "absent"})
+        self.assertEqual(self.row(summary, "G2", "macos")["status"], "verified", "required on Windows only")
+        self.assertEqual(s.records()["G2"]["status"], "in_progress")
+        self.assertEqual(ev.validate_record(s.records()["G2"]), [])
+        # Present and passing: verified. Failed or ignored: named with its result.
+        for result, want in (("ok", "verified"), ("FAILED", "in_progress"), ("ignored", "in_progress")):
+            logs = full_logs()
+            logs["t_exact"]["e_planned"] = result
+            s = self.scratch(index=index, windows_logs=logs)
+            rc, summary, err = s.run()
+            win = self.row(summary, "G2", "windows")
+            self.assertEqual(win["status"], want, result)
+            if result != "ok":
+                self.assertEqual(win["platform_required_not_passed"], {"t_exact::e_planned": result})
+
+    def test_a_platform_required_scenario_step_and_an_exit_claim(self):
+        index = copy(INDEX)
+        index["scenario_targets"]["scn"]["steps"]["s3"] = "step three, not yet in the scenario"
+        index["groups"]["G1"]["platform_required"] = {"wsl-distro": {"scn": ["s1", "s3"]}}
+        index["exit_claims"]["own"]["platform_required"] = {"macos": {"t_exact": ["e_planned"]}}
+        rc, summary, err = self.scratch(index=index).run()
+        self.assertEqual(rc, 0, err)
+        wsl = self.row(summary, "G1", "wsl")
+        self.assertEqual(wsl["status"], "in_progress")
+        self.assertEqual(wsl["platform_required_not_passed"], {"scn::s3": "absent"})
+        own = self.row(summary, "own", "macos", kind="exit_claims")
+        self.assertEqual(own["platform_required_not_passed"], {"t_exact::e_planned": "absent"})
+        self.assertEqual(summary["exit_claims"]["own"]["status"], "in_progress")
+
+    def test_excluded_on_this_platform_is_reported_on_every_row(self):
+        rc, summary, err = self.scratch(windows_logs=without(full_logs(), "t_wild", "w2")).run()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(self.row(summary, "G1", "windows")["excluded_on_this_platform"], 1)
+        for p in ("macos", "linux"):
+            self.assertEqual(self.row(summary, "G1", p)["excluded_on_this_platform"], 0, p)
+        self.assertEqual(self.row(summary, "G1", "wsl")["excluded_on_this_platform"], 0, "scenario rows: no cargo exclusions")
+        # On the no-applicable-test path too: G2's one test excluded on Windows by the index.
+        index = copy(INDEX)
+        index["platform_only"] = {"t_exact::e1": {"platforms": ["macos", "linux"], "rationale": "synthetic"}}
+        logs = without(full_logs(), "t_exact", "e1")
+        rc, summary, err = self.scratch(index=index, windows_logs=logs).run()
+        gap = self.row(summary, "G2", "windows")
+        self.assertIn("no_applicable_test", gap)
+        self.assertEqual(gap["status"], "in_progress")
+        self.assertEqual(gap["excluded_on_this_platform"], 1)
+        self.assertEqual(gap["excluded_by_rationale"], {"t_exact::e1": 1})
+
+    def test_r1_applies_only_on_platforms_the_section_declares(self):
+        index = copy(INDEX)
+        index["groups"]["G1"]["declared_platforms"] = ["macos", "linux", "wsl-distro"]
+        rc, summary, err = self.scratch(index=index, windows_logs=without(full_logs(), "t_wild", "w2")).run()
+        self.assertEqual(rc, 0, err)
+        win = self.row(summary, "G1", "windows")
+        self.assertEqual(win["status"], "verified", "an undeclared row is evidence, not a claim")
+        self.assertEqual(win["excluded_on_this_platform"], 0)
+
+    def test_a_stale_case_index_exclusion_is_an_error(self):
+        # The case index says t_wild::w2 does not exist on Windows, but it ran there (a unit
+        # ported it and forgot the entry): the entry must be widened or removed.
+        index = copy(INDEX)
+        index["platform_only"] = {"t_wild::w2": {"platforms": ["macos", "linux"], "rationale": "synthetic"}}
+        rc, summary, err = self.scratch(index=index).run()
+        self.assertEqual(rc, 1)
+        self.assertIn("platform_only t_wild::w2 leaves out windows, but t_wild::w2 ran there (ok)", err)
+
+    def test_a_scan_only_exclusion_outranks_a_missing_capability(self):
+        guard = {"excluded": ["t::x"], "by_rationale": {}, "unjustified": ["t::x"], "required_not_passed": {}, "stale": []}
+        pconf = {"label": "h", "logs": [], "exit_codes": {"cmd": 0}, "missing_capabilities": {"u": "a capability (synthetic)"}}
+        r = ev.row_for(INDEX, "windows", pconf, {"t": {"a": "ok"}}, [("t", "a"), ("u", "c")], None, guard)
+        self.assertEqual(r["status"], "in_progress")
+        self.assertEqual(r["missing_capabilities"], ["a capability (synthetic)"])
+        r = ev.row_for(INDEX, "windows", {**pconf, "unavailable": "no host (synthetic)", "exit_codes": {}}, {},
+                       [("t", "a")], None, guard)
+        self.assertEqual(r["status"], "blocked", "a platform that ran nothing stays blocked on the platform")
+
+    def test_the_case_index_guard_entries_are_validated(self):
+        bad_po = [
+            ["macos", "linux"],                                   # the withdrawn list form
+            {"platforms": ["macos"]},                             # no rationale
+            {"platforms": ["macos"], "rationale": " "},           # empty rationale
+            {"platforms": [], "rationale": "r"},                  # no platform
+            {"platforms": ["wsl-distro"], "rationale": "r"},      # not a cargo platform
+            {"platforms": ["macos", "macos"], "rationale": "r"},  # repeated
+            {"platforms": ["macos"], "rationale": "r", "x": 1},   # unknown key
+        ]
+        for bad in bad_po:
+            index = copy(INDEX)
+            index["platform_only"] = {"t_wild::w2": bad}
+            self.assertTrue(ev.check_index(index), bad)
+        index = copy(INDEX)
+        index["platform_only_rationale"] = {}
+        self.assertTrue(any("withdrawn" in p for p in ev.check_index(index)))
+        bad_req = [
+            {"windows": {"t_exact": ["e_*"]}},          # a pattern
+            {"windows": {"t_exact": ["*"]}},
+            {"freebsd": {"t_exact": ["e1"]}},           # not declared
+            {"windows": {"t_exact": []}},               # empty
+            {"windows": {"t_exact": ["e1", "e1"]}},     # repeated
+            {"windows": {}},
+            {"windows": {"scn": ["s1"]}},               # a scenario that does not run there
+            {"wsl-distro": {"scn": ["s9"]}},            # not a step of the scenario
+            {"wsl-distro": {"t_exact": ["e1"]}},        # cargo target on a scenario platform
+            ["windows"],
+        ]
+        for bad in bad_req:
+            index = copy(INDEX)
+            index["groups"]["G1"]["platform_required"] = bad
+            self.assertTrue(ev.check_index(index), bad)
+        index = copy(INDEX)
+        index["groups"]["G1"]["platform_required"] = {"windows": {"t_exact": ["e1", "planned::e9"]}, "wsl-distro": {"scn": ["s2"]}}
+        index["platform_only"] = {"t_wild::w*": {"platforms": ["macos", "linux"], "rationale": "r"}}
+        self.assertEqual(ev.check_index(index), [])
+        # main() refuses an invalid index before evaluating anything.
+        index = copy(INDEX)
+        index["platform_only"] = {"t_wild::w2": ["macos", "linux"]}
+        rc, summary, err = self.scratch(index=index).run()
+        self.assertEqual(rc, 1)
+        self.assertIsNone(summary)
+        self.assertIn("needs exactly platforms and rationale", err)
+
+
 # --- parsing -------------------------------------------------------------------------------
 
 
@@ -860,7 +1086,7 @@ class Records(unittest.TestCase):
         # (nothing ran there), is not "not found in any log"; its row is blocked instead.
         index = copy(INDEX)
         index["groups"]["G2"]["tests"] = {"t_exact": ["e1", "e_other"]}
-        index["platform_only"] = {"t_exact::e_other": ["windows"]}
+        index["platform_only"] = {"t_exact::e_other": {"platforms": ["windows"], "rationale": "synthetic"}}
         s = Scratch(self, index=index, platforms={"windows": {"unavailable": "a Windows host (synthetic)"}})
         for name in ("windows.log", "windows.commands", "windows.facts"):
             (s.dir / name).unlink()
@@ -1299,9 +1525,16 @@ EXPECTED_CLAIMS = {
     "No remote authentication change, key export, or provider-policy bypass was needed": {"macos", "linux", "windows"},
     "Does not claim managed unattended access until M03": {"macos", "linux", "windows"},
 }
-# ADR-0007 §12.45: an owner-input row whose input is now satisfied but whose native test does not
-# exist yet is deferred with a recorded decision (not counted), never left "blocked".
-EXPECTED_DEFERRED_ROWS = {"A22": {"windows-11 file-symlink reparse-point row"}}
+# Rows deferred with a recorded decision (not counted), never left "blocked". ADR-0007 §12.47:
+# item 7 (D7) withdrew §12.45's A22 file-symlink deferral (that row is now a platform_required
+# test); item 3 (D2, D3) defers the Windows TUI pty cases and the interactive connect pty case.
+CONNECT_ROW = ("windows-11 interactive connect after provider approval "
+               "(e2e_run_m02 a11::a11_interactive_connect_succeeds_after_provider_approval)")
+EXPECTED_DEFERRED_ROWS = {
+    "A21": {"windows-11 TUI pty cases (e2e_tui_m02::pty::search_never_probes, config_commands_authorization_requires_typed_yes)"},
+    "A11": {CONNECT_ROW},
+    "A27": {CONNECT_ROW},
+}
 
 EXPECTED_BLOCKED_INPUTS = {
     "A01": {"B2", "B3", "B9"},
@@ -1540,6 +1773,11 @@ class RealFiles(unittest.TestCase):
                 for r in rows:
                     if r.get("harness_gap_not_run") or r.get("no_applicable_test") or r.get("incomplete_run"):
                         self.assertNotIn(r["status"], ("verified", "blocked"), (sid, r["platform"]))
+                    if r.get("excluded_without_rationale") or r.get("platform_required_not_passed"):
+                        self.assertNotIn(r["status"], ("verified", "blocked"), (sid, r["platform"]))
+                    if "status" in r and r["status"] != "deferred_with_decision" and "not_configured" not in r \
+                            and r["platform"] in {p["label"] for p in cfg["platforms"].values()}:
+                        self.assertIn("excluded_on_this_platform", r, (sid, r["platform"]))
                 if any(r["status"] == "blocked" for r in sec.get("blocked_rows", [])):
                     self.assertEqual(rec["status"], "blocked", f"{sid} has an owner-input row")
             t06 = [r for r in summary["groups"]["T06"]["rows"] if r["platform"].startswith("windows")][0]
@@ -1550,6 +1788,33 @@ class RealFiles(unittest.TestCase):
                 # The Windows row of T06 has no applicable test: a recorded gap, not a pass.
                 self.assertEqual(t06["status"], "in_progress")
                 self.assertIn("no_applicable_test", t06)
+
+    def test_the_case_index_guard_entries_are_valid(self):
+        self.assertEqual(ev.check_index(self.index), [])
+        for key, entry in self.index["platform_only"].items():
+            self.assertGreater(len(entry["rationale"]), 20, f"{key}: a rationale says why, with its source")
+
+    def test_the_section_12_47_rulings_are_in_the_case_index(self):
+        own = ev.index_platform_only(self.index)
+        # D1 (item 2): no case-index entry excuses the CLI transport tests on Windows.
+        for n in ("ssh::a01_no_remote_change", "ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound",
+                  "ssh::host_key_substitution_fails_closed_and_nothing_written_to_known_hosts"):
+            self.assertEqual(ev.most_specific(own, "e2e_cli_m02", n), (None, None), n)
+        # D2, D3 (item 3): excused with the ruling cited, and a deferred row records it.
+        for target, n in (("e2e_tui_m02", "pty::search_never_probes"),
+                          ("e2e_tui_m02", "pty::config_commands_authorization_requires_typed_yes"),
+                          ("e2e_run_m02", "a11::a11_interactive_connect_succeeds_after_provider_approval")):
+            key, where = ev.most_specific(own, target, n)
+            self.assertIsNotNone(key, n)
+            self.assertNotIn("windows", where, n)
+            self.assertIn("§12.47 item 3", self.index["platform_only"][key]["rationale"], n)
+        # D7 (item 7): the file-symlink row is a platform_required test, not a deferral.
+        a22 = self.index["groups"]["A22"]
+        self.assertIn("a22_windows_file_symlink_user_config_is_manual_mode",
+                      a22["platform_required"]["windows"]["integration_projection"])
+        self.assertFalse([r for r in a22.get("blocked_rows", []) if r["status"] == "deferred_with_decision"])
+        # G-W1: WSL's A22 row needs the birth-time step.
+        self.assertIn("a22_birth_time_recorded_on_the_home_fs", a22["platform_required"]["wsl-distro"]["wsl_ordinary_ssh"])
 
     def test_the_a21_record_never_calls_the_executed_construct_list_complete(self):
         meta = self.cfg["records"]["A21"]

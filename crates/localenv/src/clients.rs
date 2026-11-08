@@ -157,16 +157,36 @@ pub struct EncodingObservation {
 /// * macOS 27, system `OpenSSH_10.3p1` (M02-W2-U3, 2026-11-03): a BOM makes the first
 ///   line an unknown keyword and ssh refuses the file (exit 255); CRLF loads, B
 ///   effective.
-pub const ENCODING_OBSERVATIONS: &[EncodingObservation] = &[EncodingObservation {
-    platform: Platform::MacOs,
-    version: OpenSshVersion {
-        major: 10,
-        minor: 3,
-        portable: Some(1),
+/// * Windows 11, in-box `OpenSSH_for_Windows_9.5p2` (native run at ce21a76f,
+///   `tests/evidence/artifacts/m02/exit-ce21a76f/windows/tests.txt`, ADR-0007 §12.47
+///   item 5 (D5)): a BOM and CRLF both load, B effective. The observation line of
+///   `bom_and_crlf_acceptance` reads `observation test=bom_and_crlf_acceptance
+///   client=windows:9.5p2 subject=encodings corpus_bom_loads="true"
+///   corpus_crlf_loads="true" bom_b_effective="true" crlf_b_effective="true"
+///   lf_b_effective="true"`. The row is keyed by platform and exact version, so it
+///   answers for the in-box Windows client only; every other client stays unknown.
+pub const ENCODING_OBSERVATIONS: &[EncodingObservation] = &[
+    EncodingObservation {
+        platform: Platform::MacOs,
+        version: OpenSshVersion {
+            major: 10,
+            minor: 3,
+            portable: Some(1),
+        },
+        bom: false,
+        crlf: true,
     },
-    bom: false,
-    crlf: true,
-}];
+    EncodingObservation {
+        platform: Platform::Windows,
+        version: OpenSshVersion {
+            major: 9,
+            minor: 5,
+            portable: Some(2),
+        },
+        bom: true,
+        crlf: true,
+    },
+];
 
 impl ClientInventory {
     /// The selected client of `kind`.
@@ -557,6 +577,113 @@ mod tests {
             inv.selected(ClientKind::Git).unwrap().source,
             ClientSource::Path
         );
+    }
+
+    const WINDOWS_INBOX: OpenSshVersion = OpenSshVersion {
+        major: 9,
+        minor: 5,
+        portable: Some(2),
+    };
+
+    /// The way the projection planner asks (`Planner::accepts_encoding`): the selected
+    /// `ssh` of the inventory, with the version its `-V` printed.
+    fn inventory_selecting(version: Option<OpenSshVersion>) -> ClientInventory {
+        ClientInventory {
+            candidates: vec![ClientCandidate {
+                kind: ClientKind::Ssh,
+                path: PathBuf::from("ssh.exe"),
+                source: ClientSource::System32,
+                version,
+                sha256: None,
+                selected: true,
+            }],
+        }
+    }
+
+    fn planner_accepts(inv: &ClientInventory, bom: bool, crlf: bool) -> bool {
+        inv.selected(ClientKind::Ssh)
+            .is_some_and(|c| inv.accepts_encoding(c, bom, crlf))
+    }
+
+    /// ADR-0007 §12.47 item 5 (D5): the in-box Windows 9.5p2 client was observed natively
+    /// (ce21a76f) to load a BOM and CRLF user file with B effective, so on Windows such a
+    /// file is no longer pushed to manual mode (`unsupported_encoding`) for that client.
+    /// The row is keyed by platform and exact version: on another platform, and for any
+    /// other version or a client whose version is unknown, the answer stays `false`.
+    #[test]
+    fn windows_inbox_9_5p2_accepts_bom_and_crlf_and_nothing_else_changes() {
+        let row = ENCODING_OBSERVATIONS
+            .iter()
+            .find(|r| r.platform == Platform::Windows && r.version == WINDOWS_INBOX)
+            .expect("a Windows 9.5p2 row");
+        assert!(row.bom && row.crlf);
+        // Exactly one row for the pair.
+        assert_eq!(
+            ENCODING_OBSERVATIONS
+                .iter()
+                .filter(|r| r.platform == Platform::Windows && r.version == WINDOWS_INBOX)
+                .count(),
+            1
+        );
+
+        let on_windows = Platform::current() == Platform::Windows;
+        let inv = inventory_selecting(Some(WINDOWS_INBOX));
+        // A file with neither encoding needs no row.
+        assert!(planner_accepts(&inv, false, false));
+        // Natively on Windows each of the encodings, and both, are accepted; elsewhere the
+        // Windows row says nothing about this client.
+        assert_eq!(planner_accepts(&inv, true, false), on_windows, "BOM");
+        assert_eq!(planner_accepts(&inv, false, true), on_windows, "CRLF");
+        assert_eq!(
+            planner_accepts(&inv, true, true),
+            on_windows,
+            "BOM and CRLF"
+        );
+        assert_eq!(
+            inv.accepts_bom_crlf(inv.selected(ClientKind::Ssh).unwrap()),
+            on_windows
+        );
+
+        // Unknown stays fail-closed: no version, a neighbouring version, a program that
+        // is not `ssh`.
+        let unknown = inventory_selecting(None);
+        for (bom, crlf) in [(true, false), (false, true), (true, true)] {
+            assert!(!planner_accepts(&unknown, bom, crlf));
+        }
+        for neighbour in [
+            OpenSshVersion {
+                major: 9,
+                minor: 5,
+                portable: Some(1),
+            },
+            OpenSshVersion {
+                major: 9,
+                minor: 6,
+                portable: Some(1),
+            },
+            OpenSshVersion {
+                major: 9,
+                minor: 5,
+                portable: None,
+            },
+            OpenSshVersion::MINIMUM,
+        ] {
+            let inv = inventory_selecting(Some(neighbour));
+            for (bom, crlf) in [(true, false), (false, true), (true, true)] {
+                assert!(!planner_accepts(&inv, bom, crlf), "{neighbour:?}");
+            }
+        }
+        let scp = ClientCandidate {
+            kind: ClientKind::Scp,
+            ..inv.candidates[0].clone()
+        };
+        assert!(!inv.accepts_encoding(&scp, false, true));
+        // The macOS row is untouched: a BOM is still refused there.
+        let mac = ENCODING_OBSERVATIONS
+            .iter()
+            .find(|r| r.platform == Platform::MacOs)
+            .unwrap();
+        assert!(!mac.bom && mac.crlf);
     }
 
     #[test]

@@ -464,8 +464,8 @@ case "${1:-}" in
                 for s in a01_setup_apply_writes_the_users_real_ssh_config a01_ordinary_ssh_alias_without_f \
                     a01_ordinary_git_without_f a01_ordinary_scp_without_f a01_ordinary_sftp_without_f \
                     a01_unaffected_alias_effective_config_unchanged a01_provider_agent_accepted_key_is_the_adopted_one \
-                    a22_rename_exchange_supported_on_the_home_fs t06_uninstall_restores_user_bytes \
-                    t06_uninstall_restores_effective_config; do
+                    a22_rename_exchange_supported_on_the_home_fs a22_birth_time_recorded_on_the_home_fs \
+                    t06_uninstall_restores_user_bytes t06_uninstall_restores_effective_config; do
                     if [ "${HM_ST_SCENARIO_FAIL:-}" = "$s" ]; then echo "test $s ... FAILED"; else echo "test $s ... ok"; fi
                 done
                 [ -z "${HM_ST_SCENARIO_FAIL:-}" ] && st=0 || st=1
@@ -1421,7 +1421,7 @@ check "D14 distro: the order is import, systemd off + terminate, prepare, scenar
 check "D15 distro: the scenario ran as the non-root user and root only for the root-side phases" \
     bash -c 'l=$1; grep "scenario-ordinary-ssh.sh" "$l" | grep -q -- "-u hmtest " && grep "target-root.sh" "$l" | grep -q -- "-u root "' _ "$L"
 check "D16 distro: the scenario's step lines are the test lines of ### wsl_ordinary_ssh" \
-    bash -c 't=$1; grep -q "^### wsl_ordinary_ssh$" "$t" && [ "$(grep -c "^test .* \.\.\. ok$" "$t")" = 10 ] && grep -q "^### wsl_ordinary_ssh exit=0$" "$t"' _ "$O/tests.txt"
+    bash -c 't=$1; grep -q "^### wsl_ordinary_ssh$" "$t" && [ "$(grep -c "^test .* \.\.\. ok$" "$t")" = 11 ] && grep -q "^### wsl_ordinary_ssh exit=0$" "$t"' _ "$O/tests.txt"
 check "D29 distro: the scenario's facts join host.txt as key=value lines (versions and exchange support for the records)" \
     bash -c 'h=$1; grep -q "^ssh-V=OpenSSH_9.9p9 (exit 0)$" "$h" && grep -q "^rename-exchange=supported (selftest)$" "$h"' _ "$O/host.txt"
 check "D17 distro: the run directories on both sides and the distribution directory are removed" \
@@ -1541,7 +1541,7 @@ check "D35 distro local: the order is import, prepare, scenario (as the non-root
     bash -c 'l=$1; a=$(grep -n "^wsl --import " "$l" | cut -d: -f1); b=$(grep -n "target-root.sh" "$l" | head -1 | cut -d: -f1); c=$(grep -n "scenario-ordinary-ssh.sh" "$l" | cut -d: -f1); d=$(grep -n "^wsl --unregister " "$l" | cut -d: -f1);
         [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ] && [ "$c" -lt "$d" ] && grep "scenario-ordinary-ssh.sh" "$l" | grep -q -- "-u hmtest " &&
         cmp -s "$2" "$3" && grep -q "^registered-set-equal-to-before=yes$" "$4" && grep -q "^distribution-registered-after=no$" "$4" &&
-        [ "$(grep -c "^test .* \.\.\. ok$" "$5")" = 10 ]' _ "$L" "$S/wsl/registry" "$S/registry.before" "$O/host.txt" "$O/tests.txt"
+        [ "$(grep -c "^test .* \.\.\. ok$" "$5")" = 11 ]' _ "$L" "$S/wsl/registry" "$S/registry.before" "$O/host.txt" "$O/tests.txt"
 check "D36 distro local: the run directories and the distribution directory are removed, recorded with exit 0" \
     bash -c '[ -z "$(ls -A "$1/hm-m00")" ] && [ -z "$(ls -A "$2/localappdata/hm-m00")" ] && grep -q "^exit 0: remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent" "$3"' _ "$H" "$W" "$O/commands.txt"
 check "D37 distro local: build.txt carries the verified sha256 in the build path's line format; commands.txt has mode=local and the prebuilt check as its own exit line" \
@@ -1791,7 +1791,7 @@ print(" ".join(sorted(json.load(open(sys.argv[1], encoding="utf-8"))["scenario_t
 PY
 )
     ok_steps=$(sed -n 's/^test \(.*\) \.\.\. ok$/\1/p' "$SC" | sort | tr '\n' ' ' | sed 's/ $//')
-    check "S11 scenario: the steps that passed are exactly the case index's ten" bash -c '[ "$1" = "$2" ]' _ "$ok_steps" "$steps"
+    check "S11 scenario: the steps that passed are exactly the case index's scenario steps" bash -c '[ "$1" = "$2" ]' _ "$ok_steps" "$steps"
     check "S12 scenario: no step failed and no precondition stopped it" bash -c '! grep -q "FAILED" "$1" && ! grep -q "^setup .* exit=[1-9]" "$1"' _ "$SC"
     check "S13 scenario: the user's configuration bytes after uninstall equal the original, and apply changed them" \
         bash -c 'a=$(sed -n "s/^fact user-config-sha256-before=//p" "$1"); b=$(sed -n "s/^fact user-config-sha256-after-apply=//p" "$1"); c=$(sed -n "s/^fact user-config-sha256-after-uninstall=//p" "$1"); [ -n "$a" ] && [ "$a" != "$b" ] && [ "$a" = "$c" ]' _ "$SC"

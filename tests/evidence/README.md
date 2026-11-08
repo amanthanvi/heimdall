@@ -64,15 +64,40 @@ from the same build commit.
   names it exactly, for example `B3: a disposable macOS standard user account`. A test that
   did not run on a platform that was available is `in_progress` with the reason on the row:
   `incomplete_run`, `harness_gap_not_run` (a test that reads the repository at its
-  compile-time path and cannot run off the build host), or `no_applicable_test` (m02-plan §4
-  declares the row but no indexed test exists on that platform). Never `blocked`, never
-  `verified`.
+  compile-time path and cannot run off the build host), `no_applicable_test` (m02-plan §4
+  declares the row but no indexed test exists on that platform), `excluded_without_rationale`
+  or `platform_required_not_passed` (below). Never `blocked`, never `verified`.
 - **Required tests come from the case index, never from a run.** `case-index.json` maps each
   case to its tests; `required-inventory.json` resolves those patterns against the sources and
   the cross-built binaries' symbols (`#[cfg]`), and records the digest of the sources it came
   from. The generator refuses another digest (regenerate with
   `tests/native/m02/refresh-inventory.sh` at the build commit), a test that ran but is not in
   the inventory, and a required test that is absent from every log.
+- **A platform row covers what the case declares there (ADR-0007 §12.47 item 1).** Applicability
+  alone is not coverage: a row that kept only the tests surviving `#[cfg]` would read `verified`
+  on whatever few portable tests are left. So on every platform a section declares:
+  - **Every exclusion is counted.** Each row reports `excluded_on_this_platform`: how many of the
+    section's required tests do not exist on that platform.
+  - **(R1) An exclusion needs a written reason.** A test excluded by a `case-index.json`
+    `platform_only` entry is listed, by entry, in `excluded_by_rationale`. Every such entry is
+    `{"platforms": [...], "rationale": "..."}`, and the rationale cites the plan, the ruling or
+    the Windows counterpart that justifies it (the generator refuses an entry without one). A
+    test that only the inventory scan excludes has no reason on record. It is listed in
+    `excluded_without_rationale`, and the row stays `in_progress`.
+  - **(R2) Declared tests are named exactly.** A section's `platform_required`
+    (`{platform: {target: [exact test name]}}`) lists the tests the plan names for a platform.
+    Each must pass in that platform's log, or it is listed in `platform_required_not_passed`
+    with its result (`absent`, `FAILED`, `ignored`), and the row stays `in_progress`. These
+    names are never resolved against the inventory, so a planned test that was never written
+    reads as not run.
+  - **A stale reason is an error.** A `platform_only` entry that leaves a platform out, while
+    that platform's log has a result for the test, stops the generator with exit 1: widen the
+    entry or remove it.
+
+  So a unit that ports a test to a platform removes the test from its `platform_only` entry. A
+  unit that keeps a test platform-only adds one entry for it, with the platforms where it exists
+  and the reason. A deferral is a `deferred_with_decision` row citing its ruling, together with the
+  `platform_only` entry that excuses the test.
 - **Native means native.** A cross-build, a stub, a mock or emulation closes no native claim.
   `tools/validation/native-harness-selftest.sh` exercises every M02 harness against stubs and
   a fake host tree: that is harness evidence only. It never appears in a record as product

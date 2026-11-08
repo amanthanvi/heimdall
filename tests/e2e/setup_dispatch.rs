@@ -8,7 +8,9 @@
 //! (`SshPaths::with_test_override`), and Heimdall's scratch configuration directory.
 //! Adopted keys are synthetic public keys generated per run; no client runs and no
 //! agent is contacted.
-#![cfg(unix)]
+//!
+//! The file runs natively on Unix and on Windows (wave 6x, WU-3): the owner is the
+//! account's uid or SID, and an agent endpoint is a socket path or a named pipe.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -62,10 +64,67 @@ fn rid(s: &str) -> RequestId {
     RequestId::parse(s).unwrap()
 }
 
+/// The owner of the scratch runtime, as the transport names it: a fixed uid on Unix, and
+/// on Windows the account's own SID (`PrincipalInfo::OsUserWindows` at the session,
+/// `PrincipalRef::WindowsUser` in the caller context).
 fn owner_ctx() -> CallerContext {
     CallerContext {
-        principal: PrincipalRef::UnixUser { uid: 501 },
+        principal: owner_principal_ref(),
         role: ClientRole::Owner,
+    }
+}
+
+fn owner_principal_ref() -> PrincipalRef {
+    #[cfg(unix)]
+    {
+        PrincipalRef::UnixUser { uid: 501 }
+    }
+    #[cfg(windows)]
+    {
+        PrincipalRef::WindowsUser {
+            sid: heimdall_ipc::windows::current_user_sid().unwrap(),
+        }
+    }
+}
+
+/// The transport's identity of the scratch owner (what the control session serves).
+fn owner_principal_info() -> PrincipalInfo {
+    #[cfg(unix)]
+    {
+        PrincipalInfo::OsUserUnix { uid: 501 }
+    }
+    #[cfg(windows)]
+    {
+        PrincipalInfo::OsUserWindows {
+            sid: heimdall_ipc::windows::current_user_sid().unwrap(),
+        }
+    }
+}
+
+/// The kind of an agent endpoint on this platform.
+fn agent_kind() -> EndpointKind {
+    if cfg!(windows) {
+        EndpointKind::NamedPipe
+    } else {
+        EndpointKind::UnixSocket
+    }
+}
+
+/// A scratch agent named `name` under `root`: a socket path `<root>/<name>.sock` on
+/// Unix, a named pipe `\\.\pipe\hm-<scratch dir>-<name>` on Windows. Nothing listens on
+/// it and no test connects to it.
+fn agent_endpoint_at(root: &std::path::Path, name: &str) -> EndpointRef {
+    let locator = if cfg!(windows) {
+        format!(
+            r"\\.\pipe\hm-{}-{name}",
+            root.file_name().unwrap().to_string_lossy()
+        )
+    } else {
+        root.join(format!("{name}.sock")).display().to_string()
+    };
+    EndpointRef {
+        kind: agent_kind(),
+        locator,
     }
 }
 
@@ -192,11 +251,7 @@ impl Session {
                         version: "test".into(),
                     },
                 )
-                .serve(
-                    PrincipalInfo::OsUserUnix { uid: 501 },
-                    dispatcher,
-                    CancellationToken::new(),
-                )
+                .serve(owner_principal_info(), dispatcher, CancellationToken::new())
                 .await;
         });
         let client = ControlClient::handshake(
@@ -290,15 +345,7 @@ async fn e2e_setup_preview_apply_decide_restart_through_dispatcher() {
     let rig = Rig::new();
     let service = rig.service().await;
     let mut s = Session::setup_session(&service, InteractionMode::NonInteractive).await;
-    let endpoint = EndpointRef {
-        kind: EndpointKind::UnixSocket,
-        locator: rig
-            .home
-            .root
-            .join("fixture-agent.sock")
-            .display()
-            .to_string(),
-    };
+    let endpoint = agent_endpoint_at(&rig.home.root, "fixture-agent");
     adopt_and_alias(&mut s, endpoint).await;
     let plan = preview(&mut s, PreviewIntent::Apply { include_git: false }).await;
     assert!(plan.consent.decision_required);
@@ -386,11 +433,7 @@ async fn e2e_setup_without_capability_is_schema_unsupported() {
                     version: "test".into(),
                 },
             )
-            .serve(
-                PrincipalInfo::OsUserUnix { uid: 501 },
-                dispatcher,
-                CancellationToken::new(),
-            )
+            .serve(owner_principal_info(), dispatcher, CancellationToken::new())
             .await;
     });
     let mut raw = RawClient::handshake(stream, without_setup()).await;
@@ -505,15 +548,7 @@ async fn simultaneous_setup_admissions_admit_exactly_one() {
     let rig = Rig::new();
     let service = rig.service().await;
     let mut setup = Session::setup_session(&service, InteractionMode::NonInteractive).await;
-    let endpoint = EndpointRef {
-        kind: EndpointKind::UnixSocket,
-        locator: rig
-            .home
-            .root
-            .join("fixture-agent.sock")
-            .display()
-            .to_string(),
-    };
+    let endpoint = agent_endpoint_at(&rig.home.root, "fixture-agent");
     let identity = adopt_and_alias(&mut setup, endpoint).await;
     // Every plan of the race needs a decision, so the winner stays open: the
     // projection is applied once (approved), a second alias joins the catalog (the
@@ -818,7 +853,7 @@ fn bind(binding: &str, request: &str) -> Request {
 async fn catalog_and_project(rig: &Rig, service: &Service) -> (IdentityId, EndpointRef) {
     let mut s = Session::setup_session(service, InteractionMode::NonInteractive).await;
     let endpoint = EndpointRef {
-        kind: EndpointKind::UnixSocket,
+        kind: agent_kind(),
         locator: rig
             .home
             .decoy_agent()
@@ -929,7 +964,7 @@ async fn e2e_inspect_destinations_lists_the_catalog_through_the_dispatcher() {
     let service = rig.existing_access().await;
     let mut s = Session::setup_session(&service, InteractionMode::NonInteractive).await;
     let endpoint = EndpointRef {
-        kind: EndpointKind::UnixSocket,
+        kind: agent_kind(),
         locator: rig
             .home
             .decoy_agent()
@@ -1068,15 +1103,7 @@ async fn e2e_setup_attended_apply_inspect_rollback_through_dispatcher() {
         "{:?}",
         caps.data["capabilities"]
     );
-    let endpoint = EndpointRef {
-        kind: EndpointKind::UnixSocket,
-        locator: rig
-            .home
-            .root
-            .join("fixture-agent.sock")
-            .display()
-            .to_string(),
-    };
+    let endpoint = agent_endpoint_at(&rig.home.root, "fixture-agent");
     adopt_and_alias(&mut s, endpoint).await;
 
     // Preview, then apply: an attended session is asked for approval.
@@ -1168,15 +1195,7 @@ async fn e2e_supervisor_cleaner_deletes_after_rollback_through_the_service() {
     let service = rig.service().await;
     let mut s = Session::setup_session(&service, InteractionMode::Interactive).await;
     assert_eq!(s.client.attend().await.unwrap().code, Code::Ok);
-    let endpoint = EndpointRef {
-        kind: EndpointKind::UnixSocket,
-        locator: rig
-            .home
-            .root
-            .join("fixture-agent.sock")
-            .display()
-            .to_string(),
-    };
+    let endpoint = agent_endpoint_at(&rig.home.root, "fixture-agent");
     adopt_and_alias(&mut s, endpoint).await;
     let plan = preview(&mut s, PreviewIntent::Apply { include_git: false }).await;
     let env = s.request(apply(&plan.plan_digest, "r-apply")).await;
@@ -1282,10 +1301,7 @@ async fn e2e_declaration_validity_days_come_from_the_configuration() {
             .await;
         let mut s = Session::setup_session(&service, InteractionMode::Interactive).await;
         assert_eq!(s.client.attend().await.unwrap().code, Code::Ok);
-        let endpoint = EndpointRef {
-            kind: EndpointKind::UnixSocket,
-            locator: rig.home.root.join("agent.sock").display().to_string(),
-        };
+        let endpoint = agent_endpoint_at(&rig.home.root, "agent");
         let identity = adopt_and_alias(&mut s, endpoint).await;
         let env = s
             .request(Request::Catalog(CatalogRequest::DeclareInteraction {

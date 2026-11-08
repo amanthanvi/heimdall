@@ -4752,6 +4752,14 @@ The WSL rows are covered, apart from the WSL ext4 birth-time observation.
 
    Each runs natively in its own scratch clone on the PC, at Medium integrity. WU-0, WU-2a, WU-2b, WU-3, WU-6 and WU-7 start now; WU-1, WU-4 and WU-5 start after WU-0 is integrated. A unit removes its build and toolchain when it reports, which avoids repeating the 150 GB of wave 6w.
 
+### 12.48 Rulings during the wave-6x integration (orchestrator, 2026-11-08)
+
+1. **`adopted_key` compares a record path in the renderer's form (product fix).**
+   - **The defect:** P names a managed key file with `/` separators on Windows (`RenderPath::windows`), while the projection record keeps the path as written, with `\`. `projection::observe::adopted_key` compared them byte for byte. On Windows the alias observation therefore had no identity selection, and a non-interactive ensure was refused with `fallback_identity_interaction` instead of `AccessReady`.
+   - **Found by:** WU-3 natively (`e2e_setup_dispatch` `declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher`).
+   - **The fix:** on Windows a record path is compared with `\` read as `/`. On Unix `\` is a file-name character, and the comparison stays exact.
+   - **Tests:** `key_matches` unit tests cover both platforms. The native Windows proof is the e2e test above, at the next Windows run.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

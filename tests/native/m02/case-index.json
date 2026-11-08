@@ -1,5 +1,5 @@
 {
-  "description": "M02-U11 case index (m02-plan revision 5 §3, §4): every exit case and claim mapped to its Cargo test targets and tests, per platform. tests: {target: [name | prefix*] | \"*\"}; a name ending in '*' matches every test whose full name or last segment starts with the rest, and '*' alone is the whole target. Patterns are resolved into required-inventory.json from the build host's sources (m02-evidence.py --generate-inventory) and never from run logs. platform_only: {\"<target>\" | \"<target>::<test prefix>\": [platforms]} limits where a test exists (#[cfg] gating, read from the cross-built binaries' symbols with platform-tests.py). build_host_paths: tests that truly need the build host; remote harnesses skip them, a neutral one counts as run on the build host, any other is a harness gap that keeps the row in_progress. It is empty since ADR-0007 §12.32 item 3: every test that reads repository files (schemas, golden files, snapshots, documents, fixtures, the sources a static scan reads) resolves them through heimdall_testkit::repo::repo_root, which honours HM_REPO_ROOT, and the hook binary through HM_FIXTURE_HOOK; the native harnesses ship those files (lib.sh M02_REPO_DIRS) and set both, so these tests run on every platform. platform_only_rationale gives the reason for each platform_only entry of this file (ADR-0006 §13.13 item 5). child_entries: #[ignore]d child-process entry points, never required. scenario_targets: harness-defined steps (not Cargo tests) logged in the same format. observation_targets: the Cargo test targets whose tests print `observation` lines (ADR-0007 [I]/[U] facts: exchange and birth-time support, client and Git observations); every remote run uses --show-output, and run-macos.sh runs these once more through cargo with --show-output because check.sh discards passing output. blocked_rows: per case, the platform rows that need an owner input (m02-plan §7), always blocked with that input named.",
+  "description": "M02-U11 case index (m02-plan revision 5 §3, §4): every exit case and claim mapped to its Cargo test targets and tests, per platform. tests: {target: [name | prefix*] | \"*\"}; a name ending in '*' matches every test whose full name or last segment starts with the rest, and '*' alone is the whole target. Patterns are resolved into required-inventory.json from the build host's sources (m02-evidence.py --generate-inventory) and never from run logs. platform_only: {\"<target>\" | \"<target>::<module>::\" | \"<target>::<prefix>*\" | \"<target>::<test>\": {\"platforms\": [...], \"rationale\": \"...\"}} says where a test exists and why it exists nowhere else (ADR-0006 §13.13 item 5); the most specific entry wins, and the inventory scan's own entries (#[cfg] gating, read from the cross-built binaries' symbols with platform-tests.py) apply where no case-index entry is more specific. build_host_paths: tests that truly need the build host; remote harnesses skip them, a neutral one counts as run on the build host, any other is a harness gap that keeps the row in_progress. It is empty since ADR-0007 §12.32 item 3: every test that reads repository files (schemas, golden files, snapshots, documents, fixtures, the sources a static scan reads) resolves them through heimdall_testkit::repo::repo_root, which honours HM_REPO_ROOT, and the hook binary through HM_FIXTURE_HOOK; the native harnesses ship those files (lib.sh M02_REPO_DIRS) and set both, so these tests run on every platform. The coverage guard (ADR-0007 §12.47 item 1): on a platform a section declares, a required test that only the inventory scan excludes has no reason on record and keeps that row in_progress (R1, excluded_without_rationale); a unit that keeps a test platform-only adds one platform_only entry for it here, with the platforms where it exists and the rationale. platform_required (per section): {platform: {target: [exact test name]}} lists tests that must pass on that platform; they are never resolved against the inventory, so a planned test that does not exist yet reads as not run and keeps the row in_progress (R2, platform_required_not_passed). Every row reports excluded_on_this_platform. child_entries: #[ignore]d child-process entry points, never required. scenario_targets: harness-defined steps (not Cargo tests) logged in the same format. observation_targets: the Cargo test targets whose tests print `observation` lines (ADR-0007 [I]/[U] facts: exchange and birth-time support, client and Git observations); every remote run uses --show-output, and run-macos.sh runs these once more through cargo with --show-output because check.sh discards passing output. blocked_rows: per case, the platform rows that need an owner input (m02-plan §7), always blocked with that input named.",
   "build_host": "macos",
   "observation_targets": [
     "integration_doctor",
@@ -28,23 +28,208 @@
     }
   },
   "platform_only": {
-    "e2e_cli_m02::unix::": [
-      "macos",
-      "linux"
-    ],
-    "e2e_cli_m02::ssh::": [
-      "macos",
-      "linux"
-    ],
-    "e2e_cli_m02::terminal::": [
-      "macos",
-      "linux"
-    ]
-  },
-  "platform_only_rationale": {
-    "e2e_cli_m02::unix::": "Pseudo-terminal cases (#[cfg(unix)]): the owner's typed confirmations (ADR-0006 §3.1) and the CLI prompts on a pty. Their --json and --non-interactive counterparts for uninstall, doctor, setup preview and status and the catalog are e2e_cli_m02::json::* and run on every platform; Windows interactive confirmation is the pseudoconsole drivers' row, which waits on B5 (ADR-0007 §12.32 item 4; ADR-0006 §13.13 item 5). a21_cli_inventory_wording_never_claims_completeness is here because its Match exec command is POSIX (/usr/bin/touch).",
-    "e2e_cli_m02::ssh::": "Ordinary ssh, Git, scp and sftp against the loopback fixture sshd with the owner's typed confirmations on a pty (#[cfg(unix)]); the Windows client rows are the native harness's and the B2/B4 owner-input rows (ADR-0007 §12.32 item 4).",
-    "e2e_cli_m02::terminal::": "The pty helpers' own regression (#[cfg(unix)]: rustix ptys); Windows has the pseudoconsole drivers (ADR-0007 §12.32 items 4, 6 and 10)."
+    "e2e_cli_m02::unix::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "Pseudo-terminal cases (#[cfg(unix)]): the owner's typed confirmations (ADR-0006 §3.1) and the CLI prompts on a pty. Their --json and --non-interactive counterparts for uninstall, doctor, setup preview and status and the catalog are e2e_cli_m02::json::* and run on every platform; Windows interactive confirmation is the pseudoconsole drivers' row, which waits on B5 (ADR-0007 §12.32 item 4; ADR-0006 §13.13 item 5). T06's Windows half of the incomplete-rollback case (the kept quarantine, the refused purge) becomes JSON tests (ADR-0007 §12.47 item 4). a21_cli_inventory_wording_never_claims_completeness is here because its Match exec command is POSIX (/usr/bin/touch)."
+    },
+    "e2e_cli_m02::terminal::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "The pty helpers' own regression (#[cfg(unix)]: rustix ptys); Windows has the pseudoconsole drivers (ADR-0007 §12.32 items 4, 6 and 10)."
+    },
+    "e2e_run_m02::terminal::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "rustix pty cases (m02-plan U8: 'Unix pty through rustix; Windows pseudoconsole'); the Windows rows are windows_launch ctrlc.* and resize (ADR-0007 §12.44 item 2)."
+    },
+    "e2e_run_m02::a27_signal_death_preserved": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "m02-plan U8 names it '(Unix)': a Windows process has no signal death; its full 32-bit exit code is a27_windows_full_32bit_exit_code_preserved."
+    },
+    "e2e_run_m02::a27_not_executable_exits_126": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "POSIX 126 for a file without an execute bit (chmod 0644) or a directory; Windows has no execute bit, and its program resolution is PATHEXT-based (a27_windows_current_directory_never_searched, heimdall_launch-unit resolve::tests::windows_*)."
+    },
+    "e2e_run_m02::a27_child_exit_127_vs_exec_failure_distinguished_by_prelaunch_record": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "Unix exec-in-place states (an exec failure after launching); the Windows sequence is launching, spawned, exited (ADR-0007 §8, §12.43 item 4), proven by a27_windows_spawned_record_is_positive_launch_proof."
+    },
+    "e2e_run_m02::a27_kill_between_launching_and_exec_is_indeterminate_never_launched": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "the pause between launching and exec exists only on the Unix exec path; the Windows sequence is launching, spawned, exited (ADR-0007 §8, §12.43 item 4), proven by a27_windows_spawned_record_is_positive_launch_proof."
+    },
+    "e2e_run_m02::a27_exec_failure_with_failed_meta_write_is_indeterminate": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "an exec failure on the Unix exec path with the --meta-fd write failing; the Windows sequence is launching, spawned, exited (ADR-0007 §8, §12.43 item 4), proven by a27_windows_spawned_record_is_positive_launch_proof."
+    },
+    "e2e_run_m02::a27_meta_unavailable_aborts_launch_no_child": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "run --meta-fd is Unix only (sys::adopt_inherited_fd; ADR-0007 §12.15 item 8 E1); the --meta-file protocol runs on every platform."
+    },
+    "e2e_run_m02::a27_sigpipe_ignored_by_caller_is_reset_limitation_recorded": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "SIGPIPE is POSIX; the test records a limitation, not fidelity (m02-plan U8)."
+    },
+    "e2e_run_m02::a11::a11_confirm_constrained_native_key_refused_before_agent_contact": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
+    },
+    "e2e_run_m02::a11::a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
+    },
+    "e2e_run_m02::a11::a11_interactive_connect_succeeds_after_provider_approval": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "ADR-0007 §12.47 item 3 (D2/D3): deferred to M04 (deferred_with_decision row of this case): the interactive connect after provider approval is a pty case; its non-interactive twins run natively, and M04 adds the pseudoconsole driver for connect."
+    },
+    "e2e_tui_m02::pty::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "ADR-0007 §12.47 item 3 (D2/D3): deferred to M04 (deferred_with_decision row of this case): the TUI pty cases; their model twins (heimdall-unit tui::model::tests) run natively, the Windows pseudoconsole path of heimdall run is windows_launch (§12.44 item 2), and M04 adds the TUI pseudoconsole driver."
+    },
+    "heimdall_launch-unit::unix::": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "the Unix exec path (crates/launch/src/lib.rs: #[cfg(unix)] pub mod unix); Windows has heimdall_launch-unit::windows::tests (platform_extra)."
+    },
+    "heimdall_launch-unit::handoff::tests::caller_survives_sigint_and_sigquit_while_the_child_gets_the_default": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "POSIX job-control signals (handoff.rs: SIGINT/SIGQUIT handlers, SIGTSTP default); Windows uses the console control guard of crate::windows."
+    },
+    "heimdall_launch-unit::handoff::tests::child_shares_the_callers_process_group_and_gets_the_delta": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "POSIX process groups (no setpgid); Windows has no process groups in this sense and uses the console control guard of crate::windows."
+    },
+    "heimdall_launch-unit::handoff::tests::foreground_child_status_and_signal_death_are_reported": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "signal death is POSIX (as e2e_run_m02::a27_signal_death_preserved)."
+    },
+    "heimdall_launch-unit::resolve::tests::unix_*": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "Unix PATH rules (':'-separated, execute bit); the Windows rules are resolve::tests::windows_* (which run everywhere) and a27_windows_current_directory_never_searched."
+    },
+    "heimdall_launch-unit::meta::tests::fd_protocol_writes_whole_lines_and_epipe_is_an_error_not_a_signal": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "run --meta-fd is Unix only (sys::adopt_inherited_fd; ADR-0007 §12.15 item 8 E1); the --meta-file protocol runs on every platform."
+    },
+    "heimdall_launch-unit::meta::tests::stdio_descriptors_and_negative_numbers_are_never_adopted": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "run --meta-fd is Unix only (sys::adopt_inherited_fd; ADR-0007 §12.15 item 8 E1); the --meta-file protocol runs on every platform."
+    },
+    "heimdall_launch-unit::meta::tests::a_closed_reader_is_never_masked_by_a_concurrent_spawn": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "run --meta-fd is Unix only (sys::adopt_inherited_fd; ADR-0007 §12.15 item 8 E1); the --meta-file protocol runs on every platform (the fork gate around inherited descriptors)."
+    },
+    "integration_doctor::a21_fifo_include_does_not_block": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "m02-plan U3: 'a Unix mkfifo fixture'; Windows has no FIFO in the file system."
+    },
+    "integration_adapters::a11_locked_native_agent_lists_nothing": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
+    },
+    "integration_testkit_fixtures::f23_confirm_constraint_installed_prompts_per_signature_and_is_not_listed": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
+    },
+    "integration_projection::a22_symlinked_user_config_is_manual_mode": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "m02-plan §4: symlink cases are platform_only Unix (std::os::unix::fs::symlink). The Windows file-symlink row is its own test, a22_windows_file_symlink_user_config_is_manual_mode (A22 platform_required; ADR-0007 §12.47 item 7), and the junction row is a22_windows_reparse_point_user_config_is_manual_mode."
+    },
+    "integration_projection::a22_race_symlink_substitution_at_boundary_is_held": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "m02-plan §4: symlink cases are platform_only Unix (std::os::unix::fs::symlink). The Windows file-symlink row is its own test, a22_windows_file_symlink_user_config_is_manual_mode (A22 platform_required; ADR-0007 §12.47 item 7), and the junction row is a22_windows_reparse_point_user_config_is_manual_mode."
+    },
+    "integration_projection_replace::race_symlink_substitution_at_boundary_is_held": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "m02-plan §4: symlink cases are platform_only Unix (std::os::unix::fs::symlink). The Windows file-symlink row is its own test, a22_windows_file_symlink_user_config_is_manual_mode (A22 platform_required; ADR-0007 §12.47 item 7), and the junction row is a22_windows_reparse_point_user_config_is_manual_mode."
+    },
+    "integration_projection::a22_crlf_bom_no_trailing_newline_preserved": {
+      "platforms": [
+        "macos"
+      ],
+      "rationale": "#[cfg(target_os = \"macos\")]: the round trip needs a client the encoding table (localenv clients.rs ENCODING_OBSERVATIONS) records as accepting CRLF, and at ce21a76f only macOS 10.3p1 has a row. Linux: the devbox's OpenSSH 9.6p1 has no row, so a CRLF user configuration there is manual mode (fails closed) and the round trip is not reachable. Windows: ADR-0007 §12.47 item 5 (D5) adds 9.5p2, after which the test must run there too (A22 platform_required); widen this entry when it does."
+    }
   },
   "groups": {
     "A01": {
@@ -108,7 +293,28 @@
         "linux",
         "windows",
         "wsl-distro"
-      ]
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_cli_m02": [
+            "ssh::a01_cli_adopt_observed_and_managed_aliases_then_ordinary_ssh_with_scratch_f",
+            "ssh::a01_unaffected_aliases_effective_config_identical_before_after",
+            "ssh::a01_no_remote_change",
+            "ssh::a01_no_key_export",
+            "ssh::a01_personal_profile_without_repository"
+          ],
+          "integration_projection": [
+            "a22_apply_then_rollback_restores_user_bytes_exactly",
+            "private_key_files_never_opened"
+          ],
+          "model_setup": [
+            "catalog_alias_rename_keeps_destination_id"
+          ],
+          "e2e_setup_dispatch": [
+            "e2e_catalog_then_ensure_bind_carry_pairs_and_selection"
+          ]
+        }
+      }
     },
     "A11": {
       "title": "A11: ordinary access first-class; non-interactive use returns explicit interaction or capability state without a popup or unapproved fallback",
@@ -163,13 +369,45 @@
           "platform": "hardware-key touch-required row",
           "status": "blocked",
           "blocked_on": "B6: a hardware security key (FIDO2) owned for testing"
+        },
+        {
+          "platform": "windows-11 interactive connect after provider approval (e2e_run_m02 a11::a11_interactive_connect_succeeds_after_provider_approval)",
+          "status": "deferred_with_decision",
+          "decision": "ADR-0007 §12.47: item 3 (D3) defers the interactive connect pty case on Windows to M04, which adds the pseudoconsole driver for connect"
         }
       ],
       "declared_platforms": [
         "macos",
         "linux",
         "windows"
-      ]
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_run_m02": [
+            "a11::a11_declared_none_allows_noninteractive_launch_and_result_says_declared",
+            "a11::a11_noninteractive_run_refuses_interactive_identity_before_launch",
+            "a11::a11_multi_pair_binding_refused_when_any_pair_needs_interaction",
+            "a11::a11_declaration_withdrawn_after_bind_refused_before_launch",
+            "a11::a11_redeclaration_after_bind_changes_revision_and_refuses_launch",
+            "a11::a11_declaration_expiring_between_bind_and_launch_refused",
+            "a11::a11_lapse_recorded_by_failed_listing_between_ensure_and_bind_refuses_launch",
+            "a11::a11_withdrawal_and_redeclaration_after_a_restart_between_ensure_and_bind_refuse",
+            "a11::a11_replayed_bind_result_still_gets_prelaunch_check",
+            "a11::a11_identityfile_added_after_ensure_is_seen_by_prelaunch_check",
+            "a11::a11_fallback_cleared_when_alternative_adopted_and_declared_launches",
+            "a11::a11_file_backed_fallback_is_never_cleared"
+          ],
+          "e2e_setup_dispatch": [
+            "declaration_changes_between_ensure_and_bind_are_seen_through_the_dispatcher"
+          ],
+          "integration_doctor": [
+            "a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity"
+          ],
+          "e2e_cli_m02": [
+            "ssh::a35_wrong_key_exclusive_selection_fails_without_fallback"
+          ]
+        }
+      }
     },
     "A21": {
       "title": "A21: default doctor does no exec, provider contact, signing, network or mutation; explicit probes classified and bounded",
@@ -194,7 +432,38 @@
         "macos",
         "linux",
         "windows"
-      ]
+      ],
+      "blocked_rows": [
+        {
+          "platform": "windows-11 TUI pty cases (e2e_tui_m02::pty::search_never_probes, config_commands_authorization_requires_typed_yes)",
+          "status": "deferred_with_decision",
+          "decision": "ADR-0007 §12.47: item 3 (D2) defers the TUI pty cases on Windows to M04; their model twins ran natively, and M04 adds the TUI pseudoconsole driver"
+        }
+      ],
+      "platform_required": {
+        "windows": {
+          "integration_doctor": [
+            "a21_default_doctor_runs_no_exec_no_agent_no_network_no_mutation",
+            "a21_evaluate_declined_without_allow_config_commands",
+            "a21_inert_config_still_requires_allow_config_commands",
+            "a21_match_exec_inserted_after_static_pass_never_runs_unauthorized",
+            "a21_new_glob_member_after_static_pass_is_reported_and_never_listed",
+            "a21_change_then_revert_is_undetected_and_inventory_never_complete",
+            "a21_unreadable_include_declines_even_with_authorization",
+            "a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion",
+            "a21_hanging_match_exec_killed_with_group_at_timeout",
+            "a21_host_verification_offers_nothing_to_sign",
+            "a21_host_verification_requires_authorization_with_or_without_constructs",
+            "a21_authentication_level_single_identity_fixture_signs_exactly_once",
+            "a21_local_queries_listed_and_off_with_no_local_exec",
+            "home_resolution_matches_ssh_g",
+            "doctor_reads_localuser_from_the_account_database",
+            "doctor_shows_a_file_outside_the_home_as_written",
+            "doctor_lists_config_files_and_include_failures_as_written",
+            "home_mismatch_makes_a_home_relative_include_not_fully_readable"
+          ]
+        }
+      }
     },
     "A22": {
       "title": "A22: relevant behaviour correct; dynamic unknowns stay unknown; unrelated content and newer edits survive; generation deterministic",
@@ -237,20 +506,56 @@
           "a22_rename_exchange_supported_on_the_home_fs"
         ]
       },
-      "blocked_rows": [
-        {
-          "platform": "windows-11 file-symlink reparse-point row",
-          "status": "deferred_with_decision",
-          "decision": "ADR-0007 §12.45: B10 is satisfied (Developer Mode on, observed read only 2026-11-08), but no Windows-native file-symlink reparse-point test exists; the test and its native run are deferred to M04 (native realization)"
-        }
-      ],
       "not_counted": "ADR-0007 §5.9 unsupported concurrency cases, incl. the ReplaceFileW internal window ([U]) and writes into the quarantine; stated, not counted.",
       "declared_platforms": [
         "macos",
         "linux",
         "windows",
         "wsl-distro"
-      ]
+      ],
+      "platform_required": {
+        "windows": {
+          "integration_projection": [
+            "a22_windows_reparse_point_user_config_is_manual_mode",
+            "a22_windows_file_symlink_user_config_is_manual_mode",
+            "a22_quarantine_symlink_wrong_owner_or_mode_is_manual_mode",
+            "a22_quarantine_removed_when_empty_and_kept_with_foreign_entries",
+            "rendered_file_loads_on_target_client",
+            "fresh_writer_creates_absent_ssh_config",
+            "fresh_writer_executes_intent_without_preview",
+            "a22_foreign_entry_in_quarantine_slot_is_put_back_never_deleted",
+            "a22_cleanup_crash_after_quarantine_move_completes_on_retry",
+            "a22_first_adoption_commit_point_crash_as_a_process_abort_reconciles",
+            "a22_crlf_bom_no_trailing_newline_preserved"
+          ],
+          "integration_projection_git": [
+            "git_name_transitions_crash_at_every_point_reconciles",
+            "git_lock_occupied_by_holder_until_settlement",
+            "git_item_not_offered_without_bundled_msys_default",
+            "git_spaced_client_path_is_quoted_and_runs",
+            "fresh_writer_creates_absent_global_git_config"
+          ],
+          "integration_projection_recovery_rows": [
+            "recovery_table_rows_each_have_a_test_vector"
+          ],
+          "integration_projection_replace": [
+            "windows_replace_preserves_dacl",
+            "windows_replace_retains_displaced_identity_without_race"
+          ],
+          "integration_git_observe": [
+            "git_unreadable_include_makes_item_not_applicable"
+          ],
+          "e2e_setup_dispatch": [
+            "simultaneous_setup_admissions_admit_exactly_one"
+          ]
+        },
+        "wsl-distro": {
+          "wsl_ordinary_ssh": [
+            "a22_rename_exchange_supported_on_the_home_fs",
+            "a22_birth_time_recorded_on_the_home_fs"
+          ]
+        }
+      }
     },
     "A27": {
       "title": "A27: no stdout contamination or shell injection; child streams and status preserved; setup failure distinguishable",
@@ -280,6 +585,11 @@
           "platform": "windows-11 interactive console Ctrl-C and resize (conhost or Windows Terminal)",
           "status": "blocked",
           "blocked_on": "B5: an operator at the Windows console (ADR-0004 §3, P-W07, P-A06)"
+        },
+        {
+          "platform": "windows-11 interactive connect after provider approval (e2e_run_m02 a11::a11_interactive_connect_succeeds_after_provider_approval)",
+          "status": "deferred_with_decision",
+          "decision": "ADR-0007 §12.47: item 3 (D3) defers the interactive connect pty case on Windows to M04, which adds the pseudoconsole driver for connect"
         }
       ],
       "limitation": "the SIGPIPE test records a limitation, not fidelity",
@@ -287,7 +597,26 @@
         "macos",
         "linux",
         "windows"
-      ]
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_run_m02": [
+            "a27_windows_cmd_and_bat_targets_get_escaped_args",
+            "a27_windows_batch_path_with_percent_bang_caret_refused_127",
+            "a27_windows_current_directory_never_searched",
+            "a27_windows_spawned_record_is_positive_launch_proof",
+            "windows_holder_is_launcher_and_forced_launcher_kill_is_reported",
+            "a27_shell_metacharacters_in_argv_reach_child_verbatim",
+            "a27_cwd_and_env_preserved_plus_only_documented_additions",
+            "a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure"
+          ],
+          "windows_launch": [
+            "ctrlc.event",
+            "ctrlc.keystroke",
+            "resize"
+          ]
+        }
+      }
     },
     "A35": {
       "title": "A35: verified executable and identity used; exact limitations; existing-auth not second-class",
@@ -345,7 +674,40 @@
         "linux",
         "windows",
         "wsl-distro"
-      ]
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_cli_m02": [
+            "ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound",
+            "ssh::a35_wrong_key_exclusive_selection_fails_without_fallback",
+            "ssh::a35_inherited_identity_fallback_agent_backed_reported_not_exclusive",
+            "ssh::a35_inherited_identity_fallback_file_backed_reported_not_exclusive",
+            "ssh::a35_too_many_keys_succeeds_for_managed_alias_only",
+            "ssh::a35_identity_agent_overriding_ssh_auth_sock_is_reported_and_managed_alias_unaffected",
+            "ssh::a35_mutation_broken_identity_agent_is_detected"
+          ],
+          "e2e_run_m02": [
+            "a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths",
+            "a11::a27_git_clone_and_push_over_ssh_with_binary_blob",
+            "a11::a27_binary_stdin_stdout_roundtrip_through_ssh",
+            "git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing",
+            "git_run_injection_yields_to_dash_c_and_env",
+            "git_run_never_records_child_arguments_or_config_values",
+            "git_run_malformed_caller_git_config_count_injects_nothing"
+          ],
+          "integration_testkit_fixtures": [
+            "many_keys_exhaust_max_auth_tries_without_identities_only"
+          ]
+        },
+        "wsl-distro": {
+          "wsl_ordinary_ssh": [
+            "a01_ordinary_ssh_alias_without_f",
+            "a01_ordinary_git_without_f",
+            "a01_ordinary_scp_without_f",
+            "a01_ordinary_sftp_without_f"
+          ]
+        }
+      }
     },
     "R-RT-05": {
       "title": "R-RT-05: no blind replay",
@@ -378,7 +740,25 @@
         "macos",
         "linux",
         "windows"
-      ]
+      ],
+      "platform_required": {
+        "windows": {
+          "integration_projection": [
+            "a22_update_crash_after_p_exchange_reconciles",
+            "a22_update_crash_between_post_validation_and_commit_reconciles",
+            "a22_update_crash_after_commit_before_settlement_settles_never_restores",
+            "held_step_moves_nothing_and_reobserves_at_restart",
+            "generated::recovery_generated_observations_preserve_every_entry"
+          ],
+          "integration_projection_recovery_rows": [
+            "recovery_table_rows_each_have_a_test_vector"
+          ],
+          "model_setup": [
+            "restart_reconciles_attempted_apply_never_reapplies",
+            "restart_reconciles_attempted_apply_never_reapplies_after_a_process_abort"
+          ]
+        }
+      }
     },
     "ADR-0006-13.20-3": {
       "title": "ADR-0006 §13.20 item 3: bounded real-adapter calls; a hung preparation's cleanup runs without a restart (R-RT-04)",
@@ -426,7 +806,18 @@
         "macos",
         "linux",
         "windows"
-      ]
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_cli_m02": [
+            "ssh::host_key_substitution_fails_closed_and_nothing_written_to_known_hosts"
+          ],
+          "integration_doctor": [
+            "a21_host_verification_offers_nothing_to_sign",
+            "a21_host_verification_requires_authorization_with_or_without_constructs"
+          ]
+        }
+      }
     },
     "T06": {
       "title": "T06: clean local uninstall",
@@ -493,7 +884,15 @@
         "macos",
         "linux",
         "windows"
-      ]
+      ],
+      "platform_required": {
+        "windows": {
+          "e2e_cli_m02": [
+            "ssh::a01_no_remote_change",
+            "ssh::a01_no_key_export"
+          ]
+        }
+      }
     },
     "Does not claim managed unattended access until M03": {
       "tests": {
@@ -551,7 +950,8 @@
         "a01_provider_agent_accepted_key_is_the_adopted_one": "the fixture sshd log accepts only the adopted key's fingerprint",
         "a22_rename_exchange_supported_on_the_home_fs": "renameat2(RENAME_EXCHANGE) works on the disposable home's file system (ext4 exchange support)",
         "t06_uninstall_restores_user_bytes": "uninstall: ~/.ssh/config is byte-identical to the original",
-        "t06_uninstall_restores_effective_config": "uninstall: ssh -G <alias> no longer shows the managed values"
+        "t06_uninstall_restores_effective_config": "uninstall: ssh -G <alias> no longer shows the managed values",
+        "a22_birth_time_recorded_on_the_home_fs": "statx(STATX_BTIME) on a file in the disposable home: the birth time is filled on its file system (ext4); fact birth-time names the result (m02-plan U4 file_identity_birth_recorded_on_target_fs, WSL ext4; ADR-0007 F25)"
       }
     },
     "windows_launch": {

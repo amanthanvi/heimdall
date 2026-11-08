@@ -39,7 +39,9 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use heimdall_localenv::clients::ENCODING_OBSERVATIONS;
+use heimdall_localenv::clients::{
+    ClientCandidate, ClientInventory, ClientKind, ClientSource, ENCODING_OBSERVATIONS,
+};
 use heimdall_localenv::env::{Env, Platform};
 use heimdall_localenv::fs::BoundedSource;
 use heimdall_localenv::local_query::{run_version, version_text};
@@ -826,6 +828,60 @@ fn bom_and_crlf_acceptance() {
             "ENCODING_OBSERVATIONS disagrees with {}",
             h.client()
         );
+    }
+    // What the projection planner is told for this very client (ADR-0007 §12.47 item 5
+    // (D5)): never more than the client did, and exactly what it did when the table has
+    // a row for it. A client with a BOM or CRLF user file is therefore pushed to manual
+    // mode (`unsupported_encoding`) only when the table has no row for it or the row
+    // says the client refuses the file.
+    let inventory = ClientInventory {
+        candidates: vec![ClientCandidate {
+            kind: ClientKind::Ssh,
+            path: h.ssh.clone(),
+            source: ClientSource::Path,
+            version: Some(h.version),
+            sha256: None,
+            selected: true,
+        }],
+    };
+    let selected = inventory.selected(ClientKind::Ssh).unwrap();
+    let has_row = ENCODING_OBSERVATIONS
+        .iter()
+        .any(|r| r.platform == Platform::current() && r.version == h.version);
+    for (name, wants_bom, wants_crlf, client_loads) in [
+        ("bom", true, false, bom),
+        ("crlf", false, true, crlf),
+        ("bom_and_crlf", true, true, bom && crlf),
+    ] {
+        let table_accepts = inventory.accepts_encoding(selected, wants_bom, wants_crlf);
+        h.record(
+            "bom_and_crlf_acceptance",
+            &format!("planner_{name}"),
+            &[
+                ("table_row", has_row.to_string()),
+                ("planner_accepts", table_accepts.to_string()),
+                ("client_loads", client_loads.to_string()),
+            ],
+        );
+        assert!(
+            !table_accepts || client_loads,
+            "the table accepts a {name} user file that {} refuses",
+            h.client()
+        );
+        if has_row {
+            assert_eq!(
+                table_accepts,
+                client_loads,
+                "the table's answer for a {name} user file differs from {}",
+                h.client()
+            );
+        } else {
+            assert!(
+                !table_accepts,
+                "an unobserved client {} must fail closed for a {name} user file",
+                h.client()
+            );
+        }
     }
 }
 

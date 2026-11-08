@@ -107,6 +107,22 @@ pub const GATED_EXPANSION_KEYWORDS: [KnownKeyword; 3] = [
 /// * macOS `OpenSSH_10.5p1` and the Linux devbox's `OpenSSH_9.6p1` (Ubuntu
 ///   `3ubuntu13.20`): the same inert configurations through `ssh -G -F <scratch>` on
 ///   both, 2026-11-06 (`tests/evidence/artifacts/m02/sshconf-9.6p1/`).
+/// * Windows 11, in-box `OpenSSH_for_Windows_9.5p2` (LibreSSL 3.8.2), the corpus test run
+///   natively at ce21a76f (`tests/evidence/artifacts/m02/exit-ce21a76f/windows/tests.txt`,
+///   ADR-0007 §12.47 item 5 (D5)). Only what that run settled is recorded: the three
+///   `Match` criteria and the three keywords are refused (`gated_match_criteria_and_keywords_follow_the_client`,
+///   `ssh_g_exit="255"` for each), and the default identity list is the Linux 9.6p1 one
+///   (`corpus_identity_list_matches_ssh_g`, `subject=default_identities`, which printed
+///   `recorded_for_this_client="none"` before this row). `${VAR}` and `%` expansion are
+///   **not** recorded: the client expands `${VAR}` in `User` but not in `SetEnv` or
+///   `Include` (`s01_env_expansion_keywords_match_the_client`, `User dump="expanded"`,
+///   `Include effect="not_expanded"`), and takes `%` tokens literally in `Include`
+///   (`include_tokens_follow_the_client`, `client_expands_include_tokens="false"`) while
+///   `User` expands them; one fact per row cannot say that, so both stay `None` and
+///   a `User`, `SetEnv` or `Include` argument holding `%` or `${…}` stays undetermined.
+///   Its BOM and CRLF acceptance is in `heimdall_localenv::clients::ENCODING_OBSERVATIONS`.
+///   Rows here are keyed by version alone, so this row stands for whatever client prints
+///   `9.5p2`; the only one observed to is the in-box Windows build.
 pub const OBSERVED_CLIENTS: &[ObservedClient] = &[
     ObservedClient {
         label: "macOS build host, system client",
@@ -158,6 +174,24 @@ pub const OBSERVED_CLIENTS: &[ObservedClient] = &[
             "id_dsa",
         ],
         evidence: "tests/evidence/artifacts/m02/sshconf-9.6p1/ssh-g-9.6p1.txt",
+    },
+    ObservedClient {
+        label: "Windows 11, in-box OpenSSH_for_Windows",
+        version: v(9, 5, 2),
+        match_criteria: [Some(false), Some(false), Some(false)],
+        keywords: [Some(false), Some(false), Some(false)],
+        env_in_user_setenv_include: None,
+        tokens_in_user_setenv_include: None,
+        default_identities: &[
+            "id_rsa",
+            "id_ecdsa",
+            "id_ecdsa_sk",
+            "id_ed25519",
+            "id_ed25519_sk",
+            "id_xmss",
+            "id_dsa",
+        ],
+        evidence: "tests/evidence/artifacts/m02/exit-ce21a76f/windows/tests.txt (client=windows:9.5p2); ADR-0007 §12.47 item 5 (D5)",
     },
 ];
 
@@ -468,6 +502,8 @@ mod tests {
     /// one fact settles that fact only.
     #[test]
     fn behaviour_is_unknown_only_where_the_observations_do_not_settle_it() {
+        // 9.5p2 has a row (D5) that records neither `${VAR}` nor `%` expansion, so it is
+        // unsettled like a version without a row.
         let unobserved = [v(9, 5, 2), v(9, 7, 1), v(9, 6, 2), v(10, 0, 1), v(11, 0, 1)];
         for k in GATED_EXPANSION_KEYWORDS {
             for arg in ["a%hb", "%%", "%", "a${V}b"] {
@@ -507,6 +543,41 @@ mod tests {
         ] {
             assert!(!behaviour_unknown(k, ["a%hb${V}"], MINIMUM), "{k:?}");
         }
+    }
+
+    /// ADR-0007 §12.47 item 5 (D5): the in-box Windows 9.5p2 row records what the native
+    /// run at ce21a76f settled, and only that. Every gate it settles answers as before
+    /// (refused: the observation agrees with the strict reading), and the two facts a
+    /// single flag cannot express stay unrecorded, so `${VAR}` and `%` in `User`,
+    /// `SetEnv` and `Include` remain undetermined and an unknown version stays strict.
+    #[test]
+    fn windows_inbox_9_5p2_row_records_only_what_the_native_run_settled() {
+        let row = observed(v(9, 5, 2)).expect("the in-box Windows 9.5p2 row");
+        assert_eq!(row.match_criteria, [Some(false); 3]);
+        assert_eq!(row.keywords, [Some(false); 3]);
+        assert_eq!(row.env_in_user_setenv_include, None);
+        assert_eq!(row.tokens_in_user_setenv_include, None);
+        assert!(row.evidence.contains("exit-ce21a76f/windows/tests.txt"));
+        assert_eq!(default_identities_of(v(9, 5, 2)).map(<[_]>::len), Some(7));
+        // The observed refusals are the same answers the strict reading gave.
+        for c in GATED_MATCH_CRITERIA {
+            assert!(!accepts_match_criterion(c, v(9, 5, 2)), "{c}");
+        }
+        for k in GATED_KEYWORDS {
+            assert!(!knows_keyword(k, v(9, 5, 2)), "{k:?}");
+        }
+        // Not recorded: still read as expanding, and still unsettled.
+        for k in GATED_EXPANSION_KEYWORDS {
+            assert!(expands_env(k, v(9, 5, 2)), "{k:?}");
+            assert!(expands_tokens(k, v(9, 5, 2)), "{k:?}");
+            assert!(behaviour_unknown(k, ["a%hb"], v(9, 5, 2)), "{k:?}");
+            assert!(behaviour_unknown(k, ["a${V}b"], v(9, 5, 2)), "{k:?}");
+        }
+        // The neighbours of the row are still unknown.
+        for other in [v(9, 5, 1), v(9, 6, 2), v(9, 4, 2)] {
+            assert!(observed(other).is_none(), "{other:?}");
+        }
+        assert!(observed(MINIMUM).is_none());
     }
 
     #[test]

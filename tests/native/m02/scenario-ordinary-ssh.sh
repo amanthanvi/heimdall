@@ -22,7 +22,8 @@
 #   4. ordinary `ssh <alias> true`, `git ls-remote`/`git clone`, `scp` and `sftp -b`
 #      with no -F, no isolation option and no GIT_SSH_COMMAND; the unrelated alias's
 #      `ssh -G` output is unchanged; the sshd accepted only the adopted key; whether
-#      renameat2(RENAME_EXCHANGE) works on the home's file system;
+#      renameat2(RENAME_EXCHANGE) works on the home's file system, and whether it fills a
+#      birth time (statx STATX_BTIME);
 #   5. `heimdall uninstall`: ~/.ssh/config is byte-identical to the original and the
 #      alias no longer resolves to the managed values;
 #   6. everything this script started is stopped by exact PID (its own children), and
@@ -318,6 +319,42 @@ os.unlink(b)
 sys.exit(0 if ok else 1)
 PY
 step a22_rename_exchange_supported_on_the_home_fs "$?"
+# Audit G-W1 (m02-plan U4 file_identity_birth_recorded_on_target_fs names WSL ext4; ADR-0007
+# F25): whether the home's file system fills a birth time. Linux: statx(AT_FDCWD, path, 0,
+# STATX_BTIME); the kernel sets STATX_BTIME in stx_mask only when it filled stx_btime. macOS
+# (the isolated self-test): st_birthtime. A file system that records none is an ADR-0007 §14
+# reopen condition, so the step passes only when the birth time is filled.
+python3 -I - "$H" <<'PY'
+import ctypes, os, sys, time
+home = sys.argv[1]
+p = os.path.join(home, ".hm-btime")
+with open(p, "wb") as f:
+    f.write(b"b")
+recorded, how = False, "none"
+try:
+    if sys.platform.startswith("linux"):
+        how = "statx STATX_BTIME"
+        libc = ctypes.CDLL(None, use_errno=True)
+        if hasattr(libc, "statx"):
+            buf = ctypes.create_string_buffer(256)  # struct statx
+            if libc.statx(-100, p.encode(), 0, 0x800, buf) == 0:
+                mask = int.from_bytes(buf.raw[0:4], "little")
+                sec = int.from_bytes(buf.raw[80:88], "little", signed=True)  # stx_btime.tv_sec
+                # Filled and plausible: within a day of now (the file was just created).
+                recorded = bool(mask & 0x800) and abs(sec - time.time()) < 86400
+            else:
+                how += " (statx errno %d)" % ctypes.get_errno()
+        else:
+            how += " (no statx in libc)"
+    elif hasattr(os.stat_result, "st_birthtime"):
+        how = "st_birthtime"
+        recorded = abs(os.stat(p).st_birthtime - time.time()) < 86400
+finally:
+    os.unlink(p)
+print("fact birth-time=%s (%s)" % ("recorded" if recorded else "not-recorded", how))
+sys.exit(0 if recorded else 1)
+PY
+step a22_birth_time_recorded_on_the_home_fs "$?"
 unset SSH_AUTH_SOCK
 
 # 5. Uninstall.

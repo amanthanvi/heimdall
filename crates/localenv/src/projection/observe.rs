@@ -312,7 +312,7 @@ pub fn observe_as(
             let is_managed = managed.contains(&alias.as_str());
             let behavior = behavior_of(&evaluation, config);
             let identity_selection = if is_managed {
-                adopted_key(&evaluation, &key_files)
+                adopted_key(&evaluation, &key_files, config.platform.is_windows())
                     .map(|adopted| identity_selection(&evaluation, Path::new(adopted), &source))
             } else {
                 None
@@ -334,8 +334,15 @@ pub fn observe_as(
 }
 
 /// The managed key file the alias's evaluation names first, among the record's key
-/// files.
-fn adopted_key<'k>(evaluation: &Evaluation, key_files: &[&'k str]) -> Option<&'k str> {
+/// files. P names a key file in the renderer's form: on Windows with `/` separators
+/// (`RenderPath::windows`), while the record keeps the path as written. On Windows a
+/// record path is therefore compared with `\` read as `/` (ADR-0007 §12.48 item 1); on
+/// Unix `\` is a file-name character and the comparison is exact.
+fn adopted_key<'k>(
+    evaluation: &Evaluation,
+    key_files: &[&'k str],
+    windows: bool,
+) -> Option<&'k str> {
     let entries = evaluation
         .accumulated
         .iter()
@@ -348,8 +355,19 @@ fn adopted_key<'k>(evaluation: &Evaluation, key_files: &[&'k str]) -> Option<&'k
         key_files
             .iter()
             .copied()
-            .find(|k| *k == arg || arg.strip_prefix("~/").is_some_and(|rest| k.ends_with(rest)))
+            .find(|k| key_matches(k, arg, windows))
     })
+}
+
+/// Whether a record's key file `k` is the `IdentityFile` argument `arg` that P names
+/// (see [`adopted_key`]).
+fn key_matches(k: &str, arg: &str, windows: bool) -> bool {
+    let k = if windows {
+        k.replace('\\', "/")
+    } else {
+        k.to_owned()
+    };
+    k == arg || arg.strip_prefix("~/").is_some_and(|rest| k.ends_with(rest))
 }
 
 /// The relevant directives the contract reports (`HostName`, `Port`, `User`,
@@ -425,4 +443,49 @@ pub fn observe_held(
     receipts: &[StageReceipt],
 ) -> Result<Vec<HeldStep>, ReconcileError> {
     super::apply::held_steps(config, intent, receipts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::key_matches;
+
+    #[test]
+    fn windows_record_path_matches_the_rendered_identity_file() {
+        // ADR-0007 §12.48 item 1: P names the key with `/` on Windows; the record keeps `\`.
+        let record = r"C:\Users\fixture\AppData\Local\heimdall\keys\work.pub";
+        assert!(key_matches(
+            record,
+            "C:/Users/fixture/AppData/Local/heimdall/keys/work.pub",
+            true
+        ));
+        assert!(key_matches(
+            record,
+            "~/AppData/Local/heimdall/keys/work.pub",
+            true
+        ));
+        assert!(!key_matches(
+            record,
+            "C:/Users/fixture/AppData/Local/heimdall/keys/other.pub",
+            true
+        ));
+    }
+
+    #[test]
+    fn unix_comparison_stays_exact_and_backslash_is_a_file_name_character() {
+        assert!(key_matches(
+            "/home/fixture/.config/heimdall/keys/work.pub",
+            "/home/fixture/.config/heimdall/keys/work.pub",
+            false
+        ));
+        assert!(!key_matches(
+            r"/home/fixture/a\b.pub",
+            "/home/fixture/a/b.pub",
+            false
+        ));
+        assert!(key_matches(
+            "/home/fixture/k/work.pub",
+            "~/k/work.pub",
+            false
+        ));
+    }
 }

@@ -40,7 +40,21 @@ only for a missing platform (`unavailable`), a capability named in
 `missing_capabilities`, or the case's owner-input rows (`blocked_rows`), each with
 blocked_on naming the exact input. A record's status is its lowest row, lowest first:
 blocked, not_started, in_progress, implemented_unverified, verified
-(tests/evidence/README.md); deferred_with_decision rows do not count. Every record is
+(tests/evidence/README.md); deferred_with_decision rows do not count.
+
+The coverage guard (ADR-0007 §12.47 item 1). Applicability alone would let a platform row
+read verified on whatever few tests survive the `#[cfg]` scan, so on a platform a section
+declares:
+  * (R1) every required test that does not apply there is counted in
+    `excluded_on_this_platform`. One excluded by a case-index `platform_only` entry (each
+    carries a `rationale`, validated) is listed by entry in `excluded_by_rationale`; one
+    excluded by the inventory scan alone has no reason on record, is listed in
+    `excluded_without_rationale`, and keeps the row in_progress;
+  * (R2) a section's `platform_required` {platform: {target: [exact name]}} names tests that
+    must pass on that platform. They are never resolved against the inventory, so a planned
+    test that does not exist yet reads as not run: `platform_required_not_passed`, and the
+    row is in_progress.
+A case-index exclusion of a test that did run on that platform is stale (exit 1). Every record is
 validated against tests/evidence/record.schema.json before it is written. A configured
 log or commands file that does not exist is an error: nothing is written for a run that
 did not happen.
@@ -286,10 +300,65 @@ def scan_platform_only(host, have, scans, inv):
     return out
 
 
+def check_index(index):
+    """Problems (strings) in the case index's guard entries: every `platform_only` entry is
+    {"platforms": [...], "rationale": "..."} (ADR-0006 §13.13 item 5; ADR-0007 §12.47 item
+    1), and every `platform_required` list names exact tests on a platform its section
+    declares."""
+    problems = []
+    plats = index.get("platforms", {})
+    cargo = {p for p, m in plats.items() if m.get("runs") == "cargo"}
+    scenario = index.get("scenario_targets", {})
+    for key, entry in sorted((index.get("platform_only") or {}).items()):
+        if not isinstance(entry, dict) or set(entry) != {"platforms", "rationale"}:
+            problems.append(f"platform_only {key}: needs exactly platforms and rationale")
+            continue
+        where = entry["platforms"]
+        if not isinstance(where, list) or not where or not all(isinstance(p, str) for p in where) \
+                or len(set(where)) != len(where) or not set(where) <= cargo:
+            problems.append(f"platform_only {key}: platforms must be distinct cargo platforms of the index")
+        if not isinstance(entry["rationale"], str) or not entry["rationale"].strip():
+            problems.append(f"platform_only {key}: the rationale is empty")
+    if "platform_only_rationale" in index:
+        problems.append("platform_only_rationale is withdrawn: each platform_only entry carries its rationale")
+    for kind, sid, _, sec in sections(index):
+        req = sec.get("platform_required")
+        if req is None:
+            continue
+        if not isinstance(req, dict):
+            problems.append(f"{sid}: platform_required is not a map")
+            continue
+        for plat, by_target in sorted(req.items()):
+            if plat not in sec.get("declared_platforms", []):
+                problems.append(f"{sid}: platform_required names {plat}, which the section does not declare")
+            if not isinstance(by_target, dict) or not by_target:
+                problems.append(f"{sid}: platform_required {plat} is not a non-empty map of targets")
+                continue
+            for target, names in sorted(by_target.items()):
+                if not isinstance(names, list) or not names or not all(isinstance(n, str) and n for n in names):
+                    problems.append(f"{sid}: platform_required {plat} {target} is not a list of names")
+                    continue
+                if len(set(names)) != len(names):
+                    problems.append(f"{sid}: platform_required {plat} {target} repeats a name")
+                for n in names:
+                    if is_pattern(n):
+                        problems.append(f"{sid}: platform_required {plat} {target}::{n} is a pattern, not an exact name")
+                if target in scenario:
+                    if plat not in scenario[target].get("platforms", []):
+                        problems.append(f"{sid}: platform_required {plat} {target}: the scenario does not run on {plat}")
+                    for n in names:
+                        if n not in scenario[target].get("steps", {}):
+                            problems.append(f"{sid}: platform_required {plat} {target}::{n} is not a step of the scenario")
+                elif plat not in cargo:
+                    problems.append(f"{sid}: platform_required {plat} {target}: {plat} runs no cargo test binaries")
+    return problems
+
+
 def check_inventory(index, inv):
     """Problems (strings) between the case index and a committed inventory (structure
-    only; evaluate() also requires the inventory's sources digest to match)."""
-    problems = []
+    only; evaluate() also requires the inventory's sources digest to match). The case
+    index's own guard entries are checked first (check_index)."""
+    problems = check_index(index)
     seen = set()
     scenario = index.get("scenario_targets", {})
     for kind, sid, spec, _ in sections(index):
@@ -392,14 +461,20 @@ def inventory_path(cfg):
 # --- applicability and rows ------------------------------------------------------------
 
 
-def platform_only_lookup(index, inv, target, name):
-    """The platforms the most specific platform_only entry allows, or None."""
-    entries = dict(inv.get("platform_only", {}))
-    entries.update(index.get("platform_only", {}))
+def index_platform_only(index):
+    """{key: [platforms]} of the case index's platform_only entries ({"platforms",
+    "rationale"}; check_index validates the form)."""
+    return {k: (e.get("platforms") if isinstance(e, dict) else e) for k, e in (index.get("platform_only") or {}).items()}
+
+
+def most_specific(entries, target, name):
+    """(key, platforms) of the most specific entry of {key: platforms} covering a test, or
+    (None, None): the exact name, else the longest `target::prefix::` or `target::prefix*`,
+    else the bare target."""
     full = f"{target}::{name}"
     if full in entries:
-        return entries[full]
-    best, best_len = None, -1
+        return full, entries[full]
+    best, best_len = (None, None), -1
     for key, plats in entries.items():
         t, sep, rest = key.partition("::")
         if t != target:
@@ -413,8 +488,16 @@ def platform_only_lookup(index, inv, target, name):
         else:
             ok, length = False, 0
         if ok and length > best_len:
-            best, best_len = plats, length
+            best, best_len = (key, plats), length
     return best
+
+
+def platform_only_lookup(index, inv, target, name):
+    """The platforms the most specific platform_only entry allows, or None (case-index
+    entries override inventory entries with the same key)."""
+    entries = dict(inv.get("platform_only", {}))
+    entries.update(index_platform_only(index))
+    return most_specific(entries, target, name)[1]
 
 
 def applicable(index, inv, target, name, platform):
@@ -436,6 +519,50 @@ def required(index, inv, kind, sid, platform):
     extra = inv.get("platform_extra", {}).get(sid, {}).get(platform, {})
     out += [(t, n) for t, ns in extra.items() for n in ns]
     return [(t, n) for t, n in out if applicable(index, inv, t, n, platform)]
+
+
+def coverage_guard(index, inv, kind, sid, platform, logs):
+    """R1 and R2 of ADR-0007 §12.47 item 1 for one section on one platform.
+
+    {"excluded": [qual], "by_rationale": {case-index key: count}, "unjustified": [qual],
+     "required_not_passed": {qual: result}, "stale": [(key, qual, result)]}
+
+    R1 applies on a cargo platform the section declares: a required test (the section's
+    inventory names; platform_extra tests exist only where they apply, scenario steps and
+    child entry points are never cargo tests here) that does not apply on the platform is
+    excluded. The most specific case-index platform_only entry justifies the exclusion when
+    it leaves the platform out; anything else excluded it through the inventory scan alone.
+    A justified exclusion of a test that has a result in this platform's logs is stale.
+    R2 reads the section's platform_required names for the platform from the logs, exactly."""
+    sec = index[kind][sid]
+    out = {"excluded": [], "by_rationale": {}, "unjustified": [], "required_not_passed": {}, "stale": []}
+    is_cargo = index.get("platforms", {}).get(platform, {}).get("runs") == "cargo"
+    if is_cargo and platform in sec.get("declared_platforms", []):
+        scenario = index.get("scenario_targets", {})
+        child = index.get("child_entries", {})
+        own = index_platform_only(index)
+        for target, names in sorted(inv[kind][sid]["tests"].items()):
+            if target in scenario:
+                continue
+            for n in names:
+                qual = f"{target}::{n}"
+                if qual in child or applicable(index, inv, target, n, platform):
+                    continue
+                out["excluded"].append(qual)
+                key, where = most_specific(own, target, n)
+                if key is not None and platform not in where:
+                    out["by_rationale"][key] = out["by_rationale"].get(key, 0) + 1
+                    result = logs.get(target, {}).get(n)
+                    if result is not None:
+                        out["stale"].append((key, qual, result))
+                else:
+                    out["unjustified"].append(qual)
+    for target, names in sorted(((sec.get("platform_required") or {}).get(platform) or {}).items()):
+        for n in names:
+            result = logs.get(target, {}).get(n)
+            if result != "ok":
+                out["required_not_passed"][f"{target}::{n}"] = result or "absent"
+    return out
 
 
 def build_host_path(index, target, name):
@@ -582,7 +709,23 @@ def row_observations(passed, obs):
     return out, truncated
 
 
-def row_for(index, platform, pconf, logs, tests, obs=None):
+def guard_fields(guard):
+    """The row fields of a coverage_guard() result (excluded_on_this_platform always)."""
+    out = {"excluded_on_this_platform": len(guard["excluded"])}
+    if guard["by_rationale"]:
+        out["excluded_by_rationale"] = dict(sorted(guard["by_rationale"].items()))
+    if guard["unjustified"]:
+        out["excluded_without_rationale"] = list(guard["unjustified"])
+    if guard["required_not_passed"]:
+        out["platform_required_not_passed"] = dict(guard["required_not_passed"])
+    return out
+
+
+def guard_gap(guard):
+    return bool(guard and (guard["unjustified"] or guard["required_not_passed"]))
+
+
+def row_for(index, platform, pconf, logs, tests, obs=None, guard=None):
     passed, failed, ignored, absent, neutral, gap = [], [], [], [], [], []
     incomplete, reasons, missing_targets = [], set(), set()
     build_host = platform == index.get("build_host")
@@ -621,7 +764,9 @@ def row_for(index, platform, pconf, logs, tests, obs=None):
         status = "blocked"
     elif unavailable or failed or ignored:
         status = "in_progress"
-    elif failed_commands or failed_probes or missing_targets or gap or stale or incomplete:
+    elif failed_commands or failed_probes or missing_targets or gap or stale or incomplete or guard_gap(guard):
+        # An unexplained exclusion or a declared test that did not pass is a coverage gap
+        # (ADR-0007 §12.47 item 1), like an incomplete run: it outranks a missing capability.
         status = "in_progress"
     elif reasons:
         status = "blocked"
@@ -639,6 +784,8 @@ def row_for(index, platform, pconf, logs, tests, obs=None):
         "artifact_digest": pconf.get("artifact_digest"),
         "logs": pconf.get("logs", []),
     }
+    if guard is not None:
+        row.update(guard_fields(guard))
     seen, truncated = row_observations(passed, obs or {})
     if seen:
         row["observations"] = seen
@@ -743,10 +890,16 @@ def evaluate(cfg, index, inv):
                     rc = 1
 
     def rows_for(kind, sid, extra_rows, declared):
+        nonlocal rc
         rows = []
         for pname, (p, logs) in plats.items():
             tests = required(index, inv, kind, sid, pname)
-            r = row_for(index, pname, p, logs, tests, p.get("_observations"))
+            guard = coverage_guard(index, inv, kind, sid, pname, logs)
+            for key, qual, result in guard["stale"]:
+                print(f"{sid}: case-index platform_only {key} leaves out {pname}, but {qual} ran there ({result}); "
+                      "add the platform to the entry or remove the entry", file=sys.stderr)
+                rc = 1
+            r = row_for(index, pname, p, logs, tests, p.get("_observations"), guard)
             if r:
                 rows.append(r)
             elif pname in declared:
@@ -754,6 +907,7 @@ def evaluate(cfg, index, inv):
                 # coverage gap, never a pass (blocked when the platform itself is missing).
                 gap = {"platform": p["label"], "status": "in_progress",
                        "no_applicable_test": "m02-plan §4 declares this platform row; no indexed test applies on it"}
+                gap.update(guard_fields(guard))
                 if p.get("unavailable"):
                     gap.update(status="blocked", blocked_on=p["unavailable"])
                 rows.append(gap)
@@ -818,7 +972,7 @@ def environment_of(cfg, plats):
     facts = {}
     # mode, build-target, build-commit and toolchain*: the Windows local-mode runner's facts
     # (run-windows-local.ps1; ADR-0007 §12.32 item 17), which name the target honestly.
-    keep = re.compile(r"^(os|glibc|nproc|script|scratch-fs|integrity|developer-mode|ssh-V.*|sshd-V.*|git-version.*|fixture-sshd.*|leftover-test-processes|test-pipes-.*|localappdata-heimdall-.*|inherited-.*|home-fs|rename-exchange|sshd-accepted-logins|default-identity-guard|time-confirmation|mode|build-target|build-commit|toolchain.*)$")
+    keep = re.compile(r"^(os|glibc|nproc|script|scratch-fs|integrity|developer-mode|ssh-V.*|sshd-V.*|git-version.*|fixture-sshd.*|leftover-test-processes|test-pipes-.*|localappdata-heimdall-.*|inherited-.*|home-fs|rename-exchange|birth-time|sshd-accepted-logins|default-identity-guard|time-confirmation|mode|build-target|build-commit|toolchain.*)$")
     for pname, (p, _) in plats.items():
         f = {k: v for k, v in p.get("_facts", {}).items() if keep.match(k)}
         if f:

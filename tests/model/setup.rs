@@ -12,7 +12,12 @@
 //! blocking task unwinds, and a fresh `Operations` over the same store (with a fresh
 //! writer) restarts. The writer keeps no state between calls (M2-S05), so this is what
 //! a process restart sees; it is labelled an in-process unwind, never a process abort.
-#![cfg(unix)]
+//!
+//! The file runs natively on Unix and on Windows (wave 6x, WU-3). Where a fixture is
+//! platform-shaped it has the faithful form of each platform: the owner is the account's
+//! uid or SID, an agent endpoint is a socket path or a named pipe, a file's identity is
+//! its inode or its volume serial and file ID, and a private file is mode 0600 or an
+//! owner-only DACL.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -75,11 +80,77 @@ fn env_id() -> EnvironmentId {
     EnvironmentId::from_random_bytes([0x5e; 16])
 }
 
+/// The principal of the scratch owner: a fixed uid on Unix (the writer never compares
+/// the caller's uid with a file owner here), and on Windows the account's own SID, as the
+/// runtime names a client of this account (`PrincipalRef::WindowsUser`).
+fn owner_principal() -> PrincipalRef {
+    #[cfg(unix)]
+    {
+        PrincipalRef::UnixUser { uid: 501 }
+    }
+    #[cfg(windows)]
+    {
+        PrincipalRef::WindowsUser {
+            sid: heimdall_ipc::windows::current_user_sid().unwrap(),
+        }
+    }
+}
+
 fn owner_ctx() -> CallerContext {
     CallerContext {
-        principal: PrincipalRef::UnixUser { uid: 501 },
+        principal: owner_principal(),
         role: ClientRole::Owner,
     }
+}
+
+/// The kind of an agent endpoint on this platform.
+fn agent_kind() -> EndpointKind {
+    if cfg!(windows) {
+        EndpointKind::NamedPipe
+    } else {
+        EndpointKind::UnixSocket
+    }
+}
+
+/// The locator of a scratch agent named `name` under `root`: a socket path
+/// `<root>/<name>.sock` on Unix, a named pipe `\\.\pipe\hm-<scratch dir>-<name>` on
+/// Windows. Nothing listens on it and no test connects to it.
+fn agent_locator_at(root: &Path, name: &str) -> String {
+    if cfg!(windows) {
+        format!(
+            r"\\.\pipe\hm-{}-{name}",
+            root.file_name().unwrap().to_string_lossy()
+        )
+    } else {
+        root.join(format!("{name}.sock")).display().to_string()
+    }
+}
+
+fn agent_endpoint_at(root: &Path, name: &str) -> EndpointRef {
+    EndpointRef {
+        kind: agent_kind(),
+        locator: agent_locator_at(root, name),
+    }
+}
+
+/// What names one file object on this platform: its inode (Unix), or its volume serial
+/// and 128-bit file ID read from an open handle (Windows; `std` exposes no stable
+/// accessor, so this is the workspace's own `sys::handle_identity`).
+#[cfg(unix)]
+type FileId = u64;
+#[cfg(windows)]
+type FileId = heimdall_domain::projection::FileIdentity;
+
+#[cfg(unix)]
+fn file_id(_path: &Path, meta: &std::fs::Metadata) -> FileId {
+    use std::os::unix::fs::MetadataExt as _;
+    meta.ino()
+}
+
+#[cfg(windows)]
+fn file_id(path: &Path, _meta: &std::fs::Metadata) -> FileId {
+    let file = std::fs::File::open(path).unwrap();
+    heimdall_localenv::sys::handle_identity(&file).unwrap()
 }
 
 fn attended() -> Caller {
@@ -96,7 +167,7 @@ fn unattended() -> Caller {
 
 fn limited() -> Caller {
     Caller::unattended(CallerContext {
-        principal: PrincipalRef::UnixUser { uid: 501 },
+        principal: owner_principal(),
         role: ClientRole::LimitedConsumer,
     })
 }
@@ -491,15 +562,7 @@ impl World {
     }
 
     fn agent_endpoint(&self) -> EndpointRef {
-        EndpointRef {
-            kind: EndpointKind::UnixSocket,
-            locator: self
-                .home
-                .root
-                .join("fixture-agent.sock")
-                .display()
-                .to_string(),
-        }
+        agent_endpoint_at(&self.home.root, "fixture-agent")
     }
 
     async fn catalog(
@@ -662,9 +725,8 @@ impl World {
 
     /// Content and identity of every entry under the scratch `~/.ssh` and the
     /// configuration directory.
-    fn tree(&self) -> BTreeMap<String, (u64, Vec<u8>)> {
-        use std::os::unix::fs::MetadataExt as _;
-        fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, (u64, Vec<u8>)>) {
+    fn tree(&self) -> BTreeMap<String, (FileId, Vec<u8>)> {
+        fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, (FileId, Vec<u8>)>) {
             let Ok(rd) = std::fs::read_dir(dir) else {
                 return;
             };
@@ -675,7 +737,10 @@ impl World {
                 if meta.is_dir() {
                     walk(&p, &name, out);
                 } else {
-                    out.insert(name, (meta.ino(), std::fs::read(&p).unwrap_or_default()));
+                    out.insert(
+                        name,
+                        (file_id(&p, &meta), std::fs::read(&p).unwrap_or_default()),
+                    );
                 }
             }
         }
@@ -901,6 +966,73 @@ async fn apply_after_base_change_is_config_conflict_and_nothing_written() {
     );
 }
 
+/// The file is private to its owner. Unix: mode 0600. Windows: the protected owner-only
+/// DACL `D:P(A;;FA;;;<own SID>)` that `sys::create_owner_only_exclusive` sets (full
+/// control for the account and nobody else, no inherited entry), read back with the
+/// in-box `icacls /save` (SDDL, one SID per entry; no principal name is printed).
+/// `scratch` is a directory the check may write its temporary ACL listing into.
+fn assert_private_to_owner(file: &Path, scratch: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let _ = scratch;
+        assert_eq!(
+            std::fs::metadata(file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    #[cfg(windows)]
+    {
+        let sddl = dacl_sddl(file, scratch);
+        let sid = heimdall_ipc::windows::current_user_sid().unwrap();
+        assert_eq!(
+            sddl,
+            format!("D:P(A;;FA;;;{sid})"),
+            "the file's DACL is not the owner-only form"
+        );
+    }
+}
+
+/// The DACL of `file` as SDDL (`D:…`), through `icacls <file> /save <list>`. The list
+/// is UTF-16 text: the file name, then the descriptor.
+#[cfg(windows)]
+fn dacl_sddl(file: &Path, scratch: &Path) -> String {
+    let list = scratch.join(format!(
+        "acl-{}.txt",
+        heimdall_app::ids::random_u64().unwrap()
+    ));
+    let icacls = Path::new(&std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into()))
+        .join("System32")
+        .join("icacls.exe");
+    let out = std::process::Command::new(icacls)
+        .arg(file)
+        .arg("/save")
+        .arg(&list)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "icacls /save failed: {:?}",
+        out.status
+    );
+    let raw = std::fs::read(&list).unwrap();
+    std::fs::remove_file(&list).unwrap();
+    let units: Vec<u16> = raw
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| u16::from_le_bytes(*b))
+        .collect();
+    let text = String::from_utf16_lossy(&units);
+    let sddl: Vec<&str> = text
+        .lines()
+        .map(|l| l.trim_start_matches('\u{feff}').trim())
+        .filter(|l| l.starts_with("D:"))
+        .collect();
+    assert_eq!(sddl.len(), 1, "icacls listed one descriptor");
+    sddl[0].to_owned()
+}
+
 /// The snapshots under `<state>/backups` whose name starts with `name.`, sorted.
 fn snapshots_of(w: &World, name: &str) -> Vec<PathBuf> {
     let prefix = format!("{name}.");
@@ -924,7 +1056,6 @@ fn snapshots_of(w: &World, name: &str) -> Vec<PathBuf> {
 /// the first copy and adds none.
 #[tokio::test]
 async fn apply_through_operations_snapshots_the_original_user_file() {
-    use std::os::unix::fs::PermissionsExt as _;
     let w = World::new().await;
     w.catalog_alpha().await;
     let original: &[u8] = b"Host other\n    User fixture\n";
@@ -959,10 +1090,7 @@ async fn apply_through_operations_snapshots_the_original_user_file() {
         "{name}"
     );
     assert_eq!(std::fs::read(&taken[0]).unwrap(), original);
-    assert_eq!(
-        std::fs::metadata(&taken[0]).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
+    assert_private_to_owner(&taken[0], &w.home.root);
     assert_ne!(
         std::fs::read(w.user()).unwrap(),
         original,
@@ -1413,7 +1541,7 @@ async fn rollback_exposing_inherited_hostname_and_agent_added_after_apply_needs_
     let mut text = std::fs::read_to_string(w.user()).unwrap();
     text.push_str(&format!(
         "\nHost *\n    HostName inherited.example.invalid\n    IdentityAgent {}\n",
-        w.home.root.join("other-agent.sock").display()
+        agent_locator_at(&w.home.root, "other-agent")
     ));
     std::fs::write(w.user(), text).unwrap();
     let plan = w
@@ -1737,10 +1865,7 @@ async fn declare_interaction_needs_attended_decision_and_lapses_on_endpoint_chan
         .unwrap()
         .unwrap()
         .public_key;
-    let moved = EndpointRef {
-        kind: EndpointKind::UnixSocket,
-        locator: w.home.root.join("moved-agent.sock").display().to_string(),
-    };
+    let moved = agent_endpoint_at(&w.home.root, "moved-agent");
     w.catalog(
         &attended(),
         CatalogRequest::AdoptIdentity {
@@ -1892,10 +2017,7 @@ async fn declaration_written_from_decision_fields_only_and_stale_on_endpoint_cha
         CatalogRequest::AdoptIdentity {
             identity: IdentitySpec {
                 source: IdentitySourceSpec::NativeAgent {
-                    endpoint: EndpointRef {
-                        kind: EndpointKind::UnixSocket,
-                        locator: w.home.root.join("elsewhere.sock").display().to_string(),
-                    },
+                    endpoint: agent_endpoint_at(&w.home.root, "elsewhere"),
                 },
                 public_key: key,
                 label: None,
@@ -2142,10 +2264,7 @@ async fn stale_declaration_decision_is_reissued_bound_to_the_current_identity() 
         .transaction(|tx| tx.identity(&identity))
         .unwrap()
         .unwrap();
-    let moved = EndpointRef {
-        kind: EndpointKind::UnixSocket,
-        locator: w.home.root.join("moved.sock").display().to_string(),
-    };
+    let moved = agent_endpoint_at(&w.home.root, "moved");
     w.catalog(
         &attended(),
         CatalogRequest::AdoptIdentity {
@@ -2719,10 +2838,7 @@ async fn include_target_glob_is_its_own_manual_reason() {
             CatalogRequest::AdoptIdentity {
                 identity: IdentitySpec {
                     source: IdentitySourceSpec::NativeAgent {
-                        endpoint: EndpointRef {
-                            kind: EndpointKind::UnixSocket,
-                            locator: home.root.join("a.sock").display().to_string(),
-                        },
+                        endpoint: agent_endpoint_at(&home.root, "a"),
                     },
                     public_key: synthetic_public_key(),
                     label: None,
@@ -3579,10 +3695,7 @@ async fn child_flow(paths: ChildPaths) {
             CatalogRequest::AdoptIdentity {
                 identity: IdentitySpec {
                     source: IdentitySourceSpec::NativeAgent {
-                        endpoint: EndpointRef {
-                            kind: EndpointKind::UnixSocket,
-                            locator: paths.etc.join("agent.sock").display().to_string(),
-                        },
+                        endpoint: agent_endpoint_at(&paths.etc, "agent"),
                     },
                     public_key: synthetic_public_key(),
                     label: None,
@@ -3681,13 +3794,27 @@ fn restart_child_aborts_inside_apply() {
     rt.block_on(child_flow(ChildPaths::decode(&encoded)));
 }
 
+/// Whether the child ended by `std::process::abort()`: on Unix by SIGABRT (signal 6); on
+/// Windows by the fast-fail abort, exit code `0xC0000409` (`STATUS_STACK_BUFFER_OVERRUN`
+/// with `FAST_FAIL_FATAL_APP_EXIT`), which is what Rust's `abort` raises there.
+fn died_by_abort(status: std::process::ExitStatus) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        status.signal() == Some(6)
+    }
+    #[cfg(windows)]
+    {
+        status.code().map(i32::cast_unsigned) == Some(0xC000_0409)
+    }
+}
+
 /// `restart_reconciles_attempted_apply_never_reapplies`, the **process-abort**
 /// variant (labelled as such, M01 N06): a child process dies by `abort()` at the
 /// commit step's exchange (first adoption and update), and a fresh `Operations` with a
 /// fresh writer over the same store reconciles without calling `apply`.
 #[tokio::test]
 async fn restart_reconciles_attempted_apply_never_reapplies_after_a_process_abort() {
-    use std::os::unix::process::ExitStatusExt as _;
     for update in [false, true] {
         let home = ScratchHome::new();
         std::fs::create_dir_all(home.root.join("etc-ssh")).unwrap();
@@ -3704,9 +3831,8 @@ async fn restart_reconciles_attempted_apply_never_reapplies_after_a_process_abor
             .stderr(std::process::Stdio::null())
             .status()
             .unwrap();
-        assert_eq!(
-            status.signal(),
-            Some(6),
+        assert!(
+            died_by_abort(status),
             "update={update}: the child aborted ({status:?})"
         );
         let op = OperationId::parse(
