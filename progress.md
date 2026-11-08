@@ -895,3 +895,12 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - WSL: the default-name rule (ac3a8df7).
   - Ctrl-C: confirmed natively through the PEB ConsoleFlags bit 0. The agent's shells start processes with Ctrl-C ignored, Windows hands that to their children, and heimdall passes it through unchanged. The driver now enables Ctrl-C processing just before it creates heimdall, and records `ctrl-c-inherited`. All four rows passed in 3 of 3 runs after the fix (unit w6-ctrlc, Opus, PC).
 - **Final M02 exit build: the next commit.** Its crates/ and tests/ `*.rs` sources equal 1e69263d's, so the inventory still holds. All four platforms are rerun on it.
+- **Final M02 exit build ce21a76f, 2026-11-08.** All four native platforms ran on it:
+  - **macOS:** exit 0; 1760 passed, 0 failed; observations 85.
+  - **devbox:** exit 0; 1756 passed, 0 failed. The Linux CLI binary has sha256 09d04d50…, identical to the one the WSL run used.
+  - **Windows** (local mode, with `-ArgvDump`): exit 0; 1340 passed, 0 failed; all four `windows_launch` rows ok; `ctrl-c-inherited=ignored` recorded.
+  - **WSL disposable distribution** (local mode): exit 0; `wsl_ordinary_ssh` 10 of 10; the default distribution name is recorded; the user config hash is the same after uninstall; the registered set is unchanged.
+  - Canary 0 and leak 0 everywhere. The owner's files were unchanged everywhere.
+  - Records (`m02-evidence.py --write`, aca07d0c): 8 verified (A21, A22, R-RT-05, adapter call bounds, R-SE-04, T06, no remote change, no unattended claim). 6 are blocked only on owner inputs: A01 (B2, B3, B9), A11 (B1, B4, B6), A27 (B5), A35 (B1, B4, B9), the no-mandatory-wrapper claim (B7), and the aggregate.
+  - A22's Windows file-symlink row is `deferred_with_decision` to M04 (ADR-0007 §12.45): B10 is satisfied, but no native test exists.
+- Running: a documentation unit (the M02 exit record and the matrix's M02 rows), the PC scratch cleanup, and M03 wave 0.
