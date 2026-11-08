@@ -1,0 +1,20 @@
+[package]
+name = "heimdall-enroll"
+description = "Heimdall enrollment I/O (m03-plan U5; ADR-0008 D5 §6.3, §6.5): the CLI-side SshStepRunner for client-executed remote steps and the runtime-side production Verifier. I/O only; the protocol is heimdall-registry's"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges (m03-plan §0.6): contract, domain, registry (the scripts, HM1,
+# classification), app (VerificationRunner).
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+heimdall-registry = { workspace = true }
+heimdall-app = { workspace = true }
+thiserror = { workspace = true }

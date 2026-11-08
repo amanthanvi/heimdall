@@ -9,6 +9,9 @@
 //! ADR-0006 revision 3 (M02; m02-plan §5) adds the setup and catalog requests
 //! (`setup`, `catalog`), provider and identity-selection types (`provider`), the
 //! doctor report (`doctor`) and the `run` side-channel records (`run_record`).
+//! ⟨M03⟩ ADR-0006 revision 4 (m03-plan §5) adds the issuer and enrollment requests
+//! (`issuer`, `enrollment`) and the managed-credential reports, connection control
+//! and lock behaviour (`managed`).
 //!
 //! It owns no semantics: state *transitions*, authority resolution and hashing
 //! *inputs* live in `heimdall-domain`. Nothing here performs I/O. Dependencies are
@@ -23,11 +26,14 @@ pub mod canonical;
 pub mod catalog;
 pub mod code;
 pub mod doctor;
+pub mod enrollment;
 pub mod envelope;
 pub mod event;
 pub mod exit;
 pub mod ids;
 pub mod ipc;
+pub mod issuer;
+pub mod managed;
 pub mod provider;
 pub mod request;
 pub mod run_record;

@@ -42,6 +42,15 @@ pub enum EventType {
     ResyncRequired,
     /// The runtime started or stopped (restart recovery boundary).
     RuntimeLifecycle,
+    /// ⟨M03⟩ An enrollment record changed state (payload
+    /// [`crate::managed::EnrollmentEventPayload`]).
+    Enrollment,
+    /// ⟨M03⟩ An owned connection started or closed (payload
+    /// [`crate::managed::ConnectionEventPayload`]).
+    Connection,
+    /// ⟨M03⟩ A session lock was observed (payload
+    /// [`crate::managed::SessionLockEventPayload`]).
+    SessionLock,
 }
 
 /// One event (spec §11.5 field list).

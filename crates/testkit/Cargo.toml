@@ -35,6 +35,12 @@ fixtures = [
     "dep:heimdall-ipc",
     "dep:windows-sys",
 ]
+# M03 (m03-plan U0 "Frozen in wave 0", §0.6; ADR-0008 D1, D9; F23): the test-configuration
+# gates `ScratchSecretStore` (a `heimdall_issuer::store::SecretStore` whose store kind
+# `scratch_test` stays outside the public `StoreKind`) and `FakeSessionLockSource` (an
+# `app::ports::SessionLockSource` with the latched epoch). Optional edges to credential
+# and issuer: a dev-dependency cycle only, as for `heimdall-ipc` (crate-graph step).
+managed = ["app", "dep:heimdall-credential", "dep:heimdall-issuer", "dep:tokio"]
 
 [dependencies]
 heimdall-contract = { workspace = true }
@@ -54,6 +60,10 @@ ssh-key = { workspace = true, optional = true, features = ["ed25519"] }
 ssh-encoding = { workspace = true, optional = true }
 glob = { workspace = true, optional = true }
 getrandom = { workspace = true, optional = true }
+# managed (M03): ScratchSecretStore holds a `SecretCaKey` and implements the issuer's
+# `SecretStore` trait.
+heimdall-credential = { workspace = true, optional = true }
+heimdall-issuer = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # fixtures (U7): `setsid` for the hook's `escape` mode and SIGTERM by exact PID for
@@ -110,3 +120,9 @@ path = "../../tests/model/lifecycle.rs"
 name = "integration_testkit_fixtures"
 path = "../../tests/integration/testkit_fixtures.rs"
 required-features = ["fixtures"]
+
+# M03 wave 0 (U0b row 15): migration 0006 and the ext_m03 Txn methods.
+[[test]]
+name = "integration_store_m03"
+path = "../../tests/integration/store_m03.rs"
+required-features = ["store"]

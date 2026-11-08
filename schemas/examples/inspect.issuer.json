@@ -1,0 +1,20 @@
+{
+  "state": "ready",
+  "cas": [
+    {
+      "fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "state": "active",
+      "store": "windows_dpapi",
+      "backup_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "backup_created_at": "2026-11-10T14:00:00Z",
+      "restored_without_log": false,
+      "enrollments": {
+        "verified": 2,
+        "pending": 0
+      }
+    }
+  ],
+  "orphan_store_items": [],
+  "issuer_isolation": "same_user_process",
+  "bundle_stale": false
+}

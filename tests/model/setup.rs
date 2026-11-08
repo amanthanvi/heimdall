@@ -4186,6 +4186,8 @@ async fn remove_profile_refuses_new_work_and_keeps_pinned_snapshots() {
         request_id: rid(request),
         interaction: InteractionMode::NonInteractive,
         wait: WaitMode::Sync { timeout_ms: 2_000 },
+        // M03 wave 0 (A1): fail closed until U0b
+        connection: None,
     };
     let unknown_profile = |e: &OpError| {
         e.code == Code::NotFound && e.resource.as_ref().is_some_and(|r| r.kind == "profile")

@@ -2390,7 +2390,7 @@ pub struct ForeignRemovalTarget {
 
 ```json
 {
-  "plan_digest": "sha256:…",
+  "plan_digest": "<64 lowercase hex>",
   "destination_id": "dst_…", "alias": "lab", "account": "deploy",
   "form": "account",
   "registry": {"path_display": "$HOME/.ssh/authorized_keys", "resolved_by": "remote_home"},

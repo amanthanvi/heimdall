@@ -1,4 +1,4 @@
-# Heimdall production workspace (M01, M02). See docs/architecture/overview.md for the
+# Heimdall production workspace (M01, M02, M03). See docs/architecture/overview.md for the
 # crate map and docs/architecture/dependencies.md for every dependency decision.
 #
 # Every third-party version is pinned exactly ("=x.y.z") and Cargo.lock is
@@ -22,6 +22,13 @@ members = [
     "crates/localenv",
     "crates/adapters",
     "crates/launch",
+    # M03 (m03-plan §0.6, U0; ADR-0008 §18): the pure remote-registry protocol and
+    # enrollment plan, the signer's key vault and endpoints, the issuer child and its
+    # custody stores, and the enrollment I/O (client-executed steps, verification).
+    "crates/registry",
+    "crates/credential",
+    "crates/issuer",
+    "crates/enroll",
 ]
 
 [workspace.package]
@@ -46,6 +53,10 @@ heimdall-sshconf = { path = "crates/sshconf" }
 heimdall-localenv = { path = "crates/localenv" }
 heimdall-adapters = { path = "crates/adapters" }
 heimdall-launch = { path = "crates/launch" }
+heimdall-registry = { path = "crates/registry" }
+heimdall-credential = { path = "crates/credential" }
+heimdall-issuer = { path = "crates/issuer" }
+heimdall-enroll = { path = "crates/enroll" }
 
 # --- serialization and schemas ---------------------------------------------
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -71,13 +82,31 @@ rusqlite = { version = "=0.41.1", features = ["bundled"] }
 
 # --- SSH protocol types (signing endpoint framing; keys/certs arrive in M03) -------
 ssh-agent-lib = { version = "=0.6.0", default-features = false }
-ssh-key = { version = "=0.6.7", default-features = false, features = ["std"] }
+# M03 (ADR-0008 §18; dependencies.md §5): ed25519 (K_env/K_verify/K_ca generation),
+# encryption (D5 backup: bcrypt-pbkdf + aes256-ctr), rand_core (key generation takes a
+# rand_core 0.6 RNG).
+ssh-key = { version = "=0.6.7", default-features = false, features = ["std", "ed25519", "encryption", "rand_core"] }
 ssh-encoding = { version = "=0.2.0", default-features = false, features = ["alloc"] }
 
 # --- hashing, randomness, encoding ------------------------------------------------
 sha2 = { version = "=0.10.9", default-features = false }
 getrandom = { version = "=0.4.3" }
 base64ct = { version = "=1.8.3", features = ["alloc"] }
+
+# --- secret handling and custody stores (M03; ADR-0008 §18, dependencies.md §5) ------
+# credential/issuer: SecretKey, SecretCaKey and passphrases zeroize on drop (D1).
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+# macOS only (issuer): login keychain. No default features (the OSX_* defaults are
+# no-op markers).
+security-framework = { version = "=3.7.0", default-features = false }
+# macOS only (runtime session lock): CFDictionary/CFString/CFRunLoop and the
+# CFNotificationCenter externs.
+core-foundation = { version = "=0.10.1" }
+core-foundation-sys = { version = "=0.8.7" }
+# Linux only: the Secret Service client (issuer) and the one zbus (runtime: logind).
+# secret-service 5.2.0 requires zbus ^5.
+secret-service = { version = "=5.2.0", default-features = false, features = ["rt-tokio-crypto-rust"] }
+zbus = { version = "=5.19.0", default-features = false, features = ["tokio"] }
 
 # --- errors and diagnostics -------------------------------------------------------
 thiserror = { version = "=2.0.21" }
@@ -118,6 +147,17 @@ windows-sys = { version = "=0.61.2", features = [
     "Win32_System_JobObjects",
     "Win32_System_Console",
     "Win32_UI_Shell",
+    # M03 (ADR-0008 §18): DPAPI (issuer), WTS session lock + message-only window
+    # (runtime), thread enumeration for CREATE_SUSPENDED/ResumeThread (localenv).
+    "Win32_Security_Cryptography",
+    "Win32_System_RemoteDesktop",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Diagnostics_ToolHelp",
+    # M03, not in ADR-0008 §18's list but needed by the named sys.rs modules
+    # (dependencies.md §5; question D Q4): credential VirtualLock/VirtualUnlock,
+    # runtime GetModuleHandleW for the window class.
+    "Win32_System_Memory",
+    "Win32_System_LibraryLoader",
 ] }
 
 # --- test only -------------------------------------------------------------------------

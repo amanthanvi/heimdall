@@ -211,6 +211,7 @@ pub fn snapshot_of(sources: &dyn IntegrationSources, pairs: &[PreparePair]) -> I
         identities,
         declarations,
         executables: sources.executables(),
+        managed: None, // M03 wave 0 (A2)
     }
 }
 
@@ -301,6 +302,13 @@ fn report(destination_scope: DestinationScopeEnforcement) -> Enforcement {
         workload_isolation: WorkloadIsolation::SharedOsUser,
         existing_connections: ExistingConnectionsPolicy::Unknown,
         revocation: RevocationStatus::Unknown,
+        // M03 wave 0 (A1): fail closed until U0b
+        identity_selection: None,
+        new_signing_expiry: None,
+        owned_multiplexing: None,
+        remote_processes: None,
+        unmanaged_connections: None,
+        issuer_isolation: None,
     }
 }
 
@@ -521,6 +529,7 @@ impl Core {
                 interaction: InteractionRequirement::ProviderDialog,
                 enforcement: descriptor_enforcement(),
                 lock_continuity,
+                remote_credential_effect: false, // M03 wave 0 (A2)
             },
             endpoint,
             refresh,
@@ -808,6 +817,7 @@ impl Core {
         RevokeOutcome {
             remote_pending: Vec::new(),
             latest_possible_credential_expiry: None,
+            remote_effects: Vec::new(), // M03 wave 0 (A2)
         }
     }
 

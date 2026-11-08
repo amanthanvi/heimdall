@@ -13,6 +13,14 @@
 //! envelope and its helpers are retired (ADR-0007 §12.30 item 4); the two wave-0 tests
 //! now assert that no M02 command answers that text.
 //!
+//! **M03 commands (m03-plan U0, §5 item 24).** `issuer`, `enroll`, `connections`, the
+//! hidden `internal`, `destination prefer`, `access lock-behavior|connection-policy`,
+//! `access ensure --strict` and the `uninstall` additions carry their full argument
+//! trees. Until its unit lands (U12) each is answered by its own handler in
+//! `issuer_cmd`, `enroll_cmd`, `connections_cmd` or `m03_cmd` with the wave-0
+//! envelope of `m03_cmd`, before any runtime contact. `uninstall --purge-state` is the
+//! exception: its refusal while enrollments remain is live (U0b row 18).
+//!
 //! **A bare `heimdall`** (no subcommand) opens the TUI when stdin and stdout are
 //! terminals and neither `--json` nor `--non-interactive` is given (overview §3; ADR-0007
 //! §12.30 item 5); otherwise it is `status`, which never starts the runtime.
@@ -46,7 +54,7 @@ use std::ffi::OsString;
 use std::io::IsTerminal as _;
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use heimdall_contract::envelope::{Envelope, NextAction};
 use heimdall_contract::event::{Cursor, EventFilter, EventType};
 use heimdall_contract::ids::{
@@ -65,7 +73,8 @@ use crate::client::{Client, Ctx, connect, error};
 use crate::output::{self, error_value};
 use crate::prompt::{self, Answer};
 use crate::{
-    catalog_cmd, connect_cmd, doctor_cmd, run_cmd, service_cmd, setup_cmd, tui, uninstall_cmd,
+    catalog_cmd, connect_cmd, connections_cmd, doctor_cmd, enroll_cmd, issuer_cmd, m03_cmd,
+    run_cmd, service_cmd, setup_cmd, tui, uninstall_cmd,
 };
 
 /// Heimdall: set up access once; your terminals, tools, and agents work across
@@ -118,6 +127,17 @@ pub enum Command {
     Profile(ProfileCommand),
     /// Remove the projection, restore your files, and report what remains (M02).
     Uninstall(UninstallArgs),
+    /// The local issuer: its CA key, status, recovery bundle (M03; ADR-0008 D3, D4).
+    #[command(subcommand)]
+    Issuer(IssuerCommand),
+    /// Enroll a destination for managed credentials and manage its enrollments (M03;
+    /// ADR-0008 D5).
+    Enroll(EnrollArgs),
+    /// Owned connections and their owner-side close (M03; ADR-0008 D8).
+    Connections(ConnectionsArgs),
+    /// Helpers the runtime starts itself; not a user surface (M03).
+    #[command(subcommand, hide = true)]
+    Internal(InternalCommand),
     /// Read-only inspection of runtime state. Never starts the runtime.
     Inspect {
         /// Subject: capabilities|environments|profiles|destinations|bindings|grants|operations|decisions
@@ -315,6 +335,28 @@ pub enum DestinationCommand {
         #[arg(long)]
         request_id: Option<String>,
     },
+    /// Choose which mechanism serves an alias: the managed definition or the existing
+    /// access (M03; takes effect with `setup apply`).
+    Prefer(DestinationPreferArgs),
+}
+
+/// `destination prefer` arguments (m03-plan §5 items 4b and 24).
+#[derive(Debug, Args)]
+pub struct DestinationPreferArgs {
+    /// The alias.
+    pub alias: String,
+    /// The mechanism that serves it.
+    #[arg(value_enum)]
+    pub mechanism: MechanismArg,
+}
+
+/// The mechanism `destination prefer` names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MechanismArg {
+    /// The managed credential (a short-lived certificate).
+    Managed,
+    /// The existing access (M02).
+    Existing,
 }
 
 /// `destination add` arguments.
@@ -477,9 +519,17 @@ pub enum ProfileCommand {
 /// `uninstall` arguments (Q6; m02-plan U9).
 #[derive(Debug, Args)]
 pub struct UninstallArgs {
-    /// Also delete Heimdall's state store once every rollback completed.
+    /// Also delete Heimdall's state store once every rollback completed. Refused while
+    /// any remote enrollment is not final, unless `--keep-remote-enrollments` is given.
     #[arg(long)]
     pub purge_state: bool,
+    /// M03: purge the state while remote enrollments stay in place. Needs a fresh
+    /// recovery bundle (`--bundle`; ADR-0008 D4 item 6).
+    #[arg(long, requires = "purge_state")]
+    pub keep_remote_enrollments: bool,
+    /// M03: the fresh recovery bundle that records what stays enrolled.
+    #[arg(long, value_name = "FILE", requires = "keep_remote_enrollments")]
+    pub bundle: Option<PathBuf>,
 }
 
 /// `access` subcommands.
@@ -524,6 +574,64 @@ pub enum AccessCommand {
         #[arg(long)]
         clear: bool,
     },
+    /// Choose what a session lock does to a policy's managed grants (M03; narrowing
+    /// is immediate, widening needs an owner decision).
+    LockBehavior(LockBehaviorArgs),
+    /// Choose what happens to owned connections at the deadline, and whether Heimdall
+    /// owns a multiplex master (M03).
+    ConnectionPolicy(ConnectionPolicyArgs),
+}
+
+/// `access lock-behavior` arguments (m03-plan §5 item 24).
+#[derive(Debug, Args)]
+pub struct LockBehaviorArgs {
+    /// Policy ID.
+    #[arg(long, value_name = "POLICY")]
+    pub policy: String,
+    /// `continue` (a lock does not end managed grants) or `revoke-on-lock`.
+    #[arg(value_enum)]
+    pub behavior: LockBehaviorArg,
+}
+
+/// The lock behaviors the CLI names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum LockBehaviorArg {
+    /// A lock does not end managed grants.
+    Continue,
+    /// A lock revokes the grant.
+    RevokeOnLock,
+}
+
+/// `access connection-policy` arguments (m03-plan §5 item 24).
+#[derive(Debug, Args)]
+pub struct ConnectionPolicyArgs {
+    /// Policy ID.
+    #[arg(long, value_name = "POLICY")]
+    pub policy: String,
+    /// What happens to existing owned connections at the deadline.
+    #[arg(long, value_enum)]
+    pub existing: Option<ExistingArg>,
+    /// Whether Heimdall owns a multiplex master per pair.
+    #[arg(long, value_enum)]
+    pub multiplexing: Option<MultiplexingArg>,
+}
+
+/// `--existing` values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ExistingArg {
+    /// Existing dedicated sessions may stay connected.
+    Graceful,
+    /// Owned connections are closed at the deadline.
+    Strict,
+}
+
+/// `--multiplexing` values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum MultiplexingArg {
+    /// No master.
+    Disabled,
+    /// One owned master per pair.
+    Owned,
 }
 
 /// Caller minimums (spec §4.3, §11.3 `required_capabilities`): never satisfied by
@@ -615,6 +723,11 @@ pub struct EnsureArgs {
     /// still-pending operation exits 5 with `next.observe`).
     #[arg(long, default_value_t = 30_000)]
     pub timeout_ms: u64,
+    /// M03: close owned connections at the deadline (`EnsureRequest.connection`
+    /// strict). Wave 0 answers it with the M03 not-available envelope; the managed
+    /// path is U10's.
+    #[arg(long)]
+    pub strict: bool,
     /// Caller minimums.
     #[command(flatten)]
     pub require: RequireArgs,
@@ -638,6 +751,197 @@ pub struct DelegateArgs {
     /// Request ID.
     #[arg(long)]
     pub request_id: String,
+}
+
+/// `issuer` subcommands (m03-plan §5 item 24; ADR-0008 D3, D4).
+#[derive(Debug, Subcommand)]
+pub enum IssuerCommand {
+    /// Create the CA key and its offline backup (terminal only).
+    #[command(group(
+        ArgGroup::new("orphan_bundle")
+            .args(["bundle", "no_bundle_available"])
+            .requires("replace_orphan")
+    ))]
+    Init {
+        /// Where the encrypted backup is written.
+        #[arg(long, value_name = "PATH")]
+        backup_out: PathBuf,
+        /// Replace the kept CA key with this fingerprint (D4 item 1).
+        #[arg(long, value_name = "FINGERPRINT", requires = "orphan_bundle")]
+        replace_orphan: Option<String>,
+        /// The recovery bundle that is cross-checked against the orphan.
+        #[arg(long, value_name = "FILE")]
+        bundle: Option<PathBuf>,
+        /// No bundle exists for the orphan.
+        #[arg(long)]
+        no_bundle_available: bool,
+    },
+    /// Show the issuer's state, CAs and enrollment counts (read-only).
+    Status,
+    /// Unlock the CA key store (attended).
+    Unlock,
+    /// Rotate the CA key.
+    #[command(subcommand)]
+    Rotate(IssuerRotateCommand),
+    /// Retire a CA by fingerprint.
+    Retire {
+        /// The CA fingerprint.
+        fingerprint: String,
+    },
+    /// Restore the CA key from a backup (the passphrase is typed on the terminal).
+    Restore {
+        /// The encrypted backup file.
+        #[arg(long, value_name = "FILE")]
+        backup: PathBuf,
+        /// The backup is not believed stolen.
+        #[arg(long)]
+        not_stolen: bool,
+    },
+    /// Write a recovery bundle.
+    Bundle {
+        /// Where the bundle is written.
+        #[arg(long, value_name = "PATH")]
+        out: PathBuf,
+        /// Redact a class of detail.
+        #[arg(long, value_enum)]
+        redact: Option<RedactArg>,
+    },
+}
+
+/// `issuer rotate` subcommands.
+#[derive(Debug, Subcommand)]
+pub enum IssuerRotateCommand {
+    /// Begin a rotation: a new CA key and a new offline backup.
+    Begin {
+        /// Where the new encrypted backup is written.
+        #[arg(long, value_name = "PATH")]
+        backup_out: PathBuf,
+    },
+}
+
+/// What `issuer bundle --redact` hides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RedactArg {
+    /// Destination host names.
+    Hostnames,
+}
+
+/// `enroll` arguments: `enroll <destination>` or one subcommand (m03-plan §5 item 24).
+#[derive(Debug, Args)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
+pub struct EnrollArgs {
+    /// Manage existing enrollments.
+    #[command(subcommand)]
+    pub command: Option<EnrollCommand>,
+    /// Enroll a destination (the preview is shown first).
+    #[command(flatten)]
+    pub start: EnrollStartArgs,
+}
+
+/// `enroll <destination>` arguments.
+#[derive(Debug, Args)]
+pub struct EnrollStartArgs {
+    /// The destination (ID or alias).
+    #[arg(required = true)]
+    pub destination: Option<String>,
+    /// The account; it must equal the catalog's.
+    #[arg(long, value_name = "ACCOUNT")]
+    pub account: Option<String>,
+    /// `account` (the default) or `system`.
+    #[arg(long, value_enum)]
+    pub form: Option<FormArg>,
+    /// The registry path on the destination.
+    #[arg(long, value_name = "PATH")]
+    pub registry_path: Option<String>,
+    /// The CA fingerprint to enroll under.
+    #[arg(long, value_name = "FINGERPRINT")]
+    pub ca: Option<String>,
+}
+
+/// `--form` values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum FormArg {
+    /// The account's own registry.
+    Account,
+    /// The system registry (manual removal).
+    System,
+}
+
+/// `enroll` subcommands.
+#[derive(Debug, Subcommand)]
+pub enum EnrollCommand {
+    /// List enrollments (read-only).
+    Status,
+    /// Verify an enrollment.
+    Verify {
+        /// Enrollment ID.
+        enrollment: String,
+        /// The system form's absence check.
+        #[arg(long, conflicts_with = "approve_target_change")]
+        absence: bool,
+        /// Approve the destination's new host key (shown as a diff).
+        #[arg(long)]
+        approve_target_change: bool,
+    },
+    /// Remove an enrollment, or a foreign one from a bundle.
+    #[command(group(
+        ArgGroup::new("removal")
+            .required(true)
+            .args(["enrollment", "from_bundle"])
+    ))]
+    Remove {
+        /// Enrollment ID.
+        enrollment: Option<String>,
+        /// Remove an enrollment recorded only in this bundle.
+        #[arg(long, value_name = "FILE", requires_all = ["marker", "alias"])]
+        from_bundle: Option<PathBuf>,
+        /// The marker of the bundle's enrollment.
+        #[arg(long, requires = "from_bundle")]
+        marker: Option<String>,
+        /// The local alias that reaches the destination.
+        #[arg(long, requires = "from_bundle")]
+        alias: Option<String>,
+    },
+    /// Classify an operation that stopped between steps; never redispatches.
+    Reconcile {
+        /// Operation ID.
+        operation: String,
+        /// The owner removed a lock by hand.
+        #[arg(long)]
+        after_manual_recovery: bool,
+    },
+    /// Give an account up while it is unreachable, held or uncertain.
+    Abandon {
+        /// Enrollment ID.
+        enrollment: String,
+    },
+}
+
+/// `connections` arguments: no subcommand lists (m03-plan §5 item 24).
+#[derive(Debug, Args)]
+pub struct ConnectionsArgs {
+    /// Act on a connection.
+    #[command(subcommand)]
+    pub command: Option<ConnectionsCommand>,
+}
+
+/// `connections` subcommands.
+#[derive(Debug, Subcommand)]
+pub enum ConnectionsCommand {
+    /// Close an owned connection (never signals an unverified process).
+    Close {
+        /// Connection ID.
+        id: String,
+    },
+}
+
+/// `internal` subcommands (hidden; m03-plan §5 item 24).
+#[derive(Debug, Subcommand)]
+pub enum InternalCommand {
+    /// The issuer child: refuses a terminal on stdin.
+    Issuer,
+    /// The session-lock state, read-only.
+    SessionLockState,
 }
 
 /// `operation` subcommands.
@@ -860,6 +1164,25 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Run(args)) => return run_cmd::run(&ctx, args),
         Some(Command::Doctor(args)) => return doctor_cmd::run(&ctx, args),
         Some(Command::Tui) => return tui::run(tui::TuiConfig::from_ctx(&ctx)),
+        // M03 commands (wave 0): each is answered by its own handler with the M03
+        // not-available envelope, before any runtime contact (`m03_cmd`).
+        Some(Command::Issuer(c)) => return issuer_cmd::run(&ctx, c),
+        Some(Command::Enroll(a)) => return enroll_cmd::run(&ctx, a),
+        Some(Command::Connections(a)) => return connections_cmd::run(&ctx, a),
+        Some(Command::Internal(c)) => return m03_cmd::internal(&ctx, c),
+        Some(Command::Destination(DestinationCommand::Prefer(a))) => {
+            return m03_cmd::destination_prefer(&ctx, a);
+        }
+        Some(Command::Access(AccessCommand::LockBehavior(a))) => {
+            return m03_cmd::lock_behavior(&ctx, a);
+        }
+        Some(Command::Access(AccessCommand::ConnectionPolicy(a))) => {
+            return m03_cmd::connection_policy(&ctx, a);
+        }
+        // `--strict` is the managed path's (U10); every other `ensure` is M01's.
+        Some(Command::Access(AccessCommand::Ensure(a))) if a.strict => {
+            return m03_cmd::ensure_strict(&ctx);
+        }
         Some(Command::Destination(c)) => return catalog_cmd::destination(&ctx, c),
         Some(Command::Identity(c)) => return catalog_cmd::identity(&ctx, c),
         Some(Command::Profile(c)) => return catalog_cmd::profile(&ctx, c),
@@ -1055,6 +1378,11 @@ async fn status(ctx: &Ctx) -> Result<Done, Done> {
 async fn access(ctx: &Ctx, command: AccessCommand) -> Result<Done, Done> {
     match command {
         AccessCommand::Ensure(a) => ensure(ctx, a).await,
+        // Answered in `dispatch` before the executor starts (M03 wave 0); the same
+        // envelope if one ever arrives here.
+        AccessCommand::LockBehavior(_) | AccessCommand::ConnectionPolicy(_) => {
+            Err(Done::of(m03_cmd::not_available_envelope()))
+        }
         AccessCommand::Release { binding_id } => {
             let binding_id = parse("binding ID", BindingId::parse, &binding_id)?;
             one(ctx, true, Request::Release(ReleaseRequest { binding_id })).await
@@ -1146,6 +1474,8 @@ async fn ensure(ctx: &Ctx, a: EnsureArgs) -> Result<Done, Done> {
                 timeout_ms: a.timeout_ms,
             }
         },
+        // M03 wave 0 (A1): fail closed until U0b
+        connection: None,
     };
     let is_async = a.r#async;
     let mut client = session(ctx, true).await?;
@@ -2210,6 +2540,8 @@ mod tests {
             request_id: RequestId::parse("r").unwrap_or_else(|_| unreachable!()),
             interaction: heimdall_contract::request::InteractionMode::Interactive,
             wait: WaitMode::default(),
+            // M03 wave 0 (A1): fail closed until U0b
+            connection: None,
         }
     }
 

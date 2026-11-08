@@ -35,6 +35,9 @@ pub struct SessionConfig {
     /// Maximum window for new trusted work, as a duration string (`12h`).
     pub max_window: String,
     /// Lock behaviour.
+    // ADR-0008 §17.15 (R3): this M01 key is kept as a floor. It merges fail-closed with
+    // the standing policy's `lock_behavior`: `revoke` from either side wins, and
+    // `continue` adds nothing. U9 implements and tests the merge.
     #[serde(default)]
     pub lock_behavior: LockBehavior,
     /// Strict disconnect at expiry (spec §6.6).
@@ -168,7 +171,8 @@ pub enum ConfigError {
     /// A security-sensitive or authority-widening key appeared anywhere in the
     /// file, including under `[x]` (spec §13.4: "Unknown security-sensitive keys
     /// are rejected"). The key name is the matched entry of
-    /// [`FORBIDDEN_KEYS`], never the input text.
+    /// [`FORBIDDEN_KEYS`] (or, under `[x]`, of [`FORBIDDEN_UNDER_X`]), never the
+    /// input text.
     #[error("config key `{0}` is not allowed: authority is never granted by configuration")]
     ForbiddenKey(&'static str),
     /// Platform directories unavailable.
@@ -233,6 +237,15 @@ pub const FORBIDDEN_KEYS: &[&str] = &[
     "attended",
 ];
 
+/// ⟨M03⟩ m03-plan §5 item 22: key names [`FORBIDDEN_KEYS`] gains **under `[x]`**
+/// (at any depth inside it; same normalization). Lock behaviour is a standing
+/// policy (an attended decision widens it) and an enrollment's authorized-keys
+/// registry path comes from its approved plan; the free-form table never carries
+/// either. Outside `[x]` the typed schema governs: `session.lock_behavior` is the
+/// M01 session default ([`SessionConfig::lock_behavior`]), and `registry_path` is
+/// an unknown key there (refused by `deny_unknown_fields`).
+pub const FORBIDDEN_UNDER_X: &[&str] = &["lock_behavior", "registry_path"];
+
 /// Maximum nesting depth scanned under `[x]`; deeper input is refused.
 const MAX_DEPTH: usize = 32;
 
@@ -267,7 +280,7 @@ impl Config {
                 ));
             }
         }
-        scan_forbidden(&table, 0)?;
+        scan_forbidden(&table, 0, false)?;
         let config: Config = toml::from_str(text).map_err(|e| parse_error(text, &e))?;
         config.validate()?;
         Ok(config)
@@ -383,7 +396,9 @@ fn normalized(key: &str) -> String {
     key.to_ascii_lowercase().replace('-', "_")
 }
 
-fn scan_forbidden(table: &toml::Table, depth: usize) -> Result<(), ConfigError> {
+/// `under_x`: `table` is the top-level `[x]` table or nested inside it, where
+/// [`FORBIDDEN_UNDER_X`] applies too.
+fn scan_forbidden(table: &toml::Table, depth: usize, under_x: bool) -> Result<(), ConfigError> {
     if depth > MAX_DEPTH {
         return Err(ConfigError::Parse("config nesting is too deep".to_owned()));
     }
@@ -392,18 +407,23 @@ fn scan_forbidden(table: &toml::Table, depth: usize) -> Result<(), ConfigError> 
         if let Some(hit) = FORBIDDEN_KEYS.iter().find(|f| **f == k) {
             return Err(ConfigError::ForbiddenKey(hit));
         }
-        scan_value(value, depth + 1)?;
+        if under_x && let Some(hit) = FORBIDDEN_UNDER_X.iter().find(|f| **f == k) {
+            return Err(ConfigError::ForbiddenKey(hit));
+        }
+        scan_value(value, depth + 1, under_x || (depth == 0 && key == "x"))?;
     }
     Ok(())
 }
 
-fn scan_value(value: &toml::Value, depth: usize) -> Result<(), ConfigError> {
+fn scan_value(value: &toml::Value, depth: usize, under_x: bool) -> Result<(), ConfigError> {
     if depth > MAX_DEPTH {
         return Err(ConfigError::Parse("config nesting is too deep".to_owned()));
     }
     match value {
-        toml::Value::Table(t) => scan_forbidden(t, depth),
-        toml::Value::Array(items) => items.iter().try_for_each(|v| scan_value(v, depth + 1)),
+        toml::Value::Table(t) => scan_forbidden(t, depth, under_x),
+        toml::Value::Array(items) => items
+            .iter()
+            .try_for_each(|v| scan_value(v, depth + 1, under_x)),
         _ => Ok(()),
     }
 }

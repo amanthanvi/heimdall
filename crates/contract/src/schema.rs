@@ -46,6 +46,11 @@ pub fn public_schemas() -> Vec<NamedSchema> {
         named::<crate::run_record::RunRecord>("run-record"),
         named::<crate::setup::SetupPlan>("setup-plan"),
         named::<crate::setup::SetupResult>("setup-result"),
+        // ⟨M03⟩ ADR-0006 revision 4 (m03-plan §5 item 23).
+        named::<crate::enrollment::EnrollmentPlan>("enrollment-plan"),
+        named::<crate::enrollment::EnrollmentResult>("enrollment-result"),
+        named::<crate::issuer::IssuerStatus>("issuer-status"),
+        named::<crate::issuer::RecoveryBundle>("recovery-bundle"),
     ]
 }
 

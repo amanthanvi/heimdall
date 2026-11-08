@@ -364,6 +364,17 @@ pub enum CatalogAction {
         /// Why.
         reason: WithdrawReason,
     },
+    // M03 wave 0 (O): the ninth action (m03-plan §5 item 4b; U0b row 22).
+    /// ⟨M03⟩ Set a pair's preferred mechanism (local only; P follows through
+    /// `setup apply`).
+    SetPreference {
+        /// Destination.
+        destination: DestinationId,
+        /// Account.
+        account: AccountName,
+        /// The preferred mechanism.
+        mechanism: heimdall_contract::managed::PreferredMechanism,
+    },
 }
 
 impl CatalogAction {
@@ -409,6 +420,17 @@ impl CatalogAction {
                 identity: identity.clone(),
                 revision: *revision,
                 reason: *reason,
+            },
+            // M03 wave 0 (O)
+            CatalogRequest::SetPreference {
+                destination,
+                account,
+                mechanism,
+                ..
+            } => CatalogAction::SetPreference {
+                destination: destination.clone(),
+                account: account.clone(),
+                mechanism: *mechanism,
             },
             _ => return None,
         })

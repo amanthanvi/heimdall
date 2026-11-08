@@ -1,7 +1,8 @@
 //! Heimdall test support (plan §6.1 pure model/property tests, §6.4 fault
 //! injection). Never compiled into shipped binaries: only `dev-dependencies` name
-//! this crate. Features: `store` (ScriptedFaults), `app` (FakeCredentialAdapter);
-//! `heimdall-ipc` uses neither (wave-1 E2).
+//! this crate. Features: `store` (ScriptedFaults), `app` (FakeCredentialAdapter),
+//! `managed` (M03: ScratchSecretStore, FakeSessionLockSource); `heimdall-ipc` uses
+//! none of them (wave-1 E2).
 //!
 //! Canary rule (ADR-0004 §4): synthetic canary-format strings may appear in
 //! fixtures, test inputs and harness assertions. A canary value appearing in
@@ -689,6 +690,7 @@ mod fake_adapter {
             Ok(RevokeOutcome {
                 remote_pending: Vec::new(),
                 latest_possible_credential_expiry: None,
+                remote_effects: Vec::new(), // M03 wave 0 (A2)
             })
         }
     }
@@ -789,6 +791,7 @@ mod ledger_tests {
             interaction: InteractionRequirement::None,
             enforcement: EnforcementEvidence::unknown(),
             lock_continuity: LockContinuity::Unknown,
+            remote_credential_effect: false, // M03 wave 0 (A2)
         }
     }
 
@@ -1034,6 +1037,13 @@ pub mod sshd;
 // signal dispositions, whatever the test runner ignored.
 #[cfg(all(unix, feature = "fixtures"))]
 pub mod term;
+
+// M03 test-configuration gates (m03-plan U0 "Frozen in wave 0"; ADR-0008 D1, D9; F23).
+// Feature `managed`: `ScratchSecretStore` (body U4's) and `FakeSessionLockSource`.
+#[cfg(feature = "managed")]
+pub mod scratch_store;
+#[cfg(feature = "managed")]
+pub mod session_lock;
 
 /// Proptest strategies for domain values (plan §6.3). Seeds: tests set
 /// `ProptestConfig { cases, .. }` and commit `proptest-regressions/` files; the

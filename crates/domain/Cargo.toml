@@ -27,3 +27,8 @@ proptest = { workspace = true }
 # The repository root for the tests that read repository files (HM_REPO_ROOT; ADR-0007
 # §12.32 item 3). A dev-dependency cycle like heimdall-ipc's: no store or app graph.
 heimdall-testkit = { workspace = true, default-features = false }
+
+# M03 wave 0 (U0): domain goldens (enrollment transition table, recovery and foreign-removal paths, CA states, residuals, slots, procstat, decision kinds).
+[[test]]
+name = "model_managed_domain"
+path = "../../tests/model/managed_domain.rs"

@@ -116,6 +116,20 @@ fn one_of_every_request() -> Vec<Request> {
         "schemas/examples/request.catalog.remove-profile.json",
         "schemas/examples/request.catalog.declare-interaction.json",
         "schemas/examples/request.catalog.withdraw-declaration.json",
+        // ⟨M03⟩ m03-plan U0: the new requests (section 5 items 2 and 3).
+        "schemas/examples/request.issuer.status.json",
+        "schemas/examples/request.issuer.register.json",
+        "schemas/examples/request.issuer.unlock.json",
+        "schemas/examples/request.issuer.retire.json",
+        "schemas/examples/request.issuer.bundle.json",
+        "schemas/examples/request.enrollment.preview.json",
+        "schemas/examples/request.enrollment.apply.json",
+        "schemas/examples/request.enrollment.verify.json",
+        "schemas/examples/request.enrollment.remove.json",
+        "schemas/examples/request.enrollment.reconcile.json",
+        "schemas/examples/request.enrollment.abandon.json",
+        "schemas/examples/request.enrollment.step.json",
+        "schemas/examples/request.enrollment.step-result.json",
     ]
     .iter()
     .map(|p| request(load(p)))
@@ -131,6 +145,21 @@ fn one_of_every_request() -> Vec<Request> {
         })),
         request(json!({"op": "cancel", "operation_id": "op_00112233445566778899aabbccddeeff"})),
         request(json!({"op": "release", "binding_id": "binding_0123456789abcdef0123456789abcdef"})),
+        // ⟨M03⟩ section 5 items 4a (ADR-0008 D8 item 2 adds `image`) and 4b.
+        request(json!({
+            "op": "connections", "action": "close",
+            "connection_id": "conn_00112233445566778899aabbccddeeff"
+        })),
+        request(json!({
+            "op": "connections", "action": "register",
+            "binding_id": "binding_0123456789abcdef0123456789abcdef", "pid": 4242,
+            "created_at": "2026-11-10T14:05:00Z",
+            "image": "C:\\Windows\\System32\\OpenSSH\\ssh.exe"
+        })),
+        request(json!({
+            "op": "catalog", "action": "set_preference", "destination": "dest-lab",
+            "account": "deploy", "mechanism": "managed_certificate", "request_id": "req-0209"
+        })),
     ]);
     out
 }
@@ -217,6 +246,26 @@ fn journaled_operation_kinds_match_their_request_kind() {
         assert!(synchronous.contains(k), "{k}");
     }
     assert_eq!(reserved.get("Probe").map(String::as_str), Some("probe"));
+
+    // ⟨M03⟩ m03-plan U0: `Request::admission` still matches every variant without a
+    // wildcard (a new variant does not compile until it is classified).
+    let source = std::fs::read_to_string(repo_root().join("crates/contract/src/request.rs"))
+        .unwrap_or_else(|e| panic!("request.rs unreadable: {}", e.kind()));
+    let body = source
+        .split("pub fn admission(&self) -> Admission {")
+        .nth(1)
+        .expect("Request::admission present")
+        .split("\n    }\n")
+        .next()
+        .unwrap();
+    assert!(
+        body.contains("Request::Enrollment("),
+        "the helper is the whole match"
+    );
+    assert!(
+        !body.lines().any(|l| l.trim_start().starts_with("_ =>")),
+        "Request::admission has a wildcard arm"
+    );
 }
 
 /// m02-plan section 5 item 4: Setup and Catalog need `setup/1`, are dispatched on
@@ -238,6 +287,15 @@ fn setup_and_catalog_need_setup_1_and_preview_is_read_only() {
                     r.required_capability(),
                     Some(capability::SERVICE_CONTROL_V1)
                 );
+            }
+            // ⟨M03⟩ m03-plan section 5 items 2, 3, 4a: their own capabilities (the
+            // M03 test `m03_requests_need_their_capability_and_unlock_is_attended`).
+            "issuer" => assert_eq!(r.required_capability(), Some(capability::ISSUER_V1)),
+            "enrollment" => {
+                assert_eq!(r.required_capability(), Some(capability::ENROLLMENT_V1));
+            }
+            "connections" => {
+                assert_eq!(r.required_capability(), Some(capability::CONNECTIONS_V1));
             }
             _ => assert_eq!(r.required_capability(), None, "{op}"),
         }

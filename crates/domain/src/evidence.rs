@@ -74,13 +74,13 @@ impl EnforcementEvidence {
             RevocationStatus, WorkloadIsolation,
         };
         Self {
-            report: Enforcement {
-                destination_scope: DestinationScopeEnforcement::Unknown,
-                new_authentication_expiry: NewAuthenticationExpiry::Unknown,
-                workload_isolation: WorkloadIsolation::Unknown,
-                existing_connections: ExistingConnectionsPolicy::Unknown,
-                revocation: RevocationStatus::Unknown,
-            },
+            report: Enforcement::new(
+                DestinationScopeEnforcement::Unknown,
+                NewAuthenticationExpiry::Unknown,
+                WorkloadIsolation::Unknown,
+                ExistingConnectionsPolicy::Unknown,
+                RevocationStatus::Unknown,
+            ),
             evidence: Vec::new(),
         }
     }

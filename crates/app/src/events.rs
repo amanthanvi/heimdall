@@ -728,6 +728,13 @@ pub fn decision_kind_name(kind: &heimdall_domain::decision::DecisionKind) -> &'s
         // ⟨M02⟩ U0b row 2 (m02-plan §5 item 17).
         K::ApplyProjection { .. } => "apply_projection",
         K::DeclareInteraction { .. } => "declare_interaction",
+        // M03 wave 0 (A1): fail closed until U0b (names only; m03-plan §5 item 10).
+        K::RegisterIssuer { .. } => "register_issuer",
+        K::RetireIssuer { .. } => "retire_issuer",
+        K::EnrollAccount { .. } => "enroll_account",
+        K::EnrollSystemForm { .. } => "enroll_system_form",
+        K::RemoveEnrollment { .. } => "remove_enrollment",
+        K::ApproveTargetChange { .. } => "approve_target_change",
     }
 }
 

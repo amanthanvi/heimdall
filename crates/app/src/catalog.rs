@@ -67,7 +67,10 @@ use heimdall_contract::catalog::{
 };
 use heimdall_contract::envelope::{EffectStatus, ResourceRef};
 use heimdall_contract::event::EventType;
-use heimdall_contract::ids::{DecisionId, IdentityId, OperationId};
+use heimdall_contract::ids::{
+    AccountName, CaFingerprint, DecisionId, DestinationId, IdentityId, OperationId,
+};
+use heimdall_contract::managed::PreferredMechanism;
 use heimdall_contract::request::{Capability, RequiredCapabilities};
 use heimdall_contract::setup::ConflictKind;
 use heimdall_contract::{Code, OperationState, Timestamp};
@@ -76,11 +79,13 @@ use heimdall_domain::catalog::{
     DestinationRecord, IdentityRecord, IdentitySource, InteractionDeclaration, InteractionProfile,
 };
 use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
+use heimdall_domain::enrollment::{PairPreference, ProjectionStatus};
 use heimdall_domain::idempotency::{HashInput, IdempotencyKey, IdempotencyOutcome, compute_hash};
 use heimdall_domain::lifecycle::OperationEvent;
 use heimdall_domain::operation::{EffectClass, LocalIntent, OperationKind, OperationRecord};
 use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::projection::Sha256Hex;
+use heimdall_domain::scope::AccessPair;
 use heimdall_domain::scope::Scope;
 use heimdall_store::Txn;
 
@@ -248,6 +253,10 @@ fn narrowing(action: &CatalogAction) -> bool {
             | CatalogAction::RemoveIdentity { .. }
             | CatalogAction::RemoveProfile { .. }
             | CatalogAction::WithdrawDeclaration { .. }
+            | CatalogAction::SetPreference {
+                mechanism: PreferredMechanism::Existing,
+                ..
+            }
     )
 }
 
@@ -862,7 +871,183 @@ fn apply_action(
                 revision: ended.revision,
             })?)
         }
+        CatalogAction::SetPreference {
+            destination,
+            account,
+            mechanism,
+        } => set_preference(tx, destination, account, *mechanism, now)?,
     })
+}
+
+// --- ⟨M03⟩ U0b row 22: pair preferences (m03-plan §5 item 4b; ADR-0008 D5 §6.6) -------
+
+fn pair_not_enrolled(pair: &AccessPair) -> OpError {
+    OpError::new(
+        Code::CapabilityUnavailable,
+        "managed certificates need a verified enrollment for the pair",
+    )
+    .with_reason(heimdall_contract::envelope::reason::PAIR_NOT_ENROLLED)
+    .with_resource("destination", Some(pair.destination.to_string()))
+}
+
+/// `SetPreference`: local only, nothing outside the store changes; P follows only
+/// through `setup apply`, so a changed preference is stored with `projection:
+/// pending` (D5 §6.6).
+/// * `managed_certificate` needs a `verified` enrollment for the pair
+///   (`CAPABILITY_UNAVAILABLE`, `pair_not_enrolled`); a new record's issuing-CA set
+///   is the pair's verified CAs, an existing one keeps its set and gains them;
+/// * `existing` on a pair with no stored preference, or one already `existing`,
+///   changes nothing (no record means `existing`).
+fn set_preference(
+    tx: &mut Txn<'_>,
+    destination: &DestinationId,
+    account: &AccountName,
+    mechanism: PreferredMechanism,
+    now: Timestamp,
+) -> heimdall_store::Result<Step> {
+    let pair = AccessPair {
+        destination: destination.clone(),
+        account: account.clone(),
+    };
+    if tx.destination(destination)?.is_none() {
+        return Ok(Step::Refused(Box::new(not_found(
+            "destination",
+            destination,
+        ))));
+    }
+    let stored = tx.pair_preference(&pair)?;
+    let next = match mechanism {
+        PreferredMechanism::ManagedCertificate => {
+            let verified = tx.verified_cas_for_pair(&pair)?;
+            if verified.is_empty() {
+                return Ok(Step::Refused(Box::new(pair_not_enrolled(&pair))));
+            }
+            match stored.clone() {
+                Some(p) if p.mechanism == PreferredMechanism::ManagedCertificate => None,
+                Some(mut p) => {
+                    p.mechanism = PreferredMechanism::ManagedCertificate;
+                    p.projection = ProjectionStatus::Pending;
+                    p.issuing_cas.extend(verified);
+                    Some(p)
+                }
+                None => Some(PairPreference {
+                    destination: destination.clone(),
+                    account: account.clone(),
+                    mechanism: PreferredMechanism::ManagedCertificate,
+                    projection: ProjectionStatus::Pending,
+                    issuing_cas: verified,
+                }),
+            }
+        }
+        PreferredMechanism::Existing => match stored.clone() {
+            Some(mut p) if p.mechanism != PreferredMechanism::Existing => {
+                p.mechanism = PreferredMechanism::Existing;
+                p.projection = ProjectionStatus::Pending;
+                Some(p)
+            }
+            _ => None,
+        },
+        _ => {
+            return Ok(Step::Refused(Box::new(usage(
+                "this preferred mechanism is not supported",
+            ))));
+        }
+    };
+    let changed = next.is_some();
+    let current = match next {
+        Some(p) => {
+            tx.set_pair_preference(&p, now)?;
+            Some(p)
+        }
+        None => stored,
+    };
+    Ok(Step::Done(serde_json::json!({
+        "destination_id": destination,
+        "account": account,
+        "mechanism": mechanism,
+        "projection": current.map(|p| p.projection),
+        "changed": changed,
+    })))
+}
+
+impl Operations {
+    /// ⟨M03⟩ U0b row 22 (ADR-0008 D5 §6.4 E5, §6.6; F05): the hook the enrollment
+    /// driver calls when an enrollment of `ca` for `pair` is recorded `verified`: `ca`
+    /// joins the pair preference's issuing-CA set. `e5` is an initial enrollment's E5:
+    /// then, **only if** the pair is not already managed with its projection applied,
+    /// the preference becomes `managed_certificate` with `projection: pending`. A
+    /// rotation's enrollment or a re-verification (`e5` false) only adds the CA. A pair
+    /// without a stored preference gets one (`existing` unless `e5`). One transaction.
+    ///
+    /// # Errors
+    /// `CAPABILITY_UNAVAILABLE`, reason `pair_not_enrolled`, when `ca` has no `verified`
+    /// enrollment for the pair (nothing written); `STATE_UNAVAILABLE` (store).
+    pub async fn add_issuing_ca(
+        &self,
+        pair: &AccessPair,
+        ca: &CaFingerprint,
+        e5: bool,
+    ) -> Result<PairPreference, OpError> {
+        let now = self.local_narrowing_now().await;
+        let (pair, ca) = (pair.clone(), ca.clone());
+        self.local_write(move |tx, _| {
+            if !tx.verified_cas_for_pair(&pair)?.contains(&ca) {
+                return Ok(Err(pair_not_enrolled(&pair)));
+            }
+            let mut p = tx
+                .pair_preference(&pair)?
+                .unwrap_or_else(|| PairPreference {
+                    destination: pair.destination.clone(),
+                    account: pair.account.clone(),
+                    mechanism: PreferredMechanism::Existing,
+                    projection: ProjectionStatus::Pending,
+                    issuing_cas: BTreeSet::new(),
+                });
+            let managed_applied = p.mechanism == PreferredMechanism::ManagedCertificate
+                && matches!(p.projection, ProjectionStatus::Applied { .. });
+            if e5 && !managed_applied {
+                p.mechanism = PreferredMechanism::ManagedCertificate;
+                p.projection = ProjectionStatus::Pending;
+            }
+            p.issuing_cas.insert(ca);
+            tx.set_pair_preference(&p, now)?;
+            Ok(Ok(p))
+        })
+        .await?
+    }
+
+    /// ⟨M03⟩ U0b row 22 (ADR-0008 D5 §6.8; §17.1 item 15, §17.3 item 3): the hook the
+    /// removal driver calls when an enrollment of `ca` for `pair` is removed: `ca`
+    /// leaves the issuing-CA set. The preference stays `managed_certificate` while
+    /// another `verified` CA remains for the pair; when none remains it becomes
+    /// `existing` with `projection: pending` (P follows through `setup apply`). A pair
+    /// without a stored preference is unchanged (`None`). One transaction.
+    ///
+    /// # Errors
+    /// `STATE_UNAVAILABLE` (store).
+    pub async fn remove_issuing_ca(
+        &self,
+        pair: &AccessPair,
+        ca: &CaFingerprint,
+    ) -> Result<Option<PairPreference>, OpError> {
+        let now = self.local_narrowing_now().await;
+        let (pair, ca) = (pair.clone(), ca.clone());
+        self.local_write(move |tx, _| {
+            let Some(mut p) = tx.pair_preference(&pair)? else {
+                return Ok(None);
+            };
+            p.issuing_cas.remove(&ca);
+            let mut remaining = tx.verified_cas_for_pair(&pair)?;
+            remaining.remove(&ca);
+            if remaining.is_empty() && p.mechanism == PreferredMechanism::ManagedCertificate {
+                p.mechanism = PreferredMechanism::Existing;
+                p.projection = ProjectionStatus::Pending;
+            }
+            tx.set_pair_preference(&p, now)?;
+            Ok(Some(p))
+        })
+        .await
+    }
 }
 
 /// `DeclareInteraction`: without an approval, create the decision; with one, build the

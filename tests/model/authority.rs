@@ -228,6 +228,9 @@ impl Fixture {
                 pause: PauseState::Active,
                 cutoff_at: None,
                 source: PolicySource::SetupDefault,
+                // M03 wave 0 (A1): fail closed until U0b
+                lock_behavior: Default::default(),
+                connection: Default::default(),
             }),
             generation: AuthorityGeneration(7),
             environment,
@@ -436,6 +439,9 @@ prop_compose! {
             },
             cutoff_at: p.cutoff.map(at),
             source: PolicySource::SetupDefault,
+            // M03 wave 0 (A1): fail closed until U0b
+            lock_behavior: Default::default(),
+            connection: Default::default(),
         });
         let generation = AuthorityGeneration(generation);
         let parent = parent.map(|p| GrantSnapshot {

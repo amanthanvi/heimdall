@@ -210,6 +210,8 @@ pub struct ErrorData {
 /// kinds ([`crate::setup::ConflictKind`]) and the manual reasons
 /// ([`crate::setup::manual_reason`]) are reasons too, with the same spelling.
 pub mod reason {
+    use crate::code::Code;
+
     /// Launch: the program was not found.
     pub const NOT_FOUND: &str = "not_found";
     /// Launch: the program would resolve from the current directory.
@@ -305,6 +307,229 @@ pub mod reason {
         VERIFIED_CLIENT_UNAVAILABLE,
         BINDING_IN_USE,
         BINDING_RELEASED,
+    ];
+
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: No CA is registered.
+    pub const ISSUER_NOT_INITIALIZED: &str = "issuer_not_initialized";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The issuer child is unavailable.
+    pub const ISSUER_UNAVAILABLE: &str = "issuer_unavailable";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The issuer's platform store is locked (`issuer unlock`).
+    pub const ISSUER_STORE_LOCKED: &str = "issuer_store_locked";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The issuer's platform store is unavailable.
+    pub const ISSUER_STORE_UNAVAILABLE: &str = "issuer_store_unavailable";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair has no `verified` enrollment.
+    pub const PAIR_NOT_ENROLLED: &str = "pair_not_enrolled";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair is not in the catalog.
+    pub const PAIR_NOT_ADOPTED: &str = "pair_not_adopted";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The enrollment has not passed verification.
+    pub const ENROLLMENT_UNVERIFIED: &str = "enrollment_unverified";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: A managed-only request while the managed projection is not applied.
+    pub const PROJECTION_PENDING: &str = "projection_pending";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: An observed (user-defined) alias cannot be enrolled.
+    pub const OBSERVED_ALIAS_UNMANAGED: &str = "observed_alias_unmanaged";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The destination's route is not direct (M03 has no proxy routes).
+    pub const ROUTE_UNSUPPORTED: &str = "route_unsupported";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The registry path breaks the ADR-0008 D5 §6.1 rule.
+    pub const REGISTRY_UNSUPPORTED: &str = "registry_unsupported";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The destination or account cannot form a principal.
+    pub const PRINCIPAL_CHARSET: &str = "principal_charset";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: No single approved host key could be determined.
+    pub const HOST_TRUST_UNDETERMINED: &str = "host_trust_undetermined";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The positive verification was refused.
+    pub const VERIFICATION_FAILED: &str = "verification_failed";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The negative verification was accepted.
+    pub const PRINCIPALS_NOT_ENFORCED: &str = "principals_not_enforced";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The verification could not classify the result.
+    pub const VERIFICATION_INCONCLUSIVE: &str = "verification_inconclusive";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: A request needs verified lock continuity.
+    pub const LOCK_CONTINUITY_UNVERIFIED: &str = "lock_continuity_unverified";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The grant's lock behaviour revokes on lock.
+    pub const LOCK_REVOKES_CHOSEN: &str = "lock_revokes_chosen";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: No session-lock source is available.
+    pub const LOCK_SIGNAL_UNAVAILABLE: &str = "lock_signal_unavailable";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: Owned masters are not supported here (Windows).
+    pub const MULTIPLEXING_UNSUPPORTED: &str = "multiplexing_unsupported";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The endpoint would list more than its identity bound.
+    pub const TOO_MANY_IDENTITIES: &str = "too_many_identities";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The grant's key was lost; re-issue is pending.
+    pub const CREDENTIAL_REISSUE_PENDING: &str = "credential_reissue_pending";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: Cancel after the remote mutation's `Attempted` receipt.
+    pub const REMOTE_STEP_IN_PROGRESS: &str = "remote_step_in_progress";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The re-evaluated route differs from the approved target.
+    pub const ROUTE_CHANGED: &str = "route_changed";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The route could not be evaluated statically.
+    pub const ROUTE_UNDETERMINED: &str = "route_undetermined";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The existing access cannot enroll in M03 (password only).
+    pub const EXISTING_ACCESS_KIND_UNSUPPORTED: &str = "existing_access_kind_unsupported";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: `connect`: no profile of the environment covers the destination.
+    pub const NO_PROFILE_COVERS_DESTINATION: &str = "no_profile_covers_destination";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The slot's mux path exceeds the socket-path limit.
+    pub const MUX_PATH_TOO_LONG: &str = "mux_path_too_long";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The CA is retiring; no new reservation.
+    pub const CA_RETIRING: &str = "ca_retiring";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: Foreign removal from a redacted bundle.
+    pub const BUNDLE_REDACTED: &str = "bundle_redacted";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: A purge that keeps enrollments needs a fresh bundle.
+    pub const BUNDLE_REQUIRED: &str = "bundle_required";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The client's effective configuration does not show every host-trust pin.
+    pub const HOST_TRUST_UNPINNABLE: &str = "host_trust_unpinnable";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The existing-access endpoint cannot be resolved.
+    pub const EXISTING_ACCESS_ENDPOINT_UNRECORDED: &str = "existing_access_endpoint_unrecorded";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The existing-access endpoint is a Heimdall endpoint.
+    pub const EXISTING_ACCESS_ENDPOINT_IS_HEIMDALL: &str = "existing_access_endpoint_is_heimdall";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The existing-access endpoint changed since approval.
+    pub const EXISTING_ACCESS_CHANGED: &str = "existing_access_changed";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The bundle's host and port differ from the alias's evaluated ones.
+    pub const BUNDLE_HOST_MISMATCH: &str = "bundle_host_mismatch";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The registry directory's parent is absent.
+    pub const REGISTRY_PARENT_ABSENT: &str = "registry_parent_absent";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The target cannot report a process start identity.
+    pub const START_IDENTITY_UNAVAILABLE: &str = "start_identity_unavailable";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The remote shell has no process group of its own.
+    pub const NO_PROCESS_GROUP: &str = "no_process_group";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: A refusal a destination clock skew could explain (with `verification_inconclusive`).
+    pub const DESTINATION_CLOCK_SKEW: &str = "destination_clock_skew";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: A foreign system-form absence check: this device holds no key of the CA.
+    pub const CA_NOT_HELD: &str = "ca_not_held";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: The pair already has a live enrollment under that CA.
+    pub const ALREADY_ENROLLED: &str = "already_enrolled";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: The registry changed during removal three times.
+    pub const REGISTRY_CHANGED: &str = "registry_changed";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: The registry cannot be rewritten safely; manual instructions.
+    pub const REGISTRY_NOT_REWRITABLE: &str = "registry_not_rewritable";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: The registry exceeds `registry_max_bytes`.
+    pub const REGISTRY_TOO_LARGE: &str = "registry_too_large";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: Our marker line differs, or appears more than once.
+    pub const REGISTRY_LINE_DAMAGED: &str = "registry_line_damaged";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: Another binding holds the pair's slot.
+    pub const MANAGED_SLOT_HELD: &str = "managed_slot_held";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: Another step holds the registry lock.
+    pub const REGISTRY_BUSY: &str = "registry_busy";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: An argument would move an owned connection out of its process.
+    pub const OWNED_CONNECTION_OPTION_CONFLICT: &str = "owned_connection_option_conflict";
+    /// ⟨M03⟩ `CONFIG_CONFLICT`: A stale lock's holder could not be proven gone.
+    pub const LOCK_HOLDER_UNRESOLVED: &str = "lock_holder_unresolved";
+    /// ⟨M03⟩ `USAGE_ERROR`: An enrollment account that differs from the catalog's.
+    pub const ACCOUNT_OVERRIDE_REFUSED: &str = "account_override_refused";
+    /// ⟨M03⟩ `LAUNCH_FAILED`: Windows: the contained `ssh.exe` could not be registered.
+    pub const CONNECTION_REGISTRATION_FAILED: &str = "connection_registration_failed";
+    /// ⟨M03⟩ `LAUNCH_FAILED`: Windows: the grant ended or is unsafe; the child never resumed.
+    pub const CONNECTION_REGISTRATION_REFUSED: &str = "connection_registration_refused";
+    /// ⟨M03⟩ `REQUEST_CONFLICT`: A step result for another step token.
+    pub const STEP_TOKEN_MISMATCH: &str = "step_token_mismatch";
+    /// ⟨M03⟩ `REQUEST_CONFLICT`: A step is already outstanding for the operation.
+    pub const STEP_OUTSTANDING: &str = "step_outstanding";
+    /// ⟨M03⟩ `OUTCOME_UNKNOWN`: An append's result was lost.
+    pub const REGISTRY_OUTCOME_UNKNOWN: &str = "registry_outcome_unknown";
+    /// ⟨M03⟩ `OUTCOME_UNKNOWN`: A removal's result was lost.
+    pub const REMOVE_OUTCOME_UNKNOWN: &str = "remove_outcome_unknown";
+    /// ⟨M03⟩ `DECISION_STALE`: The enrollment approval's 24 h validity lapsed.
+    pub const APPROVAL_LAPSED: &str = "approval_lapsed";
+    /// ⟨M03⟩ `HOST_TRUST_CHANGED`: The host key differs from the approved one.
+    pub const ENROLLMENT_HOST_KEY_MISMATCH: &str = "enrollment_host_key_mismatch";
+    /// ⟨M03⟩ `SERVICE_UNAVAILABLE`: The issuer child is restarting.
+    pub const ISSUER_RESTARTING: &str = "issuer_restarting";
+    /// ⟨M03⟩ `BACKPRESSURE`: The issuer's signature rate limit was reached.
+    pub const ISSUER_RATE_LIMITED: &str = "issuer_rate_limited";
+    /// ⟨M03⟩ `CREDENTIAL_EXPIRED`: Use after a lock revocation.
+    pub const GRANT_ENDED_SESSION_LOCKED: &str = "grant_ended_session_locked";
+
+    /// ⟨M03⟩ Every new stable sub-reason of m03-plan §5 item 14, with the code it is
+    /// used with, in the table's order. `driver_unavailable` (M02, in [`ALL`]) is
+    /// used by M03 too and is not repeated. [`ALL`] stays M01/M02's list; the code
+    /// table itself is unchanged (no new code).
+    pub const M03: &[(&str, Code)] = &[
+        (ISSUER_NOT_INITIALIZED, Code::CapabilityUnavailable),
+        (ISSUER_UNAVAILABLE, Code::CapabilityUnavailable),
+        (ISSUER_STORE_LOCKED, Code::CapabilityUnavailable),
+        (ISSUER_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
+        (PAIR_NOT_ENROLLED, Code::CapabilityUnavailable),
+        (PAIR_NOT_ADOPTED, Code::CapabilityUnavailable),
+        (ENROLLMENT_UNVERIFIED, Code::CapabilityUnavailable),
+        (PROJECTION_PENDING, Code::CapabilityUnavailable),
+        (OBSERVED_ALIAS_UNMANAGED, Code::CapabilityUnavailable),
+        (ROUTE_UNSUPPORTED, Code::CapabilityUnavailable),
+        (REGISTRY_UNSUPPORTED, Code::CapabilityUnavailable),
+        (PRINCIPAL_CHARSET, Code::CapabilityUnavailable),
+        (HOST_TRUST_UNDETERMINED, Code::CapabilityUnavailable),
+        (VERIFICATION_FAILED, Code::CapabilityUnavailable),
+        (PRINCIPALS_NOT_ENFORCED, Code::CapabilityUnavailable),
+        (VERIFICATION_INCONCLUSIVE, Code::CapabilityUnavailable),
+        (LOCK_CONTINUITY_UNVERIFIED, Code::CapabilityUnavailable),
+        (LOCK_REVOKES_CHOSEN, Code::CapabilityUnavailable),
+        (LOCK_SIGNAL_UNAVAILABLE, Code::CapabilityUnavailable),
+        (MULTIPLEXING_UNSUPPORTED, Code::CapabilityUnavailable),
+        (TOO_MANY_IDENTITIES, Code::CapabilityUnavailable),
+        (CREDENTIAL_REISSUE_PENDING, Code::CapabilityUnavailable),
+        (REMOTE_STEP_IN_PROGRESS, Code::CapabilityUnavailable),
+        (ROUTE_CHANGED, Code::CapabilityUnavailable),
+        (ROUTE_UNDETERMINED, Code::CapabilityUnavailable),
+        (
+            EXISTING_ACCESS_KIND_UNSUPPORTED,
+            Code::CapabilityUnavailable,
+        ),
+        (NO_PROFILE_COVERS_DESTINATION, Code::CapabilityUnavailable),
+        (MUX_PATH_TOO_LONG, Code::CapabilityUnavailable),
+        (CA_RETIRING, Code::CapabilityUnavailable),
+        (BUNDLE_REDACTED, Code::CapabilityUnavailable),
+        (BUNDLE_REQUIRED, Code::CapabilityUnavailable),
+        (HOST_TRUST_UNPINNABLE, Code::CapabilityUnavailable),
+        (
+            EXISTING_ACCESS_ENDPOINT_UNRECORDED,
+            Code::CapabilityUnavailable,
+        ),
+        (
+            EXISTING_ACCESS_ENDPOINT_IS_HEIMDALL,
+            Code::CapabilityUnavailable,
+        ),
+        (EXISTING_ACCESS_CHANGED, Code::CapabilityUnavailable),
+        (BUNDLE_HOST_MISMATCH, Code::CapabilityUnavailable),
+        (REGISTRY_PARENT_ABSENT, Code::CapabilityUnavailable),
+        (START_IDENTITY_UNAVAILABLE, Code::CapabilityUnavailable),
+        (NO_PROCESS_GROUP, Code::CapabilityUnavailable),
+        (DESTINATION_CLOCK_SKEW, Code::CapabilityUnavailable),
+        (CA_NOT_HELD, Code::CapabilityUnavailable),
+        (ALREADY_ENROLLED, Code::ConfigConflict),
+        (REGISTRY_CHANGED, Code::ConfigConflict),
+        (REGISTRY_NOT_REWRITABLE, Code::ConfigConflict),
+        (REGISTRY_TOO_LARGE, Code::ConfigConflict),
+        (REGISTRY_LINE_DAMAGED, Code::ConfigConflict),
+        (MANAGED_SLOT_HELD, Code::ConfigConflict),
+        (REGISTRY_BUSY, Code::ConfigConflict),
+        (OWNED_CONNECTION_OPTION_CONFLICT, Code::ConfigConflict),
+        (LOCK_HOLDER_UNRESOLVED, Code::ConfigConflict),
+        (ACCOUNT_OVERRIDE_REFUSED, Code::UsageError),
+        (CONNECTION_REGISTRATION_FAILED, Code::LaunchFailed),
+        (CONNECTION_REGISTRATION_REFUSED, Code::LaunchFailed),
+        (STEP_TOKEN_MISMATCH, Code::RequestConflict),
+        (STEP_OUTSTANDING, Code::RequestConflict),
+        (REGISTRY_OUTCOME_UNKNOWN, Code::OutcomeUnknown),
+        (REMOVE_OUTCOME_UNKNOWN, Code::OutcomeUnknown),
+        (APPROVAL_LAPSED, Code::DecisionStale),
+        (ENROLLMENT_HOST_KEY_MISMATCH, Code::HostTrustChanged),
+        (ISSUER_RESTARTING, Code::ServiceUnavailable),
+        (ISSUER_RATE_LIMITED, Code::Backpressure),
+        (GRANT_ENDED_SESSION_LOCKED, Code::CredentialExpired),
+    ];
+}
+
+/// ⟨M03⟩ Warning codes M03 adds (m03-plan §5 item 14: warnings, not error reasons).
+pub mod m03_warning {
+    /// The pair resolved to its existing mechanism while the managed projection is
+    /// pending (`next: setup_apply`; F04).
+    pub const MANAGED_PROJECTION_PENDING: &str = "managed_projection_pending";
+    /// Linux `revoke_on_lock` is unverified until B11 (F19).
+    pub const SIGNAL_UNVERIFIED: &str = "signal_unverified";
+    /// Ordinary `ssh <alias>` needs a held slot.
+    pub const ORDINARY_SSH_NEEDS_HELD_SLOT: &str = "ordinary_ssh_needs_held_slot";
+    /// An uncertain append may still land.
+    pub const POSSIBLE_LATE_WRITE: &str = "possible_late_write";
+    /// Every M03 warning code.
+    pub const ALL: &[&str] = &[
+        MANAGED_PROJECTION_PENDING,
+        SIGNAL_UNVERIFIED,
+        ORDINARY_SSH_NEEDS_HELD_SLOT,
+        POSSIBLE_LATE_WRITE,
     ];
 }
 

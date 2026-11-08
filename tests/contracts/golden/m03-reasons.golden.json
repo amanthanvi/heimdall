@@ -1,0 +1,271 @@
+{
+ "source": "m03-plan revision 6 \u00a75 item 14 (stable sub-reasons, data.error.reason), transcribed row by row in the table's order; `existing` lists the reasons the table marks as already present (M02), which stay in envelope::reason::ALL; `warnings` and `doctor_findings` are the paragraph under the table",
+ "new": [
+  {
+   "reason": "issuer_not_initialized",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "issuer_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "issuer_store_locked",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "issuer_store_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "pair_not_enrolled",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "pair_not_adopted",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "enrollment_unverified",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "projection_pending",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "observed_alias_unmanaged",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "route_unsupported",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "registry_unsupported",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "principal_charset",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "host_trust_undetermined",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "verification_failed",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "principals_not_enforced",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "verification_inconclusive",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "lock_continuity_unverified",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "lock_revokes_chosen",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "lock_signal_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "multiplexing_unsupported",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "too_many_identities",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "credential_reissue_pending",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "remote_step_in_progress",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "route_changed",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "route_undetermined",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "existing_access_kind_unsupported",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "no_profile_covers_destination",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "mux_path_too_long",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "ca_retiring",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "bundle_redacted",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "bundle_required",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "host_trust_unpinnable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "existing_access_endpoint_unrecorded",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "existing_access_endpoint_is_heimdall",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "existing_access_changed",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "bundle_host_mismatch",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "registry_parent_absent",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "start_identity_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "no_process_group",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "destination_clock_skew",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "ca_not_held",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
+   "reason": "already_enrolled",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "registry_changed",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "registry_not_rewritable",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "registry_too_large",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "registry_line_damaged",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "managed_slot_held",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "registry_busy",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "owned_connection_option_conflict",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "lock_holder_unresolved",
+   "code": "CONFIG_CONFLICT"
+  },
+  {
+   "reason": "account_override_refused",
+   "code": "USAGE_ERROR"
+  },
+  {
+   "reason": "connection_registration_failed",
+   "code": "LAUNCH_FAILED"
+  },
+  {
+   "reason": "connection_registration_refused",
+   "code": "LAUNCH_FAILED"
+  },
+  {
+   "reason": "step_token_mismatch",
+   "code": "REQUEST_CONFLICT"
+  },
+  {
+   "reason": "step_outstanding",
+   "code": "REQUEST_CONFLICT"
+  },
+  {
+   "reason": "registry_outcome_unknown",
+   "code": "OUTCOME_UNKNOWN"
+  },
+  {
+   "reason": "remove_outcome_unknown",
+   "code": "OUTCOME_UNKNOWN"
+  },
+  {
+   "reason": "approval_lapsed",
+   "code": "DECISION_STALE"
+  },
+  {
+   "reason": "enrollment_host_key_mismatch",
+   "code": "HOST_TRUST_CHANGED"
+  },
+  {
+   "reason": "issuer_restarting",
+   "code": "SERVICE_UNAVAILABLE"
+  },
+  {
+   "reason": "issuer_rate_limited",
+   "code": "BACKPRESSURE"
+  },
+  {
+   "reason": "grant_ended_session_locked",
+   "code": "CREDENTIAL_EXPIRED"
+  }
+ ],
+ "existing": [
+  {
+   "reason": "driver_unavailable",
+   "code": "CAPABILITY_UNAVAILABLE"
+  }
+ ],
+ "warnings": [
+  "managed_projection_pending",
+  "signal_unverified",
+  "ordinary_ssh_needs_held_slot",
+  "possible_late_write"
+ ],
+ "doctor_findings": [
+  "reverification_inconclusive",
+  "enrollment_evidence_stale",
+  "client_trace_family_unrecorded",
+  "slot_free"
+ ]
+}

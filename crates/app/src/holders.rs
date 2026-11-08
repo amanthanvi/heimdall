@@ -237,6 +237,7 @@ mod tests {
             Ok(RevokeOutcome {
                 remote_pending: Vec::new(),
                 latest_possible_credential_expiry: None,
+                remote_effects: Vec::new(), // M03 wave 0 (A2)
             })
         }
     }
@@ -270,6 +271,13 @@ mod tests {
                 workload_isolation: WorkloadIsolation::SharedOsUser,
                 existing_connections: ExistingConnectionsPolicy::GracefulDedicatedConnections,
                 revocation: RevocationStatus::LocalApplied,
+                // M03 wave 0 (A1): fail closed until U0b
+                identity_selection: None,
+                new_signing_expiry: None,
+                owned_multiplexing: None,
+                remote_processes: None,
+                unmanaged_connections: None,
+                issuer_isolation: None,
             },
             evidence: Vec::new(),
         }
@@ -335,6 +343,9 @@ mod tests {
                         pause: PauseState::Active,
                         cutoff_at: None,
                         source: PolicySource::SetupDefault,
+                        // M03 wave 0 (A1): fail closed until U0b
+                        lock_behavior: Default::default(),
+                        connection: Default::default(),
                     },
                     false,
                 )?;
@@ -351,6 +362,7 @@ mod tests {
             interaction: InteractionRequirement::None,
             enforcement: enforcement(),
             lock_continuity: LockContinuity::Unknown,
+            remote_credential_effect: false, // M03 wave 0 (A2)
         }));
         let ops = Operations::start(OperationsConfig {
             store: Arc::clone(&store),
@@ -390,6 +402,8 @@ mod tests {
                     request_id: RequestId::parse(&format!("r-{work}")).unwrap(),
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::Sync { timeout_ms: 30_000 },
+                    // M03 wave 0 (A1): fail closed until U0b
+                    connection: None,
                 },
             )
             .await

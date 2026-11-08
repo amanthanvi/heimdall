@@ -195,6 +195,8 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
         wait: WaitMode::Sync {
             timeout_ms: ENSURE_TIMEOUT_MS,
         },
+        // M03 wave 0 (A1): fail closed until U0b
+        connection: None,
     };
     let rt = crate::service_cmd::current_thread()
         .map_err(|e| none(Failure::of(output::error_value(e))))?;

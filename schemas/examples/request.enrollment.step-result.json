@@ -1,0 +1,9 @@
+{
+  "op": "enrollment",
+  "action": "step_result",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "step_token": "0123456789abcdef0123456789abcdef",
+  "exit_status": 0,
+  "stdout": "HM1 ready\nHM1 v=1 status=ok\n",
+  "stderr_excerpt": ""
+}

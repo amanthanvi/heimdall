@@ -1,0 +1,69 @@
+{
+  "binding_id": "binding_0123456789abcdef0123456789abcdef",
+  "environment_id": "env_fedcba9876543210fedcba9876543210",
+  "profile_revision": 3,
+  "grant_id": "grant_aaaaaaaabbbbbbbbccccccccdddddddd",
+  "expires_at": "2026-11-10T22:00:00Z",
+  "usable_until": "2026-11-10T22:00:00Z",
+  "offline_until": "2026-11-10T22:00:00Z",
+  "refresh_dependency": "local_issuer",
+  "refresh_condition": {
+    "needed_only_after": "signer_restart",
+    "source": "local_issuer"
+  },
+  "conditions": [
+    "signer_running",
+    "time_confirmation_after_reboot"
+  ],
+  "credential_mechanism": "managed_certificate",
+  "credential_availability": "through_deadline",
+  "lock_continuity": "not_verified",
+  "enforcement": {
+    "destination_scope": "verified_server_principals",
+    "new_authentication_expiry": "unknown",
+    "workload_isolation": "shared_os_user",
+    "existing_connections": "unknown",
+    "revocation": "unknown",
+    "identity_selection": "client_configuration_and_signer",
+    "new_signing_expiry": "unknown",
+    "owned_multiplexing": "disabled",
+    "remote_processes": "not_terminated",
+    "unmanaged_connections": "not_controlled",
+    "issuer_isolation": "same_user_process"
+  },
+  "revocation": {
+    "local": "immediate",
+    "remote": "unknown",
+    "latest_possible_credential_expiry": "2026-11-10T22:00:00Z",
+    "destination_clock": {
+      "measured": {
+        "behind_upper_ms": 1400,
+        "rtt_ms": 38,
+        "measured_at": "2026-11-10T13:50:00Z"
+      }
+    }
+  },
+  "evidence": [
+    {
+      "field": "destination_scope",
+      "source": "runtime_verification",
+      "pair": {
+        "destination": "dest-lab",
+        "account": "deploy"
+      },
+      "operation_id": "op_00112233445566778899aabbccddeeff",
+      "client": "OpenSSH_10.5p1",
+      "server": "OpenSSH_10.0p2 Debian-7+deb13u4",
+      "observed_at": "2026-11-10T13:50:00Z",
+      "fresh_until": "2027-02-08T13:50:00Z"
+    }
+  ],
+  "connection_policy": {
+    "existing": "graceful",
+    "multiplexing": "disabled",
+    "wording": "New connections stop at the deadline; existing sessions may stay connected."
+  },
+  "consumer": {
+    "signing_endpoint": "//./pipe/heimdall-0011223344556677-signing"
+  }
+}

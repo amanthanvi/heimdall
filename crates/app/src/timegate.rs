@@ -508,6 +508,20 @@ impl TimeGate {
         .await
     }
 
+    /// ⟨M03⟩ The read-only time assessment (m03-plan U3; ADR-0008 D2 item 3, D3 item
+    /// 4; F21): the same gate over `store` (which may be opened read-only), persisting
+    /// **nothing**: no high-water mark, no runtime anchor. Synchronous store reads;
+    /// call it on the blocking pool.
+    ///
+    /// **Wave 0:** the body is U3's. Until it lands it answers `Uncertain`
+    /// (`Unsynchronized`, sync `Unknown`), so nothing it gates is admitted.
+    #[must_use]
+    pub fn assess_read_only(&self, _store: &Store) -> TimeStatus {
+        TimeStatus::Uncertain(TimeUncertainty::Unsynchronized {
+            sync: SyncStatus::Unknown,
+        })
+    }
+
     /// Admission check for a grant against a `Safe` observation: wall bound and
     /// continuous budget. `NeedsAnchor` means re-anchor from `now` before use.
     pub async fn admission(&self, grant: &GrantId, now: &SafeNow) -> Result<Admission, OpError> {

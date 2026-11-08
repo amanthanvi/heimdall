@@ -1,0 +1,5 @@
+{
+  "op": "issuer",
+  "action": "retire",
+  "ca_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

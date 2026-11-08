@@ -139,6 +139,27 @@ struct AcceptState {
     identifying: JoinSet<Identified>,
 }
 
+/// ⟨M03⟩ The typed refusal of `Listener::bind` for `EndpointKind::Issuer`, which is
+/// reserved and never bound (ADR-0008 Q1; wave-0 verify E7). Carried inside the
+/// returned `io::Error` (`ErrorKind::Unsupported`); recover it with
+/// `io::Error::get_ref` and `downcast_ref`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IssuerEndpointReserved;
+
+impl std::fmt::Display for IssuerEndpointReserved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the issuer endpoint kind is reserved and is never bound")
+    }
+}
+
+impl std::error::Error for IssuerEndpointReserved {}
+
+impl From<IssuerEndpointReserved> for io::Error {
+    fn from(e: IssuerEndpointReserved) -> Self {
+        io::Error::new(io::ErrorKind::Unsupported, e)
+    }
+}
+
 /// A named-pipe endpoint that creates a fresh instance per accepted client.
 #[derive(Debug)]
 pub struct Listener {
@@ -160,6 +181,11 @@ impl Listener {
     /// be a literal SID string (`S-1-…`), never an SDDL alias. Must be called from
     /// within a tokio runtime with I/O enabled (the instance registers with its
     /// reactor); outside one it returns an error instead of panicking.
+    ///
+    /// ⟨M03⟩ `EndpointKind::Issuer` is reserved and never bound (ADR-0008 Q1: the
+    /// issuer child speaks over its stdio, never over a listener; wave-0 verify E7):
+    /// it is refused with [`IssuerEndpointReserved`] (`ErrorKind::Unsupported`)
+    /// before any pipe instance is created.
     pub fn bind(name: &str, kind: EndpointKind, owner_sid: &str) -> io::Result<Self> {
         Self::bind_inner(name, kind, owner_sid, owner_sid)
     }
@@ -170,6 +196,9 @@ impl Listener {
         owner_sid: &str,
         dacl_sid: &str,
     ) -> io::Result<Self> {
+        if kind == EndpointKind::Issuer {
+            return Err(IssuerEndpointReserved.into());
+        }
         if classify_path(Path::new(name)) != PathClass::PipeNamespace {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,

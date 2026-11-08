@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::evidence::EnforcementEvidence;
 use crate::operation::{AdapterIdentity, CoveredBasis};
-use crate::policy::{AuthorityGeneration, PolicyRevision};
+use crate::policy::{AuthorityGeneration, ConnectionPolicy, LockBehavior, PolicyRevision};
 use crate::principal::CallerContext;
 use crate::scope::Scope;
 use crate::time::Deadline;
@@ -105,6 +105,16 @@ pub struct GrantOrigin {
     /// whose preparation was never attempted; omitted when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter: Option<AdapterIdentity>,
+    /// ⟨M03⟩ U0b row 10: the lock behaviour in force when the grant was created
+    /// (ADR-0008 D9), recorded once and then immutable (add-only). Absent for an
+    /// M01/M02 grant; omitted when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_behavior: Option<LockBehavior>,
+    /// ⟨M03⟩ U0b row 10: the connection policy recorded at activation (ADR-0008 D8
+    /// item 1: one input of the effective, strictest policy). Add-only; omitted when
+    /// absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<ConnectionPolicy>,
 }
 
 /// ⟨r2.7⟩ Why a `degraded` grant is degraded (spec §6.3 "some capability
@@ -119,6 +129,51 @@ pub enum DegradedReason {
     /// change can be undone before the deadline); the grant returns to `active` once
     /// the mechanism is configured again and re-validation passes.
     MechanismUnavailable,
+    /// ⟨M03⟩ The grant's K_env was lost (no vault slot after a restart) and a
+    /// re-issue is pending (ADR-0008 D2 table; U0b row 8). There is no key to sign
+    /// with.
+    CredentialReissuePending,
+    /// ⟨M03⟩ The issuer is unavailable: no new certificate can be issued, but an
+    /// installed key and its certificates keep signing (ADR-0008 D2 item 3).
+    IssuerUnavailable,
+    /// ⟨M03⟩ A pair lost its verified enrollment under the grant's CA (ADR-0008 D5
+    /// §6.8, §17.3 item 3). The installed key keeps signing: the server refuses that
+    /// pair itself, and the other pairs keep working.
+    PairUnenrolled,
+}
+
+/// ⟨M03⟩ What a degraded grant's reason means for a signature (ADR-0008 D2 item 3;
+/// U0b row 12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DegradedSignRule {
+    /// Signing with the installed key is permitted.
+    Permit,
+    /// There is no key to sign with (refused).
+    NoKey,
+    /// Every use is refused.
+    Refuse,
+}
+
+impl DegradedReason {
+    /// ⟨M03⟩ The sign rule of ADR-0008 D2 item 3 (U0b row 12): `issuer_unavailable`
+    /// and `pair_unenrolled` permit signing with an installed key;
+    /// `credential_reissue_pending` has no key; `mechanism_unavailable` refuses.
+    #[must_use]
+    pub fn sign_rule(self) -> DegradedSignRule {
+        match self {
+            DegradedReason::IssuerUnavailable | DegradedReason::PairUnenrolled => {
+                DegradedSignRule::Permit
+            }
+            DegradedReason::CredentialReissuePending => DegradedSignRule::NoKey,
+            DegradedReason::MechanismUnavailable => DegradedSignRule::Refuse,
+        }
+    }
+
+    /// Whether a signature with an installed key is permitted for this reason.
+    #[must_use]
+    pub fn permits_signing(self) -> bool {
+        self.sign_rule() == DegradedSignRule::Permit
+    }
 }
 
 /// A consumer reference to a grant (spec §6.3 "ownership-aware reference counts").
@@ -186,5 +241,24 @@ mod tests {
         assert_eq!(v["adapter"]["mechanism"], "fake_agent");
         assert_eq!(v["adapter"]["instance"], "fixture-1");
         assert_eq!(serde_json::from_value::<GrantOrigin>(v).unwrap(), with);
+    }
+
+    #[test]
+    fn degraded_reason_sign_rule() {
+        use DegradedReason as D;
+        assert_eq!(
+            D::MechanismUnavailable.sign_rule(),
+            DegradedSignRule::Refuse
+        );
+        assert_eq!(
+            D::CredentialReissuePending.sign_rule(),
+            DegradedSignRule::NoKey
+        );
+        assert!(D::IssuerUnavailable.permits_signing());
+        assert!(D::PairUnenrolled.permits_signing());
+        assert_eq!(
+            serde_json::to_value(D::PairUnenrolled).unwrap(),
+            serde_json::json!("pair_unenrolled")
+        );
     }
 }

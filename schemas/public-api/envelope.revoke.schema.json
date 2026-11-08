@@ -61,9 +61,41 @@
     "next"
   ],
   "$defs": {
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
     "BindingId": {
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
+    },
+    "ClockMeasurement": {
+      "description": "A destination clock measurement (ADR-0008 D5 §6.5 item 4): the destination's\nclock lags local time by at most `behind_upper_ms`.",
+      "type": "object",
+      "properties": {
+        "behind_upper_ms": {
+          "description": "Upper bound of the destination clock's lag, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "measured_at": {
+          "description": "When measured (local wall time).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "rtt_ms": {
+          "description": "Round trip of the measurement, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "behind_upper_ms",
+        "rtt_ms",
+        "measured_at"
+      ]
     },
     "Code": {
       "description": "Stable semantic code (ADR-0006 §5). Readers treat an unlisted value as an error with exit 1.",
@@ -190,8 +222,53 @@
         }
       ]
     },
+    "ConnectionId": {
+      "description": "⟨M03⟩ Owned connection ID (an `owned_connections` row; ADR-0008 D8; m03-plan\n§5 items 4, 4a). Runtime-generated; never a PID.",
+      "type": "string"
+    },
+    "ConnectionKind": {
+      "description": "An owned connection's kind (ADR-0008 D8).",
+      "oneOf": [
+        {
+          "description": "An owned multiplex master.",
+          "type": "string",
+          "const": "master"
+        },
+        {
+          "description": "An owned dedicated connection (`connect`, `run ssh`).",
+          "type": "string",
+          "const": "dedicated"
+        }
+      ]
+    },
     "Cursor": {
       "description": "Opaque, reader-scoped resumption token. Never parse it outside the runtime.",
+      "type": "string"
+    },
+    "DestinationClock": {
+      "description": "A pair's destination clock (ADR-0008 D7 item 3). Wire forms:\n`{\"measured\":{…}}` or `\"unmeasured\"`. Per pair the weakest is shown.",
+      "oneOf": [
+        {
+          "description": "A fresh measurement exists.",
+          "type": "object",
+          "properties": {
+            "measured": {
+              "$ref": "#/$defs/ClockMeasurement"
+            }
+          },
+          "required": [
+            "measured"
+          ]
+        },
+        {
+          "description": "No (fresh) measurement.",
+          "type": "string",
+          "const": "unmeasured"
+        }
+      ]
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
       "type": "string"
     },
     "GrantId": {
@@ -350,6 +427,49 @@
         }
       ]
     },
+    "OwnedConnectionReport": {
+      "description": "One owned connection of a revoke's cascade (§5 item 9; F15).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Connection ID.",
+          "$ref": "#/$defs/ConnectionId"
+        },
+        "kind": {
+          "description": "Kind.",
+          "$ref": "#/$defs/ConnectionKind"
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/OwnedConnectionReportState"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "state"
+      ]
+    },
+    "OwnedConnectionReportState": {
+      "description": "An owned connection's state in a revoke result (F15).",
+      "oneOf": [
+        {
+          "description": "Being closed.",
+          "type": "string",
+          "const": "closing"
+        },
+        {
+          "description": "Closed.",
+          "type": "string",
+          "const": "closed"
+        },
+        {
+          "description": "Its identity could not be verified; never signalled, treated as unmanaged.",
+          "type": "string",
+          "const": "unverified"
+        }
+      ]
+    },
     "ProviderInteractionRef": {
       "description": "The provider-owned interaction a next action points at (spec §5.5). Used with\naction `interact` for `PROVIDER_LOCKED` and provider-owned\n`INTERACTION_REQUIRED`; never combined with `decision_ref`.",
       "type": "object",
@@ -388,10 +508,85 @@
         }
       ]
     },
+    "RemoteEffectReport": {
+      "description": "One (destination, account) residual of a revoke (§5 item 9).",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "destination_clock": {
+          "description": "The pair's clock measurement.",
+          "$ref": "#/$defs/DestinationClock"
+        },
+        "latest_valid_before": {
+          "description": "The latest `valid_before` of a reserved or published entry for the pair.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "description": "Status.",
+          "$ref": "#/$defs/ResidualStatus"
+        },
+        "until": {
+          "description": "The completion bound, when measured.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "destination",
+        "account",
+        "latest_valid_before",
+        "destination_clock",
+        "status"
+      ]
+    },
+    "ResidualStatus": {
+      "description": "A remote residual's status (ADR-0008 D7 item 3; §17.1 item 10).",
+      "oneOf": [
+        {
+          "description": "Before the completion bound (or, unmeasured, before `latest_valid_before`).",
+          "type": "string",
+          "const": "pending_until"
+        },
+        {
+          "description": "Measured, and the bound passed on safe time: closed.",
+          "type": "string",
+          "const": "bounded_complete"
+        },
+        {
+          "description": "Unmeasured, and `latest_valid_before` passed on safe time. Never shown as\ncleared.",
+          "type": "string",
+          "const": "nominally_expired"
+        },
+        {
+          "description": "No bound exists (a key-only restore).",
+          "type": "string",
+          "const": "unbounded_unknown"
+        }
+      ]
+    },
     "RevokeData": {
       "description": "`revoke` result (spec §6.7 `local_applied`, `remote_pending`,\n`latest_possible_credential_expiry`).",
       "type": "object",
       "properties": {
+        "committed_at": {
+          "description": "⟨M03⟩ Read inside the tombstone transaction; a replay returns the stored\nvalue.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "latest_possible_credential_expiry": {
           "description": "Latest instant an already-issued credential could still be accepted.",
           "type": [
@@ -404,17 +599,56 @@
           "description": "Local denial persisted before acknowledgment.",
           "type": "boolean"
         },
+        "notes": {
+          "description": "⟨M03⟩ Fixed notes (`ordinary_connections_not_closed` for a managed revoke).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RevokeNote"
+          }
+        },
+        "owned_connections": {
+          "description": "⟨M03⟩ The cascade's owned connections (F15).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OwnedConnectionReport"
+          }
+        },
+        "remote_effects": {
+          "description": "⟨M03⟩ One row per (destination, account) with an unexpired entry (ADR-0008\nD7 items 2–3).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RemoteEffectReport"
+          }
+        },
         "remote_pending": {
           "description": "Grants (self and descendants) whose remote effects are pending.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/GrantId"
           }
+        },
+        "requested_at": {
+          "description": "⟨M03⟩ The runtime's wall clock when the revoke was first admitted, before any\ngate wait (§5 item 9; ADR-0008 §17.10 item 3). Optional on the wire so M01/M02\ndocuments decode; M03 always fills it; a replay returns the stored value.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
         }
       },
       "required": [
         "local_applied",
         "remote_pending"
+      ]
+    },
+    "RevokeNote": {
+      "description": "A fixed note in a revoke result (F15).",
+      "oneOf": [
+        {
+          "description": "Connections ordinary `ssh` opened through P, and unmanaged ones, are not\nclosed (always present for a managed revoke).",
+          "type": "string",
+          "const": "ordinary_connections_not_closed"
+        }
       ]
     },
     "SchemaVersion": {

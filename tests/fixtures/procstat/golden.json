@@ -1,0 +1,74 @@
+{
+ "source": "Synthetic /proc/<pid>/stat texts for heimdall_domain::procstat::parse (ADR-0008 D5 \u00a76.3; \u00a717.13 item 2; m03-plan U0 procstat_parse_golden, U0b row 28): the last ')', token 3 = process group (>= 1, decimal), token 20 = start time (decimal), at least 20 tokens after the ')', token 1 a single letter. Shared with the scripts' awk mirror (U5).",
+ "fixtures": {
+  "plain.stat": {
+   "state": "S",
+   "process_group": 4242,
+   "start_time": 98765
+  },
+  "comm-spaces.stat": {
+   "state": "R",
+   "process_group": 31337,
+   "start_time": 1234567
+  },
+  "comm-parentheses.stat": {
+   "state": "S",
+   "process_group": 77,
+   "start_time": 555
+  },
+  "comm-spoofed-fields.stat": {
+   "state": "S",
+   "process_group": 4100,
+   "start_time": 42
+  },
+  "comm-newline.stat": {
+   "state": "S",
+   "process_group": 900,
+   "start_time": 8000000000
+  },
+  "comm-only-parens.stat": {
+   "state": "S",
+   "process_group": 901,
+   "start_time": 7
+  },
+  "comm-close-paren.stat": {
+   "state": "D",
+   "process_group": 902,
+   "start_time": 70
+  },
+  "exactly-20-tokens.stat": {
+   "state": "S",
+   "process_group": 5,
+   "start_time": 6
+  },
+  "zombie.stat": {
+   "state": "Z",
+   "process_group": 4300,
+   "start_time": 99
+  },
+  "no-close-paren.stat": {
+   "error": "no_close_paren"
+  },
+  "too-few-tokens.stat": {
+   "error": "too_few_fields"
+  },
+  "process-group-zero.stat": {
+   "error": "bad_process_group"
+  },
+  "process-group-non-decimal.stat": {
+   "error": "bad_process_group"
+  },
+  "process-group-negative.stat": {
+   "error": "bad_process_group"
+  },
+  "start-time-non-decimal.stat": {
+   "error": "bad_start_time"
+  },
+  "state-not-a-letter.stat": {
+   "error": "bad_state"
+  },
+  "empty.stat": {
+   "error": "no_close_paren"
+  }
+ }
+}

@@ -61,6 +61,24 @@
     "next"
   ],
   "$defs": {
+    "AccessPairRef": {
+      "description": "A destination/account pair.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Remote account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "destination": {
+          "description": "Logical destination.",
+          "$ref": "#/$defs/DestinationId"
+        }
+      },
+      "required": [
+        "destination",
+        "account"
+      ]
+    },
     "AccountName": {
       "description": "Remote account name on a destination.",
       "type": "string"
@@ -82,6 +100,34 @@
           "type": "string",
           "const": "undetermined"
         }
+      ]
+    },
+    "ClockMeasurement": {
+      "description": "A destination clock measurement (ADR-0008 D5 §6.5 item 4): the destination's\nclock lags local time by at most `behind_upper_ms`.",
+      "type": "object",
+      "properties": {
+        "behind_upper_ms": {
+          "description": "Upper bound of the destination clock's lag, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "measured_at": {
+          "description": "When measured (local wall time).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "rtt_ms": {
+          "description": "Round trip of the measurement, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "behind_upper_ms",
+        "rtt_ms",
+        "measured_at"
       ]
     },
     "Code": {
@@ -227,6 +273,29 @@
       "required": [
         "path_display",
         "line"
+      ]
+    },
+    "ConnectionPolicyReport": {
+      "description": "`EnsureData.connection_policy` (§5 item 7; ADR-0008 D8 item 6).",
+      "type": "object",
+      "properties": {
+        "existing": {
+          "description": "Effective existing-connections mode.",
+          "$ref": "#/$defs/ExistingConnectionsMode"
+        },
+        "multiplexing": {
+          "description": "Effective multiplexing.",
+          "$ref": "#/$defs/MultiplexingMode"
+        },
+        "wording": {
+          "description": "The exact D8 disclosure sentence(s): human text, not a code.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "existing",
+        "multiplexing",
+        "wording"
       ]
     },
     "ConsumerExecutable": {
@@ -437,6 +506,28 @@
         "expires_at"
       ]
     },
+    "DestinationClock": {
+      "description": "A pair's destination clock (ADR-0008 D7 item 3). Wire forms:\n`{\"measured\":{…}}` or `\"unmeasured\"`. Per pair the weakest is shown.",
+      "oneOf": [
+        {
+          "description": "A fresh measurement exists.",
+          "type": "object",
+          "properties": {
+            "measured": {
+              "$ref": "#/$defs/ClockMeasurement"
+            }
+          },
+          "required": [
+            "measured"
+          ]
+        },
+        {
+          "description": "No (fresh) measurement.",
+          "type": "string",
+          "const": "unmeasured"
+        }
+      ]
+    },
     "DestinationId": {
       "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
       "type": "string"
@@ -521,13 +612,79 @@
           "description": "Existing-connection policy.",
           "$ref": "#/$defs/ExistingConnectionsPolicy"
         },
+        "identity_selection": {
+          "description": "⟨M03⟩ How identities are selected (§5 item 8). Omitted when absent, so every\nM01/M02 report (and every grant record that stores one) is unchanged; reads\n`unknown` when absent ([`Self::identity_selection`]).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentitySelectionEnforcement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "issuer_isolation": {
+          "description": "⟨M03⟩ The issuer boundary; `unknown` when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IssuerIsolation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "new_authentication_expiry": {
           "description": "What stops new authentication at expiry.",
           "$ref": "#/$defs/NewAuthenticationExpiry"
         },
+        "new_signing_expiry": {
+          "description": "⟨M03⟩ What stops new signatures at expiry (claim-gated); `unknown` when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NewSigningExpiry"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owned_multiplexing": {
+          "description": "⟨M03⟩ Owned multiplexing; `unknown` when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OwnedMultiplexing"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "remote_processes": {
+          "description": "⟨M03⟩ Remote processes; `unknown` when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RemoteProcesses"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "revocation": {
           "description": "Revocation propagation.",
           "$ref": "#/$defs/RevocationStatus"
+        },
+        "unmanaged_connections": {
+          "description": "⟨M03⟩ Unmanaged connections; `unknown` when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnmanagedConnections"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "workload_isolation": {
           "description": "Isolation label.",
@@ -550,6 +707,24 @@
           "description": "Binding produced or reused.",
           "$ref": "#/$defs/BindingId"
         },
+        "conditions": {
+          "description": "⟨M03⟩ Conditions readiness depends on.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReadinessCondition"
+          }
+        },
+        "connection_policy": {
+          "description": "⟨M03⟩ The effective connection policy and its wording.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionPolicyReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "consumer": {
           "description": "Consumer integration descriptor; contains endpoints and config references,\nnever secrets.",
           "$ref": "#/$defs/ConsumerIntegration"
@@ -571,6 +746,13 @@
           "description": "Environment the binding is pinned to.",
           "$ref": "#/$defs/EnvironmentId"
         },
+        "evidence": {
+          "description": "⟨M03⟩ Evidence behind reported values.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EvidenceEntry"
+          }
+        },
         "expires_at": {
           "description": "Immutable grant deadline.",
           "type": "string",
@@ -579,6 +761,17 @@
         "grant_id": {
           "description": "Grant realizing the binding.",
           "$ref": "#/$defs/GrantId"
+        },
+        "lock_continuity": {
+          "description": "⟨M03⟩ Lock continuity (§5 item 7). Omitted when absent, so every M02 result\nis unchanged; reads `not_verified` when absent ([`Self::lock_continuity`]).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LockContinuityReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "offline_until": {
           "description": "Usable with no controller/issuer contact until.",
@@ -602,9 +795,31 @@
             }
           ]
         },
+        "refresh_condition": {
+          "description": "⟨M03⟩ When a refresh is needed.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefreshCondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "refresh_dependency": {
           "description": "What ongoing readiness depends on.",
           "$ref": "#/$defs/RefreshDependency"
+        },
+        "revocation": {
+          "description": "⟨M03⟩ Revocation semantics.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RevocationSemantics"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "usable_until": {
           "description": "Credentials usable without refresh until.",
@@ -655,6 +870,111 @@
         }
       ]
     },
+    "EvidenceEntry": {
+      "description": "One piece of evidence behind a reported value (§5 item 7).",
+      "type": "object",
+      "properties": {
+        "client": {
+          "description": "Client version line.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "field": {
+          "description": "The reported field (`destination_scope`, `lock_continuity`, …).",
+          "type": "string"
+        },
+        "fresh_until": {
+          "description": "Fresh until.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "observed_at": {
+          "description": "When observed.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "operation_id": {
+          "description": "The verifying operation.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperationId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pair": {
+          "description": "The pair, for runtime verification.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccessPairRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "record": {
+          "description": "The claim-table record path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "server": {
+          "description": "Server version line.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "Source.",
+          "$ref": "#/$defs/EvidenceSource"
+        }
+      },
+      "required": [
+        "field",
+        "source",
+        "observed_at"
+      ]
+    },
+    "EvidenceSource": {
+      "description": "Where an evidence entry comes from.",
+      "oneOf": [
+        {
+          "description": "This pair's own runtime verification (ADR-0008 §17.1 item 13).",
+          "type": "string",
+          "const": "runtime_verification"
+        },
+        {
+          "description": "A claim-table entry (ADR-0008 D12).",
+          "type": "string",
+          "const": "claim_table"
+        }
+      ]
+    },
+    "ExistingConnectionsMode": {
+      "description": "What happens to owned dedicated connections at the admission deadline (ADR-0008\nD8 item 1). `strict` is narrowing; `graceful` (the default) is widening.",
+      "oneOf": [
+        {
+          "description": "Existing dedicated sessions may stay connected (spec §6.6 default).",
+          "type": "string",
+          "const": "graceful"
+        },
+        {
+          "description": "Owned connections are closed at the deadline.",
+          "type": "string",
+          "const": "strict"
+        }
+      ]
+    },
     "ExistingConnectionsPolicy": {
       "description": "Effect on existing connections at expiry (spec §6.6).",
       "oneOf": [
@@ -672,6 +992,11 @@
           "description": "Owned connections are closed at expiry.",
           "type": "string",
           "const": "strict_disconnect"
+        },
+        {
+          "description": "⟨M03⟩ A `run` of a program other than the verified `ssh`: its connections\nare not owned, so nothing closes them (ADR-0008 D8 item 2).",
+          "type": "string",
+          "const": "not_controlled"
         }
       ]
     },
@@ -866,6 +1191,31 @@
         }
       ]
     },
+    "IdentitySelectionEnforcement": {
+      "description": "`enforcement.identity_selection`.",
+      "oneOf": [
+        {
+          "description": "Exclusive client configuration plus signer filtering (runtime evidence).",
+          "type": "string",
+          "const": "client_configuration_and_signer"
+        },
+        {
+          "description": "Only the signer filters.",
+          "type": "string",
+          "const": "signer_filtering"
+        },
+        {
+          "description": "Only the client configuration selects.",
+          "type": "string",
+          "const": "client_configuration"
+        },
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
     "IdentitySelectionReport": {
       "description": "The static identity selection of an alias (ADR-0007 §3 item 3).",
       "type": "object",
@@ -927,6 +1277,71 @@
         }
       ]
     },
+    "IssuerIsolation": {
+      "description": "`enforcement.issuer_isolation` and `IssuerStatus.issuer_isolation`.",
+      "oneOf": [
+        {
+          "description": "The issuer is a same-user child process.",
+          "type": "string",
+          "const": "same_user_process"
+        },
+        {
+          "description": "No issuer is involved.",
+          "type": "string",
+          "const": "not_applicable"
+        },
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "LocalRevocation": {
+      "description": "The local part of revocation.",
+      "oneOf": [
+        {
+          "description": "Local denial is immediate.",
+          "type": "string",
+          "const": "immediate"
+        }
+      ]
+    },
+    "LockContinuityReport": {
+      "description": "Whether credentials survive a desktop lock (`lock_continuity`; R-UX-03). Reads\n`not_verified` when absent: only a claim-table entry makes it `verified`.",
+      "oneOf": [
+        {
+          "description": "A verified claim-table entry covers this platform and store.",
+          "type": "string",
+          "const": "verified"
+        },
+        {
+          "description": "Not verified (the default).",
+          "type": "string",
+          "const": "not_verified"
+        },
+        {
+          "description": "The grant's lock behaviour is `revoke_on_lock`.",
+          "type": "string",
+          "const": "lock_revokes"
+        }
+      ]
+    },
+    "MultiplexingMode": {
+      "description": "Owned multiplex masters (ADR-0008 D8 item 3). `disabled` is the default and\nnarrowing; `owned_masters` is widening.",
+      "oneOf": [
+        {
+          "description": "No master; P renders `ControlPath none`.",
+          "type": "string",
+          "const": "disabled"
+        },
+        {
+          "description": "The supervisor runs one owned master per pair slot.",
+          "type": "string",
+          "const": "owned_masters"
+        }
+      ]
+    },
     "NewAuthenticationExpiry": {
       "description": "What ends new authentication at expiry (spec §4.3 \"Expiry\").",
       "oneOf": [
@@ -949,6 +1364,26 @@
           "description": "Nothing stops new authentication (existing fixed credentials).",
           "type": "string",
           "const": "none"
+        }
+      ]
+    },
+    "NewSigningExpiry": {
+      "description": "`enforcement.new_signing_expiry` (claim-gated).",
+      "oneOf": [
+        {
+          "description": "The signer stops signing at the deadline.",
+          "type": "string",
+          "const": "signer"
+        },
+        {
+          "description": "No signer is involved.",
+          "type": "string",
+          "const": "not_applicable"
+        },
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
         }
       ]
     },
@@ -1136,6 +1571,31 @@
           "required": [
             "kind"
           ]
+        }
+      ]
+    },
+    "OwnedMultiplexing": {
+      "description": "`enforcement.owned_multiplexing`.",
+      "oneOf": [
+        {
+          "description": "Masters disabled.",
+          "type": "string",
+          "const": "disabled"
+        },
+        {
+          "description": "Owned masters are closed at the deadline (claim-gated).",
+          "type": "string",
+          "const": "closed_at_deadline"
+        },
+        {
+          "description": "Not available on this platform (Windows).",
+          "type": "string",
+          "const": "unavailable"
+        },
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
         }
       ]
     },
@@ -1384,6 +1844,44 @@
         "basis"
       ]
     },
+    "ReadinessCondition": {
+      "description": "A condition the result's readiness depends on (§5 item 7; F03, F14).",
+      "oneOf": [
+        {
+          "description": "The in-process signer must be running.",
+          "type": "string",
+          "const": "signer_running"
+        },
+        {
+          "description": "After a reboot an attended time confirmation is needed.",
+          "type": "string",
+          "const": "time_confirmation_after_reboot"
+        },
+        {
+          "description": "The issuer store must be unlocked at start (macOS keychain).",
+          "type": "string",
+          "const": "issuer_store_unlocked_at_start"
+        }
+      ]
+    },
+    "RefreshCondition": {
+      "description": "`refresh_condition` (§5 item 7): `{needed_only_after: signer_restart, source:\nlocal_issuer}`.",
+      "type": "object",
+      "properties": {
+        "needed_only_after": {
+          "description": "When a refresh is needed.",
+          "$ref": "#/$defs/RefreshTrigger"
+        },
+        "source": {
+          "description": "What the refresh depends on.",
+          "$ref": "#/$defs/RefreshDependency"
+        }
+      },
+      "required": [
+        "needed_only_after",
+        "source"
+      ]
+    },
     "RefreshDependency": {
       "description": "Dependency of continued readiness (spec §6.5).",
       "oneOf": [
@@ -1407,6 +1905,92 @@
           "type": "string",
           "const": "provider_interaction"
         }
+      ]
+    },
+    "RefreshTrigger": {
+      "description": "What would trigger a refresh.",
+      "oneOf": [
+        {
+          "description": "Only a signer restart (the K_env is lost) needs a re-issue.",
+          "type": "string",
+          "const": "signer_restart"
+        }
+      ]
+    },
+    "RemoteProcesses": {
+      "description": "`enforcement.remote_processes`.",
+      "oneOf": [
+        {
+          "description": "Remote processes are never claimed to stop (ADR-0008 D8 item 5).",
+          "type": "string",
+          "const": "not_terminated"
+        },
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "RemoteRevocation": {
+      "description": "The remote part of revocation (`revocation.remote`), gated by the claim table\nexactly like `enforcement.revocation`: `unknown` until a claim exists (F11).",
+      "oneOf": [
+        {
+          "description": "Bounded by the issued certificates' expiry.",
+          "type": "string",
+          "const": "bounded_by_credential_expiry"
+        },
+        {
+          "description": "No remote credential exists.",
+          "type": "string",
+          "const": "not_applicable"
+        },
+        {
+          "description": "Trust may remain until the registry line is removed.",
+          "type": "string",
+          "const": "pending_until_line_removed"
+        },
+        {
+          "description": "No bound is known (a key-only restore, ADR-0008 D4 item 4).",
+          "type": "string",
+          "const": "unbounded_unknown"
+        },
+        {
+          "description": "Not known (the default).",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "RevocationSemantics": {
+      "description": "`EnsureData.revocation` (§5 item 7).",
+      "type": "object",
+      "properties": {
+        "destination_clock": {
+          "description": "The weakest destination clock of the grant's pairs.",
+          "$ref": "#/$defs/DestinationClock"
+        },
+        "latest_possible_credential_expiry": {
+          "description": "Latest instant an issued credential could be accepted; absent = unknown.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "local": {
+          "description": "Local part.",
+          "$ref": "#/$defs/LocalRevocation"
+        },
+        "remote": {
+          "description": "Remote part (claim-gated).",
+          "$ref": "#/$defs/RemoteRevocation"
+        }
+      },
+      "required": [
+        "local",
+        "remote",
+        "destination_clock"
       ]
     },
     "RevocationStatus": {
@@ -1442,6 +2026,21 @@
     "SchemaVersion": {
       "description": "A `schema_version` value as received from a peer.",
       "type": "string"
+    },
+    "UnmanagedConnections": {
+      "description": "`enforcement.unmanaged_connections`.",
+      "oneOf": [
+        {
+          "description": "Connections Heimdall did not start are not controlled.",
+          "type": "string",
+          "const": "not_controlled"
+        },
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
     },
     "Warning": {
       "description": "A non-fatal finding attached to a result.",

@@ -1,0 +1,7 @@
+{
+  "op": "enrollment",
+  "action": "reconcile",
+  "operation_id": "op_00112233445566778899aabbccddeeff",
+  "interaction": "interactive",
+  "after_manual_recovery": true
+}

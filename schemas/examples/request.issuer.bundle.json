@@ -1,0 +1,5 @@
+{
+  "op": "issuer",
+  "action": "bundle",
+  "redact_hostnames": true
+}

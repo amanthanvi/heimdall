@@ -42,10 +42,12 @@ use std::sync::Arc;
 
 use heimdall_app::events::SubscribeRefusal;
 use heimdall_app::{Attendance, Caller, OpError, OpResult, Operations};
-use heimdall_contract::envelope::{Envelope, ErrorData};
+use heimdall_contract::enrollment::EnrollmentRequest;
+use heimdall_contract::envelope::{EffectStatus, Envelope, ErrorData};
 use heimdall_contract::event::{Cursor, EventFilter, EventType};
 use heimdall_contract::ids::EnvironmentId;
 use heimdall_contract::ipc::{EVENT_BUFFER_PER_SUBSCRIPTION, PrincipalInfo};
+use heimdall_contract::managed::ConnectionsRequest;
 use heimdall_contract::request::Request;
 use heimdall_contract::{Code, SchemaVersion};
 use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
@@ -75,6 +77,23 @@ pub fn caller_for(session: &SessionInfo, now: heimdall_contract::Timestamp) -> C
         },
         interaction: session.interaction,
     }
+}
+
+/// ⟨M03⟩ m03-plan U0b row 13 (F20; ADR-0008 D5 §6.3, §6.7, §6.10, D8 item 2): the
+/// M03 requests accepted from the **owner** role only: `Enrollment::{Step,
+/// StepResult, Reconcile}` and `Connections::{Close, Register}`.
+#[must_use]
+pub fn owner_only_m03(request: &Request) -> bool {
+    matches!(
+        request,
+        Request::Enrollment(
+            EnrollmentRequest::Step { .. }
+                | EnrollmentRequest::StepResult { .. }
+                | EnrollmentRequest::Reconcile { .. }
+        ) | Request::Connections(
+            ConnectionsRequest::Close { .. } | ConnectionsRequest::Register { .. }
+        )
+    )
 }
 
 /// Render a value envelope; a payload that cannot be serialized becomes an
@@ -210,6 +229,26 @@ impl OperationsDispatcher {
             // (row 18). Neither request reaches the wildcard below.
             Request::Setup(r) => render(ops.setup(&caller, r).await),
             Request::Catalog(r) => render(ops.catalog(&caller, r).await),
+            // ⟨M03⟩ m03-plan U0b row 13, phase 1: `CAPABILITY_UNAVAILABLE`
+            // (`driver_unavailable`) before any record is written; phase 2 routes
+            // them to U10's drivers. The owner-only requests (F20) are refused for
+            // any other role first: authorization before capability, so a
+            // non-owner learns nothing about this build's drivers, and neither
+            // answer reads or writes the store.
+            Request::Issuer(_) | Request::Enrollment(_) | Request::Connections(_) => {
+                if owner_only_m03(&request) && !caller.context.is_owner() {
+                    return error_value(
+                        OpError::new(
+                            Code::CapabilityUnavailable,
+                            "this request needs the owner role",
+                        )
+                        .with_effect(EffectStatus::None),
+                    );
+                }
+                error_value(OpError::driver_unavailable(
+                    "this request is not available in this build",
+                ))
+            }
             // A request kind this build does not know is never executed.
             _ => error_value(OpError::new(
                 Code::UsageError,

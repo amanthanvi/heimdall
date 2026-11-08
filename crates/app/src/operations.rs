@@ -229,6 +229,33 @@ use crate::ports::{
 use crate::singleflight::{Flight, SingleFlight, follow};
 use crate::timegate::{SafeNow, TimeGate, TxnGate, uncertain};
 
+// ⟨M03⟩ U0b rows 6, 7, 8, 17, 23: restart recovery and supervisor hooks (wave 0).
+mod restart_m03;
+// ⟨M03⟩ U0b row 20 (G): the narrowing protocol; rows 5, 25, 26 (G): signature
+// authorization, the lock revocation, the owned-connection registration.
+mod authorize;
+mod connections;
+mod lock;
+pub mod narrowing;
+pub use lock::LockRevocation;
+pub use restart_m03::{
+    BoundedReport, CaStoreItemDeletion, IntentOutcome, OWNER_RECONCILE, RetirementResume,
+    only_bounded,
+};
+// ⟨M03⟩ U0b rows 2-4, 9-12, 19, E10 (O): CA issuance, verification issuance, per-pair
+// mechanism, lock and connection policy, the bind-time owned connection, enrollment cancel.
+mod bind_connection_m03;
+mod ca_issuance_m03;
+mod enrollment_cancel_m03;
+mod lock_connection_m03;
+mod managed_state_m03;
+mod pair_mechanism_m03;
+mod verification_m03;
+pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
+pub use ca_issuance_m03::MANAGED_CERTIFICATE;
+pub use pair_mechanism_m03::unattended_refusal;
+pub use verification_m03::VerificationRequest;
+
 /// Bounds the application enforces regardless of caller (spec §11.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -259,6 +286,157 @@ pub struct Limits {
     /// (default [`crate::catalog::DECLARATION_VALIDITY`], 30 days; the configuration
     /// accepts 1–90 days).
     pub declaration_validity: Duration,
+    // --- ⟨M03⟩ m03-plan §5 item 17 (P7 as amended: proposals, tunable in M08 with
+    // evidence; every payload limit derived with its serialization overhead) ---
+    /// ⟨M03⟩ The bound on one signature's authorization (ADR-0008 D2 item 3); a
+    /// timeout refuses. 2 s.
+    pub signature_authorization_timeout: Duration,
+    /// ⟨M03⟩ How long a signer waits for its grant's gate shared before it refuses
+    /// (a signer waiting behind a narrowing; D2 item 3a step 3). 1 s.
+    pub signing_gate_wait: Duration,
+    /// ⟨M03⟩ The wait for outbound **capacity**, before the release check; the
+    /// permit's expiry cancels it earlier, and the enqueue itself never waits (D2
+    /// item 3a step 6; §17.7 item 2). 2 s.
+    pub signing_enqueue_timeout: Duration,
+    /// ⟨M03⟩ `KeyVault::sign` on the blocking pool; an overrun expires the permit (D2
+    /// item 3a step 5). 1 s.
+    pub signing_budget: Duration,
+    /// ⟨M03⟩ The holder bound in the permit's expiry: a 2 s fresh read + the 1 s
+    /// signature + 2 s of capacity wait (§17.4 item 6). 5 s.
+    pub signing_holder_max: Duration,
+    /// ⟨M03⟩ `H` in the narrowing's derived bound: the longest any holder keeps a
+    /// gate, max(`signing_holder_max`, `delegation_gate_hold_max`,
+    /// `connection_registration_txn_max`) (Q27; D2 item 3a). 10 s.
+    pub signing_gate_max_wait: Duration,
+    /// ⟨M03⟩ A delegation holds the gates of the parent and every ancestor shared
+    /// until the child's first install; an overrun aborts fail-closed (Q26). 10 s.
+    pub delegation_gate_hold_max: Duration,
+    /// ⟨M03⟩ The narrowing commit **target**, not a ceiling (§17.13 item 1): tested
+    /// at the budgets below, within `H + R ≈ 14.1 s` with no earlier overlapping
+    /// narrowing and `H + 2R ≈ 18.2 s` with one. Never aborts; past it the narrowing
+    /// reports `narrowing_over_target` with its derived bound. 20 s.
+    pub narrowing_gate_wait_max: Duration,
+    /// ⟨M03⟩ The Windows connection registration's transaction under the shared
+    /// gate (U0b row 26; a holder the derived bound counts). 2 s.
+    pub connection_registration_txn_max: Duration,
+    /// ⟨M03⟩ `t_read`: one store read of a set or a subtree; the derived bound uses
+    /// `(r + 3)·t_read` reads in all, round 1 `(r + 1)·t_read` (§17.13 item 1).
+    /// 150 ms.
+    pub narrowing_read_budget: Duration,
+    /// ⟨M03⟩ `n_max`: the set size at which the 20 s target is tested; a larger set
+    /// still proceeds and its bound is reported (§17.14 item 1). 256 grants.
+    pub narrowing_set_budget: usize,
+    /// ⟨M03⟩ `r_max`: the root count at which the target is tested; likewise
+    /// reported, never refused. 16 roots.
+    pub narrowing_root_budget: usize,
+    /// ⟨M03⟩ `t_commit`: the tombstone transaction. 200 ms.
+    pub narrowing_commit_budget: Duration,
+    /// ⟨M03⟩ `ε`: the in-memory mark check, one gate step, or one key destruction.
+    /// 1 ms.
+    pub pending_check_budget: Duration,
+    /// ⟨M03⟩ One issuer request, inside the 30 s adapter-call bound (ADR-0008 D3 item
+    /// 6). 10 s.
+    pub issuer_request_timeout: Duration,
+    /// ⟨M03⟩ The issuer child's start (D3 item 7). 5 s.
+    pub issuer_start_timeout: Duration,
+    /// ⟨M03⟩ Issuer signatures per minute (D3 item 5). 600.
+    pub issuer_signatures_per_minute: u32,
+    /// ⟨M03⟩ Certificates per grant: the endpoint lists at most 64 identities (D3
+    /// item 5). 64.
+    pub max_certificates_per_grant: u32,
+    /// ⟨M03⟩ One remote enrollment step, non-interactive (D5 §6.3). 120 s.
+    pub enrollment_step_timeout: Duration,
+    /// ⟨M03⟩ One remote enrollment step, interactive. 300 s.
+    pub enrollment_step_timeout_interactive: Duration,
+    /// ⟨M03⟩ Added to the step timeout for the script's remote not-after, on top of
+    /// the inspect's remote reading (D5 §6.3; replaces revision 2's
+    /// `enrollment_mutation_window`). 60 s ([`Self::enrollment_not_after`]).
+    pub enrollment_not_after_allowance: Duration,
+    /// ⟨M03⟩ Added to timeout + not-after allowance for the step's hard deadline on
+    /// the continuous clock, persisted with the wall deadline and boot ID (D5 §6.3).
+    /// 30 s ([`Self::enrollment_step_hard_deadline`]).
+    pub enrollment_hard_deadline_margin: Duration,
+    /// ⟨M03⟩ An older remote inspect reading is refreshed before a mutating step
+    /// (D5 §6.3). 10 min.
+    pub enrollment_inspect_max_age: Duration,
+    /// ⟨M03⟩ Retries of a `busy` remote step, jittered (D5 §6.3). 3.
+    pub enrollment_busy_retries: u32,
+    /// ⟨M03⟩ Reconciles that try to terminate a lock holder before the record goes
+    /// `held` (`lock_holder_unresolved`; D5 §6.3). 3.
+    pub holder_termination_attempts: u32,
+    /// ⟨M03⟩ `fence --terminate`: the grace after TERM (D5 §6.3). 5 s.
+    pub holder_term_grace: Duration,
+    /// ⟨M03⟩ `fence --terminate`: the grace after KILL. 5 s.
+    pub holder_kill_grace: Duration,
+    /// ⟨M03⟩ The remote registry's size: inspect's `od` hex is about 3.2 bytes per
+    /// byte (≈ 410 KiB) ≤ `remote_stdout_max`; `remove` carries two hex payloads
+    /// (≈ 4.2 × 128 KiB + 8 KiB of script ≈ 546 KiB) inside one 1 MiB control frame
+    /// with its envelope. 128 KiB.
+    pub registry_max_bytes: usize,
+    /// ⟨M03⟩ A remote step's stdout: a `StepResult` must fit one 1 MiB control frame
+    /// (`MAX_CONTROL_FRAME_BYTES`) with its JSON envelope and escaping (F25).
+    /// 512 KiB.
+    pub remote_stdout_max: usize,
+    /// ⟨M03⟩ A remote step's stderr. 64 KiB.
+    pub remote_stderr_max: usize,
+    /// ⟨M03⟩ The stderr excerpt kept in a result. 4 KiB.
+    pub remote_stderr_excerpt: usize,
+    /// ⟨M03⟩ A verification certificate's validity (D5 §6.5). 300 s.
+    pub verification_max_validity: Duration,
+    /// ⟨M03⟩ Verification attempts per operation (D5 §6.5;
+    /// `heimdall_domain::verification::MAX_ATTEMPTS_PER_OPERATION`). 3.
+    pub verification_attempts: u32,
+    /// ⟨M03⟩ The `-v` stderr parsed per attempt (D5 §6.5). 64 KiB.
+    pub verification_trace_max: usize,
+    /// ⟨M03⟩ An enrollment approval's validity, measured on safe time. 24 h.
+    pub enrollment_approval_validity: Duration,
+    /// ⟨M03⟩ Enrollment evidence freshness: 90 days at most (Q11 as amended).
+    pub enrollment_evidence_freshness: Duration,
+    /// ⟨M03⟩ The supervisor re-verifies before the window lapses (F27). 80 days.
+    pub reverify_after: Duration,
+    /// ⟨M03⟩ Re-verification after a client or CA change (§17.4 item 11). 10 min.
+    pub reverify_prompt_delay: Duration,
+    /// ⟨M03⟩ `destination_clock_skew`: a destination lagging by at least this
+    /// (D5 §6.5). 60 s.
+    pub verification_skew_lag: Duration,
+    /// ⟨M03⟩ `destination_clock_skew`: a destination leading by at least this.
+    /// 300 s.
+    pub verification_skew_lead: Duration,
+    /// ⟨M03⟩ Residual drift, parts per million of the measurement's age (§17.1 item
+    /// 10; `heimdall_domain::revocation::RESIDUAL_DRIFT_PPM`). 100 ppm.
+    pub residual_drift_ppm: u64,
+    /// ⟨M03⟩ An owned master's close grace (D8). 5 s.
+    pub owned_master_close_grace: Duration,
+    /// ⟨M03⟩ An owned dedicated connection's close grace (D8). 5 s.
+    pub dedicated_close_grace: Duration,
+    /// ⟨M03⟩ Lock events within this window coalesce (D9). 1 s.
+    pub lock_event_coalesce: Duration,
+}
+
+impl Limits {
+    /// ⟨M03⟩ `enrollment_not_after_allowance` past the step timeout: the script's
+    /// remote not-after offset (m03-plan §5 item 17: timeout + 60 s).
+    #[must_use]
+    pub fn enrollment_not_after(&self, interactive: bool) -> Duration {
+        self.step_timeout(interactive)
+            .saturating_add(self.enrollment_not_after_allowance)
+    }
+
+    /// ⟨M03⟩ The step's hard deadline on the continuous clock (m03-plan §5 item 17:
+    /// timeout + 60 s + 30 s).
+    #[must_use]
+    pub fn enrollment_step_hard_deadline(&self, interactive: bool) -> Duration {
+        self.enrollment_not_after(interactive)
+            .saturating_add(self.enrollment_hard_deadline_margin)
+    }
+
+    fn step_timeout(&self, interactive: bool) -> Duration {
+        if interactive {
+            self.enrollment_step_timeout_interactive
+        } else {
+            self.enrollment_step_timeout
+        }
+    }
 }
 
 impl Default for Limits {
@@ -273,6 +451,50 @@ impl Default for Limits {
             decision_lifetime: heimdall_domain::decision::DEFAULT_DECISION_LIFETIME,
             adapter_call_timeout: crate::ports::DEFAULT_ADAPTER_CALL_TIMEOUT,
             declaration_validity: crate::catalog::DECLARATION_VALIDITY,
+            signature_authorization_timeout: Duration::from_secs(2),
+            signing_gate_wait: Duration::from_secs(1),
+            signing_enqueue_timeout: Duration::from_secs(2),
+            signing_budget: Duration::from_secs(1),
+            signing_holder_max: Duration::from_secs(5),
+            signing_gate_max_wait: Duration::from_secs(10),
+            delegation_gate_hold_max: Duration::from_secs(10),
+            narrowing_gate_wait_max: Duration::from_secs(20),
+            connection_registration_txn_max: Duration::from_secs(2),
+            narrowing_read_budget: Duration::from_millis(150),
+            narrowing_set_budget: 256,
+            narrowing_root_budget: 16,
+            narrowing_commit_budget: Duration::from_millis(200),
+            pending_check_budget: Duration::from_millis(1),
+            issuer_request_timeout: Duration::from_secs(10),
+            issuer_start_timeout: Duration::from_secs(5),
+            issuer_signatures_per_minute: 600,
+            max_certificates_per_grant: 64,
+            enrollment_step_timeout: Duration::from_secs(120),
+            enrollment_step_timeout_interactive: Duration::from_secs(300),
+            enrollment_not_after_allowance: Duration::from_secs(60),
+            enrollment_hard_deadline_margin: Duration::from_secs(30),
+            enrollment_inspect_max_age: Duration::from_secs(10 * 60),
+            enrollment_busy_retries: 3,
+            holder_termination_attempts: 3,
+            holder_term_grace: Duration::from_secs(5),
+            holder_kill_grace: Duration::from_secs(5),
+            registry_max_bytes: 128 * 1024,
+            remote_stdout_max: 512 * 1024,
+            remote_stderr_max: 64 * 1024,
+            remote_stderr_excerpt: 4 * 1024,
+            verification_max_validity: Duration::from_secs(300),
+            verification_attempts: heimdall_domain::verification::MAX_ATTEMPTS_PER_OPERATION,
+            verification_trace_max: 64 * 1024,
+            enrollment_approval_validity: Duration::from_secs(24 * 60 * 60),
+            enrollment_evidence_freshness: Duration::from_secs(90 * 24 * 60 * 60),
+            reverify_after: Duration::from_secs(80 * 24 * 60 * 60),
+            reverify_prompt_delay: Duration::from_secs(10 * 60),
+            verification_skew_lag: Duration::from_secs(60),
+            verification_skew_lead: Duration::from_secs(300),
+            residual_drift_ppm: heimdall_domain::revocation::RESIDUAL_DRIFT_PPM,
+            owned_master_close_grace: Duration::from_secs(5),
+            dedicated_close_grace: Duration::from_secs(5),
+            lock_event_coalesce: Duration::from_secs(1),
         }
     }
 }
@@ -444,6 +666,14 @@ struct Inner {
     /// `Txn::insert_setup_operation` (whatever it answered); a test hook
     /// ([`Operations::setup_insert_calls`]).
     setup_inserts: Arc<AtomicUsize>,
+    /// ⟨M03⟩ U0b row 24 (wave-0 verify E6d): the per-grant signing gates and pending
+    /// marks, shared with the signer through [`Operations::signing_gates`].
+    signing_gates: crate::managed::SigningGates,
+    /// ⟨M03⟩ U0b rows 5, 20, 25 (G): the narrowing hook, running narrowings, reports,
+    /// the session-lock source and the authorization time seam.
+    narrowing: narrowing::NarrowingState,
+    /// ⟨M03⟩ U0b row 4 (O): the verification entries this runtime instance reserved.
+    managed_ops: managed_state_m03::ManagedOpsState,
 }
 
 /// ⟨r2.16⟩ ADR-0006 §13.19 item 2: marks one operation's preparation as running in
@@ -660,6 +890,9 @@ fn merged_policy(policies: &[StandingPolicy]) -> Option<StandingPolicy> {
             };
         }
     }
+    // ⟨M03⟩ U0b row 11 (O): the strictest lock behaviour and connection policy of every
+    // applicable policy (fail closed).
+    heimdall_domain::policy::merge_lock_and_connection(&mut merged, policies);
     Some(merged)
 }
 
@@ -679,6 +912,12 @@ fn continuing_policy(policies: &[StandingPolicy]) -> Option<StandingPolicy> {
 struct Emit {
     publisher: EventPublisher,
     events: Vec<SequencedEvent>,
+    /// ⟨M03⟩ U0b row 20 (G; reading E6b): the signing gates, so [`end_in`] defers a
+    /// withdrawal whose cascade has a gate to the narrowing protocol.
+    gates: crate::managed::SigningGates,
+    /// ⟨M03⟩ Inside a narrowing's commit: the set whose gates it holds (empty
+    /// otherwise). Only a gated member outside it defers a withdrawal.
+    narrowing_set: BTreeSet<GrantId>,
 }
 
 impl Emit {
@@ -950,6 +1189,10 @@ fn origin_of(r: &ResolvedIntent, caller: &CallerContext) -> Option<GrantOrigin> 
         covered: None,
         // ⟨r2.10⟩ Recorded with the first `Attempted` receipt (§13.13 item 1).
         adapter: None,
+        // ⟨M03⟩ U0b row 10 (O): filled in the creating transaction by
+        // `lock_connection_m03::with_lock_and_connection`.
+        lock_behavior: None,
+        connection: None,
     })
 }
 
@@ -976,9 +1219,23 @@ fn mechanism_refuses(
     adapters: &[AdapterInfo],
     grant: &GrantSnapshot,
 ) -> heimdall_store::Result<bool> {
+    // ⟨M03⟩ U0b row 12 (O): the degraded reason's domain rule decides; only a reason
+    // whose rule is `Refuse` (`mechanism_unavailable`) refuses the use. `NoKey`
+    // (`credential_reissue_pending`) is the signer's refusal, never the re-issue's.
     Ok(mechanism_unavailable(tx, adapters, &grant.id)?
         || (grant.state == GrantState::Degraded
-            && tx.grant_degradation(&grant.id)? == Some(DegradedReason::MechanismUnavailable)))
+            && tx
+                .grant_degradation(&grant.id)?
+                .is_some_and(degraded_refuses_use)))
+}
+
+/// ⟨M03⟩ U0b row 12 (ADR-0008 D2 item 3): whether a grant `degraded` for `reason`
+/// is refused every use: `DegradedReason::sign_rule` is `Refuse`. `issuer_unavailable`
+/// and `pair_unenrolled` permit use (and signing with an installed key);
+/// `credential_reissue_pending` has no key, which only the signer refuses.
+#[must_use]
+pub fn degraded_refuses_use(reason: DegradedReason) -> bool {
+    reason.sign_rule() == heimdall_domain::grant::DegradedSignRule::Refuse
 }
 
 /// The refusal of a use whose grant's credential mechanism is unavailable
@@ -2055,15 +2312,21 @@ fn grant_end(
 #[derive(Debug, Default)]
 struct Ended {
     withdrawn: Vec<(GrantId, Vec<GrantId>)>,
+    /// ⟨M03⟩ U0b row 20 (G; reading E6b): withdrawals detected here whose cascade has
+    /// a signing gate, with the detection time. Nothing was written for them: the
+    /// caller's [`Operations::complete_withdrawals`] takes the gates and re-runs
+    /// [`end_in`] under them (the narrowing protocol).
+    gated: Vec<(GrantId, Timestamp)>,
 }
 
 impl Ended {
     fn is_empty(&self) -> bool {
-        self.withdrawn.is_empty()
+        self.withdrawn.is_empty() && self.gated.is_empty()
     }
 
     fn extend(&mut self, other: Self) {
         self.withdrawn.extend(other.withdrawn);
+        self.gated.extend(other.gated);
     }
 }
 
@@ -2112,6 +2375,15 @@ fn end_in(
             Some(GrantEnd::Withdrawn) => {
                 let mut all = vec![g.id.clone()];
                 all.extend(tx.grant_descendants(&g.id)?);
+                // ⟨M03⟩ U0b row 20 (G; reading E6b): detected here, committed only under
+                // the gates. A gated cascade is deferred to the narrowing protocol.
+                if all
+                    .iter()
+                    .any(|m| emit.gates.contains(m) && !emit.narrowing_set.contains(m))
+                {
+                    ended.gated.push((g.id.clone(), safe.wall()));
+                    continue;
+                }
                 let generation = tx.authority_generation()?;
                 tx.insert_tombstone(&Tombstone {
                     grant: g.id.clone(),
@@ -2304,6 +2576,12 @@ fn complete_revocation_in(
         local_applied: true,
         remote_pending: pending.iter().cloned().collect(),
         latest_possible_credential_expiry: latest,
+        // M03 wave 0 (A1): fail closed until U0b
+        remote_effects: Vec::new(),
+        owned_connections: Vec::new(),
+        notes: Vec::new(),
+        requested_at: None,
+        committed_at: None,
     })
 }
 
@@ -2444,6 +2722,8 @@ fn obligation(grant: &GrantId, adapter: AdapterIdentity) -> RemoteObligation {
         stopped: false,
         effect_round: None,
         effect_seq: None,
+        // M03 wave 0 (A1): fail closed until U0b
+        kind: Default::default(),
     }
 }
 
@@ -2548,6 +2828,11 @@ fn plan_obligation_calls(
     for o in obligations {
         let counted = o.attempts.unwrap_or(0);
         if o.stopped || max_attempts.is_some_and(|m| counted >= m) {
+            continue;
+        }
+        // ⟨M03⟩ U0b row 6 (ADR-0008 D7 item 3): a `bounded_by_expiry` obligation is
+        // settled by expiry alone: no adapter call, no attempt counted, no reason.
+        if !o.kind.is_needs_remote_action() {
             continue;
         }
         let mut served = false;
@@ -2836,8 +3121,11 @@ fn complete_round_in(
     let mut pending: BTreeSet<GrantId> = BTreeSet::new();
     if let Some(mut r) = load_remote_record(tx, root)? {
         let current = claim.filter(|seq| r.claimed_at.is_some() && r.claim_seq == Some(*seq));
-        r.obligations
-            .retain(|o| !(confirmed(o) && o.cleared_by_claim(current)));
+        // ⟨M03⟩ U0b row 6 (ADR-0008 D7 item 3): an adapter answer never clears a
+        // `bounded_by_expiry` obligation; only expiry on safe time settles it.
+        r.obligations.retain(|o| {
+            !(o.kind.is_needs_remote_action() && confirmed(o) && o.cleared_by_claim(current))
+        });
         if current.is_some() {
             r.claimed_at = None;
             if let Some(m) = max_attempts {
@@ -3814,6 +4102,8 @@ struct Resolved {
     policy: Option<StandingPolicy>,
     generation: heimdall_domain::policy::AuthorityGeneration,
     adapter: Option<AdapterInfo>,
+    /// ⟨M03⟩ U0b row 9 (O): the per-pair mechanism resolution.
+    pairs: pair_mechanism_m03::PairsResolution,
 }
 
 /// Load everything resolution needs from `tx` and run `resolve_authority` (pure).
@@ -3914,12 +4204,29 @@ fn resolve_in(
         );
     }
     // ⟨M02⟩ U0b row 7: the catalog's mechanism decides the adapter; with no catalog
-    // identity for the pairs, the M01 selection.
-    let mechanism = match catalog_pairs(tx, &pairs)?.and_then(|named| catalog_mechanism(&named)) {
-        Ok(m) => m,
+    // identity for the pairs, the M01 selection. ⟨M03⟩ U0b row 9 (O): per pair, the
+    // stored preference first (`pair_mechanism_m03`); without one, exactly M02's rule.
+    let resolved_pairs = match pair_mechanism_m03::resolve_pairs(tx, &pairs)? {
+        Ok(r) => r,
         Err(e) => refuse!(e),
     };
+    let mechanism = resolved_pairs.mechanism;
     let adapter = select_adapter(&inp.adapters, &inp.spec.required, mechanism).cloned();
+    // A pending projection whose existing mechanism cannot meet the minimums, or a
+    // managed pair (wave 0: no driver), is refused with its reason before authority
+    // resolution (which would otherwise deny on the missing mechanism).
+    if adapter.is_none()
+        && (resolved_pairs.pending_projection
+            || resolved_pairs.mechanism == Some(MANAGED_CERTIFICATE))
+    {
+        refuse!(pair_mechanism_m03::no_mechanism(
+            &inp.spec.required,
+            resolved_pairs,
+            policy
+                .as_ref()
+                .map_or_else(Default::default, |p| p.lock_behavior),
+        ));
+    }
     let mut capabilities = base.capabilities.clone();
     if let Some(a) = &adapter {
         capabilities = capabilities
@@ -4006,6 +4313,7 @@ fn resolve_in(
         policy,
         generation,
         adapter,
+        pairs: resolved_pairs,
     }))
 }
 
@@ -4019,9 +4327,14 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
         .map(|p| p.revision);
     match r.decision {
         AuthorityDecision::Denied(d) => Err(OpError::from_denial(&d)),
-        _ if r.adapter.is_none() => Err(OpError::new(
-            Code::CapabilityUnavailable,
-            "no configured credential mechanism meets the requested minimums",
+        // ⟨M03⟩ U0b row 9 (O): with its M03 reason (`driver_unavailable`,
+        // `projection_pending`, the `unattended` reason); otherwise M01's refusal.
+        _ if r.adapter.is_none() => Err(pair_mechanism_m03::no_mechanism(
+            &inp.spec.required,
+            r.pairs,
+            r.policy
+                .as_ref()
+                .map_or_else(Default::default, |p| p.lock_behavior),
         )),
         AuthorityDecision::Allowed(auth) => Ok(Resolution::Allowed(Box::new(ResolvedIntent {
             profile: r.profile.id.clone(),
@@ -4713,6 +5026,13 @@ fn ensure_data(
         consumer: facts.integration.clone(),
         credential_availability: facts.availability,
         provider: facts.provider.clone(),
+        // M03 wave 0 (A1): fail closed until U0b
+        lock_continuity: None,
+        conditions: Vec::new(),
+        refresh_condition: None,
+        revocation: None,
+        evidence: Vec::new(),
+        connection_policy: None,
     }
 }
 
@@ -4858,6 +5178,16 @@ fn decision_view(d: &DecisionRecord, now: Timestamp) -> serde_json::Value {
             "interaction": interaction,
             "valid_until": valid_until,
         }),
+        // M03 wave 0 (A1): fail closed until U0b: no M03 decision is created in wave 0; were one
+        // stored, its recorded content is shown verbatim.
+        DecisionKind::RegisterIssuer { .. }
+        | DecisionKind::RetireIssuer { .. }
+        | DecisionKind::EnrollAccount { .. }
+        | DecisionKind::EnrollSystemForm { .. }
+        | DecisionKind::RemoveEnrollment { .. }
+        | DecisionKind::ApproveTargetChange { .. } => {
+            serde_json::to_value(&d.kind).unwrap_or_default()
+        }
     };
     serde_json::json!({
         "decision_id": d.id,
@@ -4941,6 +5271,9 @@ impl Operations {
             revocation_cap: AtomicU32::new(NO_CONFIGURED_CAP),
             preparing: Mutex::new(BTreeSet::new()),
             setup_inserts: Arc::new(AtomicUsize::new(0)),
+            signing_gates: crate::managed::SigningGates::new(),
+            narrowing: narrowing::NarrowingState::default(),
+            managed_ops: managed_state_m03::ManagedOpsState::default(),
         };
         let ops = Self {
             inner: Arc::new(inner),
@@ -5066,6 +5399,13 @@ impl Operations {
         self.inner.setup_inserts.load(Ordering::SeqCst)
     }
 
+    /// ⟨M03⟩ U0b row 24 (ADR-0008 D2 item 3a; wave-0 verify E6d): this runtime's
+    /// signing gates and pending marks, shared by the narrowing paths and the signer.
+    #[must_use]
+    pub fn signing_gates(&self) -> &crate::managed::SigningGates {
+        &self.inner.signing_gates
+    }
+
     /// Run `f` in one store transaction on the blocking pool; announce the events
     /// it appended after the commit and wake bounded waiters.
     async fn write<R, F>(&self, f: F) -> Result<R, OpError>
@@ -5075,11 +5415,14 @@ impl Operations {
     {
         let store = Arc::clone(&self.inner.config.store);
         let publisher = self.inner.publisher.clone();
+        let gates = self.inner.signing_gates.clone();
         let joined = tokio::task::spawn_blocking(move || {
             store.transaction(|tx| {
                 let mut emit = Emit {
                     publisher,
                     events: Vec::new(),
+                    gates,
+                    narrowing_set: BTreeSet::new(),
                 };
                 let r = f(tx, &mut emit)?;
                 Ok((r, emit.events))
@@ -5177,6 +5520,10 @@ impl Operations {
                         "unresolved_operations": unresolved.len(),
                     }),
                 )?;
+                // ⟨M03⟩ U0b row 8 (ADR-0008 D2 table; F18): in this one transaction,
+                // before any listener binds, installed credential instances become
+                // `lost` and pending ones `destroyed` (their entries stay counted).
+                restart_m03::mark_lost_in(tx, emit)?;
                 Ok((open, unresolved))
             })
             .await
@@ -5235,6 +5582,20 @@ impl Operations {
         // whatever its operation's state (nothing is in flight any more).
         if let Err(e) = self.process_cleanup_intents().await {
             tracing::warn!(code = %e.code, "cleanup intents could not be read at startup");
+        }
+        // ⟨M03⟩ U0b row 23 (ADR-0008 D4 item 3): CA retirements resume at their next
+        // step. Wave 0 has no issuer child and no store-deletion step, so nothing
+        // external is confirmed: `retiring` and `unloaded` stay (fail closed), and
+        // only `deleted → retired` (a store step alone) can complete.
+        match self.resume_ca_retirements(None, None).await {
+            Ok(r) if !r.stalled.is_empty() => {
+                tracing::info!(
+                    count = r.stalled.len(),
+                    "CA retirements wait for the issuer"
+                );
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(code = %e.code, "CA retirements could not be resumed"),
         }
         Ok(())
     }
@@ -5399,6 +5760,12 @@ impl Operations {
             | OperationKind::Release
             | OperationKind::Policy
             | OperationKind::Probe => Ok(()),
+            // ⟨M03⟩ U0b row 17, phase 1 (ADR-0008 D5 §6.4): an M03 operation is never
+            // driven (restart included); it stays unresolved and untouched, reported
+            // once with reason `owner_reconcile` (wave-0 verify E8).
+            OperationKind::EnrollmentApply
+            | OperationKind::EnrollmentVerify
+            | OperationKind::EnrollmentRemove => self.owner_reconcile_unresolved(&st.op).await,
         };
         r.map_err(|e| {
             if e.operation_id.is_none() {
@@ -5725,6 +6092,12 @@ impl Operations {
                                 // ⟨r2.6⟩ §13.9 item 2: the context re-validation
                                 // needs is persisted with the grant.
                                 if let Some(origin) = origin_of(&resolved, &op.key.caller) {
+                                    let origin = lock_connection_m03::with_lock_and_connection(
+                                        tx,
+                                        &op.environment,
+                                        origin,
+                                        &intent.request,
+                                    )?;
                                     tx.set_grant_origin(&grant.id, &origin)?;
                                 }
                                 let decision = DecisionRecord {
@@ -6368,6 +6741,12 @@ impl Operations {
                         // ⟨r2.6⟩ §13.9 item 2: the context re-validation needs is
                         // persisted with the grant.
                         if let Some(origin) = origin_of(&r, &op.key.caller) {
+                            let origin = lock_connection_m03::with_lock_and_connection(
+                                tx,
+                                &op.environment,
+                                origin,
+                                &intent.request,
+                            )?;
                             tx.set_grant_origin(&gid, &origin)?;
                         }
                         if let Some(rr) = intent.resolved.as_mut() {
@@ -6915,6 +7294,7 @@ impl Operations {
         let grant = &intent.grant;
         let now = self.inner.config.clock.wall();
         let limit = self.adapter_limit();
+        let mut keep_intent = false;
         let answers = match owner {
             EffectOwner::Bounded(adapters) => {
                 let mut answers: Vec<(AdapterIdentity, Option<bool>)> = Vec::new();
@@ -6944,8 +7324,17 @@ impl Operations {
                 // ⟨M02⟩ U0b row 24 (QR17, M02 only): the immediate best-effort call
                 // for an uncovered grant counts as made when it times out, as an
                 // error does in M01; M02's adapters create no remote effect.
+                // ⟨M03⟩ U0b row 7 (G; ADR-0008 D7 item 5): for an adapter with a
+                // remote credential effect a timed-out call never counts as made: the
+                // intent is kept, and the supervisor retries it with bounded, jittered
+                // back-off (`process_cleanup_intent_reporting` answers `Kept`).
                 for a in &self.inner.config.adapters {
-                    let _ = bounded_adapter_call(limit, a.revoke(grant, now)).await;
+                    let answer = bounded_adapter_call(limit, a.revoke(grant, now)).await;
+                    if a.descriptor().remote_credential_effect
+                        && matches!(&answer, Err(AdapterError::OutcomeUnknown(m)) if m == ADAPTER_CALL_TIMED_OUT)
+                    {
+                        keep_intent = true;
+                    }
                 }
                 Vec::new()
             }
@@ -6957,6 +7346,7 @@ impl Operations {
                     track_bounded_answers_in(tx, &g, &answers, cap)?;
                 }
                 if !in_flight
+                    && !keep_intent
                     && tx
                         .cleanup_intent(&g, &op)?
                         .is_some_and(|i| i.version == version)
@@ -8169,6 +8559,12 @@ impl Operations {
                     .await?
                 }
             }
+            // M03 wave 0 (A1): fail closed until U0b: the M03 subjects have no reader yet.
+            InspectSubject::Enrollments | InspectSubject::Issuer | InspectSubject::Connections => {
+                return Err(OpError::driver_unavailable(
+                    "this inspect subject is not available in this build",
+                ));
+            }
         };
         if let Some(preview) = req.preview {
             let p = self.preview(caller, preview, now).await?;
@@ -8259,6 +8655,9 @@ impl Operations {
             )
             .with_resource("environment", None));
         }
+        // ⟨M03⟩ U0b row 9 (O): `connection: graceful` and a pair resolving to
+        // `managed_certificate` (wave 0) are refused before any record is written.
+        let precheck = self.ensure_precheck(&req).await?;
         let hash = compute_hash(
             OperationKind::Ensure,
             &HashInput {
@@ -8270,21 +8669,24 @@ impl Operations {
                 work_id: Some(&req.work_id),
                 required_capabilities: &req.required_capabilities,
                 parent_binding: None,
-                extra: serde_json::Value::Null,
+                // ⟨M03⟩ U0b row 9 (O): `connection` only when present.
+                extra: pair_mechanism_m03::ensure_hash_extra(&req),
             },
         )
         .map_err(|_| OpError::new(Code::UsageError, "the request cannot be canonicalized"))?;
         let request_id = req.request_id.clone();
         let wait = req.wait;
-        self.run_work(
-            caller,
-            OperationKind::Ensure,
-            Request::Ensure(req),
-            hash,
-            request_id,
-            wait,
-        )
-        .await
+        let r = self
+            .run_work(
+                caller,
+                OperationKind::Ensure,
+                Request::Ensure(req),
+                hash,
+                request_id,
+                wait,
+            )
+            .await;
+        precheck.decorate(r)
     }
 
     /// `bind` (materialize only in M01; launch is the CLI's job after ensure).
@@ -8404,10 +8806,27 @@ impl Operations {
         operation: &OperationId,
     ) -> Result<(), OpError> {
         let bid = binding.clone();
+        // ⟨M03⟩ U0b row 19 (O): a replayed launch that claims its holder registers its
+        // `dedicated` owned connection in the same transaction, as a new one does.
+        let now = self.inner.config.clock.wall();
+        let op_id = operation.clone();
         let claimed = self
             .write(move |tx, _| match tx.binding(&bid)? {
                 Some(b) if b.state == BindingState::Active => {
-                    claim_launch_holder(tx, &bid, holder.as_ref())
+                    let claimed = claim_launch_holder(tx, &bid, holder.as_ref())?;
+                    if claimed
+                        && let Some(executable) =
+                            bind_connection_m03::stored_launch_executable(tx, &op_id)?
+                    {
+                        bind_connection_m03::register_at_bind(
+                            tx,
+                            &b,
+                            &executable,
+                            holder.as_ref(),
+                            now,
+                        )?;
+                    }
+                    Ok(claimed)
                 }
                 _ => Ok(true),
             })
@@ -8592,6 +9011,17 @@ impl Operations {
                     && !claim_launch_holder(tx, &b.id, launch.holder.as_ref())?
                 {
                     return fail(tx, emit, &mut op, binding_in_use(&b.id));
+                }
+                // ⟨M03⟩ U0b row 19 (O): Unix, the verified client: the `dedicated`
+                // owned connection, in this transaction, with the expected image.
+                if let BindForm::Launch(launch) = &req.form {
+                    bind_connection_m03::register_at_bind(
+                        tx,
+                        &b,
+                        &launch.executable,
+                        launch.holder.as_ref(),
+                        now,
+                    )?;
                 }
                 settle_succeeded(tx, emit, &mut op, Code::AccessReady, value, now, retention)
                     .map(|()| (Ok(()), none()))
@@ -8809,6 +9239,11 @@ impl Operations {
                 if op.state.is_quiescent() {
                     return Ok(Some(Ok((op, None))));
                 }
+                // ⟨M03⟩ wave-0 E10 (O): an open enrollment operation is not cancelled
+                // here; the refusal writes nothing (`enrollment_cancel_m03`).
+                if op.kind.is_enrollment() {
+                    return enrollment_cancel_m03::refusal(tx, &op).map(|e| Some(Err(e)));
+                }
                 // ⟨M02⟩ ADR-0007 §12.14 item 3 (E1), phase 2: a setup or catalog
                 // operation is cancelled only before its first commit point (§5.4);
                 // after it, the answer is `OUTCOME_UNKNOWN` with `next: reconcile`
@@ -8994,6 +9429,11 @@ impl Operations {
                         "outcome": null,
                     })));
                 }
+                // ⟨M03⟩ U0b row 19 (O): the holder pass observed this exact holder
+                // exit (or its exec fail): its `dedicated` owned connection closes.
+                if let Some(exited) = &holder {
+                    bind_connection_m03::close_on_exit(tx, &bid, exited)?;
+                }
                 let outcome = tx.release_binding(&bid, &ctx, now)?;
                 let mut grant_state = None;
                 match outcome {
@@ -9135,47 +9575,71 @@ impl Operations {
         let id2 = id.clone();
         let root = req.grant_id.clone();
         let interrupted = Arc::clone(&self.inner.interrupted_rounds);
-        let (grants, round) = self
-            .write(move |tx, emit| {
-                let Some(mut op) = tx.operation(&id2)? else {
-                    return Ok((Vec::new(), None));
-                };
-                let mut all = vec![root.clone()];
-                all.extend(tx.grant_descendants(&root)?);
-                if op.state != OperationState::Queued {
-                    return Ok((all, None));
-                }
-                let tombstone = Tombstone {
-                    grant: root.clone(),
-                    cascade: all[1..].to_vec(),
-                    generation: tx.authority_generation()?,
-                    revoked_at: now,
-                    remote_pending: Vec::new(),
-                    cause: RevocationCause::Revoke,
-                };
-                tx.insert_tombstone(&tombstone)?;
-                // Local denial; operations waiting for approval on a revoked grant
-                // end now.
-                revoke_locally_in(
-                    tx,
-                    emit,
-                    &all,
-                    RevocationCause::Revoke,
-                    now,
-                    Some(&id2),
-                    retention,
-                )?;
-                let round =
-                    claim_first_round_in(tx, &root, &all, &configured, now, true, configured_cap)?;
-                // ⟨r2.10⟩ §13.13 item 4: the re-armed record's claim (if any) is this
-                // process's; an interrupted one found at startup is superseded.
-                forget_interrupted(&interrupted, &root);
-                op_to(&mut op, OperationEvent::Start, now)?;
-                tx.update_operation(&op)?;
-                emit.op(tx, &op)?;
-                Ok((all, Some(round)))
-            })
+        // ⟨M03⟩ U0b rows 20 and 27 (G): phase 1 commits through the narrowing protocol
+        // (the cascade's gates, exclusively, before the commit); `requested_at` is the
+        // admission time stored with the operation, `committed_at` is read inside the
+        // tombstone transaction and stored as the tombstone's `revoked_at`.
+        let requested_at = st.op.created_at;
+        let narrowed = self
+            .narrow(
+                narrowing::NarrowingKind::Revoke,
+                requested_at,
+                narrowing::subtree_reader(root.clone()),
+                move |tx, emit, ctx| {
+                    let Some(mut op) = tx.operation(&id2)? else {
+                        return Ok((Vec::new(), None));
+                    };
+                    let mut all = vec![root.clone()];
+                    all.extend(tx.grant_descendants(&root)?);
+                    if op.state != OperationState::Queued {
+                        return Ok((all, None));
+                    }
+                    ctx.destroy = all.clone();
+                    let tombstone = Tombstone {
+                        grant: root.clone(),
+                        cascade: all[1..].to_vec(),
+                        generation: tx.authority_generation()?,
+                        revoked_at: ctx.committed_at,
+                        remote_pending: Vec::new(),
+                        cause: RevocationCause::Revoke,
+                    };
+                    tx.insert_tombstone(&tombstone)?;
+                    // Local denial; operations waiting for approval on a revoked grant
+                    // end now.
+                    revoke_locally_in(
+                        tx,
+                        emit,
+                        &all,
+                        RevocationCause::Revoke,
+                        now,
+                        Some(&id2),
+                        retention,
+                    )?;
+                    let round = claim_first_round_in(
+                        tx,
+                        &root,
+                        &all,
+                        &configured,
+                        now,
+                        true,
+                        configured_cap,
+                    )?;
+                    // ⟨r2.10⟩ §13.13 item 4: the re-armed record's claim (if any) is this
+                    // process's; an interrupted one found at startup is superseded.
+                    forget_interrupted(&interrupted, &root);
+                    op_to(&mut op, OperationEvent::Start, now)?;
+                    tx.update_operation(&op)?;
+                    emit.op(tx, &op)?;
+                    Ok((all, Some(round)))
+                },
+            )
             .await?;
+        let committed_here = narrowed
+            .value
+            .1
+            .is_some()
+            .then_some(narrowed.report.committed_at);
+        let (grants, round) = narrowed.value;
         if grants.is_empty() {
             return Ok(());
         }
@@ -9193,7 +9657,7 @@ impl Operations {
             if op.state != OperationState::Running {
                 return Ok(());
             }
-            let data = complete_round_in(
+            let mut data = complete_round_in(
                 tx,
                 emit,
                 &grants[0],
@@ -9203,6 +9667,12 @@ impl Operations {
                 None,
                 Some(&id3),
             )?;
+            // ⟨M03⟩ U0b row 27 (G): the stored originals; a replay renders this value.
+            data.requested_at = Some(op.created_at);
+            data.committed_at = match committed_here {
+                Some(t) => Some(t),
+                None => tx.tombstone(&grants[0])?.map(|t| t.revoked_at),
+            };
             let value = serde_json::to_value(&data)?;
             settle_succeeded(tx, emit, &mut op, Code::Ok, value, now, retention)
         })
@@ -9259,6 +9729,18 @@ impl Operations {
     /// the next start completes them ([`Operations::complete_interrupted_withdrawals`],
     /// ADR-0006 §13.9 item 3).
     async fn complete_withdrawals(&self, ended: Ended) {
+        let mut ended = ended;
+        // ⟨M03⟩ U0b row 20 (G; reading E6b): gated withdrawals commit under the gates.
+        // An ancestor's withdrawal found under them may defer again (bounded).
+        for _ in 0..MAX_ANCESTRY {
+            if ended.gated.is_empty() {
+                break;
+            }
+            let gated = std::mem::take(&mut ended.gated);
+            let more = self.narrow_withdrawals(gated).await;
+            ended.extend(more);
+        }
+        ended.gated.clear();
         if ended.is_empty() {
             return;
         }
@@ -9589,6 +10071,11 @@ impl Operations {
                 "owner-channel actions need the owner role",
             ));
         }
+        // ⟨M03⟩ U0b row 11 (O): `revoke_on_lock` without a usable lock signal is refused
+        // before anything is written (`lock_connection_m03`; ADR-0008 D9 item 3).
+        if let Some(e) = self.policy_refusal_m03(&req) {
+            return Err(e);
+        }
         // Narrowing never waits for safe time; a widening decision record's
         // lifetime is measured on accepted time only (gap G10): under
         // `TIME_UNCERTAIN` no widening record is created. Time is assessed in the
@@ -9598,8 +10085,11 @@ impl Operations {
         let lifetime = self.inner.config.limits.decision_lifetime;
         let attended = caller.is_attended();
         let action = req.clone();
+        // ⟨M03⟩ U0b rows 20 and 27 (G; reading E6c): a cutoff commits through the
+        // narrowing protocol, its set the grants whose bound it lowers.
+        let requested_at = self.inner.config.clock.wall();
         let r = self
-            .write(move |tx, emit| {
+            .policy_commit(&req, requested_at, move |tx, emit| {
                 let assessed = gate.check(tx)?;
                 let now = match &assessed {
                     Ok(s) => s.wall(),
@@ -9609,7 +10099,9 @@ impl Operations {
                     PolicyAction::Pause { policy_id }
                     | PolicyAction::Resume { policy_id }
                     | PolicyAction::Cutoff { policy_id, .. }
-                    | PolicyAction::ClearCutoff { policy_id } => policy_id.clone(),
+                    | PolicyAction::ClearCutoff { policy_id }
+                    | PolicyAction::SetLockBehavior { policy_id, .. }
+                    | PolicyAction::SetConnectionPolicy { policy_id, .. } => policy_id.clone(),
                 };
                 let Some(mut p) = tx.policy(&pid)? else {
                     return Ok(Err(OpError::new(Code::NotFound, "unknown policy")
@@ -9620,12 +10112,21 @@ impl Operations {
                     PolicyAction::Resume { .. } => true,
                     PolicyAction::ClearCutoff { .. } => true,
                     PolicyAction::Cutoff { at, .. } => p.cutoff_at.is_some_and(|c| *at > c),
+                    // ⟨M03⟩ U0b row 11 (O): against the current values.
+                    PolicyAction::SetLockBehavior { .. }
+                    | PolicyAction::SetConnectionPolicy { .. } => {
+                        lock_connection_m03::widening(&action, &p)
+                    }
                 };
                 let unchanged = match &action {
                     PolicyAction::Pause { .. } => matches!(p.pause, PauseState::Paused { .. }),
                     PolicyAction::Resume { .. } => p.pause == PauseState::Active,
                     PolicyAction::ClearCutoff { .. } => p.cutoff_at.is_none(),
                     PolicyAction::Cutoff { at, .. } => p.cutoff_at == Some(*at),
+                    PolicyAction::SetLockBehavior { .. }
+                    | PolicyAction::SetConnectionPolicy { .. } => {
+                        lock_connection_m03::unchanged(&action, &p)
+                    }
                 };
                 if unchanged {
                     return Ok(Ok(PolicyOutcome::Applied(Box::new(p), false)));
@@ -9662,6 +10163,8 @@ impl Operations {
                 match &action {
                     PolicyAction::Pause { .. } => p.pause = PauseState::Paused { since: now },
                     PolicyAction::Cutoff { at, .. } => p.cutoff_at = Some(*at),
+                    // ⟨M03⟩ U0b row 11 (O): narrowing takes effect now.
+                    a if lock_connection_m03::is_m03(a) => lock_connection_m03::apply(a, &mut p),
                     _ => {}
                 }
                 p.revision = PolicyRevision(p.revision.0.saturating_add(1));
@@ -9814,6 +10317,19 @@ impl Operations {
                             .with_resource("decision", Some(did.to_string()))));
                         }
                         Some(op)
+                    }
+                    // M03 wave 0 (A1): fail closed until U0b: the M03 decision kinds are refused and
+                    // not consumed (m03-plan U0b row 14): nothing is written.
+                    DecisionKind::RegisterIssuer { .. }
+                    | DecisionKind::RetireIssuer { .. }
+                    | DecisionKind::EnrollAccount { .. }
+                    | DecisionKind::EnrollSystemForm { .. }
+                    | DecisionKind::RemoveEnrollment { .. }
+                    | DecisionKind::ApproveTargetChange { .. } => {
+                        return Ok(Err(OpError::driver_unavailable(
+                            "this decision kind is not available in this build",
+                        )
+                        .with_resource("decision", Some(did.to_string()))));
                     }
                 };
                 // The waiting grant (shared by every request that joined it).
@@ -10025,6 +10541,16 @@ impl Operations {
                     }
                     (
                         DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
+                        _,
+                    ) => {}
+                    // M03 wave 0 (A1): fail closed until U0b (refused before completion above)
+                    (
+                        DecisionKind::RegisterIssuer { .. }
+                        | DecisionKind::RetireIssuer { .. }
+                        | DecisionKind::EnrollAccount { .. }
+                        | DecisionKind::EnrollSystemForm { .. }
+                        | DecisionKind::RemoveEnrollment { .. }
+                        | DecisionKind::ApproveTargetChange { .. },
                         _,
                     ) => {}
                 }
@@ -10334,7 +10860,20 @@ impl Operations {
     /// ⟨r2.5⟩ ADR-0006 §13.8 item 4: a refusal that shows the grant can no longer
     /// be used (on safe time) ends it in the same transaction (`expired`, or
     /// `revoking`/`revoked` with an `authority_withdrawn` tombstone).
+    ///
+    /// ⟨M03⟩ U0b row 3 (O): on the M03 path the transaction selects the CA itself
+    /// (`ca_issuance_m03`); an M01 request (no CA named, a grant whose mechanism is not
+    /// `managed_certificate`) is unchanged.
     pub async fn reserve_issuance(&self, req: IssuanceRequest) -> Result<IssuanceEntry, OpError> {
+        self.reserve_issuance_with(req, None).await
+    }
+
+    /// [`Operations::reserve_issuance`], with the CA the request names, if any.
+    async fn reserve_issuance_with(
+        &self,
+        req: IssuanceRequest,
+        named_ca: Option<heimdall_contract::ids::CaFingerprint>,
+    ) -> Result<IssuanceEntry, OpError> {
         let id = crate::ids::new_issuance_id()?;
         let serial = crate::ids::random_u64()?;
         let env = self.inner.config.environment.clone();
@@ -10363,6 +10902,21 @@ impl Operations {
                     let bound = bound_of(tx, &env, &grant, ctx.profile.as_ref())?;
                     first_validation_anchor(tx, &gate, &grant.id, s, bound)?;
                 }
+                // ⟨M03⟩ U0b row 3 (O): the CA, selected in this transaction.
+                let ca_fingerprint = match ca_issuance_m03::select_ca(
+                    tx,
+                    &grant.id,
+                    &req.pair,
+                    named_ca.as_ref(),
+                )? {
+                    Ok(ca) => ca,
+                    Err(refusal) => {
+                        return Ok((
+                            Err(ca_issuance_m03::refusal_error(&refusal)),
+                            Ended::default(),
+                        ));
+                    }
+                };
                 let bounds = CertificateBounds {
                     serial,
                     key_id: req.key_id.clone(),
@@ -10371,6 +10925,7 @@ impl Operations {
                     valid_before: req.valid_before,
                     extensions: req.extensions.clone(),
                     subject_fingerprint: req.subject_fingerprint.clone(),
+                    ca_fingerprint,
                 };
                 if let Err(refusal) = run_issuance_check(
                     tx,
@@ -10390,7 +10945,7 @@ impl Operations {
                         )?,
                         None => Ended::default(),
                     };
-                    return Ok((Err(OpError::from_issuance_refusal(&refusal)), ended));
+                    return Ok((Err(ca_issuance_m03::refusal_error(&refusal)), ended));
                 }
                 Ok((
                     Ok(reserve_entry(
@@ -10538,7 +11093,7 @@ impl Operations {
                             None => Ended::default(),
                         };
                         Ok((
-                            Published::refused(OpError::from_issuance_refusal(&refusal)),
+                            Published::refused(ca_issuance_m03::refusal_error(&refusal)),
                             ended,
                         ))
                     }
@@ -10671,21 +11226,12 @@ impl Published {
 /// Nothing else (no route data in M01, so no `permit-port-forwarding`; never
 /// `permit-X11-forwarding`). M03 replaces this with the §3.4 profile/route
 /// derivation.
+///
+/// ⟨M03⟩ U0b row 2 (O): a wrapper over `heimdall_domain::issuance::extension_profile`
+/// (ADR-0008 D6 item 1), whose output is identical for every M01 grant.
 #[must_use]
 pub fn permitted_extensions(grant: &GrantSnapshot, pair: &AccessPair) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    if !grant.scope.pairs.contains(pair) {
-        return out;
-    }
-    out.insert("permit-pty".to_owned());
-    if grant
-        .scope
-        .capabilities
-        .contains(&Capability::AgentForwarding)
-    {
-        out.insert(heimdall_domain::issuance::EXTENSION_AGENT_FORWARDING.to_owned());
-    }
-    out
+    heimdall_domain::issuance::extension_profile(grant, pair)
 }
 
 /// Build `IssuanceCheck` from current store state inside the caller's transaction
@@ -10786,6 +11332,8 @@ fn run_issuance_check(
         _ => Admission::NeedsAnchor,
     };
     let permitted = permitted_extensions(grant, pair);
+    // ⟨M03⟩ U0b row 2 (O): the CA inputs, read here (`None` on the M01 path).
+    let cas = ca_issuance_m03::ca_facts(tx, &grant.id, pair, bounds)?;
     let check = IssuanceCheck {
         grant: &subject,
         parent,
@@ -10803,6 +11351,7 @@ fn run_issuance_check(
         time,
         admission,
         now,
+        enrolled_cas: cas.as_ref().map(ca_issuance_m03::CaFacts::input),
     };
     // ⟨r2.7⟩ ADR-0006 §13.10 item 2: after every predicate held, a grant whose
     // credential mechanism is unavailable is still refused (nothing ends).
@@ -10841,7 +11390,9 @@ fn apply_widening(
         PolicyAction::Pause { policy_id }
         | PolicyAction::Resume { policy_id }
         | PolicyAction::Cutoff { policy_id, .. }
-        | PolicyAction::ClearCutoff { policy_id } => policy_id,
+        | PolicyAction::ClearCutoff { policy_id }
+        | PolicyAction::SetLockBehavior { policy_id, .. }
+        | PolicyAction::SetConnectionPolicy { policy_id, .. } => policy_id,
     };
     let Some(mut p) = tx.policy(pid)? else {
         return Ok(Err(
@@ -10853,6 +11404,11 @@ fn apply_widening(
         PolicyAction::ClearCutoff { .. } => p.cutoff_at = None,
         PolicyAction::Cutoff { at, .. } => p.cutoff_at = Some(*at),
         PolicyAction::Pause { .. } => p.pause = PauseState::Paused { since: now },
+        // ⟨M03⟩ U0b row 11 (O): exactly the recorded action (the widening parts, and
+        // any narrowing part of a mixed action, with it).
+        PolicyAction::SetLockBehavior { .. } | PolicyAction::SetConnectionPolicy { .. } => {
+            lock_connection_m03::apply(action, &mut p);
+        }
     }
     p.revision = PolicyRevision(p.revision.0.saturating_add(1));
     p.source = PolicySource::OwnerDecision { decided_at: now };
@@ -11432,6 +11988,8 @@ mod tests {
             stopped,
             effect_round: None,
             effect_seq,
+            // M03 wave 0 (A1): fail closed until U0b
+            kind: Default::default(),
         };
         // ⟨r2.16⟩ In the current form: its latest claim is sequence 3 (§13.19 item 1).
         let record = |o: RemoteObligation| PendingRemoteRevocation {
@@ -11887,6 +12445,8 @@ mod tests {
                     let mut emit = Emit {
                         publisher: publisher.clone(),
                         events: Vec::new(),
+                        gates: crate::managed::SigningGates::new(),
+                        narrowing_set: BTreeSet::new(),
                     };
                     complete_round_in(tx, &mut emit, &g, &grants, claim, &confirmed, Some(8), None)
                 })
@@ -12171,6 +12731,8 @@ mod tests {
                     stopped,
                     effect_round: None,
                     effect_seq,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    kind: Default::default(),
                 })
         }
 

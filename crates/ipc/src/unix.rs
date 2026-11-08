@@ -27,8 +27,9 @@
 //!   connecting; after connecting the server's peer credentials must be ours too
 //!   (stale-socket and squatting defence; a same-user attacker is out of scope,
 //!   spec §14.1).
-//! * The same rules serve all three endpoint kinds (control, signing, issuer); the
-//!   kind only selects the file name and the frame limit.
+//! * The same rules serve the control and signing endpoints; the kind only selects
+//!   the file name and the frame limit. ⟨M03⟩ The issuer kind is reserved and never
+//!   bound ([`IssuerEndpointReserved`]; ADR-0008 Q1).
 //! * Server identity: [`crate::session::ControlConnection::with_server_identity`]
 //!   is kept (decision recorded with E13): the runtime (M01-U8) sets the
 //!   environment ID and server `PeerInfo` once per listener.
@@ -47,6 +48,27 @@ use tokio::net::{UnixListener, UnixStream};
 
 use crate::endpoint::{EndpointKind, ExpectedOwner, PeerIdentity, PeerRejected, verify_peer};
 
+/// ⟨M03⟩ The typed refusal of `Listener::bind` for `EndpointKind::Issuer`, which is
+/// reserved and never bound (ADR-0008 Q1; wave-0 verify E7). Carried inside the
+/// returned `io::Error` (`ErrorKind::Unsupported`); recover it with
+/// `io::Error::get_ref` and `downcast_ref`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IssuerEndpointReserved;
+
+impl std::fmt::Display for IssuerEndpointReserved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the issuer endpoint kind is reserved and is never bound")
+    }
+}
+
+impl std::error::Error for IssuerEndpointReserved {}
+
+impl From<IssuerEndpointReserved> for std::io::Error {
+    fn from(e: IssuerEndpointReserved) -> Self {
+        std::io::Error::new(std::io::ErrorKind::Unsupported, e)
+    }
+}
+
 /// A bound, owner-only listener. Dropping it unlinks its socket if the path still
 /// names the socket this listener created (same device and inode).
 #[derive(Debug)]
@@ -63,7 +85,15 @@ impl Listener {
     /// socket of ours, bind, and restrict the socket to `0600`.
     ///
     /// Must be called inside a tokio runtime with I/O enabled.
+    ///
+    /// ⟨M03⟩ `EndpointKind::Issuer` is reserved and never bound (ADR-0008 Q1: the
+    /// issuer child speaks over its stdio, never over a listener; wave-0 verify E7):
+    /// it is refused with [`IssuerEndpointReserved`] (`ErrorKind::Unsupported`)
+    /// before anything is created, checked or removed.
     pub fn bind(path: &Path, kind: EndpointKind) -> std::io::Result<Self> {
+        if kind == EndpointKind::Issuer {
+            return Err(IssuerEndpointReserved.into());
+        }
         let uid = current_uid();
         let dir = parent_dir(path)?;
         ensure_private_dir(dir, uid)?;

@@ -56,11 +56,22 @@ pub enum OperationKind {
     /// ⟨M02⟩ `catalog`, every action (the action enters the hash extras). Effect
     /// class `local`.
     Catalog,
+    /// ⟨M03⟩ `enrollment.apply` (m03-plan §5 item 11). Effect class
+    /// `remote_mutation`; never driven at restart (U0b row 17).
+    #[serde(rename = "enrollment.apply")]
+    EnrollmentApply,
+    /// ⟨M03⟩ `enrollment.verify`: presence, absence or a target change; never removes
+    /// anything. Effect class `local`.
+    #[serde(rename = "enrollment.verify")]
+    EnrollmentVerify,
+    /// ⟨M03⟩ `enrollment.remove`. Effect class `remote_mutation`.
+    #[serde(rename = "enrollment.remove")]
+    EnrollmentRemove,
 }
 
 impl OperationKind {
     /// Every kind, in declaration order.
-    pub const ALL: [OperationKind; 12] = [
+    pub const ALL: [OperationKind; 15] = [
         OperationKind::Ensure,
         OperationKind::Bind,
         OperationKind::Delegate,
@@ -73,6 +84,16 @@ impl OperationKind {
         OperationKind::SetupRollback,
         OperationKind::SetupRepair,
         OperationKind::Catalog,
+        OperationKind::EnrollmentApply,
+        OperationKind::EnrollmentVerify,
+        OperationKind::EnrollmentRemove,
+    ];
+
+    /// ⟨M03⟩ The enrollment kinds: never driven at restart (U0b row 17).
+    pub const ENROLLMENT: [OperationKind; 3] = [
+        OperationKind::EnrollmentApply,
+        OperationKind::EnrollmentVerify,
+        OperationKind::EnrollmentRemove,
     ];
 
     /// The setup kinds, serialized per environment (`setup_in_progress`, ADR-0007
@@ -99,6 +120,47 @@ impl OperationKind {
             OperationKind::SetupRollback => "setup.rollback",
             OperationKind::SetupRepair => "setup.repair",
             OperationKind::Catalog => "catalog",
+            OperationKind::EnrollmentApply => "enrollment.apply",
+            OperationKind::EnrollmentVerify => "enrollment.verify",
+            OperationKind::EnrollmentRemove => "enrollment.remove",
+        }
+    }
+
+    /// ⟨M03⟩ Whether this is an enrollment kind (`enrollment.apply`,
+    /// `enrollment.verify`, `enrollment.remove`). These stay unresolved and untouched
+    /// at restart (U0b row 17; ADR-0008 D5 §6.4).
+    #[must_use]
+    pub fn is_enrollment(self) -> bool {
+        matches!(
+            self,
+            OperationKind::EnrollmentApply
+                | OperationKind::EnrollmentVerify
+                | OperationKind::EnrollmentRemove
+        )
+    }
+
+    /// ⟨M03⟩ The effect class of an M03 kind (m03-plan §5 item 11):
+    /// `remote_mutation` for `enrollment.apply` and `enrollment.remove`, `local` for
+    /// `enrollment.verify`; `None` for the M01/M02 kinds.
+    #[must_use]
+    pub fn m03_effect_class(self) -> Option<EffectClass> {
+        match self {
+            OperationKind::EnrollmentApply | OperationKind::EnrollmentRemove => {
+                Some(EffectClass::RemoteMutation)
+            }
+            OperationKind::EnrollmentVerify => Some(EffectClass::Local),
+            OperationKind::Ensure
+            | OperationKind::Bind
+            | OperationKind::Delegate
+            | OperationKind::Cancel
+            | OperationKind::Release
+            | OperationKind::Revoke
+            | OperationKind::Policy
+            | OperationKind::Probe
+            | OperationKind::SetupApply
+            | OperationKind::SetupRollback
+            | OperationKind::SetupRepair
+            | OperationKind::Catalog => None,
         }
     }
 
@@ -121,7 +183,10 @@ impl OperationKind {
             | OperationKind::SetupRollback
             | OperationKind::SetupRepair => Some(EffectClass::LocalResources),
             OperationKind::Catalog => Some(EffectClass::Local),
-            OperationKind::Ensure
+            OperationKind::EnrollmentApply
+            | OperationKind::EnrollmentVerify
+            | OperationKind::EnrollmentRemove
+            | OperationKind::Ensure
             | OperationKind::Bind
             | OperationKind::Delegate
             | OperationKind::Cancel
@@ -130,6 +195,64 @@ impl OperationKind {
             | OperationKind::Policy
             | OperationKind::Probe => None,
         }
+    }
+}
+
+/// ⟨M03⟩ Stage names of the enrollment operations' receipts (ADR-0008 D5 §6.4).
+pub mod enrollment_stage {
+    /// E2: the inspect started (`Attempted` is never written for a read).
+    pub const INSPECT_STARTED: &str = "enroll.inspect.started";
+    /// E2: the inspect's observation.
+    pub const INSPECT_OBSERVED: &str = "enroll.inspect.observed";
+    /// E2b: the registry directory bootstrap (`Attempted`, token = marker + `:dir`).
+    pub const BOOTSTRAP: &str = "enroll.bootstrap";
+    /// E3: the append (`Attempted`, token = marker). Cancellation is refused once
+    /// this receipt exists.
+    pub const APPEND: &str = "enroll.append";
+    /// E4: the verification started.
+    pub const VERIFY_STARTED: &str = "enroll.verify.started";
+    /// E4: the verification's outcome (`passed`, `failed`, `inconclusive`).
+    pub const VERIFY_OUTCOME: &str = "enroll.verify.outcome";
+    /// E5′: the rollback's removal (`Attempted`, token = marker + `:rm`).
+    pub const ROLLBACK: &str = "enroll.rollback";
+    /// `enrollment.remove`'s removal (`Attempted`, token = marker + `:rm`).
+    pub const REMOVE: &str = "enroll.remove";
+    /// The remote mutation stages after whose `Attempted` receipt an enrollment
+    /// operation can no longer be cancelled (m03-plan §5 item 11).
+    pub const REMOTE_MUTATIONS: [&str; 3] = [APPEND, ROLLBACK, REMOVE];
+}
+
+/// ⟨M03⟩ Why a cancel is refused (m03-plan §5 item 11; ADR-0008 D5 §6.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum CancelRefusal {
+    /// A remote mutation step may have run (`CAPABILITY_UNAVAILABLE`, reason
+    /// `remote_step_in_progress`): the owner uses `reconcile` or `remove`.
+    #[error("a remote step is in progress")]
+    RemoteStepInProgress,
+}
+
+/// ⟨M03⟩ m03-plan §5 item 11: cancelling an enrollment operation is allowed until a
+/// remote mutation's `Attempted` receipt exists (E3 for `enrollment.apply`, the
+/// removal for `enrollment.remove`, the rollback's removal), and refused with
+/// `remote_step_in_progress` after it. A receipt in any later effect state
+/// (`Confirmed`, `Uncertain`) counts too. Every other kind is not governed by this
+/// rule (`Ok`).
+pub fn enrollment_cancel_allowed(
+    kind: OperationKind,
+    receipts: &[StageReceipt],
+) -> Result<(), CancelRefusal> {
+    if !kind.is_enrollment() {
+        return Ok(());
+    }
+    let mutated = receipts.iter().any(|r| {
+        enrollment_stage::REMOTE_MUTATIONS.contains(&r.stage.as_str())
+            && !matches!(r.effect, EffectReceipt::NotAttempted)
+    });
+    if mutated {
+        Err(CancelRefusal::RemoteStepInProgress)
+    } else {
+        Ok(())
     }
 }
 

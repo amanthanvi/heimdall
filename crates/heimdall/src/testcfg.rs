@@ -43,6 +43,21 @@
 //! | `HEIMDALL_TEST_SSH_HOME` | Absolute scratch account home for the CLI's static selection pass (`SshPaths::with_test_override`, system directory `<home>/etc-ssh`), so a test never reads the account's real `~/.ssh` or `/etc/ssh`. ⟨M02⟩ W4: a runtime started under any test variable wires its projection over this scratch home, or none without it, never the account's (`isolate_projection`). |
 //! | `HEIMDALL_TEST_CLOCK_OFFSET_S` | As above: the CLI's wall clock for the pre-launch check. |
 //!
+//! **⟨M03⟩ managed credentials** (m03-plan U0b row 16; ADR-0008 §18). Four more
+//! variables, debug builds only. `service run` reads the first three (U10 wires them
+//! into the runtime); the `enroll` CLI process reads the fourth (the client-executed
+//! remote steps pause there, U5). A release build that finds **any** of them set
+//! refuses at that command (exit 2, `USAGE_ERROR`) before anything else happens:
+//! [`requested`] covers all four for `service run`, and [`enroll_hooks`] covers the
+//! pause directory for `enroll`.
+//!
+//! | Variable | Meaning |
+//! |---|---|
+//! | `HEIMDALL_TEST_SECRET_STORE` | `scratch`: select testkit's `ScratchSecretStore` for the CA key instead of the platform secret store. |
+//! | `HEIMDALL_TEST_KEY_SEED` | Hex seed (1 to 64 bytes) of the deterministic test key material. |
+//! | `HEIMDALL_TEST_SESSION_LOCK` | Absolute path of the state file testkit's `FakeSessionLockSource` reads. |
+//! | `HEIMDALL_TEST_SCRIPT_PAUSE_DIR` | Absolute directory in which an enrollment script pauses. |
+//!
 //! The fake adapter's credential reference carries a synthetic
 //! `HEIMDALL_CANARY_*` value built at runtime; it must never reach an envelope,
 //! event or log line (the e2e suite scans every byte the binary prints).
@@ -210,6 +225,167 @@ pub const ALL_ENV: [&str; 7] = [
     CLOCK_OFFSET_ENV,
 ];
 
+/// ⟨M03⟩ `scratch`: select testkit's `ScratchSecretStore`.
+pub const SECRET_STORE_ENV: &str = "HEIMDALL_TEST_SECRET_STORE";
+/// ⟨M03⟩ Hex seed of the deterministic test key material.
+pub const KEY_SEED_ENV: &str = "HEIMDALL_TEST_KEY_SEED";
+/// ⟨M03⟩ Absolute path of the `FakeSessionLockSource` state file.
+pub const SESSION_LOCK_ENV: &str = "HEIMDALL_TEST_SESSION_LOCK";
+/// ⟨M03⟩ Absolute directory in which an enrollment script pauses.
+pub const SCRIPT_PAUSE_DIR_ENV: &str = "HEIMDALL_TEST_SCRIPT_PAUSE_DIR";
+
+/// ⟨M03⟩ Every variable the M03 test configuration adds (module docs). `ALL_ENV`
+/// keeps its M01/M02 contents; [`requested_by`] covers both lists.
+pub const M03_ENV: [&str; 4] = [
+    SECRET_STORE_ENV,
+    KEY_SEED_ENV,
+    SESSION_LOCK_ENV,
+    SCRIPT_PAUSE_DIR_ENV,
+];
+
+/// ⟨M03⟩ The longest key seed accepted, in bytes.
+const KEY_SEED_MAX_BYTES: usize = 64;
+
+/// ⟨M03⟩ A test key seed. Its `Debug` form shows only the length.
+#[derive(Clone, PartialEq, Eq)]
+pub struct KeySeed(Vec<u8>);
+
+impl KeySeed {
+    /// The seed bytes.
+    #[must_use]
+    #[allow(dead_code)] // read by U10's runtime wiring
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for KeySeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "KeySeed({} bytes)", self.0.len())
+    }
+}
+
+/// ⟨M03⟩ What the M03 test variables select, validated (nothing consumes it in wave 0
+/// except tests and `service run`'s validation; U10 wires the runtime).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[allow(dead_code)] // consumed by U10's runtime wiring; validated and tested now
+pub struct M03Config {
+    /// [`SECRET_STORE_ENV`] was `scratch`.
+    pub scratch_secret_store: bool,
+    /// [`KEY_SEED_ENV`].
+    pub key_seed: Option<KeySeed>,
+    /// [`SESSION_LOCK_ENV`].
+    pub session_lock: Option<std::path::PathBuf>,
+    /// [`SCRIPT_PAUSE_DIR_ENV`].
+    pub script_pause_dir: Option<std::path::PathBuf>,
+}
+
+/// An absolute path from `name`'s value, or the harness error.
+fn absolute_path(name: &str, value: std::ffi::OsString) -> Result<std::path::PathBuf, String> {
+    let p = std::path::PathBuf::from(value);
+    if p.is_absolute() {
+        Ok(p)
+    } else {
+        Err(format!("{name} must be an absolute path"))
+    }
+}
+
+/// Hex digits to bytes (either case); `None` for an odd length or a non-digit.
+fn decode_hex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) || !text.is_ascii() {
+        return None;
+    }
+    text.as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            let digit = |b: u8| char::from(b).to_digit(16);
+            let (hi, lo) = (digit(pair[0])?, digit(pair[1])?);
+            u8::try_from(hi * 16 + lo).ok()
+        })
+        .collect()
+}
+
+/// ⟨M03⟩ The M03 test configuration from `env` for a build that is (`available`) or is
+/// not able to honour it. A build that cannot honour it refuses when any variable is
+/// set, before any value is read; otherwise each value is validated.
+///
+/// # Errors
+/// The release refusal, or a malformed value (usage errors, exit 2).
+pub fn m03_config_in(
+    available: bool,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<M03Config, String> {
+    let any = M03_ENV.iter().any(|name| env(name).is_some());
+    if let Some(msg) = refusal(available, any) {
+        return Err(msg.to_owned());
+    }
+    if !any {
+        return Ok(M03Config::default());
+    }
+    let scratch_secret_store = match env(SECRET_STORE_ENV) {
+        None => false,
+        Some(v) if v == "scratch" => true,
+        Some(_) => return Err(format!("{SECRET_STORE_ENV}: expected scratch")),
+    };
+    let key_seed = match env(KEY_SEED_ENV) {
+        None => None,
+        Some(v) => {
+            let bytes = v
+                .to_str()
+                .and_then(decode_hex)
+                .filter(|b| (1..=KEY_SEED_MAX_BYTES).contains(&b.len()))
+                .ok_or_else(|| format!("{KEY_SEED_ENV}: expected 1 to 64 bytes of hex"))?;
+            Some(KeySeed(bytes))
+        }
+    };
+    Ok(M03Config {
+        scratch_secret_store,
+        key_seed,
+        session_lock: env(SESSION_LOCK_ENV)
+            .map(|v| absolute_path(SESSION_LOCK_ENV, v))
+            .transpose()?,
+        script_pause_dir: env(SCRIPT_PAUSE_DIR_ENV)
+            .map(|v| absolute_path(SCRIPT_PAUSE_DIR_ENV, v))
+            .transpose()?,
+    })
+}
+
+/// ⟨M03⟩ [`m03_config_in`] for this build.
+///
+/// # Errors
+/// As [`m03_config_in`].
+#[allow(dead_code)] // `service run`'s debug-build `prepare` calls it; a release build has no caller
+pub fn m03_config(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Result<M03Config, String> {
+    m03_config_in(AVAILABLE, env)
+}
+
+/// ⟨M03⟩ What the `enroll` CLI process takes from the test configuration: the script
+/// pause directory, for a build that is (`available`) or is not able to honour it.
+///
+/// # Errors
+/// The release refusal, or a relative directory (usage errors, exit 2).
+pub fn enroll_hooks_in(
+    available: bool,
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let dir = env(SCRIPT_PAUSE_DIR_ENV);
+    if let Some(msg) = refusal(available, dir.is_some()) {
+        return Err(msg.to_owned());
+    }
+    dir.map(|v| absolute_path(SCRIPT_PAUSE_DIR_ENV, v))
+        .transpose()
+}
+
+/// ⟨M03⟩ [`enroll_hooks_in`] for this build.
+///
+/// # Errors
+/// As [`enroll_hooks_in`].
+pub fn enroll_hooks(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> Result<Option<std::path::PathBuf>, String> {
+    enroll_hooks_in(AVAILABLE, env)
+}
+
 /// File (in the state directory) that records one line per `service run` start.
 #[cfg(debug_assertions)]
 pub const STARTS_FILE: &str = "test-service-starts";
@@ -217,10 +393,14 @@ pub const STARTS_FILE: &str = "test-service-starts";
 /// Whether this build can honour the test configuration at all.
 pub const AVAILABLE: bool = cfg!(debug_assertions);
 
-/// Whether any test-configuration variable is set (by the injected lookup).
+/// Whether any test-configuration variable is set (by the injected lookup): the M01/M02
+/// `ALL_ENV` set and, from M03, `M03_ENV`.
 #[must_use]
 pub fn requested_by(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
-    ALL_ENV.iter().any(|name| env(name).is_some())
+    ALL_ENV
+        .iter()
+        .chain(M03_ENV.iter())
+        .any(|name| env(name).is_some())
 }
 
 /// Whether any test-configuration variable is set in this process.
@@ -364,6 +544,9 @@ mod enabled {
                 pause: PauseState::Active,
                 cutoff_at: None,
                 source: PolicySource::SetupDefault,
+                // M03 wave 0 (A1): fail closed until U0b
+                lock_behavior: Default::default(),
+                connection: Default::default(),
             };
             // `ops` (h1 only) is fully covered by its policy `pol-ops`, so a
             // preview of it is `allowed` (gap G17 e2e cases).
@@ -431,6 +614,13 @@ mod enabled {
                 workload_isolation: WorkloadIsolation::SharedOsUser,
                 existing_connections: ExistingConnectionsPolicy::GracefulDedicatedConnections,
                 revocation: RevocationStatus::LocalApplied,
+                // M03 wave 0 (A1): fail closed until U0b
+                identity_selection: None,
+                new_signing_expiry: None,
+                owned_multiplexing: None,
+                remote_processes: None,
+                unmanaged_connections: None,
+                issuer_isolation: None,
             },
             evidence: Vec::new(),
         }
@@ -447,6 +637,7 @@ mod enabled {
             interaction: InteractionRequirement::None,
             enforcement: enforcement(),
             lock_continuity: LockContinuity::Unknown,
+            remote_credential_effect: false, // M03 wave 0 (A2)
         }
     }
 
@@ -528,6 +719,8 @@ mod enabled {
         if let Some(msg) = super::home_refusal(true, home_explicit) {
             return Err(msg.into());
         }
+        // ⟨M03⟩ Validate the M03 variables now; U10 wires what they select.
+        super::m03_config(env)?;
         // Count starts before the instance lock (single-child launcher test).
         record_start(paths).map_err(|e| format!("cannot record the start: {}", e.kind()))?;
 
@@ -831,6 +1024,106 @@ mod tests {
     }
 
     #[test]
+    fn detection_covers_the_m03_variables_and_all_env_keeps_its_m01_m02_set() {
+        assert_eq!(ALL_ENV.len(), 7, "ALL_ENV is the M01/M02 set");
+        for name in M03_ENV {
+            assert!(!ALL_ENV.contains(&name), "{name}");
+            assert!(requested_by(&|n| (n == name).then(|| "x".into())));
+        }
+    }
+
+    /// Debug-build half of `release_build_refuses_m03_test_gates`: the refusal
+    /// function covers every M03 variable, for the config and for `enroll`'s hook
+    /// (the pause directory), and refuses before it reads a value.
+    #[test]
+    fn the_m03_refusal_covers_every_m03_variable() {
+        for name in M03_ENV {
+            let one = |n: &str| (n == name).then(|| std::ffi::OsString::from("x"));
+            let Err(msg) = m03_config_in(false, &one) else {
+                panic!("{name} was not refused");
+            };
+            assert!(msg.contains("HEIMDALL_TEST_"), "{name}: {msg}");
+            assert_eq!(Some(msg.as_str()), refusal(false, true), "{name}");
+            // Even a well-formed value is refused, and the value is never read.
+            let good = |n: &str| (n == name).then(|| std::ffi::OsString::from("/abs"));
+            assert!(m03_config_in(false, &good).is_err(), "{name}");
+        }
+        let pause = |n: &str| (n == SCRIPT_PAUSE_DIR_ENV).then(|| std::ffi::OsString::from("/p"));
+        assert!(enroll_hooks_in(false, &pause).is_err());
+        // The other three variables are not `enroll`'s.
+        let other = |n: &str| (n == KEY_SEED_ENV).then(|| std::ffi::OsString::from("00"));
+        assert_eq!(enroll_hooks_in(false, &other), Ok(None));
+        // Nothing set: a release build is fine.
+        assert_eq!(m03_config_in(false, &|_| None), Ok(M03Config::default()));
+        assert_eq!(enroll_hooks_in(false, &|_| None), Ok(None));
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn m03_values_are_parsed_and_validated() {
+        let set = |pairs: &'static [(&'static str, &'static str)]| {
+            move |n: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == n)
+                    .map(|(_, v)| std::ffi::OsString::from(*v))
+            }
+        };
+        const ABS: &str = if cfg!(windows) {
+            "C:\\scratch\\x"
+        } else {
+            "/scratch/x"
+        };
+        let cfg = m03_config_in(
+            true,
+            &set(&[
+                (SECRET_STORE_ENV, "scratch"),
+                (KEY_SEED_ENV, "00fF"),
+                (SESSION_LOCK_ENV, ABS),
+                (SCRIPT_PAUSE_DIR_ENV, ABS),
+            ]),
+        )
+        .unwrap();
+        assert!(cfg.scratch_secret_store);
+        assert_eq!(cfg.key_seed.as_ref().unwrap().as_bytes(), &[0x00, 0xff]);
+        assert_eq!(cfg.session_lock.as_deref(), Some(std::path::Path::new(ABS)));
+        assert_eq!(
+            cfg.script_pause_dir.as_deref(),
+            Some(std::path::Path::new(ABS))
+        );
+        assert_eq!(format!("{:?}", cfg.key_seed.unwrap()), "KeySeed(2 bytes)");
+        assert_eq!(
+            m03_config_in(true, &|_| None).unwrap(),
+            M03Config::default()
+        );
+        let bad: [(&str, &str); 8] = [
+            (SECRET_STORE_ENV, "real"),
+            (SECRET_STORE_ENV, ""),
+            (KEY_SEED_ENV, ""),
+            (KEY_SEED_ENV, "0"),
+            (KEY_SEED_ENV, "zz"),
+            (KEY_SEED_ENV, "+1"),
+            (SESSION_LOCK_ENV, "relative"),
+            (SCRIPT_PAUSE_DIR_ENV, "relative"),
+        ];
+        for (name, value) in bad {
+            let one = |n: &str| (n == name).then(|| std::ffi::OsString::from(value));
+            assert!(m03_config_in(true, &one).is_err(), "{name}={value}");
+        }
+        let too_long = "ab".repeat(65);
+        let long = |n: &str| (n == KEY_SEED_ENV).then(|| std::ffi::OsString::from(&too_long));
+        assert!(m03_config_in(true, &long).is_err());
+        let max = "ab".repeat(64);
+        let longest = |n: &str| (n == KEY_SEED_ENV).then(|| std::ffi::OsString::from(&max));
+        assert!(m03_config_in(true, &longest).is_ok());
+        assert_eq!(
+            enroll_hooks_in(true, &set(&[(SCRIPT_PAUSE_DIR_ENV, ABS)])).unwrap(),
+            Some(std::path::PathBuf::from(ABS))
+        );
+        assert!(enroll_hooks_in(true, &set(&[(SCRIPT_PAUSE_DIR_ENV, "rel")])).is_err());
+    }
+
+    #[test]
     fn a_build_without_the_configuration_refuses_a_request_for_it() {
         assert!(refusal(false, true).is_some());
         assert!(refusal(false, false).is_none());
@@ -906,5 +1199,21 @@ mod tests {
     fn release_profile_build_refuses_the_test_configuration() {
         assert!(!AVAILABLE);
         assert!(refusal(AVAILABLE, true).is_some());
+    }
+
+    /// ⟨M03⟩ Release-profile half of `release_build_refuses_m03_test_gates` (the binary
+    /// half is `tools/validation/release-gate.sh`): every M03 variable makes the
+    /// build's own functions refuse, `requested` sees it, and nothing is parsed.
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_build_refuses_m03_test_gates() {
+        assert!(!AVAILABLE);
+        for name in M03_ENV {
+            let one = |n: &str| (n == name).then(|| std::ffi::OsString::from("scratch"));
+            assert!(requested_by(&one), "{name}");
+            assert!(m03_config(&one).is_err(), "{name}");
+        }
+        let pause = |n: &str| (n == SCRIPT_PAUSE_DIR_ENV).then(|| std::ffi::OsString::from("/p"));
+        assert!(enroll_hooks(&pause).is_err());
     }
 }

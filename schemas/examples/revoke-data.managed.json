@@ -1,0 +1,35 @@
+{
+  "local_applied": true,
+  "remote_pending": [
+    "grant_aaaaaaaabbbbbbbbccccccccdddddddd"
+  ],
+  "latest_possible_credential_expiry": "2026-11-10T22:00:00Z",
+  "remote_effects": [
+    {
+      "destination": "dest-lab",
+      "account": "deploy",
+      "latest_valid_before": "2026-11-10T22:00:00Z",
+      "destination_clock": {
+        "measured": {
+          "behind_upper_ms": 1400,
+          "rtt_ms": 38,
+          "measured_at": "2026-11-10T13:50:00Z"
+        }
+      },
+      "status": "pending_until",
+      "until": "2026-11-10T22:00:01.441Z"
+    }
+  ],
+  "owned_connections": [
+    {
+      "id": "conn_00112233445566778899aabbccddeeff",
+      "kind": "dedicated",
+      "state": "closing"
+    }
+  ],
+  "notes": [
+    "ordinary_connections_not_closed"
+  ],
+  "requested_at": "2026-11-10T15:00:00Z",
+  "committed_at": "2026-11-10T15:00:00.214Z"
+}

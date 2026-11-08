@@ -10,11 +10,25 @@
 
 use heimdall_contract::Timestamp;
 use heimdall_contract::catalog::DeclaredInteraction;
-use heimdall_contract::ids::{DecisionId, IdentityId, OperationId};
+use heimdall_contract::enrollment::{
+    ApprovedTarget, EnrollmentForm, EnrollmentPlan, RegistryRef, RemovalTarget,
+};
+use heimdall_contract::ids::{
+    AccountName, CaFingerprint, DecisionId, DestinationId, EnrollmentId, GrantId, IdentityId,
+    OperationId,
+};
+use heimdall_contract::issuer::StoreKind;
 use heimdall_contract::provider::EndpointRef;
 use heimdall_contract::request::{PolicyAction, Verdict};
 use heimdall_contract::setup::PlanDigest;
 use serde::{Deserialize, Serialize};
+
+/// ⟨M03⟩ Disclosures are wire-visible (the enrollment plan carries them), so the
+/// enum lives in the contract.
+pub use heimdall_contract::enrollment::DisclosureKind;
+/// ⟨M03⟩ What a `RemoveEnrollment` decision removes: one of this installation's
+/// enrollments or a foreign descriptor (the contract's `RemovalTarget`).
+pub type RemovalTargetRef = RemovalTarget;
 
 use crate::authority::AuthorityDelta;
 use crate::policy::AuthorityGeneration;
@@ -73,6 +87,163 @@ pub enum DecisionKind {
         /// When the declaration will lapse (`expires_at`).
         valid_until: Timestamp,
     },
+    /// ⟨M03⟩ Register a CA (init, rotate-begin or restore; ADR-0008 D4 items 1, 3,
+    /// 4). Completed only by an attended `Decide`.
+    RegisterIssuer {
+        /// The CA's fingerprint.
+        ca_fingerprint: CaFingerprint,
+        /// Its store.
+        store: StoreKind,
+        /// The digest of the exact prepared backup bytes.
+        backup_sha256: String,
+        /// The CA this one rotates.
+        #[serde(default)]
+        rotation_of: Option<CaFingerprint>,
+        /// A key-only restore.
+        #[serde(default)]
+        restored_without_log: bool,
+        /// The disclosures shown.
+        disclosures: Vec<DisclosureKind>,
+    },
+    /// ⟨M03⟩ Retire a CA (ADR-0008 D4 item 3): every enrollment under it is final or
+    /// abandoned.
+    RetireIssuer {
+        /// The CA.
+        ca_fingerprint: CaFingerprint,
+        /// Its abandoned enrollments (their lines stay, `pending_until_line_removed`).
+        abandoned_enrollments: Vec<EnrollmentId>,
+    },
+    /// ⟨M03⟩ Approve an account-form enrollment (ADR-0008 D5 §6.4 E0). Approval
+    /// copies `plan_digest` into the operation's approval basis, valid 24 h.
+    EnrollAccount {
+        /// The `enrollment.apply` operation waiting in `awaiting_approval`.
+        operation: OperationId,
+        /// The plan shown.
+        plan_digest: PlanDigest,
+        /// Its summary (with the approved target and the existing-access
+        /// invocation).
+        summary: EnrollmentPlanSummary,
+    },
+    /// ⟨M03⟩ Approve a system-form enrollment (ADR-0008 D5 §6.9).
+    EnrollSystemForm {
+        /// The `enrollment.apply` operation.
+        operation: OperationId,
+        /// The plan shown.
+        plan_digest: PlanDigest,
+        /// Its summary.
+        summary: EnrollmentPlanSummary,
+        /// The lines the owner applies.
+        sshd_lines: SystemFormLines,
+    },
+    /// ⟨M03⟩ Remove an enrollment or a foreign one (ADR-0008 D5 §6.8, D4 item 5).
+    RemoveEnrollment {
+        /// The `enrollment.remove` operation.
+        operation: OperationId,
+        /// What is removed.
+        target: RemovalTargetRef,
+        /// The pinned existing-access invocation.
+        invocation: Vec<String>,
+        /// Live grants holding a certificate under the removed CA for the pair.
+        affected_grants: Vec<GrantId>,
+        /// The pair residual (only grants under the removed CA).
+        #[serde(default)]
+        pair_residual_until: Option<Timestamp>,
+        /// A held host-key change's freshly evaluated target (D5 §6.8).
+        #[serde(default)]
+        fresh_target: Option<ApprovedTarget>,
+    },
+    /// ⟨M03⟩ Re-approve a held enrollment's target after a host-key change (ADR-0008
+    /// D5 §6.2); the key diff is shown. The approved target is replaced only on a
+    /// verification pass (§17.7 item 5).
+    ApproveTargetChange {
+        /// The `enrollment.verify` operation (mode `target_change`).
+        operation: OperationId,
+        /// The enrollment.
+        enrollment: EnrollmentId,
+        /// The currently approved target.
+        approved: ApprovedTarget,
+        /// The proposed target the operation carries.
+        proposed: ApprovedTarget,
+    },
+}
+
+impl DecisionKind {
+    /// ⟨M03⟩ Whether this is one of the M03 kinds. Until their drivers land (U0b
+    /// row 14, phase 2) every M03 kind is refused and not consumed.
+    #[must_use]
+    pub fn is_m03(&self) -> bool {
+        matches!(
+            self,
+            DecisionKind::RegisterIssuer { .. }
+                | DecisionKind::RetireIssuer { .. }
+                | DecisionKind::EnrollAccount { .. }
+                | DecisionKind::EnrollSystemForm { .. }
+                | DecisionKind::RemoveEnrollment { .. }
+                | DecisionKind::ApproveTargetChange { .. }
+        )
+    }
+}
+
+/// ⟨M03⟩ The enrollment plan as an enrollment decision shows it (m03-plan §5 item
+/// 10): the approved target and the existing-access invocation included.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnrollmentPlanSummary {
+    /// Destination.
+    pub destination_id: DestinationId,
+    /// The managed alias.
+    pub alias: String,
+    /// Account.
+    pub account: AccountName,
+    /// Form.
+    pub form: EnrollmentForm,
+    /// Registry (display).
+    pub registry: RegistryRef,
+    /// The line's SHA-256.
+    pub line_sha256: String,
+    /// CA.
+    pub ca_fingerprint: CaFingerprint,
+    /// The approved target.
+    pub approved_target: ApprovedTarget,
+    /// The existing-access invocation.
+    pub invocation: Vec<String>,
+    /// The host-trust pins.
+    pub host_trust: Vec<String>,
+    /// Whether a bootstrap step may run.
+    pub bootstrap: bool,
+    /// Disclosures.
+    pub disclosures: Vec<DisclosureKind>,
+}
+
+impl EnrollmentPlanSummary {
+    /// The summary of `plan`.
+    #[must_use]
+    pub fn from_plan(plan: &EnrollmentPlan) -> Self {
+        Self {
+            destination_id: plan.destination_id.clone(),
+            alias: plan.alias.clone(),
+            account: plan.account.clone(),
+            form: plan.form,
+            registry: plan.registry.clone(),
+            line_sha256: plan.line_sha256.clone(),
+            ca_fingerprint: plan.ca_fingerprint.clone(),
+            approved_target: plan.approved_target.clone(),
+            invocation: plan.existing_access.invocation.clone(),
+            host_trust: plan.host_trust.clone(),
+            bootstrap: plan.bootstrap.is_some(),
+            disclosures: plan.disclosures.clone(),
+        }
+    }
+}
+
+/// ⟨M03⟩ The system form's lines (ADR-0008 D5 §6.9).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SystemFormLines {
+    /// The CA public line for `TrustedUserCAKeys`.
+    pub trusted_user_ca_keys_line: String,
+    /// The principals-file line `hm:<destination-id>:<account>`.
+    pub principals_line: String,
+    /// The `sshd_config` directives.
+    pub sshd_directives: Vec<String>,
 }
 
 /// Lifecycle of a decision record.

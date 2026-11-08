@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnrollmentPlan",
+  "description": "The enrollment plan: the preview data, the decision's summary, and the hash\ninput through `plan_digest` (§5 item 3).",
+  "type": "object",
+  "properties": {
+    "account": {
+      "description": "Account.",
+      "$ref": "#/$defs/AccountName"
+    },
+    "alias": {
+      "description": "The managed alias.",
+      "type": "string"
+    },
+    "approved_target": {
+      "description": "The approved target.",
+      "$ref": "#/$defs/ApprovedTarget"
+    },
+    "bootstrap": {
+      "description": "The conditional bootstrap step.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BootstrapPlan"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ca_fingerprint": {
+      "description": "CA.",
+      "$ref": "#/$defs/CaFingerprint"
+    },
+    "destination_id": {
+      "description": "Destination.",
+      "$ref": "#/$defs/DestinationId"
+    },
+    "disclosures": {
+      "description": "Disclosures.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/DisclosureKind"
+      }
+    },
+    "existing_access": {
+      "description": "The existing-access invocation.",
+      "$ref": "#/$defs/ExistingAccessPlan"
+    },
+    "form": {
+      "description": "Form.",
+      "$ref": "#/$defs/EnrollmentForm"
+    },
+    "host_trust": {
+      "description": "The host-trust pins as `Key=Value`.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "line": {
+      "description": "The exact line.",
+      "type": "string"
+    },
+    "line_sha256": {
+      "description": "The line's SHA-256 (hex).",
+      "type": "string"
+    },
+    "plan_digest": {
+      "description": "The digest over every other field.",
+      "$ref": "#/$defs/PlanDigest"
+    },
+    "registry": {
+      "description": "Registry (display).",
+      "$ref": "#/$defs/RegistryRef"
+    },
+    "rollback": {
+      "description": "The rollback procedure.",
+      "$ref": "#/$defs/RollbackPlan"
+    },
+    "verification": {
+      "description": "The verification.",
+      "$ref": "#/$defs/VerificationPlan"
+    }
+  },
+  "required": [
+    "plan_digest",
+    "destination_id",
+    "alias",
+    "account",
+    "form",
+    "registry",
+    "line",
+    "line_sha256",
+    "ca_fingerprint",
+    "existing_access",
+    "host_trust",
+    "approved_target",
+    "verification",
+    "rollback",
+    "disclosures"
+  ],
+  "$defs": {
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "ApprovedHostKey": {
+      "description": "The approved host key (ADR-0008 D5 §6.1): the only trust source of every step.",
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "description": "Key algorithm (`ssh-ed25519`).",
+          "type": "string"
+        },
+        "fingerprint": {
+          "description": "`SHA256:…` fingerprint.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Base64 key blob.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "key",
+        "fingerprint"
+      ]
+    },
+    "ApprovedTarget": {
+      "description": "The approved target (ADR-0008 D5 §6.1; §17.1 item 2): what every remote step and\nverification pins.",
+      "type": "object",
+      "properties": {
+        "host_key": {
+          "description": "The approved host key.",
+          "$ref": "#/$defs/ApprovedHostKey"
+        },
+        "hostname": {
+          "description": "`HostName`.",
+          "type": "string"
+        },
+        "port": {
+          "description": "`Port`.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "proxy": {
+          "description": "Proxy (none).",
+          "$ref": "#/$defs/NoProxy",
+          "default": "none"
+        },
+        "user": {
+          "description": "`User`.",
+          "$ref": "#/$defs/AccountName"
+        }
+      },
+      "required": [
+        "hostname",
+        "port",
+        "user",
+        "host_key"
+      ]
+    },
+    "BootstrapPlan": {
+      "description": "The conditional bootstrap step.",
+      "oneOf": [
+        {
+          "description": "Create the registry's directory with mode 0700 when it is absent.",
+          "type": "string",
+          "const": "create_registry_dir_0700_if_absent"
+        }
+      ]
+    },
+    "CaFingerprint": {
+      "description": "⟨M03⟩ A CA public key's fingerprint: `SHA256:` followed by exactly 43 characters\nof unpadded standard base64 (`A-Za-z0-9+/`), as `ssh-keygen -l` prints it\n(m03-plan §5 item 1). Validated on parse and on decode; compared exactly.",
+      "type": "string"
+    },
+    "DestinationId": {
+      "description": "Destination ID (spec §4.1 \"Destination\"); route-independent.",
+      "type": "string"
+    },
+    "DisclosureKind": {
+      "description": "A disclosure shown with a plan or an issuer decision (ADR-0008 D4 item 1, D5).",
+      "oneOf": [
+        {
+          "description": "Configuration commands run as in ordinary use (ADR-0007 D5).",
+          "type": "string",
+          "const": "config_commands_run_as_ordinary_use"
+        },
+        {
+          "description": "Every account that trusts the CA is reachable with it.",
+          "type": "string",
+          "const": "ca_trust_blast_radius"
+        },
+        {
+          "description": "The removal window (early removal and the residual).",
+          "type": "string",
+          "const": "remove_window"
+        },
+        {
+          "description": "Lock continuity, shown once and conditionally (R-UX-03).",
+          "type": "string",
+          "const": "lock_continuity_once"
+        },
+        {
+          "description": "Reconcile may stop this enrollment's own stale script.",
+          "type": "string",
+          "const": "reconcile_may_stop_own_stale_script"
+        },
+        {
+          "description": "Ordinary `ssh <alias>` works only while a binding holds the slot.",
+          "type": "string",
+          "const": "ordinary_ssh_needs_held_slot"
+        },
+        {
+          "description": "The issuer is a same-user process (ADR-0008 D4 item 1).",
+          "type": "string",
+          "const": "same_user_issuer_boundary"
+        },
+        {
+          "description": "The backup instructions (ADR-0008 D4 item 1).",
+          "type": "string",
+          "const": "backup_instructions"
+        },
+        {
+          "description": "A key-only restore: every residual is unknown; rotation is recommended\n(ADR-0008 D4 item 4).",
+          "type": "string",
+          "const": "restored_without_log_residuals_unknown"
+        }
+      ]
+    },
+    "EndpointSource": {
+      "description": "Where the existing-access endpoint came from (§17.6 item 3, Q24).",
+      "oneOf": [
+        {
+          "description": "The catalog identity record names it.",
+          "type": "string",
+          "const": "catalog_record"
+        },
+        {
+          "description": "The alias's own `IdentityAgent`, P's managed block excluded.",
+          "type": "string",
+          "const": "alias_identity_agent"
+        }
+      ]
+    },
+    "EnrollmentForm": {
+      "description": "The trust form (ADR-0008 D5 §6.1, §6.9).",
+      "oneOf": [
+        {
+          "description": "A `cert-authority` line in the account's registry (the default).",
+          "type": "string",
+          "const": "account"
+        },
+        {
+          "description": "`TrustedUserCAKeys` plus `AuthorizedPrincipalsFile`, applied by the owner.",
+          "type": "string",
+          "const": "system"
+        }
+      ]
+    },
+    "ExistingAccessPlan": {
+      "description": "The existing-access invocation shown and approved with the plan.",
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "description": "The concrete endpoint (never `SSH_AUTH_SOCK`).",
+          "type": "string"
+        },
+        "endpoint_source": {
+          "description": "Where the endpoint came from.",
+          "$ref": "#/$defs/EndpointSource"
+        },
+        "identity_id": {
+          "description": "The adopted identity.",
+          "$ref": "#/$defs/IdentityId"
+        },
+        "invocation": {
+          "description": "The `-o` arguments, in order.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mechanism": {
+          "description": "Its mechanism (`native_agent`, `onepassword`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_id",
+        "mechanism",
+        "endpoint",
+        "endpoint_source",
+        "invocation"
+      ]
+    },
+    "IdentityId": {
+      "description": "Adopted existing-access identity in the catalog (ADR-0007 §7; m02-plan §5\nitem 1). Runtime-generated at adoption; never derived from key material.",
+      "type": "string"
+    },
+    "NoProxy": {
+      "description": "The only proxy an approved target may have in M03: none (routes are direct).",
+      "oneOf": [
+        {
+          "description": "No proxy.",
+          "type": "string",
+          "const": "none"
+        }
+      ]
+    },
+    "PlanDigest": {
+      "description": "A plan digest: lowercase hex SHA-256 (64 characters), transparent on the wire.",
+      "type": "string"
+    },
+    "RegistryRef": {
+      "description": "A registry for people: its display path (always `/` separators; never parsed\nback) and how it was resolved.",
+      "type": "object",
+      "properties": {
+        "path_display": {
+          "description": "Display form only.",
+          "type": "string"
+        },
+        "resolved_by": {
+          "description": "Resolution.",
+          "$ref": "#/$defs/RegistryResolvedBy"
+        }
+      },
+      "required": [
+        "path_display",
+        "resolved_by"
+      ]
+    },
+    "RegistryResolvedBy": {
+      "description": "How a registry path was resolved (ADR-0008 D5 §6.1).",
+      "oneOf": [
+        {
+          "description": "Given explicitly (`--registry-path`).",
+          "type": "string",
+          "const": "explicit"
+        },
+        {
+          "description": "`$HOME/.ssh/authorized_keys` on the remote.",
+          "type": "string",
+          "const": "remote_home"
+        }
+      ]
+    },
+    "RollbackPlan": {
+      "description": "The rollback procedure.",
+      "oneOf": [
+        {
+          "description": "Compare-then-rename by marker (ADR-0008 D5 §6.8).",
+          "type": "string",
+          "const": "compare_then_rename_by_marker"
+        }
+      ]
+    },
+    "VerificationPlan": {
+      "description": "The verification the plan runs (ADR-0008 D5 §6.5).",
+      "type": "object",
+      "properties": {
+        "max_validity_seconds": {
+          "description": "Certificate validity ceiling.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "negative": {
+          "description": "Whether a negative attempt runs.",
+          "type": "boolean"
+        },
+        "positive_principal": {
+          "description": "`hm:<destination-id>:<account>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "positive_principal",
+        "negative",
+        "max_validity_seconds"
+      ]
+    }
+  }
+}

@@ -19,8 +19,12 @@ use std::collections::BTreeSet;
 
 use heimdall_contract::GrantState;
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{CredentialInstanceId, GrantId, IssuanceId};
+use heimdall_contract::ids::{CaFingerprint, CredentialInstanceId, GrantId, IssuanceId};
 use serde::{Deserialize, Serialize};
+
+/// ⟨M03⟩ The CA state is wire-visible (`IssuerStatus`), so it lives in the contract
+/// and is re-exported here; [`ca_transition`] owns its transitions.
+pub use heimdall_contract::issuer::CaState;
 
 use crate::grant::{AuthorizationSource, GrantSnapshot};
 use crate::policy::{AuthorityGeneration, PolicyRevision, StandingPolicy};
@@ -70,6 +74,11 @@ pub struct CertificateBounds {
     pub extensions: BTreeSet<String>,
     /// Fingerprint of the subject (working) key.
     pub subject_fingerprint: String,
+    /// ⟨M03⟩ The signing CA (ADR-0008 D4 item 3; U0b rows 2–3). Serde default and
+    /// omitted when absent: every M01 issuance-log entry decodes with `None` and
+    /// re-encodes byte-identically. An M03 reservation requires `Some`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_fingerprint: Option<CaFingerprint>,
 }
 
 /// Why issuance is refused (ADR-0005 §3.5 refusal list, same for reserve and publish).
@@ -148,6 +157,17 @@ pub enum IssuanceRefusal {
     /// application around [`check`], which knows no mechanisms.
     #[error("the grant's credential mechanism is unavailable")]
     MechanismUnavailable,
+    /// ⟨M03⟩ The bounds name no CA, or a CA that is not registered (U0b rows 2–3;
+    /// ADR-0008 D4 item 3).
+    #[error("the certificate's CA is unknown")]
+    UnknownCa,
+    /// ⟨M03⟩ The CA has no `verified` enrollment covering the pair.
+    #[error("the CA is not verified for this pair")]
+    CaNotVerifiedForPair,
+    /// ⟨M03⟩ The CA is retiring (or further along): no new reservation (ADR-0008 D4
+    /// item 3).
+    #[error("the CA is retiring")]
+    CaRetiring,
 }
 
 /// One issuance-log entry.
@@ -198,6 +218,10 @@ pub enum CredentialState {
     Installed,
     /// Key destroyed and certificates dropped.
     Destroyed,
+    /// ⟨M03⟩ Installed before a restart whose process holds no vault slot for it
+    /// (ADR-0008 D2 table; U0b row 8). Its grant is degraded
+    /// `credential_reissue_pending`.
+    Lost,
 }
 
 /// Everything the predicates look at; built inside the reserve or publish
@@ -250,6 +274,134 @@ pub struct IssuanceCheck<'a> {
     pub admission: Admission,
     /// Now (the wall time of that observation).
     pub now: Timestamp,
+    /// ⟨M03⟩ The managed CA inputs (U0b row 2). `None` is the M01 input: no CA check
+    /// runs, so M01 behaviour is unchanged; but bounds that name a CA without these
+    /// inputs are refused (`UnknownCa`, fail closed).
+    pub enrolled_cas: Option<EnrolledCas<'a>>,
+}
+
+/// ⟨M03⟩ The CA facts [`check`] needs for a managed certificate (U0b row 2; ADR-0008
+/// D4 item 3), read in the same transaction.
+#[derive(Debug, Clone, Copy)]
+pub struct EnrolledCas<'a> {
+    /// The CAs whose `verified` enrollment covers the pair, newest first.
+    pub verified_for_pair: &'a [CaFingerprint],
+    /// The registered state of the CA the bounds name; `None` when it is not
+    /// registered.
+    pub ca_state: Option<CaState>,
+}
+
+/// ⟨M03⟩ The ADR-0008 D4 item 3 CA checks, in order: a CA must be named and
+/// registered (`UnknownCa`), not retiring or further (`CaRetiring`), and verified
+/// for the pair (`CaNotVerifiedForPair`).
+fn check_ca(input: &IssuanceCheck<'_>) -> Result<(), IssuanceRefusal> {
+    let Some(cas) = input.enrolled_cas else {
+        return match input.bounds.ca_fingerprint {
+            None => Ok(()),
+            Some(_) => Err(IssuanceRefusal::UnknownCa),
+        };
+    };
+    let Some(ca) = &input.bounds.ca_fingerprint else {
+        return Err(IssuanceRefusal::UnknownCa);
+    };
+    match cas.ca_state {
+        None => return Err(IssuanceRefusal::UnknownCa),
+        Some(CaState::Active) => {}
+        // A pending CA signs only verification certificates (ADR-0008 D4 item 3):
+        // it is not an issuing CA for grant certificates.
+        Some(CaState::Pending) => return Err(IssuanceRefusal::UnknownCa),
+        Some(CaState::Retiring | CaState::Unloaded | CaState::Deleted | CaState::Retired) => {
+            return Err(IssuanceRefusal::CaRetiring);
+        }
+        // A state this build does not know issues nothing.
+        Some(_) => return Err(IssuanceRefusal::CaRetiring),
+    }
+    if !cas.verified_for_pair.contains(ca) {
+        return Err(IssuanceRefusal::CaNotVerifiedForPair);
+    }
+    Ok(())
+}
+
+/// ⟨M03⟩ The extensions a grant's certificate for `pair` carries (ADR-0008 D6 item
+/// 1; ADR-0005 §3.4): `permit-pty` for every pair of the grant's scope, and
+/// `permit-agent-forwarding` only with the `agent-forwarding` capability.
+/// `permit-port-forwarding` (no route data until M04), `permit-user-rc` and
+/// `permit-X11-forwarding` never. A pair outside the scope gets nothing. Identical
+/// to M01's `permitted_extensions` for every M01 grant.
+#[must_use]
+pub fn extension_profile(grant: &GrantSnapshot, pair: &AccessPair) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    if !grant.scope.pairs.contains(pair) {
+        return out;
+    }
+    out.insert(EXTENSION_PTY.to_owned());
+    if grant
+        .scope
+        .capabilities
+        .contains(&Capability::AgentForwarding)
+    {
+        out.insert(EXTENSION_AGENT_FORWARDING.to_owned());
+    }
+    out
+}
+
+/// `permit-pty` (ADR-0005 §3.4).
+pub const EXTENSION_PTY: &str = "permit-pty";
+
+/// ⟨M03⟩ An event of the CA retirement machine (ADR-0008 D4 item 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CaEvent {
+    /// The first enrollment under a rotation's `pending` CA verified.
+    FirstEnrollmentVerified,
+    /// `Decide approve` on a `RetireIssuer` decision (in the transaction that
+    /// refuses new reservations for the CA).
+    RetireApproved,
+    /// The issuer child confirmed it zeroized the key (`unloaded`).
+    UnloadConfirmed,
+    /// The store item was deleted by exact identity and a re-read found it absent
+    /// (a store item already absent counts as deleted).
+    StoreItemDeleted,
+    /// The retirement is recorded final.
+    RetirementRecorded,
+}
+
+impl CaEvent {
+    /// Every event.
+    pub const ALL: [CaEvent; 5] = [
+        CaEvent::FirstEnrollmentVerified,
+        CaEvent::RetireApproved,
+        CaEvent::UnloadConfirmed,
+        CaEvent::StoreItemDeleted,
+        CaEvent::RetirementRecorded,
+    ];
+}
+
+/// ⟨M03⟩ A CA transition the D4 item 3 table does not allow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("CA transition {event:?} is not allowed from {from:?}")]
+pub struct InvalidCaTransition {
+    /// The current state.
+    pub from: CaState,
+    /// The refused event.
+    pub event: CaEvent,
+}
+
+/// ⟨M03⟩ ADR-0008 D4 item 3, the durable CA transitions, each persisted before the
+/// next action: `pending → active` (first verified enrollment); `active | pending →
+/// retiring` (`RetireIssuer` approved); `retiring → unloaded` (the child's
+/// confirmation); `unloaded → deleted` (store item gone); `deleted → retired`.
+/// Every other pair is refused. Restart resumes a `retiring` or `unloaded` CA at its
+/// next step through the same table.
+pub fn ca_transition(state: CaState, event: CaEvent) -> Result<CaState, InvalidCaTransition> {
+    let next = match (state, event) {
+        (CaState::Pending, CaEvent::FirstEnrollmentVerified) => Some(CaState::Active),
+        (CaState::Active | CaState::Pending, CaEvent::RetireApproved) => Some(CaState::Retiring),
+        (CaState::Retiring, CaEvent::UnloadConfirmed) => Some(CaState::Unloaded),
+        (CaState::Unloaded, CaEvent::StoreItemDeleted) => Some(CaState::Deleted),
+        (CaState::Deleted, CaEvent::RetirementRecorded) => Some(CaState::Retired),
+        _ => None,
+    };
+    next.ok_or(InvalidCaTransition { from: state, event })
 }
 
 /// The ancestor chain, nearest first, after checking it matches the recorded
@@ -289,6 +441,7 @@ fn ancestor_chain<'a>(
 ///    (`StaleAncestor`);
 /// 3. policy revision unchanged (`StalePolicyRevision`);
 /// 4. pair inside the snapshot and inside every ancestor's; exact principal;
+///    ⟨M03⟩ then the CA checks ([`EnrolledCas`]; skipped for M01 inputs);
 /// 5. `min(deadline, every ancestor deadline, cutoff)`: cutoff and pause refuse
 ///    a **new activation** only (`CutoffPassed`, `PausedActivation`); issuance
 ///    within an existing grant continues under a pause and past the bound is
@@ -338,6 +491,7 @@ pub fn check(input: &IssuanceCheck<'_>) -> Result<(), IssuanceRefusal> {
     if input.bounds.principal != principal_for(input.pair) {
         return Err(IssuanceRefusal::WrongPrincipal);
     }
+    check_ca(input)?;
     let mut bound = input.grant.deadline.effective;
     for ancestor in &chain {
         bound = bound.min(ancestor.deadline.effective);
@@ -423,6 +577,7 @@ mod tests {
                 valid_before: before.parse().unwrap(),
                 extensions: BTreeSet::new(),
                 subject_fingerprint: "fp".into(),
+                ca_fingerprint: None,
             },
             state,
             reserved_at: "2026-10-02T00:00:00Z".parse().unwrap(),
@@ -547,6 +702,8 @@ mod predicate_tests {
                 pause: PauseState::Active,
                 cutoff_at: None,
                 source: PolicySource::SetupDefault,
+                lock_behavior: Default::default(),
+                connection: Default::default(),
             };
             let p = pair("web", "deploy");
             let anchor = TimeAnchor {
@@ -564,6 +721,7 @@ mod predicate_tests {
                     valid_before: t(3600),
                     extensions: ["permit-pty".to_owned()].into(),
                     subject_fingerprint: "fp".into(),
+                    ca_fingerprint: None,
                 },
                 grant,
                 parent: Some(parent),
@@ -605,6 +763,30 @@ mod predicate_tests {
                 time: self.time,
                 admission: admission(&self.grant_anchor, &self.observation),
                 now: self.observation.wall,
+                enrolled_cas: None,
+            })
+        }
+
+        /// The same check with the managed CA inputs.
+        fn check_managed(&self, cas: EnrolledCas<'_>) -> Result<(), IssuanceRefusal> {
+            check(&IssuanceCheck {
+                grant: &self.grant,
+                parent: self.parent.as_ref(),
+                ancestors: &self.ancestors,
+                policy: self.policy.as_ref(),
+                expected_policy_revision: self.expected_policy_revision,
+                current_generation: self.generation,
+                tombstoned: self.tombstoned,
+                pair: &self.pair,
+                bounds: &self.bounds,
+                permitted_extensions: &self.permitted,
+                new_activation: self.new_activation,
+                subject_registered: self.subject_registered,
+                critical_option: self.critical_option,
+                time: self.time,
+                admission: admission(&self.grant_anchor, &self.observation),
+                now: self.observation.wall,
+                enrolled_cas: Some(cas),
             })
         }
 
@@ -873,6 +1055,105 @@ mod predicate_tests {
         for (name, expected, mutate) in cases {
             assert_eq!(refused(mutate), expected, "{name}");
         }
+    }
+
+    /// ⟨M03⟩ U0b row 2: one refusal per new CA predicate; M01 inputs unchanged.
+    #[test]
+    fn m03_ca_refusals() {
+        let ca = |c: char| {
+            CaFingerprint::parse(&format!("SHA256:{}", c.to_string().repeat(43))).unwrap()
+        };
+        let (a, b) = (ca('a'), ca('b'));
+        let verified = [a.clone()];
+        let mut w = World::new();
+        assert_eq!(w.check(), Ok(()), "M01 input: no CA, no CA inputs");
+        let cas = |state| EnrolledCas {
+            verified_for_pair: &verified,
+            ca_state: state,
+        };
+        assert_eq!(
+            w.check_managed(cas(Some(CaState::Active))),
+            Err(IssuanceRefusal::UnknownCa),
+            "no ca_fingerprint"
+        );
+        w.bounds.ca_fingerprint = Some(a.clone());
+        assert_eq!(
+            w.check(),
+            Err(IssuanceRefusal::UnknownCa),
+            "a CA without the CA inputs"
+        );
+        assert_eq!(w.check_managed(cas(Some(CaState::Active))), Ok(()));
+        assert_eq!(
+            w.check_managed(cas(None)),
+            Err(IssuanceRefusal::UnknownCa),
+            "not registered"
+        );
+        for retiring in [
+            CaState::Retiring,
+            CaState::Unloaded,
+            CaState::Deleted,
+            CaState::Retired,
+        ] {
+            assert_eq!(
+                w.check_managed(cas(Some(retiring))),
+                Err(IssuanceRefusal::CaRetiring)
+            );
+        }
+        w.bounds.ca_fingerprint = Some(b);
+        assert_eq!(
+            w.check_managed(cas(Some(CaState::Active))),
+            Err(IssuanceRefusal::CaNotVerifiedForPair)
+        );
+    }
+
+    #[test]
+    fn ca_transition_table() {
+        use CaEvent as E;
+        use CaState as S;
+        let allowed = [
+            (S::Pending, E::FirstEnrollmentVerified, S::Active),
+            (S::Pending, E::RetireApproved, S::Retiring),
+            (S::Active, E::RetireApproved, S::Retiring),
+            (S::Retiring, E::UnloadConfirmed, S::Unloaded),
+            (S::Unloaded, E::StoreItemDeleted, S::Deleted),
+            (S::Deleted, E::RetirementRecorded, S::Retired),
+        ];
+        for from in S::ALL {
+            for event in E::ALL {
+                let expected = allowed
+                    .iter()
+                    .find(|(f, e, _)| *f == from && *e == event)
+                    .map(|(_, _, t)| *t);
+                assert_eq!(
+                    ca_transition(from, event).ok(),
+                    expected,
+                    "{from:?} {event:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn extension_profile_matches_m01_permitted_extensions() {
+        let mut w = World::new();
+        let p = pair("web", "deploy");
+        assert_eq!(
+            extension_profile(&w.grant, &p),
+            [EXTENSION_PTY.to_owned()].into()
+        );
+        assert!(extension_profile(&w.grant, &pair("mail", "root")).is_empty());
+        w.grant
+            .scope
+            .capabilities
+            .insert(Capability::AgentForwarding);
+        assert_eq!(
+            extension_profile(&w.grant, &p),
+            [
+                EXTENSION_PTY.to_owned(),
+                EXTENSION_AGENT_FORWARDING.to_owned()
+            ]
+            .into()
+        );
     }
 
     #[test]

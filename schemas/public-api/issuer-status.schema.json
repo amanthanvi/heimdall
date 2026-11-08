@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IssuerStatus",
+  "description": "`issuer.status` data and `inspect issuer` (§5 item 2).",
+  "type": "object",
+  "properties": {
+    "bundle_stale": {
+      "description": "The last recovery bundle predates an enrollment change.",
+      "type": "boolean"
+    },
+    "cas": {
+      "description": "Registered CAs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CaStatus"
+      }
+    },
+    "issuer_isolation": {
+      "description": "The issuer boundary.",
+      "$ref": "#/$defs/IssuerIsolation"
+    },
+    "orphan_store_items": {
+      "description": "Orphan store items.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OrphanStoreItem"
+      }
+    },
+    "reason": {
+      "description": "With `store_unavailable`: why.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "state": {
+      "description": "Issuer state.",
+      "$ref": "#/$defs/IssuerState"
+    }
+  },
+  "required": [
+    "state",
+    "cas",
+    "orphan_store_items",
+    "issuer_isolation",
+    "bundle_stale"
+  ],
+  "$defs": {
+    "CaFingerprint": {
+      "description": "⟨M03⟩ A CA public key's fingerprint: `SHA256:` followed by exactly 43 characters\nof unpadded standard base64 (`A-Za-z0-9+/`), as `ssh-keygen -l` prints it\n(m03-plan §5 item 1). Validated on parse and on decode; compared exactly.",
+      "type": "string"
+    },
+    "CaState": {
+      "description": "A CA's state (ADR-0008 D4 item 3). Transitions:\n`heimdall_domain::issuance::ca_transition`.",
+      "oneOf": [
+        {
+          "description": "Rotation's new CA before its first verified enrollment; signs only\nverification certificates for its own enrollments.",
+          "type": "string",
+          "const": "pending"
+        },
+        {
+          "description": "Issues for pairs it has a verified enrollment for.",
+          "type": "string",
+          "const": "active"
+        },
+        {
+          "description": "Issuance disabled; the key is being unloaded.",
+          "type": "string",
+          "const": "retiring"
+        },
+        {
+          "description": "No process holds the key.",
+          "type": "string",
+          "const": "unloaded"
+        },
+        {
+          "description": "The store item is gone.",
+          "type": "string",
+          "const": "deleted"
+        },
+        {
+          "description": "Final.",
+          "type": "string",
+          "const": "retired"
+        }
+      ]
+    },
+    "CaStatus": {
+      "description": "One registered CA in the issuer status.",
+      "type": "object",
+      "properties": {
+        "backup_created_at": {
+          "description": "Backup time.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "backup_sha256": {
+          "description": "Backup digest (hex).",
+          "type": "string"
+        },
+        "enrollments": {
+          "description": "Enrollment counts.",
+          "$ref": "#/$defs/EnrollmentCounts"
+        },
+        "fingerprint": {
+          "description": "Fingerprint.",
+          "$ref": "#/$defs/CaFingerprint"
+        },
+        "restored_without_log": {
+          "description": "A key-only restore.",
+          "type": "boolean"
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/CaState"
+        },
+        "store": {
+          "description": "Store kind.",
+          "$ref": "#/$defs/StoreKind"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "state",
+        "store",
+        "backup_sha256",
+        "backup_created_at",
+        "restored_without_log",
+        "enrollments"
+      ]
+    },
+    "EnrollmentCounts": {
+      "description": "Per-CA enrollment counts.",
+      "type": "object",
+      "properties": {
+        "pending": {
+          "description": "Enrollments not yet final, verified or abandoned.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "verified": {
+          "description": "`verified` enrollments.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "verified",
+        "pending"
+      ]
+    },
+    "IssuerIsolation": {
+      "description": "`enforcement.issuer_isolation` and `IssuerStatus.issuer_isolation`.",
+      "oneOf": [
+        {
+          "description": "The issuer is a same-user child process.",
+          "type": "string",
+          "const": "same_user_process"
+        },
+        {
+          "description": "No issuer is involved.",
+          "type": "string",
+          "const": "not_applicable"
+        },
+        {
+          "description": "Not known.",
+          "type": "string",
+          "const": "unknown"
+        }
+      ]
+    },
+    "IssuerState": {
+      "description": "The issuer's state (§5 item 2).",
+      "oneOf": [
+        {
+          "description": "No CA registered.",
+          "type": "string",
+          "const": "not_initialized"
+        },
+        {
+          "description": "The child is starting.",
+          "type": "string",
+          "const": "starting"
+        },
+        {
+          "description": "The child is loading keys.",
+          "type": "string",
+          "const": "loading"
+        },
+        {
+          "description": "Ready.",
+          "type": "string",
+          "const": "ready"
+        },
+        {
+          "description": "The store is unavailable (with `reason`).",
+          "type": "string",
+          "const": "store_unavailable"
+        },
+        {
+          "description": "The child crashed.",
+          "type": "string",
+          "const": "crashed"
+        },
+        {
+          "description": "Unavailable.",
+          "type": "string",
+          "const": "unavailable"
+        },
+        {
+          "description": "Stopping.",
+          "type": "string",
+          "const": "stopping"
+        }
+      ]
+    },
+    "OrphanStoreItem": {
+      "description": "A store item no registration names (ADR-0008 D4 item 1 crash points).",
+      "type": "object",
+      "properties": {
+        "fingerprint": {
+          "description": "Its key's fingerprint, when readable without unlocking.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CaFingerprint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "store": {
+          "description": "Store kind.",
+          "$ref": "#/$defs/StoreKind"
+        }
+      },
+      "required": [
+        "store"
+      ]
+    },
+    "StoreKind": {
+      "description": "The platform store holding K_ca (ADR-0008 D1). **No test variant**: the\ntest-only store kind lives in `heimdall-testkit`, outside the public schema\n(F23).",
+      "oneOf": [
+        {
+          "description": "The macOS login keychain.",
+          "type": "string",
+          "const": "macos_login_keychain"
+        },
+        {
+          "description": "The macOS data-protection keychain.",
+          "type": "string",
+          "const": "macos_data_protection_keychain"
+        },
+        {
+          "description": "Windows DPAPI (current user).",
+          "type": "string",
+          "const": "windows_dpapi"
+        },
+        {
+          "description": "The Linux Secret Service.",
+          "type": "string",
+          "const": "linux_secret_service"
+        }
+      ]
+    }
+  }
+}

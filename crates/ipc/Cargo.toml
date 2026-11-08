@@ -61,3 +61,9 @@ path = "../../tests/adversarial/agent_frames.rs"
 [[test]]
 name = "adversarial_agent_client_frames"
 path = "../../tests/adversarial/agent_client_frames.rs"
+
+# M03 U0b row 1: the signing session, session-bind, and the capacity-then-release
+# order of ADR-0008 D2 item 3a (all platforms; the real-socket part is Unix only).
+[[test]]
+name = "integration_ipc_signing_m03"
+path = "../../tests/integration/ipc_signing_m03.rs"

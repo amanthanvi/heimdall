@@ -645,6 +645,21 @@
           "description": "The runtime started or stopped (restart recovery boundary).",
           "type": "string",
           "const": "runtime_lifecycle"
+        },
+        {
+          "description": "⟨M03⟩ An enrollment record changed state (payload\n[`crate::managed::EnrollmentEventPayload`]).",
+          "type": "string",
+          "const": "enrollment"
+        },
+        {
+          "description": "⟨M03⟩ An owned connection started or closed (payload\n[`crate::managed::ConnectionEventPayload`]).",
+          "type": "string",
+          "const": "connection"
+        },
+        {
+          "description": "⟨M03⟩ A session lock was observed (payload\n[`crate::managed::SessionLockEventPayload`]).",
+          "type": "string",
+          "const": "session_lock"
         }
       ]
     },

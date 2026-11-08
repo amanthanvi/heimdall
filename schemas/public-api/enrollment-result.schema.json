@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnrollmentResult",
+  "description": "The `apply`, `verify` and `remove` operation result (§5 item 3).",
+  "type": "object",
+  "properties": {
+    "commands": {
+      "description": "Commands for `next` (`review_host_trust`).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "enrollment_id": {
+      "description": "Enrollment.",
+      "$ref": "#/$defs/EnrollmentId"
+    },
+    "evidence": {
+      "description": "Verification evidence.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EnrollmentEvidenceView"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "instructions": {
+      "description": "Manual instructions (`manual_registry_edit`).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "next": {
+      "description": "Next step.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EnrollmentNext"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "notes": {
+      "description": "Notes.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EnrollmentNote"
+      }
+    },
+    "state": {
+      "description": "Its state.",
+      "$ref": "#/$defs/EnrollmentState"
+    },
+    "verified_at": {
+      "description": "When verified.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "enrollment_id",
+    "state"
+  ],
+  "$defs": {
+    "ClockMeasurement": {
+      "description": "A destination clock measurement (ADR-0008 D5 §6.5 item 4): the destination's\nclock lags local time by at most `behind_upper_ms`.",
+      "type": "object",
+      "properties": {
+        "behind_upper_ms": {
+          "description": "Upper bound of the destination clock's lag, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "measured_at": {
+          "description": "When measured (local wall time).",
+          "type": "string",
+          "format": "date-time"
+        },
+        "rtt_ms": {
+          "description": "Round trip of the measurement, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "behind_upper_ms",
+        "rtt_ms",
+        "measured_at"
+      ]
+    },
+    "EnrollmentEvidenceView": {
+      "description": "Verification evidence in a result.",
+      "type": "object",
+      "properties": {
+        "client": {
+          "description": "Client version line.",
+          "type": "string"
+        },
+        "clock": {
+          "description": "The clock measurement.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClockMeasurement"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "operation_id": {
+          "description": "The verifying operation.",
+          "$ref": "#/$defs/OperationId"
+        },
+        "server": {
+          "description": "Server version line.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "client",
+        "server",
+        "operation_id"
+      ]
+    },
+    "EnrollmentId": {
+      "description": "⟨M03⟩ Enrollment record ID (m03-plan §5 item 1; ADR-0008 D5 §6.2). The remote\nmarker is `heimdall:<enrollment-id>`, so the ID is the add's idempotency key.",
+      "type": "string"
+    },
+    "EnrollmentNext": {
+      "description": "What the owner should do next after an enrollment operation.",
+      "oneOf": [
+        {
+          "description": "After a pass: apply the projection.",
+          "type": "string",
+          "const": "setup_apply"
+        },
+        {
+          "description": "A held host key: `enroll verify --approve-target-change` or `enroll remove`.",
+          "type": "string",
+          "const": "review_host_trust"
+        },
+        {
+          "description": "`outcome_unknown`: `enroll reconcile`.",
+          "type": "string",
+          "const": "reconcile"
+        },
+        {
+          "description": "`registry_not_rewritable` or `lock_holder_unresolved`: manual instructions.",
+          "type": "string",
+          "const": "manual_registry_edit"
+        }
+      ]
+    },
+    "EnrollmentNote": {
+      "description": "A note in an enrollment result, with the command it names, if any.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "The command that addresses it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "The note.",
+          "$ref": "#/$defs/EnrollmentNoteKind"
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "EnrollmentNoteKind": {
+      "description": "A note kind in an enrollment result.",
+      "oneOf": [
+        {
+          "description": "Ordinary `ssh <alias>` needs a held slot.",
+          "type": "string",
+          "const": "ordinary_ssh_needs_held_slot"
+        },
+        {
+          "description": "An uncertain append may still land (the `late_write` residual).",
+          "type": "string",
+          "const": "possible_late_write"
+        }
+      ]
+    },
+    "EnrollmentState": {
+      "description": "The enrollment record's state (ADR-0008 D5 §6.2; revision 2's 20 states). The\nallowed transitions are `heimdall_domain::enrollment::transition`.",
+      "oneOf": [
+        {
+          "description": "Operation admitted, awaiting the owner decision.",
+          "type": "string",
+          "const": "planned"
+        },
+        {
+          "description": "The approved operation is running; nothing remote is known written.",
+          "type": "string",
+          "const": "applying"
+        },
+        {
+          "description": "The append may or may not have applied.",
+          "type": "string",
+          "const": "outcome_unknown"
+        },
+        {
+          "description": "Our marker or trust is present but wrong, or a check needs the owner.",
+          "type": "string",
+          "const": "held"
+        },
+        {
+          "description": "The exact line is present; no verification has passed yet.",
+          "type": "string",
+          "const": "applied_unverified"
+        },
+        {
+          "description": "System form: waiting for the owner to apply the sshd lines.",
+          "type": "string",
+          "const": "manual_pending"
+        },
+        {
+          "description": "The initial verification is running.",
+          "type": "string",
+          "const": "verifying"
+        },
+        {
+          "description": "Positive passed and negative refused with full evidence.",
+          "type": "string",
+          "const": "verified"
+        },
+        {
+          "description": "A later verification is running; never removes anything.",
+          "type": "string",
+          "const": "reverifying"
+        },
+        {
+          "description": "The initial verification failed; removing our line under the decision.",
+          "type": "string",
+          "const": "rollback_pending"
+        },
+        {
+          "description": "The rollback's removal may or may not have applied (rollback purpose).",
+          "type": "string",
+          "const": "rollback_unknown"
+        },
+        {
+          "description": "An explicit owner-decided removal is running.",
+          "type": "string",
+          "const": "removing"
+        },
+        {
+          "description": "The explicit removal may or may not have applied (removal purpose).",
+          "type": "string",
+          "const": "remove_unknown"
+        },
+        {
+          "description": "System form: the owner is to remove the sshd lines.",
+          "type": "string",
+          "const": "manual_removal_pending"
+        },
+        {
+          "description": "System form: the absence check runs.",
+          "type": "string",
+          "const": "removal_verifying"
+        },
+        {
+          "description": "Final: the rollback removed our line.",
+          "type": "string",
+          "const": "verification_failed"
+        },
+        {
+          "description": "Final: removed (system form: absence verified).",
+          "type": "string",
+          "const": "removed"
+        },
+        {
+          "description": "Final: nothing of ours remains as last observed.",
+          "type": "string",
+          "const": "withdrawn"
+        },
+        {
+          "description": "Final: refused before any write.",
+          "type": "string",
+          "const": "failed_unwritten"
+        },
+        {
+          "description": "The owner gave the account up; trust may remain (`pending_until_line_removed`).",
+          "type": "string",
+          "const": "abandoned"
+        }
+      ]
+    },
+    "OperationId": {
+      "description": "Durable operation ID (spec §4.1 \"Operation\").",
+      "type": "string"
+    }
+  }
+}

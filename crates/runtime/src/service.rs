@@ -4,7 +4,10 @@
 //! single-instance lock → open and migrate the store → environment identity (read
 //! from the store; created once at first start, never changed) → the shared time
 //! gate's anchor check → `Operations::start` (restart recovery: no deadline reset,
-//! no pause revival, no identity change) → bind the control and signing endpoints
+//! no pause revival, no identity change; ⟨M03⟩ in its first transaction installed
+//! credential instances become `lost` and pending ones `destroyed`, m03-plan U0b
+//! row 8, and CA retirements resume, row 23, all before any listener binds) → bind
+//! the control and signing endpoints
 //! (one `ControlConnection::with_server_identity` per accepted control
 //! connection, from the listener's identity) → write `instance.json` → (in
 //! [`Service::run`]) the supervisor. A failure at any step returns an error and
@@ -516,7 +519,23 @@ impl Service {
             server,
             shutdown.clone(),
         ));
-        tasks.spawn(serve_signing(signing, signer, owner, shutdown.clone()));
+        // ⟨M03⟩ The signing endpoint's reference, carried by every connection's
+        // `SigningSession` (U0b row 1).
+        let signing_endpoint = heimdall_contract::provider::EndpointRef {
+            kind: if cfg!(windows) {
+                heimdall_contract::provider::EndpointKind::NamedPipe
+            } else {
+                heimdall_contract::provider::EndpointKind::UnixSocket
+            },
+            locator: advertisement.info.signing_endpoint.clone(),
+        };
+        tasks.spawn(serve_signing(
+            signing,
+            signing_endpoint,
+            signer,
+            owner,
+            shutdown.clone(),
+        ));
         let sup = with_cleaner(
             Supervisor::new(operations.clone(), supervisor).with_state(store, clock),
             cleaner,
@@ -766,6 +785,7 @@ async fn serve_control<L: Accept>(
 /// Accept loop for the signing endpoint (SSH agent framer, M01 signer).
 async fn serve_signing<L: Accept>(
     listener: L,
+    endpoint: heimdall_contract::provider::EndpointRef,
     signer: Arc<dyn Signer>,
     owner: ExpectedOwner,
     shutdown: CancellationToken,
@@ -795,9 +815,10 @@ async fn serve_signing<L: Accept>(
                     continue;
                 }
                 let s = signer.clone();
+                let e = endpoint.clone();
                 let stop = shutdown.clone();
                 conns.spawn(async move {
-                    let _ = heimdall_ipc::signing::serve(stream, s, stop).await;
+                    let _ = heimdall_ipc::signing::serve(stream, peer, e, s, stop).await;
                 });
             }
         }

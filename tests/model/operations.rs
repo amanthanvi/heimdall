@@ -160,6 +160,13 @@ fn enforcement() -> EnforcementEvidence {
             workload_isolation: WorkloadIsolation::SharedOsUser,
             existing_connections: ExistingConnectionsPolicy::GracefulDedicatedConnections,
             revocation: RevocationStatus::LocalApplied,
+            // M03 wave 0 (A1): fail closed until U0b
+            identity_selection: None,
+            new_signing_expiry: None,
+            owned_multiplexing: None,
+            remote_processes: None,
+            unmanaged_connections: None,
+            issuer_isolation: None,
         },
         evidence: Vec::new(),
     }
@@ -176,6 +183,7 @@ fn descriptor() -> AdapterDescriptor {
         interaction: InteractionRequirement::None,
         enforcement: enforcement(),
         lock_continuity: LockContinuity::Unknown,
+        remote_credential_effect: false, // M03 wave 0 (A2)
     }
 }
 
@@ -222,6 +230,9 @@ fn seed(store: &Store) {
                     pause: PauseState::Active,
                     cutoff_at: None,
                     source: PolicySource::SetupDefault,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    lock_behavior: Default::default(),
+                    connection: Default::default(),
                 },
                 false,
             )?;
@@ -454,6 +465,8 @@ fn ensure_req(request_id: &str, work: &str, pairs: &[(&str, &str)]) -> EnsureReq
         request_id: RequestId::parse(request_id).unwrap(),
         interaction: InteractionMode::NonInteractive,
         wait: WaitMode::Sync { timeout_ms: 30_000 },
+        // M03 wave 0 (A1): fail closed until U0b
+        connection: None,
     }
 }
 
@@ -2730,6 +2743,9 @@ async fn g08_a_future_cutoff_on_any_applicable_policy_bounds_the_grant() {
                     pause: PauseState::Active,
                     cutoff_at: Some(cutoff),
                     source: PolicySource::SetupDefault,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    lock_behavior: Default::default(),
+                    connection: Default::default(),
                 },
                 false,
             )
@@ -3277,6 +3293,9 @@ fn r136_second_policy(w: &World, id: &str) -> PolicyId {
                     pause: PauseState::Active,
                     cutoff_at: None,
                     source: PolicySource::SetupDefault,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    lock_behavior: Default::default(),
+                    connection: Default::default(),
                 },
                 false,
             )
@@ -3806,6 +3825,7 @@ impl CredentialAdapter for PendingRevoke {
             Ok(heimdall_app::ports::RevokeOutcome {
                 remote_pending: vec![DestinationId::parse("h1").unwrap()],
                 latest_possible_credential_expiry: None,
+                remote_effects: Vec::new(), // M03 wave 0 (A2)
             })
         })
     }
@@ -4540,6 +4560,9 @@ fn r139_unrelated_policy(w: &World, revision: u64) {
                     pause: PauseState::Active,
                     cutoff_at: None,
                     source: PolicySource::SetupDefault,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    lock_behavior: Default::default(),
+                    connection: Default::default(),
                 },
                 false,
             )

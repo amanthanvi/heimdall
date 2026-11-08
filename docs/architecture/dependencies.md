@@ -107,3 +107,69 @@ a crate we pin. Re-check after any bump (`cargo tree -d`).
 2. Run `tools/validation/check.sh`; for `windows-sys`, `tokio`, `ssh-*` also
    `cargo check --target x86_64-pc-windows-gnu -p heimdall-ipc`.
 3. Record the reason and date in this file; licence changes reopen ADR-0002 §12.
+
+## 5. ⟨M03⟩ Dependencies (U0, wave 0; ADR-0008 §18)
+
+**Observed on 2026-11-08.** Selection rule (m03-plan U0): the newest release published
+**on or before 2026-10-25** (at least two weeks before this record), not yanked, with a
+`rust_version` of at most 1.99.1. Versions, publish dates, MSRVs and licences are the
+crates.io sparse index and `crates.io/api/v1` values for the exact version; advisories are
+the RustSec advisory-db at commit `309392b1` (2026-11-06). The resolution check was a
+copy of the workspace manifests and the committed `Cargo.lock` with a scratch member
+carrying the new dependencies under their target cfgs (`cargo metadata` and `cargo tree`
+only, no build; no existing package moved). `cargo-deny`/`cargo audit` remain M08.
+
+| Crate | Pinned | Licence | Used by | Purpose | Rejected alternatives |
+|---|---|---|---|---|---|
+| ssh-key | 0.6.7 (published 2024-10-15, MSRV 1.65; features `std` + ⟨M03⟩ `ed25519`, `encryption`, `rand_core`) | Apache-2.0 OR MIT | credential, issuer (ipc, testkit as before) | Ed25519 key generation for K_env, K_verify and K_ca; OpenSSH private-key and certificate encoding; the D5 backup (`encryption` = bcrypt-pbkdf with aes256-ctr, ADR-0008 §6.3). `ed25519` and `rand_core` add no package (`ed25519-dalek` 2.2.0 and `rand_core` 0.6.4 are already in the lock through ssh-agent-lib's `ssh-key/crypto`); `encryption` adds 15 (aead, aes 0.8.4, aes-gcm, bcrypt-pbkdf, blowfish, cbc 0.1.2, chacha20 0.9.1, ctr, ghash, opaque-debug, pbkdf2, poly1305, polyval, universal-hash, block-padding 0.3.3). No advisory. Kept at 0.6.7, the last 0.6 release: 0.7.0-rc.11 (2026-06-29) is still a release candidate and ssh-agent-lib 0.6 needs 0.6 | `ed25519-dalek` directly (would hand-roll OpenSSH key and certificate encoding, which spec §7.2 forbids guessing); shelling out to `ssh-keygen` (no in-memory key, no zeroize); `ssh-key` 0.7 rc (see above) |
+| zeroize | 1.9.1 (2026-10-06, MSRV 1.85; `alloc`, no default, no `derive`) | Apache-2.0 OR MIT | credential, issuer | `Zeroizing<_>` and `Zeroize` for the `SecretKey` vault type, passphrases and the issuer's K_ca buffer (ADR-0008 D2, D4). Already in the lock at 1.9.1 through ssh-key and the RustCrypto crates: **no new package**. `derive` is left off (it adds `zeroize_derive`, one more proc-macro crate); the vault type implements `Drop` explicitly. No advisory | `secrecy` (a second wrapper; the vault type's no-`Clone`/`Debug` rules are the ADR's own); volatile writes by hand (needs `unsafe`) |
+| security-framework | 3.7.0 (2026-02-20, MSRV 1.85; **no default features**, no features) | MIT OR Apache-2.0 | issuer (macOS only) | login-keychain generic-password items, `SecKeychain` (a disposable file keychain under the test configuration) and `SecKeychain::disable_user_interaction()` (ADR-0008 D1, D3). Adds 4 packages: security-framework, security-framework-sys 2.17.0 (2026-02-20), core-foundation 0.10.1, core-foundation-sys 0.8.7. Only advisory: RUSTSEC-2017-0003 (patched at 0.1.12, not applicable). **Gap:** neither this crate nor `security-framework-sys` 2.17.0 declares `SecAccessCreate` or `SecTrustedApplicationCreateFromPath` (the crate has the `SecAccess` type only), so the "trust only the `heimdall` executable" access list is declared in `crates/issuer/src/sys.rs` (already in the `unsafe` inventory, ADR-0008 §18). `OSX_10_15` (`PasswordOptions::use_protected_keychain`) is added with D3's data-protection keychain, with no new package | `keyring` 4.2.0 (a facade over per-OS store crates: no SecAccess list, no interaction control, and its Windows store is Credential Manager where D1 specifies a DPAPI file); hand-written FFI for everything (a far larger `unsafe` surface); feature `sync-keychain` (iCloud sync is never wanted) |
+| secret-service | 5.2.0 (2026-08-29, MSRV 1.87; **no default features**, `rt-tokio-crypto-rust`) | MIT OR Apache-2.0 | issuer (Linux only) | Secret Service client for the login collection over a DH-encrypted session (ADR-0008 D1, `LinuxSecretService`). `rt-tokio` = `zbus/tokio`; `crypto-rust` is the pure-Rust DH/AES-CBC path. 5.2.0 over 5.1.0: its notes list a check of the initialization-vector length and an error instead of a panic when a prompt fails (GitHub release notes, read 2026-11-08). No advisory. **Cost:** `crypto-rust` pulls the RustCrypto 0.11 generation (sha2 0.11.1, hkdf 0.13, hmac 0.13, digest 0.11, aes 0.9, cbc 0.2, cipher 0.5), a Linux-only duplicate of the 0.10 generation ssh-key uses (§3 below) | `secret-service` 5.1.0 (2025-09-03; zero duplicate crypto crates because it uses the 0.10 generation, but no IV check; the fallback if the duplicates are refused); `crypto-openssl` (links the system libssl); `rt-async-io` (a second async runtime); 6.0.0-rc.1 (2026-11-06, a release candidate on zbus 6; younger than two weeks); `oo7` 0.7.0 (2026-11-05, MSRV 1.95, carries a portal and file backend that this design must not have, D1 "no plaintext fallback"); `keyring` (see above); libsecret bindings (glib, a C dependency); shelling out to `secret-tool` (m03-plan P3: no DH control) |
+| zbus | 5.19.0 (2026-08-09, MSRV 1.87; **no default features**, `tokio`) | MIT | issuer (through secret-service), runtime (Linux only; logind `LockedHint` and `Lock`/`Unlock`) | the one D-Bus client in the tree (m03-plan P3). Shared with secret-service by pinning the major it requires (`zbus ^5`), so there is exactly one zbus. The Linux additions are zbus 5.19.0, zbus_macros, zbus_names 4.3.5, zvariant 5.15.1, zvariant_derive, zvariant_utils 4.2.0 and their small dependencies (async-broadcast, event-listener, futures-lite, enumflags2, serde_repr, winnow, uuid, ordered-stream and similar; the Linux total is under "Weight" below). **Advisories:** RUSTSEC-2026-0370, -0371 and -0372 (2026-10-16, informational `unmaintained`, no patched version) cover zvariant, zbus_names and zvariant_derive, which zbus 6.0.0 merged into itself; zbus 5.19.0 (the last 5.x) has none of its own. Accepted until secret-service 6.0.0 is released stable on zbus 6; then bump both together (record it here). **Feature unification:** zbus's `tokio` feature turns on tokio's `rt-multi-thread`, `fs` and `tracing` in Linux builds (it adds no package; the runtime stays `current_thread`; measured with `cargo tree -e features`: Linux gains `rt-multi-thread` and `fs`, macOS and Windows builds do not) | `dbus` crate (needs libdbus-1 and pkg-config, a C dependency that breaks the zig cross-build); zbus 6.x (6.0.0 on 2026-10-16 to 6.2.1 on 2026-11-01: secret-service 5.2.0 cannot use it, and a hand-written Secret Service DH client would be custody code we do not want to own); `rustbus`; shelling out to `busctl monitor` (polling, stdout parsing) |
+| windows-sys | 0.61.2 (unchanged; ⟨M03⟩ adds `Win32_Security_Cryptography`, `Win32_System_RemoteDesktop`, `Win32_UI_WindowsAndMessaging`, `Win32_System_Diagnostics_ToolHelp`, plus `Win32_System_Memory` and `Win32_System_LibraryLoader` below) | MIT OR Apache-2.0 | issuer (`Win32_Security_Cryptography`: `CryptProtectData`, `CryptUnprotectData`, `CRYPTPROTECT_UI_FORBIDDEN`, `CRYPT_INTEGER_BLOB`; `LocalFree` and the blob's DACL use the existing `Win32_Foundation` and `Win32_Security_Authorization`); runtime session lock (`Win32_System_RemoteDesktop`: `WTSRegisterSessionNotification`, `WTSUnRegisterSessionNotification`, `WTSQuerySessionInformationW`, `WTSFreeMemory`, `WTSINFOEXW`, `NOTIFY_FOR_THIS_SESSION`; `Win32_UI_WindowsAndMessaging`: `CreateWindowExW`, `RegisterClassW`, `HWND_MESSAGE`, `GetMessageW`, `DispatchMessageW`, `DefWindowProcW`, `PostMessageW`, `DestroyWindow`, `WM_WTSSESSION_CHANGE` and the constants `WTS_SESSION_LOCK`/`WTS_SESSION_UNLOCK`, which live in this module, not in RemoteDesktop; `Win32_System_LibraryLoader`: `GetModuleHandleW` for the window class); localenv (`Win32_System_Diagnostics_ToolHelp`: `CreateToolhelp32Snapshot`, `Thread32First`, `Thread32Next`, `THREADENTRY32`; `ResumeThread`, `OpenThread`, `CREATE_SUSPENDED` are already in `Win32_System_Threading`); credential (`Win32_System_Memory`: `VirtualLock`, `VirtualUnlock`) | each feature name and each symbol above was found in the 0.61.2 source (checked 2026-11-08). The four ADR-0008 §18 features exist at 0.61.2. `Win32_System_Memory` and `Win32_System_LibraryLoader` are **not in ADR-0008 §18's list** but the named `sys.rs` modules need them (see the notes file). **No new package** | `windows` crate (larger); `winapi` (unmaintained since 2020) |
+| core-foundation | 0.10.1 (2025-05-26, MSRV 1.65; default `link`) | MIT OR Apache-2.0 | runtime (macOS only) | `CFDictionary`, `CFString`, `CFBoolean`, `CFRunLoop` wrappers for the session-lock source (`CGSSessionScreenIsLocked`, the run-loop thread). Already in the graph through security-framework: **no new package** once that is in | `objc2-core-foundation` (a new family for the same wrappers) |
+| core-foundation-sys | 0.8.7 (2024-08-11; default `link`) | MIT OR Apache-2.0 | runtime (macOS only) | `CFNotificationCenterGetDistributedCenter`, `CFNotificationCenterAddObserver`, `CFNotificationCenterRemoveObserver` for `com.apple.screenIsLocked`/`com.apple.screenIsUnlocked` (present in 0.8.7 `notification_center`; core-foundation 0.10.1 has no wrapper). Already in the graph. `CGSessionCopyCurrentDictionary` is in neither crate: `crates/runtime/src/session_lock/sys.rs` declares it with `#[link(name = "CoreGraphics", kind = "framework")]` (already in the `unsafe` inventory) | `core-graphics` (bindings for one function, plus its own dependencies) |
+
+**Existing pins that M03 starts using (no change):** `libc` 0.2.191 for `mlock`,
+`munlock`, `prctl(PR_SET_DUMPABLE)` and `setrlimit(RLIMIT_CORE)` in
+`crates/credential/src/sys.rs` (Unix); `rustix` 1.1.6 feature `process` for
+`pidfd_open`/`pidfd_send_signal` where the using crate declares it (the feature is
+already on in the lock's feature set through testkit); `getrandom` 0.4.3, which
+secret-service 5.2.0 also requires (`^0.4`), so one copy serves both.
+
+**Transitive versions held back to the two-week rule.** After adding the dependencies
+the resolver picked six packages published after 2026-10-25. They are held at the newest
+release on or before that date (`cargo update -p <name> --precise <version>`, checked
+to resolve): aes 0.9.4 to **0.9.3** (2026-08-28), ctutils 0.4.8 to **0.4.6**
+(2026-10-25; RUSTSEC-2026-0385 is patched from 0.4.4), inout 0.2.6 to **0.2.5**
+(2026-10-19), uuid 1.29.1 to **1.29.0** (2026-10-23), zcheapstr 1.2.0 to **1.1.0**
+(2026-08-10), and js-sys 0.3.107 with wasm-bindgen 0.2.130 (and its macro,
+macro-support and shared crates) to **0.3.106 / 0.2.129** (2026-09-25; these five are
+wasm32-only lock entries pulled by uuid and are never compiled here). With these, every
+package the M03 dependencies add was published on or before 2026-10-25 and none is
+yanked. Every added package is MIT, MIT OR Apache-2.0 or Apache-2.0 OR MIT; the highest
+MSRV among them is 1.89 (uuid 1.29.0, aes 0.9.3), which rusqlite's direct 1.89 already
+sets.
+
+**Weight, measured with the check above (unique normal-edge crates, then lock
+packages).** All targets: 204 to 272; Cargo.lock 245 to 316 (71 added). Per target:
+Linux x86_64 186 to 248 (+62: 15 ssh-key `encryption`, 47 secret-service and zbus), macOS
+arm64 183 to 202 (+19: 15 and 4 security-framework), Windows msvc 184 to 199 and gnu 185
+to 200 (+15, all ssh-key `encryption`; windows-sys features add no package). The Linux
+cost is the one the m03-plan P3 asks to record; the devbox build time is measured by the
+unit that first builds it, not here. No new package has a C build step (no
+`openssl-sys`, no `libdbus-sys`).
+
+**Duplicate versions this adds (against §3):** Linux only, from secret-service
+`crypto-rust`: aes 0.8/0.9, block-buffer 0.10/0.12, block-padding 0.3/0.4, cbc 0.1/0.2,
+cipher 0.4/0.5, const-oid 0.9/0.10, crypto-common 0.1/0.2, digest 0.10/0.11, hmac
+0.12/0.13, inout 0.1/0.2, sha2 0.10/0.11. All targets, from ssh-key `encryption`:
+chacha20 0.9.1 beside the 0.10.2 already present. No second zbus, getrandom 0.4,
+rand_core or windows-sys. The earlier note that sha2 0.11 "would duplicate sha2" now
+holds on Linux, accepted for the pure-Rust Secret Service path (see secret-service
+above; 5.1.0 is the zero-duplicate fallback).
+
+**Known gap in what this records:** the compile-level behaviour of zbus on a
+`current_thread` tokio runtime and of the macOS `SecAccess` declarations is verified by
+the units that first call them (m03-plan U4, U8), on their native hosts; this section
+checks resolution, versions, features and source symbols only.

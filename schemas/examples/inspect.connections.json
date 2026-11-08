@@ -1,0 +1,32 @@
+{
+  "connections": [
+    {
+      "id": "conn_00112233445566778899aabbccddeeff",
+      "kind": "master",
+      "binding_id": "binding_0123456789abcdef0123456789abcdef",
+      "grant_id": "grant_aaaaaaaabbbbbbbbccccccccdddddddd",
+      "destination_id": "dest-lab",
+      "started_at": "2026-11-10T14:05:00Z",
+      "policy": {
+        "existing": "strict",
+        "multiplexing": "owned_masters"
+      },
+      "closes_at": "2026-11-10T22:00:00Z",
+      "state": "up"
+    },
+    {
+      "id": "conn_ffeeddccbbaa99887766554433221100",
+      "kind": "dedicated",
+      "binding_id": "binding_0123456789abcdef0123456789abcdef",
+      "grant_id": "grant_aaaaaaaabbbbbbbbccccccccdddddddd",
+      "destination_id": "dest-lab",
+      "started_at": "2026-11-10T14:06:00Z",
+      "policy": {
+        "existing": "graceful",
+        "multiplexing": "disabled"
+      },
+      "closes_at": null,
+      "state": "closing"
+    }
+  ]
+}

@@ -58,6 +58,49 @@ beside the layers above and depend inward only:
 * `crates/launch` (`heimdall-launch`): the process contract for `run`, `connect` and
   the TUI handoff (U8).
 
+**M03 crates** (m03-plan U0 and §0.6; ADR-0008 §18). Four more crates join the
+workspace, again depending inward only. `crate-graph` (`tools/validation/crate_graph.py`,
+a `check.sh` step) checks these edges against the manifests on every run:
+
+```text
+   registry   ──► domain, contract                       (pure: no I/O)
+   app        ──► registry, store, domain, contract      (+ registry)
+   credential ──► app (ports, managed), ipc, domain, contract
+   issuer     ──► credential, app (issuance_ro, ports), store, domain, contract
+   enroll     ──► registry, app (ports), domain, contract
+   adapters   ──► … + credential      runtime ──► … + credential, issuer, enroll
+   heimdall   ──► … + issuer, enroll  testkit ──► … + [credential], [issuer] (feature `managed`)
+```
+
+* `crates/registry` (`heimdall-registry`): the remote-registry protocol, pure: the
+  registry line and marker, the HM1 output grammar and parser, the remote scripts and
+  their goldens, post-image construction, the step classification
+  (`classify::classify_step`) and the enrollment plan (`plan::build`, the D5 §6.1
+  preconditions and `plan_digest`). `app` calls it directly, through no port.
+* `crates/credential` (`heimdall-credential`): the in-process key vault, certificates,
+  purpose parsing, `session-bind@openssh.com`, the signer and its endpoints (U1, U2).
+  It fills `ipc::signing::PermitGuard` from `app::managed::SignPermit` and implements
+  `app::ports::{SignatureAuthority caller, VerificationEndpoints}`. Holds the fourth
+  `unsafe` module (§9).
+* `crates/issuer` (`heimdall-issuer`): the issuer child (`heimdall internal issuer`),
+  the `heimdall-issuer/1` protocol and its client (`IssuerPort`), the `SecretStore`
+  trait and its product stores, the D5 backup, the ceremonies and the recovery bundle
+  (U3, U4). Holds the fifth `unsafe` module (§9).
+* `crates/enroll` (`heimdall-enroll`): enrollment I/O only, the CLI-side
+  `SshStepRunner` and the runtime-side `Verifier` (`VerificationRunner`) (U5).
+
+`app` depends on none of `credential`, `issuer`, `enroll`, `adapters`, `localenv` or
+`runtime`, and `ipc` depends only on `contract`: the signing permit crosses into `ipc`
+as the opaque `ipc::signing::PermitGuard` (a boxed `ReleaseCheck`). Ports carry what
+flows upward: `TargetEvaluator` (localenv → app), `ManagedEffects` (adapters → app),
+`IssuerPort` (issuer → app), `VerificationRunner` (enroll → app), `SignatureAuthority`
+and `VerificationEndpoints` (credential ↔ app), `SessionLockSource` and
+`ConnectionControl` (runtime → app). The shared pure inputs of the plan
+(`TargetEvaluation`, `ApprovedTarget`, the catalog view) live in `heimdall-domain`.
+In wave 0 every new body that a later unit writes fails closed: nothing in these
+crates is reachable from a request, a CLI command, restart recovery or a supervisor
+pass until the activation change set (m03-plan §2, wave 4).
+
 `app` never depends on these crates: it names them only through its ports, and the
 recovery and fingerprint types a held step carries live in
 `heimdall_domain::projection` (wave-0 verifier E8). The runtime wires the real
@@ -92,7 +135,11 @@ M02 adapters are both known callers; no plugin framework exists.
 | `heimdall-localenv` (M02) | Discovery (paths, clients, agents, known hosts), local queries, Git observation, the passive doctor and explicit probes (U3); the projection file transaction behind `ProjectionWriter`, the projection `ResourceCleaner`, public-key files (U4); the environment snapshot shared with `launch`; the third `unsafe` module (§9) | Authority decisions, store access, wire rendering, removing any name outside its quarantine | app (ports), sshconf, domain, contract, glob, rustix (Unix), windows-sys (Windows) | `env`, `paths`, `fs`, `clients`, `agents`, `known_hosts`, `local_query`, `git`, `doctor`, `probe::*`, `projection::{LocalProjection, replace, content, recovery, git, cleaner}`, `materialize`, `sys` |
 | `heimdall-adapters` (M02) | The native-agent and 1Password existing-access adapters (`CredentialAdapter` + `ProviderProbe`), passive detection, interaction states through the domain rule, consumer integration (U6) | Signing, adding, removing or locking keys; hardcoded 1Password paths (no pinned excerpt, `docs/sources/excerpts/notes.md`) | app (ports), localenv, ipc, domain, contract | `native_agent`, `onepassword`, `detect`, `state`, `integration` |
 | `heimdall-launch` (M02) | The process contract: program resolution without a shell, the environment delta, side-channel run records, Unix `exec`, Windows spawn-and-wait, TUI handoff, the pre-launch eligibility check (U8) | Sending or recording `argv`, job objects for the launched child, authorization | localenv, domain, contract, tokio | `resolve`, `env`, `meta`, `unix`/`windows`, `handoff`, `eligibility`, `MAX_ARGV_BYTES` |
-| `heimdall-testkit` (dev) | `VirtualClock`, `ScriptedFaults`, `FakeCredentialAdapter` with side-effect counters, proptest strategies, `assert_no_canary` | Shipping in a binary (dev-dependency only) | app, store, domain, contract, proptest | as listed |
+| `heimdall-testkit` (dev) | `VirtualClock`, `ScriptedFaults`, `FakeCredentialAdapter` with side-effect counters, proptest strategies, `assert_no_canary`; ⟨M03⟩ feature `managed`: `ScratchSecretStore` (U4) and `FakeSessionLockSource`, with the testkit-side store kind `scratch_test` (outside the public schema) | Shipping in a binary (dev-dependency only; the `heimdall` binary references it only under `cfg(debug_assertions)`) | app, store, domain, contract, proptest, [credential], [issuer] | as listed |
+| `heimdall-registry` (M03) | The remote-registry protocol, pure: registry line, marker, HM1 grammar and parser, remote scripts (goldens in `tests/contracts/golden/enroll-scripts/`), post-image construction, `classify::classify_step`, `plan::build` and `plan_digest` (ADR-0008 D5 §6.1, §6.3) | Any I/O, running ssh, the store | domain, contract | `line`, `hm1`, `scripts`, `classify`, `plan` |
+| `heimdall-credential` (M03) | The B1 signer: key vault with memory protection, certificates, purpose parsing, `session-bind`, the signer and its grant, environment and verification endpoints (ADR-0008 D1, D2; U1, U2) | Authorization (asks `SignatureAuthority`), the store, K_ca | app (ports, managed), ipc, domain, contract, ssh-key, zeroize | `vault`, `cert`, `purpose`, `signer`, `endpoints`, `sys` |
+| `heimdall-issuer` (M03) | The issuer child (no listener) and `heimdall-issuer/1`, its client (`IssuerPort`), the `SecretStore` trait and the product stores, the D5 backup, ceremonies and the recovery bundle (ADR-0008 D3, D4; U3, U4) | A listener of any kind, issuing without a store reservation, writing the store (it opens it read-only) | credential, app (issuance_ro, ports), store, domain, contract | `protocol`, `child`, `client`, `store`, `backup`, `ceremony`, `bundle`, `sys` |
+| `heimdall-enroll` (M03) | Enrollment I/O: the CLI-side `SshStepRunner` (client-executed remote steps) and the runtime-side `Verifier` (`VerificationRunner`, the independent fresh login) (ADR-0008 D5 §6.3, §6.5; U5) | Deciding anything the pure `heimdall-registry` decides; contacting the signer of a managed binding during maintenance | registry, app (ports), domain, contract | `remote`, `verify` |
 
 ## 3. Process model (spec §13.1, §13.2, P01)
 
@@ -272,8 +319,8 @@ integration,adversarial}` hold cross-crate tests as `m01-plan.md` assigns them.
 
 ## 9. `unsafe` inventory
 
-`unsafe_code = "deny"` at workspace level. Exactly three modules may opt in (the
-third since M02, ADR-0007 §13):
+`unsafe_code = "deny"` at workspace level. Three modules may opt in today (the third since M02, ADR-0007 §13), and M03 adds
+three more (4–6 below; ADR-0008 §18):
 
 1. `crates/ipc/src/windows.rs` (`#![allow(unsafe_code)]`): `CreateNamedPipeW`
    security attributes (`create_with_security_attributes_raw`), SDDL conversion,
@@ -326,6 +373,42 @@ third since M02, ADR-0007 §13):
    `fs::renameat_with` (m02-plan §6 P5; `dependencies.md`). The module's own table
    lists each call with its invariant.
 
+⟨M03⟩ Three more modules may opt in (ADR-0008 §18; m03-plan U0). Wave 0 declares none
+of them: each is created, with its `#![allow(unsafe_code)]` and its own table, by the
+unit named below, and the table here is the invariant each call must keep. The
+existing `crates/localenv/src/sys/mod.rs` also gains `JobObject::spawn_contained` (U7:
+`CREATE_SUSPENDED`, assignment, then `ResumeThread` on the main thread found through
+`CreateToolhelp32Snapshot`/`Thread32First`/`Thread32Next`), and `pidfd_open`/
+`pidfd_send_signal` go through `rustix` or the existing `platform.rs`.
+
+4. `crates/credential/src/sys.rs` (U1; memory protection of K_env, K_verify and their
+   certificates, ADR-0008 D1, D2):
+
+   | Call | Invariant |
+   |---|---|
+   | `mlock`/`munlock` (Unix), `VirtualLock`/`VirtualUnlock` (Windows) | Only on a region owned by one `SecretKey`, for exactly that key's lifetime; unlocked once, after the bytes are zeroized. A lock that fails is recorded as a degraded mitigation and does not refuse the key (D1) |
+   | `prctl(PR_SET_DUMPABLE, 0)` (Linux) | At runtime start and in the issuer child, before any key exists. A mitigation, not a boundary (ADR-0005 §3.6); its ptrace test has a dumpable positive control (§17.1 item 17) |
+   | `setrlimit(RLIMIT_CORE, 0)` (Linux, macOS) | At runtime start and in the issuer child; only lowers limits. Windows has no additional mitigation (disclosed, D1) |
+
+5. `crates/issuer/src/sys.rs` (U4; K_ca custody, ADR-0008 D1, D4):
+
+   | Call | Invariant |
+   |---|---|
+   | macOS `SecAccess` creation and generic-password add/copy/delete | The access list trusts only the `heimdall` executable; the issuer's reads disallow user interaction (`errSecInteractionNotAllowed` → `interaction_not_allowed`), so a prompt happens only in `heimdall issuer unlock`; tests use only a disposable file keychain outside the search list; every returned CF object is released exactly once |
+   | Windows `CryptProtectData`/`CryptUnprotectData` | CurrentUser scope with Heimdall entropy and `CRYPTPROTECT_UI_FORBIDDEN`; the blob lives in a Heimdall file with an owner-only protected DACL; every returned buffer is freed with `LocalFree` exactly once, and the plaintext is zeroized |
+
+6. `crates/runtime/src/session_lock/sys.rs` (U9; the session-lock source, ADR-0008 D9):
+
+   | Call | Invariant |
+   |---|---|
+   | macOS `CGSessionCopyCurrentDictionary` (`CGSSessionScreenIsLocked`) | The dictionary is released exactly once; a missing or unreadable value reads as `unknown`, which fails closed (every `revoke_on_lock` grant is treated as locked) |
+   | macOS `CFNotificationCenter` (distributed lock/unlock notifications) | On a dedicated run-loop thread; the callback only latches the lock epoch and wakes the source (`changed()`), it never calls into the application; removed before the thread ends |
+   | Windows `WTSRegisterSessionNotification` and the message-only window | A hidden message-only window on its own thread; registered and unregistered exactly once |
+   | Windows `WTSQuerySessionInformationW(WTSSessionInfoEx)`/`WTSFreeMemory` | The buffer is freed with `WTSFreeMemory` exactly once; a failed query reads as `unknown` |
+
+   Linux desktop uses logind over D-Bus (`zbus`, no `unsafe`); headless Linux, WSL and
+   containers report `unavailable` (`lock_signal_unavailable`).
+
 Each call is wrapped in a safe function with its invariants documented; no `unsafe`
 leaves any of these modules. Unix IPC needs none (tokio provides `peer_cred`; std
 provides file locks and permission bits).
@@ -351,7 +434,14 @@ lesson); `cargo-deny`/`cargo auditable`/OSV scanning are M08 obligations
   generated-schema diff (two exports must match each other and
   `schemas/public-api/`), and a zero-test guard: any non-doctest test target that
   reports `running 0 tests` fails the run (review F09). Each step prints its real
-  exit code.
+  exit code. ⟨M03⟩ Three more steps (m03-plan U0, U0b row 16): `crate-graph`
+  (`crate_graph.py`: no production cycle, no `app → {credential, issuer, enroll,
+  adapters, localenv, runtime}` edge, `ipc` only on `contract`, `registry` only on
+  `contract` and `domain`; with its mutant-fixture self-tests), `claims-table`
+  (`claims_table.py`: every claim-table entry backed by a `verified` record at an
+  ancestor commit, custody claims only from release builds on product stores; with
+  its self-tests) and `release-gate` (`release-gate.sh`: a release binary exits 2 for
+  every `HEIMDALL_TEST_*` variable, M01–M03, on each command that reads it).
 * **Test-target convention (review F09).** Every planned suite is a real Cargo
   `[[test]]` target whose source lives under the repository `tests/{model,
   contracts,integration,adversarial,e2e}/` tree (plan §7.1 layout), declared with
