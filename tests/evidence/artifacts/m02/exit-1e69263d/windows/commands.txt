@@ -1,0 +1,18 @@
+exit 0: git clone of the public repository into the run directory
+exit 0: git config --local core.autocrlf false (the clone's own configuration)
+exit 0: git config --local core.longpaths true (the clone's own configuration)
+exit 0: git checkout --detach <exit commit>
+exit 0: the checked-out tree has LF line endings (core.autocrlf=false)
+exit 0: the clone is at exactly the exit commit
+exit 0: rustup-init.exe downloaded over HTTPS and its sha256 matches the published one
+exit 0: rustup-init into the run directory (RUSTUP_HOME and CARGO_HOME there, --no-modify-path, toolchain 1.99.1)
+exit 0: cargo test --workspace --locked --no-run (native x86_64-pc-windows-msvc)
+exit 0: wsl.exe: create the WSL scratch directory exclusively
+exit 0: fixture sshd in WSL scratch reachable from Windows on 127.0.0.1
+exit 0: every test binary natively, each under its timeout (overall exit = last failing binary's exit, 0 if all passed)
+exit 0: %USERPROFILE%\.ssh and .gitconfig metadata unchanged by the run
+exit 0: wsl.exe: the recorded fixture sshd is stopped (or already gone) at the end of the run
+exit 0: wsl.exe: remove exactly the WSL scratch directory, then check it is absent
+exit 0: remove the clone, the build and the toolchain from the run directory, then check they are absent
+exit 0: canary-prefix scan over saved output and metadata (count = 0)
+exit 0: leak scan: saved files and metadata still naming a host, a user or a home (0)

@@ -1020,6 +1020,8 @@ class WindowsBundle(unittest.TestCase):
             "a long label": make_bundle(label="x" * 201),
             "private-key armor": make_bundle({"build.txt": "-----BEGIN " + "OPENSSH PRIVATE KEY-----\n"}),
             "a Unix home path": make_bundle({"build.txt": "at /home/someone/src\n"}),
+            "a Unix home after a placeholder": make_bundle({"build.txt": "at <scratch>/home/someone/src\n"}),
+            "a Unix home whose name has a dot inside": make_bundle({"build.txt": "at /home/some.one/src\n"}),
             "a Windows home path": make_bundle({"build.txt": "at C:\\Users\\someone\\src\n"}),
             "a WSL view of a Windows home": make_bundle({"build.txt": "at /mnt/c/Users/someone/x\n"}),
             "a macOS home path": make_bundle({"build.txt": "at /Users/someone/x\n"}),
@@ -1052,6 +1054,13 @@ class WindowsBundle(unittest.TestCase):
         files = {"build.txt": "C:\\Users\\<winuser>\\src and <winhome>\\x and C:\\Users\\Public\\y and "
                               "/home/<wsluser>/z and /hm/home/fixture and /mnt/c/Users/<winuser>/w\n"}
         dest, _, _ = wb.import_bundle(make_bundle(files), "exit-ok", self.root)
+        self.assertTrue((dest / "build.txt").exists())
+
+    def test_a_fixture_home_directory_dotfile_is_not_a_home(self):
+        # The Windows exit run at 1e69263d: a Git observation line names the fixture's own
+        # `home` directory under the redacted scratch root. A user name never starts with ".".
+        files = {"build.txt": 'git_var_global="<scratch>/home/.config/git/config,<scratch>/home/.gitconfig"\n'}
+        dest, _, _ = wb.import_bundle(make_bundle(files), "exit-dot", self.root)
         self.assertTrue((dest / "build.txt").exists())
 
     def test_exact_system_profiles_stay_accepted(self):
