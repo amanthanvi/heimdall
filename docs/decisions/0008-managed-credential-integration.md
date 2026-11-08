@@ -3635,6 +3635,23 @@ Decided now, implemented in later waves:
    - `transition_foreign_removal` validates a cancellation's `origin` and `ca_not_held_seen` against the persisted `removal_origin`, as `transition_enrollment` does.
    - The persisted absence-history flag is never downgraded.
    - **Regression test:** the reviewer's probe trace.
+6. **Follow-up: neither a pause nor a stricter connection policy is a signing narrowing.** The code cites this item as "§17.16 follow-up".
+   - **What triggered it:** while fixing R1, the integrator also routed a pause and a stricter connection policy through the narrowing protocol.
+   - **Why that is wrong:**
+     - A pause never narrowed the signing check. Spec §5.6, ADR-0006 §13.6 item 1 and M01's pause-free `continuing_policy` agree on this.
+     - The integrator probed the code as it stood: after a pause committed, an existing permit still released.
+     - New activations are refused `POLICY_PAUSED` in their own store transaction, so a pause needs no gates.
+     - Connection policy governs owned connections (D8 item 1). Neither admission nor the release check reads it.
+   - **The ruling:**
+     - Both take the zero-gate commit.
+     - These stay in the narrowing set, because each lowers what the signing check allows: a cutoff that is set or moved earlier, `revoke_on_lock`, and an environment-permission removal.
+   - **Regression tests:**
+     - `pause_leaves_active_grant_permit_releasable_and_refuses_new_activation`;
+     - `strict_connection_policy_does_not_narrow_signing_authority`;
+     - M01's `r137_3_a_narrowing_inside_the_approved_delta_and_a_pause_keep_the_grant`, which still passes.
+7. **The re-check.** An independent re-check (Codex Sol, `tests/evidence/artifacts/review-m03-code/wave0-recheck.md`) found R1–R5 resolved at `6c6b5e06`, with no new defect in the touched code. Its verdict was merge.
+   - **Mutation evidence:** with its fix reverted, each regression test exits 101.
+   - **Limit:** R2's regression exercises only the removal of `automatic_activation`.
 
 ## 18. Consequences
 
