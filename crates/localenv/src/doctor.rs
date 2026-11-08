@@ -256,18 +256,18 @@ impl LocalContext {
 /// localuser`, from the OS account database as OpenSSH computes it
 /// (`sys::account_name`, `getpwuid_r(getuid())`), never from `USER`, `USERNAME` or
 /// `LOGNAME`. `None` when the account cannot be established: a failed lookup, an empty
-/// name, and Windows, where this build has no account-database lookup. Every query
+/// name, or an unsupported platform. Every query
 /// builder (projection observe and preview, the pre-launch check, the probes and the
 /// doctor) then evaluates with `Query::local_user` `None`, never an empty name: only
 /// the conditions that read the account (`Match localuser`, `Match user` on the local
 /// account, `%u`, `%r`) are undetermined (ADR-0007 §12.28 item 3).
 #[must_use]
 pub fn local_account() -> Option<String> {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         crate::sys::account_name().ok().filter(|n| !n.is_empty())
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         None
     }

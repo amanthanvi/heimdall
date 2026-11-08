@@ -18,6 +18,7 @@
 //! | [`account_home`] | Unix | `getuid`, `sysconf(_SC_GETPW_R_SIZE_MAX)`, `getpwuid_r` | the account database's home, never `$HOME` (ADR-0007 F19); the buffer outlives every read of `pw_dir`, grown on `ERANGE` up to 1 MiB; an empty or relative home is refused |
 //! | [`account_home`] | Windows | `OpenProcessToken(TOKEN_QUERY)`, `GetUserProfileDirectoryW` (userenv; the profile folder, the same value `SHGetKnownFolderPath(FOLDERID_Profile)` returns, without the `CoTaskMemFree` the enabled windows-sys features do not provide) | the token handle owned by an `OwnedHandle` and closed exactly once; the buffer sized by the first call |
 //! | [`account_name`] | Unix | as [`account_home`] (`pw_name`) | as [`account_home`]; the name is copied out of the buffer before it is freed |
+//! | [`account_name`] | Windows | token `TokenUser`, `LookupAccountSidW`, `GetComputerNameW`, CRT `_wcslwr_s` | the token and aligned SID buffer outlive lookup; local accounts omit the computer domain, other accounts retain it; lowercase matches Win32-OpenSSH `pw_name`; no environment lookup |
 //! | [`current_uid`] | Unix | `getuid` | no precondition; cannot fail |
 //! | [`killpg`] | Unix | `getpgrp`, `killpg(pgid, SIGKILL)` | only a process group a probe or local query created (`process_group(0)`, so the group ID is the child's PID); never 0, 1, a negative ID or this process's own group; called only while the group leader is alive or an unreaped zombie, so the ID cannot have been reused |
 //! | [`exited_unreaped`] | Unix | `waitid(P_PID, pid, WEXITED \| WNOHANG \| WNOWAIT)` | only a child this process spawned and has not reaped; `WNOWAIT` leaves it a zombie, which keeps its PID (and so its process group ID) from being reused until `Child::wait` reaps it |
@@ -112,6 +113,17 @@ pub fn current_uid() -> u32 {
 #[cfg(unix)]
 pub fn account_name() -> Result<String, SysError> {
     unix::account_entry().map(|(name, _)| name)
+}
+
+/// The process token's account name in Win32-OpenSSH's lowercase `pw_name` form.
+/// Local accounts omit the machine domain; other accounts retain `domain\name`.
+/// Never reads `USER`, `USERNAME` or `USERDOMAIN`.
+///
+/// # Errors
+/// [`SysError`] when the token or its named user account cannot be resolved.
+#[cfg(windows)]
+pub fn account_name() -> Result<String, SysError> {
+    windows::account_name()
 }
 
 /// Kill a probe's process group with `SIGKILL`. A group that no longer exists
@@ -491,7 +503,8 @@ mod windows {
         SDDL_REVISION_1,
     };
     use windows_sys::Win32::Security::{
-        GetTokenInformation, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
+        GetTokenInformation, IsWellKnownSid, LookupAccountSidW, SECURITY_ATTRIBUTES, SidTypeUser,
+        TOKEN_QUERY, TOKEN_USER, TokenUser, WinLocalSystemSid,
     };
     use windows_sys::Win32::Storage::FileSystem::{
         CREATE_NEW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OPEN_REPARSE_POINT,
@@ -505,6 +518,7 @@ mod windows {
     use windows_sys::Win32::System::Threading::{
         GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
     };
+    use windows_sys::Win32::System::WindowsProgramming::GetComputerNameW;
     use windows_sys::Win32::UI::Shell::GetUserProfileDirectoryW;
 
     use super::SysError;
@@ -524,6 +538,124 @@ mod windows {
         // SAFETY: OpenProcessToken succeeded, so `raw` is a token handle owned here
         // alone; OwnedHandle closes it exactly once.
         Ok(unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) })
+    }
+
+    /// The same name resolution as Win32-OpenSSH 9.5p2 win32compat/pwd.c:
+    /// local SAM accounts have no domain prefix; other users use domain\name.
+    /// Its CRT wide-character lowercase runs before conversion to UTF-8.
+    pub(super) fn account_name() -> Result<String, SysError> {
+        let token = process_token()?;
+        let mut needed = 0u32;
+        // SAFETY: size query with a valid token and size out-pointer.
+        unsafe {
+            GetTokenInformation(
+                token.as_raw_handle() as HANDLE,
+                TokenUser,
+                ptr::null_mut(),
+                0,
+                &raw mut needed,
+            );
+        }
+        if needed < size_of::<TOKEN_USER>() as u32 || needed > MAX_TOKEN_INFO_BYTES {
+            return Err(SysError::new(
+                "GetTokenInformation",
+                "token information size unavailable",
+            ));
+        }
+        let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
+        // SAFETY: the aligned buffer holds at least `needed` bytes and outlives all
+        // reads of TOKEN_USER and the SID inside it; the token remains open.
+        if unsafe {
+            GetTokenInformation(
+                token.as_raw_handle() as HANDLE,
+                TokenUser,
+                buffer.as_mut_ptr().cast::<c_void>(),
+                needed,
+                &raw mut needed,
+            )
+        } == 0
+        {
+            return Err(SysError::last_os("GetTokenInformation"));
+        }
+        // SAFETY: the successful call initialized TOKEN_USER in the aligned buffer.
+        let sid = unsafe { (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid };
+        let (mut names, mut domains, mut kind) = (0u32, 0u32, 0i32);
+        // SAFETY: SID remains in `buffer`; null output buffers query their sizes.
+        unsafe {
+            LookupAccountSidW(
+                ptr::null(),
+                sid,
+                ptr::null_mut(),
+                &raw mut names,
+                ptr::null_mut(),
+                &raw mut domains,
+                &raw mut kind,
+            );
+        }
+        if names == 0 || names > MAX_PROFILE_CHARS || domains > MAX_PROFILE_CHARS {
+            return Err(SysError::new(
+                "LookupAccountSidW",
+                "account size unavailable",
+            ));
+        }
+        let mut name = vec![0u16; names as usize];
+        let mut domain = vec![0u16; domains.max(1) as usize];
+        // SAFETY: both buffers match the reported capacities; SID and buffers live
+        // across the call. The returned lengths exclude the terminating NULs.
+        if unsafe {
+            LookupAccountSidW(
+                ptr::null(),
+                sid,
+                name.as_mut_ptr(),
+                &raw mut names,
+                domain.as_mut_ptr(),
+                &raw mut domains,
+                &raw mut kind,
+            )
+        } == 0
+        {
+            return Err(SysError::last_os("LookupAccountSidW"));
+        }
+        if kind != SidTypeUser
+            || names == 0
+            || names as usize >= name.len()
+            || domains as usize >= domain.len()
+        {
+            return Err(SysError::new(
+                "LookupAccountSidW",
+                "not a named user account",
+            ));
+        }
+        name.truncate(names as usize);
+        domain.truncate(domains as usize);
+        let mut computer = [0u16; 256];
+        let mut count = computer.len() as u32;
+        // SAFETY: a writable buffer of `count` units and a valid count out-pointer.
+        if unsafe { GetComputerNameW(computer.as_mut_ptr(), &raw mut count) } == 0 {
+            return Err(SysError::last_os("GetComputerNameW"));
+        }
+        let lower = |mut text: Vec<u16>| -> Result<Vec<u16>, SysError> {
+            unsafe extern "C" {
+                fn _wcslwr_s(text: *mut u16, size: usize) -> i32;
+            }
+            text.push(0);
+            // SAFETY: writable NUL-terminated UTF-16, capacity includes the NUL.
+            if unsafe { _wcslwr_s(text.as_mut_ptr(), text.len()) } != 0 {
+                return Err(SysError::new("_wcslwr_s", "account lowercase failed"));
+            }
+            text.pop();
+            Ok(text)
+        };
+        let local = lower(domain.clone())? == lower(computer[..count as usize].to_vec())?;
+        // SAFETY: SID is valid inside the still-live token information buffer.
+        let system = unsafe { IsWellKnownSid(sid, WinLocalSystemSid) } != 0;
+        let mut resolved = if local || system { Vec::new() } else { domain };
+        if !resolved.is_empty() {
+            resolved.push(u16::from(b'\\'));
+        }
+        resolved.extend(name);
+        String::from_utf16(&lower(resolved)?)
+            .map_err(|_| SysError::new("LookupAccountSidW", "account name is not UTF-16"))
     }
 
     pub(super) fn account_home() -> Result<PathBuf, SysError> {

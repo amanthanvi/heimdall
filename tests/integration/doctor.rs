@@ -10,7 +10,7 @@
 //!   `SshPaths::with_test_override` and the isolation arguments through
 //!   `LocalContext::client_isolation` (the env-gated test configuration's role);
 //! * the fixture hook `hm-fixture-hook` (U7) behind every `Match exec` canary, run by
-//!   `/bin/sh` (`SHELL` in the child environment), in each mode: `connect` to a
+//!   `/bin/sh` on Unix and `cmd /c` on Windows, in each mode: `connect` to a
 //!   loopback counter this test owns, `agent-list` on a `FakeAgent`, `touch`, `escape`
 //!   (an escaped child killed by its exact PID) and `revert`;
 //! * an `ssh` wrapper script in scratch, configured as `[clients] ssh`, that appends
@@ -23,9 +23,6 @@
 //! child environment is exactly the snapshot each test builds.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stderr)]
-// The tests that need a POSIX shell, `/bin/kill`, `mkfifo` or the non-root sshd are
-// `cfg(unix)`; on Windows their helpers are unused.
-#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -58,7 +55,6 @@ use heimdall_testkit::agent::{
 };
 use heimdall_testkit::home::{ScratchHome, find_program, ssh_config_quote};
 use heimdall_testkit::hook::{HookBinary, HookMode};
-#[cfg(unix)]
 use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
 
 // --- fixtures ------------------------------------------------------------------------------
@@ -81,11 +77,18 @@ impl Fx {
         let hook = HookBinary::locate().expect(
             "hm-fixture-hook is not built: run `cargo build -p heimdall-testkit --bin hm-fixture-hook`",
         );
+        #[cfg(unix)]
         let root = std::fs::canonicalize(&home.root).unwrap();
+        #[cfg(windows)]
+        let root = home.root.clone();
         let real_ssh = find_program("ssh").expect("ssh on PATH");
         let starts = root.join("ssh-starts.log");
+        #[cfg(unix)]
         let wrapper = root.join("bin").join("ssh");
+        #[cfg(windows)]
+        let wrapper = root.join("bin").join("ssh.cmd");
         std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+        #[cfg(unix)]
         std::fs::write(
             &wrapper,
             format!(
@@ -95,7 +98,13 @@ impl Fx {
             ),
         )
         .unwrap();
+        #[cfg(windows)]
+        std::fs::write(&wrapper, format!(
+            "@echo off\r\nif not \"%~1\"==\"-V\" echo run>>\"{}\"\r\n\"{}\" %*\r\nexit /b %errorlevel%\r\n",
+            starts.display(), real_ssh.display())).unwrap();
         make_executable(&wrapper);
+        #[cfg(windows)]
+        std::fs::create_dir_all(root.join("program-data")).unwrap();
         Fx {
             home,
             hook,
@@ -111,7 +120,8 @@ impl Fx {
     }
 
     fn env(&self) -> Env {
-        Env::from_vars([
+        #[cfg(unix)]
+        let env = Env::from_vars([
             ("PATH", OsString::from("/usr/bin:/bin")),
             ("HOME", self.home.git_home.clone().into_os_string()),
             ("SHELL", OsString::from("/bin/sh")),
@@ -124,7 +134,40 @@ impl Fx {
                 "GIT_CONFIG_GLOBAL",
                 self.home.git_home.join(".gitconfig").into_os_string(),
             ),
-        ])
+        ]);
+        #[cfg(windows)]
+        let env = {
+            let system = std::env::var_os("SystemRoot").expect("SystemRoot");
+            let data = self.root.join("program-data");
+            std::fs::create_dir_all(&data).unwrap();
+            Env::from_vars([
+                ("PATH", std::env::var_os("PATH").expect("PATH")),
+                ("SystemRoot", system.clone()),
+                ("WINDIR", system.clone()),
+                (
+                    "COMSPEC",
+                    PathBuf::from(system)
+                        .join("System32")
+                        .join("cmd.exe")
+                        .into_os_string(),
+                ),
+                ("ProgramData", data.into_os_string()),
+                ("USERPROFILE", self.home.git_home.clone().into_os_string()),
+                ("HOME", self.home.git_home.clone().into_os_string()),
+                ("TEMP", self.root.clone().into_os_string()),
+                ("TMP", self.root.clone().into_os_string()),
+                (
+                    "SSH_AUTH_SOCK",
+                    self.home.decoy_agent().endpoint().locator(),
+                ),
+                ("GIT_CONFIG_NOSYSTEM", OsString::from("1")),
+                (
+                    "GIT_CONFIG_GLOBAL",
+                    self.home.git_home.join(".gitconfig").into_os_string(),
+                ),
+            ])
+        };
+        env
     }
 
     fn ctx(&self) -> LocalContext {
@@ -156,7 +199,24 @@ impl Fx {
     }
 
     fn exec_line(&self, mode: &HookMode) -> String {
-        self.hook.match_exec_line(mode)
+        #[cfg(unix)]
+        {
+            self.hook.match_exec_line(mode)
+        }
+        #[cfg(windows)]
+        {
+            // cmd.exe needs ordinary short executable paths. Match exec
+            // parses backslashes again, so use the observed slash pipe form.
+            let command = self
+                .hook
+                .shell_command(mode)
+                .replace(r"\\?\", "")
+                .replace(r"\\.\pipe\", "//./pipe/");
+            format!(
+                "Match exec {}",
+                ssh_config_quote(&command.replace('%', "%%"))
+            )
+        }
     }
 }
 
@@ -170,7 +230,43 @@ fn make_executable(p: &Path) {
 fn make_executable(_p: &Path) {}
 
 fn qp(p: &Path) -> String {
-    ssh_config_quote(&p.to_string_lossy())
+    let text = p.to_string_lossy();
+    if text.starts_with(r"\\.\pipe\") {
+        return ssh_config_quote(&text);
+    }
+    ssh_config_quote(&shown_path(p))
+}
+
+fn shown_path(p: &Path) -> String {
+    let text = p.to_string_lossy().into_owned();
+    #[cfg(windows)]
+    let text = text
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&text)
+        .replace('\\', "/");
+    text
+}
+
+fn endpoint_locator(endpoint: &Endpoint) -> EndpointLocator {
+    match endpoint {
+        Endpoint::UnixSocket(p) => EndpointLocator::UnixSocket(p.clone()),
+        Endpoint::NamedPipe(n) => EndpointLocator::NamedPipe(n.clone()),
+    }
+}
+
+fn link_dir(real: &Path, link: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(real, link).unwrap();
+    #[cfg(windows)]
+    {
+        let out = Command::new(r"C:\Windows\System32\cmd.exe")
+            .args(["/c", "mklink", "/J"])
+            .arg(shown_path(link).replace('/', r"\"))
+            .arg(shown_path(real).replace('/', r"\"))
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "scratch junction creation failed");
+    }
 }
 
 fn request(levels: &[ProbeLevel], allow: bool, aliases: &[&str]) -> DoctorRequest {
@@ -331,15 +427,48 @@ impl Canaries {
         let Ok(text) = std::fs::read_to_string(&self.pidfile) else {
             return false;
         };
+        #[cfg(windows)]
+        {
+            let pid: u32 = text.lines().next().unwrap().parse().unwrap();
+            // This PID was published by our hook in this fixture's private directory.
+            // Open and retain its process handle, then verify its executable and start
+            // time before stopping it. Never stop a process with a reused identity.
+            let script = r"$p=Get-Process -Id $args[0] -ErrorAction SilentlyContinue;
+                if ($null -eq $p) { exit 0 }; $null=$p.Handle;
+                $f=Get-Item -LiteralPath $args[1];
+                if ($p.Path -ne $args[2] -or $p.StartTime.ToUniversalTime() -lt $f.LastWriteTimeUtc.AddSeconds(-30)) { exit 20 };
+                if ($p.HasExited) { exit 0 }; $p.Kill(); $p.WaitForExit(); exit 10";
+            let script_path = self.pidfile.with_extension("verify.ps1");
+            std::fs::write(&script_path, script).unwrap();
+            let out = Command::new(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-File"])
+                .arg(&script_path)
+                .arg(pid.to_string())
+                .arg(&self.pidfile)
+                .arg(HookBinary::locate().unwrap().path())
+                .output()
+                .unwrap();
+            assert!(
+                matches!(out.status.code(), Some(0 | 10)),
+                "escaped fixture identity could not be verified"
+            );
+            out.status.code() == Some(10)
+        }
+        #[cfg(unix)]
         let pid = text.lines().next().unwrap().trim().to_owned();
+        #[cfg(unix)]
         let alive = Command::new("/bin/kill")
             .args(["-0", &pid])
             .status()
             .unwrap()
             .success();
         // The escaped child is killed by its exact PID, never by name.
+        #[cfg(unix)]
         let _ = Command::new("/bin/kill").args(["-9", &pid]).status();
-        alive
+        #[cfg(unix)]
+        {
+            alive
+        }
     }
 }
 
@@ -354,7 +483,6 @@ fn alias_block(port: u16, key: &Path) -> String {
 
 // --- the default doctor --------------------------------------------------------------------
 
-#[cfg(unix)]
 #[test]
 fn a21_default_doctor_runs_no_exec_no_agent_no_network_no_mutation() {
     let fx = Fx::new();
@@ -412,7 +540,6 @@ fn a21_default_doctor_runs_no_exec_no_agent_no_network_no_mutation() {
     assert!(report.aliases.iter().any(|a| a.alias == ALIAS));
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_evaluate_declined_without_allow_config_commands() {
     let fx = Fx::new();
@@ -438,7 +565,6 @@ fn a21_evaluate_declined_without_allow_config_commands() {
     assert_eq!(c.counter.count() + c.agent.contact_count(), 0);
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_inert_config_still_requires_allow_config_commands() {
     let fx = Fx::new();
@@ -513,7 +639,6 @@ fn evaluate_with_hook(
     (probe::evaluate::ssh_g(&pctx, ALIAS), hook)
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_match_exec_inserted_after_static_pass_never_runs_unauthorized() {
     let fx = Fx::new();
@@ -577,7 +702,6 @@ fn a21_match_exec_inserted_after_static_pass_never_runs_unauthorized() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_new_glob_member_after_static_pass_is_reported_and_never_listed() {
     let fx = Fx::new();
@@ -586,7 +710,7 @@ fn a21_new_glob_member_after_static_pass_is_reported_and_never_listed() {
     std::fs::write(dir.join("10-first.conf"), "# inert member\n").unwrap();
     fx.config(&format!(
         "Include {}/*.conf\n{}",
-        dir.display(),
+        shown_path(&dir),
         alias_block(9, &fx.path("id.pub"))
     ));
     let touched = fx.path("new-member-ran");
@@ -632,7 +756,6 @@ fn a21_new_glob_member_after_static_pass_is_reported_and_never_listed() {
     }
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_change_then_revert_is_undetected_and_inventory_never_complete() {
     let fx = Fx::new();
@@ -648,6 +771,7 @@ fn a21_change_then_revert_is_undetected_and_inventory_never_complete() {
         alias_block(9, &fx.path("id.pub"))
     ));
     let marker = fx.path("reverted");
+    #[cfg(unix)]
     let line = format!(
         "{}\n",
         fx.exec_line(&HookMode::Revert {
@@ -656,6 +780,30 @@ fn a21_change_then_revert_is_undetected_and_inventory_never_complete() {
             marker: marker.clone(),
         })
     );
+    #[cfg(windows)]
+    let command_marker = fx.path("transient-command-ran");
+    #[cfg(windows)]
+    let line = {
+        // Native OpenSSH keeps the Include open without delete sharing. Its
+        // wrapper restores the bytes after ssh closes the file, before the
+        // probe takes its second snapshot. A separate marker proves the
+        // inserted Match exec ran while the transient bytes were present.
+        let restore = fx.hook.shell_command(&HookMode::Revert {
+            path: inc.clone(),
+            original: original.clone(),
+            marker: marker.clone(),
+        });
+        let wrapper = std::fs::read_to_string(&fx.wrapper).unwrap().replace(
+            "exit /b %errorlevel%",
+            &format!("set \"ssh_exit=%errorlevel%\"\r\n{restore}\r\nif errorlevel 1 exit /b 1\r\nexit /b %ssh_exit%"));
+        std::fs::write(&fx.wrapper, wrapper).unwrap();
+        format!(
+            "{}\n",
+            fx.exec_line(&HookMode::Touch {
+                path: command_marker.clone()
+            })
+        )
+    };
     let target = inc.clone();
     let (r, _) = evaluate_with_hook(&fx, true, move || {
         let mut f = std::fs::OpenOptions::new()
@@ -665,6 +813,11 @@ fn a21_change_then_revert_is_undetected_and_inventory_never_complete() {
         f.write_all(line.as_bytes()).unwrap();
     });
     assert!(marker.exists(), "the inserted command did not run");
+    #[cfg(windows)]
+    assert!(
+        command_marker.exists(),
+        "the transient Match exec did not run"
+    );
     assert_eq!(std::fs::read(&inc).unwrap(), original_bytes);
     // Both snapshots are equal: the change is undetected, and the record says only
     // that the snapshots are equal.
@@ -681,14 +834,17 @@ fn a21_change_then_revert_is_undetected_and_inventory_never_complete() {
     assert!(!INVENTORY_WORDING.contains("complete"));
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_unreadable_include_declines_even_with_authorization() {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let fx = Fx::new();
     let locked = fx.path("locked.conf");
     std::fs::write(&locked, "Host x\n").unwrap();
+    #[cfg(unix)]
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    #[cfg(windows)]
+    let denied = heimdall_testkit::win::deny_read(&locked).unwrap();
     fx.config(&format!(
         "Include {}\n{}",
         qp(&locked),
@@ -707,7 +863,10 @@ fn a21_unreadable_include_declines_even_with_authorization() {
             "allow={allow}"
         );
     }
+    #[cfg(unix)]
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o600)).unwrap();
+    #[cfg(windows)]
+    denied.restore().unwrap();
     // An Include chain beyond the depth bound (a root is depth 0; 17 is refused).
     let mut prev = fx.path("deep-17.conf");
     std::fs::write(&prev, "Host deep\n").unwrap();
@@ -736,7 +895,6 @@ fn a21_unreadable_include_declines_even_with_authorization() {
     assert!(!fx.ssh_started());
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion() {
     let fx = Fx::new();
@@ -758,7 +916,17 @@ fn a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion() {
         "one agent listing"
     );
     assert!(c.touched.exists());
+    #[cfg(unix)]
     assert!(escaped_alive, "the setsid child did not outlive the probe");
+    #[cfg(windows)]
+    {
+        assert!(c.pidfile.exists(), "the escape hook did not start a child");
+        assert!(
+            std::fs::read_to_string(&c.pidfile).unwrap().lines().nth(1) == Some("in_job"),
+            "breakaway was not refused"
+        );
+        assert!(!escaped_alive, "the hook child survived job closure");
+    }
     let lines: Vec<u32> = r.executed_config_commands.iter().map(|p| p.line).collect();
     assert_eq!(lines, exec_lines, "every hook's file:line");
     assert!(r.effects_excluded.is_empty());
@@ -773,15 +941,22 @@ fn a21_evaluate_authorized_runs_hooks_and_claims_no_exclusion() {
     assert_eq!(r.config_tree_changed, Some(false));
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_hanging_match_exec_killed_with_group_at_timeout() {
     let fx = Fx::new();
     let late = fx.path("late-marker");
+    #[cfg(unix)]
+    let command = format!("sleep 3; touch '{}'", late.display());
+    #[cfg(windows)]
+    let command = format!(
+        "ping -n 4 127.0.0.1 >nul & {}",
+        fx.hook
+            .shell_command(&HookMode::Touch { path: late.clone() })
+    );
     fx.config(&format!(
         "{}Match exec {}\n",
         alias_block(9, &fx.path("id.pub")),
-        ssh_config_quote(&format!("sleep 3; touch '{}'", late.display()))
+        ssh_config_quote(&command)
     ));
     let ctx = fx.ctx();
     let mut pctx = ProbeContext::new(&ctx, true, false);
@@ -789,6 +964,8 @@ fn a21_hanging_match_exec_killed_with_group_at_timeout() {
     let started = Instant::now();
     let r = probe::evaluate::ssh_g(&pctx, ALIAS);
     assert_eq!(r.outcome, ProbeOutcome::Timeout);
+    #[cfg(windows)]
+    assert_eq!(r.containment, Containment::JobObject);
     assert!(
         started.elapsed() < Duration::from_secs(3),
         "{:?}",
@@ -907,7 +1084,6 @@ fn a21_network_level_reads_banner_only() {
 
 // --- host verification and authentication ---------------------------------------------------
 
-#[cfg(unix)]
 struct Login {
     fx: Fx,
     sshd: LoopbackSshd,
@@ -915,7 +1091,6 @@ struct Login {
     key_pub: PathBuf,
 }
 
-#[cfg(unix)]
 impl Login {
     fn new() -> Login {
         let fx = Fx::new();
@@ -964,9 +1139,7 @@ impl Login {
                 // Recorded, as the catalog records it (ADR-0007 §12.29 item 1).
                 fingerprint: Some(fingerprint_of(&self.key_pub)),
                 interaction,
-                endpoint: Some(EndpointLocator::UnixSocket(PathBuf::from(
-                    self.agent.endpoint().locator(),
-                ))),
+                endpoint: Some(endpoint_locator(self.agent.endpoint())),
             }),
         }
     }
@@ -980,7 +1153,6 @@ impl Login {
     }
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_host_verification_offers_nothing_to_sign() {
     let l = Login::new();
@@ -1006,7 +1178,6 @@ fn a21_host_verification_offers_nothing_to_sign() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_host_verification_requires_authorization_with_or_without_constructs() {
     let fx = Fx::new();
@@ -1040,7 +1211,6 @@ fn a21_host_verification_requires_authorization_with_or_without_constructs() {
 
 /// Needs a session: `exit 0` runs through the account's login shell on the
 /// non-root loopback sshd (ADR-0007 §12.15 item 6), as the level defines it.
-#[cfg(unix)]
 #[test]
 fn a21_authentication_level_single_identity_fixture_signs_exactly_once() {
     let l = Login::new();
@@ -1065,7 +1235,6 @@ fn a21_authentication_level_single_identity_fixture_signs_exactly_once() {
     assert_eq!(l.fx.home.decoy_agent().contact_count(), 0);
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity() {
     let fx = Fx::new();
@@ -1094,9 +1263,7 @@ fn a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity
             // Recorded, as the catalog records it (ADR-0007 §12.29 item 1).
             fingerprint: Some(fingerprint_of(&key_pub)),
             interaction,
-            endpoint: Some(EndpointLocator::UnixSocket(PathBuf::from(
-                agent.endpoint().locator(),
-            ))),
+            endpoint: Some(endpoint_locator(agent.endpoint())),
         }),
     };
     let refused = |ctx: &LocalContext, reason: &str| {
@@ -1140,7 +1307,6 @@ fn a21_noninteractive_authentication_refused_for_unknown_or_interactive_identity
 /// localuser <the OS account>` makes the adopted key's selection not exclusive with
 /// `USER` unset and with `USER` naming another account, in the passive doctor and in
 /// every profile; a rule for that other name never applies.
-#[cfg(unix)]
 #[test]
 fn doctor_reads_localuser_from_the_account_database() {
     let fx = Fx::new();
@@ -1227,7 +1393,6 @@ fn doctor_reads_localuser_from_the_account_database() {
 /// account home is shown as the configuration names it, never in its canonical form.
 /// The file is included through a symlinked directory: every entry shows the link's
 /// path, in the passive doctor and in every profile.
-#[cfg(unix)]
 #[test]
 fn doctor_shows_a_file_outside_the_home_as_written() {
     let fx = Fx::new();
@@ -1239,7 +1404,7 @@ fn doctor_shows_a_file_outside_the_home_as_written() {
     let real = outside.path().join("hm-fixture-real-dir");
     std::fs::create_dir_all(&real).unwrap();
     let link = outside.path().join("hm-fixture-link-dir");
-    std::os::unix::fs::symlink(&real, &link).unwrap();
+    link_dir(&real, &link);
     std::fs::write(
         real.join("extra.conf"),
         format!("Host {ALIAS}\n  IdentityFile {}\n", qp(&inherited)),
@@ -1277,7 +1442,7 @@ fn doctor_shows_a_file_outside_the_home_as_written() {
             .filter_map(|(_, o)| o.identity_selection),
     );
     assert_eq!(reports.len(), 4);
-    let shown = written.display().to_string();
+    let shown = shown_path(&written);
     for report in &reports {
         let included: Vec<_> = report
             .entries
@@ -1302,20 +1467,25 @@ fn doctor_shows_a_file_outside_the_home_as_written() {
 /// statically (an unset variable) and one names an unreadable file. The listing, both
 /// findings' provenance and the unreadable file's own entry all show the link's path,
 /// and the real directory's name appears nowhere in the report.
-#[cfg(unix)]
 #[test]
 fn doctor_lists_config_files_and_include_failures_as_written() {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let fx = Fx::new();
     let outside = tempfile::tempdir().unwrap();
     let real = outside.path().join("hm-fixture-real-dir");
     std::fs::create_dir_all(&real).unwrap();
     let link = outside.path().join("hm-fixture-link-dir");
-    std::os::unix::fs::symlink(&real, &link).unwrap();
+    link_dir(&real, &link);
     let unreadable = real.join("unreadable.conf");
     std::fs::write(&unreadable, "Host z\n").unwrap();
+    #[cfg(unix)]
     std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+    #[cfg(windows)]
+    let denied = heimdall_testkit::win::deny_read(&unreadable).unwrap();
     let readable = std::fs::read(&unreadable).is_ok();
+    #[cfg(windows)]
+    assert!(!readable, "the deny-read DACL did not deny the read");
     std::fs::write(
         real.join("extra.conf"),
         format!(
@@ -1333,8 +1503,11 @@ fn doctor_lists_config_files_and_include_failures_as_written() {
     request.aliases = Some(Vec::new());
     request.local_queries = LocalQueries::Disabled;
     let report = run(&fx.ctx(), &request);
+    #[cfg(unix)]
     std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let shown = written.display().to_string();
+    #[cfg(windows)]
+    denied.restore().unwrap();
+    let shown = shown_path(&written);
     let listed: Vec<&str> = report
         .config_files
         .iter()
@@ -1363,7 +1536,7 @@ fn doctor_lists_config_files_and_include_failures_as_written() {
             "the unreadable Include, as written: {:?}",
             report.findings
         );
-        let unreadable_shown = link.join("unreadable.conf").display().to_string();
+        let unreadable_shown = shown_path(&link.join("unreadable.conf"));
         assert!(
             report
                 .config_files
@@ -1380,6 +1553,7 @@ fn doctor_lists_config_files_and_include_failures_as_written() {
 
 // --- reads that must not block, local queries ------------------------------------------------
 
+// Unix-only: mkfifo creates a filesystem FIFO; Windows named pipes are not Include files.
 #[cfg(unix)]
 #[test]
 fn a21_fifo_include_does_not_block() {
@@ -1419,7 +1593,6 @@ fn a21_fifo_include_does_not_block() {
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn a21_local_queries_listed_and_off_with_no_local_exec() {
     let fx = Fx::new();
@@ -1427,12 +1600,26 @@ fn a21_local_queries_listed_and_off_with_no_local_exec() {
     // Wrappers that log every start, -V included.
     let log = fx.path("queries.log");
     let wrap = |name: &str, real: &Path| -> PathBuf {
+        #[cfg(unix)]
         let p = fx.path(&format!("qbin/{name}"));
+        #[cfg(windows)]
+        let p = fx.path(&format!("qbin/{name}.cmd"));
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        #[cfg(unix)]
         std::fs::write(
             &p,
             format!(
                 "#!/bin/sh\necho {name} >> '{}'\nexec '{}' \"$@\"\n",
+                log.display(),
+                real.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(windows)]
+        std::fs::write(
+            &p,
+            format!(
+                "@echo off\r\necho {name}>>\"{}\"\r\n\"{}\" %*\r\nexit /b %errorlevel%\r\n",
                 log.display(),
                 real.display()
             ),
@@ -1478,7 +1665,6 @@ fn a21_local_queries_listed_and_off_with_no_local_exec() {
 /// expands `%d` from the account database, which must equal Heimdall's account home;
 /// an `Include ~/…` is observed and recorded, and the doctor reports `home_mismatch`
 /// whenever `HOME` differs from the account home. No path is printed.
-#[cfg(unix)]
 #[test]
 fn home_resolution_matches_ssh_g() {
     let fx = Fx::new();
@@ -1495,9 +1681,13 @@ fn home_resolution_matches_ssh_g() {
     ));
     let account = SshPaths::resolve().unwrap().account_home;
     let ssh_g = |alias: &str| -> std::collections::BTreeMap<String, String> {
-        let out = Command::new(&fx.real_ssh)
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
+        let mut command = Command::new(&fx.real_ssh);
+        command.env_clear();
+        #[cfg(unix)]
+        command.env("PATH", "/usr/bin:/bin");
+        #[cfg(windows)]
+        command.envs(fx.env().iter());
+        let out = command
             .env("HOME", &fx.home.git_home)
             .arg("-G")
             .args(fx.home.isolation_args())
@@ -1514,8 +1704,12 @@ fn home_resolution_matches_ssh_g() {
     };
     let cp = ssh_g("hm-home")["controlpath"].clone();
     let expected = account.join("hm-home-probe-cp");
+    #[cfg(unix)]
+    let matches = cp == expected.to_string_lossy();
+    #[cfg(windows)]
+    let matches = Path::new(&cp) == expected;
     assert!(
-        cp == expected.to_string_lossy(),
+        matches,
         "ssh's %d is not Heimdall's account home (paths withheld)"
     );
     let include_follows_home = ssh_g("hm-home-inc").get("port").map(String::as_str) == Some("2999");
@@ -1556,7 +1750,6 @@ fn home_resolution_matches_ssh_g() {
 /// tree is not fully readable and the explicit levels are declined even with
 /// authorization: the static pass never claims the account home's file. With `HOME`
 /// the account home, nothing is reported and the level is not declined for that.
-#[cfg(unix)]
 #[test]
 fn home_mismatch_makes_a_home_relative_include_not_fully_readable() {
     let fx = Fx::new();
@@ -1668,4 +1861,67 @@ fn fingerprint_of(path: &Path) -> String {
     heimdall_localenv::known_hosts::fingerprint(
         &heimdall_localenv::known_hosts::base64_decode(encoded).unwrap(),
     )
+}
+
+/// G-P1: compare the token lookup with the in-box client's pw_name, without a
+/// configured User and with %u, independently of USER/USERNAME in the child.
+#[cfg(windows)]
+#[test]
+fn account_name_matches_inbox_ssh_g() {
+    let fx = Fx::new();
+    let account = heimdall_localenv::sys::account_name().unwrap();
+    for user in ["", "  User %u\n"] {
+        fx.config(&format!(
+            "Host {ALIAS}\n  HostName 127.0.0.1\n  IdentityFile {}\n  IdentityAgent none\n{user}",
+            qp(&fx.path("unused.pub"))
+        ));
+        let out = Command::new("C:/Windows/System32/OpenSSH/ssh.exe")
+            .env_clear()
+            .envs(fx.env().iter())
+            .env("USER", "hm-fixture-wrong-account")
+            .env("USERNAME", "hm-fixture-wrong-account")
+            .arg("-G")
+            .args(fx.home.isolation_args())
+            .arg(ALIAS)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "in-box ssh -G failed");
+        let text = String::from_utf8(out.stdout).unwrap();
+        let observed = text.lines().find_map(|l| l.strip_prefix("user ")).unwrap();
+        assert!(
+            observed == account,
+            "account lookup differs from in-box ssh (names withheld)"
+        );
+    }
+}
+
+/// F13 on Windows: every executable-bearing directive stays inert in the passive
+/// doctor, including directives whose commands would use cmd /c on a real client.
+#[cfg(windows)]
+#[test]
+fn a21_default_doctor_windows_execution_constructs_are_inert() {
+    let fx = Fx::new();
+    let counter = Counter::start();
+    let marker = fx.path("execution-directive-ran");
+    let touch = fx.hook.shell_command(&HookMode::Touch {
+        path: marker.clone(),
+    });
+    fx.config(&format!(
+        "{}  {}\n  KnownHostsCommand {touch}\n  LocalCommand {touch}\n  PermitLocalCommand yes\n  RemoteCommand {touch}\n{}\n",
+        alias_block(counter.port, &fx.path("unused.pub")),
+        fx.hook.proxy_command_line(counter.port),
+        fx.exec_line(&HookMode::Touch { path: marker.clone() }),
+    ));
+    let before = tree_digest(&fx.root);
+    let report = run(&fx.ctx(), &DoctorRequest::passive());
+    assert!(static_record(&report).effects_excluded == all_effects());
+    assert!(!fx.ssh_started(), "a passive doctor started ssh");
+    assert!(!marker.exists(), "an execution directive ran");
+    assert_eq!(counter.count(), 0);
+    assert_eq!(fx.home.decoy_agent().contact_count(), 0);
+    assert!(
+        tree_digest(&fx.root) == before,
+        "the passive doctor changed fixture files"
+    );
 }
