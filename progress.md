@@ -891,3 +891,7 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - runs.json and digests for exit-1e69263d, then `m02-evidence.py --write`;
   - the compatibility matrix and the M02 exit record (from `docs/architecture/m02-exit-draft.md`);
   - remove the PC scratch dirs `hm-m02-exit-ae6d72f2` (the failed attempt), `hm-m02-exit-38e55915` and `hm-m02-wsl-1c734111` once imported.
+- Second Windows run of 1e69263d, with `-ArgvDump`: all 49 binaries passed, but `windows_launch` `ctrlc.event` and `ctrlc.keystroke` failed (the child saw no interrupt). The WSL local run (b024b994) passed its scenario, 10 of 10, but exited 1 on a leak-scan false positive (the default distribution name inside the pinned image URL). Both are harness defects, ruled in ADR-0007 §12.44:
+  - WSL: the default-name rule (ac3a8df7).
+  - Ctrl-C: confirmed natively through the PEB ConsoleFlags bit 0. The agent's shells start processes with Ctrl-C ignored, Windows hands that to their children, and heimdall passes it through unchanged. The driver now enables Ctrl-C processing just before it creates heimdall, and records `ctrl-c-inherited`. All four rows passed in 3 of 3 runs after the fix (unit w6-ctrlc, Opus, PC).
+- **Final M02 exit build: the next commit.** Its crates/ and tests/ `*.rs` sources equal 1e69263d's, so the inventory still holds. All four platforms are rerun on it.

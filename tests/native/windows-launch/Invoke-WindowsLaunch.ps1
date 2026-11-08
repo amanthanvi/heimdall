@@ -23,6 +23,16 @@
     resize           ResizePseudoConsole from 100x30 to 132x40 while the child (powershell) polls its console
                      window size: the child sees the new size and exits 0, and heimdall exits 0.
 
+  Ctrl-C disposition (ADR-0007 §12.44 item 2): Windows passes a process's "ignore Ctrl-C" attribute
+  (SetConsoleCtrlHandler(NULL, TRUE), or CREATE_NEW_PROCESS_GROUP) on to every process it creates, and a process that
+  has it never sees CTRL_C_EVENT. An agent's or CI's process environment often starts this driver with it set; heimdall
+  and its child would inherit it, and the ctrlc.event and ctrlc.keystroke rows would fail for a reason outside the
+  product (ctrlc.break is unaffected: Ctrl-Break cannot be ignored that way). So every heimdall is created with
+  Ctrl-C processing restored (X1Pty.ChildCtrlCProcessed: SetConsoleCtrlHandler(NULL, FALSE) immediately before
+  CreateProcessW, the previous state set again afterwards). The driver's own inherited state is recorded as the fact
+  `ctrl-c-inherited` (ignored | processed) in the report, and each row observes heimdall's state as created
+  (`heimdall_ctrl_c`). The sender process (Send-ConsoleCtrl.ps1) still ignores the event itself.
+
   Not covered (blocked inputs, m02-plan §7 B5 / P-W07): an interactive conhost window or Windows Terminal, where an
   operator presses Ctrl-C or resizes the window.
 .PARAMETER Heimdall
@@ -33,7 +43,8 @@
   Report path (JSON). Default: windows-launch-report.json in the current directory (outside the scratch, which is
   removed).
 .OUTPUTS
-  Exit 0 when every gating row passes, 1 otherwise, 2 for a harness error.
+  Exit 0 when every gating row passes, 1 otherwise, 2 for a harness error. The report holds
+  { suite, heimdall, facts: { "ctrl-c-inherited": ignored | processed | unknown (...) }, rows }.
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Heimdall,
@@ -50,6 +61,10 @@ foreach ($p in @($Heimdall, $ArgvDump, (Join-Path $G02 'G02X1Native.cs'), (Join-
     if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { [Console]::Error.WriteLine("missing input: $p"); exit 2 }
 }
 Add-Type -TypeDefinition ([System.IO.File]::ReadAllText((Join-Path $G02 'G02X1Native.cs')))
+# What this process inherited, read before anything here changes it (ADR-0007 §12.44 item 2).
+$CtrlCInherited = [X1Ctrl]::CtrlCInherited()
+# Every heimdall below is created with Ctrl-C processing restored; this process's state is set back after each.
+[X1Pty]::ChildCtrlCProcessed = $true
 
 function New-RandomHex { param([int]$Bytes = 6)
     $b = New-Object byte[] $Bytes
@@ -121,11 +136,12 @@ try {
         if (-not $exited) { [void]$pty.Kill() }
         $code = $null; if ($exited) { $code = $pty.ExitCode }
         $child = $null; if (Test-Path -LiteralPath $cf) { $child = [System.IO.File]::ReadAllText($cf, $Utf8) | ConvertFrom-Json }
+        $hmCtrlC = $pty.ChildCtrlC
         $pty.Dispose()
         $interrupts = $(if ($child) { $child.interrupts } else { $null })
         $ok = $ready -and $aliveAfter -and $interrupts -eq 1 -and $code -eq 42
         Add-Row ('ctrlc.' + $form) $ok ($form -ne 'break') ('a27_ctrl_c_reaches_child_once (' + $form + '): the child counts exactly one interrupt, heimdall is alive 600 ms later and exits with the child''s 42') ([ordered]@{
-            child_ready = $ready; sender = $sent; heimdall_alive_600ms_after = $aliveAfter; child_interrupts = $interrupts; heimdall_exit = $code; killed_by_harness = (-not $exited) })
+            child_ready = $ready; sender = $sent; heimdall_ctrl_c = $hmCtrlC; heimdall_alive_600ms_after = $aliveAfter; child_interrupts = $interrupts; heimdall_exit = $code; killed_by_harness = (-not $exited) })
     }
 
     # ------------------------------------------------------------------ resize reaches the child
@@ -145,10 +161,11 @@ try {
     if (-not $exited) { [void]$pty.Kill() }
     $code = $null; if ($exited) { $code = $pty.ExitCode }
     $seen = $null; if (Test-Path -LiteralPath $rf) { $seen = [System.IO.File]::ReadAllText($rf, $Utf8).Trim() }
+    $hmCtrlC = $pty.ChildCtrlC
     $pty.Dispose()
     $ok = $ready -and $hr -eq 0 -and $seen -eq '100x30 132x40' -and $code -eq 0
     Add-Row 'resize' $ok $true 'a27_resize_reaches_child: ResizePseudoConsole 100x30 -> 132x40 reaches the child through heimdall run, which exits with the child''s 0' ([ordered]@{
-        child_ready = $ready; resize_hr = $hr; child_saw = $seen; heimdall_exit = $code; killed_by_harness = (-not $exited) })
+        child_ready = $ready; heimdall_ctrl_c = $hmCtrlC; resize_hr = $hr; child_saw = $seen; heimdall_exit = $code; killed_by_harness = (-not $exited) })
 } catch {
     [Console]::Error.WriteLine('harness error: ' + $_.Exception.Message)
     $exitCode = 2
@@ -157,7 +174,7 @@ try {
     try { Invoke-WithEnv @{} { & $Heimdall service stop | Out-Null } } catch { }
 }
 
-$report = [ordered]@{ suite = 'm02-u8-windows-launch'; heimdall = $Heimdall; rows = $rows }
+$report = [ordered]@{ suite = 'm02-u8-windows-launch'; heimdall = $Heimdall; facts = [ordered]@{ 'ctrl-c-inherited' = $CtrlCInherited }; rows = $rows }
 $json = $report | ConvertTo-Json -Depth 6
 [System.IO.File]::WriteAllText($Out, $json, $Utf8)
 [Console]::Out.WriteLine($json)

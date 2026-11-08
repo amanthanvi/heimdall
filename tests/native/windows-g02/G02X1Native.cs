@@ -7,7 +7,15 @@
 //   X1Ctrl   : FreeConsole / AttachConsole(pid) / GenerateConsoleCtrlEvent, for the separate sender process
 //              (Send-ConsoleCtrl.ps1); a process may attach to one console only, hence a separate process.
 //              The sender ignores CTRL_C (NULL handler) and swallows CTRL_BREAK (own handler) itself.
+//              CtrlCInherited: this process's own "ignore Ctrl-C" attribute (see X1Api.CtrlCDisposition).
 //   X1Proc   : WaitForSingleObject / GetExitCodeProcess on handles this harness owns.
+//
+// The "ignore Ctrl-C" attribute (ADR-0007 §12.44 item 2): SetConsoleCtrlHandler(NULL, TRUE) and
+// CREATE_NEW_PROCESS_GROUP set bit 0 of RTL_USER_PROCESS_PARAMETERS.ConsoleFlags, and CreateProcess
+// copies it into every process created afterwards. A process with it set never runs its handlers for
+// CTRL_C_EVENT (CTRL_BREAK_EVENT cannot be ignored this way). X1Pty.ChildCtrlCProcessed creates the
+// child with the bit clear, so a harness started from an environment that ignores Ctrl-C still tests
+// the product under the normal disposition.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -74,6 +82,34 @@ public static class X1Api
     public static extern bool WriteFile(IntPtr h, byte[] buf, int n, out int written, IntPtr ov);
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool ReadFile(IntPtr h, byte[] buf, int n, out int read, IntPtr ov);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, IntPtr n, out IntPtr read);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_BASIC_INFORMATION { public IntPtr ExitStatus, PebBaseAddress, AffinityMask, BasePriority, UniqueProcessId, InheritedFromUniqueProcessId; }
+    [DllImport("ntdll.dll")]
+    public static extern int NtQueryInformationProcess(IntPtr h, int cls, ref PROCESS_BASIC_INFORMATION pbi, int len, out int ret);
+
+    // The "ignore Ctrl-C" attribute of a process (bit 0 of its RTL_USER_PROCESS_PARAMETERS.ConsoleFlags),
+    // read from its PEB: "ignored", "processed", or "unknown <why>". hProcess needs QUERY_INFORMATION and
+    // VM_READ (a handle from CreateProcess or GetCurrentProcess has both). 64-bit layout only: PEB
+    // ProcessParameters at 0x20, ConsoleFlags at 0x18.
+    public static string CtrlCDisposition(IntPtr hProcess)
+    {
+        if (IntPtr.Size != 8) return "unknown (32-bit harness process)";
+        PROCESS_BASIC_INFORMATION pbi = new PROCESS_BASIC_INFORMATION(); int ret;
+        int st = NtQueryInformationProcess(hProcess, 0, ref pbi, Marshal.SizeOf(typeof(PROCESS_BASIC_INFORMATION)), out ret);
+        if (st != 0) return "unknown (NtQueryInformationProcess 0x" + st.ToString("x8") + ")";
+        byte[] b = new byte[8]; IntPtr n;
+        if (!ReadProcessMemory(hProcess, pbi.PebBaseAddress + 0x20, b, new IntPtr(8), out n)) return "unknown (read PEB: win32 " + Marshal.GetLastWin32Error() + ")";
+        IntPtr pp = new IntPtr(BitConverter.ToInt64(b, 0));
+        byte[] f = new byte[4];
+        if (!ReadProcessMemory(hProcess, pp + 0x18, f, new IntPtr(4), out n)) return "unknown (read process parameters: win32 " + Marshal.GetLastWin32Error() + ")";
+        return (BitConverter.ToUInt32(f, 0) & 1) != 0 ? "ignored" : "processed";
+    }
 }
 
 public sealed class X1Pty : IDisposable
@@ -96,6 +132,12 @@ public sealed class X1Pty : IDisposable
     // StdMode (no redirect): 0 = leave std handles alone, 1 = STARTF_USESTDHANDLES with NULL handles,
     // 2 = clear this process's std handles (SetStdHandle NULL) around CreateProcess so the child cannot copy them.
     public static int StdMode = 1;
+    // When true, Start clears this process's "ignore Ctrl-C" attribute (SetConsoleCtrlHandler(NULL, FALSE))
+    // immediately before CreateProcessW, so the child and everything it starts get normal Ctrl-C processing,
+    // and sets it again afterwards if it was set. Default false: the child inherits this process's state.
+    public static bool ChildCtrlCProcessed = false;
+    // The child's Ctrl-C disposition as created, read from its PEB right after CreateProcessW.
+    public string ChildCtrlC;
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr GetStdHandle(int n);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetStdHandle(int n, IntPtr h);
 
@@ -156,10 +198,24 @@ public sealed class X1Pty : IDisposable
             bool cleared = !redirect && StdMode == 2;
             if (cleared) { s0 = GetStdHandle(-10); s1 = GetStdHandle(-11); s2 = GetStdHandle(-12); SetStdHandle(-10, IntPtr.Zero); SetStdHandle(-11, IntPtr.Zero); SetStdHandle(-12, IntPtr.Zero); }
             bool okc;
-            try { okc = X1Api.CreateProcessW(null, cl, IntPtr.Zero, IntPtr.Zero, redirect, X1Api.EXTENDED_STARTUPINFO_PRESENT, IntPtr.Zero, cwd, ref si, out pi); }
-            finally { if (cleared) { SetStdHandle(-10, s0); SetStdHandle(-11, s1); SetStdHandle(-12, s2); } }
+            bool reIgnore = false;
+            try
+            {
+                if (ChildCtrlCProcessed)
+                {
+                    reIgnore = X1Api.CtrlCDisposition(X1Api.GetCurrentProcess()) == "ignored";
+                    if (!X1Api.SetConsoleCtrlHandler(IntPtr.Zero, false)) throw Fail("SetConsoleCtrlHandler(NULL, FALSE)");
+                }
+                okc = X1Api.CreateProcessW(null, cl, IntPtr.Zero, IntPtr.Zero, redirect, X1Api.EXTENDED_STARTUPINFO_PRESENT, IntPtr.Zero, cwd, ref si, out pi);
+            }
+            finally
+            {
+                if (reIgnore) X1Api.SetConsoleCtrlHandler(IntPtr.Zero, true);
+                if (cleared) { SetStdHandle(-10, s0); SetStdHandle(-11, s1); SetStdHandle(-12, s2); }
+            }
             if (!okc) throw Fail("CreateProcessW");
             p.hProcess = pi.hProcess; p.Pid = pi.dwProcessId;
+            p.ChildCtrlC = X1Api.CtrlCDisposition(pi.hProcess);
             X1Api.CloseHandle(pi.hThread);
         }
         finally
@@ -234,6 +290,8 @@ public static class X1Ctrl
     public delegate bool HandlerRoutine(uint ev);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetConsoleCtrlHandler(HandlerRoutine handler, bool add);
     static readonly HandlerRoutine Swallow = delegate(uint ev) { return true; };   // static: never collected
+    // This process's "ignore Ctrl-C" attribute: what it inherited from its creator, unless it changed it.
+    public static string CtrlCInherited() { return X1Api.CtrlCDisposition(X1Api.GetCurrentProcess()); }
     [DllImport("kernel32.dll", SetLastError = true)] public static extern bool GenerateConsoleCtrlEvent(uint ev, uint group);
     // Attach to the console of `pid`, ignore the event in this process, raise it for every process on that
     // console (group 0), detach. Returns "ok <utc ticks when raised>" or "error <step> <win32>".

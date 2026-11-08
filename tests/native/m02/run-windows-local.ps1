@@ -36,6 +36,9 @@ value, ssh-agent, ~/.ssh or WSL configuration is touched; there is no `wsl --shu
 processes this script started are stopped, through their own handles (the WSL sshd by its
 recorded PID, start time and configuration path). The pseudoconsole drivers
 (tests/native/windows-launch) need argvdump.exe (Go); they run only when -ArgvDump names one.
+Their report's `ctrl-c-inherited` fact (whether this run's process environment passed down an
+"ignore Ctrl-C" attribute; the driver restores Ctrl-C processing for heimdall either way, ADR-0007
+§12.44 item 2) is copied into host.txt.
 
 .PARAMETER Commit
 The exit commit (40 hexadecimal digits). The clone is checked out detached at exactly it.
@@ -241,6 +244,19 @@ function Test-SshdAtEndOk([string]$AtEnd) {
     return ($AtEnd -eq 'stopped' -or $AtEnd -eq 'gone')
 }
 
+# ADR-0007 §12.44 item 2: the Ctrl-C disposition the pseudoconsole driver inherited, from its
+# report's facts."ctrl-c-inherited": `ignored` or `processed`; anything else (no report, not JSON,
+# no such fact, another value) is `unknown`. The driver creates heimdall with Ctrl-C processing
+# restored either way; the fact says what the run's own process environment passed down.
+function Get-CtrlCInheritedFact([string]$ReportJson) {
+    if ([string]::IsNullOrWhiteSpace($ReportJson)) { return 'unknown (no driver report)' }
+    try { $doc = $ReportJson | ConvertFrom-Json -AsHashtable } catch { return 'unknown (the driver report is not JSON)' }
+    $v = $null
+    if ($doc -is [System.Collections.IDictionary] -and $doc['facts'] -is [System.Collections.IDictionary]) { $v = $doc['facts']['ctrl-c-inherited'] }
+    if ($v -is [string] -and ($v -ceq 'ignored' -or $v -ceq 'processed')) { return $v }
+    return 'unknown (the driver report has no ctrl-c-inherited fact)'
+}
+
 # -SelfTest: the helpers on synthetic data (no host, no network, no toolchain)
 # ---------------------------------------------------------------------------------------------
 
@@ -303,6 +319,13 @@ function Invoke-SelfTest([string]$OutDir) {
     $stopOut = "created=x`r`nstop=stopped`r`n"
     Check 'S01 the end-of-run sshd stop answer is read from its stop= line (CRLF too), and only stopped or gone count as stopped' ((Get-SshdAtEnd $stopOut) -eq 'stopped' -and (Test-SshdAtEndOk 'stopped') -and (Test-SshdAtEndOk (Get-SshdAtEnd "stop=gone`n")))
     Check 'S02 mismatch, still-running, none and a missing answer are failures of the run, never a stopped sshd' ((Get-SshdAtEnd "noise`n") -eq 'no answer' -and (Get-SshdAtEnd 'stop=') -eq 'no answer' -and -not (Test-SshdAtEndOk (Get-SshdAtEnd "stop=mismatch`n")) -and -not (Test-SshdAtEndOk 'still-running') -and -not (Test-SshdAtEndOk 'none') -and -not (Test-SshdAtEndOk (Get-SshdAtEnd '')))
+    $drvReport = { param($v) ([ordered]@{ suite = 'm02-u8-windows-launch'; heimdall = 'h.exe'; facts = [ordered]@{ 'ctrl-c-inherited' = $v }; rows = @() } | ConvertTo-Json -Depth 4) }
+    Check 'C01 ctrl-c-inherited is copied from the pseudoconsole driver''s report (ignored, processed; ADR-0007 §12.44 item 2)' ((Get-CtrlCInheritedFact (& $drvReport 'ignored')) -eq 'ignored' -and (Get-CtrlCInheritedFact (& $drvReport 'processed')) -eq 'processed')
+    Check 'C02 no report, a report that is not JSON, one without the fact, or any other value gives unknown, never ignored or processed' (
+        (Get-CtrlCInheritedFact '').StartsWith('unknown') -and (Get-CtrlCInheritedFact '{not json').StartsWith('unknown') -and
+        (Get-CtrlCInheritedFact '{"rows":[]}').StartsWith('unknown') -and (Get-CtrlCInheritedFact '{"facts":"ignored"}').StartsWith('unknown') -and
+        (Get-CtrlCInheritedFact (& $drvReport 'Ignored')).StartsWith('unknown') -and (Get-CtrlCInheritedFact (& $drvReport 'ignored; x')).StartsWith('unknown') -and
+        (Get-CtrlCInheritedFact '[1]').StartsWith('unknown'))
     $meta = [ordered]@{ commit = ('0' * 40); label = 'windows-selftest'; started_at = '2026-11-06T00:00:00Z'; finished_at = '2026-11-06T00:00:01Z'; exit = 101 }
     $b = New-Bundle $files $meta
     Check 'B01 the bundle is framed by its markers with the payload sha256' ($b.Text.StartsWith($BeginMarker + "`nsha256-gzip: ") -and $b.Text.TrimEnd().EndsWith($EndMarker))
@@ -662,10 +685,15 @@ fi
         $r = Invoke-Bounded $winps @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $drv, '-Heimdall', $cli, '-ArgvDump', $ArgvDump, '-Out', $rep) $testEnv $run 600
         $rows = ''
         if (Test-Path $rep) {
-            foreach ($row in @((Get-Content -LiteralPath $rep -Raw | ConvertFrom-Json).rows)) {
+            $repText = Get-Content -LiteralPath $rep -Raw
+            Add-Fact 'ctrl-c-inherited' (Get-CtrlCInheritedFact $repText)
+            foreach ($row in @(($repText | ConvertFrom-Json).rows)) {
                 $rows += "test $($row.id) ... $(if ($row.verdict -eq 'pass') { 'ok' } else { 'FAILED' })`n  observed: $($row.observed | ConvertTo-Json -Compress -Depth 4)`n"
             }
-        } else { $rows = "windows_launch: no report (exit $($r.Code))`n" }
+        } else {
+            Add-Fact 'ctrl-c-inherited' (Get-CtrlCInheritedFact '')
+            $rows = "windows_launch: no report (exit $($r.Code))`n"
+        }
         [void]$tests.Append((Format-TargetOutput 'windows_launch' $rows $r.Code))
         if ($r.Code -ne 0) { $arc = $r.Code }
     } else {
