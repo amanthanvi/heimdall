@@ -917,3 +917,14 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - M02-W6-code-review (Codex Sol, the wave-6w product fixes);
   - an audit of the declared Windows and WSL coverage against the tests that ran (Opus), proposing a case-index mechanism and the Windows fix units.
 - Lesson: the generator's `verified` means "every test that exists passed". Planned coverage needs its own required entries per platform, or a missing test reads as a pass.
+- **Wave 6x (M02 Windows coverage), started 2026-11-08.** Rulings: ADR-0007 §12.47. The audit is saved as `review-m02-code/windows-coverage-audit.md`: 314 required tests were absent on Windows, 295 of them excluded by the scan alone.
+  - Running on the PC, natively, each unit in its own self-contained `%LOCALAPPDATA%\hm-m02-wx-<unit>-<hex>`:
+    - WU-0: fixture sshd (Opus);
+    - WU-2a: projection (Opus);
+    - WU-2b: Git projection and recovery rows (Codex Sol);
+    - WU-3: setup drivers (Sonnet);
+    - WU-7: 9.5p2 encoding rows (Sonnet).
+  - Running here: WU-6, the evidence guard (Opus, worktree).
+  - Waiting for WU-0: WU-1 (CLI transport, plus the D4 T06 split), WU-4 (the doctor, plus `account_name`), WU-5 (`run` and `connect`).
+  - Then a new exit build, and a rerun on all four platforms.
+- I fixed the wave-6w review's W6W-R01 (importer) and the canary comparison (96611c6f). W6W-R02 (opens counted before identification) and R03 (silent-client timing) go to WU-0 or WU-5.
