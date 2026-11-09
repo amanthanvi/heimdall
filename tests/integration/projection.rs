@@ -6005,6 +6005,38 @@ fn production_code_never_unlinks_outside_quarantine() {
     assert!(allowed_hits > 0, "the quarantine's own removal was found");
 }
 
+/// W6X-R04 (ADR-0007 §12.48 item 5): a preview validates an existing quarantine and
+/// never creates one. The planner's sources call only `Quarantine::open_existing`. A
+/// check that tested for the quarantine first and then called `open_or_create` would
+/// recreate one removed between the two calls. Behaviourally, a preview over
+/// directories without a quarantine leaves the scratch tree unchanged.
+#[test]
+fn preview_never_creates_a_quarantine() {
+    let plan_rs = heimdall_testkit::repo::repo_path("crates/localenv/src/projection/plan.rs");
+    let text = production_text(&std::fs::read_to_string(&plan_rs).unwrap());
+    assert!(
+        text.contains("Quarantine::open_existing"),
+        "the planner validates existing quarantines"
+    );
+    assert!(
+        !text.contains("open_or_create"),
+        "the planner never calls a creating quarantine API"
+    );
+    let fx = Fx::new();
+    std::fs::write(fx.user(), USER_TEXT).unwrap();
+    let (first, sink) = fx.adopt(&["work"]);
+    let mut spec = fx.spec(&[], Some(sink.record(&fx.env)));
+    spec.aliases = first_aliases(&first, &fx, &["work"]);
+    spec.aliases.push(fx.alias("lab"));
+    let before = fx.tree();
+    let _ = fx.preview(&spec, &Fx::apply_intent());
+    assert_eq!(fx.tree(), before, "a preview writes nothing");
+    assert!(
+        !before.keys().any(|k| k.contains(".hm-quarantine")),
+        "no quarantine existed: {before:?}"
+    );
+}
+
 #[test]
 fn private_key_files_never_opened() {
     let fx = Fx::new();

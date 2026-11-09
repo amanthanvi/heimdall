@@ -204,20 +204,6 @@
       ],
       "rationale": "drives a disposable OpenSSH ssh-agent (ssh-add -c / -x); the Windows native agent is the system service, whose rows, incl. the confirm-constrained one, are blocked on B4 (m02-plan §7)."
     },
-    "integration_projection::a22_symlinked_user_config_is_manual_mode": {
-      "platforms": [
-        "macos",
-        "linux"
-      ],
-      "rationale": "m02-plan §4: symlink cases are platform_only Unix (std::os::unix::fs::symlink). The Windows file-symlink row is its own test, a22_windows_file_symlink_user_config_is_manual_mode (A22 platform_required; ADR-0007 §12.47 item 7), and the junction row is a22_windows_reparse_point_user_config_is_manual_mode."
-    },
-    "integration_projection::a22_race_symlink_substitution_at_boundary_is_held": {
-      "platforms": [
-        "macos",
-        "linux"
-      ],
-      "rationale": "m02-plan §4: symlink cases are platform_only Unix (std::os::unix::fs::symlink). The Windows file-symlink row is its own test, a22_windows_file_symlink_user_config_is_manual_mode (A22 platform_required; ADR-0007 §12.47 item 7), and the junction row is a22_windows_reparse_point_user_config_is_manual_mode."
-    },
     "integration_projection_replace::race_symlink_substitution_at_boundary_is_held": {
       "platforms": [
         "macos",

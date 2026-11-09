@@ -94,13 +94,19 @@ pub fn canary_comment() -> String {
 }
 
 /// Whether `name` is a fixture pipe (`\\.\pipe\heimdall-hmtest-…`, ASCII
-/// case-insensitive).
+/// case-insensitive): one pipe-name component after the prefix, made of ASCII letters,
+/// digits, `-`, `_` and `.` only. A separator (`\` or `/`) or any other character is
+/// refused. Windows normalizes a `\\.\` path, so `heimdall-hmtest-x\..\openssh-ssh-agent`
+/// would name another pipe (W6X-R01).
 #[must_use]
 pub fn is_fixture_pipe_name(name: &str) -> bool {
     let prefix = format!(r"\\.\pipe\{FIXTURE_PIPE_PREFIX}");
     name.len() > prefix.len()
         && name.is_char_boundary(prefix.len())
         && name[..prefix.len()].eq_ignore_ascii_case(&prefix)
+        && name[prefix.len()..]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
 }
 
 /// Where a fixture agent listens, or where an upstream agent is.
@@ -1802,6 +1808,15 @@ mod tests {
         assert!(is_fixture_pipe_name(r"\\.\PIPE\Heimdall-HMTEST-ab12-x"));
         assert!(!is_fixture_pipe_name(r"\\.\pipe\openssh-ssh-agent"));
         assert!(!is_fixture_pipe_name(r"\\.\pipe\heimdall-hmtest-"));
+        // W6X-R01: one component only; a traversal or an expansion token names another pipe.
+        assert!(!is_fixture_pipe_name(
+            r"\\.\pipe\heimdall-hmtest-x\..\openssh-ssh-agent"
+        ));
+        assert!(!is_fixture_pipe_name(
+            r"\\.\pipe\heimdall-hmtest-x/../openssh-ssh-agent"
+        ));
+        assert!(!is_fixture_pipe_name(r"\\.\pipe\heimdall-hmtest-%u"));
+        assert!(!is_fixture_pipe_name(r"\\.\pipe\heimdall-hmtest-a b"));
     }
 
     /// W6W-R02 (ADR-0007 §12.46 item 3): a pipe client that opens and closes without

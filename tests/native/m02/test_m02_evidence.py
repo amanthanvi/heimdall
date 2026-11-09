@@ -781,6 +781,19 @@ class CoverageGuard(unittest.TestCase):
         rc, summary, err = self.scratch(index=index).run()
         self.assertEqual(rc, 1)
         self.assertIn("platform_only t_wild::w2 leaves out windows, but t_wild::w2 ran there (ok)", err)
+        # W6X-R02: the row is never verified, and --write writes no record. Here the stale
+        # test is `ignored` on Windows: before the fix the other tests rated the row
+        # verified and the record was written.
+        logs = full_logs()
+        logs["t_wild"]["w2"] = "ignored"
+        s = self.scratch(index=index, windows_logs=logs)
+        rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 1)
+        self.assertIn("records not written", err)
+        win = self.row(summary, "G1", "windows")
+        self.assertEqual(win["status"], "in_progress")
+        self.assertEqual(win["platform_only_stale"], {"t_wild::w2": "ignored under t_wild::w2"})
+        self.assertEqual(s.records(), {}, "no evidence record written from an inconsistent evaluation")
 
     def test_a_scan_only_exclusion_outranks_a_missing_capability(self):
         guard = {"excluded": ["t::x"], "by_rationale": {}, "unjustified": ["t::x"], "required_not_passed": {}, "stale": []}
@@ -1104,7 +1117,11 @@ class Records(unittest.TestCase):
         logs = full_logs()
         del logs["t_pre"]
         s = Scratch(self, logs=logs, platforms={"linux": {"missing_capabilities": {"t_pre": "a capability (synthetic)"}}})
+        # t_pre ran on macOS, so the evaluation is consistent and --write writes (W6X-R02:
+        # an evaluation that reports errors writes no record).
+        (s.dir / "macos.log").write_text(log_text(full_logs(), "cargo"))
         rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 0, err)
         self.assertEqual(row_status(summary, "G1", "linux"), "blocked")
         self.assertIn("a capability (synthetic)", s.records()["G1"]["blocked_on"])
         self.assertEqual(row_status(summary, "G1", "windows"), "in_progress", "the capability is named for linux only")
@@ -1251,6 +1268,12 @@ class WindowsBundle(unittest.TestCase):
             # W6W-R01: a home directory need not follow user-name rules.
             "a dot-prefixed Unix home": make_bundle({"build.txt": "at /home/.review-fixture-user/private\n"}),
             "a home under a dot directory": make_bundle({"build.txt": "at /home/.private/alice/src\n"}),
+            # W6X-R03: only the fixture entries are exempt after a redacted root, and a home
+            # component may start with any non-separator character.
+            "a non-fixture dot directory in a fixture home": make_bundle(
+                {"build.txt": "at <scratch>/home/.private/synthetic-review-user/key\n"}),
+            "a Unix home starting with a non-ASCII letter": make_bundle({"build.txt": "at /home/é-review-user/key\n"}),
+            "a macOS home starting with a non-ASCII letter": make_bundle({"build.txt": "at /Users/é-review-user/key\n"}),
             "a Windows home path": make_bundle({"build.txt": "at C:\\Users\\someone\\src\n"}),
             "a WSL view of a Windows home": make_bundle({"build.txt": "at /mnt/c/Users/someone/x\n"}),
             "a macOS home path": make_bundle({"build.txt": "at /Users/someone/x\n"}),
@@ -1288,7 +1311,8 @@ class WindowsBundle(unittest.TestCase):
     def test_a_fixture_home_directory_dotfile_is_not_a_home(self):
         # The Windows exit run at 1e69263d: a Git observation line names the fixture's own
         # `home` directory under the redacted scratch root. A user name never starts with ".".
-        files = {"build.txt": 'git_var_global="<scratch>/home/.config/git/config,<scratch>/home/.gitconfig"\n'}
+        files = {"build.txt": 'git_var_global="<scratch>/home/.config/git/config,<scratch>/home/.gitconfig"\n'
+                              "metadata <scratch>/home/.ssh unchanged; read <scratch>/home/.ssh/config\n"}
         dest, _, _ = wb.import_bundle(make_bundle(files), "exit-dot", self.root)
         self.assertTrue((dest / "build.txt").exists())
 

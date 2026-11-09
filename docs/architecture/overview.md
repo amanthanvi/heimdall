@@ -340,6 +340,16 @@ ADR-0007 §12.48 item 2):
 * `crates/testkit/src/hook.rs`, at one `#[allow(unsafe_code)]` site, Windows only: the
   fixture hook calls `SetHandleInformation(std handle, HANDLE_FLAG_INHERIT, 0)` before it
   spawns, as `runtime::platform::disinherit_standard_handles` does (wave 6w).
+* `tests/e2e/run_m02.rs`, `mod child`, at one `#[allow(unsafe_code)]` site, Windows only
+  (a test target; ADR-0007 §12.49 item 8): an `#[unsafe(link_section = ".CRT$XCU")]`
+  function pointer. The MSVC CRT calls it once before `main`. Its job is to make a copy of
+  the test executable run as a stub client, a stub wrapper, or an argv/env/working-directory
+  printer.
+  * **Why a copy is needed:** `connect` launches only `%SystemRoot%\System32\OpenSSH\ssh.exe`
+    (ADR-0004 E6), so the test places the copies under a scratch `SystemRoot`.
+  * **How a copy picks its role:** the initializer reads the copy's own file stem. A copy
+    therefore never runs libtest, and the original test executable returns from the
+    initializer at once.
 
 Each call is wrapped in a safe function with its invariants documented; no `unsafe`
 leaves any of these modules. Unix IPC needs none (tokio provides `peer_cred`; std

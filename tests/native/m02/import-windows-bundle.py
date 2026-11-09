@@ -66,15 +66,21 @@ _SENSITIVE = (
      "an unredacted Windows home path"),
     (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|(?:Default User|All Users|Public|Default)(?=[/\"'<>]|$))[^/\s\"'<>]+"),
      "an unredacted Windows home path"),
-    # A home under /home, anywhere a name may start. The only exemption (W6W-R01) is a fixture's
-    # own `home` directory inside a redacted root, followed by a dotfile: `<scratch>/home/.gitconfig`
-    # (observed in the Windows exit run at 1e69263d). A bare `/home/.name` is still refused, since a
-    # home directory need not follow user-name rules, and so is `<scratch>/home/name`.
-    (re.compile(r"(?<![\w/.>-])/home/(?!<)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
-    (re.compile(r"(?<=>)/home/(?!<|\.)[A-Za-z0-9._-]+"), "an unredacted Unix home path"),
+    # A home under /home, anywhere a name may start. A home component is a run of word
+    # characters, `.` and `-`; Python's `\w` is Unicode, so a name that starts with a non-ASCII
+    # letter is one too (W6X-R03). The only exemption (W6W-R01, narrowed by W6X-R03) is a
+    # fixture's own `home` directory inside a redacted root, followed by exactly one of the
+    # fixture entries the harnesses print: `<scratch>/home/.gitconfig`, `<scratch>/home/.config`
+    # (Git's XDG file, observed in the Windows exit run at 1e69263d) and `<scratch>/home/.ssh`,
+    # each with anything after it. Any other dot
+    # entry (`<scratch>/home/.private/name`), a bare `/home/.name` and `<scratch>/home/name`
+    # are refused: a home directory need not follow user-name rules.
+    (re.compile(r"(?<![\w/.>-])/home/(?!<)[\w.-]+"), "an unredacted Unix home path"),
+    (re.compile(r"(?<=>)/home/(?!<|\.(?:gitconfig|config|ssh)(?![\w.-]))[\w.-]+"),
+     "an unredacted Unix home path"),
     # The macOS form is not applied right after a lone drive letter (C:/Users/... is the
     # Windows rule's), but it is after any other colon (PATH=...:/Users/x, file:/Users/x).
-    (re.compile(r"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\"'<>]|$))[A-Za-z0-9._-]+"),
+    (re.compile(r"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\"'<>]|$))[\w.-]+"),
      "an unredacted macOS home path"),
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")

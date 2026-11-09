@@ -4802,6 +4802,41 @@ The WSL rows are covered, apart from the WSL ext4 birth-time observation.
    - **Why:** a scratch home under `%LOCALAPPDATA%` inherits a read ACE for another local account, so inheritance alone would break the rule.
    - **Effect on a real profile:** a real profile's `~/.ssh` inherits exactly those three principals, so the explicit DACL is the same there.
 7. **Declined:** a `LoopbackSshd::authorized_keys()` accessor (WU-1, optional). `a01_no_remote_change` reads the runner's `HM_FIXTURE_SSHD_AUTHORIZED_KEYS` directly.
+8. **WU-5's stub clients on Windows use one test-only `unsafe` site (E1, accepted).**
+   - **What the site is:** a `.CRT$XCU` initializer in `tests/e2e/run_m02.rs` `mod child`, Windows only.
+   - **Why it is needed:** `connect` launches only `%SystemRoot%\System32\OpenSSH\ssh.exe` (ADR-0004 E6). The test therefore puts copies of its own executable under a scratch `SystemRoot`. Each copy picks its role from its own file stem, before libtest's `main`.
+   - **Why it is allowed:** like item 2 of §12.48, it is in a test target, so it never reaches a release build. `overview.md` §9 lists it among the test-only modules.
+   - **Alternative, not taken now:** a client-stub mode in `hm-fixture-hook`, selected by environment. It would remove the site, but it needs another native round. M04's pseudoconsole work on `connect` may take it.
+9. **WU-5's remaining Unix-only tests keep their existing `platform_only` entries.**
+   - **The `--meta-fd` half of `a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure`:** an inherited descriptor belongs to the Unix process model. On Windows `--meta-fd` is a usage error. The meta-file half runs on Windows.
+   - **The two confirm-constrained cases:** their Windows row is the system agent, which is blocked on B4.
+   - **`a11_interactive_connect_succeeds_after_provider_approval`:** deferred by D3.
+
+### 12.50 Rulings on the wave-6x code review (orchestrator, 2026-11-08)
+
+**Source:** M02-W6x-code-review (Codex Sol, independent), `tests/evidence/artifacts/review-m02-code/wave6x.md`, over `421c8f41..250029ea`. Verdict: fix first, with four findings. Each finding is accepted and fixed. Each regression test fails with its fix reverted (mutation checks run on the build host).
+
+1. **W6X-R01 (high): the fixture pipe guard accepts only one component.**
+   - **The defect:** `is_fixture_pipe_name` checked only the `\\.\pipe\heimdall-hmtest-` prefix. Windows normalizes a `\\.\` path, so `heimdall-hmtest-x\..\openssh-ssh-agent` (or `//./pipe/heimdall-hmtest-x/../openssh-ssh-agent`) would name another pipe and pass the guard (§9; m02-plan §0). This is inferred from Windows path rules; no real agent was contacted.
+   - **The fix:** after the prefix, the guard accepts only ASCII letters, digits, `-`, `_` and `.`.
+   - **Regressions:**
+     - the traversal cases in `agent::tests::wire_round_trips`, on every platform;
+     - both spellings in `home::rendered_fixture_pipe_guard`, on Windows.
+2. **W6X-R02 (medium): a stale `platform_only` entry never yields a verified row, and an inconsistent evaluation writes no record.**
+   - **The defect:** the generator exited 1 for a stale entry, but still rated the row `verified` from the other tests and wrote the records.
+   - **The fix:**
+     - a stale entry keeps the row `in_progress`, and the row names it as `platform_only_stale`;
+     - `--write` writes nothing when the evaluation reported an error: a stale entry, a test missing from the inventory or from every log, or an extra row that claims `verified`.
+   - **Regression:** `test_a_stale_case_index_exclusion_is_an_error`, extended with the stale test `ignored` on Windows.
+3. **W6X-R03 (medium): the importer's home rules.**
+   - **What changed:**
+     - after a redacted root, only the fixture entries `.gitconfig`, `.config` and `.ssh` are exempt. A different dot directory, such as `<scratch>/home/.private/name`, is refused;
+     - a home component is a run of Unicode word characters, `.` and `-`, so a name that starts with a non-ASCII letter is refused too.
+   - **Proof the rules don't over-refuse:** the committed artifacts scan exactly as they did before the change.
+   - **Regressions:** three new refused-bundle cases, and `.ssh` added to the accepted fixture paths.
+4. **W6X-R04 (low): a preview never creates a quarantine.**
+   - **The fix:** both preview-time checks (P's or the key files' directory, and the user file's directory) call `Quarantine::open_existing`. Before, they tested for the quarantine and then called `open_or_create`, which would recreate a quarantine removed between the two calls.
+   - **Regression:** `preview_never_creates_a_quarantine`. It scans the planner's sources for a creating call, and it checks that a preview over directories without a quarantine leaves the tree unchanged.
 
 ## 13. Consequences
 

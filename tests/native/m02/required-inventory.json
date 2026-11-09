@@ -356,6 +356,7 @@
           "observe_reevaluates_aliases_statically_against_the_record",
           "observe_with_the_account_unknown_leaves_only_what_reads_it_undetermined",
           "preview_consent_reads_localuser_from_the_account_database",
+          "preview_never_creates_a_quarantine",
           "private_key_files_never_opened",
           "production_code_never_unlinks_outside_quarantine",
           "recovery_decided_abort_reason_is_recorded_and_survives_restart",
@@ -1020,30 +1021,6 @@
       "linux",
       "macos"
     ],
-    "e2e_run_m02::a11::a11_declaration_expiring_between_bind_and_launch_refused": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_declaration_withdrawn_after_bind_refused_before_launch": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_declared_none_allows_noninteractive_launch_and_result_says_declared": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_fallback_cleared_when_alternative_adopted_and_declared_launches": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_file_backed_fallback_is_never_cleared": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_identityfile_added_after_ensure_is_seen_by_prelaunch_check": [
-      "linux",
-      "macos"
-    ],
     "e2e_run_m02::a11::a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact": [
       "linux",
       "macos"
@@ -1052,47 +1029,7 @@
       "linux",
       "macos"
     ],
-    "e2e_run_m02::a11::a11_lapse_recorded_by_failed_listing_between_ensure_and_bind_refuses_launch": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_multi_pair_binding_refused_when_any_pair_needs_interaction": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_noninteractive_run_refuses_interactive_identity_before_launch": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_redeclaration_after_bind_changes_revision_and_refuses_launch": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_replayed_bind_result_still_gets_prelaunch_check": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a11_withdrawal_and_redeclaration_after_a_restart_between_ensure_and_bind_refuse": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a27_binary_stdin_stdout_roundtrip_through_ssh": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a27_git_clone_and_push_over_ssh_with_binary_blob": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths": [
-      "linux",
-      "macos"
-    ],
     "e2e_run_m02::a27_child_exit_127_vs_exec_failure_distinguished_by_prelaunch_record": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a27_cwd_and_env_preserved_plus_only_documented_additions": [
       "linux",
       "macos"
     ],
@@ -1104,19 +1041,11 @@
       "linux",
       "macos"
     ],
-    "e2e_run_m02::a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure": [
-      "linux",
-      "macos"
-    ],
     "e2e_run_m02::a27_meta_unavailable_aborts_launch_no_child": [
       "linux",
       "macos"
     ],
     "e2e_run_m02::a27_not_executable_exits_126": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::a27_shell_metacharacters_in_argv_reach_child_verbatim": [
       "linux",
       "macos"
     ],
@@ -1142,22 +1071,6 @@
     ],
     "e2e_run_m02::a27_windows_spawned_record_is_positive_launch_proof": [
       "windows"
-    ],
-    "e2e_run_m02::git_run_injection_yields_to_dash_c_and_env": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::git_run_malformed_caller_git_config_count_injects_nothing": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::git_run_never_records_child_arguments_or_config_values": [
-      "linux",
-      "macos"
-    ],
-    "e2e_run_m02::git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing": [
-      "linux",
-      "macos"
     ],
     "e2e_run_m02::terminal::a27_ctrl_c_reaches_child_once": [
       "linux",
@@ -1315,5 +1228,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "44336a9ead68612f68798f62095856656bb1dc0b2e87fc1a83279e756a7b0797"
+  "sources_sha256": "eae6215e14e8237dcc6f7b6f6a50dbb2a8b2ef7e7b3f0b0c4516411559e352e4"
 }

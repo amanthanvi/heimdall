@@ -247,7 +247,6 @@ fn refs(v: &[OsString]) -> Vec<&OsStr> {
     v.iter().map(OsString::as_os_str).collect()
 }
 
-#[cfg(unix)]
 fn launching_ids(records: &[RunRecord]) -> (Option<String>, Option<String>) {
     match records.first() {
         Some(RunRecord::Launching {
@@ -314,6 +313,185 @@ fn wait_for(what: &str, limit: Duration, mut cond: impl FnMut() -> bool) {
     while !cond() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
         std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Whether `records` are one launch's whole side channel, with the child's exit status
+/// `code` where Windows records it: Unix writes `launching` and execs, so it is last;
+/// Windows spawns and waits, so the launcher also writes `spawned` and `exited`
+/// (ADR-0007 §8; ADR-0007 §12.43 item 4).
+fn one_launch(records: &[RunRecord], code: Option<i32>) -> bool {
+    if cfg!(windows) {
+        matches!(
+            records,
+            [
+                RunRecord::Launching { .. },
+                RunRecord::Spawned { .. },
+                RunRecord::Exited { exit_code, .. },
+            ] if code.is_none_or(|c| i64::from(c.cast_unsigned()) == *exit_code)
+        )
+    } else {
+        matches!(records, [RunRecord::Launching { .. }])
+    }
+}
+
+/// Windows child programs: copies of **this test executable** standing in for the
+/// Unix cases' `/bin/sh` scripts, `/usr/bin/env -0`, `/bin/pwd -P` and stub `ssh`.
+///
+/// Windows has no `sh`. A `.cmd` script would put `cmd.exe` between Heimdall and the
+/// child (it reads `%`, `^`, `&` and `"` itself, and adds `PROMPT` to the
+/// environment), so it could not show what the child received, and no batch file can
+/// stand at the path `connect` launches on Windows
+/// (`%SystemRoot%\System32\OpenSSH\ssh.exe`, ADR-0004 E6). A copy is an `.exe`: its
+/// argv comes from the MSVC CRT rules, which `CommandLineToArgvW` shares for every
+/// command line std builds (std escapes `"` as `\"`, never as `""`).
+///
+/// The copy's program is chosen **before libtest's `main`**, by a CRT initializer
+/// (`.CRT$XCU`) that reads the copy's own file stem, so a copy never runs libtest
+/// (whose header would reach stdout); this test executable (`e2e_run_m02-…`) matches
+/// no stem and runs as usual.
+///
+/// | Stem | Program |
+/// |---|---|
+/// | `hm-u8-argv` | writes each argument after the first, NUL-terminated, to the file the first names (the Unix `printf '%s\0' "$@" > "$out"`); exit 0 |
+/// | `hm-u8-env` | prints the environment, `NAME=value` NUL-terminated (`env -0`); exit 0 |
+/// | `hm-u8-pwd` | prints the working directory (`pwd`); exit 0 |
+/// | `ssh` | the client named by the plan file `HM_U8_STUB_CLIENT` names: `record` (writes its arguments NUL-terminated to a file and prints a file, the Unix stub `ssh`) or `wrap` (runs the real client with the isolation arguments before its own and trailing words after them, the Unix wrapper's `exec`); exit 2 without a plan |
+#[cfg(windows)]
+mod child {
+    use std::io::Write as _;
+    use std::path::{Path, PathBuf};
+
+    /// The argument recorder's stem.
+    pub(super) const ARGV: &str = "hm-u8-argv";
+    /// The environment printer's stem.
+    pub(super) const ENV: &str = "hm-u8-env";
+    /// The working-directory printer's stem.
+    pub(super) const PWD: &str = "hm-u8-pwd";
+    /// The variable naming the stub client's plan file.
+    pub(super) const CLIENT_PLAN: &str = "HM_U8_STUB_CLIENT";
+
+    // The one `unsafe` construct here is the attribute that places this function pointer
+    // in the CRT's initializer table, which the MSVC runtime calls once before `main`
+    // (what the `ctor` crate does). The function is safe Rust: it reads this process's
+    // own path and either returns at once or runs a fixture program and exits.
+    #[allow(unsafe_code)]
+    #[used]
+    #[unsafe(link_section = ".CRT$XCU")]
+    static PROGRAM: extern "C" fn() = program;
+
+    extern "C" fn program() {
+        let stem = std::env::current_exe().ok().and_then(|p| {
+            p.file_stem()
+                .and_then(|s| s.to_str())
+                .map(str::to_ascii_lowercase)
+        });
+        let code = match stem.as_deref() {
+            Some(ARGV) => argv(),
+            Some(ENV) => env(),
+            Some(PWD) => pwd(),
+            Some("ssh") => client(),
+            _ => return,
+        };
+        std::process::exit(code);
+    }
+
+    fn nul_terminated<'a>(words: impl Iterator<Item = &'a str>) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for w in words {
+            bytes.extend_from_slice(w.as_bytes());
+            bytes.push(0);
+        }
+        bytes
+    }
+
+    fn print(bytes: &[u8]) -> i32 {
+        let mut out = std::io::stdout().lock();
+        i32::from(out.write_all(bytes).and_then(|()| out.flush()).is_err())
+    }
+
+    /// The arguments after the program name, as UTF-8 (`None` when one is not Unicode).
+    fn args() -> Option<Vec<String>> {
+        std::env::args_os()
+            .skip(1)
+            .map(|a| a.into_string().ok())
+            .collect()
+    }
+
+    fn argv() -> i32 {
+        let Some(args) = args() else { return 3 };
+        let Some((out, values)) = args.split_first() else {
+            return 2;
+        };
+        let bytes = nul_terminated(values.iter().map(String::as_str));
+        i32::from(std::fs::write(out, bytes).is_err())
+    }
+
+    fn env() -> i32 {
+        let mut bytes = Vec::new();
+        for (k, v) in std::env::vars_os() {
+            bytes.extend_from_slice(k.to_string_lossy().as_bytes());
+            bytes.push(b'=');
+            bytes.extend_from_slice(v.to_string_lossy().as_bytes());
+            bytes.push(0);
+        }
+        print(&bytes)
+    }
+
+    fn pwd() -> i32 {
+        match std::env::current_dir() {
+            Ok(d) => print(d.to_string_lossy().as_bytes()),
+            Err(_) => 1,
+        }
+    }
+
+    fn client() -> i32 {
+        let Some(plan) = std::env::var_os(CLIENT_PLAN) else {
+            return 2;
+        };
+        let Ok(text) = std::fs::read_to_string(plan) else {
+            return 2;
+        };
+        let Some(args) = args() else { return 3 };
+        let lines: Vec<&str> = text.lines().collect();
+        match lines.as_slice() {
+            ["record", args_file, bytes_file] => {
+                let recorded = nul_terminated(args.iter().map(String::as_str));
+                if std::fs::write(args_file, recorded).is_err() {
+                    return 1;
+                }
+                match std::fs::read(bytes_file) {
+                    Ok(bytes) => print(&bytes),
+                    Err(_) => 1,
+                }
+            }
+            ["wrap", ssh, system_root, rest @ ..] => {
+                let Some(split) = rest.iter().position(|l| *l == "--") else {
+                    return 2;
+                };
+                // The real client gets the real Windows directory back (Winsock reads
+                // its providers through `%SystemRoot%`) and never sees the plan.
+                std::process::Command::new(ssh)
+                    .args(&rest[..split])
+                    .args(&args)
+                    .args(&rest[split + 1..])
+                    .env_remove(CLIENT_PLAN)
+                    .env("SystemRoot", system_root)
+                    .status()
+                    .ok()
+                    .and_then(|s| s.code())
+                    .unwrap_or(1)
+            }
+            _ => 2,
+        }
+    }
+
+    /// A copy of this test executable as `<dir>\<stem>.exe`.
+    pub(super) fn install(dir: &Path, stem: &str) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        let to = dir.join(format!("{stem}.exe"));
+        std::fs::copy(std::env::current_exe().unwrap(), &to).unwrap();
+        to
     }
 }
 
@@ -740,19 +918,56 @@ fn a27_meta_unavailable_aborts_launch_no_child() {
 /// existing `--meta-file` (left untouched), a descriptor that is not open, standard
 /// output, and a directory descriptor are each a usage error before `ensure`: the
 /// runtime is never started and no child runs.
-#[cfg(unix)]
+///
+/// Windows runs the `--meta-file` half, with the fixture hook's `touch` as the child
+/// that must not run. Unix-only: the `--meta-fd` half. A descriptor inherited from the
+/// caller is the Unix process model; on Windows `--meta-fd` is refused as a usage error
+/// whatever its value ("available on Unix only", `launch_flow::open_side_channel`), so
+/// none of its invalid-descriptor cases exists there.
 #[test]
 fn a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure() {
     let rig = Rig::new();
     let marker = rig.file("ran");
-    let script = format!("touch '{}'", marker.display());
-    let argv = os(&["/bin/sh", "-c", &script]);
+    #[cfg(unix)]
+    let argv = {
+        let script = format!("touch '{}'", marker.display());
+        os(&["/bin/sh", "-c", &script])
+    };
+    #[cfg(windows)]
+    let argv = hook_touch(&marker);
     let existing = rig.file("existing.ndjson");
     std::fs::write(&existing, b"owner bytes").unwrap();
     let out = rig.run_with(&refs(&run_args(Some(&existing), &argv)), &[]);
     assert_eq!(out.code(), Some(2), "{}", out.stderr);
     assert_eq!(out.envelope()["code"], "USAGE_ERROR");
     assert_eq!(std::fs::read(&existing).unwrap(), b"owner bytes");
+    #[cfg(unix)]
+    meta_fd_invalid_is_usage_error(&rig, &argv);
+    assert!(!marker.exists());
+    assert!(!rig.runtime_started(), "usage errors come before ensure");
+}
+
+/// The fixture hook's `touch <marker>` (it appends `ran` to `marker`): the Windows
+/// child that shows whether a launch happened, as the Unix cases' `touch` script does.
+#[cfg(windows)]
+fn hook_touch(marker: &Path) -> Vec<OsString> {
+    use heimdall_testkit::hook::{HookBinary, HookMode};
+    let hook = HookBinary::locate().unwrap_or_else(|e| panic!("{e}"));
+    let mut argv = vec![hook.path().as_os_str().to_owned()];
+    argv.extend(
+        HookMode::Touch {
+            path: marker.to_path_buf(),
+        }
+        .args(),
+    );
+    argv
+}
+
+/// The `--meta-fd` half of
+/// `a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure` (Unix only; see
+/// there): a descriptor that is not open, standard output, and a directory descriptor.
+#[cfg(unix)]
+fn meta_fd_invalid_is_usage_error(rig: &Rig, argv: &[OsString]) {
     for fd in ["9", "1", "-1"] {
         let mut a = os(&["--json", "run", "--profile", "ops", "--meta-fd", fd, "--"]);
         a.extend(argv.iter().cloned());
@@ -762,7 +977,7 @@ fn a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure() {
     // Descriptor 3 open on a directory: not a pipe, socket or regular file.
     let mut sh_args = os(&["-c", "exec \"$0\" \"$@\" 3<\"$HOME\""]);
     sh_args.push(bin().into());
-    sh_args.extend(fd_args(&argv));
+    sh_args.extend(fd_args(argv));
     let out = finish(
         rig.command_of(OsStr::new("/bin/sh"), &refs(&sh_args), &[])
             .stdin(Stdio::null())
@@ -770,8 +985,6 @@ fn a27_meta_file_existing_or_fd_invalid_is_usage_error_before_ensure() {
             .unwrap(),
     );
     assert_eq!(out.code(), Some(2), "{}", out.stderr);
-    assert!(!marker.exists());
-    assert!(!rig.runtime_started(), "usage errors come before ensure");
 }
 
 /// m02-plan U8 `a27_no_stdout_contamination_in_run_and_connect`: stdout carries
@@ -852,8 +1065,61 @@ fn a27_shell_metacharacters_in_argv_reach_child_verbatim() {
     assert!(!rig.work().join("pwned").exists());
 }
 
-#[cfg(unix)]
-/// The environment `/usr/bin/env -0` printed, as sorted pairs.
+/// The Unix cases plus what `cmd.exe` and the Windows argument rules read specially:
+/// `&`, `|`, `<`, `>` and `^`, `%VAR%` and `!VAR!` expansion, quotes inside and around a
+/// word, and backslashes before a quote and at the end of a word (each injection would
+/// create `pwned` in the working directory).
+#[cfg(windows)]
+const METACHARACTERS: [&str; 22] = [
+    "$(touch pwned)",
+    "`touch pwned`",
+    "a;touch pwned",
+    "a|touch pwned",
+    "a&&touch pwned",
+    "'\"",
+    "*",
+    "$HOME",
+    "",
+    "two words",
+    "--json",
+    "\u{e9}\u{2028}tab\tend",
+    "a&break>pwned",
+    "a|break>pwned",
+    "a<pwned",
+    "a^&break>pwned",
+    "%PATH%",
+    "!PATH!",
+    "\"quoted&break>pwned\"",
+    "a\\\"&break>pwned",
+    "trailing\\",
+    "\\\\server\\share\\",
+];
+
+/// m02-plan U8 `a27_shell_metacharacters_in_argv_reach_child_verbatim` on Windows: the
+/// child is an `.exe` (the argument recorder, [`child`]) that writes the arguments it
+/// parsed, so the command line Heimdall built reached it intact and no shell (`cmd.exe`
+/// or another) read it; Heimdall's own flags after `--` are the child's.
+#[cfg(windows)]
+#[test]
+fn a27_shell_metacharacters_in_argv_reach_child_verbatim() {
+    let rig = Rig::new();
+    let recorder = child::install(&rig.file("bin"), child::ARGV);
+    let out_file = rig.file("args");
+    let mut argv = vec![recorder.into_os_string(), out_file.clone().into_os_string()];
+    argv.extend(os(&METACHARACTERS));
+    let out = rig.run_with(&refs(&run_args(None, &argv)), &[]);
+    assert_eq!(out.code(), Some(0), "{}", out.stderr);
+    let mut expected = Vec::new();
+    for a in METACHARACTERS {
+        expected.extend_from_slice(a.as_bytes());
+        expected.push(0);
+    }
+    assert_eq!(std::fs::read(&out_file).unwrap(), expected);
+    assert!(!rig.work().join("pwned").exists());
+}
+
+/// The environment `/usr/bin/env -0` (Unix) or the environment printer ([`child`],
+/// Windows) printed, as sorted pairs.
 fn env_pairs(bytes: &[u8]) -> Vec<(String, String)> {
     let mut pairs: Vec<(String, String)> = bytes
         .split(|b| *b == 0)
@@ -903,6 +1169,53 @@ fn a27_cwd_and_env_preserved_plus_only_documented_additions() {
     assert_eq!(
         String::from_utf8_lossy(&pwd.stdout).trim_end(),
         std::fs::canonicalize(rig.work()).unwrap().to_string_lossy()
+    );
+}
+
+/// m02-plan U8 `a27_cwd_and_env_preserved_plus_only_documented_additions` on Windows:
+/// the child (the environment and working-directory printers, [`child`]) starts in the
+/// caller's directory with exactly the caller's environment. This integration names no
+/// pair, so no `SSH_AUTH_SOCK`, and the Windows Git injection (ADR-0007 §8) has no
+/// verified client to inject; a caller `GIT_CONFIG_COUNT` reaches the child unchanged.
+#[cfg(windows)]
+#[test]
+fn a27_cwd_and_env_preserved_plus_only_documented_additions() {
+    let rig = Rig::new();
+    let printers = rig.file("bin");
+    let env_printer = child::install(&printers, child::ENV);
+    let pwd_printer = child::install(&printers, child::PWD);
+    let extra = [
+        ("HM_U8_MARKER", OsStr::new("value with spaces")),
+        ("GIT_CONFIG_COUNT", OsStr::new("0")),
+    ];
+    let out = rig.run_with(
+        &refs(&run_args(None, &[env_printer.into_os_string()])),
+        &extra,
+    );
+    assert_eq!(out.code(), Some(0), "{}", out.stderr);
+    let mut expected: Vec<(String, String)> = rig
+        .env()
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                k.to_string_lossy().into_owned(),
+                v.to_string_lossy().into_owned(),
+            )
+        })
+        .chain(
+            extra
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), v.to_string_lossy().into_owned())),
+        )
+        .collect();
+    expected.sort();
+    assert_eq!(env_pairs(&out.stdout), expected);
+    let pwd = rig.run_with(&refs(&run_args(None, &[pwd_printer.into_os_string()])), &[]);
+    assert_eq!(pwd.code(), Some(0), "{}", pwd.stderr);
+    let seen = PathBuf::from(String::from_utf8(pwd.stdout).unwrap());
+    assert_eq!(
+        std::fs::canonicalize(seen).unwrap(),
+        std::fs::canonicalize(rig.work()).unwrap()
     );
 }
 
@@ -2030,10 +2343,56 @@ fn t04_overlapping_runs_of_one_binding_refuse_the_second_and_keep_the_first_hold
 // Git under `run` (M2-D10)
 // =================================================================================
 
-#[cfg(unix)]
+/// Git: `/usr/bin/git` on Unix; on Windows Git for Windows, found on `PATH` (m02-plan
+/// §4 Windows harness). Its processes get the rig's environment: a scratch `HOME`,
+/// `GIT_CONFIG_NOSYSTEM=1` and a scratch `GIT_CONFIG_GLOBAL`.
+fn git_program() -> OsString {
+    if cfg!(windows) {
+        heimdall_testkit::home::find_program("git")
+            .expect("Git for Windows on PATH")
+            .into_os_string()
+    } else {
+        "/usr/bin/git".into()
+    }
+}
+
+/// The child that prints its environment: `/usr/bin/env -0`, or on Windows the
+/// environment printer ([`child`]) installed in the rig's scratch.
+fn env_printer(rig: &Rig) -> Vec<OsString> {
+    #[cfg(windows)]
+    {
+        vec![child::install(&rig.file("bin"), child::ENV).into_os_string()]
+    }
+    #[cfg(unix)]
+    {
+        let _ = rig;
+        os(&["/usr/bin/env", "-0"])
+    }
+}
+
+/// The child's environment additions that put Git where its selection is resolved: on
+/// Unix nothing (`PATH=/usr/bin:/bin` holds `git`); on Windows Git for Windows' own
+/// directory first on the rig's `PATH`, since Heimdall resolves Git's selection with
+/// the Git found on the child's `PATH` (`localenv::git::resolve_run_selection`).
+fn git_on_path(rig: &Rig) -> Vec<(&'static str, OsString)> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    let git = PathBuf::from(git_program());
+    let rest = rig
+        .env()
+        .into_iter()
+        .find(|(k, _)| k == "PATH")
+        .map(|(_, v)| v)
+        .unwrap_or_default();
+    let mut dirs = vec![git.parent().unwrap().to_path_buf()];
+    dirs.extend(std::env::split_paths(&rest));
+    vec![("PATH", std::env::join_paths(dirs).unwrap())]
+}
+
 fn git(rig: &Rig, dir: &Path, args: &[&str]) {
     let out = rig
-        .command_of(OsStr::new("/usr/bin/git"), &refs(&os(args)), &[])
+        .command_of(&git_program(), &refs(&os(args)), &[])
         .current_dir(dir)
         .stdin(Stdio::null())
         .output()
@@ -2048,8 +2407,10 @@ fn git(rig: &Rig, dir: &Path, args: &[&str]) {
 /// m02-plan U8 `git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing`:
 /// in a repository whose local configuration sets `core.sshCommand`, `launching`
 /// reports that override (setting and scope, never the value) and nothing is set for
-/// Git; outside it nothing is reported.
-#[cfg(unix)]
+/// Git; outside it nothing is reported. Windows: the same, with Git for Windows on the
+/// child's `PATH` ([`git_on_path`]); a
+/// `core.sshCommand` at any scope is never overridden, so the Windows injection
+/// (ADR-0007 §8) adds nothing either.
 #[test]
 fn git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing() {
     let rig = Rig::new();
@@ -2062,10 +2423,9 @@ fn git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing() 
         &["config", "core.sshCommand", "/usr/bin/ssh -o BatchMode=yes"],
     );
     let meta = rig.file("meta.ndjson");
-    let mut cmd = rig.command(
-        &refs(&run_args(Some(&meta), &os(&["/usr/bin/env", "-0"]))),
-        &[],
-    );
+    let path = git_on_path(&rig);
+    let path: Vec<(&str, &OsStr)> = path.iter().map(|(k, v)| (*k, v.as_os_str())).collect();
+    let mut cmd = rig.command(&refs(&run_args(Some(&meta), &env_printer(&rig))), &path);
     let out = finish(
         cmd.current_dir(&repo)
             .stdin(Stdio::null())
@@ -2073,12 +2433,12 @@ fn git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing() 
             .unwrap(),
     );
     assert_eq!(out.code(), Some(0), "{}", out.stderr);
-    match records(&meta).as_slice() {
-        [
-            RunRecord::Launching {
-                consumer_overrides, ..
-            },
-        ] => {
+    let recs = records(&meta);
+    assert!(one_launch(&recs, Some(0)), "{recs:?}");
+    match recs.first() {
+        Some(RunRecord::Launching {
+            consumer_overrides, ..
+        }) => {
             let text = serde_json::to_string(consumer_overrides).unwrap();
             assert_eq!(
                 text,
@@ -2092,33 +2452,55 @@ fn git_run_resolution_in_child_cwd_reports_local_override_and_injects_nothing() 
     assert!(
         env.iter()
             .all(|(k, _)| !k.starts_with("GIT_CONFIG_KEY") && k != "GIT_SSH_COMMAND"),
-        "nothing injected on Unix"
+        "nothing injected"
     );
     // Outside the repository: Git's default, nothing reported.
     let plain = rig.file("plain.ndjson");
-    let out = rig.run_with(&refs(&run_args(Some(&plain), &os(&["/usr/bin/true"]))), &[]);
+    let nothing = if cfg!(windows) {
+        shell("exit 0")
+    } else {
+        os(&["/usr/bin/true"])
+    };
+    let out = rig.run_with(&refs(&run_args(Some(&plain), &nothing)), &path);
     assert_eq!(out.code(), Some(0));
+    let recs = records(&plain);
+    assert!(one_launch(&recs, Some(0)), "{recs:?}");
     assert!(matches!(
-        records(&plain).as_slice(),
-        [RunRecord::Launching { consumer_overrides, .. }] if consumer_overrides.is_empty()
+        recs.first(),
+        Some(RunRecord::Launching { consumer_overrides, .. }) if consumer_overrides.is_empty()
     ));
 }
 
+/// A path as Git's POSIX shell reads it in a `core.sshCommand` or `GIT_SSH_COMMAND`
+/// value: as is on Unix; on Windows with `/` separators, since Git for Windows' `sh`
+/// reads an unquoted `\` as an escape.
+fn sh_path(p: &Path) -> String {
+    let text = p.display().to_string();
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text
+    }
+}
+
 /// A stub "client" that records which one ran: `<dir>/<name>` appends its name to
-/// `<dir>/ran` and exits 1 (Git then stops).
-#[cfg(unix)]
+/// `<dir>/ran` and exits 1 (Git then stops). Git runs it through its POSIX shell (on
+/// Windows, Git for Windows' `sh`, which runs a `#!/bin/sh` file without an execute bit).
 fn stub(dir: &Path, name: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt as _;
     let p = dir.join(name);
     std::fs::write(
         &p,
         format!(
             "#!/bin/sh\necho {name} >> '{}'\nexit 1\n",
-            dir.join("ran").display()
+            sh_path(&dir.join("ran"))
         ),
     )
     .unwrap();
-    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     p
 }
 
@@ -2126,16 +2508,17 @@ fn stub(dir: &Path, name: &str) -> PathBuf {
 /// `GIT_CONFIG_COUNT` claim on this Git): a `core.sshCommand` given through
 /// `GIT_CONFIG_COUNT` (what the Windows injection appends) loses to a per-command `-c`
 /// and to `GIT_SSH_COMMAND`, and wins over nothing else. Through `heimdall run` on
-/// Unix the caller's entries reach Git unchanged (nothing is appended).
-#[cfg(unix)]
+/// Unix the caller's entries reach Git unchanged (nothing is appended). Windows: the
+/// same with Git for Windows; a caller entry naming `core.sshCommand` is the setting in
+/// force, so Heimdall appends nothing there either.
 #[test]
 fn git_run_injection_yields_to_dash_c_and_env() {
     let rig = Rig::new();
     let dir = rig.file("stubs");
     std::fs::create_dir(&dir).unwrap();
-    let injected = stub(&dir, "injected");
-    let dash_c = stub(&dir, "dash_c");
-    let env_cmd = stub(&dir, "env");
+    let injected = OsString::from(sh_path(&stub(&dir, "injected")));
+    let dash_c = sh_path(&stub(&dir, "dash_c"));
+    let env_cmd = OsString::from(sh_path(&stub(&dir, "env")));
     let ran = dir.join("ran");
     let count = [
         ("GIT_CONFIG_COUNT", OsStr::new("1")),
@@ -2145,7 +2528,7 @@ fn git_run_injection_yields_to_dash_c_and_env() {
     ];
     let ls_remote = |pre: &[&str], extra: &[(&str, &OsStr)]| {
         let _ = std::fs::remove_file(&ran);
-        let mut argv: Vec<OsString> = vec!["/usr/bin/git".into()];
+        let mut argv: Vec<OsString> = vec![git_program()];
         argv.extend(os(pre));
         argv.extend(os(&["ls-remote", "ssh://fixture.invalid/repo"]));
         let mut all: Vec<(&str, &OsStr)> = count.to_vec();
@@ -2166,7 +2549,7 @@ fn git_run_injection_yields_to_dash_c_and_env() {
         "injected",
         "the environment entry applies"
     );
-    let dash = format!("core.sshCommand={}", dash_c.display());
+    let dash = format!("core.sshCommand={dash_c}");
     assert_eq!(
         ls_remote(&["-c", &dash], &[]),
         "dash_c",
@@ -2181,8 +2564,7 @@ fn git_run_injection_yields_to_dash_c_and_env() {
 
 /// m02-plan U8 `git_run_never_records_child_arguments_or_config_values`: canaries in
 /// the child's arguments and in a `core.sshCommand` value reach Git and the child,
-/// and appear in no record, envelope, diagnostic, store or log.
-#[cfg(unix)]
+/// and appear in no record, envelope, diagnostic, store or log (Unix and Windows).
 #[test]
 fn git_run_never_records_child_arguments_or_config_values() {
     let rig = Rig::new();
@@ -2209,13 +2591,8 @@ fn git_run_never_records_child_arguments_or_config_values() {
         ],
     );
     let meta = rig.file("meta.ndjson");
-    let argv = os(&[
-        "/usr/bin/git",
-        "config",
-        "--get",
-        "core.sshCommand",
-        &arg_canary,
-    ]);
+    let mut argv = vec![git_program()];
+    argv.extend(os(&["config", "--get", "core.sshCommand", &arg_canary]));
     let mut cmd = rig.command(&refs(&run_args(Some(&meta), &argv)), &[]);
     let out = cmd
         .current_dir(&repo)
@@ -2236,22 +2613,21 @@ fn git_run_never_records_child_arguments_or_config_values() {
             assert!(!contains(bytes, canary), "a canary leaked into {label}");
         }
     }
-    assert!(matches!(
-        records(&meta).as_slice(),
-        [RunRecord::Launching { .. }]
-    ));
+    let recs = records(&meta);
+    assert!(one_launch(&recs, None), "{recs:?}");
 }
 
 /// m02-plan U8 `git_run_malformed_caller_git_config_count_injects_nothing`: a
 /// malformed caller `GIT_CONFIG_COUNT` reaches the child unchanged, and nothing is
-/// added (the Windows rule's unit cases are in `heimdall_launch::env`).
-#[cfg(unix)]
+/// added (the Windows rule's unit cases are in `heimdall_launch::env`; natively on
+/// Windows too, where a malformed count is the rule's own reason to inject nothing).
 #[test]
 fn git_run_malformed_caller_git_config_count_injects_nothing() {
     let rig = Rig::new();
+    let printer = env_printer(&rig);
     for count in ["abc", "", "+1", "2"] {
         let extra = [("GIT_CONFIG_COUNT", OsStr::new(count))];
-        let out = rig.run_with(&refs(&run_args(None, &os(&["/usr/bin/env", "-0"]))), &extra);
+        let out = rig.run_with(&refs(&run_args(None, &printer)), &extra);
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
         let env = env_pairs(&out.stdout);
         assert!(env.contains(&("GIT_CONFIG_COUNT".to_owned(), count.to_owned())));
@@ -2281,7 +2657,18 @@ fn git_run_malformed_caller_git_config_count_injects_nothing() {
 /// **Restart label.** A "restart" here stops the in-process service (token, drain)
 /// and starts a new one over the same directories: an in-process reconstruction, as
 /// M01's suites label it, with the client still the real binary.
-#[cfg(unix)]
+///
+/// **Windows** (audit G-7). The same cases run natively: the agent is a `FakeAgent`
+/// pipe (`\\.\pipe\heimdall-hmtest-…`) adopted as a `named_pipe` endpoint, the owner
+/// caller is this account's SID, the marker child is the fixture hook's `touch`, a run
+/// record of a launch is `launching`, `spawned`, `exited`, and the pre-check pause is a
+/// named pipe this test serves (the CLI's `File::open` of the pause path connects to
+/// it, as it opens the FIFO on Unix). `connect`'s verified client is
+/// `%SystemRoot%\System32\OpenSSH\ssh.exe`, so the stub client and the wrapper are
+/// copies of this test executable ([`child`]) at that path under a scratch
+/// `SystemRoot`, given to the CLI only. The fixture sshd is the harness's WSL sshd: the
+/// destination's account is the one it authenticates (`LoopbackSshd::account`), and a
+/// remote path is the WSL form (`/mnt/<drive>/…`) of the same scratch file.
 mod a11 {
     use std::sync::Arc;
 
@@ -2338,14 +2725,19 @@ mod a11 {
         agent: FakeAgent,
         /// A real disposable `ssh-agent` behind a counting proxy, when the test adopts
         /// its keys at the proxy instead of at the fake agent ([`World::attach_real`]).
+        #[cfg(unix)]
         real: Option<RealAgent>,
         keys: Vec<FixtureKey>,
-        uid: u32,
+        /// This account as the runtime names a CLI client of it: the scratch home's
+        /// owner uid (Unix) or the process user's SID (Windows).
+        principal: PrincipalRef,
         n: std::sync::atomic::AtomicU32,
     }
 
     /// U7's `DisposableSshAgent` (with the counting askpass) behind a `CountingProxy`;
     /// identities adopted at the proxy's socket, so every agent contact is counted.
+    /// Unix-only, as the confirm-constrained cases that use it.
+    #[cfg(unix)]
     struct RealAgent {
         agent: heimdall_testkit::agent::DisposableSshAgent,
         proxy: heimdall_testkit::agent::CountingProxy,
@@ -2363,7 +2755,6 @@ mod a11 {
 
         /// [`new`](Self::new) with the fake agent in `mode`.
         fn with_mode(keys: usize, mode: AgentMode) -> World {
-            use std::os::unix::fs::MetadataExt as _;
             let home = ScratchHome::new();
             std::fs::create_dir_all(home.root.join("etc-ssh")).unwrap();
             let keys = FixtureKey::generate_many(keys);
@@ -2374,14 +2765,23 @@ mod a11 {
                     mode,
                 },
             );
-            let uid = std::fs::metadata(&home.root).unwrap().uid();
+            #[cfg(unix)]
+            let principal = {
+                use std::os::unix::fs::MetadataExt as _;
+                PrincipalRef::UnixUser {
+                    uid: std::fs::metadata(&home.root).unwrap().uid(),
+                }
+            };
+            #[cfg(windows)]
+            let principal = heimdall_testkit::win::current_principal().unwrap();
             let mut w = World {
                 home,
                 service: None,
                 agent,
+                #[cfg(unix)]
                 real: None,
                 keys,
-                uid,
+                principal,
                 n: std::sync::atomic::AtomicU32::new(0),
             };
             w.start();
@@ -2391,6 +2791,7 @@ mod a11 {
         /// Start U7's disposable `ssh-agent` with the counting askpass (answer
         /// `Approve`) and a counting proxy in front of it, in this world's scratch.
         /// Identities adopted afterwards are adopted at the proxy's socket.
+        #[cfg(unix)]
         fn attach_real(&mut self) {
             use heimdall_testkit::agent::{
                 AgentOptions, AskpassAnswer, CountingProxy, DisposableSshAgent,
@@ -2411,12 +2812,14 @@ mod a11 {
             self.real = Some(RealAgent { agent, proxy });
         }
 
+        #[cfg(unix)]
         fn real(&self) -> &RealAgent {
             self.real.as_ref().expect("attach_real first")
         }
 
         /// Add key `k` to the disposable agent, with a fixed comment that is not a
         /// canary (`ssh` prints the comment of a key whose signature the agent refuses).
+        #[cfg(unix)]
         fn add_real_key(&self, k: usize, confirm: bool) {
             use heimdall_testkit::agent::KeyConstraints;
             self.real()
@@ -2430,6 +2833,7 @@ mod a11 {
 
         /// ADR-0007 F23 (M2-R08): the confirm constraint is installed on this agent:
         /// one signature through the proxy, askpass `Approve`, prompts exactly once.
+        #[cfg(unix)]
         fn verify_confirm_installed(&self, k: usize) {
             let real = self.real();
             let socket = match real.proxy.endpoint() {
@@ -2445,18 +2849,26 @@ mod a11 {
         }
 
         /// The proxy's forwarded requests and the askpass invocations so far.
+        #[cfg(unix)]
         fn counts(&self) -> (usize, u32) {
             let real = self.real();
             (real.proxy.count(), real.agent.askpass_count())
         }
 
         fn endpoint(&self) -> EndpointRef {
+            #[cfg(unix)]
             let locator = match &self.real {
                 Some(real) => real.proxy.endpoint().locator(),
                 None => self.agent.endpoint().locator(),
             };
+            #[cfg(windows)]
+            let locator = self.agent.endpoint().locator();
             EndpointRef {
-                kind: EndpointKind::UnixSocket,
+                kind: if cfg!(windows) {
+                    EndpointKind::NamedPipe
+                } else {
+                    EndpointKind::UnixSocket
+                },
                 locator: locator.to_str().unwrap().to_owned(),
             }
         }
@@ -2564,7 +2976,7 @@ mod a11 {
 
         fn owner(&self) -> CallerContext {
             CallerContext {
-                principal: PrincipalRef::UnixUser { uid: self.uid },
+                principal: self.principal.clone(),
                 role: ClientRole::Owner,
             }
         }
@@ -2788,10 +3200,39 @@ mod a11 {
             (w, id)
         }
 
+        /// The environment of every CLI process (and, under `run`, its child): Unix
+        /// `PATH=/usr/bin:/bin`; Windows the in-box OpenSSH, System32 and the Windows
+        /// directory on `PATH` (the E6 baseline, first as the native harness puts it),
+        /// `SystemRoot`, `SystemDrive`, `TEMP`/`TMP`, and the scratch home as the profile
+        /// (`USERPROFILE`) and as `ProgramData` (in-box OpenSSH exits 255 before logging
+        /// without it, as in `e2e_cli_m02`); then the scratch home and Heimdall's test
+        /// configuration on both.
         fn env(&self) -> Vec<(OsString, OsString)> {
             let g = &self.home.git_home;
-            vec![
-                ("PATH".into(), "/usr/bin:/bin".into()),
+            let mut env: Vec<(OsString, OsString)> = Vec::new();
+            if cfg!(windows) {
+                let root = PathBuf::from(
+                    std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()),
+                );
+                let path = std::env::join_paths([
+                    root.join("System32").join("OpenSSH"),
+                    root.join("System32"),
+                    root.clone(),
+                ])
+                .unwrap();
+                env.push(("PATH".into(), path));
+                env.push(("SystemRoot".into(), root.into_os_string()));
+                for k in ["SystemDrive", "TEMP", "TMP"] {
+                    if let Some(v) = std::env::var_os(k) {
+                        env.push((k.into(), v));
+                    }
+                }
+                env.push(("USERPROFILE".into(), g.clone().into_os_string()));
+                env.push(("ProgramData".into(), g.clone().into_os_string()));
+            } else {
+                env.push(("PATH".into(), "/usr/bin:/bin".into()));
+            }
+            env.extend([
                 ("HOME".into(), g.clone().into_os_string()),
                 (
                     "HEIMDALL_HOME".into(),
@@ -2803,7 +3244,8 @@ mod a11 {
                     "GIT_CONFIG_GLOBAL".into(),
                     g.join(".gitconfig").into_os_string(),
                 ),
-            ]
+            ]);
+            env
         }
 
         fn cli(&self, args: &[OsString], extra: &[(&str, &OsStr)]) -> Command {
@@ -2828,7 +3270,8 @@ mod a11 {
         }
 
         /// `heimdall --json [--non-interactive] run --profile work [flags] --meta-file
-        /// <meta> -- /bin/sh -c 'touch <marker>'`.
+        /// <meta> -- /bin/sh -c 'touch <marker>'` (on Windows, the child is the fixture
+        /// hook's `touch <marker>`).
         fn run_args(&self, name: &str, non_interactive: bool, flags: &[&str]) -> Vec<OsString> {
             let mut a = os(&["--json"]);
             if non_interactive {
@@ -2839,8 +3282,13 @@ mod a11 {
             a.push("--meta-file".into());
             a.push(self.marker(&format!("{name}.ndjson")).into_os_string());
             a.push("--".into());
-            let script = format!("touch '{}'", self.marker(name).display());
-            a.extend(os(&["/bin/sh", "-c", &script]));
+            #[cfg(unix)]
+            {
+                let script = format!("touch '{}'", self.marker(name).display());
+                a.extend(os(&["/bin/sh", "-c", &script]));
+            }
+            #[cfg(windows)]
+            a.extend(hook_touch(&self.marker(name)));
             a
         }
 
@@ -2854,6 +3302,7 @@ mod a11 {
 
         /// Run with a pre-check pause: `during` runs while the CLI is held after
         /// `bind`, before the pre-launch check.
+        #[cfg(unix)]
         fn run_paused(
             &self,
             args: &[OsString],
@@ -2880,6 +3329,86 @@ mod a11 {
             drop(w);
             finish(child.wait_with_output().unwrap())
         }
+
+        /// [`run_paused`](Self::run_paused) on Windows: the pause path is a named pipe
+        /// (`\\.\pipe\heimdall-hmtest-…-pause`) this test serves outbound-only. The
+        /// CLI's `File::open` of it connects, so the connection completing means the CLI
+        /// is paused; `during` runs; disconnecting the server ends the CLI's read and
+        /// releases it. The wait is bounded, and a CLI that exits first (a refusal before
+        /// the pause) fails the test at once, as the Unix FIFO open does (ADR-0007
+        /// §12.32 item 10).
+        #[cfg(windows)]
+        fn run_paused(
+            &self,
+            args: &[OsString],
+            extra: &[(&str, &OsStr)],
+            during: impl FnOnce(),
+        ) -> Out {
+            use tokio::net::windows::named_pipe::ServerOptions;
+            let name = format!(
+                r"\\.\pipe\{}{}-pause-{}",
+                heimdall_testkit::agent::FIXTURE_PIPE_PREFIX,
+                heimdall_testkit::agent::random_hex(8),
+                self.n.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            );
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let server = {
+                let _entered = rt.enter();
+                ServerOptions::new()
+                    .first_pipe_instance(true)
+                    .access_inbound(false)
+                    .access_outbound(true)
+                    .reject_remote_clients(true)
+                    .create(&name)
+                    .unwrap()
+            };
+            let pause = OsString::from(&name);
+            let mut all: Vec<(&str, &OsStr)> =
+                vec![("HEIMDALL_TEST_PRE_CHECK_PAUSE", pause.as_os_str())];
+            all.extend_from_slice(extra);
+            let mut child = self
+                .cli(args, &all)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            {
+                let mut connect = std::pin::pin!(server.connect());
+                let deadline = Instant::now() + Duration::from_secs(60);
+                loop {
+                    let polled = rt.block_on(async {
+                        tokio::time::timeout(Duration::from_millis(20), connect.as_mut()).await
+                    });
+                    match polled {
+                        Ok(r) => {
+                            r.unwrap();
+                            break;
+                        }
+                        Err(_) => {
+                            if let Some(status) = child.try_wait().unwrap() {
+                                panic!("the CLI exited ({status}) before it opened the pause pipe");
+                            }
+                            assert!(
+                                Instant::now() < deadline,
+                                "the CLI did not open the pause pipe within 60 s"
+                            );
+                        }
+                    }
+                }
+            }
+            during();
+            // Release the CLI: `DisconnectNamedPipe` ends its read at once (the pause
+            // ends on any read result). Only dropping the server would not: the handle
+            // stays open while an overlapped operation is pending on a runtime nobody
+            // polls (observed natively: the CLI stayed paused).
+            server.disconnect().unwrap();
+            drop(server);
+            drop(rt);
+            finish(child.wait_with_output().unwrap())
+        }
     }
 
     impl Drop for World {
@@ -2887,6 +3416,7 @@ mod a11 {
             self.stop();
             // Stop the disposable agent (exact PID) and its proxy before the scratch
             // directory goes.
+            #[cfg(unix)]
             if let Some(mut real) = self.real.take() {
                 real.proxy.stop();
                 real.agent.stop();
@@ -2934,10 +3464,8 @@ mod a11 {
     fn assert_launched(w: &World, name: &str, out: &Out) {
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
         assert!(w.launched(name), "{name} did not launch: {}", out.stderr);
-        assert!(matches!(
-            w.records(name).as_slice(),
-            [RunRecord::Launching { .. }]
-        ));
+        let recs = w.records(name);
+        assert!(one_launch(&recs, Some(0)), "{recs:?}");
     }
 
     /// m02-plan U8 `a11_declared_none_allows_noninteractive_launch_and_result_says_declared`.
@@ -3271,17 +3799,23 @@ mod a11 {
     }
 
     /// m02-plan U8 `a11_file_backed_fallback_is_never_cleared`: an inherited
-    /// `IdentityFile` whose private file exists (0600) is refused even when its `.pub`
-    /// is adopted and declared.
+    /// `IdentityFile` whose private file exists (0600; on Windows Heimdall's owner-only
+    /// DACL, `heimdall_testkit::win::set_owner_only`) is refused even when its `.pub` is
+    /// adopted and declared.
     #[test]
     fn a11_file_backed_fallback_is_never_cleared() {
-        use std::os::unix::fs::PermissionsExt as _;
         let (w, _) = World::single(true);
         let pub_path = write_pub(&w, 1, "id_other");
         let private = w.home.root.join("id_other");
         // A placeholder: ssh's selection only stats it (Heimdall never opens it).
         std::fs::write(&private, b"placeholder, not a key\n").unwrap();
-        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        #[cfg(windows)]
+        heimdall_testkit::win::set_owner_only(&private).unwrap();
         append_user_config(
             &w,
             &format!("Host *\n    IdentityFile \"{}\"\n", private.display()),
@@ -3291,6 +3825,17 @@ mod a11 {
         let out = w.run_cli(&w.run_args("file", true, &[]), &[]);
         assert_refused(&w, "file", &out, "fallback_identity_interaction");
         assert!(pub_path.exists());
+    }
+
+    /// An agent locator as one quoted `ssh_config` word: `"<locator>"` on Unix; on
+    /// Windows with `\\` and `"` escaped (`ssh_config_quote`), since a pipe name begins
+    /// with `\\\\`, which OpenSSH's argument splitting would read as one `\\`.
+    fn agent_word(locator: &str) -> String {
+        if cfg!(windows) {
+            heimdall_testkit::home::ssh_config_quote(locator)
+        } else {
+            format!("\"{locator}\"")
+        }
     }
 
     /// The `--non-interactive connect alpha` arguments, with the run record at
@@ -3327,8 +3872,7 @@ mod a11 {
         let base = std::fs::read_to_string(&w.home.user_config).unwrap();
         let k2 = write_pub(&w, 1, "k2");
         let other = w.home.root.join("other-agent.sock");
-        let dir = stub_ssh(&w);
-        let path = OsString::from(format!("{}:/usr/bin:/bin", dir.display()));
+        let stub = stub_client(&w);
         let ran = w.home.root.join("ssh-args");
         let fallback_line = u32::try_from(base.lines().count() + 2).unwrap();
         let cases = [
@@ -3377,7 +3921,7 @@ mod a11 {
 
             let _ = std::fs::remove_file(&ran);
             let connect = format!("connect-{name}");
-            let out = w.run_cli(&connect_args(&w, &connect), &[("PATH", path.as_os_str())]);
+            let out = w.run_cli(&connect_args(&w, &connect), &stub.extra());
             assert_eq!(out.code(), Some(3), "{name}: {}", out.stderr);
             assert_eq!(code_of(&out), "INTERACTION_REQUIRED", "{}", out.stderr);
             assert_eq!(reason_of(&out), *reason, "{name}: {}", out.stderr);
@@ -3392,10 +3936,7 @@ mod a11 {
         // Control: the base configuration launches both.
         let out = w.run_cli(&w.run_args("base", true, &[]), &[]);
         assert_launched(&w, "base", &out);
-        let out = w.run_cli(
-            &connect_args(&w, "connect-base"),
-            &[("PATH", path.as_os_str())],
-        );
+        let out = w.run_cli(&connect_args(&w, "connect-base"), &stub.extra());
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
         assert!(ran.exists());
     }
@@ -3421,15 +3962,14 @@ mod a11 {
         .unwrap();
         let k0 = write_pub(&w, 0, "k0");
         let k1 = write_pub(&w, 1, "k1");
-        let agent = w.endpoint().locator;
+        let agent = agent_word(&w.endpoint().locator);
         let other = w.home.root.join("other-agent.sock");
         let gamma = format!(
-            "Host gamma\n    HostName gamma.example.invalid\n    IdentityFile \"{}\"\n    IdentityAgent \"{agent}\"\n    IdentitiesOnly yes\n",
+            "Host gamma\n    HostName gamma.example.invalid\n    IdentityFile \"{}\"\n    IdentityAgent {agent}\n    IdentitiesOnly yes\n",
             k0.display()
         );
         let base = std::fs::read_to_string(&w.home.user_config).unwrap();
-        let dir = stub_ssh(&w);
-        let path = OsString::from(format!("{}:/usr/bin:/bin", dir.display()));
+        let stub = stub_client(&w);
         let ran = w.home.root.join("ssh-args");
         let connect = |name: &str, text: &str| {
             std::fs::write(&w.home.user_config, text).unwrap();
@@ -3442,7 +3982,7 @@ mod a11 {
                 "--meta-file",
             ]);
             a.push(w.marker(&format!("{name}.ndjson")).into_os_string());
-            w.run_cli(&a, &[("PATH", path.as_os_str())])
+            w.run_cli(&a, &stub.extra())
         };
         let out = connect("gamma-control", &format!("{base}{gamma}"));
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
@@ -3623,25 +4163,88 @@ mod a11 {
         assert_launched(&w, "ensure-base", &out);
     }
 
-    /// A stub `ssh` that records its arguments and prints the 256 byte values.
-    fn stub_ssh(w: &World) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt as _;
-        let dir = w.home.root.join("stub-bin");
-        std::fs::create_dir_all(&dir).unwrap();
-        let p = dir.join("ssh");
-        std::fs::write(
-            &p,
-            format!(
-                "#!/bin/sh\nprintf '%s\\0' \"$@\" > '{}'\ncat '{}'\n",
-                w.home.root.join("ssh-args").display(),
-                w.home.root.join("bytes").display()
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    /// The client `connect` launches, in place for the CLI: what the CLI's environment
+    /// gains, and the end of the path `launching` names (with `/` separators).
+    struct ClientInPlace {
+        env: Vec<(&'static str, OsString)>,
+        executable_suffix: &'static str,
+    }
+
+    impl ClientInPlace {
+        /// The CLI's extra environment.
+        fn extra(&self) -> Vec<(&str, &OsStr)> {
+            self.env.iter().map(|(k, v)| (*k, v.as_os_str())).collect()
+        }
+
+        /// Whether `launching`'s executable is this client.
+        fn is(&self, executable: &str) -> bool {
+            if cfg!(windows) {
+                executable
+                    .replace('\\', "/")
+                    .ends_with(self.executable_suffix)
+            } else {
+                executable.ends_with(self.executable_suffix)
+            }
+        }
+    }
+
+    /// The verified client under a scratch `%SystemRoot%` (Windows, ADR-0004 E6): a copy
+    /// of this test executable at `<root>\System32\OpenSSH\ssh.exe` running the
+    /// [`child`] client `plan`; the CLI gets `SystemRoot=<root>` and the plan.
+    #[cfg(windows)]
+    fn client_at_system_root(w: &World, dir: &str, plan: &str) -> Vec<(&'static str, OsString)> {
+        let root = w.home.root.join(dir);
+        child::install(&root.join("System32").join("OpenSSH"), "ssh");
+        let plan_file = w.home.root.join(format!("{dir}.plan"));
+        std::fs::write(&plan_file, plan).unwrap();
+        vec![
+            ("SystemRoot", root.into_os_string()),
+            (child::CLIENT_PLAN, plan_file.into_os_string()),
+        ]
+    }
+
+    /// A stub `ssh` that records its arguments (NUL-terminated, in `<root>/ssh-args`)
+    /// and prints the 256 byte values: first on `PATH` (Unix), or the verified client
+    /// under a scratch `SystemRoot` (Windows, [`client_at_system_root`]).
+    fn stub_client(w: &World) -> ClientInPlace {
         let bytes: Vec<u8> = (0..=255u8).collect();
         std::fs::write(w.home.root.join("bytes"), bytes).unwrap();
-        dir
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let dir = w.home.root.join("stub-bin");
+            std::fs::create_dir_all(&dir).unwrap();
+            let p = dir.join("ssh");
+            std::fs::write(
+                &p,
+                format!(
+                    "#!/bin/sh\nprintf '%s\\0' \"$@\" > '{}'\ncat '{}'\n",
+                    w.home.root.join("ssh-args").display(),
+                    w.home.root.join("bytes").display()
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            ClientInPlace {
+                env: vec![(
+                    "PATH",
+                    OsString::from(format!("{}:/usr/bin:/bin", dir.display())),
+                )],
+                executable_suffix: "stub-bin/ssh",
+            }
+        }
+        #[cfg(windows)]
+        {
+            let plan = format!(
+                "record\n{}\n{}\n",
+                w.home.root.join("ssh-args").display(),
+                w.home.root.join("bytes").display()
+            );
+            ClientInPlace {
+                env: client_at_system_root(w, "stub-root", &plan),
+                executable_suffix: "stub-root/System32/OpenSSH/ssh.exe",
+            }
+        }
     }
 
     /// `connect` through the verified client (a stub `ssh` first on `PATH`): a managed
@@ -3651,8 +4254,7 @@ mod a11 {
     #[test]
     fn connect_launches_the_verified_client_and_checks_the_alias_identity() {
         let (w, id) = World::single(true);
-        let dir = stub_ssh(&w);
-        let path = OsString::from(format!("{}:/usr/bin:/bin", dir.display()));
+        let stub = stub_client(&w);
         let meta = w.home.root.join("connect.ndjson");
         let args = |ni: bool| {
             let mut a = os(&["--json"]);
@@ -3663,7 +4265,7 @@ mod a11 {
             a.push(meta.clone().into_os_string());
             a
         };
-        let out = w.run_cli(&args(true), &[("PATH", path.as_os_str())]);
+        let out = w.run_cli(&args(true), &stub.extra());
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
         assert_eq!(
             out.stdout,
@@ -3674,34 +4276,31 @@ mod a11 {
             std::fs::read(w.home.root.join("ssh-args")).unwrap(),
             b"alpha\0"
         );
-        match records(&meta).as_slice() {
-            [
-                RunRecord::Launching {
-                    executable,
-                    operation_id: None,
-                    binding_id: None,
-                    ..
-                },
-            ] => assert!(executable.ends_with("stub-bin/ssh"), "{executable}"),
+        let recs = records(&meta);
+        assert!(one_launch(&recs, Some(0)), "{recs:?}");
+        match recs.first() {
+            Some(RunRecord::Launching {
+                executable,
+                operation_id: None,
+                binding_id: None,
+                ..
+            }) => assert!(stub.is(executable), "{executable}"),
             other => panic!("{other:?}"),
         }
         // Withdrawn: refused before launch, nothing printed on stdout.
         w.withdraw(&id, WithdrawReason::Owner);
         std::fs::remove_file(&meta).unwrap();
         std::fs::remove_file(w.home.root.join("ssh-args")).unwrap();
-        let out = w.run_cli(&args(true), &[("PATH", path.as_os_str())]);
+        let out = w.run_cli(&args(true), &stub.extra());
         assert_eq!(out.code(), Some(3), "{}", out.stderr);
         assert!(out.stdout.is_empty());
         assert!(!w.home.root.join("ssh-args").exists());
         // Interactive use stays first-class: without --non-interactive it launches.
         std::fs::remove_file(&meta).unwrap();
-        let out = w.run_cli(&args(false), &[("PATH", path.as_os_str())]);
+        let out = w.run_cli(&args(false), &stub.extra());
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
         // An alias that is not a destination is refused.
-        let out = w.run_cli(
-            &os(&["--json", "connect", "gamma"]),
-            &[("PATH", path.as_os_str())],
-        );
+        let out = w.run_cli(&os(&["--json", "connect", "gamma"]), &stub.extra());
         assert_eq!(out.code(), Some(2));
         assert_eq!(out.envelope()["code"], "NOT_FOUND");
     }
@@ -3726,6 +4325,15 @@ mod a11 {
         ssh: PathBuf,
     }
 
+    /// This OS account's name, as `Match localuser` compares it: `id -un` (Unix), the
+    /// process's `USERNAME` (Windows, the name Win32-OpenSSH's `%u` uses for a local
+    /// account). Read at run time; never written in this file or printed.
+    #[cfg(windows)]
+    fn account_name() -> String {
+        std::env::var("USERNAME").expect("USERNAME")
+    }
+
+    #[cfg(unix)]
     fn account_name() -> String {
         let out = Command::new("/usr/bin/id")
             .arg("-un")
@@ -3759,7 +4367,15 @@ mod a11 {
             .unwrap_or_else(|e| panic!("{e}"));
             w.home.trust_host_key(&sshd.host_key_line).unwrap();
             let id = w.adopt(0);
+            // The account the fixture sshd authenticates: this account (the non-root sshd
+            // on this host, Unix), or the WSL account the harness names (Windows).
+            #[cfg(unix)]
             let account = account_name();
+            #[cfg(windows)]
+            let account = sshd
+                .account()
+                .expect("the WSL harness sshd names its account (HM_FIXTURE_SSHD_USER)")
+                .to_owned();
             w.catalog(CatalogRequest::UpsertDestination {
                 destination: DestinationSpec {
                     id: DestinationId::parse(ALPHA.id).unwrap(),
@@ -3856,15 +4472,18 @@ mod a11 {
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
         assert_eq!(out.stdout.len(), payload.len(), "{}", out.stderr);
         assert!(out.stdout == payload, "the bytes came back changed");
-        match records(&meta).as_slice() {
-            [
-                RunRecord::Launching {
-                    operation_id: Some(_),
-                    binding_id: Some(_),
-                    executable,
-                    ..
-                },
-            ] => assert!(executable.ends_with("ssh"), "{executable}"),
+        let recs = records(&meta);
+        assert!(one_launch(&recs, Some(0)), "{recs:?}");
+        match recs.first() {
+            Some(RunRecord::Launching {
+                operation_id: Some(_),
+                binding_id: Some(_),
+                executable,
+                ..
+            }) => assert!(
+                executable.ends_with(if cfg!(windows) { "ssh.exe" } else { "ssh" }),
+                "{executable}"
+            ),
             other => panic!("{other:?}"),
         }
         let accepted = s.sshd.accepted_log();
@@ -3896,21 +4515,8 @@ mod a11 {
     /// operation or binding.
     #[test]
     fn connect_reaches_the_fixture_sshd_through_the_verified_client() {
-        use std::os::unix::fs::PermissionsExt as _;
         let s = SshWorld::new();
-        let dir = s.w.home.root.join("wrapper-bin");
-        std::fs::create_dir_all(&dir).unwrap();
-        let quote = |a: &OsStr| format!("'{}'", a.to_str().unwrap().replace('\'', "'\\''"));
-        let mut words = vec![quote(s.ssh.as_os_str())];
-        words.extend(s.w.home.isolation_args().iter().map(|a| quote(a)));
-        let wrapper = dir.join("ssh");
-        std::fs::write(
-            &wrapper,
-            format!("#!/bin/sh\nexec {} \"$@\" cat\n", words.join(" ")),
-        )
-        .unwrap();
-        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let path = OsString::from(format!("{}:/usr/bin:/bin", dir.display()));
+        let wrapper = wrapper_client(&s);
         let meta = s.w.marker("connect.ndjson");
         let mut args = os(&[
             "--json",
@@ -3921,18 +4527,18 @@ mod a11 {
         ]);
         args.push(meta.clone().into_os_string());
         let payload: Vec<u8> = (0..=255u8).cycle().take(64 * 1024).collect();
-        let out = s.pipe(&args, &[("PATH", path.as_os_str())], payload.clone());
+        let out = s.pipe(&args, &wrapper.extra(), payload.clone());
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
         assert!(out.stdout == payload, "{}", out.stderr);
-        match records(&meta).as_slice() {
-            [
-                RunRecord::Launching {
-                    operation_id: None,
-                    binding_id: None,
-                    executable,
-                    ..
-                },
-            ] => assert!(executable.ends_with("wrapper-bin/ssh"), "{executable}"),
+        let recs = records(&meta);
+        assert!(one_launch(&recs, Some(0)), "{recs:?}");
+        match recs.first() {
+            Some(RunRecord::Launching {
+                operation_id: None,
+                binding_id: None,
+                executable,
+                ..
+            }) => assert!(wrapper.is(executable), "{executable}"),
             other => panic!("{other:?}"),
         }
         let accepted = s.sshd.accepted_log();
@@ -3946,6 +4552,77 @@ mod a11 {
         assert_eq!(s.w.home.decoy_agent().contact_count(), 0);
     }
 
+    /// The verified client for `connect_reaches_the_fixture_sshd_through_the_verified_client`:
+    /// a wrapper that adds only the scratch isolation arguments before its own and a
+    /// remote `cat` after them, then runs the real ssh. Unix: an `exec` script first on
+    /// `PATH`; Windows: the [`child`] wrapper under a scratch `SystemRoot`, which gives
+    /// the real client the real `SystemRoot` back.
+    fn wrapper_client(s: &SshWorld) -> ClientInPlace {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let dir = s.w.home.root.join("wrapper-bin");
+            std::fs::create_dir_all(&dir).unwrap();
+            let quote = |a: &OsStr| format!("'{}'", a.to_str().unwrap().replace('\'', "'\\''"));
+            let mut words = vec![quote(s.ssh.as_os_str())];
+            words.extend(s.w.home.isolation_args().iter().map(|a| quote(a)));
+            let wrapper = dir.join("ssh");
+            std::fs::write(
+                &wrapper,
+                format!("#!/bin/sh\nexec {} \"$@\" cat\n", words.join(" ")),
+            )
+            .unwrap();
+            std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+            ClientInPlace {
+                env: vec![(
+                    "PATH",
+                    OsString::from(format!("{}:/usr/bin:/bin", dir.display())),
+                )],
+                executable_suffix: "wrapper-bin/ssh",
+            }
+        }
+        #[cfg(windows)]
+        {
+            let system_root = std::env::var_os("SystemRoot").expect("SystemRoot");
+            let mut plan = format!(
+                "wrap\n{}\n{}\n",
+                s.ssh.display(),
+                PathBuf::from(system_root).display()
+            );
+            for a in s.w.home.isolation_args() {
+                plan.push_str(a.to_str().unwrap());
+                plan.push('\n');
+            }
+            plan.push_str("--\ncat\n");
+            ClientInPlace {
+                env: client_at_system_root(&s.w, "wrapper-root", &plan),
+                executable_suffix: "wrapper-root/System32/OpenSSH/ssh.exe",
+            }
+        }
+    }
+
+    /// `p` as the fixture sshd's session reaches it: the same path on Unix (the non-root
+    /// sshd runs as this account on this host); on Windows the WSL form of the same
+    /// scratch file, `/mnt/<drive>/…` (the harness's WSL sshd; WSL's default automount
+    /// root, which the native runner's redaction also assumes).
+    fn remote_path(p: &Path) -> String {
+        let text = p.display().to_string();
+        if !cfg!(windows) {
+            return text;
+        }
+        let text = text.strip_prefix(r"\\?\").unwrap_or(&text);
+        let b = text.as_bytes();
+        assert!(
+            b.len() > 2 && b[0].is_ascii_alphabetic() && b[1] == b':',
+            "the scratch root is not a drive path"
+        );
+        format!(
+            "/mnt/{}{}",
+            char::from(b[0]).to_ascii_lowercase(),
+            text[2..].replace('\\', "/")
+        )
+    }
+
     // -----------------------------------------------------------------------------
     // Wave 3c (W3c-run): the U8 tests wave 3b did not write, and `connect` with an
     // observed alias (ADR-0007 §12.24)
@@ -3953,6 +4630,7 @@ mod a11 {
 
     impl SshWorld {
         /// `<ssh> <isolation arguments> alpha <remote…>`.
+        #[cfg(unix)]
         fn ssh_argv(&self, remote: &[&str]) -> Vec<OsString> {
             let mut argv = vec![self.ssh.clone().into_os_string()];
             argv.extend(self.w.home.isolation_args());
@@ -3995,16 +4673,19 @@ mod a11 {
             self.run_in(&self.w.home.root, name, flags, argv, &[])
         }
 
-        /// The run launched: one `launching` record naming the operation and binding.
+        /// The run launched: one `launching` record naming the operation and binding
+        /// (on Windows followed by `spawned` and `exited`, ADR-0007 §8).
         fn assert_launched_record(&self, name: &str, out: &Out) {
-            match self.w.records(name).as_slice() {
+            let recs = self.w.records(name);
+            match recs.as_slice() {
                 [
                     RunRecord::Launching {
                         operation_id: Some(_),
                         binding_id: Some(_),
                         ..
                     },
-                ] => {}
+                    ..,
+                ] if one_launch(&recs, None) => {}
                 other => panic!("{name}: {other:?}: {}", out.stderr),
             }
         }
@@ -4030,7 +4711,10 @@ mod a11 {
     /// paths with spaces and non-ASCII characters. Every copy is byte-identical; each run
     /// is one `launching` record; the sshd accepted only the adopted key; the decoy
     /// agent (`SSH_AUTH_SOCK`) was never contacted. The remote paths are absolute paths
-    /// in scratch: the non-root sshd runs as this account on this host.
+    /// in scratch: the non-root sshd runs as this account on this host (on Windows, the
+    /// WSL sshd reaches the same scratch files as `/mnt/<drive>/…`, [`remote_path`]; the
+    /// `sftp` batch names local files with `/`, which Win32-OpenSSH reads as `\`, so the
+    /// batch's own backslash escapes never apply).
     #[test]
     fn a27_scp_and_sftp_binary_with_unicode_and_spaced_paths() {
         let s = SshWorld::new();
@@ -4048,7 +4732,7 @@ mod a11 {
                 .unwrap_or_else(|| panic!("{name} is not installed"))
                 .into_os_string()
         };
-        let remote_arg = |p: &Path| OsString::from(format!("{}:{}", ALPHA.alias, p.display()));
+        let remote_arg = |p: &Path| OsString::from(format!("{}:{}", ALPHA.alias, remote_path(p)));
 
         // scp up, then back down to another local name.
         let remote = remote_dir.join("up loaded \u{2713}.bin");
@@ -4080,14 +4764,22 @@ mod a11 {
         let remote2 = remote_dir.join("via sftp \u{fc}.bin");
         let local2 = local_dir.join("via sftp back \u{e9}.bin");
         let batch = root.join("sftp batch");
+        let local_word = |p: &Path| {
+            let text = p.display().to_string();
+            if cfg!(windows) {
+                text.replace('\\', "/")
+            } else {
+                text
+            }
+        };
         std::fs::write(
             &batch,
             format!(
                 "put \"{}\" \"{}\"\nget \"{}\" \"{}\"\n",
-                local.display(),
-                remote2.display(),
-                remote2.display(),
-                local2.display()
+                local_word(&local),
+                remote_path(&remote2),
+                remote_path(&remote2),
+                local_word(&local2)
             ),
         )
         .unwrap();
@@ -4200,7 +4892,7 @@ mod a11 {
             ("GIT_TERMINAL_PROMPT", OsStr::new("0")),
         ];
         extra.extend(identity.iter().map(|(k, v)| (*k, OsStr::new(v))));
-        let remote = OsString::from(format!("{}:{}", ALPHA.alias, bare.display()));
+        let remote = OsString::from(format!("{}:{}", ALPHA.alias, remote_path(&bare)));
         let through = |cwd: &Path, name: &str, args: &[&OsStr]| {
             let mut argv = vec![git_program.clone().into_os_string()];
             argv.extend(args.iter().map(|a| a.to_os_string()));
@@ -4305,6 +4997,12 @@ mod a11 {
     /// * **Discriminating control:** the same `run` with `--allow-provider-interaction`
     ///   launches, and with askpass `Deny` the askpass delta becomes ≥ 1 (nothing signs,
     ///   the login fails): the refusal prevented a real prompt.
+    ///
+    /// Unix-only (rationale): it needs an agent that enforces a confirm constraint, U7's
+    /// `DisposableSshAgent` (`ssh-agent` with a counting askpass). On Windows that row is
+    /// the Windows system agent, blocked on B4 (m02-plan §4, A11 blocked rows; audit
+    /// G-7), and the fixture pipe agent has no confirm constraint.
+    #[cfg(unix)]
     #[test]
     fn a11_confirm_constrained_native_key_refused_before_agent_contact() {
         use heimdall_testkit::agent::AskpassAnswer;
@@ -4365,6 +5063,7 @@ mod a11 {
     }
 
     /// Replace the first occurrence of `from` in the scratch user configuration.
+    #[cfg(unix)]
     fn edit_user_config(w: &World, from: &str, to: &str) {
         let text = std::fs::read_to_string(&w.home.user_config).unwrap();
         assert!(text.contains(from), "{text}");
@@ -4373,6 +5072,7 @@ mod a11 {
 
     /// The 1-based line of the first line of the scratch user configuration equal to
     /// `line` (trimmed).
+    #[cfg(unix)]
     fn user_config_line(w: &World, line: &str) -> u32 {
         let text = std::fs::read_to_string(&w.home.user_config).unwrap();
         let index = text
@@ -4402,6 +5102,12 @@ mod a11 {
     /// * Control: narrowed to `Host * !alpha`, the selection is exclusive; the
     ///   non-interactive `run` launches, the askpass delta is 0, and the login fails
     ///   (K1 rejected, no fallback).
+    ///
+    /// Unix-only (rationale): as
+    /// `a11_confirm_constrained_native_key_refused_before_agent_contact`, it needs an
+    /// agent that enforces a confirm constraint; the Windows row (the system agent) is
+    /// blocked on B4 (m02-plan §4; audit G-7).
+    #[cfg(unix)]
     #[test]
     fn a11_inherited_confirm_constrained_fallback_refused_noninteractive_before_agent_contact() {
         use heimdall_testkit::agent::AskpassAnswer;
@@ -4486,6 +5192,12 @@ mod a11 {
     /// isolation arguments (no `BatchMode`: an interactive session) and a remote `echo`.
     /// The login waits at the agent's signature until `release_pending()`, then
     /// succeeds: ordinary interactive use stays first-class.
+    ///
+    /// Unix-only (rationale): a pty test. Its Windows pseudoconsole driver is deferred
+    /// to M04 by ADR-0007 §12.47 item 3 (D3, `deferred_with_decision`); its model-level
+    /// twin ran natively, and `windows_launch` proves `heimdall run`'s pseudoconsole
+    /// path (§12.44 item 2).
+    #[cfg(unix)]
     #[test]
     fn a11_interactive_connect_succeeds_after_provider_approval() {
         use heimdall_testkit::agent::msg;
@@ -4566,10 +5278,10 @@ mod a11 {
         .unwrap();
         let k0 = write_pub(&w, 0, "k0");
         let k1 = write_pub(&w, 1, "k1");
-        let agent = w.endpoint().locator;
+        let agent = agent_word(&w.endpoint().locator);
         let gamma = |identity: &Path, only: bool| {
             format!(
-                "Host gamma\n    HostName gamma.example.invalid\n    IdentityFile \"{}\"\n    IdentityAgent \"{agent}\"\n{}",
+                "Host gamma\n    HostName gamma.example.invalid\n    IdentityFile \"{}\"\n    IdentityAgent {agent}\n{}",
                 identity.display(),
                 if only { "    IdentitiesOnly yes\n" } else { "" }
             )
@@ -4578,8 +5290,7 @@ mod a11 {
         let set = |text: String| {
             std::fs::write(&w.home.user_config, format!("{base}{text}")).unwrap();
         };
-        let dir = stub_ssh(&w);
-        let path = OsString::from(format!("{}:/usr/bin:/bin", dir.display()));
+        let stub = stub_client(&w);
         let args_file = w.home.root.join("ssh-args");
         let connect = |name: &str, ni: bool, alias: &str| {
             let _ = std::fs::remove_file(&args_file);
@@ -4589,7 +5300,7 @@ mod a11 {
             }
             a.extend(os(&["connect", alias, "--meta-file"]));
             a.push(w.marker(&format!("{name}.ndjson")).into_os_string());
-            w.run_cli(&a, &[("PATH", path.as_os_str())])
+            w.run_cli(&a, &stub.extra())
         };
         set(gamma(&k0, true));
         let out = connect("interactive", false, "gamma");
@@ -4598,13 +5309,15 @@ mod a11 {
         let out = connect("cleared", true, "gamma");
         assert_eq!(out.code(), Some(0), "{}", out.stderr);
         assert_eq!(std::fs::read(&args_file).unwrap(), b"gamma\0");
+        let recs = w.records("cleared");
+        assert!(one_launch(&recs, Some(0)), "{recs:?}");
         assert!(matches!(
-            w.records("cleared").as_slice(),
-            [RunRecord::Launching {
+            recs.first(),
+            Some(RunRecord::Launching {
                 operation_id: None,
                 binding_id: None,
                 ..
-            }]
+            })
         ));
 
         set(gamma(&k0, false));

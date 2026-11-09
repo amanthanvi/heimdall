@@ -718,11 +718,15 @@ def guard_fields(guard):
         out["excluded_without_rationale"] = list(guard["unjustified"])
     if guard["required_not_passed"]:
         out["platform_required_not_passed"] = dict(guard["required_not_passed"])
+    if guard["stale"]:
+        out["platform_only_stale"] = {qual: f"{result} under {key}" for key, qual, result in guard["stale"]}
     return out
 
 
 def guard_gap(guard):
-    return bool(guard and (guard["unjustified"] or guard["required_not_passed"]))
+    # A stale platform_only entry hides a test that ran here, so its row is never
+    # verified (W6X-R02), as an unexplained exclusion is not (ADR-0007 §12.47 item 1).
+    return bool(guard and (guard["unjustified"] or guard["required_not_passed"] or guard["stale"]))
 
 
 def row_for(index, platform, pconf, logs, tests, obs=None, guard=None):
@@ -1104,6 +1108,12 @@ def main(argv=None):
     for kind in ("groups", "exit_claims"):
         for sid, s in summary[kind].items():
             print(kind, sid, s["tests"], s["status"], [(r["platform"], r["status"]) for r in s["rows"]])
+    if a.write and rc:
+        # The evaluation found the index, inventory or logs inconsistent (a stale
+        # platform_only entry, a test missing from the inventory or from every log, an
+        # extra row claiming verified): no evidence record is written from it (W6X-R02).
+        print("records not written: the evaluation reported the errors above", file=sys.stderr)
+        return rc
     if a.write:
         try:
             recs = records(cfg, summary, plats)

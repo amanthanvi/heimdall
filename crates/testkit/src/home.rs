@@ -1236,5 +1236,10 @@ mod rendered_fixture_pipe_guard {
         assert!(!scope.is_fixture_agent(r"\\.\pipe\openssh-ssh-agent"));
         assert!(!scope.is_fixture_agent("//./pipe/openssh-ssh-agent"));
         assert!(!scope.is_fixture_agent("//./pipe/heimdall-hmtest-"));
+        // W6X-R01: a traversal past the fixture prefix names another pipe after Windows
+        // normalizes the `\\.\` path, in either spelling.
+        assert!(!scope.is_fixture_agent("//./pipe/heimdall-hmtest-x/../openssh-ssh-agent"));
+        assert!(!scope.is_fixture_agent(r"//./pipe/heimdall-hmtest-x\..\openssh-ssh-agent"));
+        assert!(!scope.is_fixture_agent(r"\\.\pipe\heimdall-hmtest-x\..\openssh-ssh-agent"));
     }
 }
