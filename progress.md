@@ -981,3 +981,16 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
 
     Both are fixed with regressions. Neither touches the M02 records: the fixed generator rates `e4f43f84` identically.
 - **Next:** merge M03 wave 0 (`6c6b5e06`). `check.sh` on the merged tree already passed, with every step 0 and 2049 tests passed, 0 failed, 8 ignored. Then M03 wave 1.
+- **M03 wave 1 merged** (`c97e6be2`, 2026-11-10). It covers U1 (credential core), U4 (secret stores, D5 backup, ceremonies, recovery bundle), U5 (enrollment remote protocol and verification), U9 (session lock) and U11 (fixtures).
+  - **How it was built:** one integrator agent (Opus 5.5) ran a subagent per unit in a single worktree.
+  - **Rulings:**
+    - ADR-0008 §17.17 rules on 40 escalations. Items 1–6 changed code: the macOS `__CF_USER_TEXT_ENCODING` addition, the Darwin boot identity, retirement by the recorded locator, the session-lock floor, Linux `PR_SET_PDEATHSIG`, and `write_failed`.
+    - §17.18 rules on the review (W1-R01..R03) and on INT-Q10–Q12.
+  - **Reviews:** the independent review was fix first, with three findings: secret stores were not scoped to the installation, and the lock evidence passed on `Unknown`. The re-check was merge.
+  - **Native development checks** (not exit evidence):
+    - **Windows:** all 72 binaries exit 0 (2090 passed). DPAPI, the owner-only DACL, the WTS lock source and the credential core passed natively.
+    - **devbox:** all selected M03 binaries pass. The OpenSSH 9.6p1 verification trace row is recorded only from lines observed on the devbox.
+  - **Open for wave 2, INT-Q10:** with the managed-alias shape, OpenSSH 9.5p2/9.6p1 never ask the agent for the certificate (observed natively). The signer still never signs with the plain key (F17). U2 and U8 must find a certificate-only form, or report `client_unsupported`.
+  - **For U13:** the devbox (12 GB free) cannot hold all 72 debug test binaries, so the Linux harness needs batching. Use `HM_ONLY` until then.
+  - **check.sh:** every step 0; 2373 passed, 0 failed, 187 ignored.
+- **Next: M03 wave 2** — U2 (signer and endpoints), U3 (issuer child and client), U8 (projection and consumer integration).
