@@ -1,0 +1,1 @@
+canary-prefix occurrences in saved output and metadata: 0 (values masked before the bundle was written)

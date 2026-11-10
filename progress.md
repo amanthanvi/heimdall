@@ -954,3 +954,15 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - The independent review of `9bce3f9b..517160e0` (Codex) returned **merge** (`review-m02-code/exit-517160e0.md`).
   - No records are written from 517160e0. The next exit build carries the test fix, and all four platforms run again.
 - The M03 wave-0 worktree's build output (42 GB) was removed. Its notes are archived in `review-m03-code/wave0-notes/`.
+- **Exit build e4f43f84, 2026-11-10** (ADR-0007 §12.51 item 7). Artifacts: `tests/evidence/artifacts/m02/exit-e4f43f84/`.
+  - All four platforms exited 0, with canary 0, leak 0, and the owner's files unchanged:
+    - **macOS:** 1780 passed, 0 failed, 8 ignored; observations 197.
+    - **devbox:** 1776 passed, 0 failed, 8 ignored.
+    - **Windows** (374 s): 1655 passed, 0 failed, 1 ignored; `windows_launch` 4 of 4.
+    - **WSL** (138 s): 11 of 11.
+  - **Records** (`m02-evidence.py --write`; `validate-records.py`: 100 records, 0 invalid): 8 `verified`, 6 `blocked`. Every row not `verified` is either blocked on a named owner input (B1 to B7, B9) or `deferred_with_decision` with its ruling:
+    - A01: Windows personal profile, §12.49 item 4;
+    - A11 and A27: Windows interactive connect, §12.47 D3;
+    - A21: Windows TUI pty cases, §12.47 D2;
+    - T06: Windows typed-yes purge, §12.49 item 2.
+  - **Next:** the documentation unit writes the M02 exit record and the matrix rows from these records. Then the M03 wave-0 merge.

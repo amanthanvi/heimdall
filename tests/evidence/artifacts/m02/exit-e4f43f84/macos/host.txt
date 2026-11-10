@@ -1,0 +1,15 @@
+inherited-ssh-auth-sock=set (unset for the run)
+inherited-git-variables=1 (unset for the run)
+inherited-heimdall-variables=0 (unset for the run)
+os=macOS 27.2 (26B123) arm64
+script=/usr/bin/script
+scratch-fs=apfs
+ssh-V=OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)
+sshd-V=OpenSSH_10.5p1, LibreSSL 3.3.6 (exit 0)
+git-version=git version 2.54.0 (Apple Git-157) (exit 0)
+owner-ssh-before=42:d973182ced1ffe4ceb2b8eba
+owner-git-before=1:78fb68ac4a9c022ae5ad65f5
+fixture-sshd-preflight=listening on 127.0.0.1 (non-root, per-run host key)
+leftover-test-processes=0
+owner-ssh-after=42:d973182ced1ffe4ceb2b8eba
+owner-git-after=1:78fb68ac4a9c022ae5ad65f5

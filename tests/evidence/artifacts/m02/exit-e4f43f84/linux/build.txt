@@ -1,0 +1,221 @@
+   Compiling cfg-if v1.0.5
+   Compiling zeroize v1.9.1
+   Compiling typenum v1.20.1
+   Compiling const-oid v0.9.6
+   Compiling subtle v2.6.1
+   Compiling cpufeatures v0.2.17
+   Compiling smallvec v1.16.4
+   Compiling bitflags v2.13.2
+   Compiling itoa v1.0.18
+   Compiling allocator-api2 v0.2.21
+   Compiling foldhash v0.2.0
+   Compiling libc v0.2.191
+   Compiling serde_core v1.0.229
+   Compiling equivalent v1.0.3
+   Compiling base64ct v1.8.3
+   Compiling libm v0.2.16
+   Compiling thiserror v2.0.21
+   Compiling once_cell v1.21.4
+   Compiling zmij v1.0.23
+   Compiling rand_core v0.10.1
+   Compiling base16ct v0.2.0
+   Compiling memchr v2.8.3
+   Compiling jiff-core v0.1.1
+   Compiling der v0.7.10
+   Compiling ref-cast v1.0.27
+   Compiling pin-project-lite v0.2.17
+   Compiling log v0.4.35
+   Compiling dyn-clone v1.0.20
+   Compiling linux-raw-sys v0.12.1
+   Compiling hashbrown v0.17.1
+   Compiling zerocopy v0.8.63
+   Compiling spin v0.9.9
+   Compiling generic-array v0.14.7
+   Compiling getrandom v0.2.17
+   Compiling num-traits v0.2.19
+   Compiling errno v0.3.14
+   Compiling serde v1.0.229
+   Compiling getrandom v0.4.3
+   Compiling tracing-core v0.1.36
+   Compiling libsqlite3-sys v0.39.1
+   Compiling pem-rfc7468 v0.7.0
+   Compiling rustix v1.1.6
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling serde_json v1.0.154
+   Compiling spki v0.7.3
+   Compiling mio v1.2.4
+   Compiling jiff v0.2.38
+   Compiling lazy_static v1.5.1
+   Compiling hashlink v0.12.2
+   Compiling rand_core v0.6.4
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling signal-hook-registry v1.4.8
+   Compiling sec1 v0.7.3
+   Compiling ppv-lite86 v0.2.21
+   Compiling num-integer v0.1.47
+   Compiling tracing v0.1.44
+   Compiling pkcs8 v0.10.2
+   Compiling inout v0.1.4
+   Compiling fallible-iterator v0.3.0
+   Compiling socket2 v0.6.5
+   Compiling ff v0.13.1
+   Compiling crypto-bigint v0.5.5
+   Compiling bytes v1.12.1
+   Compiling fastrand v2.5.0
+   Compiling wait-timeout v0.2.1
+   Compiling digest v0.10.7
+   Compiling quick-error v1.2.3
+   Compiling glob v0.3.4
+   Compiling schemars v1.2.3
+   Compiling rand_chacha v0.3.1
+   Compiling fnv v1.0.7
+   Compiling num-iter v0.1.46
+   Compiling bit-vec v0.10.1
+   Compiling cpufeatures v0.3.1
+   Compiling cipher v0.4.4
+   Compiling pkcs1 v0.7.5
+   Compiling rusqlite v0.41.1
+   Compiling rand v0.10.3
+   Compiling tokio v1.54.1
+   Compiling rand_xorshift v0.5.0
+   Compiling group v0.13.0
+   Compiling tempfile v3.27.0
+   Compiling sha2 v0.10.9
+   Compiling signature v2.2.0
+   Compiling hmac v0.12.1
+   Compiling curve25519-dalek v4.1.3
+   Compiling rand v0.8.8
+   Compiling core_detect v1.0.0
+   Compiling regex-syntax v0.8.11
+   Compiling unarray v0.1.4
+   Compiling chacha20 v0.10.2
+   Compiling futures-sink v0.3.34
+   Compiling bit-set v0.11.1
+   Compiling futures-core v0.3.34
+   Compiling elliptic-curve v0.13.8
+   Compiling secrecy v0.10.3
+   Compiling byteorder v1.5.0
+   Compiling heimdall-contract v0.1.0-m01 (<home>/GitRepos/heimdall/crates/contract)
+   Compiling ssh-encoding v0.2.0
+   Compiling rusty-fork v0.3.1
+   Compiling rfc6979 v0.4.0
+   Compiling ed25519 v2.2.3
+   Compiling num-bigint-dig v0.8.6
+   Compiling slab v0.4.12
+   Compiling futures-task v0.3.34
+   Compiling winnow v1.0.4
+   Compiling sharded-slab v0.1.7
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling thread_local v1.1.10
+   Compiling etcetera v0.11.0
+   Compiling tokio-util v0.7.20
+   Compiling either v1.19.0
+   Compiling castaway v0.2.4
+   Compiling primeorder v0.13.6
+   Compiling ssh-cipher v0.2.0
+   Compiling proptest v1.12.0
+   Compiling ecdsa v0.16.9
+   Compiling ed25519-dalek v2.2.0
+   Compiling heimdall-domain v0.1.0-m01 (<home>/GitRepos/heimdall/crates/domain)
+   Compiling ryu v1.0.23
+   Compiling futures-util v0.3.34
+   Compiling rsa v0.9.10
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling scopeguard v1.2.0
+   Compiling unicode-width v0.2.3
+   Compiling unicode-segmentation v1.13.3
+   Compiling tracing-subscriber v0.3.23
+   Compiling static_assertions v1.1.0
+   Compiling strum v0.28.0
+   Compiling signal-hook v0.3.18
+   Compiling parking_lot_core v0.9.12
+   Compiling itertools v0.14.0
+   Compiling lru v0.18.5
+   Compiling kasuari v0.4.13
+   Compiling p521 v0.13.3
+   Compiling p384 v0.13.1
+   Compiling p256 v0.13.2
+   Compiling heimdall-store v0.1.0-m01 (<home>/GitRepos/heimdall/crates/store)
+   Compiling heimdall-sshconf v0.1.0-m01 (<home>/GitRepos/heimdall/crates/sshconf)
+   Compiling lock_api v0.4.14
+   Compiling derive_more v2.1.1
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling line-clipping v0.3.8
+   Compiling compact_str v0.9.1
+   Compiling anstyle v1.0.14
+   Compiling clap_lex v1.1.1
+   Compiling signal-hook-mio v0.2.5
+   Compiling unicode-truncate v2.0.1
+   Compiling ssh-key v0.6.7
+   Compiling parking_lot v0.12.5
+   Compiling heimdall-app v0.1.0-m01 (<home>/GitRepos/heimdall/crates/app)
+   Compiling clap_builder v4.6.7
+   Compiling ratatui-core v0.1.2
+   Compiling crossterm v0.29.0
+   Compiling ssh-agent-lib v0.6.0
+   Compiling heimdall-testkit v0.1.0-m01 (<home>/GitRepos/heimdall/crates/testkit)
+   Compiling ratatui-widgets v0.3.2
+   Compiling clap v4.6.7
+   Compiling ratatui-crossterm v0.1.2
+   Compiling heimdall-ipc v0.1.0-m01 (<home>/GitRepos/heimdall/crates/ipc)
+   Compiling ratatui v0.30.2
+   Compiling heimdall-localenv v0.1.0-m01 (<home>/GitRepos/heimdall/crates/localenv)
+   Compiling heimdall-adapters v0.1.0-m01 (<home>/GitRepos/heimdall/crates/adapters)
+   Compiling heimdall-launch v0.1.0-m01 (<home>/GitRepos/heimdall/crates/launch)
+   Compiling heimdall-runtime v0.1.0-m01 (<home>/GitRepos/heimdall/crates/runtime)
+   Compiling heimdall v0.1.0-m01 (<home>/GitRepos/heimdall/crates/heimdall)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7m 05s
+adversarial_agent_client_frames sha256: 445c6be688914d5ba73c9f9ff1421f54c604eefa90c9153b05cff2d52ff827c1
+adversarial_agent_frames sha256: c8efcb61847d7e5120788aaa9fe01968ec8d7aa46d43f611293a3bbd2b6ed9c9
+adversarial_ipc_frames sha256: 7c6d9b757f95a03b36a57239ca49d32ab121ccc27a1990982dd8eefc85910f4b
+adversarial_sshconf_hostile sha256: 89f78bcb5f86795299eb0700aa5b485bcd59002270178a72ca71f1b43e2e9693
+contracts sha256: 896d78ecc9227d8fadff79501cf08de0543be13c3eef4eca33e9941455f44df8
+e2e_cli_m01 sha256: a16f3d7de947437f6b0b2bdf439445c09d4a8d20e98730d22612d0bbfd13afab
+e2e_cli_m02 sha256: bcf53d65d2c4dc5297871fb48da54a637a04e53c96f09e3ba4aff5a60622ab63
+e2e_run_m02 sha256: fce30945368c8362cb3f453f256f0e59d42b66765531c918dbc5cbe21620d1c9
+e2e_setup_dispatch sha256: ebf110f68e36fb57ec2e50caf935f997656fcdafac00a20d36595caa0c8b0791
+e2e_tui_m02 sha256: 7db45e8beedf76e1340142f70dda040eb7004354b1e59bb634bad666000b3f42
+heimdall-unit sha256: 10c4a72710cb6e5a48c6c8e2273818a192e498fed034f5e63d5f700c11673d65
+heimdall_adapters-unit sha256: d479460a1b039de52d54af9194bd7069eb58188f645bdb300885a1c778abc131
+heimdall_app-unit sha256: 3c08f7dd6018a4b8665e96e330b110db69a49b389e92d73d1ed0282b49359ef8
+heimdall_contract-unit sha256: e08e8652530ecede61f3b0d35d14a416bda9dbc07c5783e002cac6e21b1d3bec
+heimdall_domain-unit sha256: 9e7bc4f83925100184f79f5d9f522b7a39178340bb4e643c7d7822e4e9c3f09a
+heimdall_ipc-unit sha256: 90ac35f640647ad184654b0d021d5ed767d24289a578237aa3585d50ca423ef5
+heimdall_launch-unit sha256: 4f334cdc1ba968cd5b8bc3bc85c0af15b01158235bd86288826f73d3ae8727fc
+heimdall_localenv-unit sha256: 7705d341b27d01752dc89f886712518d4857958c25d236b6d3c30aaccd9c9520
+heimdall_runtime-unit sha256: ef23775baaae18d041bd1e56f2aeadf33dd62238eaf07df266475f2f993a687f
+heimdall_sshconf-unit sha256: 165ddbc28587e3d8181825fccbc1335c2e20a3e6eb243d7a947b0f77f23d0359
+heimdall_store-unit sha256: 72ddabf6aa58014eeb78acac3d8a8f14bf333b7217db7e6b76efb196401fa6c9
+heimdall_testkit-unit sha256: b97249312b4dc797778cfd8c95b5ed7b1d00249b7ea1fab5c9e91e1e6a797d75
+integration_adapters sha256: d4d694265245fb3b270368fde108e2c5b2b157decb9babf97adba2bd6fcd64aa
+integration_doctor sha256: 07cbf9a51410befa2914058550b0315c36f2401d400a5831d73b7e0886925289
+integration_git_observe sha256: 998d1cd02ca9ee0de62a07a032c12091451723ced98e886f23c6c720eb815082
+integration_ipc_unix sha256: 6e2304ae850b2255c2692a3bec09350f7211c79964b8691ccd40baedda4ba8be
+integration_projection sha256: e7c95c19f03a7895149a42f8f8ed614f277c37d12e6158a3fd04c1e8a0d54979
+integration_projection_git sha256: ccceddb473b5525a7ead9aa3fa1e3abd3be5ca96333b4fc73e988e4b9746ad53
+integration_projection_recovery_rows sha256: 6eaf652ab6c03f3a4db5a987e2a0c425ad1500f34a8d3753ca021c23b92aee44
+integration_projection_replace sha256: e5c7bed9fc4184061184064af5b4d32ab90142eade7e55d71c6a5732f5ea6190
+integration_projection_state_dir_guard sha256: 187e0f48c2f3346fb9c2fe06dd1a7fc0e4f38825868b64257f9c9fef3dae8ccb
+integration_runtime sha256: 998010d536490e8a46bff2a1b558a8328605a3f2e01b0287a177c458f13f1232
+integration_sshconf_vs_ssh_g sha256: 9ba7f23f0ec130ae84cf743159029a44b5f56614db0a0226b0dac7ca1e9bad59
+integration_store sha256: f8b3208af394e724ff37474ffaedab3a603c066d1ba6b78446b28d6fa0bc5748
+integration_testkit_fixtures sha256: a888ea06ef6f296bed6064ec737454d5cfc96f5fb515a1c09819b67246389e6a
+model_authority sha256: ea6f40fdf20d7a452033a15f8fc5a521d7f383c6d42a977cc3caec5cd96e9c94
+model_events sha256: bd768697d653b67555ca391a9be31a0f8f28e947bcb80ecc02336869fc00ee38
+model_idempotency sha256: 1cb3e19816f88eb3e3beacf28a0286b22b182fbaf0bc3256dbbe4f1422a3b00a
+model_lifecycle sha256: 5f1ad2822eb77fe4ffb9144acb6c3b02d787851c6b403762f56035d8b5a10cb1
+model_operations sha256: 502b84f16170b8f16457c2269c39cffa222a311bf4c62404f9d518d1bcf99b2b
+model_projection_recovery sha256: dc79713e6ac7e56daec169e290f902f7072eb4f3a9ee2fea4dbffd23b1755b65
+model_revocation sha256: 6e511adff21537b7369f03438d166ccf047b609080e354154d6963f7b5c6fb91
+model_setup sha256: 453374d84a17fb88fd0574ea80197eeb6511d200bc4f6e4b85956ca38dd190bc
+model_sshconf_consent sha256: 167ed18f0db47bdf823f9e5bd95900ed88c34e6dbe7f1f4fdc821d8f9230ace4
+model_sshconf_edit sha256: 24ed3b19f890f1ded472ec676793d71437183f0d21c56233268f39f450acc8e9
+model_sshconf_eval sha256: aafe8cf99aa6456bfe6e837c1148ce6c6c35275e4bb04b8fca44decd7bff6195
+model_sshconf_parse sha256: 5d7f8ce737845fc77bc05871242f8c55231cbdd414d85785f796bbe5b46bbf11
+model_time sha256: 86735c2c5b1b9805a01296c38c0233675e07dada4ff4a425bfd6638d4f0b3fe4
+model_timegate sha256: 69c2fe6d8e44d67bf79ab7d471cd14638f3e1853f4406b5be1893bea5e894a47
+heimdall (CLI for the e2e suites, HEIMDALL_E2E_BIN) sha256: 69422916da21511c1c2b40002b9420175e4800d29ad862ac8bbdd658a0b6891c
+hm-fixture-hook (HM_FIXTURE_HOOK) sha256: ebe2ba192a06406e9000d59dcac1a4ef2d2581144e8a25378c4be4ec225405bc
+toolchain: rustc 1.99.1 (58cf8f9c3 2026-10-13); zig 0.17.1; target x86_64-unknown-linux-gnu (glibc floor 2.31)
