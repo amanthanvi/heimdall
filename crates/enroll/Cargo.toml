@@ -18,3 +18,39 @@ heimdall-domain = { workspace = true }
 heimdall-registry = { workspace = true }
 heimdall-app = { workspace = true }
 thiserror = { workspace = true }
+# M03 wave 1 (U5-io; already pinned in [workspace.dependencies]): the Verifier's
+# bounded client runs (tokio `process`, `io-util`, `time`) and its
+# `VerificationRunner` impl (async-trait); K_verify and certificate parsing and
+# fingerprints (ssh-key).
+tokio = { workspace = true }
+async-trait = { workspace = true }
+ssh-key = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# M03 wave 1 (U5-io): the step runner's process-group kill and its unreaped-leader
+# check (`kill_process_group`, `waitid(WNOWAIT)`), through rustix's safe wrappers
+# (`process` feature; this crate has no `unsafe`).
+rustix = { workspace = true, features = ["process"] }
+
+[dev-dependencies]
+# M03 wave 1 (m03-plan U5 "Tests"): the U7/U11 fixtures (loopback sshd, shells, pause
+# hooks, registry guard), the vault for verification keys, the target evaluator.
+heimdall-testkit = { workspace = true, features = ["fixtures", "managed"] }
+heimdall-credential = { workspace = true }
+heimdall-localenv = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+
+# Test targets (m01-plan §0 convention).
+# M03-U5: the remote scripts on every target shell (protocol, fencing, interleaving,
+# lost responses, truncation, goldens).
+[[test]]
+name = "integration_enroll_registry"
+path = "../../tests/integration/enroll_registry.rs"
+
+# M03-U5: the step runner, target binding, host trust, the maintenance invocation and
+# the production verification.
+[[test]]
+name = "integration_enroll_verify"
+path = "../../tests/integration/enroll_verify.rs"

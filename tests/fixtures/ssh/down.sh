@@ -2,6 +2,9 @@
 # Stop and remove everything up.sh created (containers, networks, image) and dispose of the
 # runtime key material. Only resources carrying label heimdall.fixture=m00-t03 are touched.
 # The pinned base image is removed only if up.sh itself pulled it (state.env BASE_PREEXISTING=0).
+# M03 (m03-plan U11): also the backstop for testkit's disposable shell containers (label
+# heimdall.fixture=m03-shells; each normally removes itself by exact name on drop) and their
+# built image heimdall-m03-shell-debian:local. Their pinned base images are never removed.
 set -u
 # shellcheck disable=SC1091
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
@@ -11,7 +14,7 @@ problems=0
 BASE_PREEXISTING=1
 [ -f "$RUNTIME/state.env" ] && . "$RUNTIME/state.env"
 
-for c in $(fixture_containers); do
+for c in $(fixture_containers) $(shell_containers); do
   log "removing container $c"
   docker rm -f "$c" >/dev/null || { log "FAILED to remove $c"; problems=$((problems+1)); }
 done
@@ -33,6 +36,14 @@ if docker image inspect "$IMAGE" >/dev/null 2>&1; then
     log "image $IMAGE lacks our label; left alone"; problems=$((problems+1))
   fi
 fi
+if docker image inspect "$SHELL_IMAGE" >/dev/null 2>&1; then
+  lbl="$(docker image inspect "$SHELL_IMAGE" --format "{{index .Config.Labels \"$LABEL_KEY\"}}")"
+  if [ "$lbl" = "$SHELL_LABEL_VAL" ]; then
+    log "removing image $SHELL_IMAGE"; docker rmi "$SHELL_IMAGE" >/dev/null || { log "FAILED to remove shell image"; problems=$((problems+1)); }
+  else
+    log "image $SHELL_IMAGE lacks our label; left alone"; problems=$((problems+1))
+  fi
+fi
 if [ "$BASE_PREEXISTING" = 0 ] && docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
   log "removing base image pulled by up.sh"; docker rmi "$BASE_IMAGE" >/dev/null 2>&1 || log "base image not removable (in use elsewhere); left"
 fi
@@ -46,9 +57,10 @@ if [ -d "$RUNTIME" ]; then
   rm -rf "$RUNTIME"
 fi
 
-remaining_c="$(fixture_containers | wc -l | tr -d ' ')"
+remaining_c="$( { fixture_containers; shell_containers; } | wc -l | tr -d ' ')"
 remaining_n=0; for n in "$NET_EDGE" "$NET_INT"; do docker network inspect "$n" >/dev/null 2>&1 && remaining_n=$((remaining_n+1)); done
 remaining_i=0; docker image inspect "$IMAGE" >/dev/null 2>&1 && remaining_i=1
+docker image inspect "$SHELL_IMAGE" >/dev/null 2>&1 && remaining_i=$((remaining_i+1))
 remaining_k=0; [ -d "$RUNTIME" ] && remaining_k=1
 
 echo "CLEANUP CONFIRMATION $(ts): containers_remaining=$remaining_c networks_remaining=$remaining_n image_remaining=$remaining_i runtime_dir_remaining=$remaining_k private_keys_overwritten_and_removed=$disposed problems=$problems"

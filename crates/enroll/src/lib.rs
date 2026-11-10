@@ -13,10 +13,22 @@
 //! `VerificationEndpoints`), or the runtime itself (the runtime never runs the
 //! existing-access `ssh`; ADR-0008 D5 §6.3).
 //!
-//! **Units.** **U5** fills [`remote`], [`verify`] and [`trace`]. Wave 0 (U0) gives the
-//! skeletons: [`remote::SshStepRunner::run`] refuses without spawning anything, and
-//! [`verify::Verifier`] implements no port.
+//! **Units.** **U5** (wave 1, U5-io) fills [`remote`], [`verify`] and [`trace`]:
+//! [`remote::SshStepRunner::run`] runs one step's client with exactly its pins, the
+//! ready handshake and the lifetime ties (a Windows run needs the CLI's
+//! [`remote::StepContainment`]); [`verify::Verifier`] implements
+//! `app::ports::VerificationRunner` (and is unavailable without a client); the trace
+//! patterns carry only recorded rows. The third-party edges are already-pinned
+//! workspace crates: `tokio`, `async-trait`, `ssh-key`, and on Unix `rustix`
+//! (`process`).
+//!
+//! The crate's one `unsafe` module is `sys` (Linux only; ADR-0008 §17.17 item 5;
+//! overview §9 item 7): the `pre_exec` closure that gives a step's child
+//! `PR_SET_PDEATHSIG(SIGKILL)`.
 
 pub mod remote;
+// ADR-0008 §17.17 item 5: the one `unsafe` module (Linux `PR_SET_PDEATHSIG`).
+#[cfg(target_os = "linux")]
+mod sys;
 pub mod trace;
 pub mod verify;

@@ -34,6 +34,8 @@ pub mod paths;
 pub mod probe;
 pub mod projection;
 pub mod sys;
+// M03 U5-io: the passive TargetEvaluator (app::ports) with raw host keys.
+pub mod target;
 
 #[cfg(test)]
 mod tests {

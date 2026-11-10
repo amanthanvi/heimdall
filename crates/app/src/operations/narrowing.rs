@@ -303,6 +303,9 @@ pub(super) struct NarrowingState {
     reports: Mutex<VecDeque<NarrowingReport>>,
     pub(super) lock_source: RwLock<Option<Arc<dyn SessionLockSource>>>,
     pub(super) authorization_time: RwLock<AuthorizationTime>,
+    /// ⟨M03⟩ U9 (ADR-0008 §17.15 item 12, R3): the M01 `[session] lock_behavior` floor,
+    /// merged fail closed into every grant's effective lock behaviour (`lock.rs`).
+    pub(super) lock_floor: RwLock<heimdall_contract::managed::LockBehavior>,
 }
 
 #[derive(Debug, Clone, Default)]

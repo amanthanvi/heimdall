@@ -4077,6 +4077,9 @@ struct ResolveInput {
     default_window: Duration,
     adapters: Vec<AdapterInfo>,
     grant_id: GrantId,
+    /// ⟨M03⟩ ADR-0008 §17.17 item 4: the R3 session-lock floor in force
+    /// (`Operations::session_lock_floor`), recorded in a new grant's origin.
+    lock_floor: heimdall_contract::managed::LockBehavior,
 }
 
 /// Outcome of resolution for a work request.
@@ -4222,9 +4225,12 @@ fn resolve_in(
         refuse!(pair_mechanism_m03::no_mechanism(
             &inp.spec.required,
             resolved_pairs,
-            policy
-                .as_ref()
-                .map_or_else(Default::default, |p| p.lock_behavior),
+            heimdall_domain::policy::strictest_lock_behavior(
+                inp.lock_floor,
+                policy
+                    .as_ref()
+                    .map_or_else(Default::default, |p| p.lock_behavior),
+            ),
         ));
     }
     let mut capabilities = base.capabilities.clone();
@@ -4332,9 +4338,12 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
         _ if r.adapter.is_none() => Err(pair_mechanism_m03::no_mechanism(
             &inp.spec.required,
             r.pairs,
-            r.policy
-                .as_ref()
-                .map_or_else(Default::default, |p| p.lock_behavior),
+            heimdall_domain::policy::strictest_lock_behavior(
+                inp.lock_floor,
+                r.policy
+                    .as_ref()
+                    .map_or_else(Default::default, |p| p.lock_behavior),
+            ),
         )),
         AuthorityDecision::Allowed(auth) => Ok(Resolution::Allowed(Box::new(ResolvedIntent {
             profile: r.profile.id.clone(),
@@ -5973,6 +5982,7 @@ impl Operations {
             default_window: self.inner.config.default_window,
             adapters: self.adapter_infos(),
             grant_id: crate::ids::new_grant_id()?,
+            lock_floor: self.session_lock_floor(),
         };
         let decision_id = crate::ids::new_decision_id()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
@@ -6097,6 +6107,7 @@ impl Operations {
                                         &op.environment,
                                         origin,
                                         &intent.request,
+                                        inp.lock_floor,
                                     )?;
                                     tx.set_grant_origin(&grant.id, &origin)?;
                                 }
@@ -6697,6 +6708,8 @@ impl Operations {
                 let id2 = id.clone();
                 let clock = self.clock();
                 let parent_binding = spec.parent_binding.clone();
+                // ⟨M03⟩ ADR-0008 §17.17 item 4: the floor the new grant's origin records.
+                let floor = self.session_lock_floor();
                 let created = self
                     .write(move |tx, emit| {
                         let Some(op) = tx.operation(&id2)? else {
@@ -6746,6 +6759,7 @@ impl Operations {
                                 &op.environment,
                                 origin,
                                 &intent.request,
+                                floor,
                             )?;
                             tx.set_grant_origin(&gid, &origin)?;
                         }
@@ -8606,6 +8620,7 @@ impl Operations {
             default_window: self.inner.config.default_window,
             adapters: self.adapter_infos(),
             grant_id: GrantId::from_random_bytes([0; 16]),
+            lock_floor: self.session_lock_floor(),
         };
         self.write(move |tx, _| {
             Ok(match resolve_in(tx, &inp)? {

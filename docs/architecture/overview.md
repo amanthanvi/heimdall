@@ -320,7 +320,7 @@ integration,adversarial}` hold cross-crate tests as `m01-plan.md` assigns them.
 ## 9. `unsafe` inventory
 
 `unsafe_code = "deny"` at workspace level. Three modules may opt in today (the third since M02, ADR-0007 §13), and M03 adds
-three more (4–6 below; ADR-0008 §18):
+four more (4–7 below; ADR-0008 §18, ⟨r7⟩ §17.17 item 5 for the fourth):
 
 1. `crates/ipc/src/windows.rs` (`#![allow(unsafe_code)]`): `CreateNamedPipeW`
    security attributes (`create_with_security_attributes_raw`), SDDL conversion,
@@ -394,20 +394,27 @@ existing `crates/localenv/src/sys/mod.rs` also gains `JobObject::spawn_contained
 
    | Call | Invariant |
    |---|---|
-   | macOS `SecAccess` creation and generic-password add/copy/delete | The access list trusts only the `heimdall` executable; the issuer's reads disallow user interaction (`errSecInteractionNotAllowed` → `interaction_not_allowed`), so a prompt happens only in `heimdall issuer unlock`; tests use only a disposable file keychain outside the search list; every returned CF object is released exactly once |
+   | macOS `SecAccess` creation and generic-password add/copy/delete | The access list trusts only the `heimdall` executable; the issuer's reads disallow user interaction (`errSecInteractionNotAllowed` → `interaction_not_allowed`), so a prompt could happen only in `heimdall issuer unlock`, ⟨r7⟩ which never triggers one: it reports the locked store and how to unlock it (§17.17 item 10, U4-Q2); tests use only a disposable file keychain outside the search list; every returned CF object is released exactly once |
    | Windows `CryptProtectData`/`CryptUnprotectData` | CurrentUser scope with Heimdall entropy and `CRYPTPROTECT_UI_FORBIDDEN`; the blob lives in a Heimdall file with an owner-only protected DACL; every returned buffer is freed with `LocalFree` exactly once, and the plaintext is zeroized |
 
 6. `crates/runtime/src/session_lock/sys.rs` (U9; the session-lock source, ADR-0008 D9):
 
    | Call | Invariant |
    |---|---|
-   | macOS `CGSessionCopyCurrentDictionary` (`CGSSessionScreenIsLocked`) | The dictionary is released exactly once; a missing or unreadable value reads as `unknown`, which fails closed (every `revoke_on_lock` grant is treated as locked) |
-   | macOS `CFNotificationCenter` (distributed lock/unlock notifications) | On a dedicated run-loop thread; the callback only latches the lock epoch and wakes the source (`changed()`), it never calls into the application; removed before the thread ends |
+   | macOS `CGSessionCopyCurrentDictionary` (`CGSSessionScreenIsLocked`, `kCGSessionOnConsoleKey`), ⟨r7⟩ polled every 250 ms (`MACOS_POLL_INTERVAL`) on a dedicated thread the source owns (§17.17 item 10, U9-Q4) | Called only on that thread; checked non-null and released with `CFRelease` exactly once, after its last read (`CFDictionaryGetValue`, `CFGetTypeID`, `CFBooleanGetValue` under the get rule). A missing or unreadable value reads as `unknown` (`unavailable` at start), which fails closed (every `revoke_on_lock` grant is treated as locked). ⟨r7⟩ **No `CFNotificationCenter` observer is registered:** distributed notifications are delivered only on the main thread's run loop, which is tokio's, so a lock is seen within one poll interval instead |
    | Windows `WTSRegisterSessionNotification` and the message-only window | A hidden message-only window on its own thread; registered and unregistered exactly once |
    | Windows `WTSQuerySessionInformationW(WTSSessionInfoEx)`/`WTSFreeMemory` | The buffer is freed with `WTSFreeMemory` exactly once; a failed query reads as `unknown` |
 
    Linux desktop uses logind over D-Bus (`zbus`, no `unsafe`); headless Linux, WSL and
    containers report `unavailable` (`lock_signal_unavailable`).
+
+7. ⟨r7⟩ `crates/enroll/src/sys.rs` (Linux only; ADR-0008 §17.17 item 5, §17.4 item 2; the
+   enrollment step runner's parent-death signal). The crate's only `unsafe`; the module's
+   own table states each call:
+
+   | Call | Invariant |
+   |---|---|
+   | `CommandExt::pre_exec` with one closure that calls rustix's `set_parent_process_death_signal(Some(Signal::KILL))` (`prctl(PR_SET_PDEATHSIG, SIGKILL)`), then `getppid()` | The closure runs in the forked child before `execve`, where only async-signal-safe calls are allowed: it makes exactly these two system calls through rustix's safe wrappers, captures one `Pid` (`Copy`) and allocates nothing (an error is `io::Error::from_raw_os_error`). The death signal follows the spawning **thread**, so `SshStepRunner::run` spawns the step's `ssh` and then waits on that same thread until the step has ended and its group is killed. The `getppid()` check closes the race in which the CLI dies between `fork` and the `prctl`: the spawn then fails (`ESRCH`) and nothing runs unparented. `execve` keeps the signal (the step's client is not set-ID). macOS has no equivalent; there the ready handshake ties ssh to the CLI |
 
 **Test-only modules** (`heimdall-testkit`, a dev-dependency only; never in a release build;
 ADR-0007 §12.48 item 2):

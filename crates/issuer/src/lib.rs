@@ -33,3 +33,6 @@ pub mod client;
 pub mod protocol;
 pub mod retire;
 pub mod store;
+// M03-U4: the one `unsafe` module (keychain access lists, DPAPI, DACLs, console mode).
+#[cfg(any(target_os = "macos", windows))]
+mod sys;

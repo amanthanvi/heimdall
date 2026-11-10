@@ -6,6 +6,15 @@ set -eu
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 need_docker
 
+# M03 hook (m03-plan U11): `up.sh ca-trust-test-ca <pub>` adds the run's test CA to ca1/ca2's
+# TrustedUserCAKeys inside the containers only (lib.sh ca_trust_test_ca). Needs a running up.sh.
+if [ "${1:-}" = ca-trust-test-ca ]; then
+  [ $# -eq 2 ] || { echo "usage: up.sh ca-trust-test-ca <public key file>" >&2; exit 2; }
+  load_state
+  ca_trust_test_ca "$2"
+  exit $?
+fi
+
 # Exit 3 (ADR-0007 §12.33 item 1): the fixtures already exist (another run's); nothing was
 # created, so a caller must not tear anything down.
 if [ -n "$(fixture_containers)" ] || docker network inspect "$NET_EDGE" >/dev/null 2>&1 \
@@ -56,13 +65,14 @@ gen() { "$SSH_KEYGEN" -q -t ed25519 -N '' -C "$2" -f "$1"; }
 K="$RUNTIME/keys"
 gen "$K/user_fixed"   "hm-fixture-fixed-user-$RUN_ID"
 gen "$K/user_enroll"  "hm-fixture-enroll-working-path-$RUN_ID"
+gen "$K/user_enroll2" "hm-fixture-enroll2-working-path-$RUN_ID"
 gen "$K/user_marker"  "heimdall-m00-marker"
 gen "$K/user_cert"    "hm-fixture-cert-user-$RUN_ID"
 gen "$K/user_bastion" "hm-fixture-bastion-user-$RUN_ID"
 gen "$K/user_final"   "hm-fixture-final-user-$RUN_ID"
 gen "$K/user_ca"       "hm-fixture-user-ca-$RUN_ID"
 gen "$K/user_ca_rogue" "hm-fixture-ROGUE-ca-$RUN_ID"
-for n in 1 2 3; do gen "$RUNTIME/seed/unrelated_$n" "unrelated-$n-$RUN_ID"; dispose_file "$RUNTIME/seed/unrelated_$n"; done
+for n in 1 2 3 4 5 6; do gen "$RUNTIME/seed/unrelated_$n" "unrelated-$n-$RUN_ID"; dispose_file "$RUNTIME/seed/unrelated_$n"; done
 for role in $ROLES; do
   mkdir -p "$RUNTIME/hostkeys/$role"
   "$SSH_KEYGEN" -q -t ed25519 -N '' -C "hm-hostkey-$role-$RUN_ID" -f "$RUNTIME/hostkeys/$role/ssh_host_ed25519_key"
@@ -71,19 +81,24 @@ mkdir -p "$RUNTIME/hostkeys/swap"
 "$SSH_KEYGEN" -q -t ed25519 -N '' -C "hm-hostkey-SWAP-$RUN_ID" -f "$RUNTIME/hostkeys/swap/ssh_host_ed25519_key"
 
 # Account-enrollable seed: unrelated keys, options, comments (UTF-8) that must survive edits.
-U1="$(cat "$RUNTIME/seed/unrelated_1.pub")"; U2="$(cat "$RUNTIME/seed/unrelated_2.pub")"; U3="$(cat "$RUNTIME/seed/unrelated_3.pub")"
-{
-  printf '# Hand-maintained by the account owner. Do not reorder. (caf\xc3\xa9 \xc3\xbc\xc3\xb1\xc3\xaf)\n'
-  printf 'command="/bin/echo restricted",no-pty,no-port-forwarding %s\n' "$U1"
-  printf '\n'
-  printf '# options and CA entry below belong to someone else\n'
-  printf 'from="192.0.2.0/24",no-agent-forwarding %s\n' "$U2"
-  printf 'cert-authority,principals="ops" %s\n' "$U3"
-  printf '# existing working path used by the owner\n'
-  cat "$K/user_enroll.pub"
-  printf '# end of file\n'
-} >"$RUNTIME/seed/enroll_authorized_keys"
-shasum -a 256 "$RUNTIME/seed/enroll_authorized_keys" | awk '{print $1}' >"$RUNTIME/seed/enroll_authorized_keys.sha256"
+# M03 (m03-plan U11): enrollable2 is seeded the same way with its own keys (4-6, user_enroll2).
+seed_like_enrollable() {   # out working.pub unrelated1.pub unrelated2.pub unrelated3.pub
+  {
+    printf '# Hand-maintained by the account owner. Do not reorder. (caf\xc3\xa9 \xc3\xbc\xc3\xb1\xc3\xaf)\n'
+    printf 'command="/bin/echo restricted",no-pty,no-port-forwarding %s\n' "$(cat "$3")"
+    printf '\n'
+    printf '# options and CA entry below belong to someone else\n'
+    printf 'from="192.0.2.0/24",no-agent-forwarding %s\n' "$(cat "$4")"
+    printf 'cert-authority,principals="ops" %s\n' "$(cat "$5")"
+    printf '# existing working path used by the owner\n'
+    cat "$2"
+    printf '# end of file\n'
+  } >"$1"
+  shasum -a 256 "$1" | awk '{print $1}' >"$1.sha256"
+}
+S="$RUNTIME/seed"
+seed_like_enrollable "$S/enroll_authorized_keys" "$K/user_enroll.pub" "$S/unrelated_1.pub" "$S/unrelated_2.pub" "$S/unrelated_3.pub"
+seed_like_enrollable "$S/enroll2_authorized_keys" "$K/user_enroll2.pub" "$S/unrelated_4.pub" "$S/unrelated_5.pub" "$S/unrelated_6.pub"
 
 # --- stage per-role directories (copied into containers with docker cp) ---------------
 sshd_config_for() {   # role account keys_mode
@@ -127,6 +142,7 @@ for role in $ROLES; do
   case "$role" in
     fixed)   cp "$K/user_fixed.pub"   "$d/authorized_keys" ;;
     enroll)  cp "$RUNTIME/seed/enroll_authorized_keys" "$d/authorized_keys" ;;
+    enroll2) cp "$RUNTIME/seed/enroll2_authorized_keys" "$d/authorized_keys" ;;
     bastion) cp "$K/user_bastion.pub" "$d/authorized_keys" ;;
     target)  cp "$K/user_final.pub"   "$d/authorized_keys" ;;
     ca1) cp "$K/user_ca.pub" "$d/user_ca.pub"; echo "p-host1" >"$d/principals" ;;

@@ -20,6 +20,8 @@ pub mod launcher;
 pub mod paths;
 pub mod platform;
 pub mod service;
+// ⟨M03⟩ U9: the session-lock sources (ADR-0008 D9 item 3; m03-plan U9).
+pub mod session_lock;
 pub mod supervisor;
 pub mod telemetry;
 

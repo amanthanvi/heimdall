@@ -22,6 +22,23 @@ use heimdall_contract::issuer::StoreKind;
 use heimdall_credential::cert::SecretCaKey;
 use serde::{Deserialize, Serialize};
 
+// M03-U4: the product implementations (ADR-0008 D1).
+#[cfg(target_os = "linux")]
+pub mod linux;
+#[cfg(target_os = "macos")]
+pub mod macos;
+#[cfg(windows)]
+pub mod windows;
+#[cfg(target_os = "linux")]
+pub use linux::LinuxSecretService;
+#[cfg(target_os = "macos")]
+pub use macos::MacosLoginKeychain;
+#[cfg(windows)]
+pub use windows::WindowsDpapi;
+// M03-U4: the key type the trait names, for implementors whose crate does not depend
+// on heimdall-credential directly (the e2e ceremony suite's test store).
+pub use heimdall_credential::cert::SecretCaKey as StoredCaKey;
+
 /// The prefix of every store item's label.
 pub const ITEM_LABEL_PREFIX: &str = "heimdall-issuer/";
 

@@ -13,6 +13,14 @@
 //! the absolute path of a state file); the wiring then calls
 //! [`FakeSessionLockSource::refresh_from_file`] on its own interval. The file holds
 //! one word: `locked`, `unlocked`, `unknown` or `unavailable`.
+//!
+//! ⟨M03 wave 1, U11⟩ **The consumer-pause control** (ADR-0008 D13 item 7, §17.1 item 9;
+//! m03-plan U11 `lock::FakeSessionLockSource`): [`FakeSessionLockSource::pause_consumer`]
+//! withholds the [`SessionLockSource::changed`] wake-ups, as if the consumer (the
+//! revocation pass) were paused, while transitions still latch;
+//! [`FakeSessionLockSource::resume_consumer`] delivers one wake-up when anything changed
+//! meanwhile. It lives here, not in `lock.rs`, because it gates the wake-up inside
+//! [`FakeSessionLockSource::set_state`] of this one type (`lock` re-exports it).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -29,6 +37,10 @@ pub const ENV: &str = "HEIMDALL_TEST_SESSION_LOCK";
 struct Inner {
     state: LockState,
     epoch: LockEpoch,
+    /// The consumer is paused: wake-ups are withheld.
+    paused: bool,
+    /// A change happened while paused.
+    pending: bool,
 }
 
 /// A scripted session-lock source.
@@ -54,6 +66,8 @@ impl FakeSessionLockSource {
             inner: Mutex::new(Inner {
                 state: initial,
                 epoch: LockEpoch::default(),
+                paused: false,
+                pending: false,
             }),
             notify: Notify::new(),
             state_file: None,
@@ -82,18 +96,54 @@ impl FakeSessionLockSource {
     /// the epoch and latches `observed`. Every call wakes the waiters of
     /// [`SessionLockSource::changed`].
     pub fn set_state(&self, state: LockState) {
-        {
+        let wake = {
             let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             if state == LockState::Locked && inner.state != LockState::Locked {
                 inner.epoch = inner.epoch.observe_lock();
             }
             inner.state = state;
+            if inner.paused {
+                inner.pending = true;
+            }
+            !inner.paused
+        };
+        if wake {
+            self.wake();
         }
-        // Wake every current waiter, and leave one permit so a waiter created just
-        // after this call cannot miss it (a spurious wake-up is harmless; `changed`
-        // carries no value).
+    }
+
+    /// Wake every current waiter, and leave one permit so a waiter created just after
+    /// this call cannot miss it (a spurious wake-up is harmless; `changed` carries no
+    /// value).
+    fn wake(&self) {
         self.notify.notify_waiters();
         self.notify.notify_one();
+    }
+
+    /// ⟨M03⟩ Pause the consumer: from now on [`Self::set_state`] still latches every
+    /// transition, but wakes nobody (ADR-0008 §17.1 item 9). Idempotent.
+    pub fn pause_consumer(&self) {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).paused = true;
+    }
+
+    /// ⟨M03⟩ Resume the consumer: one wake-up if anything changed while it was paused.
+    pub fn resume_consumer(&self) {
+        let wake = {
+            let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let wake = inner.paused && inner.pending;
+            inner.paused = false;
+            inner.pending = false;
+            wake
+        };
+        if wake {
+            self.wake();
+        }
+    }
+
+    /// ⟨M03⟩ Whether the consumer is paused.
+    #[must_use]
+    pub fn consumer_paused(&self) -> bool {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).paused
     }
 
     /// Re-read the state file and apply it through [`Self::set_state`] when it

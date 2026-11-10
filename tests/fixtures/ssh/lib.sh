@@ -14,7 +14,11 @@ IMAGE="heimdall-m00-t03-sshd:local"
 BASE_IMAGE="debian@sha256:f324c7ff54321e8d9c588493a20244965938ce0aa50bbd1022d38010e9ffc4b1"
 NET_EDGE="${PREFIX}-edge"          # normal bridge; only bastion + loopback-published fixtures
 NET_INT="${PREFIX}-internal"       # --internal: bastion + final target only
-ROLES="fixed enroll ca1 ca2 bastion target"
+ROLES="fixed enroll enroll2 ca1 ca2 bastion target"
+# M03 (m03-plan U11): the disposable shell containers testkit starts (ShellContainers) carry
+# this label value; down.sh removes leftovers and the built image by label.
+SHELL_LABEL_VAL="m03-shells"
+SHELL_IMAGE="heimdall-m03-shell-debian:local"
 
 SSH=/usr/bin/ssh
 SSH_KEYGEN=/usr/bin/ssh-keygen
@@ -30,13 +34,13 @@ cname() { printf '%s-%s' "$PREFIX" "$1"; }
 
 account_of() {
   case "$1" in
-    fixed) echo fixed ;; enroll) echo enroll ;; ca1|ca2) echo cert ;;
+    fixed) echo fixed ;; enroll|enroll2) echo enroll ;; ca1|ca2) echo cert ;;
     bastion) echo jump ;; target) echo final ;; *) die "unknown role $1" ;;
   esac
 }
 keys_mode_of() {
   case "$1" in
-    fixed|bastion|target) echo root ;; enroll) echo account ;; ca1|ca2) echo ca ;;
+    fixed|bastion|target) echo root ;; enroll|enroll2) echo account ;; ca1|ca2) echo ca ;;
   esac
 }
 
@@ -46,6 +50,25 @@ need_docker() {
 
 fixture_containers() {   # names of every container carrying our label (running or not)
   docker ps -a --filter "label=${LABEL_KEY}=${LABEL_VAL}" --format '{{.Names}}'
+}
+
+shell_containers() {     # M03: leftover testkit shell containers (label heimdall.fixture=m03-shells)
+  docker ps -a --filter "label=${LABEL_KEY}=${SHELL_LABEL_VAL}" --format '{{.Names}}'
+}
+
+# M03 (m03-plan U11, ADR-0008 D13 item 2): the hook `ca-trust-test-ca <pub>`. It appends the
+# run's test CA public key to ca1's and ca2's TrustedUserCAKeys (/etc/ssh/user_ca.pub) inside
+# the containers only (docker exec; nothing is written on the host). The line must be exactly
+# `ssh-ed25519 <base64>` (an optional comment is dropped); anything else is refused (exit 2).
+ca_trust_test_ca() {
+  local pub="$1" line role
+  [ -f "$pub" ] || { echo "ca-trust-test-ca: no such public key file" >&2; return 2; }
+  line="$(head -n 1 "$pub" | awk 'NF >= 2 && $1 == "ssh-ed25519" && $2 ~ /^[A-Za-z0-9+\/]+=*$/ { print $1 " " $2 }')"
+  [ -n "$line" ] || { echo "ca-trust-test-ca: not an ssh-ed25519 public key line" >&2; return 2; }
+  for role in ca1 ca2; do
+    printf '%s\n' "$line" | docker exec -i "$(cname "$role")" /usr/local/bin/fixture-entrypoint.sh ca-trust-test-ca \
+      || { echo "ca-trust-test-ca: $role refused" >&2; return 1; }
+  done
 }
 
 load_state() {
@@ -191,6 +214,13 @@ Host enrollable-marker
   User enroll
   IdentityFile "$k/user_marker"
   HostKeyAlias hm-enroll
+
+Host enrollable2
+  HostName 127.0.0.1
+  Port $PORT_enroll2
+  User enroll
+  IdentityFile "$k/user_enroll2"
+  HostKeyAlias hm-enroll2
 
 Host ca-host1
   HostName 127.0.0.1

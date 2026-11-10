@@ -1134,42 +1134,129 @@ fn env_pairs(bytes: &[u8]) -> Vec<(String, String)> {
     pairs
 }
 
+/// ADR-0008 §17.17 item 1 (ADR-0007 §8): the one documented platform addition. On macOS,
+/// CoreFoundation's load-time initializer in the `heimdall` process sets this variable
+/// when the caller's environment lacks it, and the child inherits it.
+#[cfg(unix)]
+const CF_TEXT_ENCODING: &str = "__CF_USER_TEXT_ENCODING";
+
+/// Whether `value` has the form `^0x[0-9A-Fa-f]+:0x[0-9A-Fa-f]+:0x[0-9A-Fa-f]+$`.
+#[cfg(unix)]
+fn is_cf_text_encoding_value(value: &str) -> bool {
+    let parts: Vec<&str> = value.split(':').collect();
+    parts.len() == 3
+        && parts.iter().all(|p| {
+            p.strip_prefix("0x")
+                .is_some_and(|h| !h.is_empty() && h.bytes().all(|b| b.is_ascii_hexdigit()))
+        })
+}
+
 /// m02-plan U8 `a27_cwd_and_env_preserved_plus_only_documented_additions`: the child
 /// starts in the caller's directory with exactly the caller's environment (this
 /// integration documents no addition: no pair, so no `SSH_AUTH_SOCK`; Git is never
-/// injected on Unix).
+/// injected on Unix). ⟨ADR-0008 §17.17 item 1⟩ The one platform addition: on macOS,
+/// and only when the caller's environment lacks it, at most one `__CF_USER_TEXT_ENCODING`
+/// pair of the form `0x…:0x…:0x…`; a caller's own value for this user passes through
+/// unchanged. Any other addition fails.
 #[cfg(unix)]
 #[test]
 fn a27_cwd_and_env_preserved_plus_only_documented_additions() {
     let rig = Rig::new();
-    let extra = [
+    let marker = [
         ("HM_U8_MARKER", OsStr::new("value with spaces")),
         ("GIT_CONFIG_COUNT", OsStr::new("0")),
     ];
-    let out = rig.run_with(&refs(&run_args(None, &os(&["/usr/bin/env", "-0"]))), &extra);
-    assert_eq!(out.code(), Some(0), "{}", out.stderr);
-    let mut expected: Vec<(String, String)> = rig
-        .env()
-        .into_iter()
-        .map(|(k, v)| {
-            (
-                k.to_string_lossy().into_owned(),
-                v.to_string_lossy().into_owned(),
+    // The child's environment and the caller's (sorted pairs).
+    type EnvPairs = Vec<(String, String)>;
+    let run = |extra: &[(&str, &OsStr)]| -> (EnvPairs, EnvPairs) {
+        let out = rig.run_with(&refs(&run_args(None, &os(&["/usr/bin/env", "-0"]))), extra);
+        assert_eq!(out.code(), Some(0), "{}", out.stderr);
+        let mut expected: Vec<(String, String)> = rig
+            .env()
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.to_string_lossy().into_owned(),
+                )
+            })
+            .chain(
+                extra
+                    .iter()
+                    .map(|(k, v)| ((*k).to_owned(), v.to_string_lossy().into_owned())),
             )
-        })
-        .chain(
-            extra
-                .iter()
-                .map(|(k, v)| ((*k).to_owned(), v.to_string_lossy().into_owned())),
-        )
+            .collect();
+        expected.sort();
+        (env_pairs(&out.stdout), expected)
+    };
+
+    // The caller's environment lacks the variable.
+    let (mut actual, expected) = run(&marker);
+    assert!(
+        !expected.iter().any(|(k, _)| k == CF_TEXT_ENCODING),
+        "the rig's environment must lack {CF_TEXT_ENCODING}"
+    );
+    let added: Vec<String> = actual
+        .iter()
+        .filter(|(k, _)| k == CF_TEXT_ENCODING)
+        .map(|(_, v)| v.clone())
         .collect();
-    expected.sort();
-    assert_eq!(env_pairs(&out.stdout), expected);
+    if cfg!(target_os = "macos") {
+        assert!(
+            added.len() <= 1,
+            "at most one {CF_TEXT_ENCODING} pair: {added:?}"
+        );
+        for value in &added {
+            assert!(
+                is_cf_text_encoding_value(value),
+                "{CF_TEXT_ENCODING} has the form 0x…:0x…:0x…: {value:?}"
+            );
+        }
+        actual.retain(|(k, _)| k != CF_TEXT_ENCODING);
+    }
+    assert_eq!(actual, expected);
+
+    // macOS: the caller's own value (this user's, as a login session carries it) passes
+    // through unchanged.
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let uid = std::fs::metadata(rig.work()).unwrap().uid();
+        let value = OsString::from(format!("0x{uid:X}:0x8:0x1"));
+        let mut extra = marker.to_vec();
+        extra.push((CF_TEXT_ENCODING, value.as_os_str()));
+        let (actual, expected) = run(&extra);
+        assert_eq!(actual, expected, "a present value passes through unchanged");
+    }
+
     let pwd = rig.run_with(&refs(&run_args(None, &os(&["/bin/pwd", "-P"]))), &[]);
     assert_eq!(
         String::from_utf8_lossy(&pwd.stdout).trim_end(),
         std::fs::canonicalize(rig.work()).unwrap().to_string_lossy()
     );
+}
+
+/// ⟨ADR-0008 §17.17 item 1⟩ The accepted form, exactly.
+#[cfg(unix)]
+#[test]
+fn a27_cf_text_encoding_form_is_exact() {
+    for ok in ["0x1F5:0x0:0x0", "0xabc:0x8:0x1"] {
+        assert!(is_cf_text_encoding_value(ok), "{ok}");
+    }
+    for bad in [
+        "",
+        "0x1F5:0x0",
+        "0x1F5:0x0:0x0:0x0",
+        "1F5:0x0:0x0",
+        "0x:0x0:0x0",
+        "0x1G5:0x0:0x0",
+        "0x1F5:0x0:0x0 ",
+        " 0x1F5:0x0:0x0",
+        "0x1F5:0x0:0x0\n",
+        "0X1F5:0x0:0x0",
+    ] {
+        assert!(!is_cf_text_encoding_value(bad), "{bad:?}");
+    }
 }
 
 /// m02-plan U8 `a27_cwd_and_env_preserved_plus_only_documented_additions` on Windows:

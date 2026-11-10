@@ -181,6 +181,8 @@ impl Operations {
         let adapters = self.adapter_infos();
         let gate = self.inner.timegate.in_txn();
         let lock = self.lock_state();
+        // ⟨U9⟩ R3: the configured floor joins the effective behaviour.
+        let floor = self.session_lock_floor();
         let endpoint = facts.endpoint.clone();
         let gid = grant.clone();
         self.write(move |tx, _| {
@@ -248,7 +250,7 @@ impl Operations {
             if revalidate_chain(tx, &env, &adapters, &g, safe.wall())?.is_err() {
                 return Ok(Err(SignRefusal::StaleGeneration));
             }
-            if effective_lock_behavior(tx, &env, &g, ctx.profile.as_ref())?
+            if effective_lock_behavior(tx, &env, &g, ctx.profile.as_ref(), floor)?
                 == LockBehavior::RevokeOnLock
                 && lock != LockState::Unlocked
             {
