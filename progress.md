@@ -943,3 +943,14 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - `a22_crlf_bom_no_trailing_newline_preserved` is required on Windows (D5), but was still compiled for macOS only;
   - `a22_foreign_owner_or_unwritable_is_manual_mode` became Unix-only without a case-index rationale.
 - **Next:** a new exit build with §12.51 items 4 and 5 and a regenerated inventory; all four platforms run again.
+- **Exit build 517160e0, 2026-11-10** (ADR-0007 §12.51 items 4 and 5). Artifacts: `tests/evidence/artifacts/m02/exit-517160e0/`.
+  - **macOS:** exit 0; 1779 passed, 0 failed, 8 ignored; observations 197.
+  - **Windows:** exit 0, 377 s; 1654 passed, 0 failed, 1 ignored. `windows_launch` passed 4 of 4, and the BOM/CRLF round trip passed natively. A22's Windows row is `verified`.
+  - **WSL:** exit 0, 59 s; 11 of 11.
+  - **devbox:** exit 101; 1774 passed, 1 failed. The failure is `model_revocation::sharing_never_merges_unrelated_scopes_or_outlives_the_deadline`.
+    - It is a test-timing assumption (ADR-0007 §12.51 item 7): the property assumed its spawned requests overlap, but spec §8.2 coalesces only concurrent work.
+    - The old binary failed 24 of 48 runs on the devbox under load and 0 of 256 on macOS.
+    - The property now holds every preparation until all requests have joined, and a new test records the non-concurrent case.
+  - The independent review of `9bce3f9b..517160e0` (Codex) returned **merge** (`review-m02-code/exit-517160e0.md`).
+  - No records are written from 517160e0. The next exit build carries the test fix, and all four platforms run again.
+- The M03 wave-0 worktree's build output (42 GB) was removed. Its notes are archived in `review-m03-code/wave0-notes/`.

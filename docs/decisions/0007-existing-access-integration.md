@@ -4888,6 +4888,30 @@ The evidence-generator and importer fixes (items 1–3) change no `*.rs` file. E
    - **What `c167736e` keeps:** it stays recorded as run evidence: the artifacts, `runs.json`, `digests.txt` and `case-summary.json`. No evidence record is written from it.
    - **What the next build carries:** items 4 and 5, and an inventory regenerated at that build.
    - **The runs:** all four platforms run again at that build.
+7. **The runs of `517160e0` (2026-11-10): a test-timing assumption in a single-flight property.**
+   - **The results:**
+     - macOS exited 0: `check.sh` 1,779 passed, 0 failed, 8 ignored; observations 197;
+     - Windows exited 0: 1,654 passed, 0 failed, 1 ignored; `windows_launch` 4 of 4. `a22_crlf_bom_no_trailing_newline_preserved` and `preview_never_creates_a_quarantine` passed natively;
+     - the WSL distribution exited 0: 11 of 11;
+     - the devbox exited 101: 1,774 passed, 1 failed;
+     - A22's Windows row is `verified`, so the item 5 gap is closed.
+   - **The failure:** `model_revocation::sharing_never_merges_unrelated_scopes_or_outlives_the_deadline` (plan §6.3 #8). Two requests with an identical scope and deadline received two grants. That was its first failure in 33 recorded runs.
+   - **The cause (observed):** the property spawned its requests and assumed they were all in flight together.
+     - The store's writes run on blocking threads, so a request can finish before an equivalent one reaches `SingleFlight::join_or_lead`.
+     - Spec §8.2 makes *concurrent* preparation single-flight, so an equivalent request that arrives after the first finished is prepared again. That is the product working as specified, not a defect.
+     - The old test binary failed 24 of 48 runs on the devbox under 6-way load (4 CPUs). It failed 0 of 256 on the macOS host.
+   - **Ruling: a test defect.** The property now makes its requests concurrent by construction:
+     - every `prepare` waits until every request has entered `Coalesce`, where it leads or joins a flight. This is the gate `equivalent_work_is_single_flight_with_separate_references` already uses;
+     - the property also asserts one grant and one effect per distinct (scope, deadline) of its inputs.
+   - **Regressions:**
+     - under the same devbox load, the fixed test binary passed 48 of 48 runs, and 128 of 128 on the macOS host at 32-way;
+     - with the requests serialized, the property fails;
+     - the new `equivalent_work_after_the_first_finished_is_prepared_again` records the non-concurrent case: its own grant and its own effect.
+8. **The next exit build, again.**
+   - **What `517160e0` keeps:** it stays recorded as run evidence: the artifacts, `runs.json`, `digests.txt` and `case-summary.json`. No evidence record is written from it, because the nonzero devbox command keeps every Linux row `in_progress`.
+   - **What the next build carries:** item 7 and an inventory regenerated at that build.
+   - **The runs:** all four platforms run again.
+   - **The review:** an independent review of `9bce3f9b..517160e0` (Codex) returned **merge** with no findings: `review-m02-code/exit-517160e0.md`.
 
 ## 13. Consequences
 

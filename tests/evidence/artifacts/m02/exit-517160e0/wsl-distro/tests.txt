@@ -1,0 +1,37 @@
+### wsl_ordinary_ssh
+fact mode=disposable-home
+fact ssh-V=OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)
+fact git-version=git version 2.43.0 (exit 0)
+fact home-fs=ext4
+setup key exit=0
+setup provider-agent-holds-the-disposable-key exit=0
+setup fixture-sshd-listening-on-127.0.0.1 exit=0
+fact sshd-V=OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13 30 Jan 2024 (exit 0)
+setup scratch-git-repository exit=0
+fact user-config-sha256-before=9934421388232c4b1fc64b2aa4c7d5e8ffab49ca472abb6ae320dca718f1ef9b
+setup ssh-G-unrelated-before exit=0
+fact time-confirmation=needed (exit 0)
+fact identity-adopt-code=OK
+setup identity-adopt-from-agent exit=0
+fact destination-add-code=OK
+setup destination-add exit=0
+fact setup-apply-code=OK (exit 0)
+fact user-config-sha256-after-apply=46a374941748f48749fc0c359839775b7e0d1210b8a4c09ab16040771d59971e
+test a01_setup_apply_writes_the_users_real_ssh_config ... ok
+test a01_ordinary_ssh_alias_without_f ... ok
+test a01_ordinary_git_without_f ... ok
+test a01_ordinary_scp_without_f ... ok
+test a01_ordinary_sftp_without_f ... ok
+test a01_unaffected_alias_effective_config_unchanged ... ok
+fact sshd-accepted-logins=6
+test a01_provider_agent_accepted_key_is_the_adopted_one ... ok
+fact rename-exchange=supported (renameat2 RENAME_EXCHANGE)
+test a22_rename_exchange_supported_on_the_home_fs ... ok
+fact birth-time=recorded (statx STATX_BTIME)
+test a22_birth_time_recorded_on_the_home_fs ... ok
+fact uninstall-code=OK (exit 0)
+fact user-config-sha256-after-uninstall=9934421388232c4b1fc64b2aa4c7d5e8ffab49ca472abb6ae320dca718f1ef9b
+test t06_uninstall_restores_user_bytes ... ok
+test t06_uninstall_restores_effective_config ... ok
+fact leftover-heimdall-processes=0
+### wsl_ordinary_ssh exit=0

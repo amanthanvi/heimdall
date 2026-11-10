@@ -1,0 +1,11 @@
+exit 0: ssh <linuxhost> uname -m
+exit 0: cargo test --target x86_64-unknown-linux-gnu --workspace --no-run --locked (zig cc linker/CC shims)
+exit 0: run plan from case-index.json build_host_paths
+exit 0: ssh <linuxhost> mkdir (exclusive) ~/hm-m02-<random> and its tmp
+exit 0: stage the repository files the tests read (HM_REPO_ROOT: 379 files)
+exit 0: tar stream of 49 test binaries, heimdall, hm-fixture-hook and the repository files into the scratch dir
+exit 101: remote: every test binary under timeout 1800 and nice -n 10 (overall exit = last failing binary's exit, 0 if all passed)
+exit 0: host ~/.ssh and Git configuration metadata unchanged by the run
+exit 0: canary-prefix scan over saved output (count = 0)
+exit 0: leak scan: saved files still naming the host, user or a home (0)
+exit 0: ssh <linuxhost> rm -rf the run's scratch dir, then check it is absent

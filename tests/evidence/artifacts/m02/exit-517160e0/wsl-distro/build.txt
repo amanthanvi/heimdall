@@ -1,0 +1,3 @@
+heimdall (Linux, for the disposable distribution) sha256: 69422916da21511c1c2b40002b9420175e4800d29ad862ac8bbdd658a0b6891c
+prebuilt: cross-built on the build host; sha256 verified here against HM_PREBUILT_SHA256 (mode=local)
+pinned image: https://releases.ubuntu.com/noble/ubuntu-24.04.5-wsl-amd64.wsl sha256 bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e
