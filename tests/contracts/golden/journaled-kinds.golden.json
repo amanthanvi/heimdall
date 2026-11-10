@@ -1,5 +1,5 @@
 {
-  "source": "m02-plan U0 Tests (journaled_operation_kinds_match_their_request_kind) and section 5 items 2-4, transcribed; shared by the contract half (tests/contracts/m02.rs, Request::kind and Request::admission) and the domain half (OperationKind::as_str and its serde form)",
+  "source": "m02-plan U0 Tests (journaled_operation_kinds_match_their_request_kind) and section 5 items 2-4, extended by m03-plan U0 Tests and section 5 items 2, 3, 4a, 11 and 12, transcribed; shared by the contract half (tests/contracts/m02.rs, Request::kind and Request::admission) and the domain half (OperationKind::as_str and its serde form)",
   "journaled": {
     "Ensure": "ensure",
     "Delegate": "delegate",
@@ -8,10 +8,17 @@
     "SetupApply": "setup.apply",
     "SetupRollback": "setup.rollback",
     "SetupRepair": "setup.repair",
-    "Catalog": "catalog"
+    "Catalog": "catalog",
+    "EnrollmentApply": "enrollment.apply",
+    "EnrollmentVerify": "enrollment.verify",
+    "EnrollmentRemove": "enrollment.remove"
   },
-  "synchronous": ["cancel", "release", "policy", "decide", "confirm_time"],
-  "read_only": ["inspect", "observe", "shutdown", "setup.preview"],
+  "synchronous": ["cancel", "release", "policy", "decide", "confirm_time",
+                  "issuer.register", "issuer.unlock", "issuer.retire",
+                  "enrollment.reconcile", "enrollment.abandon", "enrollment.step", "enrollment.step_result",
+                  "connections.close", "connections.register"],
+  "read_only": ["inspect", "observe", "shutdown", "setup.preview",
+                "issuer.status", "issuer.bundle", "enrollment.preview"],
   "declared_never_constructed": {
     "Cancel": "cancel",
     "Release": "release",

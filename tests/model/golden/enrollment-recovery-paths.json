@@ -1,0 +1,2100 @@
+{
+ "source": "ADR-0008 revision 6 recovery paths: D5 \u00a76.4 (stages, commit points, recovery), \u00a76.7 (reconciliation and fencing), \u00a76.8 (removal and rollback), \u00a76.9 (system form), D4 item 5 (foreign removal) and \u00a717.4 item 5 (held exits, re-enrollment, initial-verification retry, manual-removal cancel). Each names the U5 or U10 test (m03-plan) that will cover its I/O; the pure transition sequence is checked now by tests/model/managed_domain.rs enrollment_recovery_paths_each_tested. Transcribed by hand from the documents.",
+ "owners": [
+  "U5",
+  "U10"
+ ],
+ "paths": [
+  {
+   "id": "e0_decision_withdrawn",
+   "adr": "D5 \u00a76.4 E0; \u00a76.2 planned",
+   "summary": "denied, cancelled or stale decision: nothing written",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "planned",
+     "steps": [
+      {
+       "event": {
+        "event": "decision_withdrawn"
+       },
+       "to": "withdrawn"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_requires_attended_decision",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "e1_approved_apply_redriven_on_reconcile",
+   "adr": "D5 \u00a76.4 E1",
+   "summary": "approval consumed; the apply is re-driven on owner reconcile after a restart",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "planned",
+     "steps": [
+      {
+       "event": {
+        "event": "enroll_account_approved"
+       },
+       "to": "applying"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_restart_leaves_operation_unresolved_and_reported",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "e2b_bootstrap_confirmed_continues_at_e3",
+   "adr": "D5 \u00a76.4 E2b",
+   "summary": "directory created (or already present), then the append",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "applying",
+     "steps": [
+      {
+       "event": {
+        "event": "bootstrap_confirmed"
+       },
+       "to": "applying"
+      },
+      {
+       "event": {
+        "event": "append_confirmed"
+       },
+       "to": "applied_unverified"
+      }
+     ]
+    }
+   ],
+   "test": "registry_dir_bootstrap_journaled_shown_in_plan_then_locked",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e2b_bootstrap_parent_absent_failed_unwritten",
+   "adr": "D5 \u00a76.4 E2b",
+   "summary": "NotApplied parent_absent or refused: failed_unwritten",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "applying",
+     "steps": [
+      {
+       "event": {
+        "event": "refused_before_write"
+       },
+       "to": "failed_unwritten"
+      }
+     ]
+    }
+   ],
+   "test": "bootstrap_missing_parent_exit_33_refused",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e2b_bootstrap_uncertain_reinspected",
+   "adr": "D5 \u00a76.4 E2b; \u00a76.2 applying (result of a bootstrap lost)",
+   "summary": "an uncertain bootstrap is reconciled; present and checked continues at E3",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "applying",
+     "steps": [
+      {
+       "event": {
+        "event": "append_outcome_lost"
+       },
+       "to": "outcome_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_redispatch"
+       },
+       "to": "applying"
+      },
+      {
+       "event": {
+        "event": "bootstrap_confirmed"
+       },
+       "to": "applying"
+      },
+      {
+       "event": {
+        "event": "append_confirmed"
+       },
+       "to": "applied_unverified"
+      }
+     ]
+    }
+   ],
+   "test": "registry_dir_bootstrap_journaled_shown_in_plan_then_locked",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e3_busy_bounded_retries",
+   "adr": "D5 \u00a76.4 E3 NotApplied busy; \u00a76.2 applying",
+   "summary": "busy keeps applying; a later attempt appends",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "applying",
+     "steps": [
+      {
+       "event": {
+        "event": "step_busy"
+       },
+       "to": "applying"
+      },
+      {
+       "event": {
+        "event": "append_confirmed"
+       },
+       "to": "applied_unverified"
+      }
+     ]
+    }
+   ],
+   "test": "busy_lock_changes_nothing_exit_40",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e3_uncertain_reconciled_applied",
+   "adr": "D5 \u00a76.4 E3 Uncertain; \u00a76.7 row 1",
+   "summary": "exactly one exact line: Confirmed, applied_unverified, continue at E4",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "applying",
+     "steps": [
+      {
+       "event": {
+        "event": "append_outcome_lost"
+       },
+       "to": "outcome_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_applied"
+       },
+       "to": "applied_unverified"
+      },
+      {
+       "event": {
+        "event": "start_verification"
+       },
+       "to": "verifying"
+      },
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "passed"
+        },
+        "approval_valid": true
+       },
+       "to": "verified"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_reconcile_applied",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "e4_inconclusive_retry_under_open_apply",
+   "adr": "D5 \u00a76.4 E4; \u00a76.5 inconclusive row; \u00a717.4 item 5",
+   "summary": "inconclusive returns to applied_unverified; the retry runs through reconcile while the approval is valid, and through enroll verify after it lapsed",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "applied_unverified",
+     "steps": [
+      {
+       "event": {
+        "event": "start_verification"
+       },
+       "to": "verifying"
+      },
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "inconclusive",
+         "reason": "transport"
+        },
+        "approval_valid": true
+       },
+       "to": "applied_unverified"
+      },
+      {
+       "event": {
+        "event": "start_verification"
+       },
+       "to": "verifying"
+      },
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "passed"
+        },
+        "approval_valid": true
+       },
+       "to": "verified"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "applied_unverified",
+     "steps": [
+      {
+       "event": {
+        "event": "start_verification"
+       },
+       "to": "verifying"
+      },
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "inconclusive",
+         "reason": "transport"
+        },
+        "approval_valid": false
+       },
+       "to": "applied_unverified"
+      },
+      {
+       "event": {
+        "event": "start_verification"
+       },
+       "to": "verifying"
+      },
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "passed"
+        },
+        "approval_valid": false
+       },
+       "to": "verified"
+      }
+     ]
+    }
+   ],
+   "test": "initial_verification_retry_under_open_apply_via_reconcile",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "e4_failure_after_approval_lapsed_held",
+   "adr": "D5 \u00a76.2 verifying r3; \u00a76.5; \u00a717.4 item 5",
+   "summary": "a failure after the approval lapsed goes to held; removal needs RemoveEnrollment",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "positive_refused"
+        },
+        "approval_valid": false
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "principals_not_enforced"
+        },
+        "approval_valid": false
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "initial_verification_failure_after_approval_lapsed_holds",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "e4_principals_not_enforced_rolled_back",
+   "adr": "D5 \u00a76.5 (pass, accepted); \u00a76.4 E5'",
+   "summary": "account form within the approval: rollback, then verification_failed",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "principals_not_enforced"
+        },
+        "approval_valid": true
+       },
+       "to": "rollback_pending"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "verification_failed"
+      }
+     ]
+    }
+   ],
+   "test": "principals_not_enforced_detected_and_rolled_back",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e4_positive_refused_rolled_back",
+   "adr": "D5 \u00a76.5 (refused); \u00a76.4 E5'",
+   "summary": "the positive refused within the approval: rollback",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "positive_refused"
+        },
+        "approval_valid": true
+       },
+       "to": "rollback_pending"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "verification_failed"
+      }
+     ]
+    }
+   ],
+   "test": "verification_failed_when_server_reads_another_registry",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e4_host_key_mismatch_held_no_rollback",
+   "adr": "D5 \u00a76.5 host key mismatch; \u00a76.2 verifying r2",
+   "summary": "no rollback over an untrusted host: held, review_host_trust",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "host_key_mismatch"
+        },
+        "approval_valid": true
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "verification_host_key_mismatch_holds_no_rollback",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e4_destination_clock_skew_no_rollback",
+   "adr": "D5 \u00a76.5 skew row; \u00a717.4 item 11",
+   "summary": "a refusal a clock skew could explain is inconclusive, never rolled back",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "inconclusive",
+         "reason": "destination_clock_skew"
+        },
+        "approval_valid": true
+       },
+       "to": "applied_unverified"
+      }
+     ]
+    }
+   ],
+   "test": "destination_clock_skew_beyond_allowance_inconclusive_no_rollback",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e5_not_committed_reverify_then_record",
+   "adr": "D5 \u00a76.4 E5",
+   "summary": "E4 passed and E5 did not commit: verification runs again, then the record",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "passed"
+        },
+        "approval_valid": true
+       },
+       "to": "verified"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_restart_leaves_operation_unresolved_and_reported",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "e5p_rollback_lost_reply_reconciled",
+   "adr": "D5 \u00a76.4 E5'; \u00a76.7 (removal step: marker absent means applied)",
+   "summary": "the rollback's result lost: rollback_unknown keeps its purpose; reconcile finds the marker absent",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "rollback_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "removal_outcome_lost"
+       },
+       "to": "rollback_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_applied"
+       },
+       "to": "verification_failed"
+      }
+     ]
+    }
+   ],
+   "test": "reconcile_classification_table_every_row",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e5p_rollback_redispatch_after_holder_gone",
+   "adr": "D5 \u00a76.2 rollback_unknown; \u00a76.7",
+   "summary": "marker present and the old holder proven gone: the rollback runs again",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "rollback_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_unresolved"
+       },
+       "to": "rollback_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_redispatch"
+       },
+       "to": "rollback_pending"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "verification_failed"
+      }
+     ]
+    }
+   ],
+   "test": "stale_lock_broken_only_after_holder_proven_gone",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "e5p_rollback_registry_changed_held",
+   "adr": "D5 \u00a76.2 rollback_pending; \u00a76.8 items 4-5",
+   "summary": "registry_changed three times or not rewritable: held with manual instructions",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "rollback_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "removal_held"
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "three_compare_failures_give_registry_changed",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "r_not_applied_redispatch_within_validity",
+   "adr": "D5 \u00a76.7 row 2 (Q7 as amended)",
+   "summary": "no marker, holder proven gone, approval valid, attended: back to applying",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_redispatch"
+       },
+       "to": "applying"
+      },
+      {
+       "event": {
+        "event": "append_confirmed"
+       },
+       "to": "applied_unverified"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_reconcile_not_applied_within_validity",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "r_approval_lapsed_withdrawn_late_write",
+   "adr": "D5 \u00a76.7 row 2; \u00a76.2 outcome_unknown r2/r3",
+   "summary": "no marker after fencing and the approval lapsed: DECISION_STALE approval_lapsed, withdrawn with the late_write residual",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_approval_lapsed"
+       },
+       "to": "withdrawn"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_reconcile_approval_lapsed",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "r_late_write_residual_on_withdrawn",
+   "adr": "D5 \u00a76.7 late_write; \u00a717.4 item 2",
+   "summary": "an uncertain append left for withdrawn keeps the late_write residual (record state final; residual listed)",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "applying",
+     "steps": [
+      {
+       "event": {
+        "event": "append_outcome_lost"
+       },
+       "to": "outcome_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_approval_lapsed"
+       },
+       "to": "withdrawn"
+      }
+     ]
+    }
+   ],
+   "test": "uncertain_append_left_for_withdrawn_keeps_late_write_residual",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "r_unreachable_stays_outcome_unknown",
+   "adr": "D5 \u00a76.7 row 4",
+   "summary": "unreachable, authentication failed or busy: stays outcome_unknown; the owner retries",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_unresolved"
+       },
+       "to": "outcome_unknown"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_reconcile_unreachable",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "r_damaged_line_held",
+   "adr": "D5 \u00a76.7 row 3; ADR-0008 \u00a717.15 (X-Q2)",
+   "summary": "marker present but the line differs, or two marker lines: held (registry_line_damaged); for a removal or a rollback step too (\u00a76.7 wins), removal_origin kept",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_damaged"
+       },
+       "to": "held"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "rollback_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_damaged"
+       },
+       "to": "held"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "remove_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_damaged"
+       },
+       "to": "held"
+      }
+     ]
+    },
+    {
+     "facts": "foreign_account",
+     "start": "remove_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_damaged"
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "reconcile_classification_table_every_row",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "r_stale_holder_terminated_then_redispatch",
+   "adr": "D5 \u00a76.7 fencing; \u00a717.4 item 2",
+   "summary": "holder alive before its not-after: nothing decided; after it, terminated, proven gone, redispatched",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_unresolved"
+       },
+       "to": "outcome_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_redispatch"
+       },
+       "to": "applying"
+      },
+      {
+       "event": {
+        "event": "append_confirmed"
+       },
+       "to": "applied_unverified"
+      }
+     ]
+    }
+   ],
+   "test": "reconcile_terminates_stale_holder_then_redispatches",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "r_lock_holder_unresolved_manual_recovery_line_present",
+   "adr": "D5 \u00a76.7 holder_termination_attempts; \u00a76.2 held r3",
+   "summary": "three reconciles without a proof: held (lock_holder_unresolved); --after-manual-recovery finds one exact line",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "holder_unresolved"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "manual_recovery_line_present",
+        "hold": "lock_holder_unresolved"
+       },
+       "to": "applied_unverified"
+      }
+     ]
+    }
+   ],
+   "test": "reconcile_after_manual_recovery_classifies_without_redispatch",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "r_lock_holder_unresolved_manual_recovery_line_absent",
+   "adr": "D5 \u00a76.7; \u00a76.2 held r3",
+   "summary": "--after-manual-recovery finds no line: withdrawn with the late_write residual; never a redispatch",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "holder_unresolved"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "manual_recovery_line_absent",
+        "hold": "lock_holder_unresolved"
+       },
+       "to": "withdrawn"
+      }
+     ]
+    }
+   ],
+   "test": "unprovable_holder_held_for_manual_recovery_never_redispatched",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "r_lock_holder_unresolved_in_removal_states",
+   "adr": "D5 \u00a76.2 rollback_pending, rollback_unknown, remove_unknown r3; ADR-0008 \u00a717.15 (X-Q3)",
+   "summary": "a removal or rollback whose holder cannot be proven gone ends held; its manual recovery keeps the purpose: line present stays held, line absent ends removed (rollback: verification_failed)",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "rollback_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "holder_unresolved"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "manual_recovery_line_present",
+        "hold": "lock_holder_unresolved",
+        "purpose": "rollback"
+       },
+       "to": "held"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "rollback_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "holder_unresolved"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "manual_recovery_line_absent",
+        "hold": "lock_holder_unresolved",
+        "purpose": "rollback"
+       },
+       "to": "verification_failed"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "remove_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "holder_unresolved"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "manual_recovery_line_present",
+        "hold": "lock_holder_unresolved",
+        "purpose": "removal"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "manual_recovery_line_absent",
+        "hold": "lock_holder_unresolved",
+        "purpose": "removal"
+       },
+       "to": "removed"
+      }
+     ]
+    },
+    {
+     "facts": "foreign_account",
+     "start": "remove_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "holder_unresolved"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "manual_recovery_line_absent",
+        "hold": "lock_holder_unresolved",
+        "purpose": "removal"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "busybox_fence_always_unproven_manual_recovery",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "r_abandon_from_uncertain_states",
+   "adr": "D5 \u00a76.2 outcome_unknown, rollback_pending, rollback_unknown, remove_unknown r2",
+   "summary": "the owner gives the account up while uncertain: abandoned, pending_until_line_removed",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "rollback_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "rollback_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "remove_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    }
+   ],
+   "test": "abandon_from_outcome_unknown_remove_unknown_and_rollback_pending",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "m_remove_verified",
+   "adr": "D5 \u00a76.8",
+   "summary": "explicit removal under RemoveEnrollment",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "verified",
+     "steps": [
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "removed"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "applied_unverified",
+     "steps": [
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_remove_lists_affected_grants_and_degrades_them",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "m_remove_lost_reply_reconciled",
+   "adr": "D5 \u00a76.8; \u00a76.7 (removal: marker absent means applied)",
+   "summary": "the removal's result lost: remove_unknown keeps the explicit-removal purpose",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "removing",
+     "steps": [
+      {
+       "event": {
+        "event": "removal_outcome_lost"
+       },
+       "to": "remove_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_applied"
+       },
+       "to": "removed"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "remove_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "reconcile_unresolved"
+       },
+       "to": "remove_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_redispatch"
+       },
+       "to": "removing"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "reconcile_classification_table_every_row",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "m_remove_registry_changed_held_then_new_decision",
+   "adr": "D5 \u00a76.8 items 4-5; \u00a76.2 removing, held",
+   "summary": "registry_changed three times or not rewritable: held; a new RemoveEnrollment removes it",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "removing",
+     "steps": [
+      {
+       "event": {
+        "event": "removal_held"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "three_compare_failures_give_registry_changed",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "m_remove_held_host_key_with_fresh_target",
+   "adr": "D5 \u00a76.8 r3; \u00a717.4 item 5",
+   "summary": "a host-key hold is removed by a RemoveEnrollment carrying a freshly evaluated target",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "held_removal_with_freshly_evaluated_target",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "m_remove_abandoned",
+   "adr": "D5 \u00a76.2 abandoned; \u00a76.7",
+   "summary": "a new RemoveEnrollment for an abandoned enrollment (its reconcile may break its own stale lock)",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "abandoned",
+     "steps": [
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "stale_lock_broken_only_after_holder_proven_gone",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "s_enroll_manual_apply_then_verify",
+   "adr": "D5 \u00a76.9 enroll 1-3",
+   "summary": "EnrollSystemForm, manual_pending, the owner confirms, verification passes",
+   "sequences": [
+    {
+     "facts": "own_system",
+     "start": "planned",
+     "steps": [
+      {
+       "event": {
+        "event": "enroll_system_form_approved"
+       },
+       "to": "manual_pending"
+      },
+      {
+       "event": {
+        "event": "owner_confirms_applied"
+       },
+       "to": "verifying"
+      },
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "passed"
+        },
+        "approval_valid": true
+       },
+       "to": "verified"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_verify_failure_or_inconclusive_back_to_manual_pending",
+   "adr": "D5 \u00a76.9 enroll 4",
+   "summary": "a failure or an inconclusive result returns to manual_pending with the finding",
+   "sequences": [
+    {
+     "facts": "own_system",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "positive_refused"
+        },
+        "approval_valid": true
+       },
+       "to": "manual_pending"
+      },
+      {
+       "event": {
+        "event": "owner_confirms_applied"
+       },
+       "to": "verifying"
+      },
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "inconclusive",
+         "reason": "transport"
+        },
+        "approval_valid": true
+       },
+       "to": "manual_pending"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_principals_not_enforced_held",
+   "adr": "D5 \u00a76.5 (pass, accepted: system held); \u00a76.2 verifying r2",
+   "summary": "the system form with principals not enforced: held",
+   "sequences": [
+    {
+     "facts": "own_system",
+     "start": "verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "verification_result",
+        "verdict": {
+         "verdict": "principals_not_enforced"
+        },
+        "approval_valid": true
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "principals_not_enforced_system_form_via_echoing_principals_command",
+   "owner": "U5",
+   "status": "planned"
+  },
+  {
+   "id": "s_cancel_from_manual_pending_kept_until_absence_verified",
+   "adr": "D5 \u00a76.9 enroll 5; \u00a717.4 item 5",
+   "summary": "a cancel from manual_pending keeps the entry until its absence is verified, then withdrawn",
+   "sequences": [
+    {
+     "facts": "own_system",
+     "start": "manual_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_cancels_manual_enrollment"
+       },
+       "to": "manual_removal_pending"
+      },
+      {
+       "event": {
+        "event": "owner_confirms_removed"
+       },
+       "to": "removal_verifying"
+      },
+      {
+       "event": {
+        "event": "absence_verified",
+        "origin": "manual_pending"
+       },
+       "to": "withdrawn"
+      }
+     ]
+    }
+   ],
+   "test": "system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_abandon_from_manual_pending",
+   "adr": "D5 \u00a76.9 enroll 5; \u00a76.2 manual_pending r3",
+   "summary": "the owner abandons instead; it stays listed",
+   "sequences": [
+    {
+     "facts": "own_system",
+     "start": "manual_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    }
+   ],
+   "test": "system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_manual_removal_with_absence_check",
+   "adr": "D5 \u00a76.9 remove 1-3",
+   "summary": "typed confirmation, the owner removes the lines, the absence check passes",
+   "sequences": [
+    {
+     "facts": "own_system",
+     "start": "verified",
+     "steps": [
+      {
+       "event": {
+        "event": "manual_removal_confirmed"
+       },
+       "to": "manual_removal_pending"
+      },
+      {
+       "event": {
+        "event": "owner_confirms_removed"
+       },
+       "to": "removal_verifying"
+      },
+      {
+       "event": {
+        "event": "absence_verified",
+        "origin": "verified"
+       },
+       "to": "removed"
+      }
+     ]
+    },
+    {
+     "facts": "own_system",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "manual_removal_confirmed"
+       },
+       "to": "manual_removal_pending"
+      },
+      {
+       "event": {
+        "event": "owner_confirms_removed"
+       },
+       "to": "removal_verifying"
+      },
+      {
+       "event": {
+        "event": "absence_verified",
+        "origin": "held"
+       },
+       "to": "removed"
+      }
+     ]
+    },
+    {
+     "facts": "own_system",
+     "start": "abandoned",
+     "steps": [
+      {
+       "event": {
+        "event": "manual_removal_confirmed"
+       },
+       "to": "manual_removal_pending"
+      },
+      {
+       "event": {
+        "event": "owner_confirms_removed"
+       },
+       "to": "removal_verifying"
+      },
+      {
+       "event": {
+        "event": "absence_verified",
+        "origin": "abandoned"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_absence_not_verified_back_to_pending",
+   "adr": "D5 \u00a76.9 remove 3",
+   "summary": "an accepted or inconclusive absence check returns to manual_removal_pending, origin kept; never removed automatically",
+   "sequences": [
+    {
+     "facts": "own_system",
+     "start": "removal_verifying",
+     "steps": [
+      {
+       "event": {
+        "event": "absence_not_verified"
+       },
+       "to": "manual_removal_pending"
+      }
+     ]
+    }
+   ],
+   "test": "system_form_never_reported_removed_without_absence_check",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_cancel_manual_removal_returns_to_origin",
+   "adr": "D5 \u00a76.9 remove 4; \u00a717.4 item 5",
+   "summary": "a cancel returns to the persisted origin with its evidence",
+   "sequences": [
+    {
+     "facts": "own_system",
+     "start": "manual_removal_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_cancels_manual_removal",
+        "origin": "verified",
+        "ca_not_held_seen": false
+       },
+       "to": "verified"
+      }
+     ]
+    },
+    {
+     "facts": "own_system",
+     "start": "manual_removal_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_cancels_manual_removal",
+        "origin": "held",
+        "ca_not_held_seen": false
+       },
+       "to": "held"
+      }
+     ]
+    },
+    {
+     "facts": "own_system",
+     "start": "manual_removal_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_cancels_manual_removal",
+        "origin": "abandoned",
+        "ca_not_held_seen": false
+       },
+       "to": "abandoned"
+      }
+     ]
+    },
+    {
+     "facts": "own_system",
+     "start": "manual_removal_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_cancels_manual_removal",
+        "origin": "manual_pending",
+        "ca_not_held_seen": false
+       },
+       "to": "manual_pending"
+      }
+     ]
+    }
+   ],
+   "test": "manual_removal_cancel_returns_to_origin_state_and_evidence",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_foreign_manual_route_never_removed",
+   "adr": "D5 \u00a76.9 r4; D4 item 5; \u00a717.9 item 3 (Q28)",
+   "summary": "a foreign system-form record: typed confirmation, the absence check ends ca_not_held, back to manual_removal_pending",
+   "sequences": [
+    {
+     "facts": "foreign_system",
+     "start": "planned",
+     "steps": [
+      {
+       "event": {
+        "event": "manual_removal_confirmed"
+       },
+       "to": "manual_removal_pending"
+      },
+      {
+       "event": {
+        "event": "owner_confirms_removed"
+       },
+       "to": "removal_verifying"
+      },
+      {
+       "event": {
+        "event": "absence_not_verified"
+       },
+       "to": "manual_removal_pending"
+      }
+     ]
+    }
+   ],
+   "test": "foreign_removal_system_form_manual_route_never_reported_removed",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_foreign_abandon_keeps_pending_until_line_removed",
+   "adr": "D4 item 5 r5; \u00a717.10 item 2",
+   "summary": "manual_removal_pending -> abandoned, pending_until_line_removed kept",
+   "sequences": [
+    {
+     "facts": "foreign_system",
+     "start": "manual_removal_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    }
+   ],
+   "test": "foreign_system_form_abandon_keeps_pending_until_line_removed",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_foreign_cancel_after_ca_not_held",
+   "adr": "D4 item 5 r5; \u00a717.10 item 2",
+   "summary": "after ca_not_held a cancel stays in manual_removal_pending, or returns to held; never planned or withdrawn",
+   "sequences": [
+    {
+     "facts": "foreign_system",
+     "start": "manual_removal_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_cancels_manual_removal",
+        "origin": "planned",
+        "ca_not_held_seen": true
+       },
+       "to": "manual_removal_pending"
+      }
+     ]
+    },
+    {
+     "facts": "foreign_system",
+     "start": "manual_removal_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_cancels_manual_removal",
+        "origin": "held",
+        "ca_not_held_seen": true
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "foreign_system_form_cancel_after_ca_not_held_never_planned_or_withdrawn",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "s_foreign_cancel_before_absence_check",
+   "adr": "D4 item 5 r4; \u00a717.12 item 2",
+   "summary": "a cancel before any absence check returns to planned, which can then be withdrawn",
+   "sequences": [
+    {
+     "facts": "foreign_system",
+     "start": "manual_removal_pending",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_cancels_manual_removal",
+        "origin": "planned",
+        "ca_not_held_seen": false
+       },
+       "to": "planned"
+      },
+      {
+       "event": {
+        "event": "decision_withdrawn"
+       },
+       "to": "withdrawn"
+      }
+     ]
+    }
+   ],
+   "test": "foreign_removal_system_form_manual_route_never_reported_removed",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "f_approval_planned_to_removing",
+   "adr": "D4 item 5 r4; \u00a717.7 item 4",
+   "summary": "RemoveEnrollment approved on a foreign record",
+   "sequences": [
+    {
+     "facts": "foreign_account",
+     "start": "planned",
+     "steps": [
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      },
+      {
+       "event": {
+        "event": "removal_confirmed"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "foreign_removal_approved_planned_to_removing",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "f_denial_withdrawn",
+   "adr": "D4 item 5 r4",
+   "summary": "denied, cancelled or stale: withdrawn, nothing remote",
+   "sequences": [
+    {
+     "facts": "foreign_account",
+     "start": "planned",
+     "steps": [
+      {
+       "event": {
+        "event": "decision_withdrawn"
+       },
+       "to": "withdrawn"
+      }
+     ]
+    }
+   ],
+   "test": "foreign_removal_denied_withdrawn_nothing_remote",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "f_lost_reply_reconciled_by_marker",
+   "adr": "D4 item 5 r3; \u00a717.4 item 10",
+   "summary": "a lost reply is reconciled by marker",
+   "sequences": [
+    {
+     "facts": "foreign_account",
+     "start": "planned",
+     "steps": [
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      },
+      {
+       "event": {
+        "event": "removal_outcome_lost"
+       },
+       "to": "remove_unknown"
+      },
+      {
+       "event": {
+        "event": "reconcile_applied"
+       },
+       "to": "removed"
+      }
+     ]
+    }
+   ],
+   "test": "foreign_removal_lost_reply_reconciled_by_marker",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "f_held_recovery_new_decision_or_abandon",
+   "adr": "D4 item 5 r4",
+   "summary": "held -> removing (a new RemoveEnrollment, fresh target for a host-key hold) or held -> abandoned",
+   "sequences": [
+    {
+     "facts": "foreign_account",
+     "start": "removing",
+     "steps": [
+      {
+       "event": {
+        "event": "removal_held"
+       },
+       "to": "held"
+      },
+      {
+       "event": {
+        "event": "remove_enrollment_approved"
+       },
+       "to": "removing"
+      }
+     ]
+    },
+    {
+     "facts": "foreign_account",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    }
+   ],
+   "test": "foreign_removal_held_recovery_by_new_decision_or_abandon",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "h_evidence_hold_reverified_by_owner",
+   "adr": "\u00a717.4 item 5; D5 \u00a76.2 held r3",
+   "summary": "an evidence-based hold re-verified on owner request: pass -> verified, inconclusive -> held",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_reverify",
+        "hold": "evidence_based"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "held",
+        "verdict": {
+         "verdict": "passed"
+        }
+       },
+       "to": "verified"
+      }
+     ]
+    },
+    {
+     "facts": "own_system",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_reverify",
+        "hold": "evidence_based"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "held",
+        "verdict": {
+         "verdict": "inconclusive",
+         "reason": "transport"
+        }
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "held_evidence_hold_reverifies_on_owner_request",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "h_host_key_hold_target_change_pass",
+   "adr": "\u00a717.4 item 5; \u00a717.7 item 5; D5 \u00a76.2 held, reverifying r4",
+   "summary": "ApproveTargetChange approved; a pass replaces the approved target with the proposed one",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "target_change_approved",
+        "hold": "host_key_changed"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "held",
+        "verdict": {
+         "verdict": "passed"
+        }
+       },
+       "to": "verified"
+      }
+     ]
+    }
+   ],
+   "test": "target_change_pass_replaces_approved_target_atomically",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "h_host_key_hold_target_change_fail_or_inconclusive",
+   "adr": "\u00a717.7 item 5; D5 \u00a76.2 reverifying r4",
+   "summary": "a failure or an inconclusive result leaves the approved target and returns to held",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "target_change_approved",
+        "hold": "host_key_changed"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "held",
+        "verdict": {
+         "verdict": "positive_refused"
+        }
+       },
+       "to": "held"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "target_change_approved",
+        "hold": "host_key_changed"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "held",
+        "verdict": {
+         "verdict": "inconclusive",
+         "reason": "transport"
+        }
+       },
+       "to": "held"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "target_change_approved",
+        "hold": "host_key_changed"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "held",
+        "verdict": {
+         "verdict": "host_key_mismatch"
+        }
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "target_change_failure_or_inconclusive_keeps_approved_target_and_held",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "h_held_abandoned",
+   "adr": "\u00a717.4 item 5; D5 \u00a76.2 held",
+   "summary": "the owner abandons a held enrollment",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    },
+    {
+     "facts": "own_system",
+     "start": "held",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    }
+   ],
+   "test": "abandon_from_outcome_unknown_remove_unknown_and_rollback_pending",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "h_reenroll_after_abandoned",
+   "adr": "\u00a717.4 item 5 (Q25); D5 \u00a76.2 abandoned",
+   "summary": "abandoned stays listed outside the uniqueness rule; a new enrollment of the pair (a new record and marker) proceeds",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "outcome_unknown",
+     "steps": [
+      {
+       "event": {
+        "event": "owner_abandon"
+       },
+       "to": "abandoned"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "planned",
+     "steps": [
+      {
+       "event": {
+        "event": "enroll_account_approved"
+       },
+       "to": "applying"
+      },
+      {
+       "event": {
+        "event": "append_confirmed"
+       },
+       "to": "applied_unverified"
+      }
+     ]
+    }
+   ],
+   "test": "reenroll_after_abandoned_uses_new_marker_old_residual_listed",
+   "owner": "U10",
+   "status": "planned"
+  },
+  {
+   "id": "v_reverify_from_verified",
+   "adr": "D5 \u00a76.2 reverifying; \u00a76.5 re-verification column; \u00a717.1 item 5",
+   "summary": "a later verification: pass renews; inconclusive keeps verified; a failure holds; never removes",
+   "sequences": [
+    {
+     "facts": "own_account",
+     "start": "verified",
+     "steps": [
+      {
+       "event": {
+        "event": "start_reverification"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "verified",
+        "verdict": {
+         "verdict": "passed"
+        }
+       },
+       "to": "verified"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "verified",
+     "steps": [
+      {
+       "event": {
+        "event": "start_reverification"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "verified",
+        "verdict": {
+         "verdict": "inconclusive",
+         "reason": "transport"
+        }
+       },
+       "to": "verified"
+      }
+     ]
+    },
+    {
+     "facts": "own_account",
+     "start": "verified",
+     "steps": [
+      {
+       "event": {
+        "event": "start_reverification"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "verified",
+        "verdict": {
+         "verdict": "positive_refused"
+        }
+       },
+       "to": "held"
+      }
+     ]
+    },
+    {
+     "facts": "own_system",
+     "start": "verified",
+     "steps": [
+      {
+       "event": {
+        "event": "start_reverification"
+       },
+       "to": "reverifying"
+      },
+      {
+       "event": {
+        "event": "reverification_result",
+        "from": "verified",
+        "verdict": {
+         "verdict": "principals_not_enforced"
+        }
+       },
+       "to": "held"
+      }
+     ]
+    }
+   ],
+   "test": "reverification_failure_holds_never_removes",
+   "owner": "U5",
+   "status": "planned"
+  }
+ ]
+}

@@ -23,6 +23,14 @@
 //! * [`ProviderProbe`] (the existing-access adapters, U6) and [`ProcessLiveness`]
 //!   (holder release, U8).
 //!
+//! **M03 additions** (m03-plan §5 item 19; frozen in wave 0): [`SignatureAuthority`]
+//! (returning [`crate::managed::SignPermit`]), [`IssuerPort`], [`VerificationRunner`],
+//! [`VerificationEndpoints`] and [`VerificationSession`], [`TargetEvaluator`],
+//! [`ManagedEffects`], [`SessionLockSource`] (with the latched epoch) and
+//! [`ConnectionControl`], each under the M02 drop contract; and the fields
+//! [`AdapterDescriptor::remote_credential_effect`], [`RevokeOutcome::remote_effects`]
+//! and [`IntegrationSnapshot::managed`].
+//!
 //! The recovery and fingerprint types a [`HeldStep`] carries live in
 //! `heimdall_domain::projection` (wave-0 verifier escalation E8): `heimdall-localenv`
 //! implements these ports, so the app cannot name its types.
@@ -37,12 +45,19 @@
 //! reads no source returns an empty snapshot and prepares from its request alone).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::AliasObservation;
-use heimdall_contract::ids::{AccountName, DestinationId, GrantId, IdentityId};
+use heimdall_contract::enrollment::EnrollmentPlan;
+use heimdall_contract::ids::{
+    AccountName, BindingId, CaFingerprint, CredentialInstanceId, DestinationId, EnvironmentId,
+    GrantId, IdentityId, IssuanceId, OperationId,
+};
+use heimdall_contract::issuer::IssuerStatus;
+use heimdall_contract::managed::{CloseReason, RemoteEffectReport};
 use heimdall_contract::provider::{
     CredentialAvailability, EndpointRef, ProviderKind, ProviderStatus,
 };
@@ -51,15 +66,20 @@ use heimdall_contract::request::{
 };
 use heimdall_contract::setup::{ConflictKind, PreviewIntent, ProjectionItem};
 use heimdall_domain::catalog::{IdentityRecord, InteractionDeclaration};
+use heimdall_domain::claims::Claim;
+use heimdall_domain::enrollment::{EnrollmentRecord, TargetEvaluation};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::grant::GrantSnapshot;
 use heimdall_domain::holder::{HolderState, ProcessHolder};
+use heimdall_domain::issuance::{IssuanceEntry, IssuanceRefusal};
+use heimdall_domain::managed::{LockEpoch, OwnedConnection, SlotState};
 use heimdall_domain::operation::{AdapterIdentity, HoldReason, LocalReceipt, StageReceipt};
 use heimdall_domain::projection::{
     FileRole, ItemCommit, ProjectionPlan, ProjectionRecord, ProjectionSpec, SetupIntent,
     StepFingerprint, StepObservation,
 };
-use heimdall_domain::scope::Scope;
+use heimdall_domain::scope::{AccessPair, Scope};
+use heimdall_domain::verification::{AttemptResult, VerificationRefusal};
 
 /// Interaction an adapter may need (spec §7.2, §11.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -89,6 +109,12 @@ pub struct AdapterDescriptor {
     pub enforcement: EnforcementEvidence,
     /// Whether it can sign while the desktop/vault is locked (verified, not assumed).
     pub lock_continuity: LockContinuity,
+    /// ⟨M03⟩ U0b row 7 (ADR-0008 D7 item 5; ADR-0007 §12.13, QR17): whether the
+    /// adapter's credentials are authority usable **remotely** (the managed adapter's
+    /// published certificates). When true, a timed-out immediate `revoke` keeps its
+    /// cleanup intent and the supervisor retries it with bounded, jittered backoff;
+    /// it never counts as made. `false` for every M01/M02 adapter.
+    pub remote_credential_effect: bool,
 }
 
 impl AdapterDescriptor {
@@ -192,6 +218,11 @@ pub struct IntegrationSnapshot {
     pub declarations: BTreeMap<IdentityId, InteractionDeclaration>,
     /// The verified client executables the integration relies on.
     pub executables: Vec<ConsumerExecutable>,
+    /// ⟨M03⟩ U0b row 21 (ADR-0008 D6 item 0): the managed sources of a
+    /// `managed_certificate` preparation, filled by the managed adapter's
+    /// `read_sources`. `None` for every existing-access adapter, whose contract is
+    /// unchanged.
+    pub managed: Option<ManagedSources>,
 }
 
 /// Prepared credential facts (spec §6.5).
@@ -241,6 +272,10 @@ pub struct RevokeOutcome {
     pub remote_pending: Vec<DestinationId>,
     /// Latest instant an issued credential may still be accepted.
     pub latest_possible_credential_expiry: Option<Timestamp>,
+    /// ⟨M03⟩ U0b row 6 (m03-plan §5 item 19; ADR-0008 D7 items 3–4): the per-pair
+    /// remote residuals of a managed revocation (`latest_valid_before`,
+    /// `destination_clock`, `status`). Empty for every M01/M02 adapter.
+    pub remote_effects: Vec<RemoteEffectReport>,
 }
 
 /// Default bound on one adapter call (m02-plan §6 P12; U0b row 24). An application
@@ -632,4 +667,586 @@ pub trait ProjectionWriter: Send + Sync {
         intent: &SetupIntent,
         receipts: &[StageReceipt],
     ) -> Result<Vec<HeldStep>, ReconcileError>;
+}
+
+// --- ⟨M03⟩ the managed-credential ports (m03-plan §5 item 19; ADR-0008) -------------
+//
+// Frozen in wave 0 (m03-plan U0 "Frozen in wave 0"). Every one follows the M02 drop
+// contract of [`CredentialAdapter`]: no detached work once a future is dropped (no
+// task, thread or timer left behind), every blocking call under a bound of its own,
+// and nothing left running that could apply an effect later. Asynchronous calls are
+// awaited by the application under their stated bound; synchronous file work runs on
+// the blocking pool. No port carries or returns secret material: public keys,
+// certificate lines, fingerprints, opaque slot references and nonsecret reasons only.
+//
+// Remote enrollment steps are client-executed, so they have no port (ADR-0008 D5
+// §6.3): the pure step classification is
+// `heimdall_registry::classify::classify_step`, the plan builder
+// `heimdall_registry::plan::build`, and the CLI-side runner
+// `heimdall_enroll::remote::SshStepRunner`.
+
+/// The session-lock state a [`SessionLockSource`] reports (`unlocked | locked |
+/// unknown | unavailable`; ADR-0008 D9 item 3). The contract's wire type, reused.
+pub use heimdall_contract::managed::SessionLockState as LockState;
+
+/// Where a sign request arrived (ADR-0008 D2 item 2).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SignerEndpoint {
+    /// The environment endpoint (`signing.sock` or the stable pipe).
+    Environment,
+    /// A per-binding endpoint.
+    Binding(BindingId),
+    /// An enrollment operation's verification endpoint.
+    Verification(OperationId),
+}
+
+/// Whose key a sign request names, as the signer's vault knows it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum SignatureSubject {
+    /// A grant's K_env.
+    Grant(GrantId),
+    /// An enrollment operation's K_verify.
+    Verification(OperationId),
+}
+
+/// The facts a parsed, purpose-checked sign request carries into
+/// [`SignatureAuthority`] (ADR-0008 D2 items 3–4). Nonsecret: no signed data, no
+/// key material.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureRequestFacts {
+    /// The endpoint the request arrived on.
+    pub endpoint: SignerEndpoint,
+    /// The key's owner.
+    pub subject: SignatureSubject,
+    /// The access pair whose principal the presented certificate names (D2 item 4).
+    pub pair: AccessPair,
+    /// SHA-256 fingerprint (`SHA256:…`) of the presented key or certificate's
+    /// subject key.
+    pub key_fingerprint: String,
+}
+
+/// Why a signature was refused (ADR-0008 D2 item 3). The client only ever sees
+/// `SSH_AGENT_FAILURE`; [`SignRefusal::code`] is the nonsecret code the audit event
+/// records.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum SignRefusal {
+    /// The key belongs to no grant (or operation) this endpoint serves.
+    #[error("key not served by this endpoint")]
+    KeyNotServed,
+    /// The grant is not `active`, or `degraded` for a reason that permits signing.
+    #[error("grant state does not permit signing")]
+    GrantNotUsable,
+    /// The grant's validated generation is stale and re-validation did not restore
+    /// it.
+    #[error("stale authority generation")]
+    StaleGeneration,
+    /// A tombstone on the grant or an ancestor.
+    #[error("grant or ancestor tombstoned")]
+    Tombstoned,
+    /// The admission deadline passed (wall bound or continuous budget).
+    #[error("admission deadline passed")]
+    DeadlinePassed,
+    /// Time is not `Safe`.
+    #[error("time uncertain")]
+    TimeUncertain,
+    /// The grant's mechanism is not configured.
+    #[error("mechanism not configured")]
+    MechanismNotConfigured,
+    /// `revoke_on_lock` and the session-lock source does not report `unlocked`.
+    #[error("session not unlocked")]
+    SessionNotUnlocked,
+    /// The grant or an ancestor is marked `narrowing_pending` (D2 item 3a).
+    #[error("narrowing pending")]
+    NarrowingPending,
+    /// The grant's gate was not obtained within `signing_gate_wait`.
+    #[error("signing gate not obtained in time")]
+    GateTimeout,
+    /// Authorization exceeded `signature_authorization_timeout`.
+    #[error("authorization timed out")]
+    AuthorizationTimeout,
+    /// The D5 §6.5 verification predicate refused.
+    #[error("verification predicate refused: {0}")]
+    Verification(VerificationRefusal),
+    /// No authority is wired in this build or for this endpoint (wave 0: every
+    /// request; fail closed).
+    #[error("signature authority unavailable")]
+    Unavailable,
+}
+
+impl SignRefusal {
+    /// The nonsecret audit code.
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            SignRefusal::KeyNotServed => "key_not_served",
+            SignRefusal::GrantNotUsable => "grant_not_usable",
+            SignRefusal::StaleGeneration => "stale_generation",
+            SignRefusal::Tombstoned => "tombstoned",
+            SignRefusal::DeadlinePassed => "deadline_passed",
+            SignRefusal::TimeUncertain => "time_uncertain",
+            SignRefusal::MechanismNotConfigured => "mechanism_not_configured",
+            SignRefusal::SessionNotUnlocked => "session_not_unlocked",
+            SignRefusal::NarrowingPending => "narrowing_pending",
+            SignRefusal::GateTimeout => "gate_timeout",
+            SignRefusal::AuthorizationTimeout => "authorization_timeout",
+            SignRefusal::Verification(_) => "verification_refused",
+            SignRefusal::Unavailable => "authority_unavailable",
+        }
+    }
+}
+
+/// Per-signature authorization (ADR-0008 D2 items 3 and 3a), implemented by
+/// `Operations` (U0b row 5) and called by `heimdall-credential`'s signer.
+///
+/// Drop contract: dropping either future releases everything it took (a gate guard
+/// included); neither leaves work behind. `admit` is bounded by
+/// `Limits.signing_gate_wait` for the gate and `signature_authorization_timeout`
+/// overall.
+#[async_trait]
+pub trait SignatureAuthority: Send + Sync {
+    /// ⟨r2⟩ The unlocked early refusal (step 2). An optimization only: it never
+    /// admits and passing it proves nothing. Refuses at once when the grant or an
+    /// ancestor is marked `narrowing_pending`.
+    ///
+    /// # Errors
+    /// [`SignRefusal`].
+    async fn precheck(&self, facts: &SignatureRequestFacts) -> Result<(), SignRefusal>;
+
+    /// ⟨r2⟩ Takes the grant's gate shared (`signing_gate_wait`), checks the pending
+    /// mark first, then reads fresh under it (steps 3–4). The permit is held until
+    /// the response is enqueued (ADR-0008 D2 item 3a).
+    ///
+    /// # Errors
+    /// [`SignRefusal`]; the gate is released before the error returns.
+    async fn admit(
+        &self,
+        facts: &SignatureRequestFacts,
+    ) -> Result<crate::managed::SignPermit, SignRefusal>;
+}
+
+/// Which issuance table an entry lives in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum IssuanceTable {
+    /// The grant issuance log (`issuance_log`).
+    Grant,
+    /// The verification issuance table (`verification_issuance`; ADR-0008 D5 §6.5).
+    Verification,
+}
+
+/// A reserved issuance entry the issuer is asked to sign (ADR-0008 D3 item 4).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct IssuanceRef {
+    /// The table.
+    pub table: IssuanceTable,
+    /// The entry.
+    pub id: IssuanceId,
+}
+
+/// Why the issuer refused an entry (`heimdall-issuer/1`, m03-plan §5 item 20): the
+/// [`IssuanceRefusal`] and [`VerificationRefusal`] sets plus six issuer-side
+/// refusals. The wire golden is U3's (`tests/contracts/golden/issuer-protocol.json`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, thiserror::Error)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum IssuerRefusal {
+    /// A grant-entry predicate failed in the read-only snapshot.
+    #[error("issuance refused: {0}")]
+    Issuance(IssuanceRefusal),
+    /// A verification-entry predicate failed in the read-only snapshot.
+    #[error("verification issuance refused: {0}")]
+    Verification(VerificationRefusal),
+    /// The entry is not `reserved` (published, voided or missing).
+    #[error("entry not reserved")]
+    EntryNotReserved,
+    /// The reservation is older than the issuer accepts (60 s).
+    #[error("entry stale")]
+    EntryStale,
+    /// The subject key is not the one the entry was reserved for.
+    #[error("subject mismatch")]
+    SubjectMismatch,
+    /// The entry exceeds an issuer ceiling (principals, extensions, validity).
+    #[error("ceiling exceeded")]
+    CeilingExceeded,
+    /// The entry's CA is not loaded in the child.
+    #[error("CA not loaded")]
+    CaNotLoaded,
+    /// More than `issuer_signatures_per_minute` (or the per-grant cap).
+    #[error("rate limited")]
+    RateLimited,
+}
+
+/// An [`IssuerPort`] failure.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum IssuerError {
+    /// The issuer refused the entry.
+    #[error(transparent)]
+    Refused(#[from] IssuerRefusal),
+    /// The issuer is not running, not initialized, locked or restarting (nonsecret
+    /// reason, one of the `issuer_*` sub-reasons).
+    #[error("issuer unavailable: {0}")]
+    Unavailable(String),
+    /// No reply within `issuer_request_timeout`; a late reply is discarded.
+    #[error("issuer request timed out")]
+    Timeout,
+    /// A malformed or unexpected frame (bounded, redacted).
+    #[error("issuer protocol error: {0}")]
+    Protocol(String),
+}
+
+/// The issuer's supervised status as the runtime last observed it (no I/O to read
+/// it; ADR-0008 D3 item 7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssuerStatusSnapshot {
+    /// The `issuer.status` view.
+    pub status: IssuerStatus,
+}
+
+/// The issuer child's client (ADR-0008 D3; implemented by
+/// `heimdall_issuer::client::ChildIssuer`, U3).
+///
+/// Drop contract: a dropped `sign` or `unload` future leaves nothing pending in the
+/// client; a reply that arrives later is discarded (and a certificate zeroized)
+/// by `request_id` matching. Each request is bounded by `issuer_request_timeout`
+/// (10 s), inside the 30 s adapter-call bound.
+#[async_trait]
+pub trait IssuerPort: Send + Sync {
+    /// The last observed status; never blocks.
+    fn status(&self) -> IssuerStatusSnapshot;
+
+    /// Sign the reserved `entry` for `subject` (an OpenSSH public-key line). Returns
+    /// the OpenSSH certificate line.
+    ///
+    /// # Errors
+    /// [`IssuerError`].
+    async fn sign(&self, entry: IssuanceRef, subject: &str) -> Result<String, IssuerError>;
+
+    /// ⟨r2⟩ Retirement: zeroize and unload `ca` in the child (ADR-0008 D4 item 3),
+    /// sent only once the CA is `retiring` in the store.
+    ///
+    /// # Errors
+    /// [`IssuerError`].
+    async fn unload(&self, ca: &CaFingerprint) -> Result<(), IssuerError>;
+}
+
+/// The two verification attempts' observable results (ADR-0008 D5 §6.5), which the
+/// application classifies with `heimdall_domain::verification::classify`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VerificationOutcome {
+    /// The positive attempt.
+    pub positive: AttemptResult,
+    /// The negative attempt.
+    pub negative: AttemptResult,
+    /// The verified client that ran them (path and version, for evidence), when it
+    /// started.
+    pub client: Option<String>,
+}
+
+/// Runs the production verification's fresh logins (ADR-0008 D5 §6.5; U5).
+///
+/// Drop contract: a dropped `run` kills every client it started and leaves no
+/// generated file behind. Bounded by the verification limits of §5 item 17.
+#[async_trait]
+pub trait VerificationRunner: Send + Sync {
+    /// Run the positive and negative attempts of `plan` with the certificate lines
+    /// `positive` and `negative`, through `session`'s endpoint.
+    async fn run(
+        &self,
+        plan: &EnrollmentPlan,
+        positive: &str,
+        negative: &str,
+        session: &dyn VerificationSession,
+    ) -> VerificationOutcome;
+}
+
+/// ⟨r3⟩ The verification lifecycle factory (§17.4 item 9; A R2-09). Implemented by
+/// `heimdall-credential`.
+///
+/// Drop contract: a dropped `create` leaves no endpoint and no key.
+#[async_trait]
+pub trait VerificationEndpoints: Send + Sync {
+    /// Create `operation`'s verification endpoint with a fresh K_verify, whose public
+    /// key is registered at creation.
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    async fn create(
+        &self,
+        operation: &OperationId,
+    ) -> Result<Box<dyn VerificationSession>, AdapterError>;
+}
+
+/// ⟨r3⟩ One operation's verification endpoint. Dropping it zeroizes K_verify and
+/// removes the endpoint.
+pub trait VerificationSession: Send + Sync {
+    /// K_verify's OpenSSH public-key line, registered at creation.
+    fn public_key(&self) -> &str;
+
+    /// Install a published verification certificate (the signer's check, D2 item 6).
+    ///
+    /// # Errors
+    /// [`AdapterError`]; a refused certificate is discarded.
+    fn install(&self, certificate_line: &str) -> Result<(), AdapterError>;
+
+    /// The endpoint's locator.
+    fn locator(&self) -> &EndpointRef;
+
+    /// Signatures recorded for `key_fingerprint`.
+    fn signatures(&self, key_fingerprint: &str) -> u32;
+
+    /// `session-bind@openssh.com` extensions received.
+    fn session_binds(&self) -> u32;
+}
+
+/// ⟨r2⟩ The passive target evaluation of a managed alias (`ssh -G`-equivalent,
+/// static; §17.1 items 2, 12). Implemented by `heimdall-localenv` (`target.rs`).
+/// Contacts nothing.
+pub trait TargetEvaluator: Send + Sync {
+    /// Evaluate `alias`.
+    fn evaluate(&self, alias: &str) -> TargetEvaluation;
+}
+
+/// What the signer registered for a freshly generated K_env (credential instance
+/// `pending`, ADR-0008 D2). No secret: the key stays in the vault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyRegistration {
+    /// The OpenSSH public-key line.
+    pub public_key: String,
+    /// Its SHA-256 fingerprint (`SHA256:…`).
+    pub fingerprint: String,
+    /// The opaque vault slot reference persisted with the instance.
+    pub slot: String,
+}
+
+/// One certificate a binding's files carry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterializedCertificate {
+    /// The pair.
+    pub pair: AccessPair,
+    /// The OpenSSH certificate line.
+    pub certificate: String,
+}
+
+/// The per-binding files to write (ADR-0008 D6 item 1 step 6; D10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterializeSpec {
+    /// The resource generation the files carry.
+    pub generation: u64,
+    /// K_env's OpenSSH public-key line (`key.pub`).
+    pub public_key: String,
+    /// One `cert-<destination-id>.pub` per pair.
+    pub certificates: Vec<MaterializedCertificate>,
+    /// Also fill the environment slots (a materialized binding holding them).
+    pub environment_slots: bool,
+}
+
+/// What `materialize` wrote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterializedFiles {
+    /// The binding's directory (`<runtime_dir>/b/<16 hex>`).
+    pub directory: PathBuf,
+    /// Every file written, at `generation`.
+    pub files: Vec<PathBuf>,
+    /// The generation.
+    pub generation: u64,
+}
+
+/// ⟨r2⟩ The managed credential adapter's effects (ADR-0008 D6 item 0), implemented by
+/// `heimdall_adapters::managed` (U6) and driven only by
+/// [`crate::managed::drive_preparation`].
+///
+/// Drop contract: as [`CredentialAdapter`]. `generate_key`, `install` and `destroy`
+/// are each bounded by `adapter_call_timeout`; `materialize` and `clear` are
+/// synchronous file work the caller runs on the blocking pool, like
+/// [`ProjectionWriter`].
+#[async_trait]
+pub trait ManagedEffects: Send + Sync {
+    /// Generate K_env for `grant` in the vault, idempotent per `token`.
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    async fn generate_key(
+        &self,
+        grant: &GrantId,
+        token: &str,
+    ) -> Result<KeyRegistration, AdapterError>;
+
+    /// Install a published certificate after the signer's own check (D2 item 6).
+    ///
+    /// # Errors
+    /// [`AdapterError`]; a refused certificate is discarded.
+    async fn install(
+        &self,
+        grant: &GrantId,
+        entry: &IssuanceEntry,
+        cert: &str,
+    ) -> Result<(), AdapterError>;
+
+    /// Unlist the identities and zeroize K_env of every grant in `grants`.
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    async fn destroy(&self, grants: &[GrantId]) -> Result<(), AdapterError>;
+
+    /// Write a binding's files at `files.generation` (blocking pool).
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    fn materialize(
+        &self,
+        binding: &BindingId,
+        files: &MaterializeSpec,
+    ) -> Result<MaterializedFiles, AdapterError>;
+
+    /// Remove a binding's files of `generation` only (blocking pool).
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    fn clear(&self, binding: &BindingId, generation: u64) -> Result<(), AdapterError>;
+}
+
+/// ⟨r2⟩ The session-lock source (ADR-0008 D9 item 3; implemented by
+/// `heimdall_runtime::session_lock`, U9, and testkit's `FakeSessionLockSource`).
+///
+/// Lock events **latch**: every transition into `locked` increments the epoch and
+/// sets `observed`, which clears only through [`Self::acknowledge`] for that epoch,
+/// after the revocation pass's revocations have committed. All methods are
+/// in-memory and never block.
+pub trait SessionLockSource: Send + Sync {
+    /// The current state.
+    fn state(&self) -> LockState;
+
+    /// The latched epoch `{ epoch, observed }`.
+    fn lock_epoch(&self) -> LockEpoch;
+
+    /// Clear `observed` for `epoch` only (a later epoch stays latched).
+    fn acknowledge(&self, epoch: u64);
+
+    /// A wake-up on any change; no value is carried (read [`Self::state`] and
+    /// [`Self::lock_epoch`] after it fires).
+    fn changed(&self) -> tokio::sync::futures::Notified<'_>;
+}
+
+/// Why a connection-control call failed (ADR-0008 D8).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ConnError {
+    /// ⟨r3⟩ The registration was refused under the gate (`LAUNCH_FAILED`, reason
+    /// `connection_registration_refused`): the grant ended, is tombstoned (or an
+    /// ancestor), its deadline passed, time is not `Safe`, the generation moved, or
+    /// it is marked `narrowing_pending`. The reason is a fixed nonsecret word.
+    #[error("connection registration refused: {0}")]
+    RegistrationRefused(String),
+    /// The process could not be verified as the expected client (PID, start token,
+    /// image): never signalled, treated as unmanaged.
+    #[error("connection identity unverified")]
+    Unverified,
+    /// The mechanism is not available here (no multiplexing support, path too long,
+    /// or not wired in this build).
+    #[error("connection control unavailable: {0}")]
+    Unavailable(String),
+    /// The call's bound elapsed.
+    #[error("connection control timed out")]
+    Timeout,
+    /// An operating-system failure (bounded, nonsecret text).
+    #[error("connection control failed: {0}")]
+    Failed(String),
+}
+
+/// ⟨r2⟩ Owned masters and owned dedicated connections (ADR-0008 D8; U7).
+///
+/// Drop contract: as [`CredentialAdapter`]; a dropped `start_master` leaves no
+/// master running, and `close` is bounded by the close graces of §5 item 17.
+#[async_trait]
+pub trait ConnectionControl: Send + Sync {
+    /// Start an owned master for `pair` under `binding`.
+    ///
+    /// # Errors
+    /// [`ConnError`].
+    async fn start_master(
+        &self,
+        binding: &BindingId,
+        pair: &AccessPair,
+    ) -> Result<OwnedConnection, ConnError>;
+
+    /// Close `c` (re-verifying its identity before any signal).
+    ///
+    /// # Errors
+    /// [`ConnError`].
+    async fn close(&self, c: &OwnedConnection, reason: CloseReason) -> Result<(), ConnError>;
+
+    /// ⟨r2⟩ Windows: register the still-suspended contained `ssh.exe` (U0b row 26: under
+    /// the grant's gate taken shared, its transaction bounded by
+    /// `connection_registration_txn_max`).
+    ///
+    /// # Errors
+    /// [`ConnError`].
+    async fn register(
+        &self,
+        binding: &BindingId,
+        pid: u32,
+        created_at: Timestamp,
+        image: &str,
+    ) -> Result<OwnedConnection, ConnError>;
+}
+
+/// One managed slot (ADR-0008 D10 item 2) as `read_sources` found it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSlot {
+    /// The environment.
+    pub environment: EnvironmentId,
+    /// The pair.
+    pub pair: AccessPair,
+    /// Its state.
+    pub state: SlotState,
+}
+
+/// One pair's prepared certificate, as the effect driver left it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedCertificate {
+    /// The pair.
+    pub pair: AccessPair,
+    /// The published entry.
+    pub issuance: IssuanceId,
+    /// The issuing CA.
+    pub ca: CaFingerprint,
+    /// The certificate's `valid_before`.
+    pub valid_before: Timestamp,
+}
+
+/// ⟨r2⟩ The managed effect driver's own results (ADR-0008 D6 item 0), which
+/// `prepare_from` for `managed_certificate` only computes a `PrepareOutcome` from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedPrepared {
+    /// The credential instance.
+    pub instance: CredentialInstanceId,
+    /// K_env's registration.
+    pub key: KeyRegistration,
+    /// One certificate per pair.
+    pub certificates: Vec<PreparedCertificate>,
+    /// The binding's files, once materialized.
+    pub materialized: Option<MaterializedFiles>,
+}
+
+/// ⟨r2⟩ The managed sources of a preparation (ADR-0008 D6 item 0; U0b row 21).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ManagedSources {
+    /// The pairs' `verified` enrollments.
+    pub enrollments: Vec<EnrollmentRecord>,
+    /// Each pair's issuing-CA set (`pair_preferences.issuing_cas`).
+    pub issuing_cas: BTreeMap<AccessPair, BTreeSet<CaFingerprint>>,
+    /// The pairs' slots.
+    pub slots: Vec<ManagedSlot>,
+    /// The applicable claim-table entries (ADR-0008 D12).
+    pub claims: Vec<Claim>,
+    /// The issuer's status.
+    pub issuer: Option<IssuerStatusSnapshot>,
+    /// The effect driver's results. `None`: `prepare_from` refuses with
+    /// [`crate::managed::MANAGED_PREPARE_WITHOUT_DRIVER`].
+    pub prepared: Option<ManagedPrepared>,
 }

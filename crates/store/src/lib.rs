@@ -10,6 +10,9 @@
 //! ⟨M02⟩ Also the destination and identity catalog, interaction declarations,
 //! binding holders, prepared facts, projection consent and records, and atomic
 //! setup admission (`migrations/0005_existing_access.sql`; m02-plan §5 item 18).
+//! ⟨M03⟩ Also registered CAs, enrollments, foreign removals, verification issuance,
+//! pair preferences, managed slots and owned connections
+//! (`migrations/0006_managed_credentials.sql`; m03-plan §5 item 18; [`ext_m03`]).
 //!
 //! Must not own: private key material or plaintext secrets (references only,
 //! spec §13.3), retry loops, authorization decisions, or wire rendering.
@@ -38,9 +41,11 @@ pub use migrations::SCHEMA_VERSION;
 
 mod codec;
 pub mod ext;
+pub mod ext_m03;
 pub mod migrations;
 
 pub use ext::{DecisionCompletion, EndOutcome, SetupAdmitted, StoredEvent, StoredEventPage};
+pub use ext_m03::{IssuerRecord, LostInstances, ManagedSlot};
 
 /// Store errors. Mapped to `STATE_UNAVAILABLE` by the application layer.
 #[derive(Debug, thiserror::Error)]
@@ -208,6 +213,14 @@ const REQUIRED_TABLES: &[&str] = &[
     "grant_prepared_facts",
     "projection_consent",
     "projection_records",
+    // schema version 6 (M03 managed credentials; m03-plan §5 item 18)
+    "issuers",
+    "enrollments",
+    "foreign_removals",
+    "verification_issuance",
+    "pair_preferences",
+    "managed_slots",
+    "owned_connections",
 ];
 
 /// Columns added to existing tables that the current schema must contain
@@ -604,6 +617,22 @@ pub enum RawDocuments {
     RecoveryIntents,
     /// `meta.value`, keyed by meta key.
     Meta,
+    /// ⟨M03⟩ `issuance_log.record_json`, keyed by issuance ID.
+    IssuanceLog,
+    /// ⟨M03⟩ `credential_instances.record_json`, keyed by instance ID.
+    CredentialInstances,
+    /// ⟨M03⟩ `destinations.record_json`, keyed by destination ID.
+    Destinations,
+    /// ⟨M03⟩ `identities.record_json`, keyed by identity ID.
+    Identities,
+    /// ⟨M03⟩ `interaction_declarations.record_json`, keyed by identity ID.
+    InteractionDeclarations,
+    /// ⟨M03⟩ `projection_records.record_json`, keyed by environment ID.
+    ProjectionRecords,
+    /// ⟨M03⟩ `projection_consent.record_json`, keyed `<environment>:<item>`.
+    ProjectionConsent,
+    /// ⟨M03⟩ `resources.record_json`, keyed by resource ID.
+    Resources,
 }
 
 impl Txn<'_> {
@@ -620,6 +649,23 @@ impl Txn<'_> {
                 "SELECT operation_id, record_json FROM recovery_intents ORDER BY operation_id"
             }
             RawDocuments::Meta => "SELECT key, value FROM meta ORDER BY key",
+            RawDocuments::IssuanceLog => "SELECT id, record_json FROM issuance_log ORDER BY id",
+            RawDocuments::CredentialInstances => {
+                "SELECT id, record_json FROM credential_instances ORDER BY id"
+            }
+            RawDocuments::Destinations => "SELECT id, record_json FROM destinations ORDER BY id",
+            RawDocuments::Identities => "SELECT id, record_json FROM identities ORDER BY id",
+            RawDocuments::InteractionDeclarations => {
+                "SELECT identity, record_json FROM interaction_declarations ORDER BY identity"
+            }
+            RawDocuments::ProjectionRecords => {
+                "SELECT environment, record_json FROM projection_records ORDER BY environment"
+            }
+            RawDocuments::ProjectionConsent => {
+                "SELECT environment || ':' || item, record_json FROM projection_consent
+                 ORDER BY environment, item"
+            }
+            RawDocuments::Resources => "SELECT id, record_json FROM resources ORDER BY id",
         };
         let mut stmt = self.tx.prepare(sql)?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -1600,6 +1646,9 @@ mod tests {
                         pause: PauseState::Paused { since: t0 },
                         cutoff_at: Some(t0),
                         source: PolicySource::SetupDefault,
+                        // M03 wave 0 (A1): fail closed until U0b
+                        lock_behavior: Default::default(),
+                        connection: Default::default(),
                     },
                     true,
                 )?;
@@ -1822,7 +1871,8 @@ mod tests {
         assert_eq!(s.schema_version().unwrap(), migrations::SCHEMA_VERSION);
         // 0001 → … → 0005 in one open (0003: the approval basis column; 0004: the
         // grant origin column; 0005: the M02 tables, which add tables only).
-        assert_eq!(migrations::SCHEMA_VERSION, 5);
+        // M03 wave 0 (S): 0006 (the M03 tables) adds tables only as well.
+        assert_eq!(migrations::SCHEMA_VERSION, 6);
         assert!(
             backup_path(&db, ".v1.backup").exists(),
             "v1 file backed up first"
@@ -2410,6 +2460,9 @@ mod tests {
                     policy_revision: Some(PolicyRevision(7)),
                 }),
                 adapter: None,
+                // M03 wave 0 (A1): fail closed until U0b
+                lock_behavior: None,
+                connection: None,
             };
             assert_eq!(tx.grant_origin(&pinned)?, Some(from_intent.clone()));
             let from_binding = GrantOrigin {
@@ -2423,6 +2476,9 @@ mod tests {
                 mechanism: "fake_agent".into(),
                 covered: None,
                 adapter: None,
+                // M03 wave 0 (A1): fail closed until U0b
+                lock_behavior: None,
+                connection: None,
             };
             assert_eq!(tx.grant_origin(&bound)?, Some(from_binding));
             assert_eq!(

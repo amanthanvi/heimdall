@@ -811,6 +811,9 @@ fn seed_policy(service: &Service) {
                     pause: PauseState::Active,
                     cutoff_at: None,
                     source: PolicySource::SetupDefault,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    lock_behavior: Default::default(),
+                    connection: Default::default(),
                 },
                 false,
             )
@@ -837,6 +840,8 @@ fn ensure(request: &str, work: &str, interaction: InteractionMode) -> Request {
         request_id: rid(request),
         interaction,
         wait: heimdall_contract::request::WaitMode::Sync { timeout_ms: 30_000 },
+        // M03 wave 0 (A1): fail closed until U0b
+        connection: None,
     })
 }
 

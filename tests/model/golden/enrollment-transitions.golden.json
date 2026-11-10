@@ -1,0 +1,125 @@
+{
+  "source": "ADR-0008 revision 6, D5 §6.2 state table (every revision 3-6 path), with the binding rulings §17.4 item 5, §17.7 items 4-5, §17.9 item 3 (Q28), §17.10 item 2 and §17.12 item 2, the D4 item 5 foreign-removal text, and the orchestrator rulings ADR-0008 §17.15 (X-Q1/X-Q2/X-Q3); D5 §6.5 classification table and §6.9 system form for the verifying, reverifying, manual_removal_pending and removal_verifying rows. Transcribed by hand from the documents, not from heimdall_domain::enrollment.",
+  "notation": {
+    "facts": "own_account | own_system | foreign_account | foreign_system (RecordFacts: form x foreign)",
+    "event": "the serde form of heimdall_domain::enrollment::EnrollmentEventKind; a string \"*\" matches any value of that field",
+    "rows": "the allowed (state, facts, event) -> state transitions; every other enumerated pair must be refused",
+    "unspecified": "pairs the documents do not determine (inputs that cannot arise); the test does not assert them (escalated; .m03-wave0-questions-X.md)"
+  },
+  "rows": [
+    {"from": "planned", "facts": ["own_account"], "event": {"event": "enroll_account_approved"}, "to": "applying", "cite": "§6.2 planned: applying (account: EnrollAccount approved)"},
+    {"from": "planned", "facts": ["own_system"], "event": {"event": "enroll_system_form_approved"}, "to": "manual_pending", "cite": "§6.2 planned: manual_pending (system: EnrollSystemForm approved)"},
+    {"from": "planned", "facts": ["own_account", "own_system", "foreign_account", "foreign_system"], "event": {"event": "decision_withdrawn"}, "to": "withdrawn", "cite": "§6.2 planned: withdrawn (denied, cancelled, stale); D4 item 5 foreign denial; §17.12 item 2 foreign system planned -> withdrawn"},
+    {"from": "planned", "facts": ["foreign_account"], "event": {"event": "remove_enrollment_approved"}, "to": "removing", "cite": "§6.2 planned r4 foreign admission; §17.7 item 4"},
+    {"from": "planned", "facts": ["foreign_system"], "event": {"event": "manual_removal_confirmed"}, "to": "manual_removal_pending", "cite": "§6.2 planned r4 foreign system admission, origin planned"},
+
+    {"from": "applying", "facts": ["own_account"], "event": {"event": "append_confirmed"}, "to": "applied_unverified", "cite": "§6.2 applying"},
+    {"from": "applying", "facts": ["own_account"], "event": {"event": "append_outcome_lost"}, "to": "outcome_unknown", "cite": "§6.2 applying (append or bootstrap result lost)"},
+    {"from": "applying", "facts": ["own_account"], "event": {"event": "refused_before_write"}, "to": "failed_unwritten", "cite": "§6.2 applying"},
+    {"from": "applying", "facts": ["own_account"], "event": {"event": "post_write_check_failed"}, "to": "held", "cite": "§6.2 applying"},
+    {"from": "applying", "facts": ["own_account"], "event": {"event": "step_busy"}, "to": "applying", "cite": "§6.2 applying: stays on busy"},
+    {"from": "applying", "facts": ["own_account"], "event": {"event": "bootstrap_confirmed"}, "to": "applying", "cite": "§6.2 applying: stays after a confirmed bootstrap"},
+
+    {"from": "outcome_unknown", "facts": ["own_account"], "event": {"event": "reconcile_applied"}, "to": "applied_unverified", "cite": "§6.2 outcome_unknown; §6.7"},
+    {"from": "outcome_unknown", "facts": ["own_account"], "event": {"event": "reconcile_redispatch"}, "to": "applying", "cite": "§6.2 outcome_unknown; §6.7 (holder proven gone, approval valid, attended)"},
+    {"from": "outcome_unknown", "facts": ["own_account"], "event": {"event": "reconcile_damaged"}, "to": "held", "cite": "§6.2 outcome_unknown; §6.7"},
+    {"from": "outcome_unknown", "facts": ["own_account"], "event": {"event": "holder_unresolved"}, "to": "held", "cite": "§6.2 outcome_unknown r3 lock_holder_unresolved"},
+    {"from": "outcome_unknown", "facts": ["own_account"], "event": {"event": "reconcile_approval_lapsed"}, "to": "withdrawn", "cite": "§6.2 outcome_unknown r2/r3"},
+    {"from": "outcome_unknown", "facts": ["own_account"], "event": {"event": "owner_abandon"}, "to": "abandoned", "cite": "§6.2 outcome_unknown r2"},
+    {"from": "outcome_unknown", "facts": ["own_account"], "event": {"event": "reconcile_unresolved"}, "to": "outcome_unknown", "cite": "§6.2 outcome_unknown: stays while unreachable or the holder may be alive"},
+
+    {"from": "held", "facts": ["own_account", "foreign_account"], "event": {"event": "remove_enrollment_approved"}, "to": "removing", "cite": "§6.2 held; D4 item 5 held -> removing"},
+    {"from": "held", "facts": ["own_system", "foreign_system"], "event": {"event": "manual_removal_confirmed"}, "to": "manual_removal_pending", "cite": "§6.2 held (system; origin held)"},
+    {"from": "held", "facts": ["own_account", "own_system", "foreign_account", "foreign_system"], "event": {"event": "owner_abandon"}, "to": "abandoned", "cite": "§6.2 held; D4 item 5 held -> abandoned"},
+    {"from": "held", "facts": ["own_account", "own_system"], "event": {"event": "owner_reverify", "hold": "evidence_based"}, "to": "reverifying", "cite": "§6.2 held r3 (evidence-based hold only); §17.4 item 5"},
+    {"from": "held", "facts": ["own_account", "own_system"], "event": {"event": "target_change_approved", "hold": "host_key_changed"}, "to": "reverifying", "cite": "§6.2 held r3/r4 ApproveTargetChange for a host_key_changed hold"},
+    {"from": "held", "facts": ["own_account"], "event": {"event": "manual_recovery_line_present", "hold": "lock_holder_unresolved"}, "to": "applied_unverified", "cite": "§6.2 held r3; §6.7 --after-manual-recovery: one exact line; append purpose only, own account form (ADR-0008 §17.15 (X-Q1/X-Q3): the system form refuses manual recovery)"},
+    {"from": "held", "facts": ["own_account"], "event": {"event": "manual_recovery_line_absent", "hold": "lock_holder_unresolved"}, "to": "withdrawn", "cite": "§6.2 held r3; §6.7 --after-manual-recovery: none; append purpose only, own account form (ADR-0008 §17.15 (X-Q1/X-Q3): the system form refuses manual recovery)"},
+    {"from": "held", "facts": ["own_account", "foreign_account"], "event": {"event": "manual_recovery_line_present", "hold": "lock_holder_unresolved", "purpose": "removal"}, "to": "held", "cite": "ADR-0008 §17.15 (X-Q3) and item 6 (the purpose field is frozen; rollback included): manual recovery of a removal keeps the removal's purpose; line present -> held, removal_origin kept, never applied_unverified"},
+    {"from": "held", "facts": ["own_account"], "event": {"event": "manual_recovery_line_present", "hold": "lock_holder_unresolved", "purpose": "rollback"}, "to": "held", "cite": "ADR-0008 §17.15 (X-Q3) and item 6 (the purpose field is frozen; rollback included): manual recovery of a removal keeps the removal's purpose; line present -> held, removal_origin kept, never applied_unverified (a rollback is a removal under the enrollment decision, §6.8)"},
+    {"from": "held", "facts": ["own_account", "foreign_account"], "event": {"event": "manual_recovery_line_absent", "hold": "lock_holder_unresolved", "purpose": "removal"}, "to": "removed", "cite": "ADR-0008 §17.15 (X-Q3) and item 6 (the purpose field is frozen; rollback included): manual recovery of a removal keeps the removal's purpose; line absent -> removed (own and foreign account records alike)"},
+    {"from": "held", "facts": ["own_account"], "event": {"event": "manual_recovery_line_absent", "hold": "lock_holder_unresolved", "purpose": "rollback"}, "to": "verification_failed", "cite": "ADR-0008 §17.15 (X-Q3) and item 6 (the purpose field is frozen; rollback included): manual recovery of a removal keeps the removal's purpose; line absent: the rollback purpose's terminal is verification_failed (§6.2 rollback_unknown, marker absent)"},
+
+    {"from": "applied_unverified", "facts": ["own_account"], "event": {"event": "start_verification"}, "to": "verifying", "cite": "§6.2 applied_unverified"},
+    {"from": "applied_unverified", "facts": ["own_account"], "event": {"event": "remove_enrollment_approved"}, "to": "removing", "cite": "§6.2 applied_unverified"},
+    {"from": "applied_unverified", "facts": ["own_account"], "event": {"event": "owner_abandon"}, "to": "abandoned", "cite": "§6.2 applied_unverified"},
+
+    {"from": "manual_pending", "facts": ["own_system"], "event": {"event": "owner_confirms_applied"}, "to": "verifying", "cite": "§6.2 manual_pending; §6.9 enroll 3"},
+    {"from": "manual_pending", "facts": ["own_system"], "event": {"event": "owner_cancels_manual_enrollment"}, "to": "manual_removal_pending", "cite": "§6.2 manual_pending r3; §6.9 enroll 5"},
+    {"from": "manual_pending", "facts": ["own_system"], "event": {"event": "owner_abandon"}, "to": "abandoned", "cite": "§6.2 manual_pending r3"},
+
+    {"from": "verifying", "facts": ["own_account", "own_system"], "event": {"event": "verification_result", "verdict": {"verdict": "passed"}, "approval_valid": "*"}, "to": "verified", "cite": "§6.2 verifying; §6.5 pass/refused"},
+    {"from": "verifying", "facts": ["own_account"], "event": {"event": "verification_result", "verdict": {"verdict": "principals_not_enforced"}, "approval_valid": true}, "to": "rollback_pending", "cite": "§6.2 verifying (account, approval valid); §6.5"},
+    {"from": "verifying", "facts": ["own_account"], "event": {"event": "verification_result", "verdict": {"verdict": "positive_refused"}, "approval_valid": true}, "to": "rollback_pending", "cite": "§6.2 verifying (account, approval valid); §6.5"},
+    {"from": "verifying", "facts": ["own_account"], "event": {"event": "verification_result", "verdict": {"verdict": "principals_not_enforced"}, "approval_valid": false}, "to": "held", "cite": "§6.2 verifying r3 (failure after the approval lapsed); §17.4 item 5"},
+    {"from": "verifying", "facts": ["own_account"], "event": {"event": "verification_result", "verdict": {"verdict": "positive_refused"}, "approval_valid": false}, "to": "held", "cite": "§6.2 verifying r3 (failure after the approval lapsed); §17.4 item 5"},
+    {"from": "verifying", "facts": ["own_account", "own_system"], "event": {"event": "verification_result", "verdict": {"verdict": "host_key_mismatch"}, "approval_valid": "*"}, "to": "held", "cite": "§6.2 verifying r2 (host-key mismatch: no rollback); §6.5"},
+    {"from": "verifying", "facts": ["own_account"], "event": {"event": "verification_result", "verdict": {"verdict": "inconclusive", "reason": "*"}, "approval_valid": "*"}, "to": "applied_unverified", "cite": "§6.2 verifying (account: inconclusive or unreachable); §6.5 (skew: inconclusive, no rollback)"},
+    {"from": "verifying", "facts": ["own_system"], "event": {"event": "verification_result", "verdict": {"verdict": "positive_refused"}, "approval_valid": "*"}, "to": "manual_pending", "cite": "§6.2 verifying (system: failure, with the finding); §6.9 enroll 4"},
+    {"from": "verifying", "facts": ["own_system"], "event": {"event": "verification_result", "verdict": {"verdict": "inconclusive", "reason": "*"}, "approval_valid": "*"}, "to": "manual_pending", "cite": "§6.2 verifying (system: inconclusive); §6.9 enroll 4"},
+    {"from": "verifying", "facts": ["own_system"], "event": {"event": "verification_result", "verdict": {"verdict": "principals_not_enforced"}, "approval_valid": "*"}, "to": "held", "cite": "§6.2 verifying r2 (system form with principals not enforced); §6.5"},
+
+    {"from": "verified", "facts": ["own_account", "own_system"], "event": {"event": "start_reverification"}, "to": "reverifying", "cite": "§6.2 verified r2"},
+    {"from": "verified", "facts": ["own_account"], "event": {"event": "remove_enrollment_approved"}, "to": "removing", "cite": "§6.2 verified (account)"},
+    {"from": "verified", "facts": ["own_system"], "event": {"event": "manual_removal_confirmed"}, "to": "manual_removal_pending", "cite": "§6.2 verified (system; origin verified)"},
+
+    {"from": "reverifying", "facts": ["own_account", "own_system"], "event": {"event": "reverification_result", "from": "*", "verdict": {"verdict": "passed"}}, "to": "verified", "cite": "§6.2 reverifying (pass); r4 target change pass"},
+    {"from": "reverifying", "facts": ["own_account", "own_system"], "event": {"event": "reverification_result", "from": "verified", "verdict": {"verdict": "inconclusive", "reason": "*"}}, "to": "verified", "cite": "§6.2 reverifying (from verified: unreachable or inconclusive, freshness unchanged)"},
+    {"from": "reverifying", "facts": ["own_account", "own_system"], "event": {"event": "reverification_result", "from": "held", "verdict": {"verdict": "inconclusive", "reason": "*"}}, "to": "held", "cite": "§6.2 reverifying r3 (from held: returns to held); r4 target change inconclusive"},
+    {"from": "reverifying", "facts": ["own_account", "own_system"], "event": {"event": "reverification_result", "from": "*", "verdict": {"verdict": "principals_not_enforced"}}, "to": "held", "cite": "§6.2 reverifying (failure); §6.5 re-verification column"},
+    {"from": "reverifying", "facts": ["own_account", "own_system"], "event": {"event": "reverification_result", "from": "*", "verdict": {"verdict": "positive_refused"}}, "to": "held", "cite": "§6.2 reverifying (failure); §6.5 re-verification column"},
+    {"from": "reverifying", "facts": ["own_account", "own_system"], "event": {"event": "reverification_result", "from": "*", "verdict": {"verdict": "host_key_mismatch"}}, "to": "held", "cite": "§6.5 re-verification column: host key mismatch -> held, review_host_trust"},
+
+    {"from": "rollback_pending", "facts": ["own_account"], "event": {"event": "removal_confirmed"}, "to": "verification_failed", "cite": "§6.2 rollback_pending"},
+    {"from": "rollback_pending", "facts": ["own_account"], "event": {"event": "removal_outcome_lost"}, "to": "rollback_unknown", "cite": "§6.2 rollback_pending r2"},
+    {"from": "rollback_pending", "facts": ["own_account"], "event": {"event": "removal_held"}, "to": "held", "cite": "§6.2 rollback_pending (registry_changed x3, not rewritable)"},
+    {"from": "rollback_pending", "facts": ["own_account"], "event": {"event": "holder_unresolved"}, "to": "held", "cite": "§6.2 rollback_pending r3 lock_holder_unresolved"},
+    {"from": "rollback_pending", "facts": ["own_account"], "event": {"event": "owner_abandon"}, "to": "abandoned", "cite": "§6.2 rollback_pending r2"},
+
+    {"from": "rollback_unknown", "facts": ["own_account"], "event": {"event": "reconcile_applied"}, "to": "verification_failed", "cite": "§6.2 rollback_unknown (marker absent)"},
+    {"from": "rollback_unknown", "facts": ["own_account"], "event": {"event": "reconcile_redispatch"}, "to": "rollback_pending", "cite": "§6.2 rollback_unknown (present, holder proven gone)"},
+    {"from": "rollback_unknown", "facts": ["own_account"], "event": {"event": "holder_unresolved"}, "to": "held", "cite": "§6.2 rollback_unknown r3"},
+    {"from": "rollback_unknown", "facts": ["own_account"], "event": {"event": "owner_abandon"}, "to": "abandoned", "cite": "§6.2 rollback_unknown"},
+    {"from": "rollback_unknown", "facts": ["own_account"], "event": {"event": "reconcile_unresolved"}, "to": "rollback_unknown", "cite": "§6.2 rollback_unknown: stays while unreachable"},
+    {"from": "rollback_unknown", "facts": ["own_account"], "event": {"event": "reconcile_damaged"}, "to": "held", "cite": "ADR-0008 §17.15 (X-Q2): §6.7 wins; a damaged line found while reconciling a removal or a rollback moves to held, removal_origin kept"},
+
+    {"from": "removing", "facts": ["own_account", "foreign_account"], "event": {"event": "removal_confirmed"}, "to": "removed", "cite": "§6.2 removing; D4 item 5"},
+    {"from": "removing", "facts": ["own_account", "foreign_account"], "event": {"event": "removal_outcome_lost"}, "to": "remove_unknown", "cite": "§6.2 removing; D4 item 5"},
+    {"from": "removing", "facts": ["own_account", "foreign_account"], "event": {"event": "removal_held"}, "to": "held", "cite": "§6.2 removing; D4 item 5"},
+    {"from": "removing", "facts": ["own_account", "foreign_account"], "event": {"event": "holder_unresolved"}, "to": "held", "cite": "§6.2 removing: held (unqualified; any hold, lock_holder_unresolved included)"},
+
+    {"from": "remove_unknown", "facts": ["own_account", "foreign_account"], "event": {"event": "reconcile_applied"}, "to": "removed", "cite": "§6.2 remove_unknown (marker absent); D4 item 5 lost reply"},
+    {"from": "remove_unknown", "facts": ["own_account", "foreign_account"], "event": {"event": "reconcile_redispatch"}, "to": "removing", "cite": "§6.2 remove_unknown (present, holder proven gone)"},
+    {"from": "remove_unknown", "facts": ["own_account", "foreign_account"], "event": {"event": "holder_unresolved"}, "to": "held", "cite": "§6.2 remove_unknown r3"},
+    {"from": "remove_unknown", "facts": ["own_account", "foreign_account"], "event": {"event": "owner_abandon"}, "to": "abandoned", "cite": "§6.2 remove_unknown r2; D4 item 5"},
+    {"from": "remove_unknown", "facts": ["own_account", "foreign_account"], "event": {"event": "reconcile_unresolved"}, "to": "remove_unknown", "cite": "§6.2 remove_unknown: stays while unreachable"},
+    {"from": "remove_unknown", "facts": ["own_account", "foreign_account"], "event": {"event": "reconcile_damaged"}, "to": "held", "cite": "ADR-0008 §17.15 (X-Q2): §6.7 wins; a damaged line found while reconciling a removal or a rollback moves to held, removal_origin kept"},
+
+    {"from": "manual_removal_pending", "facts": ["own_system", "foreign_system"], "event": {"event": "owner_confirms_removed"}, "to": "removal_verifying", "cite": "§6.2 manual_removal_pending; D4 item 5"},
+    {"from": "manual_removal_pending", "facts": ["own_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "verified", "ca_not_held_seen": false}, "to": "verified", "cite": "§6.2 manual_removal_pending r3: origin restored; §6.9 remove 4"},
+    {"from": "manual_removal_pending", "facts": ["own_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "held", "ca_not_held_seen": false}, "to": "held", "cite": "§6.2 manual_removal_pending r3"},
+    {"from": "manual_removal_pending", "facts": ["own_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "abandoned", "ca_not_held_seen": false}, "to": "abandoned", "cite": "§6.2 manual_removal_pending r3"},
+    {"from": "manual_removal_pending", "facts": ["own_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "manual_pending", "ca_not_held_seen": false}, "to": "manual_pending", "cite": "§6.2 manual_removal_pending r3"},
+    {"from": "manual_removal_pending", "facts": ["foreign_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "planned", "ca_not_held_seen": false}, "to": "planned", "cite": "§6.2 manual_removal_pending r4 (planned for a foreign record); §17.12 item 2"},
+    {"from": "manual_removal_pending", "facts": ["foreign_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "held", "ca_not_held_seen": false}, "to": "held", "cite": "§6.2 manual_removal_pending r3 (origin held)"},
+    {"from": "manual_removal_pending", "facts": ["foreign_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "abandoned", "ca_not_held_seen": false}, "to": "abandoned", "cite": "§6.2 manual_removal_pending r3 origin list (abandoned) read for a foreign record, whose subset holds abandoned"},
+    {"from": "manual_removal_pending", "facts": ["foreign_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "planned", "ca_not_held_seen": true}, "to": "manual_removal_pending", "cite": "§6.2 manual_removal_pending r5; §17.10 item 2 (never planned or withdrawn)"},
+    {"from": "manual_removal_pending", "facts": ["foreign_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "held", "ca_not_held_seen": true}, "to": "held", "cite": "§6.2 manual_removal_pending r5; §17.10 item 2 (returns to held when a held record began it)"},
+    {"from": "manual_removal_pending", "facts": ["foreign_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "abandoned", "ca_not_held_seen": true}, "to": "manual_removal_pending", "cite": "§6.2 manual_removal_pending r5; D4 item 5 r5: after ca_not_held a cancel leaves it in manual_removal_pending unless a held record began it"},
+    {"from": "manual_removal_pending", "facts": ["foreign_system"], "event": {"event": "owner_abandon"}, "to": "abandoned", "cite": "§6.2 manual_removal_pending r5; §17.10 item 2"},
+
+    {"from": "removal_verifying", "facts": ["own_system"], "event": {"event": "absence_verified", "origin": "verified"}, "to": "removed", "cite": "§6.2 removal_verifying; §6.9 remove 3"},
+    {"from": "removal_verifying", "facts": ["own_system"], "event": {"event": "absence_verified", "origin": "held"}, "to": "removed", "cite": "§6.2 removal_verifying; §6.9 remove 3"},
+    {"from": "removal_verifying", "facts": ["own_system"], "event": {"event": "absence_verified", "origin": "abandoned"}, "to": "removed", "cite": "§6.2 removal_verifying; §6.9 remove 3"},
+    {"from": "removal_verifying", "facts": ["own_system"], "event": {"event": "absence_verified", "origin": "manual_pending"}, "to": "withdrawn", "cite": "§6.2 removal_verifying r3 (origin manual_pending)"},
+    {"from": "removal_verifying", "facts": ["own_system", "foreign_system"], "event": {"event": "absence_not_verified"}, "to": "manual_removal_pending", "cite": "§6.2 removal_verifying (still accepted or inconclusive; origin kept); r4 foreign ca_not_held"},
+
+    {"from": "abandoned", "facts": ["own_account", "foreign_account"], "event": {"event": "remove_enrollment_approved"}, "to": "removing", "cite": "§6.2 abandoned (account: a new RemoveEnrollment); subset holds both states"},
+    {"from": "abandoned", "facts": ["own_system", "foreign_system"], "event": {"event": "manual_removal_confirmed"}, "to": "manual_removal_pending", "cite": "§6.2 abandoned (system; origin abandoned)"}
+  ],
+  "unspecified": [
+    {"from": "manual_removal_pending", "facts": ["own_system"], "event": {"event": "owner_cancels_manual_removal", "origin": "*", "ca_not_held_seen": true}, "why": "ca_not_held is a foreign-only result (Q28); an own record never carries it"},
+    {"from": "verifying", "facts": ["own_account", "own_system"], "event": {"event": "verification_result", "verdict": {"verdict": "inconclusive", "reason": "ca_not_held"}, "approval_valid": "*"}, "why": "ca_not_held arises only in a foreign absence check (Q28)"},
+    {"from": "reverifying", "facts": ["own_account", "own_system"], "event": {"event": "reverification_result", "from": "*", "verdict": {"verdict": "inconclusive", "reason": "ca_not_held"}}, "why": "ca_not_held arises only in a foreign absence check (Q28)"}
+  ]
+}

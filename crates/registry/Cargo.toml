@@ -1,0 +1,18 @@
+[package]
+name = "heimdall-registry"
+description = "Heimdall remote-registry protocol and enrollment plan (m03-plan U5; ADR-0008 D5 §6.1, §6.3, §6.7, §18). Pure: the registry line and marker, the scripts and their goldens, the HM1 grammar and parser, post-image construction, the step classification and the enrollment plan. No I/O"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Production edges (m03-plan §0.6): contract and domain only; the crate-graph step
+# (tools/validation/crate_graph.py) refuses any other workspace edge.
+[dependencies]
+heimdall-contract = { workspace = true }
+heimdall-domain = { workspace = true }
+thiserror = { workspace = true }

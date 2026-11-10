@@ -459,6 +459,23 @@ pub mod finding {
         KNOWN_HOST_MISMATCH,
         HOME_MISMATCH,
     ];
+
+    /// ⟨M03⟩ A re-verification ended inconclusive (the record stays `verified`).
+    pub const REVERIFICATION_INCONCLUSIVE: &str = "reverification_inconclusive";
+    /// ⟨M03⟩ An enrollment's evidence is no longer fresh.
+    pub const ENROLLMENT_EVIDENCE_STALE: &str = "enrollment_evidence_stale";
+    /// ⟨M03⟩ The verified client's trace family or version is unrecorded (names both).
+    pub const CLIENT_TRACE_FAMILY_UNRECORDED: &str = "client_trace_family_unrecorded";
+    /// ⟨M03⟩ A managed alias's slot is free (with the command that holds one).
+    pub const SLOT_FREE: &str = "slot_free";
+
+    /// ⟨M03⟩ The findings M03 adds (m03-plan §5 item 14); [`ALL`] stays M02's list.
+    pub const M03: &[&str] = &[
+        REVERIFICATION_INCONCLUSIVE,
+        ENROLLMENT_EVIDENCE_STALE,
+        CLIENT_TRACE_FAMILY_UNRECORDED,
+        SLOT_FREE,
+    ];
 }
 
 /// How a probe level ended.

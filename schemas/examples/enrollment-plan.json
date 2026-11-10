@@ -1,0 +1,72 @@
+{
+  "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "destination_id": "dest-lab",
+  "alias": "lab",
+  "account": "deploy",
+  "form": "account",
+  "registry": {
+    "path_display": "$HOME/.ssh/authorized_keys",
+    "resolved_by": "remote_home"
+  },
+  "line": "cert-authority,principals=\"hm:dest-lab:deploy\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFNZTlRIRVRJQy1QTEFDRUhPTERFUi1OT1QtQS1LRVk= heimdall:enr_00112233445566778899aabbccddeeff",
+  "line_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "ca_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "existing_access": {
+    "identity_id": "idn_00112233445566778899aabbccddeeff",
+    "mechanism": "native_agent",
+    "endpoint": "/run/user/1000/synthetic-agent/agent.sock",
+    "endpoint_source": "catalog_record",
+    "invocation": [
+      "-o",
+      "IdentityAgent=/run/user/1000/synthetic-agent/agent.sock",
+      "-o",
+      "IdentityFile=~/.ssh/lab.pub",
+      "-o",
+      "IdentitiesOnly=yes",
+      "-o",
+      "CertificateFile=none",
+      "-o",
+      "ControlMaster=no",
+      "-o",
+      "ControlPath=none"
+    ]
+  },
+  "host_trust": [
+    "UserKnownHostsFile=/run/user/1000/heimdall/k/0011223344556677/known_hosts",
+    "GlobalKnownHostsFile=/run/user/1000/heimdall/k/0011223344556677/empty",
+    "KnownHostsCommand=none",
+    "VerifyHostKeyDNS=no",
+    "HostKeyAlgorithms=ssh-ed25519",
+    "HostKeyAlias=hm-target-0011223344556677",
+    "StrictHostKeyChecking=yes",
+    "CheckHostIP=no",
+    "UpdateHostKeys=no",
+    "NoHostAuthenticationForLocalhost=no"
+  ],
+  "approved_target": {
+    "hostname": "lab.example.internal",
+    "port": 22,
+    "user": "deploy",
+    "proxy": "none",
+    "host_key": {
+      "algorithm": "ssh-ed25519",
+      "key": "AAAAC3NzaC1lZDI1NTE5AAAAIFNZTlRIRVRJQy1IT1NULUtFWS1QTEFDRUhPTERFUiEhIQ==",
+      "fingerprint": "SHA256:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    }
+  },
+  "bootstrap": "create_registry_dir_0700_if_absent",
+  "verification": {
+    "positive_principal": "hm:dest-lab:deploy",
+    "negative": true,
+    "max_validity_seconds": 300
+  },
+  "rollback": "compare_then_rename_by_marker",
+  "disclosures": [
+    "config_commands_run_as_ordinary_use",
+    "ca_trust_blast_radius",
+    "remove_window",
+    "lock_continuity_once",
+    "reconcile_may_stop_own_stale_script",
+    "ordinary_ssh_needs_held_slot"
+  ]
+}

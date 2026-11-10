@@ -2,7 +2,7 @@
 //! credentials, and never change when routes, addresses, or labels change.
 //!
 //! Wire form: `<prefix>_<32 lowercase hex>` for runtime-generated IDs
-//! (`op_`, `grant_`, `binding_`, `env_`, `evt_`, `res_`, `dev_`, `ws_`, `idn_`), and a
+//! (`op_`, `grant_`, `binding_`, `env_`, `evt_`, `res_`, `dev_`, `ws_`, `idn_`, ⟨M03⟩ `enr_`), and a
 //! bounded caller-chosen token for `request_id`, `work_id`, profile, destination
 //! and policy names. Parsing is bounded and rejects control characters.
 
@@ -201,6 +201,84 @@ prefixed_id!(
     IdentityId, "idn"
 );
 
+prefixed_id!(
+    /// ⟨M03⟩ Enrollment record ID (m03-plan §5 item 1; ADR-0008 D5 §6.2). The remote
+    /// marker is `heimdall:<enrollment-id>`, so the ID is the add's idempotency key.
+    EnrollmentId, "enr"
+);
+prefixed_id!(
+    /// ⟨M03⟩ Owned connection ID (an `owned_connections` row; ADR-0008 D8; m03-plan
+    /// §5 items 4, 4a). Runtime-generated; never a PID.
+    ConnectionId, "conn"
+);
+prefixed_id!(
+    /// ⟨M03⟩ Foreign removal record ID (a `foreign_removals` row; ADR-0008 D4 item
+    /// 5). Minted by this installation; never the bundle's marker or enrollment ID.
+    ForeignRemovalId, "frm"
+);
+
+/// ⟨M03⟩ A CA public key's fingerprint: `SHA256:` followed by exactly 43 characters
+/// of unpadded standard base64 (`A-Za-z0-9+/`), as `ssh-keygen -l` prints it
+/// (m03-plan §5 item 1). Validated on parse and on decode; compared exactly.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(try_from = "String", into = "String")]
+pub struct CaFingerprint(String);
+
+/// A malformed [`CaFingerprint`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("a CA fingerprint is SHA256: followed by 43 unpadded base64 characters")]
+pub struct CaFingerprintError;
+
+impl CaFingerprint {
+    /// The fixed prefix.
+    pub const PREFIX: &'static str = "SHA256:";
+    /// The number of base64 characters after the prefix (a 32-byte digest, unpadded).
+    pub const DIGEST_CHARS: usize = 43;
+
+    /// Parse and validate a wire string.
+    pub fn parse(s: &str) -> Result<Self, CaFingerprintError> {
+        let Some(digest) = s.strip_prefix(Self::PREFIX) else {
+            return Err(CaFingerprintError);
+        };
+        let ok = digest.len() == Self::DIGEST_CHARS
+            && digest
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/');
+        if ok {
+            Ok(Self(s.to_owned()))
+        } else {
+            Err(CaFingerprintError)
+        }
+    }
+
+    /// The wire string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for CaFingerprint {
+    type Error = CaFingerprintError;
+    fn try_from(s: String) -> Result<Self, CaFingerprintError> {
+        Self::parse(&s)
+    }
+}
+
+impl From<CaFingerprint> for String {
+    fn from(f: CaFingerprint) -> String {
+        f.0
+    }
+}
+
+impl std::fmt::Display for CaFingerprint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 token_id!(
     /// Caller-chosen request ID; part of the idempotency key (spec §11.4).
     RequestId
@@ -258,6 +336,27 @@ mod tests {
             Err(IdError::ForbiddenChar)
         );
         assert!(RequestId::parse("req_42").is_ok());
+    }
+
+    #[test]
+    fn m03_ids_validate() {
+        let e = EnrollmentId::from_random_bytes([0x01; 16]);
+        assert!(e.as_str().starts_with("enr_"));
+        let ok = format!("SHA256:{}", "a".repeat(42) + "/");
+        assert_eq!(CaFingerprint::parse(&ok).unwrap().as_str(), ok);
+        for bad in [
+            String::new(),
+            "SHA256:".to_owned(),
+            format!("SHA256:{}", "a".repeat(42)),
+            format!("SHA256:{}", "a".repeat(44)),
+            format!("SHA256:{}=", "a".repeat(42)),
+            format!("sha256:{}", "a".repeat(43)),
+            format!("MD5:{}", "a".repeat(43)),
+        ] {
+            assert_eq!(CaFingerprint::parse(&bad), Err(CaFingerprintError), "{bad}");
+        }
+        let r: Result<CaFingerprint, _> = serde_json::from_str("\"SHA256:short\"");
+        assert!(r.is_err());
     }
 
     #[test]

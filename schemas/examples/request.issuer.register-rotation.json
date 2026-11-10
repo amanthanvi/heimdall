@@ -1,0 +1,9 @@
+{
+  "op": "issuer",
+  "action": "register",
+  "ca_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFNZTlRIRVRJQy1QTEFDRUhPTERFUi1OT1QtQS1LRVk=",
+  "store": "macos_data_protection_keychain",
+  "backup_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "backup_created_at": "2026-11-12T09:00:00Z",
+  "rotation_of": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

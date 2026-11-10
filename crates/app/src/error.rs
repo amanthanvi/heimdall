@@ -403,6 +403,11 @@ impl OpError {
                 Code::CapabilityUnavailable,
                 "the requested certificate is outside the grant's permissions",
             ),
+            // M03 wave 0 (A1): fail closed until U0b
+            R::UnknownCa | R::CaNotVerifiedForPair | R::CaRetiring => (
+                Code::CapabilityUnavailable,
+                "the certificate's CA cannot issue for this pair",
+            ),
         };
         OpError::new(code, msg).with_resource("grant", None)
     }

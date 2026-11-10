@@ -761,8 +761,14 @@ async fn signing_endpoint_over_a_real_socket_is_distinct_and_peer_checked() {
     let server = async {
         let (stream, peer) = sign.accept().await.unwrap();
         principal_for(&peer);
+        let endpoint = heimdall_contract::provider::EndpointRef {
+            kind: heimdall_contract::provider::EndpointKind::UnixSocket,
+            locator: f.paths.signing.to_str().unwrap().to_owned(),
+        };
         heimdall_ipc::signing::serve(
             stream,
+            peer,
+            endpoint,
             Arc::new(heimdall_ipc::signing::NoIdentities),
             CancellationToken::new(),
         )

@@ -1,0 +1,61 @@
+{
+  "enrollments": [
+    {
+      "enrollment_id": "enr_00112233445566778899aabbccddeeff",
+      "destination_id": "dest-lab",
+      "account": "deploy",
+      "form": "account",
+      "ca_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "marker": "heimdall:enr_00112233445566778899aabbccddeeff",
+      "state": "verified",
+      "registry": {
+        "path_display": "$HOME/.ssh/authorized_keys",
+        "resolved_by": "remote_home"
+      },
+      "verified_at": "2026-11-10T13:50:00Z",
+      "evidence_fresh_until": "2027-02-08T13:50:00Z",
+      "pair_residual_until": "2026-11-10T22:00:00Z",
+      "destination_clock": {
+        "measured": {
+          "behind_upper_ms": 1400,
+          "rtt_ms": 38,
+          "measured_at": "2026-11-10T13:50:00Z"
+        }
+      },
+      "residual_status": "pending_until",
+      "approved_target": {
+        "hostname": "lab.example.internal",
+        "port": 22,
+        "user": "deploy",
+        "host_key_fingerprint": "SHA256:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+      },
+      "live_grants": [
+        "grant_aaaaaaaabbbbbbbbccccccccdddddddd"
+      ]
+    },
+    {
+      "enrollment_id": "enr_99998888777766665555444433332222",
+      "destination_id": "dest-lab",
+      "account": "deploy",
+      "form": "account",
+      "ca_fingerprint": "SHA256:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "marker": "heimdall:enr_99998888777766665555444433332222",
+      "state": "remove_unknown",
+      "registry": {
+        "path_display": "$HOME/.ssh/authorized_keys",
+        "resolved_by": "remote_home"
+      },
+      "destination_clock": "unmeasured",
+      "approved_target": {
+        "hostname": "lab.example.internal",
+        "port": 22,
+        "user": "deploy",
+        "host_key_fingerprint": "SHA256:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+      },
+      "removal_purpose": "explicit_removal",
+      "live_grants": [],
+      "open_operation_id": "op_22223333444455556666777788889999",
+      "possible_late_write": true
+    }
+  ]
+}

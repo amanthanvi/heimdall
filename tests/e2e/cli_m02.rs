@@ -599,6 +599,9 @@ mod world {
                             pause: PauseState::Active,
                             cutoff_at: None,
                             source: PolicySource::SetupDefault,
+                            // M03 wave 0 (A1): fail closed until U0b
+                            lock_behavior: Default::default(),
+                            connection: Default::default(),
                         },
                         false,
                     )

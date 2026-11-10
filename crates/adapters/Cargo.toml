@@ -19,6 +19,9 @@ heimdall-app = { workspace = true }
 heimdall-ipc = { workspace = true }
 # Passive endpoint detection and the static identity selection (U3).
 heimdall-localenv = { workspace = true }
+# M03 (m03-plan §0.6; ADR-0008 §18): the managed adapter (ManagedEffects) drives the
+# signer table and key vault.
+heimdall-credential = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

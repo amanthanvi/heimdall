@@ -139,6 +139,9 @@ fn seed(store: &Store) {
                     pause: PauseState::Active,
                     cutoff_at: None,
                     source: PolicySource::SetupDefault,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    lock_behavior: Default::default(),
+                    connection: Default::default(),
                 },
                 false,
             )?;
@@ -210,6 +213,7 @@ impl World {
             interaction: InteractionRequirement::None,
             enforcement: EnforcementEvidence::unknown(),
             lock_continuity: LockContinuity::Unknown,
+            remote_credential_effect: false, // M03 wave 0 (A2)
         };
         let fake = FakeCredentialAdapter::new(descriptor, [FakeStep::Prepare(outcome())]);
         let ops = Operations::start(OperationsConfig {
@@ -269,6 +273,8 @@ impl World {
                     request_id: RequestId::parse(rid).unwrap(),
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::default(),
+                    // M03 wave 0 (A1): fail closed until U0b
+                    connection: None,
                 },
             )
             .await

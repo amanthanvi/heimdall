@@ -102,6 +102,14 @@ clippy_windows() {
     return "${rc}"
 }
 run_step clippy-windows clippy_windows
+# M03 (m03-plan U0, section 0.6; ADR-0008 sections 13 D12 and 18): the workspace crate
+# graph (no production cycle; app, ipc and registry edge rules; its mutant self-tests) and
+# the claim table (every entry's record verified for its platform row, release-profile
+# product-store rule for custody claims). Cheap, so before the tests.
+run_step crate-graph env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I tools/validation/crate_graph.py
+run_step claims-table env PYTHONDONTWRITEBYTECODE=1 \
+    python3 -I tools/validation/claims_table.py
 run_step test    test_step
 run_step test-discovery test_discovery
 
@@ -127,6 +135,12 @@ schema_check() {
     return "${rc}"
 }
 run_step schema  schema_check
+
+# Release-build test-gate refusal (m03-plan U0b row 16, `release_build_refuses_m03_test_gates`):
+# builds the release binary once in the single ./target, then every HEIMDALL_TEST_* variable
+# (M01/M02 from testcfg.rs and the four M03 ones) must make it exit 2 before anything else.
+# Each invocation is guarded by a hard timeout (see the script header).
+run_step release-gate bash tools/validation/release-gate.sh
 
 # Native-harness self-test (reviews B01, B03): the Windows harnesses' scratch
 # ownership and exit reporting, against stub ssh/scp/cargo and a fake host tree in

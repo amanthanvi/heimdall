@@ -28,6 +28,10 @@ heimdall-localenv = { workspace = true }
 heimdall-store = { workspace = true }
 # ⟨M02⟩ U9 `uninstall` finds a Heimdall include block left in the user file.
 heimdall-sshconf = { workspace = true }
+# M03 (m03-plan §0.6; ADR-0008 §18): the issuer ceremonies and `internal issuer`,
+# and the CLI-side SshStepRunner.
+heimdall-issuer = { workspace = true }
+heimdall-enroll = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -90,3 +94,8 @@ path = "../../tests/e2e/cli_m02.rs"
 [[test]]
 name = "e2e_tui_m02"
 path = "../../tests/e2e/tui_m02.rs"
+
+# M03 wave 0 (U0 §5 item 24, U0b row 16): the M03 command tree and its fail-closed handlers through the real binary.
+[[test]]
+name = "e2e_cli_m03"
+path = "../../tests/e2e/cli_m03.rs"

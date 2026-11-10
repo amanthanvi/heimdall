@@ -259,6 +259,31 @@ pub fn process_start_time(pid: u32) -> Option<String> {
     os::process_start_time(pid)
 }
 
+/// ⟨M03⟩ U0b row 28 (ADR-0008 D5 §6.3; §17.13 item 2): the start time (field 22)
+/// of a whole `/proc/<pid>/stat` text through the shared parser
+/// [`heimdall_domain::procstat::parse`], keeping this runtime's own rules, so
+/// [`process_start_time`]'s semantics are unchanged (wave-0 verify E9, reading (a)):
+///
+/// * a process that has exited is not alive, even while its parent has not reaped
+///   it (state `Z` zombie or `X` dead), as on Windows (exit code checked) and macOS
+///   (no BSD info for a zombie);
+/// * the process group (field 5) is **not** required: `/proc` shows group 0 for a
+///   kernel thread and for a process whose group leader is outside the reader's
+///   PID namespace (inference), and such a process still has a start time. The
+///   shared [`heimdall_domain::procstat::parse_start_time`] applies every other check
+///   of the shared rule (the last `)`, at least 20 tokens, a one-letter state, a
+///   decimal start time) and skips only the group's.
+///
+/// Pure (no I/O), so it is tested on every platform with synthetic lines.
+#[must_use]
+pub fn stat_start_time(stat: &str) -> Option<u64> {
+    let (state, start_time) = heimdall_domain::procstat::parse_start_time(stat).ok()?;
+    if matches!(state, 'Z' | 'X') {
+        return None;
+    }
+    Some(start_time)
+}
+
 /// Descriptor hygiene for the detached runtime (ADR-0006 §13.8 item 7; see
 /// [`disinherit_descriptors_above_stdio`] and [`close_inherited_descriptors`]).
 #[cfg(unix)]
@@ -669,23 +694,12 @@ mod os {
     }
 
     pub(super) fn process_start_time(pid: u32) -> Option<String> {
-        // Field 22 (starttime, clock ticks since boot) of /proc/<pid>/stat. The
-        // command name (field 2) may contain spaces and parentheses, so fields are
-        // counted after the last ')'.
+        // Field 22 (starttime, clock ticks since boot) of /proc/<pid>/stat, read
+        // by the shared parser (⟨M03⟩ U0b row 28; ADR-0008 §17.13 item 2): fields
+        // are counted after the last ')', since the command name may contain
+        // spaces, parentheses and newlines.
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        let after = stat.get(stat.rfind(')')? + 1..)?;
-        // `after` starts at field 3 (state); starttime is field 22 → index 19.
-        let mut fields = after.split_whitespace();
-        // A process that has exited is not alive, even while its parent has not
-        // reaped it (`Z` zombie, `X` dead): as on Windows (exit code checked) and
-        // macOS (no BSD info for a zombie).
-        if matches!(fields.next(), Some("Z" | "X") | None) {
-            return None;
-        }
-        let start = fields.nth(18)?;
-        if start.is_empty() || !start.bytes().all(|b| b.is_ascii_digit()) {
-            return None;
-        }
+        let start = super::stat_start_time(&stat)?;
         let boot = super::boot_id_cached().ok()?;
         Some(format!("{}:{start}", boot.0))
     }

@@ -29,6 +29,11 @@ pub enum ResourceKind {
     RouteHelper,
     /// Remote enrollment record.
     RemoteEnrollment,
+    /// ⟨M03⟩ A materialized file: a binding's or slot's public key and certificate
+    /// files (ADR-0008 D10 item 2), removed by generation.
+    MaterializedFile,
+    /// ⟨M03⟩ An owned connection (ADR-0008 D8): a dedicated connection or master.
+    Connection,
 }
 
 /// Who owns a resource.

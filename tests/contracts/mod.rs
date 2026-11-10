@@ -18,6 +18,10 @@
 //! * `m02`: ADR-0006 revision 3 deltas (m02-plan section 5): the journaled-kind
 //!   mapping, `bind(launch)` without `argv`, the `run` record reader against
 //!   ADR-0007 section 8, error reasons and the additive fields.
+//! * `m03`: ADR-0006 revision 4 deltas (m03-plan section 5): the code table still 30
+//!   rows, the section 5 item 14 reason golden, no scratch store kind in the public
+//!   schemas, the M03 additive fields and their M01/M02 decodes, capabilities and
+//!   the policy widening rule (the journaled-kind mapping stays in `m02`).
 //!
 //! Property tests run 256 cases with a fixed default seed so a failure reproduces;
 //! set `PROPTEST_RNG_SEED=<u64>` to explore other seeds. Failing cases persist to
@@ -32,6 +36,7 @@ mod ids;
 mod jsonschema_lite;
 mod limits;
 mod m02;
+mod m03;
 mod schema_export;
 
 use std::path::PathBuf;

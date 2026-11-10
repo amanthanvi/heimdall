@@ -1,5 +1,12 @@
-//! `heimdall uninstall [--purge-state]` (m02-plan U9; ADR-0007 §5.5; Q6 as qualified by
-//! §12.2 item 11).
+//! `heimdall uninstall [--purge-state [--keep-remote-enrollments --bundle <file>]]`
+//! (m02-plan U9; ADR-0007 §5.5; Q6 as qualified by §12.2 item 11).
+//!
+//! **⟨M03⟩ Remote enrollments** (m03-plan U0b row 18; ADR-0008 D4 item 6). Before
+//! anything else, a `--purge-state` reads the enrollments that are not final from the
+//! state database (read-only) and is refused while any remain: [`enrollment_refusal`]
+//! lists each marker, destination and state. `--keep-remote-enrollments` needs a fresh
+//! recovery bundle (`bundle_required`); in wave 0 nothing can verify one, so it fails
+//! closed. The listing for a plain `uninstall`, and the K_ca store item's fate, are U12's.
 //!
 //! 1. With no state store there is nothing to roll back: nothing is started, and what
 //!    remains is reported.
@@ -40,8 +47,9 @@ use heimdall_contract::envelope::{EffectStatus, Envelope, reason};
 use heimdall_contract::request::{InspectSubject, Request, ShutdownRequest};
 use heimdall_contract::setup::{RemainingArtifact, RemainingArtifactKind};
 use heimdall_contract::{Code, ExitCode};
+use heimdall_domain::enrollment::EnrollmentRecord;
 use heimdall_store::ext::TableCounts;
-use heimdall_store::{NoFaults, Store};
+use heimdall_store::{NoFaults, Store, StoreError};
 
 use crate::cli::{Prompter, TerminalPrompt, UninstallArgs};
 use crate::client::Ctx;
@@ -60,7 +68,111 @@ const STOP_WAIT: Duration = Duration::from_secs(20);
 
 /// Handle `uninstall` (module docs).
 pub(crate) fn run(ctx: &Ctx, args: UninstallArgs) -> ExitCode {
-    block(ctx, uninstall(ctx, args.purge_state, &mut TerminalPrompt))
+    block(ctx, uninstall(ctx, &args, &mut TerminalPrompt))
+}
+
+/// The enrollments that are not final in the state database at `db`, read-only (U0b row
+/// 18; verify-doc E12). A file older than the enrollment schema has none (that table
+/// never existed in it); a file that cannot be read says so, and the purge is refused.
+fn open_enrollments(db: &Path) -> Result<Vec<EnrollmentRecord>, &'static str> {
+    let store = match Store::open_read_only(db, Arc::new(NoFaults)) {
+        Ok(store) => store,
+        Err(StoreError::OlderSchema { .. }) => return Ok(Vec::new()),
+        Err(_) => return Err("the database could not be opened read-only"),
+    };
+    store
+        .transaction(|tx| tx.open_enrollments())
+        .map_err(|_| "the enrollments could not be read")
+}
+
+/// One line per remaining enrollment: marker, destination, state.
+fn enrollment_lines(open: &[EnrollmentRecord]) -> String {
+    let mut out = String::new();
+    for e in open {
+        out.push_str(&format!(
+            "    {} {} {}\n",
+            e.marker,
+            e.destination.as_str(),
+            e.state.as_str()
+        ));
+    }
+    out
+}
+
+/// The refusal of `--purge-state` while remote enrollments remain (U0b row 18; ADR-0008
+/// D4 item 6), or `None` when the purge may go on to its own confirmation. Nothing has
+/// been changed when it answers.
+///
+/// * none remain: no refusal (`--keep-remote-enrollments` is then moot);
+/// * some remain: `CONFIG_CONFLICT` (exit 6), listing each marker, destination and state;
+/// * `--keep-remote-enrollments` without `--bundle`: `CAPABILITY_UNAVAILABLE`
+///   (`bundle_required`, exit 4);
+/// * `--keep-remote-enrollments --bundle <file>`: nothing can verify that the bundle is
+///   fresh yet (U12), so the purge fails closed with the M03 not-available answer;
+/// * the enrollments cannot be read: refused too (`CONFIG_CONFLICT`).
+fn enrollment_refusal(db: &Path, args: &UninstallArgs) -> Option<Outcome> {
+    let open = match open_enrollments(db) {
+        Ok(open) if open.is_empty() => return None,
+        Ok(open) => open,
+        Err(why) => {
+            return Some(Outcome::of(output::error_value(
+                heimdall_app::OpError::new(
+                    Code::ConfigConflict,
+                    format!(
+                        "--purge-state refused: {why}, so the remaining remote enrollments are unknown; nothing was changed"
+                    ),
+                )
+                .with_effect(EffectStatus::None)
+                .into_envelope(),
+            )));
+        }
+    };
+    if args.keep_remote_enrollments && args.bundle.is_some() {
+        return Some(crate::m03_cmd::not_available_outcome());
+    }
+    let (error, message) = if args.keep_remote_enrollments {
+        (
+            heimdall_app::OpError::new(
+                Code::CapabilityUnavailable,
+                "--purge-state --keep-remote-enrollments needs a fresh recovery bundle (--bundle <file>) first; nothing was changed",
+            )
+            .with_reason(reason::BUNDLE_REQUIRED),
+            "keeping them needs a fresh recovery bundle",
+        )
+    } else {
+        (
+            heimdall_app::OpError::new(
+                Code::ConfigConflict,
+                format!(
+                    "--purge-state refused: {} remote enrollment(s) are not final; remove them with `heimdall enroll remove <enrollment>`, or keep them with --keep-remote-enrollments and a fresh recovery bundle; nothing was changed",
+                    open.len()
+                ),
+            ),
+            "remove them first",
+        )
+    };
+    let mut env = output::error_value(error.with_effect(EffectStatus::None).into_envelope());
+    if let serde_json::Value::Object(map) = &mut env.data {
+        map.insert(
+            "enrollments".to_owned(),
+            serde_json::Value::Array(
+                open.iter()
+                    .map(|e| {
+                        serde_json::json!({
+                            "marker": e.marker,
+                            "destination_id": e.destination.as_str(),
+                            "state": e.state.as_str(),
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    let human = format!(
+        "Remote enrollments that are not final ({message}):\n{}",
+        enrollment_lines(&open)
+    );
+    Some(Outcome::of(env).with_human(human))
 }
 
 /// The directories whose `*.hm-conflict-*` files and `.hm-quarantine` directories
@@ -395,7 +507,8 @@ async fn confirm_purge<P: Prompter>(
     }
 }
 
-async fn uninstall<P: Prompter>(ctx: &Ctx, purge: bool, prompt: &mut P) -> Outcome {
+async fn uninstall<P: Prompter>(ctx: &Ctx, args: &UninstallArgs, prompt: &mut P) -> Outcome {
+    let purge = args.purge_state;
     let paths = match ctx.paths() {
         Ok(p) => p,
         Err(e) => return Outcome::of(output::error_value(*e)),
@@ -408,6 +521,11 @@ async fn uninstall<P: Prompter>(ctx: &Ctx, purge: bool, prompt: &mut P) -> Outco
         let _ = quarantine_listing(&dirs, true);
         let left = remaining(ctx, &dirs, false);
         return report(true, false, false, None, left, Vec::new());
+    }
+    // M03 (U0b row 18): a purge is refused first while remote enrollments remain, so the
+    // owner is not asked to type yes for something that will not happen.
+    if purge && let Some(refused) = enrollment_refusal(&db, args) {
+        return refused;
     }
     // Before anything is started or changed (ADR-0007 §12.31 item 1): a purge is shown
     // and confirmed first, so any answer but a typed yes leaves everything as it was.

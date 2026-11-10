@@ -1,0 +1,8 @@
+{
+  "op": "enrollment",
+  "action": "preview",
+  "spec": {
+    "destination": "dest-lab",
+    "form": "account"
+  }
+}

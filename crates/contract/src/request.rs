@@ -12,10 +12,18 @@ use serde::{Deserialize, Serialize};
 use crate::Timestamp;
 use crate::catalog::CatalogRequest;
 use crate::doctor::{ConfigProvenance, GitScope};
+use crate::enrollment::EnrollmentRequest;
 use crate::event::{Cursor, EventFilter};
 use crate::ids::{
     AccountName, BindingId, DestinationId, EnvironmentId, GrantId, IdentityId, OperationId,
     PolicyId, ProfileId, RequestId, WorkId,
+};
+use crate::issuer::IssuerRequest;
+use crate::managed::{
+    ConnectionRequest, ConnectionsRequest, ExistingConnectionsMode, IdentitySelectionEnforcement,
+    IssuerIsolation, LockBehavior, LockContinuityReport, MultiplexingMode, NewSigningExpiry,
+    OwnedConnectionReport, OwnedMultiplexing, ReadinessCondition, RefreshCondition,
+    RemoteEffectReport, RemoteProcesses, RevocationSemantics, RevokeNote, UnmanagedConnections,
 };
 use crate::provider::{
     CredentialAvailability, DeclarationRef, EndpointRef, EvidenceBasis, IdentitySelection,
@@ -147,6 +155,9 @@ pub enum ExistingConnectionsPolicy {
     GracefulDedicatedConnections,
     /// Owned connections are closed at expiry.
     StrictDisconnect,
+    /// ⟨M03⟩ A `run` of a program other than the verified `ssh`: its connections
+    /// are not owned, so nothing closes them (ADR-0008 D8 item 2).
+    NotControlled,
 }
 
 /// Revocation propagation status (spec §4.3 "Revocation", §6.7).
@@ -179,6 +190,88 @@ pub struct Enforcement {
     pub existing_connections: ExistingConnectionsPolicy,
     /// Revocation propagation.
     pub revocation: RevocationStatus,
+    /// ⟨M03⟩ How identities are selected (§5 item 8). Omitted when absent, so every
+    /// M01/M02 report (and every grant record that stores one) is unchanged; reads
+    /// `unknown` when absent ([`Self::identity_selection`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity_selection: Option<IdentitySelectionEnforcement>,
+    /// ⟨M03⟩ What stops new signatures at expiry (claim-gated); `unknown` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_signing_expiry: Option<NewSigningExpiry>,
+    /// ⟨M03⟩ Owned multiplexing; `unknown` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owned_multiplexing: Option<OwnedMultiplexing>,
+    /// ⟨M03⟩ Remote processes; `unknown` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_processes: Option<RemoteProcesses>,
+    /// ⟨M03⟩ Unmanaged connections; `unknown` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unmanaged_connections: Option<UnmanagedConnections>,
+    /// ⟨M03⟩ The issuer boundary; `unknown` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer_isolation: Option<IssuerIsolation>,
+}
+
+impl Enforcement {
+    /// An M01/M02-shaped report: the five original fields, every M03 field absent.
+    #[must_use]
+    pub fn new(
+        destination_scope: DestinationScopeEnforcement,
+        new_authentication_expiry: NewAuthenticationExpiry,
+        workload_isolation: WorkloadIsolation,
+        existing_connections: ExistingConnectionsPolicy,
+        revocation: RevocationStatus,
+    ) -> Self {
+        Self {
+            destination_scope,
+            new_authentication_expiry,
+            workload_isolation,
+            existing_connections,
+            revocation,
+            identity_selection: None,
+            new_signing_expiry: None,
+            owned_multiplexing: None,
+            remote_processes: None,
+            unmanaged_connections: None,
+            issuer_isolation: None,
+        }
+    }
+
+    /// `identity_selection`, `unknown` when absent.
+    #[must_use]
+    pub fn identity_selection(&self) -> IdentitySelectionEnforcement {
+        self.identity_selection.unwrap_or_default()
+    }
+
+    /// `new_signing_expiry`, `unknown` when absent.
+    #[must_use]
+    pub fn new_signing_expiry(&self) -> NewSigningExpiry {
+        self.new_signing_expiry.unwrap_or_default()
+    }
+
+    /// `owned_multiplexing`, `unknown` when absent.
+    #[must_use]
+    pub fn owned_multiplexing(&self) -> OwnedMultiplexing {
+        self.owned_multiplexing.unwrap_or_default()
+    }
+
+    /// `remote_processes`, `unknown` when absent.
+    #[must_use]
+    pub fn remote_processes(&self) -> RemoteProcesses {
+        self.remote_processes.unwrap_or_default()
+    }
+
+    /// `unmanaged_connections`, `unknown` when absent.
+    #[must_use]
+    pub fn unmanaged_connections(&self) -> UnmanagedConnections {
+        self.unmanaged_connections.unwrap_or_default()
+    }
+
+    /// `issuer_isolation`, `unknown` when absent.
+    #[must_use]
+    pub fn issuer_isolation(&self) -> IssuerIsolation {
+        self.issuer_isolation.unwrap_or_default()
+    }
 }
 
 /// Minimum capability a non-interactive caller requires (spec §4.3); unmet
@@ -265,6 +358,12 @@ pub enum InspectSubject {
     Identities,
     /// Projection resources, read-only (M02).
     Projections,
+    /// ⟨M03⟩ Enrollment records (`EnrollmentsView`).
+    Enrollments,
+    /// ⟨M03⟩ The issuer status (`IssuerStatus`).
+    Issuer,
+    /// ⟨M03⟩ Owned connections (`ConnectionsView`).
+    Connections,
 }
 
 /// `inspect` request (read-only; never contacts agents, network, or executable
@@ -324,6 +423,10 @@ pub struct EnsureRequest {
     /// Wait mode.
     #[serde(default)]
     pub wait: WaitMode,
+    /// ⟨M03⟩ Narrow the existing-connections mode to `strict` (§5 item 5). Enters
+    /// the canonical hash only when present, so M01/M02 hashes are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<ConnectionRequest>,
 }
 
 /// `ensure`/`bind` success payload (spec §11.3 example, primitives-draft §4.2).
@@ -359,6 +462,33 @@ pub struct EnsureData {
     /// The provider's observed state, for existing-access mechanisms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<ProviderStatus>,
+    /// ⟨M03⟩ Lock continuity (§5 item 7). Omitted when absent, so every M02 result
+    /// is unchanged; reads `not_verified` when absent ([`Self::lock_continuity`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_continuity: Option<LockContinuityReport>,
+    /// ⟨M03⟩ Conditions readiness depends on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditions: Vec<ReadinessCondition>,
+    /// ⟨M03⟩ When a refresh is needed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_condition: Option<RefreshCondition>,
+    /// ⟨M03⟩ Revocation semantics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revocation: Option<RevocationSemantics>,
+    /// ⟨M03⟩ Evidence behind reported values.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<crate::managed::EvidenceEntry>,
+    /// ⟨M03⟩ The effective connection policy and its wording.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_policy: Option<crate::managed::ConnectionPolicyReport>,
+}
+
+impl EnsureData {
+    /// `lock_continuity`, `not_verified` when absent.
+    #[must_use]
+    pub fn lock_continuity(&self) -> LockContinuityReport {
+        self.lock_continuity.unwrap_or_default()
+    }
 }
 
 /// Dependency of continued readiness (spec §6.5).
@@ -695,6 +825,25 @@ pub struct RevokeData {
     /// Latest instant an already-issued credential could still be accepted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_possible_credential_expiry: Option<Timestamp>,
+    /// ⟨M03⟩ One row per (destination, account) with an unexpired entry (ADR-0008
+    /// D7 items 2–3).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remote_effects: Vec<RemoteEffectReport>,
+    /// ⟨M03⟩ The cascade's owned connections (F15).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owned_connections: Vec<OwnedConnectionReport>,
+    /// ⟨M03⟩ Fixed notes (`ordinary_connections_not_closed` for a managed revoke).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<RevokeNote>,
+    /// ⟨M03⟩ The runtime's wall clock when the revoke was first admitted, before any
+    /// gate wait (§5 item 9; ADR-0008 §17.10 item 3). Optional on the wire so M01/M02
+    /// documents decode; M03 always fills it; a replay returns the stored value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_at: Option<Timestamp>,
+    /// ⟨M03⟩ Read inside the tombstone transaction; a replay returns the stored
+    /// value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_at: Option<Timestamp>,
 }
 
 /// Owner-channel policy actions (primitives-draft §4.6; spec §6.1).
@@ -723,6 +872,50 @@ pub enum PolicyAction {
         /// Policy.
         policy_id: PolicyId,
     },
+    /// ⟨M03⟩ Set the lock behaviour (§5 item 6): `continue` is widening,
+    /// `revoke_on_lock` narrowing.
+    SetLockBehavior {
+        /// Policy.
+        policy_id: PolicyId,
+        /// Behaviour.
+        behavior: LockBehavior,
+    },
+    /// ⟨M03⟩ Set the connection policy (§5 item 6): `existing: graceful` and
+    /// `multiplexing: owned_masters` are widening; the others narrowing.
+    SetConnectionPolicy {
+        /// Policy.
+        policy_id: PolicyId,
+        /// Existing connections.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        existing: Option<ExistingConnectionsMode>,
+        /// Multiplexing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        multiplexing: Option<MultiplexingMode>,
+    },
+}
+
+impl PolicyAction {
+    /// Whether this action widens authority and so needs a `WidenPolicy` decision
+    /// (ADR-0006 §3.1; m03-plan §5 item 6): `resume`, `clear_cutoff`,
+    /// `set_lock_behavior{continue}`, and `set_connection_policy` with `existing:
+    /// graceful` or `multiplexing: owned_masters`. Looks only at the request, not at
+    /// the stored policy.
+    #[must_use]
+    pub fn is_widening(&self) -> bool {
+        match self {
+            PolicyAction::Resume { .. } | PolicyAction::ClearCutoff { .. } => true,
+            PolicyAction::Pause { .. } | PolicyAction::Cutoff { .. } => false,
+            PolicyAction::SetLockBehavior { behavior, .. } => *behavior == LockBehavior::Continue,
+            PolicyAction::SetConnectionPolicy {
+                existing,
+                multiplexing,
+                ..
+            } => {
+                *existing == Some(ExistingConnectionsMode::Graceful)
+                    || *multiplexing == Some(MultiplexingMode::OwnedMasters)
+            }
+        }
+    }
 }
 
 /// Verdict on a server-issued decision record (ADR-0006 §3.1).
@@ -809,6 +1002,15 @@ pub enum Request {
     Setup(SetupRequest),
     /// Catalog change (M02; needs `setup/1`).
     Catalog(CatalogRequest),
+    /// ⟨M03⟩ Issuer status, registration, unlock, retirement and the recovery bundle
+    /// (needs `issuer/1`, not offered until the activation change set).
+    Issuer(IssuerRequest),
+    /// ⟨M03⟩ Enrollment (needs `enrollment/1`, not offered until the activation
+    /// change set).
+    Enrollment(EnrollmentRequest),
+    /// ⟨M03⟩ Owned connections (needs `connections/1`, not offered until the
+    /// activation change set).
+    Connections(ConnectionsRequest),
 }
 
 /// How the application admits a request (m02-plan U0 "journaled kinds"; ADR-0006
@@ -845,6 +1047,9 @@ impl Request {
             Request::Shutdown(_) => "shutdown",
             Request::Setup(r) => r.kind(),
             Request::Catalog(_) => "catalog",
+            Request::Issuer(r) => r.kind(),
+            Request::Enrollment(r) => r.kind(),
+            Request::Connections(r) => r.kind(),
         }
     }
 
@@ -867,6 +1072,34 @@ impl Request {
             Request::Setup(SetupRequest::Rollback { .. }) => Admission::Journaled("setup.rollback"),
             Request::Setup(SetupRequest::Repair { .. }) => Admission::Journaled("setup.repair"),
             Request::Catalog(_) => Admission::Journaled("catalog"),
+            // ⟨M03⟩ m03-plan §5 items 2, 3, 4a, 11, 12.
+            Request::Issuer(IssuerRequest::Status | IssuerRequest::Bundle { .. }) => {
+                Admission::ReadOnly
+            }
+            Request::Issuer(
+                IssuerRequest::Register { .. }
+                | IssuerRequest::Unlock
+                | IssuerRequest::Retire { .. },
+            ) => Admission::Synchronous,
+            Request::Enrollment(EnrollmentRequest::Preview { .. }) => Admission::ReadOnly,
+            Request::Enrollment(EnrollmentRequest::Apply { .. }) => {
+                Admission::Journaled("enrollment.apply")
+            }
+            Request::Enrollment(EnrollmentRequest::Verify { .. }) => {
+                Admission::Journaled("enrollment.verify")
+            }
+            Request::Enrollment(EnrollmentRequest::Remove { .. }) => {
+                Admission::Journaled("enrollment.remove")
+            }
+            Request::Enrollment(
+                EnrollmentRequest::Reconcile { .. }
+                | EnrollmentRequest::Abandon { .. }
+                | EnrollmentRequest::Step { .. }
+                | EnrollmentRequest::StepResult { .. },
+            ) => Admission::Synchronous,
+            Request::Connections(
+                ConnectionsRequest::Close { .. } | ConnectionsRequest::Register { .. },
+            ) => Admission::Synchronous,
         }
     }
 
@@ -880,6 +1113,9 @@ impl Request {
         match self {
             Request::Shutdown(_) => Some(crate::ipc::capability::SERVICE_CONTROL_V1),
             Request::Setup(_) | Request::Catalog(_) => Some(crate::ipc::capability::SETUP_V1),
+            Request::Issuer(_) => Some(crate::ipc::capability::ISSUER_V1),
+            Request::Enrollment(_) => Some(crate::ipc::capability::ENROLLMENT_V1),
+            Request::Connections(_) => Some(crate::ipc::capability::CONNECTIONS_V1),
             Request::Inspect(_)
             | Request::Ensure(_)
             | Request::Bind(_)
@@ -898,13 +1134,19 @@ impl Request {
     /// refused **before dispatch** otherwise, with `INTERACTION_REQUIRED` and no
     /// decision record (ADR-0006 §2.3, §3.1; design-fix second round R5): completing
     /// a decision and confirming time. `Attend` itself is a frame, not a request;
-    /// its precondition is a session that declared `interactive`.
+    /// its precondition is a session that declared `interactive`. ⟨M03⟩ Also
+    /// `Issuer::Unlock` (m03-plan §5 item 2: attended sessions only).
     #[must_use]
     pub fn requires_attended_session(&self) -> bool {
-        matches!(self, Request::Decide(_) | Request::ConfirmTime(_))
+        matches!(
+            self,
+            Request::Decide(_) | Request::ConfirmTime(_) | Request::Issuer(IssuerRequest::Unlock)
+        )
     }
 
-    /// Whether the request is a widening policy action (`resume`, `clear_cutoff`).
+    /// Whether the request is a widening policy action (`resume`, `clear_cutoff`;
+    /// ⟨M03⟩ `set_lock_behavior{continue}`, `set_connection_policy` with `existing:
+    /// graceful` or `multiplexing: owned_masters`; [`PolicyAction::is_widening`]).
     /// These **are** dispatched on any session, and the application always creates a
     /// `WidenPolicy` decision record and never executes on dispatch: it returns
     /// `APPROVAL_REQUIRED` on an attended session and `INTERACTION_REQUIRED` on an
@@ -914,10 +1156,10 @@ impl Request {
     /// this predicate looks only at the request, not at the stored cutoff.
     #[must_use]
     pub fn is_widening_policy_action(&self) -> bool {
-        matches!(
-            self,
-            Request::Policy(PolicyAction::Resume { .. } | PolicyAction::ClearCutoff { .. })
-        )
+        match self {
+            Request::Policy(action) => action.is_widening(),
+            _ => false,
+        }
     }
 
     /// Whether the request can have external effects. `Shutdown` is a runtime

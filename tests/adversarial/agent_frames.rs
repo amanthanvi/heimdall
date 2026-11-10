@@ -18,9 +18,9 @@ use std::time::{Duration, Instant};
 
 use heimdall_contract::ipc::MAX_SIGNING_FRAME_BYTES;
 use heimdall_ipc::signing::{
-    AllowedRequest, IDLE_TIMEOUT_MS, MAX_IDENTITIES, NoIdentities, Signer, SigningRefusal,
-    classify, empty_identities_frame, failure_frame, identities_frame, parse_sign_request, serve,
-    serve_with_idle, sign_response_frame,
+    AllowedRequest, IDLE_TIMEOUT_MS, MAX_IDENTITIES, NoIdentities, SignOutcome, Signer,
+    SigningRefusal, SigningSession, classify, empty_identities_frame, failure_frame,
+    identities_frame, parse_sign_request, serve, serve_with_idle, sign_response_frame,
 };
 use heimdall_testkit::CANARY_PREFIX;
 use proptest::prelude::*;
@@ -63,15 +63,44 @@ struct ScriptedSigner {
 
 #[async_trait::async_trait]
 impl Signer for ScriptedSigner {
-    async fn identities(&self) -> Vec<(Vec<u8>, String)> {
+    async fn identities(&self, _session: &SigningSession) -> Vec<(Vec<u8>, String)> {
         self.identities.clone()
     }
-    async fn sign(&self, key_blob: &[u8], data: &[u8], flags: u32) -> Option<Vec<u8>> {
+    async fn sign(
+        &self,
+        _session: &SigningSession,
+        key_blob: &[u8],
+        data: &[u8],
+        flags: u32,
+    ) -> SignOutcome {
         self.seen
             .lock()
             .unwrap()
             .push((key_blob.to_vec(), data.to_vec(), flags));
-        self.signature.clone()
+        // M01 behaviour: the fixture models a grant with no signing gate, so its
+        // signature is declared ungated (ADR-0008 §17.15; the release check is M03's,
+        // tested in `integration_ipc_signing_m03`).
+        match &self.signature {
+            Some(sig) => SignOutcome::ungated_signature(sig),
+            None => SignOutcome::failure(),
+        }
+    }
+}
+
+/// Fixture peer and endpoint for the connection's `SigningSession` (M03 adds them;
+/// the M01 framing does not depend on them).
+fn peer() -> heimdall_ipc::PeerIdentity {
+    heimdall_ipc::PeerIdentity::Unix {
+        uid: 1000,
+        gid: 1000,
+        pid: None,
+    }
+}
+
+fn endpoint() -> heimdall_contract::provider::EndpointRef {
+    heimdall_contract::provider::EndpointRef {
+        kind: heimdall_contract::provider::EndpointKind::UnixSocket,
+        locator: "/fixture/signing.sock".to_owned(),
     }
 }
 
@@ -117,7 +146,7 @@ async fn exchange(
     let (mut client, server) = tokio::io::duplex(1 << 20);
     let shutdown = CancellationToken::new();
     let start = Instant::now();
-    let srv = serve_with_idle(server, signer, shutdown, idle);
+    let srv = serve_with_idle(server, peer(), endpoint(), signer, shutdown, idle);
     let cli = async {
         // The server may close early (oversize); write errors are expected then.
         let _ = client.write_all(input).await;
@@ -439,6 +468,8 @@ async fn idle_connection_closes_at_the_idle_timeout() {
     let start = Instant::now();
     let res = serve_with_idle(
         server,
+        peer(),
+        endpoint(),
         Arc::new(NoIdentities),
         CancellationToken::new(),
         idle,
@@ -458,6 +489,8 @@ async fn idle_connection_closes_at_the_idle_timeout() {
     let start = Instant::now();
     serve_with_idle(
         server,
+        peer(),
+        endpoint(),
         Arc::new(NoIdentities),
         CancellationToken::new(),
         idle,
@@ -476,9 +509,15 @@ async fn public_serve_closes_after_thirty_seconds_idle() {
     let deadline = Duration::from_millis(IDLE_TIMEOUT_MS);
     let (_client, server) = tokio::io::duplex(1024);
     let start = tokio::time::Instant::now();
-    serve(server, Arc::new(NoIdentities), CancellationToken::new())
-        .await
-        .unwrap();
+    serve(
+        server,
+        peer(),
+        endpoint(),
+        Arc::new(NoIdentities),
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
     let elapsed = start.elapsed();
     assert!(
         elapsed >= deadline && elapsed < deadline + Duration::from_secs(1),
@@ -488,9 +527,15 @@ async fn public_serve_closes_after_thirty_seconds_idle() {
     let (mut client, server) = tokio::io::duplex(1024);
     client.write_all(&[0]).await.unwrap();
     let start = tokio::time::Instant::now();
-    serve(server, Arc::new(NoIdentities), CancellationToken::new())
-        .await
-        .unwrap();
+    serve(
+        server,
+        peer(),
+        endpoint(),
+        Arc::new(NoIdentities),
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
     let elapsed = start.elapsed();
     assert!(
         elapsed >= deadline && elapsed < deadline + Duration::from_secs(1),
@@ -504,7 +549,9 @@ async fn shutdown_closes_promptly() {
     let token = CancellationToken::new();
     token.cancel();
     let start = Instant::now();
-    serve(server, Arc::new(NoIdentities), token).await.unwrap();
+    serve(server, peer(), endpoint(), Arc::new(NoIdentities), token)
+        .await
+        .unwrap();
     assert!(start.elapsed() < Duration::from_secs(1));
 }
 

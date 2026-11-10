@@ -1,0 +1,25 @@
+{
+  "op": "enrollment",
+  "action": "remove",
+  "target": {
+    "kind": "foreign",
+    "local_alias": "lab",
+    "bundle_destination_id": "dest-lab-other-install",
+    "bundle_hostname": "lab.example.internal",
+    "bundle_port": 22,
+    "account": "deploy",
+    "marker": "heimdall:enr_00112233445566778899aabbccddeeff",
+    "ca_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFNZTlRIRVRJQy1QTEFDRUhPTERFUi1OT1QtQS1LRVk=",
+    "line_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "registry": {
+      "resolved_by": "remote_home"
+    },
+    "form": "account"
+  },
+  "request_id": "req-0304",
+  "interaction": "interactive",
+  "wait": {
+    "mode": "sync",
+    "timeout_ms": 30000
+  }
+}

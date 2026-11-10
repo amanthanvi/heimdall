@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{AccountName, DestinationId, IdentityId, ProfileId, RequestId};
+use crate::managed::PreferredMechanism;
 use crate::provider::EndpointRef;
 use crate::request::AccessPairRef;
 
@@ -198,6 +199,20 @@ pub enum CatalogRequest {
         /// Idempotency request ID.
         request_id: RequestId,
     },
+    /// ⟨M03⟩ The ninth action (m03-plan §5 item 4b): a pair's preferred mechanism.
+    /// Journaled under `catalog`, local only. `managed_certificate` is refused
+    /// (`pair_not_enrolled`) without a `verified` enrollment for the pair; the
+    /// preference takes effect for P only through `setup apply`.
+    SetPreference {
+        /// Destination.
+        destination: DestinationId,
+        /// Account.
+        account: AccountName,
+        /// Mechanism.
+        mechanism: PreferredMechanism,
+        /// Idempotency request ID.
+        request_id: RequestId,
+    },
 }
 
 /// A catalog request that breaks a boundary rule the wire types cannot express.
@@ -236,6 +251,7 @@ impl CatalogRequest {
             CatalogRequest::RemoveProfile { .. } => "remove_profile",
             CatalogRequest::DeclareInteraction { .. } => "declare_interaction",
             CatalogRequest::WithdrawDeclaration { .. } => "withdraw_declaration",
+            CatalogRequest::SetPreference { .. } => "set_preference",
         }
     }
 
@@ -250,7 +266,8 @@ impl CatalogRequest {
             | CatalogRequest::UpsertProfile { request_id, .. }
             | CatalogRequest::RemoveProfile { request_id, .. }
             | CatalogRequest::DeclareInteraction { request_id, .. }
-            | CatalogRequest::WithdrawDeclaration { request_id, .. } => request_id,
+            | CatalogRequest::WithdrawDeclaration { request_id, .. }
+            | CatalogRequest::SetPreference { request_id, .. } => request_id,
         }
     }
 
@@ -277,7 +294,8 @@ impl CatalogRequest {
             | CatalogRequest::RemoveIdentity { .. }
             | CatalogRequest::RemoveProfile { .. }
             | CatalogRequest::DeclareInteraction { .. }
-            | CatalogRequest::WithdrawDeclaration { .. } => Ok(()),
+            | CatalogRequest::WithdrawDeclaration { .. }
+            | CatalogRequest::SetPreference { .. } => Ok(()),
         }
     }
 }

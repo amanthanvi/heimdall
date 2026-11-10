@@ -14,6 +14,9 @@ workspace = true
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
 heimdall-store = { workspace = true }
+# M03 (m03-plan §0.6; ADR-0008 §18): the pure registry crate (plan::build,
+# classify_step), called directly through no port.
+heimdall-registry = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 jiff = { workspace = true }
@@ -25,6 +28,9 @@ getrandom = { workspace = true }
 base64ct = { workspace = true }
 
 [dev-dependencies]
+# M03 wave 0 (A2-Q1): virtual time (`tokio::time::pause`) for the deterministic signing-gate and
+# narrowing tests (U0b rows 20, 24). A feature of a pinned crate; no package enters the lock.
+tokio = { workspace = true, features = ["test-util"] }
 heimdall-testkit = { workspace = true }
 proptest = { workspace = true }
 
@@ -39,3 +45,8 @@ path = "../../tests/model/idempotency.rs"
 [[test]]
 name = "model_revocation"
 path = "../../tests/model/revocation.rs"
+
+# M03 wave 0 (U0b row 24): the signing gates, pending marks and permits (app::managed).
+[[test]]
+name = "model_signing_gates"
+path = "../../tests/model/signing_gates.rs"

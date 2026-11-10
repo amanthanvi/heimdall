@@ -1,0 +1,22 @@
+{
+  "enrollment_id": "enr_00112233445566778899aabbccddeeff",
+  "state": "verified",
+  "verified_at": "2026-11-10T13:50:00Z",
+  "evidence": {
+    "client": "OpenSSH_10.5p1",
+    "server": "OpenSSH_10.0p2 Debian-7+deb13u4",
+    "operation_id": "op_00112233445566778899aabbccddeeff",
+    "clock": {
+      "behind_upper_ms": 1400,
+      "rtt_ms": 38,
+      "measured_at": "2026-11-10T13:50:00Z"
+    }
+  },
+  "next": "setup_apply",
+  "notes": [
+    {
+      "kind": "ordinary_ssh_needs_held_slot",
+      "command": "heimdall bind materialize lab"
+    }
+  ]
+}

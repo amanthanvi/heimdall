@@ -29,8 +29,10 @@
 //!
 //! Test targets hosted by this crate (real Cargo `[[test]]` targets, sources under
 //! the repository `tests/` tree): `integration_ipc_unix` (Unix only),
-//! `adversarial_ipc_frames`, `adversarial_agent_frames`. Items they need that are
-//! not part of the supported API are `#[doc(hidden)] pub`.
+//! `adversarial_ipc_frames`, `adversarial_agent_frames`, `adversarial_agent_client_frames`
+//! and ⟨M03⟩ `integration_ipc_signing_m03` (U0b row 1: the signing session and the
+//! capacity-then-release order). Items they need that are not part of the supported
+//! API are `#[doc(hidden)] pub`.
 
 pub mod agent_client;
 pub mod endpoint;

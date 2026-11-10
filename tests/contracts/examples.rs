@@ -4,6 +4,13 @@
 //! The manifest below is explicit on purpose: other units may add their own files
 //! to the directory (the CLI unit records observed outputs there) without affecting
 //! these checks, and a file listed here that disappears fails loudly.
+//!
+//! ⟨M03⟩ The ADR-0006 revision 4 examples (m03-plan U0) are listed too. Their keys,
+//! fingerprints, hosts and paths are synthetic placeholders, never real key material
+//! (AGENTS.md). A bare `EnsureData` or `RevokeData` validates against the `data`
+//! definition of its envelope schema; the `inspect enrollments` and `inspect
+//! connections` views have no public schema file, so they validate against the schema
+//! generated from their type only.
 
 use serde_json::{Map, Value, json};
 
@@ -41,6 +48,14 @@ enum Kind {
     RunRecord,
     SetupPlan,
     SetupResult,
+    // ⟨M03⟩
+    EnsureData,
+    RevokeData,
+    EnrollmentPlan,
+    EnrollmentResult,
+    IssuerStatus,
+    EnrollmentsView,
+    ConnectionsView,
 }
 
 impl Kind {
@@ -59,13 +74,45 @@ impl Kind {
             Kind::RunRecord => "run-record",
             Kind::SetupPlan => "setup-plan",
             Kind::SetupResult => "setup-result",
+            Kind::EnsureData => "envelope.ensure",
+            Kind::RevokeData => "envelope.revoke",
+            Kind::EnrollmentPlan => "enrollment-plan",
+            Kind::EnrollmentResult => "enrollment-result",
+            Kind::IssuerStatus => "issuer-status",
+            Kind::EnrollmentsView => "inspect enrollments (no schema file)",
+            Kind::ConnectionsView => "inspect connections (no schema file)",
         }
+    }
+
+    /// ⟨M03⟩ The `$defs` entry of the envelope schema a bare payload validates
+    /// against, when the example is a payload rather than a whole document.
+    fn payload_def(self) -> Option<&'static str> {
+        match self {
+            Kind::EnsureData => Some("EnsureData"),
+            Kind::RevokeData => Some("RevokeData"),
+            _ => None,
+        }
+    }
+
+    /// ⟨M03⟩ Kinds with no public schema: the schema generated from the type.
+    fn generated_only(self) -> Option<Value> {
+        let schema = match self {
+            Kind::EnrollmentsView => {
+                schemars::schema_for!(heimdall_contract::enrollment::EnrollmentsView)
+            }
+            Kind::ConnectionsView => {
+                schemars::schema_for!(heimdall_contract::managed::ConnectionsView)
+            }
+            _ => return None,
+        };
+        Some(serde_json::to_value(&schema).unwrap())
     }
 
     /// Deserialize into the typed model and serialize back.
     fn round_trip(self, v: &Value) -> Value {
         fn go<T: serde::Serialize + serde::de::DeserializeOwned>(v: &Value) -> Value {
-            let typed: T = serde_json::from_value(v.clone()).unwrap();
+            let typed: T = serde_json::from_value(v.clone())
+                .unwrap_or_else(|e| panic!("{}: {e}", std::any::type_name::<T>()));
             serde_json::to_value(&typed).unwrap()
         }
         match self {
@@ -82,6 +129,13 @@ impl Kind {
             Kind::RunRecord => go::<RunRecord>(v),
             Kind::SetupPlan => go::<SetupPlan>(v),
             Kind::SetupResult => go::<SetupResult>(v),
+            Kind::EnsureData => go::<EnsureData>(v),
+            Kind::RevokeData => go::<RevokeData>(v),
+            Kind::EnrollmentPlan => go::<heimdall_contract::enrollment::EnrollmentPlan>(v),
+            Kind::EnrollmentResult => go::<heimdall_contract::enrollment::EnrollmentResult>(v),
+            Kind::IssuerStatus => go::<heimdall_contract::issuer::IssuerStatus>(v),
+            Kind::EnrollmentsView => go::<heimdall_contract::enrollment::EnrollmentsView>(v),
+            Kind::ConnectionsView => go::<heimdall_contract::managed::ConnectionsView>(v),
         }
     }
 }
@@ -163,6 +217,29 @@ const EXAMPLES: &[(&str, Kind)] = &[
         Kind::EnvelopeError,
     ),
     ("envelope.error.provider-locked.json", Kind::EnvelopeError),
+    // ADR-0006 revision 4 (m03-plan section 5; U0 "the new examples round-trip").
+    ("request.issuer.status.json", Kind::Request),
+    ("request.issuer.register.json", Kind::Request),
+    ("request.issuer.register-rotation.json", Kind::Request),
+    ("request.issuer.unlock.json", Kind::Request),
+    ("request.issuer.retire.json", Kind::Request),
+    ("request.issuer.bundle.json", Kind::Request),
+    ("request.enrollment.preview.json", Kind::Request),
+    ("request.enrollment.apply.json", Kind::Request),
+    ("request.enrollment.verify.json", Kind::Request),
+    ("request.enrollment.remove.json", Kind::Request),
+    ("request.enrollment.remove-foreign.json", Kind::Request),
+    ("request.enrollment.reconcile.json", Kind::Request),
+    ("request.enrollment.abandon.json", Kind::Request),
+    ("request.enrollment.step.json", Kind::Request),
+    ("request.enrollment.step-result.json", Kind::Request),
+    ("enrollment-plan.json", Kind::EnrollmentPlan),
+    ("enrollment-result.json", Kind::EnrollmentResult),
+    ("ensure-data.managed.json", Kind::EnsureData),
+    ("revoke-data.managed.json", Kind::RevokeData),
+    ("inspect.enrollments.json", Kind::EnrollmentsView),
+    ("inspect.issuer.json", Kind::IssuerStatus),
+    ("inspect.connections.json", Kind::ConnectionsView),
 ];
 
 fn load(file: &str) -> (String, Value) {
@@ -173,19 +250,41 @@ fn load(file: &str) -> (String, Value) {
     (text, value)
 }
 
+/// A payload kind's schema: the envelope document's `$defs` with a root `$ref` to the
+/// payload's definition.
+fn payload_schema(kind: Kind, envelope: Value) -> Value {
+    match kind.payload_def() {
+        Some(def) => json!({
+            "$defs": envelope["$defs"].clone(),
+            "$ref": format!("#/$defs/{def}"),
+        }),
+        None => envelope,
+    }
+}
+
 fn schema_doc(kind: Kind) -> Value {
+    if let Some(generated) = kind.generated_only() {
+        return generated;
+    }
     let named = public_schemas()
         .into_iter()
         .find(|s| s.name == kind.schema_name())
         .unwrap();
-    serde_json::to_value(&named.schema).unwrap()
+    payload_schema(kind, serde_json::to_value(&named.schema).unwrap())
 }
 
-fn checked_in_schema(kind: Kind) -> Value {
+/// `None` only for the M03 kinds without a public schema file.
+fn checked_in_schema(kind: Kind) -> Option<Value> {
+    if kind.generated_only().is_some() {
+        return None;
+    }
     let path = repo_root()
         .join("schemas/public-api")
         .join(format!("{}.schema.json", kind.schema_name()));
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    Some(payload_schema(
+        kind,
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap(),
+    ))
 }
 
 /// Strings carry no control character, except the line feeds and tabs of a rendered
@@ -195,7 +294,8 @@ fn all_strings_are_clean(label: &str, v: &Value) {
     fn walk(label: &str, key: Option<&str>, v: &Value) {
         match v {
             Value::String(s) => {
-                let multiline = key == Some("diff");
+                // ⟨M03⟩ `StepResult.stdout` is HM1 lines (m03-plan section 5 item 3).
+                let multiline = matches!(key, Some("diff" | "stdout"));
                 assert!(
                     !s.chars()
                         .any(|c| c.is_control() && !(multiline && matches!(c, '\n' | '\t'))),
@@ -227,9 +327,12 @@ fn every_example_validates_against_generated_and_checked_in_schemas() {
     for (file, kind) in EXAMPLES {
         let (_, value) = load(file);
         for (which, schema) in [
-            ("generated", schema_doc(*kind)),
+            ("generated", Some(schema_doc(*kind))),
             ("checked-in", checked_in_schema(*kind)),
         ] {
+            let Some(schema) = schema else {
+                continue;
+            };
             if let Err(errors) = validate(&schema, &value) {
                 panic!("{file} vs {which} {}: {errors:#?}", kind.schema_name());
             }
@@ -309,14 +412,23 @@ fn strip(v: &mut Value, key: &str) {
 fn unknown_fields_are_tolerated_at_every_nesting_level() {
     // ADR-0006 section 9: readers tolerate unknown non-critical fields.
     const KEY: &str = "x_future_field";
+    let mut refused = Vec::new();
     for (file, kind) in EXAMPLES {
         let (_, original) = load(file);
         let mut extended = original.clone();
         inject(&mut extended, KEY);
-        let mut back = kind.round_trip(&extended);
+        // Every file is tried, so a failure names all the examples it affects.
+        let Ok(mut back) = std::panic::catch_unwind(|| kind.round_trip(&extended)) else {
+            refused.push(*file);
+            continue;
+        };
         strip(&mut back, KEY);
         assert_eq!(back, original, "{file}: unknown fields changed known ones");
     }
+    assert!(
+        refused.is_empty(),
+        "an unknown field at some nesting level is refused in: {refused:?}"
+    );
 }
 
 #[test]
@@ -529,7 +641,14 @@ fn success_examples_carry_no_private_material_fields() {
         }
     }
     for (file, _) in EXAMPLES {
-        walk(&load(file).1, file);
+        let (_, mut v) = load(file);
+        // ⟨M03⟩ `step_token` is the step's correlation nonce (32 hex), returned in the
+        // `RemoteStep` the CLI runs; m03-plan section 5 item 3 names it and states the
+        // step carries no secret. Only that exact field is exempt.
+        if *file == "request.enrollment.step-result.json" {
+            assert!(v.as_object_mut().unwrap().remove("step_token").is_some());
+        }
+        walk(&v, file);
     }
 }
 

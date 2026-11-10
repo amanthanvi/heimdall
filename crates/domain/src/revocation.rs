@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use crate::operation::AdapterIdentity;
 use crate::policy::AuthorityGeneration;
 
+/// ⟨M03⟩ Wire-visible residual types (contract) re-exported here (ADR-0008 D7 item 3).
+pub use heimdall_contract::managed::{ClockMeasurement, DestinationClock, ResidualStatus};
+
 /// A remote effect that is not yet acknowledged.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteEffect {
@@ -31,6 +34,9 @@ pub enum RevocationCause {
     /// Re-validation found the grant's authority withdrawn: a revoke on its chain,
     /// a narrowing outside its approval, or a removed environment permission.
     AuthorityWithdrawn,
+    /// ⟨M03⟩ A `revoke_on_lock` grant revoked by a session lock (ADR-0008 D9; U0b
+    /// row 25).
+    SessionLocked,
 }
 
 /// Persisted before local success is acknowledged. Invalidates approval races,
@@ -257,6 +263,122 @@ pub struct RemoteObligation {
     /// ([`Self::cleared_by_claim`]). Absent when no effect was recorded; omitted then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_seq: Option<u64>,
+    /// ⟨M03⟩ What settles the obligation (ADR-0008 D7 item 3; U0b row 6). Absent
+    /// (an M01/M02 record) reads as [`ObligationKind::NeedsRemoteAction`]; omitted
+    /// when it is that, so such records re-encode unchanged.
+    #[serde(
+        default,
+        skip_serializing_if = "ObligationKind::is_needs_remote_action"
+    )]
+    pub kind: ObligationKind,
+}
+
+/// ⟨M03⟩ What settles a remote obligation (ADR-0008 D7 item 3; §17.1 item 10).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ObligationKind {
+    /// An adapter must confirm a remote action (M01/M02; the cap and backoff of
+    /// ADR-0006 §13.12–§13.19 apply). The default.
+    #[default]
+    NeedsRemoteAction,
+    /// Settled by the issued certificates' expiry, with no adapter call and no
+    /// attempt counted (managed certificates; B1 has no remote revocation action).
+    BoundedByExpiry {
+        /// The latest `valid_before` of a reserved or published entry.
+        latest_valid_before: Timestamp,
+        /// The pair's destination clock measurement (or `unmeasured`). A
+        /// measurement older than the verification freshness is recorded as
+        /// `unmeasured` by whoever builds the obligation (ADR-0008 D5 §6.5 item 4).
+        clock: DestinationClock,
+        /// The last computed status ([`residual_step`]).
+        status: ResidualStatus,
+    },
+}
+
+impl ObligationKind {
+    /// Whether this is the default kind.
+    #[must_use]
+    pub fn is_needs_remote_action(&self) -> bool {
+        matches!(self, ObligationKind::NeedsRemoteAction)
+    }
+}
+
+/// ⟨M03⟩ The drift allowance of ADR-0008 §17.1 item 10, in parts per million of the
+/// measurement's age (`residual_drift_ppm`).
+pub const RESIDUAL_DRIFT_PPM: u64 = 100;
+
+/// ⟨M03⟩ ADR-0008 D7 item 3: the instant a measured residual completes when
+/// evaluated at `now`: `latest_valid_before + behind_upper + rtt + 100 ppm × (now −
+/// measured_at)` (the drift rounded up to the millisecond; a negative age counts as
+/// zero). `None` on overflow (callers then treat the bound as not passed).
+#[must_use]
+pub fn measured_completion_bound(
+    latest_valid_before: Timestamp,
+    clock: &ClockMeasurement,
+    now: Timestamp,
+) -> Option<Timestamp> {
+    let age_ms = now.duration_since(clock.measured_at).as_millis().max(0);
+    let age_ms = u64::try_from(age_ms).ok()?;
+    let drift_ms = age_ms.checked_mul(RESIDUAL_DRIFT_PPM)?.div_ceil(1_000_000);
+    let total = clock
+        .behind_upper_ms
+        .checked_add(clock.rtt_ms)?
+        .checked_add(drift_ms)?;
+    let total = i64::try_from(total).ok()?;
+    latest_valid_before
+        .checked_add(jiff::SignedDuration::from_millis(total))
+        .ok()
+}
+
+/// ⟨M03⟩ ADR-0008 D7 item 3 (§17.1 item 10; U0b row 6): the next status of a remote
+/// obligation, computed by the supervisor's revocation pass with no adapter call.
+///
+/// `safe_now` is the domain's stand-in for the application's `SafeNow`: `Some(wall)`
+/// only when the time gate is `Safe` (that wall time), `None` when time is
+/// uncertain. **Nothing moves on uncertain time** (fail closed).
+///
+/// * `needs_remote_action`: not time-driven (adapter rounds settle it): always
+///   `pending_until`.
+/// * `bounded_by_expiry`, measured clock: `bounded_complete` once
+///   [`measured_completion_bound`] has passed on safe time.
+/// * `bounded_by_expiry`, unmeasured: `nominally_expired` once
+///   `latest_valid_before` has passed on safe time. It never becomes
+///   `bounded_complete` (it is never shown as cleared).
+/// * `bounded_complete`, `nominally_expired` and `unbounded_unknown` never change.
+#[must_use]
+pub fn residual_step(obligation: &RemoteObligation, safe_now: Option<Timestamp>) -> ResidualStatus {
+    let ObligationKind::BoundedByExpiry {
+        latest_valid_before,
+        clock,
+        status,
+    } = &obligation.kind
+    else {
+        return ResidualStatus::PendingUntil;
+    };
+    if *status != ResidualStatus::PendingUntil {
+        return *status;
+    }
+    let Some(now) = safe_now else {
+        return ResidualStatus::PendingUntil;
+    };
+    match clock {
+        DestinationClock::Measured(m) => {
+            match measured_completion_bound(*latest_valid_before, m, now) {
+                Some(bound) if now >= bound => ResidualStatus::BoundedComplete,
+                _ => ResidualStatus::PendingUntil,
+            }
+        }
+        DestinationClock::Unmeasured => {
+            if now >= *latest_valid_before {
+                ResidualStatus::NominallyExpired
+            } else {
+                ResidualStatus::PendingUntil
+            }
+        }
+        // A clock form this build does not know never completes anything.
+        _ => ResidualStatus::PendingUntil,
+    }
 }
 
 impl PendingRemoteRevocation {
@@ -481,6 +603,7 @@ mod tests {
                 stopped: false,
                 effect_round: None,
                 effect_seq: None,
+                kind: Default::default(),
             }],
             claimed_at: Some("2026-10-02T09:00:01Z".parse().unwrap()),
             ..r
@@ -514,6 +637,7 @@ mod tests {
             stopped: false,
             effect_round: None,
             effect_seq: None,
+            kind: Default::default(),
         };
         let exact = o(id("fake_agent", "fixture-1"));
         assert!(exact.served_by(&id("fake_agent", "fixture-1")));
@@ -573,6 +697,7 @@ mod tests {
                     stopped: false,
                     effect_round: None,
                     effect_seq: None,
+                    kind: Default::default(),
                 },
                 RemoteObligation {
                     grant: g.clone(),
@@ -582,6 +707,7 @@ mod tests {
                     stopped: true,
                     effect_round: None,
                     effect_seq: None,
+                    kind: Default::default(),
                 },
             ],
             ..r
@@ -738,6 +864,7 @@ mod tests {
             stopped: false,
             effect_round: None,
             effect_seq: None,
+            kind: Default::default(),
         };
         assert!(o.cleared_by_claim(Some(1)));
         assert!(

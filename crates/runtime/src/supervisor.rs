@@ -95,6 +95,22 @@
 //!   [`Supervisor::with_liveness`] replaced it. `Unknown` never releases. A failed pass
 //!   is logged and the next one runs on schedule.
 //!
+//! * ⟨M03⟩ **Managed credentials, wave 0** (m03-plan U0b rows 6, 7, 8):
+//!   - every revocation pass that finds a `bounded_by_expiry` obligation runs
+//!     `Operations::settle_bounded_obligations` (ADR-0008 D7 item 3): such
+//!     obligations move on safe time only, with no adapter call and no attempt
+//!     counted, and a record of bounded obligations only gets no adapter round (a
+//!     record holding a `nominally_expired` obligation is kept, ADR-0008 §17.15); the
+//!     scheduler also wakes when a bound may have passed ([`RevocationReport::bounded`]);
+//!   - with an adapter declaring a remote credential effect configured, a cleanup
+//!     intent that a processing kept (a timed-out immediate call, ADR-0008 D7 item 5)
+//!     is processed again only after [`retry_delay`] and at most
+//!     `Backoff::max_attempts` times in this process; otherwise the M02 behaviour
+//!     (every intent, every pass) is unchanged;
+//!   - [`Supervisor::managed_reissue_pass`] runs beside the scheduler pass: the hook
+//!     for re-issuing lost credentials (U6/U10), a no-op while the managed adapter is
+//!     unregistered.
+//!
 //! **Wake-ups.** [`Supervisor::run`] runs the time guard at start and every
 //! `anchor_interval`, and a scheduler pass at start, at the next wake instant a
 //! pass returns (never later than `max_idle_sleep`), shortly after any committed
@@ -119,12 +135,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use heimdall_app::Operations;
+use heimdall_app::operations::{BoundedReport, IntentOutcome, only_bounded};
 use heimdall_app::ports::{AdapterError, ProcessLiveness, ResourceCleaner};
 use heimdall_app::reconcile::{
     Action, Backoff, CleanupHook, CleanupPoint, guard_cleanup, plan, should_retry,
 };
 use heimdall_contract::event::EventType;
-use heimdall_contract::ids::{BindingId, GrantId, ResourceId};
+use heimdall_contract::ids::{BindingId, GrantId, OperationId, ResourceId};
 use heimdall_contract::{Code, Timestamp};
 use heimdall_domain::holder::{HolderState, ProcessHolder};
 use heimdall_domain::resource::{
@@ -287,6 +304,24 @@ pub struct Supervisor {
     jitter: Arc<dyn Jitter>,
     /// ⟨M02⟩ U8: where the holder pass reads liveness.
     liveness: Arc<dyn ProcessLiveness>,
+    /// ⟨M03⟩ U0b row 7: the back-off of kept cleanup intents, per (grant,
+    /// operation), when an adapter with a remote credential effect is configured.
+    intents: tokio::sync::Mutex<HashMap<(GrantId, OperationId), IntentRetry>>,
+}
+
+/// ⟨M03⟩ U0b row 7 (ADR-0007 §12.13; ADR-0008 D7 item 5): the retry schedule of one
+/// kept cleanup intent version (in memory: a restart processes every intent once
+/// again, then schedules afresh, still bounded by the cap).
+#[derive(Debug, Clone, Copy)]
+struct IntentRetry {
+    /// The intent version this schedule belongs to (a rewritten intent starts over).
+    version: u64,
+    /// Processings so far that left it on record.
+    attempts: u32,
+    /// Continuous-clock instant of the next processing.
+    at: Duration,
+    /// The cap was reached: not processed again in this process.
+    stopped: bool,
 }
 
 /// ⟨r2.7⟩ The single owner of the repeated adapter `revoke()` rounds for pending
@@ -328,6 +363,15 @@ pub struct RevocationReport {
     /// adapter responsible for any obligation is configured (ADR-0006 §13.12 item
     /// 2): no attempt consumed; the next round is backed off further.
     pub waiting: Vec<GrantId>,
+    /// ⟨M03⟩ U0b row 6: what the bounded-obligation step did (run only when a
+    /// record holds a `bounded_by_expiry` obligation; `None` otherwise).
+    pub bounded: Option<BoundedReport>,
+    /// ⟨M03⟩ U0b row 7: kept cleanup intents scheduled for another processing:
+    /// `(grant, operation, processings so far, delay until the next)`.
+    pub intents_scheduled: Vec<(GrantId, OperationId, u32, Duration)>,
+    /// ⟨M03⟩ U0b row 7: kept cleanup intents that reached the cap in this pass (not
+    /// processed again in this process; restart recovery processes them once more).
+    pub intents_stopped: Vec<(GrantId, OperationId)>,
 }
 
 /// The single cleanup executor's port, hook, backoff and per-resource retry state.
@@ -396,6 +440,7 @@ impl Supervisor {
             }),
             jitter: Arc::new(RandomJitter),
             liveness: Arc::new(PlatformLiveness),
+            intents: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -566,6 +611,11 @@ impl Supervisor {
                         now + base.mul_f64(0.5 + 0.5 * self.jitter.unit().clamp(0.0, 1.0))
                     }
                 };
+                // ⟨M03⟩ U0b row 8: the managed re-issue hook (a no-op while the
+                // managed adapter is unregistered).
+                if let Err(e) = self.managed_reissue_pass().await {
+                    tracing::warn!(code = %e.code, "managed re-issue pass failed");
+                }
                 if self.cleanup.is_some() {
                     match self.cleanup_pass().await {
                         Ok(report) => {
@@ -608,14 +658,23 @@ impl Supervisor {
         &self,
     ) -> Result<Option<heimdall_contract::Timestamp>, heimdall_app::OpError> {
         self.operations.tick().await?;
+        let mut bounded_at = None;
         let retry_in = match self.revocation_pass().await {
-            Ok(report) => report.next_due_in,
+            Ok(report) => {
+                bounded_at = report.bounded.and_then(|b| b.next_at);
+                report.next_due_in
+            }
             Err(e) => {
                 tracing::warn!(code = %e.code, "revocation retry pass failed");
                 None
             }
         };
         let next = self.next_wake().await?;
+        // ⟨M03⟩ U0b row 6: wake when a bounded obligation's bound may have passed.
+        let next = match (next, bounded_at) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         let retry_at = match (retry_in, &self.state) {
             (Some(d), Some((_, clock))) => jiff::SignedDuration::try_from(d)
                 .ok()
@@ -669,17 +728,32 @@ impl Supervisor {
             return Ok(report);
         };
         let mut ex = self.revocations.lock().await;
-        if let Err(e) = self.operations.process_cleanup_intents().await {
-            tracing::warn!(code = %e.code, "cleanup intents could not be processed");
-        }
+        let backoff = ex.backoff;
+        self.cleanup_intent_step(clock.continuous(), &backoff, &mut report)
+            .await;
         let pending = self.operations.pending_remote_revocations().await?;
+        // ⟨M03⟩ U0b row 6 (ADR-0008 D7 item 3): `bounded_by_expiry` obligations move
+        // on safe time alone, with no adapter call and no attempt counted. Run only
+        // when a record holds one, so M01/M02 passes are unchanged.
+        if pending.iter().any(|p| {
+            p.obligations
+                .iter()
+                .any(|o| !o.kind.is_needs_remote_action())
+        }) {
+            match self.operations.settle_bounded_obligations().await {
+                Ok(b) => report.bounded = Some(b),
+                Err(e) => tracing::warn!(code = %e.code, "bounded obligations were not settled"),
+            }
+        }
         let now = clock.continuous();
         ex.due
             .retain(|root, _| pending.iter().any(|p| &p.root == root && !p.stopped));
-        let backoff = ex.backoff;
         let cap = backoff.max_attempts;
         for p in pending {
-            if p.stopped {
+            // A record of bounded obligations only has no adapter round to run (the
+            // step above settles it).
+            if p.stopped || only_bounded(&p) {
+                ex.due.remove(&p.root);
                 continue;
             }
             let scheduled = ex
@@ -792,7 +866,120 @@ impl Supervisor {
             }
         }
         report.next_due_in = ex.due.values().map(|s| s.at.saturating_sub(now)).min();
+        let intents_due = self
+            .intents
+            .lock()
+            .await
+            .values()
+            .filter(|r| !r.stopped)
+            .map(|r| r.at.saturating_sub(now))
+            .min();
+        report.next_due_in = match (report.next_due_in, intents_due) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         Ok(report)
+    }
+
+    /// ⟨M03⟩ U0b row 7 (ADR-0007 §12.13; ADR-0008 D7 item 5): process the cleanup
+    /// intents on record (ADR-0006 §13.19 item 2), as every revocation pass does.
+    ///
+    /// * With no adapter declaring a remote credential effect (every M02 adapter):
+    ///   unchanged, `Operations::process_cleanup_intents`, every intent every pass.
+    /// * Otherwise each intent is processed on its own schedule: a new one at once;
+    ///   one that a processing left on record (a kept intent: its immediate call
+    ///   timed out, or its applying adapter is not configured) again after
+    ///   [`retry_delay`]`(backoff, n, jitter)` on the continuous clock, `n` being the
+    ///   processings so far, and not again in this process once `n` reaches
+    ///   `backoff.max_attempts`. An intent whose attempt is still in flight here is
+    ///   skipped without a schedule (its preparation's return path processes it). A
+    ///   rewritten intent (a new version) starts over.
+    async fn cleanup_intent_step(
+        &self,
+        now: Duration,
+        backoff: &Backoff,
+        report: &mut RevocationReport,
+    ) {
+        if !self.operations.has_remote_effect_adapter() {
+            if let Err(e) = self.operations.process_cleanup_intents().await {
+                tracing::warn!(code = %e.code, "cleanup intents could not be processed");
+            }
+            return;
+        }
+        let intents = match self.operations.cleanup_intents().await {
+            Ok(intents) => intents,
+            Err(e) => {
+                tracing::warn!(code = %e.code, "cleanup intents could not be processed");
+                return;
+            }
+        };
+        let mut schedule = self.intents.lock().await;
+        schedule.retain(|(g, o), _| intents.iter().any(|i| &i.grant == g && &i.operation == o));
+        for intent in intents {
+            let key = (intent.grant.clone(), intent.operation.clone());
+            let version = intent.version;
+            let current = schedule.get(&key).copied().filter(|r| r.version == version);
+            if current.is_some_and(|r| r.stopped || r.at > now) {
+                continue;
+            }
+            match self
+                .operations
+                .process_cleanup_intent_reporting(intent)
+                .await
+            {
+                IntentOutcome::Kept => {
+                    let attempts = current.map_or(0, |r| r.attempts).saturating_add(1);
+                    let stopped = attempts >= backoff.max_attempts;
+                    let delay = if stopped {
+                        Duration::ZERO
+                    } else {
+                        retry_delay(backoff, attempts, self.jitter.as_ref())
+                    };
+                    if stopped {
+                        tracing::warn!(
+                            attempts,
+                            "a kept cleanup intent reached its retry cap; it is kept for the next restart"
+                        );
+                        report.intents_stopped.push(key.clone());
+                    } else {
+                        report.intents_scheduled.push((
+                            key.0.clone(),
+                            key.1.clone(),
+                            attempts,
+                            delay,
+                        ));
+                    }
+                    schedule.insert(
+                        key,
+                        IntentRetry {
+                            version,
+                            attempts,
+                            at: now + delay,
+                            stopped,
+                        },
+                    );
+                }
+                IntentOutcome::Cleared => {
+                    schedule.remove(&key);
+                }
+                // Skipped (in flight here) or a later outcome: no schedule.
+                _ => {}
+            }
+        }
+    }
+
+    /// ⟨M03⟩ U0b row 8 (ADR-0008 D2 table; F18): the supervisor hook for
+    /// re-issuing the credentials of `lost` instances (grants degraded
+    /// `credential_reissue_pending`). Its body is U6/U10's. While the managed
+    /// adapter is not registered (wave 0: it does not exist) it is a no-op that
+    /// reads and writes nothing; it returns the grants it re-issued (none).
+    ///
+    /// # Errors
+    /// None in wave 0; U6/U10's body reports a store failure as
+    /// `STATE_UNAVAILABLE`.
+    #[allow(clippy::unused_async)] // the U6/U10 body awaits the managed driver
+    pub async fn managed_reissue_pass(&self) -> Result<Vec<GrantId>, heimdall_app::OpError> {
+        Ok(Vec::new())
     }
 
     async fn next_wake(&self) -> Result<Option<Timestamp>, heimdall_app::OpError> {

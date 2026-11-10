@@ -1,0 +1,389 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RecoveryBundle",
+  "description": "`issuer.bundle` data: a file written only by the CLI (§5 \"RecoveryBundle\").\nNever a private key, a passphrase or a socket path.",
+  "type": "object",
+  "properties": {
+    "cas": {
+      "description": "CAs.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BundleCa"
+      }
+    },
+    "created_at": {
+      "description": "When written.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "enrollments": {
+      "description": "Enrollments.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BundleEnrollment"
+      }
+    },
+    "instructions": {
+      "description": "Removal instructions.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "redacted": {
+      "description": "Hostnames omitted.",
+      "type": "boolean"
+    },
+    "schema": {
+      "description": "[`RECOVERY_BUNDLE_SCHEMA`].",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "created_at",
+    "redacted",
+    "cas",
+    "enrollments",
+    "instructions"
+  ],
+  "$defs": {
+    "AccountName": {
+      "description": "Remote account name on a destination.",
+      "type": "string"
+    },
+    "BundleCa": {
+      "description": "One CA in a recovery bundle.",
+      "type": "object",
+      "properties": {
+        "backup_created_at": {
+          "description": "Backup time.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "backup_sha256": {
+          "description": "Backup digest (hex).",
+          "type": "string"
+        },
+        "fingerprint": {
+          "description": "Fingerprint.",
+          "$ref": "#/$defs/CaFingerprint"
+        },
+        "public_key": {
+          "description": "The OpenSSH public key.",
+          "type": "string"
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/CaState"
+        }
+      },
+      "required": [
+        "fingerprint",
+        "public_key",
+        "backup_sha256",
+        "backup_created_at",
+        "state"
+      ]
+    },
+    "BundleEnrollment": {
+      "description": "One enrollment in a recovery bundle (public metadata).",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "alias": {
+          "description": "The alias.",
+          "type": "string"
+        },
+        "ca_fingerprint": {
+          "description": "CA.",
+          "$ref": "#/$defs/CaFingerprint"
+        },
+        "ca_public_key": {
+          "description": "The CA's OpenSSH public key.",
+          "type": "string"
+        },
+        "destination_id": {
+          "description": "The writing installation's destination ID (a label elsewhere).",
+          "type": "string"
+        },
+        "form": {
+          "description": "Form.",
+          "$ref": "#/$defs/EnrollmentForm"
+        },
+        "hostname": {
+          "description": "Hostname; absent in a redacted bundle.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "late_write": {
+          "description": "The `late_write` residual, while it exists.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BundleLateWrite"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "line_sha256": {
+          "description": "The line's SHA-256 (hex).",
+          "type": "string"
+        },
+        "marker": {
+          "description": "`heimdall:enr_…`.",
+          "type": "string"
+        },
+        "port": {
+          "description": "Port; absent in a redacted bundle.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "registry": {
+          "description": "The canonical registry (what foreign removal uses).",
+          "$ref": "#/$defs/RegistryCanonical"
+        },
+        "registry_path_display": {
+          "description": "For people only; never parsed back.",
+          "type": "string"
+        },
+        "state": {
+          "description": "State.",
+          "$ref": "#/$defs/EnrollmentState"
+        }
+      },
+      "required": [
+        "marker",
+        "destination_id",
+        "alias",
+        "account",
+        "registry",
+        "registry_path_display",
+        "form",
+        "state",
+        "ca_fingerprint",
+        "ca_public_key",
+        "line_sha256"
+      ]
+    },
+    "BundleLateWrite": {
+      "description": "A bundle enrollment's `late_write` residual: the remote not-after only.",
+      "type": "object",
+      "properties": {
+        "not_after_remote": {
+          "description": "Remote epoch seconds after which a late script fails its own check.",
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "not_after_remote"
+      ]
+    },
+    "CaFingerprint": {
+      "description": "⟨M03⟩ A CA public key's fingerprint: `SHA256:` followed by exactly 43 characters\nof unpadded standard base64 (`A-Za-z0-9+/`), as `ssh-keygen -l` prints it\n(m03-plan §5 item 1). Validated on parse and on decode; compared exactly.",
+      "type": "string"
+    },
+    "CaState": {
+      "description": "A CA's state (ADR-0008 D4 item 3). Transitions:\n`heimdall_domain::issuance::ca_transition`.",
+      "oneOf": [
+        {
+          "description": "Rotation's new CA before its first verified enrollment; signs only\nverification certificates for its own enrollments.",
+          "type": "string",
+          "const": "pending"
+        },
+        {
+          "description": "Issues for pairs it has a verified enrollment for.",
+          "type": "string",
+          "const": "active"
+        },
+        {
+          "description": "Issuance disabled; the key is being unloaded.",
+          "type": "string",
+          "const": "retiring"
+        },
+        {
+          "description": "No process holds the key.",
+          "type": "string",
+          "const": "unloaded"
+        },
+        {
+          "description": "The store item is gone.",
+          "type": "string",
+          "const": "deleted"
+        },
+        {
+          "description": "Final.",
+          "type": "string",
+          "const": "retired"
+        }
+      ]
+    },
+    "EnrollmentForm": {
+      "description": "The trust form (ADR-0008 D5 §6.1, §6.9).",
+      "oneOf": [
+        {
+          "description": "A `cert-authority` line in the account's registry (the default).",
+          "type": "string",
+          "const": "account"
+        },
+        {
+          "description": "`TrustedUserCAKeys` plus `AuthorizedPrincipalsFile`, applied by the owner.",
+          "type": "string",
+          "const": "system"
+        }
+      ]
+    },
+    "EnrollmentState": {
+      "description": "The enrollment record's state (ADR-0008 D5 §6.2; revision 2's 20 states). The\nallowed transitions are `heimdall_domain::enrollment::transition`.",
+      "oneOf": [
+        {
+          "description": "Operation admitted, awaiting the owner decision.",
+          "type": "string",
+          "const": "planned"
+        },
+        {
+          "description": "The approved operation is running; nothing remote is known written.",
+          "type": "string",
+          "const": "applying"
+        },
+        {
+          "description": "The append may or may not have applied.",
+          "type": "string",
+          "const": "outcome_unknown"
+        },
+        {
+          "description": "Our marker or trust is present but wrong, or a check needs the owner.",
+          "type": "string",
+          "const": "held"
+        },
+        {
+          "description": "The exact line is present; no verification has passed yet.",
+          "type": "string",
+          "const": "applied_unverified"
+        },
+        {
+          "description": "System form: waiting for the owner to apply the sshd lines.",
+          "type": "string",
+          "const": "manual_pending"
+        },
+        {
+          "description": "The initial verification is running.",
+          "type": "string",
+          "const": "verifying"
+        },
+        {
+          "description": "Positive passed and negative refused with full evidence.",
+          "type": "string",
+          "const": "verified"
+        },
+        {
+          "description": "A later verification is running; never removes anything.",
+          "type": "string",
+          "const": "reverifying"
+        },
+        {
+          "description": "The initial verification failed; removing our line under the decision.",
+          "type": "string",
+          "const": "rollback_pending"
+        },
+        {
+          "description": "The rollback's removal may or may not have applied (rollback purpose).",
+          "type": "string",
+          "const": "rollback_unknown"
+        },
+        {
+          "description": "An explicit owner-decided removal is running.",
+          "type": "string",
+          "const": "removing"
+        },
+        {
+          "description": "The explicit removal may or may not have applied (removal purpose).",
+          "type": "string",
+          "const": "remove_unknown"
+        },
+        {
+          "description": "System form: the owner is to remove the sshd lines.",
+          "type": "string",
+          "const": "manual_removal_pending"
+        },
+        {
+          "description": "System form: the absence check runs.",
+          "type": "string",
+          "const": "removal_verifying"
+        },
+        {
+          "description": "Final: the rollback removed our line.",
+          "type": "string",
+          "const": "verification_failed"
+        },
+        {
+          "description": "Final: removed (system form: absence verified).",
+          "type": "string",
+          "const": "removed"
+        },
+        {
+          "description": "Final: nothing of ours remains as last observed.",
+          "type": "string",
+          "const": "withdrawn"
+        },
+        {
+          "description": "Final: refused before any write.",
+          "type": "string",
+          "const": "failed_unwritten"
+        },
+        {
+          "description": "The owner gave the account up; trust may remain (`pending_until_line_removed`).",
+          "type": "string",
+          "const": "abandoned"
+        }
+      ]
+    },
+    "RegistryCanonical": {
+      "description": "The canonical registry the bundle and foreign removal carry: the validated path\n(absent for `remote_home`), never a display form (ADR-0008 D4 item 5).",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "The validated path, when explicit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resolved_by": {
+          "description": "Resolution.",
+          "$ref": "#/$defs/RegistryResolvedBy"
+        }
+      },
+      "required": [
+        "resolved_by"
+      ]
+    },
+    "RegistryResolvedBy": {
+      "description": "How a registry path was resolved (ADR-0008 D5 §6.1).",
+      "oneOf": [
+        {
+          "description": "Given explicitly (`--registry-path`).",
+          "type": "string",
+          "const": "explicit"
+        },
+        {
+          "description": "`$HOME/.ssh/authorized_keys` on the remote.",
+          "type": "string",
+          "const": "remote_home"
+        }
+      ]
+    }
+  }
+}

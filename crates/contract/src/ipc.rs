@@ -58,6 +58,24 @@ pub mod capability {
     /// until the M02 activation change set: `heimdall_ipc::session` and `inspect
     /// capabilities` do not list it yet, so no session can negotiate it.
     pub const SETUP_V1: &str = "setup/1";
+    /// ⟨M03⟩ `Request::Issuer` (m03-plan §5 item 15). **Declared, not offered** in
+    /// wave 0: `heimdall_ipc::session` and `inspect capabilities` do not list it
+    /// until the activation change set (U0b row 13, phase 2).
+    pub const ISSUER_V1: &str = "issuer/1";
+    /// ⟨M03⟩ `Request::Enrollment`. Declared, not offered in wave 0.
+    pub const ENROLLMENT_V1: &str = "enrollment/1";
+    /// ⟨M03⟩ Managed-credential results (`ensure` with `managed_certificate`).
+    /// Declared, not offered in wave 0.
+    pub const MANAGED_CREDENTIALS_V1: &str = "managed-credentials/1";
+    /// ⟨M03⟩ `Request::Connections`. Declared, not offered in wave 0.
+    pub const CONNECTIONS_V1: &str = "connections/1";
+    /// ⟨M03⟩ The four M03 capabilities, declared and **not offered** in wave 0.
+    pub const M03_DECLARED: [&str; 4] = [
+        ISSUER_V1,
+        ENROLLMENT_V1,
+        MANAGED_CREDENTIALS_V1,
+        CONNECTIONS_V1,
+    ];
 }
 
 /// Identifies the peer software; informational only, never authority (spec §4.2).

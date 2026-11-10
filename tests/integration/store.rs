@@ -201,6 +201,9 @@ fn policy(revision: u64) -> StandingPolicy {
         pause: PauseState::Active,
         cutoff_at: None,
         source: PolicySource::OwnerDecision { decided_at: t0() },
+        // M03 wave 0 (A1): fail closed until U0b
+        lock_behavior: Default::default(),
+        connection: Default::default(),
     }
 }
 
@@ -328,6 +331,8 @@ fn issuance(b: u8, grant: &GrantId, valid_before: Timestamp) -> IssuanceEntry {
             valid_before,
             extensions: BTreeSet::new(),
             subject_fingerprint: "SHA256:synthetic".into(),
+            // M03 wave 0 (A1): fail closed until U0b
+            ca_fingerprint: None,
         },
         state: IssuanceState::Reserved,
         reserved_at: plus(t0(), i64::from(b)),
@@ -1033,11 +1038,14 @@ fn before_commit_failure_leaves_no_row() {
         .unwrap();
     assert_eq!((o, i), (None, None));
     // Opening a fresh store visits the migration points of every step (0001,
-    // 0002, 0003, 0004, 0005) first; then the failed transaction (before
+    // 0002, 0003, 0004, 0005, 0006) first; then the failed transaction (before
     // transaction, before commit) and the verifying one.
     assert_eq!(
         faults.visited(),
         vec![
+            // M03 wave 0 (S): migration 0006 adds one step.
+            FaultPoint::BeforeMigration,
+            FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
             FaultPoint::AfterMigration,
             FaultPoint::BeforeMigration,
@@ -1321,7 +1329,7 @@ fn truncated_file_is_corrupt_not_fresh() {
 
 #[test]
 fn newer_schema_is_refused_and_untouched() {
-    assert_eq!(SCHEMA_VERSION, 5);
+    assert_eq!(SCHEMA_VERSION, 6); // M03 wave 0 (S)
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&99u32.to_be_bytes())
@@ -1335,7 +1343,7 @@ fn newer_schema_is_refused_and_untouched() {
             }
         )
     });
-    // The next version (6) is just as foreign.
+    // The next version (7) is just as foreign. // M03 wave 0 (S)
     let dir = tempfile::tempdir().unwrap();
     let db = corrupt_copy(dir.path(), |b| {
         b[60..64].copy_from_slice(&(SCHEMA_VERSION + 1).to_be_bytes())
@@ -1344,8 +1352,8 @@ fn newer_schema_is_refused_and_untouched() {
         matches!(
             e,
             StoreError::NewerSchema {
-                found: 6,
-                supported: 5
+                found: 7,
+                supported: 6
             }
         )
     });
@@ -3231,6 +3239,9 @@ fn grant_origin(revision: u64) -> heimdall_domain::grant::GrantOrigin {
         mechanism: "fake_agent".into(),
         covered: None,
         adapter: None,
+        // M03 wave 0 (A1): fail closed until U0b
+        lock_behavior: None,
+        connection: None,
     }
 }
 
@@ -3583,6 +3594,8 @@ fn remote_revocation_obligations_name_exactly_the_record_grants() {
         stopped: false,
         effect_round: Some(1),
         effect_seq: Some(4),
+        // M03 wave 0 (A1): fail closed until U0b
+        kind: Default::default(),
     };
     let record = PendingRemoteRevocation {
         root: root.clone(),
@@ -4069,6 +4082,8 @@ mod m02 {
             stopped: false,
             effect_round: Some(2),
             effect_seq: None,
+            // M03 wave 0 (A1): fail closed until U0b
+            kind: Default::default(),
         };
         let (claim_counter, version_counter) = {
             let s4 = Store::open_at_schema_version(&db, Arc::new(NoFaults), 4).unwrap();
@@ -4092,6 +4107,8 @@ mod m02 {
                         stopped: false,
                         effect_round: None,
                         effect_seq: Some(first),
+                        // M03 wave 0 (A1): fail closed until U0b
+                        kind: Default::default(),
                     }],
                     claimed_at: Some(plus(t0(), 2)),
                     rearmed_effects: Vec::new(),
@@ -4194,7 +4211,7 @@ mod m02 {
 
         let s = Store::open(&db, Arc::new(NoFaults)).unwrap();
         assert_eq!(s.schema_version().unwrap(), SCHEMA_VERSION);
-        assert_eq!(SCHEMA_VERSION, 5);
+        assert_eq!(SCHEMA_VERSION, 6); // M03 wave 0 (S)
         let mut backup = db.as_os_str().to_owned();
         backup.push(".v4.backup");
         assert!(PathBuf::from(backup).exists(), "v4 file backed up first");
@@ -4296,7 +4313,7 @@ mod m02 {
                 e,
                 StoreError::OlderSchema {
                     found: 4,
-                    supported: 5
+                    supported: 6 // M03 wave 0 (S)
                 }
             ),
             "{e}"
@@ -4331,16 +4348,16 @@ mod m02 {
         assert!(matches!(
             Store::open_read_only(&newer, Arc::new(NoFaults)),
             Err(StoreError::NewerSchema {
-                found: 6,
-                supported: 5
+                found: 7, // M03 wave 0 (S)
+                supported: 6
             })
         ));
         assert_refused_and_untouched(&newer, |e| {
             matches!(
                 e,
                 StoreError::NewerSchema {
-                    found: 6,
-                    supported: 5
+                    found: 7, // M03 wave 0 (S)
+                    supported: 6
                 }
             )
         });

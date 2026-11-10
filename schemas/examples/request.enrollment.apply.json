@@ -1,0 +1,18 @@
+{
+  "op": "enrollment",
+  "action": "apply",
+  "spec": {
+    "destination": "dest-lab",
+    "account": "deploy",
+    "form": "account",
+    "registry_path": ".ssh/authorized_keys",
+    "ca_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "request_id": "req-0301",
+  "interaction": "interactive",
+  "wait": {
+    "mode": "sync",
+    "timeout_ms": 30000
+  }
+}

@@ -181,6 +181,9 @@ fn seed(store: &Store) {
                     pause: PauseState::Active,
                     cutoff_at: None,
                     source: PolicySource::SetupDefault,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    lock_behavior: Default::default(),
+                    connection: Default::default(),
                 },
                 false,
             )?;
@@ -368,6 +371,7 @@ impl World {
             interaction: InteractionRequirement::None,
             enforcement: o.enforcement,
             lock_continuity: LockContinuity::Unknown,
+            remote_credential_effect: false, // M03 wave 0 (A2)
         };
         let fake = FakeCredentialAdapter::new(descriptor, o.script);
         let gated = Gated::new(fake.clone());
@@ -428,6 +432,8 @@ impl World {
                     request_id: RequestId::parse(rid).unwrap(),
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::default(),
+                    // M03 wave 0 (A1): fail closed until U0b
+                    connection: None,
                 },
             )
             .await;
@@ -1056,6 +1062,8 @@ async fn equivalent_work_is_single_flight_with_separate_references() {
                     request_id: RequestId::parse(rid).unwrap(),
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::default(),
+                    // M03 wave 0 (A1): fail closed until U0b
+                    connection: None,
                 },
             )
             .await
@@ -1423,6 +1431,8 @@ proptest! {
                     request_id: RequestId::parse(&format!("req-{i}")).unwrap(),
                     interaction: InteractionMode::NonInteractive,
                     wait: WaitMode::default(),
+                    // M03 wave 0 (A1): fail closed until U0b
+                    connection: None,
                 };
                 handles.push(tokio::spawn(async move { ops.ensure(&owner(501), req).await }));
             }
@@ -1546,6 +1556,8 @@ fn rq(rid: &str, work: &str, hosts: &[&str], until: Option<&str>) -> EnsureReque
         request_id: RequestId::parse(rid).unwrap(),
         interaction: InteractionMode::NonInteractive,
         wait: WaitMode::default(),
+        // M03 wave 0 (A1): fail closed until U0b
+        connection: None,
     }
 }
 
@@ -1677,6 +1689,9 @@ fn bump_unrelated(store: &Store, revision: u64) {
                     pause: PauseState::Active,
                     cutoff_at: None,
                     source: PolicySource::SetupDefault,
+                    // M03 wave 0 (A1): fail closed until U0b
+                    lock_behavior: Default::default(),
+                    connection: Default::default(),
                 },
                 false,
             )

@@ -208,6 +208,10 @@
       "description": "Work binding ID (spec §4.1 \"Work binding\").",
       "type": "string"
     },
+    "CaFingerprint": {
+      "description": "⟨M03⟩ A CA public key's fingerprint: `SHA256:` followed by exactly 43 characters\nof unpadded standard base64 (`A-Za-z0-9+/`), as `ssh-keygen -l` prints it\n(m03-plan §5 item 1). Validated on parse and on decode; compared exactly.",
+      "type": "string"
+    },
     "CancelRequest": {
       "description": "`cancel` request (spec §11.4: explicit, idempotent).",
       "type": "object",
@@ -446,6 +450,39 @@
             "identity",
             "request_id"
           ]
+        },
+        {
+          "description": "⟨M03⟩ The ninth action (m03-plan §5 item 4b): a pair's preferred mechanism.\nJournaled under `catalog`, local only. `managed_certificate` is refused\n(`pair_not_enrolled`) without a `verified` enrollment for the pair; the\npreference takes effect for P only through `setup apply`.",
+          "type": "object",
+          "properties": {
+            "account": {
+              "description": "Account.",
+              "$ref": "#/$defs/AccountName"
+            },
+            "action": {
+              "type": "string",
+              "const": "set_preference"
+            },
+            "destination": {
+              "description": "Destination.",
+              "$ref": "#/$defs/DestinationId"
+            },
+            "mechanism": {
+              "description": "Mechanism.",
+              "$ref": "#/$defs/PreferredMechanism"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "action",
+            "destination",
+            "account",
+            "mechanism",
+            "request_id"
+          ]
         }
       ]
     },
@@ -569,6 +606,86 @@
           "description": "⟨ADR-0007 §12.20 item 2⟩ A check the transaction requires could not run: B_git's\nGit parse check (§5.6 step 3) with local queries disabled or no verified Git\nclient (§12.19 item 8). The item aborts before its commit point.",
           "type": "string",
           "const": "verified_client_unavailable"
+        }
+      ]
+    },
+    "ConnectionId": {
+      "description": "⟨M03⟩ Owned connection ID (an `owned_connections` row; ADR-0008 D8; m03-plan\n§5 items 4, 4a). Runtime-generated; never a PID.",
+      "type": "string"
+    },
+    "ConnectionRequest": {
+      "description": "`EnsureRequest.connection` (§5 item 5): a request may only **narrow** `existing`\nto `strict`; `graceful` in a request is `USAGE_ERROR` (checked by the\napplication). It enters the canonical hash only when present.",
+      "type": "object",
+      "properties": {
+        "existing": {
+          "description": "The requested existing-connections mode.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExistingConnectionsMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ConnectionsRequest": {
+      "description": "`Request::Connections` (capability `connections/1`). Both actions are\nsynchronous, effectful, and accepted from the owner role only.",
+      "oneOf": [
+        {
+          "description": "Close one owned connection (narrowing; no decision). kind\n`\"connections.close\"`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "close"
+            },
+            "connection_id": {
+              "description": "The connection.",
+              "$ref": "#/$defs/ConnectionId"
+            }
+          },
+          "required": [
+            "action",
+            "connection_id"
+          ]
+        },
+        {
+          "description": "The Windows launcher's durable registration of the contained, still\nsuspended `ssh.exe` (ADR-0008 D8 item 2). kind `\"connections.register\"`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "register"
+            },
+            "binding_id": {
+              "description": "The launch binding.",
+              "$ref": "#/$defs/BindingId"
+            },
+            "created_at": {
+              "description": "The child's creation time.",
+              "type": "string",
+              "format": "date-time"
+            },
+            "image": {
+              "description": "The child's image path (ADR-0008 D8 item 2, revision 3); the runtime\nchecks it is the verified client.",
+              "type": "string"
+            },
+            "pid": {
+              "description": "The child's PID.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "action",
+            "binding_id",
+            "pid",
+            "created_at",
+            "image"
+          ]
         }
       ]
     },
@@ -853,6 +970,311 @@
         "locator"
       ]
     },
+    "EnrollmentForm": {
+      "description": "The trust form (ADR-0008 D5 §6.1, §6.9).",
+      "oneOf": [
+        {
+          "description": "A `cert-authority` line in the account's registry (the default).",
+          "type": "string",
+          "const": "account"
+        },
+        {
+          "description": "`TrustedUserCAKeys` plus `AuthorizedPrincipalsFile`, applied by the owner.",
+          "type": "string",
+          "const": "system"
+        }
+      ]
+    },
+    "EnrollmentId": {
+      "description": "⟨M03⟩ Enrollment record ID (m03-plan §5 item 1; ADR-0008 D5 §6.2). The remote\nmarker is `heimdall:<enrollment-id>`, so the ID is the add's idempotency key.",
+      "type": "string"
+    },
+    "EnrollmentRequest": {
+      "description": "`Request::Enrollment`, tagged `action` (capability `enrollment/1`).",
+      "oneOf": [
+        {
+          "description": "Read-only, local, contacts nothing. kind `enrollment.preview`; data\n[`EnrollmentPlan`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "preview"
+            },
+            "spec": {
+              "description": "What to enroll.",
+              "$ref": "#/$defs/EnrollmentSpec"
+            }
+          },
+          "required": [
+            "action",
+            "spec"
+          ]
+        },
+        {
+          "description": "Journaled `enrollment.apply`, effect class `remote_mutation`; needs\n`EnrollAccount` (or `EnrollSystemForm`).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "apply"
+            },
+            "interaction": {
+              "description": "Interaction mode.",
+              "$ref": "#/$defs/InteractionMode",
+              "default": "non_interactive"
+            },
+            "plan_digest": {
+              "description": "The previewed plan's digest.",
+              "$ref": "#/$defs/PlanDigest"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            },
+            "spec": {
+              "description": "What to enroll.",
+              "$ref": "#/$defs/EnrollmentSpec"
+            },
+            "wait": {
+              "description": "Wait mode.",
+              "$ref": "#/$defs/WaitMode",
+              "default": {
+                "mode": "sync",
+                "timeout_ms": 30000
+              }
+            }
+          },
+          "required": [
+            "action",
+            "spec",
+            "plan_digest",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Journaled `enrollment.verify`, effect class `local`; never removes anything.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "verify"
+            },
+            "enrollment_id": {
+              "description": "The enrollment.",
+              "$ref": "#/$defs/EnrollmentId"
+            },
+            "mode": {
+              "description": "Mode (default presence).",
+              "$ref": "#/$defs/VerifyMode",
+              "default": "presence"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            },
+            "wait": {
+              "description": "Wait mode.",
+              "$ref": "#/$defs/WaitMode",
+              "default": {
+                "mode": "sync",
+                "timeout_ms": 30000
+              }
+            }
+          },
+          "required": [
+            "action",
+            "enrollment_id",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Journaled `enrollment.remove`, effect class `remote_mutation`; needs\n`RemoveEnrollment` (system form: a typed confirmation).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "remove"
+            },
+            "interaction": {
+              "description": "Interaction mode.",
+              "$ref": "#/$defs/InteractionMode",
+              "default": "non_interactive"
+            },
+            "request_id": {
+              "description": "Idempotency request ID.",
+              "$ref": "#/$defs/RequestId"
+            },
+            "target": {
+              "description": "What to remove.",
+              "$ref": "#/$defs/RemovalTarget"
+            },
+            "wait": {
+              "description": "Wait mode.",
+              "$ref": "#/$defs/WaitMode",
+              "default": {
+                "mode": "sync",
+                "timeout_ms": 30000
+              }
+            }
+          },
+          "required": [
+            "action",
+            "target",
+            "request_id"
+          ]
+        },
+        {
+          "description": "Synchronous: drives an unresolved `enrollment.apply`/`remove` (ADR-0008 D5\n§6.7). Owner role only; a redispatch of an append needs an attended session.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "reconcile"
+            },
+            "after_manual_recovery": {
+              "description": "After the owner removed a lock by hand: classify only, never redispatch.",
+              "type": "boolean",
+              "default": false
+            },
+            "interaction": {
+              "description": "Interaction mode.",
+              "$ref": "#/$defs/InteractionMode",
+              "default": "non_interactive"
+            },
+            "operation_id": {
+              "description": "The operation.",
+              "$ref": "#/$defs/OperationId"
+            }
+          },
+          "required": [
+            "action",
+            "operation_id"
+          ]
+        },
+        {
+          "description": "Synchronous, owner channel: record abandonment (residual\n`pending_until_line_removed`).",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "abandon"
+            },
+            "enrollment_id": {
+              "description": "The enrollment.",
+              "$ref": "#/$defs/EnrollmentId"
+            }
+          },
+          "required": [
+            "action",
+            "enrollment_id"
+          ]
+        },
+        {
+          "description": "Synchronous, owner role only: the next client-executed step (ADR-0008 D5\n§6.3). kind `enrollment.step`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "step"
+            },
+            "operation_id": {
+              "description": "The operation.",
+              "$ref": "#/$defs/OperationId"
+            }
+          },
+          "required": [
+            "action",
+            "operation_id"
+          ]
+        },
+        {
+          "description": "Synchronous, owner role only: the CLI's result for the outstanding step.\nkind `enrollment.step_result`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "step_result"
+            },
+            "exit_status": {
+              "description": "The client's exit status.",
+              "type": "integer",
+              "format": "int32"
+            },
+            "operation_id": {
+              "description": "The operation.",
+              "$ref": "#/$defs/OperationId"
+            },
+            "stderr_excerpt": {
+              "description": "At most 4 KiB, redacted, diagnostics only.",
+              "type": "string"
+            },
+            "stdout": {
+              "description": "At most 512 KiB of HM1 lines.",
+              "type": "string"
+            },
+            "step_token": {
+              "description": "The step's token (32 hex).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action",
+            "operation_id",
+            "step_token",
+            "exit_status",
+            "stdout",
+            "stderr_excerpt"
+          ]
+        }
+      ]
+    },
+    "EnrollmentSpec": {
+      "description": "What to enroll (§5 item 3).",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Default: the managed definition's account; any other value is `USAGE_ERROR`\n(`account_override_refused`).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AccountName"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ca_fingerprint": {
+          "description": "CA; default the newest active CA.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CaFingerprint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "destination": {
+          "description": "The managed destination.",
+          "$ref": "#/$defs/DestinationId"
+        },
+        "form": {
+          "description": "Form (default `account`).",
+          "$ref": "#/$defs/EnrollmentForm",
+          "default": "account"
+        },
+        "registry_path": {
+          "description": "Registry path (ADR-0008 D5 §6.1 rule).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "destination"
+      ]
+    },
     "EnsurePreview": {
       "description": "Preview parameters for `inspect --preview` (no side effects).",
       "type": "object",
@@ -897,6 +1319,17 @@
       "description": "`ensure` request (spec §11.3).",
       "type": "object",
       "properties": {
+        "connection": {
+          "description": "⟨M03⟩ Narrow the existing-connections mode to `strict` (§5 item 5). Enters\nthe canonical hash only when present, so M01/M02 hashes are unchanged.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "environment": {
           "description": "Environment, default the caller's own.",
           "anyOf": [
@@ -1043,7 +1476,98 @@
           "description": "The runtime started or stopped (restart recovery boundary).",
           "type": "string",
           "const": "runtime_lifecycle"
+        },
+        {
+          "description": "⟨M03⟩ An enrollment record changed state (payload\n[`crate::managed::EnrollmentEventPayload`]).",
+          "type": "string",
+          "const": "enrollment"
+        },
+        {
+          "description": "⟨M03⟩ An owned connection started or closed (payload\n[`crate::managed::ConnectionEventPayload`]).",
+          "type": "string",
+          "const": "connection"
+        },
+        {
+          "description": "⟨M03⟩ A session lock was observed (payload\n[`crate::managed::SessionLockEventPayload`]).",
+          "type": "string",
+          "const": "session_lock"
         }
+      ]
+    },
+    "ExistingConnectionsMode": {
+      "description": "What happens to owned dedicated connections at the admission deadline (ADR-0008\nD8 item 1). `strict` is narrowing; `graceful` (the default) is widening.",
+      "oneOf": [
+        {
+          "description": "Existing dedicated sessions may stay connected (spec §6.6 default).",
+          "type": "string",
+          "const": "graceful"
+        },
+        {
+          "description": "Owned connections are closed at the deadline.",
+          "type": "string",
+          "const": "strict"
+        }
+      ]
+    },
+    "ForeignRemovalTarget": {
+      "description": "The full public removal descriptor of an enrollment from a recovery bundle\n(ADR-0008 D4 item 5; §17.1 item 11). The decision and the request hash cover\nevery field.",
+      "type": "object",
+      "properties": {
+        "account": {
+          "description": "Account.",
+          "$ref": "#/$defs/AccountName"
+        },
+        "bundle_destination_id": {
+          "description": "The bundle's destination ID: a label only (IDs are per installation).",
+          "type": "string"
+        },
+        "bundle_hostname": {
+          "description": "Required (a redacted bundle is refused, `bundle_redacted`); must equal the\nalias's evaluated `HostName` byte for byte (`bundle_host_mismatch`).",
+          "type": "string"
+        },
+        "bundle_port": {
+          "description": "Must equal the evaluated `Port`.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "ca_public_key": {
+          "description": "The CA's OpenSSH public key.",
+          "type": "string"
+        },
+        "form": {
+          "description": "Form; `system` gets manual instructions only.",
+          "$ref": "#/$defs/EnrollmentForm"
+        },
+        "line_sha256": {
+          "description": "The full line's SHA-256 (hex); rebuilt and checked before connecting.",
+          "type": "string"
+        },
+        "local_alias": {
+          "description": "This device's managed alias for the host.",
+          "type": "string"
+        },
+        "marker": {
+          "description": "`heimdall:enr_…`.",
+          "type": "string"
+        },
+        "registry": {
+          "description": "The canonical registry.",
+          "$ref": "#/$defs/RegistryCanonical"
+        }
+      },
+      "required": [
+        "local_alias",
+        "bundle_destination_id",
+        "bundle_hostname",
+        "bundle_port",
+        "account",
+        "marker",
+        "ca_public_key",
+        "line_sha256",
+        "registry",
+        "form"
       ]
     },
     "GrantId": {
@@ -1220,6 +1744,21 @@
           "description": "Projection resources, read-only (M02).",
           "type": "string",
           "const": "projections"
+        },
+        {
+          "description": "⟨M03⟩ Enrollment records (`EnrollmentsView`).",
+          "type": "string",
+          "const": "enrollments"
+        },
+        {
+          "description": "⟨M03⟩ The issuer status (`IssuerStatus`).",
+          "type": "string",
+          "const": "issuer"
+        },
+        {
+          "description": "⟨M03⟩ Owned connections (`ConnectionsView`).",
+          "type": "string",
+          "const": "connections"
         }
       ]
     },
@@ -1235,6 +1774,121 @@
           "description": "Heimdall opens no browser, dialog, or terminal prompt.",
           "type": "string",
           "const": "non_interactive"
+        }
+      ]
+    },
+    "IssuerRequest": {
+      "description": "`Request::Issuer`, tagged `action` (capability `issuer/1`).",
+      "oneOf": [
+        {
+          "description": "Read-only. kind `issuer.status`; data [`IssuerStatus`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "status"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "Effectful, synchronous; always creates a `RegisterIssuer` decision and never\nexecutes on dispatch (ADR-0006 §2.3 N04 pattern). kind `issuer.register`.\nCovers init, rotate-begin and restore.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "register"
+            },
+            "backup_created_at": {
+              "description": "When the backup bytes were prepared.",
+              "type": "string",
+              "format": "date-time"
+            },
+            "backup_sha256": {
+              "description": "Hex SHA-256 of the exact D5 backup bytes prepared in memory before this\nrequest; the bytes are written only after approval (ADR-0008 D4 item 1).",
+              "type": "string"
+            },
+            "ca_public_key": {
+              "description": "OpenSSH one-line Ed25519 public key, no comment.",
+              "type": "string"
+            },
+            "restored_without_log": {
+              "description": "A key-only restore (ADR-0008 D4 item 4).",
+              "type": "boolean"
+            },
+            "rotation_of": {
+              "description": "Rotate-begin: the CA this one rotates.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CaFingerprint"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "store": {
+              "description": "The store the key will live in.",
+              "$ref": "#/$defs/StoreKind"
+            }
+          },
+          "required": [
+            "action",
+            "ca_public_key",
+            "store",
+            "backup_sha256",
+            "backup_created_at"
+          ]
+        },
+        {
+          "description": "Attended sessions only. kind `issuer.unlock`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "unlock"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        },
+        {
+          "description": "Creates a `RetireIssuer` decision. kind `issuer.retire`.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "retire"
+            },
+            "ca_fingerprint": {
+              "description": "The CA to retire.",
+              "$ref": "#/$defs/CaFingerprint"
+            }
+          },
+          "required": [
+            "action",
+            "ca_fingerprint"
+          ]
+        },
+        {
+          "description": "Read-only; public metadata only. kind `issuer.bundle`; data\n[`RecoveryBundle`].",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "bundle"
+            },
+            "redact_hostnames": {
+              "description": "Omit hostnames (foreign removal then refuses the bundle).",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "action"
+          ]
         }
       ]
     },
@@ -1260,6 +1914,36 @@
       },
       "required": [
         "executable"
+      ]
+    },
+    "LockBehavior": {
+      "description": "What a desktop/session lock does to a grant (ADR-0008 D9; spec §6.4). The default\nis `continue`; `revoke_on_lock` is narrowing, `continue` is widening (§5 item 6).",
+      "oneOf": [
+        {
+          "description": "A lock does not end managed grants (the default, spec §6.4).",
+          "type": "string",
+          "const": "continue"
+        },
+        {
+          "description": "A lock revokes the grant (cause `session_locked`).",
+          "type": "string",
+          "const": "revoke_on_lock"
+        }
+      ]
+    },
+    "MultiplexingMode": {
+      "description": "Owned multiplex masters (ADR-0008 D8 item 3). `disabled` is the default and\nnarrowing; `owned_masters` is widening.",
+      "oneOf": [
+        {
+          "description": "No master; P renders `ControlPath none`.",
+          "type": "string",
+          "const": "disabled"
+        },
+        {
+          "description": "The supervisor runs one owned master per pair slot.",
+          "type": "string",
+          "const": "owned_masters"
+        }
       ]
     },
     "ObserveRequest": {
@@ -1438,12 +2122,90 @@
             "action",
             "policy_id"
           ]
+        },
+        {
+          "description": "⟨M03⟩ Set the lock behaviour (§5 item 6): `continue` is widening,\n`revoke_on_lock` narrowing.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_lock_behavior"
+            },
+            "behavior": {
+              "description": "Behaviour.",
+              "$ref": "#/$defs/LockBehavior"
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id",
+            "behavior"
+          ]
+        },
+        {
+          "description": "⟨M03⟩ Set the connection policy (§5 item 6): `existing: graceful` and\n`multiplexing: owned_masters` are widening; the others narrowing.",
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "set_connection_policy"
+            },
+            "existing": {
+              "description": "Existing connections.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ExistingConnectionsMode"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "multiplexing": {
+              "description": "Multiplexing.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MultiplexingMode"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "policy_id": {
+              "description": "Policy.",
+              "$ref": "#/$defs/PolicyId"
+            }
+          },
+          "required": [
+            "action",
+            "policy_id"
+          ]
         }
       ]
     },
     "PolicyId": {
       "description": "Standing policy ID (spec §4.1 \"Standing policy\").",
       "type": "string"
+    },
+    "PreferredMechanism": {
+      "description": "The pair mechanism a `SetPreference` catalog action selects.",
+      "oneOf": [
+        {
+          "description": "Managed certificates (needs a verified enrollment: `pair_not_enrolled`).",
+          "type": "string",
+          "const": "managed_certificate"
+        },
+        {
+          "description": "The adopted existing identity.",
+          "type": "string",
+          "const": "existing"
+        }
+      ]
     },
     "PreviewIntent": {
       "description": "What a preview plans (ADR-0007 §5.1).",
@@ -1600,6 +2362,41 @@
         }
       ]
     },
+    "RegistryCanonical": {
+      "description": "The canonical registry the bundle and foreign removal carry: the validated path\n(absent for `remote_home`), never a display form (ADR-0008 D4 item 5).",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "The validated path, when explicit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resolved_by": {
+          "description": "Resolution.",
+          "$ref": "#/$defs/RegistryResolvedBy"
+        }
+      },
+      "required": [
+        "resolved_by"
+      ]
+    },
+    "RegistryResolvedBy": {
+      "description": "How a registry path was resolved (ADR-0008 D5 §6.1).",
+      "oneOf": [
+        {
+          "description": "Given explicitly (`--registry-path`).",
+          "type": "string",
+          "const": "explicit"
+        },
+        {
+          "description": "`$HOME/.ssh/authorized_keys` on the remote.",
+          "type": "string",
+          "const": "remote_home"
+        }
+      ]
+    },
     "ReleaseRequest": {
       "description": "`release` request (drops this consumer's reference; primitives-draft §4.6).",
       "type": "object",
@@ -1611,6 +2408,43 @@
       },
       "required": [
         "binding_id"
+      ]
+    },
+    "RemovalTarget": {
+      "description": "What an `enrollment.remove` removes, tagged `kind`.",
+      "oneOf": [
+        {
+          "description": "One of this installation's enrollments.",
+          "type": "object",
+          "properties": {
+            "enrollment_id": {
+              "description": "The enrollment.",
+              "$ref": "#/$defs/EnrollmentId"
+            },
+            "kind": {
+              "type": "string",
+              "const": "enrollment"
+            }
+          },
+          "required": [
+            "kind",
+            "enrollment_id"
+          ]
+        },
+        {
+          "description": "A foreign enrollment from a recovery bundle.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "foreign"
+            }
+          },
+          "$ref": "#/$defs/ForeignRemovalTarget",
+          "required": [
+            "kind"
+          ]
+        }
       ]
     },
     "RepairResolution": {
@@ -1846,6 +2680,48 @@
           "required": [
             "op"
           ]
+        },
+        {
+          "description": "⟨M03⟩ Issuer status, registration, unlock, retirement and the recovery bundle\n(needs `issuer/1`, not offered until the activation change set).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "issuer"
+            }
+          },
+          "$ref": "#/$defs/IssuerRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "⟨M03⟩ Enrollment (needs `enrollment/1`, not offered until the activation\nchange set).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "enrollment"
+            }
+          },
+          "$ref": "#/$defs/EnrollmentRequest",
+          "required": [
+            "op"
+          ]
+        },
+        {
+          "description": "⟨M03⟩ Owned connections (needs `connections/1`, not offered until the\nactivation change set).",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "connections"
+            }
+          },
+          "$ref": "#/$defs/ConnectionsRequest",
+          "required": [
+            "op"
+          ]
         }
       ]
     },
@@ -2008,6 +2884,31 @@
       "description": "Ask the runtime to stop (ADR-0006 §13.6 item 8; capability\n[`crate::ipc::capability::SERVICE_CONTROL_V1`]).\n\nAccepted only from the owner principal on the control endpoint (never from a\nlimited consumer), on any session (attended or not: stopping the service is an\navailability action, not a widening of authority; a same-user process could end\nthe process anyway). Idempotent: a repeated request while the runtime is\ndraining answers `OK` again. The runtime answers `OK {\"stopping\": true, ...}`\nfirst, then drains gracefully: it stops accepting, lets in-flight operations\nreach a durable stage (bounded; anything still running resumes through restart\nrecovery), persists, removes its advertisement and endpoints, and exits 0.\nNot an operation: no operation ID, no idempotency record.",
       "type": "object"
     },
+    "StoreKind": {
+      "description": "The platform store holding K_ca (ADR-0008 D1). **No test variant**: the\ntest-only store kind lives in `heimdall-testkit`, outside the public schema\n(F23).",
+      "oneOf": [
+        {
+          "description": "The macOS login keychain.",
+          "type": "string",
+          "const": "macos_login_keychain"
+        },
+        {
+          "description": "The macOS data-protection keychain.",
+          "type": "string",
+          "const": "macos_data_protection_keychain"
+        },
+        {
+          "description": "Windows DPAPI (current user).",
+          "type": "string",
+          "const": "windows_dpapi"
+        },
+        {
+          "description": "The Linux Secret Service.",
+          "type": "string",
+          "const": "linux_secret_service"
+        }
+      ]
+    },
     "Verdict": {
       "description": "Verdict on a server-issued decision record (ADR-0006 §3.1).",
       "oneOf": [
@@ -2020,6 +2921,26 @@
           "description": "Refuse it.",
           "type": "string",
           "const": "deny"
+        }
+      ]
+    },
+    "VerifyMode": {
+      "description": "What an `enrollment.verify` checks (ADR-0008 D5 §6.5, §6.9).",
+      "oneOf": [
+        {
+          "description": "Presence: re-verification, or the system form's first verification.",
+          "type": "string",
+          "const": "presence"
+        },
+        {
+          "description": "The system form's absence check.",
+          "type": "string",
+          "const": "absence"
+        },
+        {
+          "description": "A held host-key change, approved through `ApproveTargetChange`; the\noperation carries the proposed target.",
+          "type": "string",
+          "const": "target_change"
         }
       ]
     },
