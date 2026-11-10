@@ -338,6 +338,7 @@ fn issuance(b: u8, grant: &GrantId, valid_before: Timestamp) -> IssuanceEntry {
         reserved_at: plus(t0(), i64::from(b)),
         settled_at: None,
         void_reason: None,
+        continuing: false,
     }
 }
 

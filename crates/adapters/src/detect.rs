@@ -118,25 +118,56 @@ fn observe_pipe(locator: &str) -> EndpointPresence {
     let Some(name) = heimdall_ipc::agent_client::pipe_name(locator) else {
         return EndpointPresence::NotAnEndpoint;
     };
-    let Ok(entries) = std::fs::read_dir(r"\\.\pipe\") else {
-        return EndpointPresence::Unknown;
-    };
+    presence_over_listings(|| pipe_listed(name))
+}
+
+/// One bounded `\\.\pipe\` listing: `Some(true)` when it shows `name`, `Some(false)` when
+/// a complete listing does not, `None` when the listing failed or passed its bound.
+#[cfg(windows)]
+fn pipe_listed(name: &str) -> Option<bool> {
+    let entries = std::fs::read_dir(r"\\.\pipe\").ok()?;
     for (seen, entry) in entries.enumerate() {
         if seen >= MAX_PIPE_NAMES {
-            return EndpointPresence::Unknown;
+            return None;
         }
-        let Ok(entry) = entry else {
-            return EndpointPresence::Unknown;
-        };
         if entry
+            .ok()?
             .file_name()
             .to_str()
             .is_some_and(|n| n.eq_ignore_ascii_case(name))
         {
-            return EndpointPresence::Present;
+            return Some(true);
         }
     }
-    EndpointPresence::Absent
+    Some(false)
+}
+
+/// ⟨M03 wave 2, after the Windows native run at `0478f6cd`⟩ How many listings a pipe
+/// gets before "not listed" stands. The `\\.\pipe\` enumeration is not a snapshot:
+/// pipes created and closed while it runs (by any process) can end it early or make it
+/// skip an entry, and an M02 adapter test whose fixture pipe certainly existed was
+/// answered `agent endpoint absent` once (it passed at every M02 exit run). Passive
+/// still: only listings, never an open.
+#[cfg(any(windows, test))]
+const PIPE_LISTINGS: usize = 3;
+
+/// The presence a pipe gets from up to [`PIPE_LISTINGS`] listings by `one`: `Present` as
+/// soon as one shows it; otherwise the last listing's answer (`Absent` for a complete
+/// listing without it, `Unknown` for a failed one). Never `Present` without a listing
+/// that shows the pipe.
+#[cfg(any(windows, test))]
+fn presence_over_listings(mut one: impl FnMut() -> Option<bool>) -> EndpointPresence {
+    let mut last = None;
+    for _ in 0..PIPE_LISTINGS {
+        match one() {
+            Some(true) => return EndpointPresence::Present,
+            listing => last = listing,
+        }
+    }
+    match last {
+        Some(false) => EndpointPresence::Absent,
+        _ => EndpointPresence::Unknown,
+    }
 }
 
 #[cfg(not(windows))]
@@ -334,6 +365,35 @@ mod tests {
         assert_eq!(
             endpoint_ref(&found[0].locator).and_then(|e| locator(&e)),
             Some(AgentLocator::UnixSocket(PathBuf::from("/scratch/op.sock")))
+        );
+    }
+
+    /// ⟨M03 wave 2⟩ A pipe is `Present` as soon as one of the bounded listings shows it,
+    /// and never without one; a missing pipe stays `Absent` (or `Unknown` when the last
+    /// listing failed) after exactly [`PIPE_LISTINGS`] listings.
+    #[test]
+    fn pipe_presence_retries_a_bounded_number_of_listings() {
+        let run = |answers: &[Option<bool>]| {
+            let mut calls = 0;
+            let p = presence_over_listings(|| {
+                let a = answers.get(calls).copied().flatten();
+                calls += 1;
+                a
+            });
+            (p, calls)
+        };
+        assert_eq!(run(&[Some(true)]), (EndpointPresence::Present, 1));
+        assert_eq!(
+            run(&[None, Some(false), Some(true)]),
+            (EndpointPresence::Present, 3)
+        );
+        assert_eq!(
+            run(&[Some(false), Some(false), Some(false), Some(true)]),
+            (EndpointPresence::Absent, PIPE_LISTINGS)
+        );
+        assert_eq!(
+            run(&[Some(false), Some(false), None]),
+            (EndpointPresence::Unknown, PIPE_LISTINGS)
         );
     }
 

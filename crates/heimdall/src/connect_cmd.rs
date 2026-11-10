@@ -753,16 +753,23 @@ mod tests {
             rd,
             &dest,
             Platform::Linux,
-        )
-        .unwrap();
-        assert_eq!(
-            unix.key_pub.as_str(),
-            "/run/user/1000/heimdall/b/0123456789abcdef/key.pub"
         );
-        assert_eq!(
-            unix.cert.as_str(),
-            "/run/user/1000/heimdall/b/0123456789abcdef/cert-dst-w.pub"
-        );
+        // ⟨wave-2 Windows native run⟩ The Unix layout is only ever read on a Unix host:
+        // on Windows, `Path::join` writes `\` into the Unix path, which `RenderPath::unix`
+        // refuses (fail closed), as the Windows half's positive case is Windows-only.
+        if cfg!(unix) {
+            let unix = unix.unwrap();
+            assert_eq!(
+                unix.key_pub.as_str(),
+                "/run/user/1000/heimdall/b/0123456789abcdef/key.pub"
+            );
+            assert_eq!(
+                unix.cert.as_str(),
+                "/run/user/1000/heimdall/b/0123456789abcdef/cert-dst-w.pub"
+            );
+        } else {
+            assert!(unix.is_none(), "never a Unix path built on Windows");
+        }
         for bad in [
             "/run/user/1000/heimdall/signing.sock",
             "/run/user/1000/heimdall/b/0123456789ABCDEF/agent.sock",

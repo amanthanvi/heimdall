@@ -15,7 +15,9 @@
 //!   re-validated here. When every other predicate holds, the stale member refuses
 //!   `stale_generation` (`stale_ancestor`): the generation-only refusal the runtime
 //!   answers by voiding, re-validating and re-reserving (D3 item 4);
-//! * the issuance facts are the issuer's own ([`ISSUER_FACTS`]; questions file
+//! * the issuance facts are the issuer's own ([`ISSUER_FACTS`]), except the
+//!   activation/continuing distinction, which is read from the entry the reserve
+//!   transaction persisted ([`issuer_facts`]; ADR-0008 §17.19 item 2, W2-R02, closing
 //!   U3-Q2);
 //! * a verification entry is judged by `verification::check` with the default
 //!   `verification_max_validity` (the child has no runtime configuration).
@@ -39,17 +41,29 @@ use crate::ports::{IssuanceRef, IssuanceTable, IssuerRefusal};
 /// The oldest reservation the issuer signs (ADR-0008 D3 item 4 step 1).
 pub const MAX_RESERVATION_AGE: Duration = Duration::from_secs(60);
 
-/// The issuance facts of the issuer's read-only check (questions file U3-Q2;
-/// switch `ISSUER_FACTS.new_activation`). The issuer cannot tell a new activation
-/// from a re-issue, so it judges every grant entry as a **new activation** (a pause or
-/// a passed cutoff refuses), the stricter reading. The subject is registered exactly
-/// when it matches the entry's subject fingerprint, which [`assess`] checks before the
-/// predicate runs; a `sign` request carries no options, so none is critical.
+/// The issuance facts the issuer knows without an entry. The subject is registered
+/// exactly when it matches the entry's subject fingerprint, which [`assess`] checks
+/// before the predicate runs; a `sign` request carries no options, so none is
+/// critical. `new_activation` here is the fail-closed reading for an entry that
+/// records nothing; a grant entry's own record replaces it ([`issuer_facts`]).
 pub const ISSUER_FACTS: IssuanceFacts = IssuanceFacts {
     new_activation: true,
     subject_registered: true,
     critical_option: false,
 };
+
+/// ⟨ADR-0008 §17.19 item 2, W2-R02⟩ The issuer's facts for grant `entry`: a new
+/// activation unless the reserve transaction recorded the entry as continuing work
+/// (`IssuanceEntry::continuing`, a renewal or re-issue within an existing grant, which
+/// a pause does not block). Read from the store, never from the `sign` request. A row
+/// written before the record existed reads as a new activation (fail closed).
+#[must_use]
+pub fn issuer_facts(entry: &IssuanceEntry) -> IssuanceFacts {
+    IssuanceFacts {
+        new_activation: !entry.continuing,
+        ..ISSUER_FACTS
+    }
+}
 
 /// A reserved entry as the issuer reads it: either table, with its bounds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,7 +192,7 @@ pub fn assess(
     }
     let verdict = match &stored {
         StoredEntry::Grant(e) => {
-            crate::operations::issuance_check_read_only(txn, e, &ISSUER_FACTS, now, time)?
+            crate::operations::issuance_check_read_only(txn, e, &issuer_facts(e), now, time)?
                 .map_err(IssuerRefusal::Issuance)
         }
         StoredEntry::Verification(e) => crate::operations::verification_check_read_only(

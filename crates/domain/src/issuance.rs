@@ -191,6 +191,15 @@ pub struct IssuanceEntry {
     pub settled_at: Option<Timestamp>,
     /// Why voided, when voided.
     pub void_reason: Option<IssuanceRefusal>,
+    /// ⟨M03; ADR-0008 §17.19 item 2, W2-R02⟩ The reserve transaction's record that
+    /// this entry is issuance **within an existing grant** (a renewal or a re-issue,
+    /// continuing work that a pause does not block; spec §5.6, ADR-0006 §13.6 item 1),
+    /// not a new activation. Publication and the issuer read the distinction from here,
+    /// never from a field of a later request. Additive: a row written before this field
+    /// existed has none, reads `false`, and is judged as a new activation (fail closed);
+    /// `false` is not serialized, so a new activation's stored bytes are unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub continuing: bool,
 }
 
 /// Credential instance: a key handle plus per-pair certificates (ADR-0005 §12).
@@ -583,7 +592,28 @@ mod tests {
             reserved_at: "2026-10-02T00:00:00Z".parse().unwrap(),
             settled_at: None,
             void_reason: None,
+            continuing: false,
         }
+    }
+
+    /// ⟨ADR-0008 §17.19 item 2⟩ `continuing` is additive: a row stored before it
+    /// existed reads as a new activation (fail closed), and a new activation's stored
+    /// bytes carry no new key.
+    #[test]
+    fn continuing_is_additive_and_old_rows_read_as_new_activation() {
+        let e = entry(IssuanceState::Reserved, "2026-10-02T01:00:00Z");
+        let json = serde_json::to_value(&e).unwrap();
+        assert!(json.get("continuing").is_none(), "{json}");
+        let old: IssuanceEntry = serde_json::from_value(json.clone()).unwrap();
+        assert!(!old.continuing);
+        let mut marked = json;
+        marked["continuing"] = serde_json::Value::Bool(true);
+        let continuing: IssuanceEntry = serde_json::from_value(marked).unwrap();
+        assert!(continuing.continuing);
+        assert_eq!(
+            serde_json::to_value(&continuing).unwrap()["continuing"],
+            serde_json::Value::Bool(true)
+        );
     }
 
     #[test]

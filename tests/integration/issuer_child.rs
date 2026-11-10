@@ -438,6 +438,7 @@ impl World {
             reserved_at: self.wall(),
             settled_at: None,
             void_reason: None,
+            continuing: false,
         };
         self.store
             .transaction(|tx| tx.reserve_issuance(&entry))
@@ -1006,6 +1007,103 @@ async fn ca_retiring_refused() {
     assert_eq!(c.finish(), 0);
 }
 
+/// ⟨ADR-0008 §17.19 item 2, W2-R02; closes U3-Q2⟩ The issuer and publication judge
+/// continuing work and a new activation alike, from what the reserve transaction
+/// persisted (`IssuanceEntry::continuing`), never from a later request:
+/// * a continuing re-issue reserved under a paused policy is signed by the issuer and
+///   published (a pause blocks new work only; spec §5.6, ADR-0006 §13.6 item 1);
+/// * a new activation reserved before the pause is refused by both after it, even when
+///   the caller's publish facts claim continuing work.
+///
+/// Why not the existing fact "a prior published issuance at the current generation":
+/// the pause is a policy change, which itself advances the authority generation
+/// (asserted below), so no earlier publication is ever at the current generation once
+/// a pause exists.
+#[tokio::test]
+async fn continuing_reissue_under_pause_passes_issuer_and_publication_new_activation_refused_by_both()
+ {
+    let w = World::new().await;
+    let k = w.key();
+    let continuing = IssuanceFacts {
+        new_activation: false,
+        ..facts()
+    };
+    let activation = IssuanceFacts {
+        new_activation: true,
+        ..facts()
+    };
+    // A new activation reserved before the pause.
+    let new_entry = w
+        .ops
+        .reserve_issuance(IssuanceRequest {
+            facts: activation.clone(),
+            ..w.request(&k)
+        })
+        .await
+        .unwrap();
+    assert!(!new_entry.continuing);
+    let before = w.store.transaction(|tx| tx.authority_generation()).unwrap();
+    apply(&w, Change::Pause);
+    let after = w.store.transaction(|tx| tx.authority_generation()).unwrap();
+    assert!(
+        after > before,
+        "the pause advanced the authority generation"
+    );
+    // A continuing re-issue reserved under the pause: persisted as continuing.
+    let reissue = w
+        .ops
+        .reserve_issuance(IssuanceRequest {
+            facts: continuing.clone(),
+            ..w.request(&k)
+        })
+        .await
+        .unwrap();
+    assert!(reissue.continuing);
+    // The same request as a new activation is refused at reserve under the pause.
+    assert!(
+        w.ops
+            .reserve_issuance(IssuanceRequest {
+                facts: activation.clone(),
+                ..w.request(&k)
+            })
+            .await
+            .is_err()
+    );
+    let mut c = spawn_in_proc(&w, Box::new(w.scratch()));
+    c.greet(&w);
+    // The issuer signs the continuing re-issue, and publication publishes it.
+    assert!(
+        matches!(
+            c.sign(&grant_ref(&reissue), &k.openssh_line, 1),
+            Response::Signed { .. }
+        ),
+        "the issuer signs continuing work under a pause"
+    );
+    assert!(matches!(
+        w.ops
+            .publish_issuance(&reissue.id, &continuing)
+            .await
+            .unwrap(),
+        Publication::Published(_)
+    ));
+    // The new activation: refused by the issuer, and by publication even when the
+    // caller's facts claim continuing work (the entry decides).
+    assert_eq!(
+        c.refusal(&grant_ref(&new_entry), &k.openssh_line),
+        IssuerRefusal::Issuance(IssuanceRefusal::PausedActivation)
+    );
+    assert!(
+        w.ops
+            .publish_issuance(&new_entry.id, &continuing)
+            .await
+            .is_err()
+    );
+    let stored = w.entry(&new_entry.id);
+    assert_eq!(stored.state, IssuanceState::Voided);
+    assert_eq!(stored.void_reason, Some(IssuanceRefusal::PausedActivation));
+    assert_eq!(c.finish(), 0);
+}
+
 /// ⟨integrator, wave-2 review⟩ D3 item 4 step 4 for a **verification** entry: the
 /// child loaded the CA while `active`; the store then moves it to `retiring` before any
 /// `unload` reaches the child. A reserved verification entry naming that CA is refused
@@ -1278,17 +1376,35 @@ fn issuance_ro_assess_matches_reserve_predicate() {
         .unwrap();
     runner
         .run(
-            &proptest::collection::vec(change_strategy(), 0..4),
-            |changes| {
+            &(
+                proptest::bool::ANY,
+                proptest::collection::vec(change_strategy(), 0..4),
+            ),
+            |(continuing, changes)| {
                 rt.block_on(async {
                     let w = World::build(true).await;
                     let k = w.key();
-                    let entry = w.reserve(&k).await;
+                    // ⟨§17.19 item 2⟩ Both readings are generated: a new activation and
+                    // continuing work. Reserve and publish get the same facts; the
+                    // issuer reads only what the reserve transaction persisted.
+                    let f = IssuanceFacts {
+                        new_activation: !continuing,
+                        ..facts()
+                    };
+                    let entry = w
+                        .ops
+                        .reserve_issuance(IssuanceRequest {
+                            facts: f.clone(),
+                            ..w.request(&k)
+                        })
+                        .await
+                        .unwrap_or_else(|e| panic!("reserve: {} {}", e.code, e.message));
+                    assert_eq!(entry.continuing, continuing);
                     for c in &changes {
                         apply(&w, *c);
                     }
                     let ro = ro_verdict(&w.store, &w.clock, &entry, &k.openssh_line);
-                    let published = w.ops.publish_issuance(&entry.id, &facts()).await;
+                    let published = w.ops.publish_issuance(&entry.id, &f).await;
                     let stored = w.entry(&entry.id);
                     let expected = match (&published, stored.state) {
                         (Ok(Publication::Published(_)), _) => Ok(entry.bounds.clone()),
@@ -1300,7 +1416,7 @@ fn issuance_ro_assess_matches_reserve_predicate() {
                         }
                         other => panic!("unexpected publication {other:?}"),
                     };
-                    assert_eq!(ro, expected, "changes {changes:?}");
+                    assert_eq!(ro, expected, "continuing {continuing}, changes {changes:?}");
                 });
                 Ok(())
             },
@@ -1583,6 +1699,93 @@ async fn restart_backoff_bounded_and_jittered() {
     assert_eq!(e, IssuerError::Unavailable("issuer_unavailable".into()));
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(jitter.0.lock().unwrap().len() > 8, "a new cycle began");
+}
+
+/// ⟨ADR-0008 §17.19 item 3, W2-R03⟩ `stop()` during the restart backoff fences the
+/// stopped lifecycle: the pending restart never spawns a child or loads a CA, a demand
+/// afterwards starts nothing, and only an explicit `start()` begins a new lifecycle.
+/// The child is this test binary run with a filter that matches no test, so it exits
+/// at once without speaking the protocol (a crash at `hello`); spawns are counted
+/// through the start-token callback, which the client calls once per spawned child.
+#[tokio::test(start_paused = true)]
+async fn stop_during_restart_backoff_spawns_no_child_and_reloads_no_ca() {
+    struct Recording(Mutex<Vec<Duration>>);
+    impl Jitter for Recording {
+        fn delay(&self, ceiling: Duration) -> Duration {
+            self.0.lock().unwrap().push(ceiling);
+            ceiling
+        }
+    }
+    let spawns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = Arc::clone(&spawns);
+    let jitter = Arc::new(Recording(Mutex::new(Vec::new())));
+    let mut config = ClientConfig::new(
+        ChildCommand {
+            program: std::env::current_exe().unwrap(),
+            args: [
+                "--exact",
+                "hm_w2r03_no_such_test",
+                "--quiet",
+                "--test-threads=1",
+            ]
+            .iter()
+            .map(std::ffi::OsString::from)
+            .collect(),
+            env: Vec::new(),
+        },
+        Arc::new(move |_| {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            None
+        }),
+    );
+    config.jitter = jitter.clone();
+    let issuer = ChildIssuer::new(config);
+    // The first start spawns once and crashes at `hello`; the supervisor's restart
+    // cycle is now in its first backoff.
+    assert!(issuer.start().await.is_err());
+    assert_eq!(spawns.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(issuer.state(), IssuerState::Crashed);
+    tokio::task::yield_now().await;
+    assert_eq!(
+        jitter.0.lock().unwrap().len(),
+        1,
+        "the first restart is waiting out its backoff"
+    );
+    issuer.stop().await;
+    // Every backoff of the cycle passes on virtual time: nothing restarts.
+    tokio::time::sleep(Duration::from_secs(600)).await;
+    assert_eq!(
+        spawns.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "no child spawned after stop"
+    );
+    assert_eq!(
+        jitter.0.lock().unwrap().len(),
+        1,
+        "no further restart attempt"
+    );
+    assert_eq!(issuer.state(), IssuerState::Unavailable);
+    assert!(issuer.identity().is_none());
+    assert!(issuer.loaded_cas().is_empty(), "no CA loaded after stop");
+    // A demand while stopped is refused and starts nothing.
+    let e = issuer
+        .sign(
+            IssuanceRef {
+                table: IssuanceTable::Grant,
+                id: IssuanceId::from_random_bytes([3; 16]),
+            },
+            "ssh-ed25519 AAAA",
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(e, IssuerError::Unavailable(_)), "{e:?}");
+    tokio::time::sleep(Duration::from_secs(600)).await;
+    assert_eq!(spawns.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(jitter.0.lock().unwrap().len(), 1);
+    // An explicit start begins a new lifecycle, which spawns again.
+    assert!(issuer.start().await.is_err());
+    assert_eq!(spawns.load(std::sync::atomic::Ordering::SeqCst), 2);
+    issuer.stop().await;
 }
 
 #[cfg(unix)]

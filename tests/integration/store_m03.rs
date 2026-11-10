@@ -292,6 +292,7 @@ fn issuance(
         reserved_at: plus(t0(), i64::from(n)),
         settled_at: None,
         void_reason: None,
+        continuing: false,
     }
 }
 

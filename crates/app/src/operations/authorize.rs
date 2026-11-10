@@ -160,25 +160,6 @@ impl Operations {
         let clock = Arc::clone(&self.inner.config.clock);
         let sync = Arc::clone(&self.inner.config.time_sync);
         let policy = self.inner.config.time_policy;
-        let pre: Option<SafeNow> = match mode {
-            AuthorizationTime::ReadOnly => {
-                let me = self.clone();
-                let status = tokio::task::spawn_blocking(move || {
-                    me.inner.timegate.assess_read_only(&me.inner.config.store)
-                })
-                .await
-                .map_err(|_| SignRefusal::Unavailable)?;
-                if status != TimeStatus::Safe {
-                    return Err(SignRefusal::TimeUncertain);
-                }
-                Some(SafeNow {
-                    anchor: clock.observe(),
-                    sync: sync.status(),
-                    tolerance_used: Duration::ZERO,
-                })
-            }
-            _ => None,
-        };
         let env = self.environment().clone();
         let adapters = self.adapter_infos();
         let gate = self.inner.timegate.in_txn();
@@ -189,12 +170,15 @@ impl Operations {
         let pair = facts.pair.clone();
         let gid = grant.clone();
         self.write(move |tx, _| {
-            let safe = match pre {
-                Some(s) => s,
-                None => match assess_in(tx, clock.as_ref(), sync.as_ref(), &policy)? {
-                    Some(s) => s,
-                    None => return Ok(Err(SignRefusal::TimeUncertain)),
-                },
+            // ⟨§17.19 item 1, W2-R01⟩ The time verdict and the observation it judged are
+            // one: both seams assess inside this transaction, and `safe` is built from
+            // the assessed observation itself, never from a later `observe()`.
+            let assessed = match mode {
+                AuthorizationTime::ReadOnly => gate.assess_read_only(tx)?.2,
+                _ => assess_in(tx, clock.as_ref(), sync.as_ref(), &policy)?,
+            };
+            let Some(safe) = assessed else {
+                return Ok(Err(SignRefusal::TimeUncertain));
             };
             let Some(g) = tx.grant(&gid)? else {
                 return Ok(Err(SignRefusal::KeyNotServed));

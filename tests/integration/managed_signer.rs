@@ -94,7 +94,7 @@ use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
 use heimdall_domain::profile::ProfileDefinition;
 use heimdall_domain::resource::ResourceGeneration;
 use heimdall_domain::scope::{AccessPair, Capability, Scope};
-use heimdall_domain::time::{BootId, Clock, SyncStatus, TimePolicy};
+use heimdall_domain::time::{BootId, Clock, SyncStatus, TimeAnchor, TimePolicy, TimeStatus};
 use heimdall_ipc::endpoint::{ExpectedOwner, PeerIdentity};
 use heimdall_ipc::signing::{
     ServeLimits, Signer, SigningSession, enqueue_signed, failure_frame, serve_with_limits,
@@ -270,6 +270,11 @@ struct TokioClock {
     wall_back: Mutex<Duration>,
     wall_ahead: Mutex<Duration>,
     continuous_ahead: Mutex<Duration>,
+    /// ⟨§17.19 item 1⟩ An armed wall step: `(reads left, step back)`. Each
+    /// `observe()` counts one read; the read that brings the count to zero returns its
+    /// value unchanged and **then** steps the wall clock back (per clock, so tests
+    /// running in parallel never share it).
+    step_back_after: Mutex<Option<(usize, Duration)>>,
 }
 
 impl TokioClock {
@@ -279,10 +284,15 @@ impl TokioClock {
             wall_back: Mutex::new(Duration::ZERO),
             wall_ahead: Mutex::new(Duration::ZERO),
             continuous_ahead: Mutex::new(Duration::ZERO),
+            step_back_after: Mutex::new(None),
         })
     }
     fn elapsed(&self) -> Duration {
         Instant::now().saturating_duration_since(self.start)
+    }
+    /// Arm a wall step of `back` right after the `reads`-th `observe()` from now.
+    fn step_back_after_reads(&self, reads: usize, back: Duration) {
+        *self.step_back_after.lock().unwrap() = Some((reads, back));
     }
 }
 
@@ -296,6 +306,22 @@ impl Clock for TokioClock {
     }
     fn boot_id(&self) -> BootId {
         BootId("tokio-boot-1".into())
+    }
+    fn observe(&self) -> TimeAnchor {
+        let anchor = TimeAnchor {
+            wall: self.wall(),
+            continuous: self.continuous(),
+            boot_id: self.boot_id(),
+        };
+        let mut armed = self.step_back_after.lock().unwrap();
+        if let Some((left, back)) = armed.as_mut() {
+            *left = left.saturating_sub(1);
+            if *left == 0 {
+                *self.wall_back.lock().unwrap() += *back;
+                *armed = None;
+            }
+        }
+        anchor
     }
 }
 
@@ -724,6 +750,7 @@ fn issue(
         reserved_at: Timestamp::from_second(now).unwrap(),
         settled_at: Some(Timestamp::from_second(now).unwrap()),
         void_reason: None,
+        continuing: false,
     };
     (cert, entry)
 }
@@ -1208,6 +1235,73 @@ async fn environment_endpoint_requires_the_pairs_held_slot_in_the_store() {
         "{:?}",
         env.refusals()
     );
+}
+
+/// Arms `clock`'s wall step when the signer reaches [`SignStep::Prechecked`]: from
+/// there, read 1 is the permit's paired observation (`admit_signature`) and read 2 the
+/// authorization's time assessment.
+struct StepBackAfterPrecheck {
+    clock: Arc<TokioClock>,
+    back: Duration,
+}
+
+impl SignHook for StepBackAfterPrecheck {
+    fn at<'a>(
+        &'a self,
+        _endpoint: &'a SignerEndpoint,
+        step: SignStep,
+    ) -> heimdall_credential::signer::HookFuture<'a> {
+        Box::pin(async move {
+            if step == SignStep::Prechecked {
+                self.clock.step_back_after_reads(2, self.back);
+            }
+        })
+    }
+}
+
+/// ⟨§17.19 item 1, W2-R01 = W2-S01⟩ The security review's interleaving, through the
+/// real signer, `SignatureAuthority::admit` under the default `ReadOnly` seam, and the
+/// real capacity-then-release enqueue: the time gate assesses an observation as
+/// `Safe`, and the wall clock then steps back an hour (beyond the rollback tolerance)
+/// before anything else reads it. The admission is the assessed observation's, so the
+/// release check sees the step and nothing is released. Before the fix, the admission
+/// took a second, unassessed reading after the step, and the signature was released.
+/// Control: the same flow with a zero step releases.
+#[tokio::test(start_paused = true)]
+async fn signature_refused_when_wall_clock_steps_back_after_the_time_assessment() {
+    let w = world().await;
+    assert_eq!(
+        heimdall_app::operations::narrowing::AuthorizationTime::default(),
+        AuthorizationTime::ReadOnly,
+        "the default seam is the one under test"
+    );
+    for (back, released) in [(Duration::ZERO, true), (HOUR, false)] {
+        let g = w
+            .grant(&format!("step-back-{}", back.as_secs()), &[h1()])
+            .await;
+        let s = w.signer_with(
+            SignerEndpoint::Binding(g.binding().clone()),
+            Arc::new(StepBackAfterPrecheck {
+                clock: Arc::clone(&w.clock),
+                back,
+            }),
+        );
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let frame = spawn_signed(&s, &g, &h1(), &log).await.unwrap();
+        assert_eq!(
+            is_signature(&frame),
+            released,
+            "step back {back:?}: {:?}",
+            s.refusals()
+        );
+        if !released {
+            // The step was beyond the tolerance: time is no longer `Safe` at all.
+            assert_ne!(
+                w.ops.timegate().assess_read_only(&w.store),
+                TimeStatus::Safe
+            );
+        }
+    }
 }
 
 /// D2 item 2: a binding endpoint lists its grant's certificates only and signs for

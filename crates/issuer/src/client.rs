@@ -27,6 +27,15 @@
 //! `issuer unlock`. While not `ready`, `sign` fails `issuer_unavailable` (or the store
 //! reason) at once; nothing falls back to another key.
 //!
+//! **Lifecycle** (⟨ADR-0008 §17.19 item 3, W2-R03⟩). Every restart cycle and on-demand
+//! reload belongs to the lifecycle that started it (a generation number in the view).
+//! [`ChildIssuer::stop`] ends that lifecycle: it marks the client stopped and moves the
+//! generation **before** it waits for the link, then cancels and awaits every
+//! background restart or reload task, so none of them spawns a child or loads a CA
+//! afterwards. A demand while stopped starts nothing; only an explicit
+//! [`ChildIssuer::start`] (or [`ChildIssuer::reload`] for `issuer unlock`) begins a new
+//! lifecycle.
+//!
 //! **Identity.** The child is the exact process this client spawned: its PID (from the
 //! spawn, confirmed by the `hello_ack`) and its start token, read through the
 //! injected [`StartToken`] (the runtime's `platform::process_start_time`; `heimdall-
@@ -187,6 +196,12 @@ struct View {
     restarting: bool,
     /// The store-reload attempt count since the last success.
     reload_attempts: u32,
+    /// ⟨§17.19 item 3⟩ The current lifecycle; restarts and reloads of an earlier one
+    /// spawn and load nothing.
+    lifecycle: u64,
+    /// ⟨§17.19 item 3⟩ [`ChildIssuer::stop`] ended the lifecycle and no explicit start
+    /// has begun another: demands start nothing.
+    stopped: bool,
 }
 
 /// The live link to one child.
@@ -252,6 +267,9 @@ struct Inner {
     config: ClientConfig,
     view: Mutex<View>,
     link: tokio::sync::Mutex<Option<Link>>,
+    /// ⟨§17.19 item 3⟩ The background restart and reload tasks, which
+    /// [`ChildIssuer::stop`] cancels and awaits.
+    tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 /// The issuer child's client (module docs).
@@ -285,6 +303,37 @@ impl Inner {
             v.state = state;
             v.reason = reason;
         });
+    }
+
+    /// Whether `lifecycle` is still the running one (not stopped, not superseded).
+    fn current(&self, lifecycle: u64) -> bool {
+        let v = self.view.lock().unwrap_or_else(PoisonError::into_inner);
+        !v.stopped && v.lifecycle == lifecycle
+    }
+
+    /// The running lifecycle, or `None` once stopped.
+    fn running(&self) -> Option<u64> {
+        let v = self.view.lock().unwrap_or_else(PoisonError::into_inner);
+        (!v.stopped).then_some(v.lifecycle)
+    }
+
+    /// An explicit start: a stopped client begins a new lifecycle. Returns it.
+    fn begin(&self) -> u64 {
+        let mut v = self.view.lock().unwrap_or_else(PoisonError::into_inner);
+        if v.stopped {
+            v.stopped = false;
+            v.lifecycle = v.lifecycle.wrapping_add(1);
+            v.restarting = false;
+        }
+        v.lifecycle
+    }
+
+    /// Run `work` as a background task of this lifecycle (cancelled by `stop`).
+    fn spawn_task(&self, work: impl std::future::Future<Output = ()> + Send + 'static) {
+        let handle = tokio::spawn(work);
+        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        tasks.retain(|t| !t.is_finished());
+        tasks.push(handle);
     }
 
     /// Write `request` and wait for its reply, after draining late replies.
@@ -338,9 +387,13 @@ impl Inner {
     }
 
     /// Spawn, hello, load: one start attempt (`starting → loading → ready |
-    /// store_unavailable`).
-    async fn start_once(self: &Arc<Self>) -> Result<(), IssuerError> {
+    /// store_unavailable`) for `lifecycle`; a stopped or superseded lifecycle spawns
+    /// nothing (§17.19 item 3).
+    async fn start_once(self: &Arc<Self>, lifecycle: u64) -> Result<(), IssuerError> {
         let mut slot = self.link.lock().await;
+        if !self.current(lifecycle) {
+            return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
+        }
         if let Some(mut old) = slot.take() {
             let _ = old.child.start_kill();
             let _ = old.child.wait().await;
@@ -401,11 +454,19 @@ impl Inner {
             }
         }
         self.update(|v| v.identity = Some(identity));
-        self.load_locked(&mut slot).await
+        self.load_locked(&mut slot, lifecycle).await
     }
 
-    /// `load` over the held link (`loading → ready | store_unavailable`).
-    async fn load_locked(self: &Arc<Self>, slot: &mut Option<Link>) -> Result<(), IssuerError> {
+    /// `load` over the held link (`loading → ready | store_unavailable`) for
+    /// `lifecycle`; a stopped or superseded lifecycle loads nothing (§17.19 item 3).
+    async fn load_locked(
+        self: &Arc<Self>,
+        slot: &mut Option<Link>,
+        lifecycle: u64,
+    ) -> Result<(), IssuerError> {
+        if !self.current(lifecycle) {
+            return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
+        }
         self.set_state(IssuerState::Loading, None);
         let Some(link) = slot.as_mut() else {
             return Err(IssuerError::Unavailable(reason::ISSUER_UNAVAILABLE.into()));
@@ -444,12 +505,15 @@ impl Inner {
         }
     }
 
-    /// The bounded, jittered restart cycle after a crash (D3 item 7).
-    async fn restart_cycle(self: Arc<Self>) {
+    /// The bounded, jittered restart cycle after a crash (D3 item 7), for `lifecycle`.
+    async fn restart_cycle(self: Arc<Self>, lifecycle: u64) {
         for attempt in 1..=MAX_RESTART_ATTEMPTS {
             let delay = self.config.jitter.delay(backoff_ceiling(attempt));
             tokio::time::sleep(delay.min(backoff_ceiling(attempt))).await;
-            match self.start_once().await {
+            if !self.current(lifecycle) {
+                return;
+            }
+            match self.start_once(lifecycle).await {
                 Ok(()) => break,
                 // The child is up without its key: the store reload follows its own
                 // backoff on demand.
@@ -466,16 +530,19 @@ impl Inner {
         self.update(|v| v.restarting = false);
     }
 
-    /// Start a restart cycle unless one runs.
+    /// Start a restart cycle unless one runs, or the client is stopped (§17.19 item
+    /// 3: after `stop`, only an explicit start spawns a child).
     fn supervise(self: &Arc<Self>) {
         let start = {
             let mut v = self.view.lock().unwrap_or_else(PoisonError::into_inner);
-            let start = !v.restarting;
-            v.restarting = true;
-            start
+            let start = !v.restarting && !v.stopped;
+            if start {
+                v.restarting = true;
+            }
+            start.then_some(v.lifecycle)
         };
-        if start {
-            tokio::spawn(Arc::clone(self).restart_cycle());
+        if let Some(lifecycle) = start {
+            self.spawn_task(Arc::clone(self).restart_cycle(lifecycle));
         }
     }
 
@@ -484,11 +551,13 @@ impl Inner {
         match view.state {
             IssuerState::Crashed | IssuerState::Unavailable => self.supervise(),
             IssuerState::StoreUnavailable if view.retry_at.is_none_or(|t| t <= Instant::now()) => {
-                let me = Arc::clone(self);
-                tokio::spawn(async move {
-                    let mut slot = me.link.lock().await;
-                    let _ = me.load_locked(&mut slot).await;
-                });
+                if let Some(lifecycle) = self.running() {
+                    let me = Arc::clone(self);
+                    self.spawn_task(async move {
+                        let mut slot = me.link.lock().await;
+                        let _ = me.load_locked(&mut slot, lifecycle).await;
+                    });
+                }
             }
             _ => {}
         }
@@ -522,8 +591,11 @@ impl ChildIssuer {
                     retry_at: None,
                     restarting: false,
                     reload_attempts: 0,
+                    lifecycle: 0,
+                    stopped: false,
                 }),
                 link: tokio::sync::Mutex::new(None),
+                tasks: Mutex::new(Vec::new()),
             }),
         }
     }
@@ -535,7 +607,8 @@ impl ChildIssuer {
     /// [`IssuerError::Unavailable`] with the reason (`issuer_store_locked`,
     /// `issuer_store_unavailable`, `issuer_unavailable`).
     pub async fn start(&self) -> Result<(), IssuerError> {
-        let r = self.inner.start_once().await;
+        let lifecycle = self.inner.begin();
+        let r = self.inner.start_once(lifecycle).await;
         if r.is_err() && self.inner.view().state == IssuerState::Crashed {
             self.inner.supervise();
         }
@@ -552,12 +625,35 @@ impl ChildIssuer {
             drop(slot);
             return self.start().await;
         }
-        self.inner.load_locked(&mut slot).await
+        // An explicit owner action (`issuer unlock`): it may begin a new lifecycle.
+        let lifecycle = self.inner.begin();
+        self.inner.load_locked(&mut slot, lifecycle).await
     }
 
     /// Ask the child to exit (`stopping`): `shutdown`, then EOF; the child is ended
     /// through its handle if it has not exited within [`STOP_TIMEOUT`].
+    ///
+    /// ⟨§17.19 item 3, W2-R03⟩ It first ends the lifecycle (stopped, generation moved),
+    /// so no restart cycle or reload of it spawns a child or loads a CA from here on,
+    /// then cancels and awaits every such background task, and only then takes the
+    /// link. Demands after it start nothing until an explicit [`ChildIssuer::start`].
     pub async fn stop(&self) {
+        self.inner.update(|v| {
+            v.stopped = true;
+            v.lifecycle = v.lifecycle.wrapping_add(1);
+            v.restarting = false;
+        });
+        let tasks: Vec<_> = std::mem::take(
+            &mut *self
+                .inner
+                .tasks
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        for task in tasks {
+            task.abort();
+            let _ = task.await;
+        }
         let mut slot = self.inner.link.lock().await;
         self.inner.set_state(IssuerState::Stopping, None);
         if let Some(mut link) = slot.take() {

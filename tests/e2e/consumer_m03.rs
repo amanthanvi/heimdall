@@ -80,8 +80,14 @@ fn with_p(home: &ScratchHome, inherited: &str) -> String {
         (PathStyle::Unix, |p| RenderPath::unix(p).unwrap())
     };
     let slot = home.root.join("state").join("managed").join("dst-work");
+    // ⟨wave-2 Windows native run⟩ A fixture pipe name (`heimdall-hmtest-…`), which the
+    // default-identity guard admits; nothing listens on it (`ssh -G` connects nowhere).
     let endpoint = if cfg!(windows) {
-        RenderPath::pipe(r"\\.\pipe\heimdall-tok-signing").unwrap()
+        RenderPath::pipe(&format!(
+            r"\\.\pipe\{}tok-signing",
+            heimdall_testkit::agent::FIXTURE_PIPE_PREFIX
+        ))
+        .unwrap()
     } else {
         file(&home.root.join("run").join("signing.sock"))
     };
@@ -273,7 +279,11 @@ fn connect_uses_binding_endpoint_via_command_line() {
     };
     let binding = home.root.join("run").join("b").join("0123456789abcdef");
     let endpoint = if cfg!(windows) {
-        RenderPath::pipe(r"\\.\pipe\heimdall-tok-b0123456789abcdef").unwrap()
+        RenderPath::pipe(&format!(
+            r"\\.\pipe\{}tok-b0123456789abcdef",
+            heimdall_testkit::agent::FIXTURE_PIPE_PREFIX
+        ))
+        .unwrap()
     } else {
         file(&binding.join("agent.sock"))
     };

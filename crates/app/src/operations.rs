@@ -10980,9 +10980,19 @@ impl Operations {
                     };
                     return Ok((Err(ca_issuance_m03::refusal_error(&refusal)), ended));
                 }
+                // ⟨§17.19 item 2⟩ The reserve transaction persists what it judged:
+                // issuance within an existing grant (continuing work) or a new
+                // activation.
                 Ok((
                     Ok(reserve_entry(
-                        tx, emit, id, &grant.id, &req.pair, bounds, now,
+                        tx,
+                        emit,
+                        id,
+                        &grant.id,
+                        &req.pair,
+                        bounds,
+                        !req.facts.new_activation,
+                        now,
                     )?),
                     Ended::default(),
                 ))
@@ -11075,6 +11085,15 @@ impl Operations {
                 if let Some(s) = &safe {
                     track_mechanism_in(tx, emit, &env, &adapters, &gate, &gid, s, None)?;
                 }
+                // ⟨§17.19 item 2, W2-R02⟩ Continuing work only if the reserve
+                // transaction recorded it: a caller's facts can make publication
+                // stricter (a new activation), never laxer than the entry. So
+                // publication and the issuer, which reads only the entry, judge the
+                // same distinction.
+                let facts = IssuanceFacts {
+                    new_activation: facts.new_activation || !entry.continuing,
+                    ..facts.clone()
+                };
                 let check = match tx.grant(&gid)? {
                     None => Err(IssuanceRefusal::GrantNotIssuable(GrantState::Revoked)),
                     Some(g) => run_issuance_check(
@@ -11112,8 +11131,16 @@ impl Operations {
                             serial,
                             ..entry.bounds
                         };
-                        let fresh =
-                            reserve_entry(tx, emit, fresh_id, &gid, &entry.pair, bounds, now)?;
+                        let fresh = reserve_entry(
+                            tx,
+                            emit,
+                            fresh_id,
+                            &gid,
+                            &entry.pair,
+                            bounds,
+                            entry.continuing,
+                            now,
+                        )?;
                         Ok((Published::Rereserved(Box::new(fresh)), Ended::default()))
                     }
                     Err(refusal) => {
@@ -11176,7 +11203,10 @@ fn issuance_time(
     })
 }
 
-/// Insert a `reserved` entry at the current generation, with its event.
+/// Insert a `reserved` entry at the current generation, with its event. `continuing`
+/// is persisted with it (⟨§17.19 item 2⟩ `IssuanceEntry::continuing`): issuance within
+/// an existing grant, which publication and the issuer then read from the entry.
+#[allow(clippy::too_many_arguments)]
 fn reserve_entry(
     tx: &mut Txn<'_>,
     emit: &mut Emit,
@@ -11184,6 +11214,7 @@ fn reserve_entry(
     grant: &GrantId,
     pair: &AccessPair,
     bounds: CertificateBounds,
+    continuing: bool,
     now: Timestamp,
 ) -> heimdall_store::Result<IssuanceEntry> {
     let entry = IssuanceEntry {
@@ -11196,6 +11227,7 @@ fn reserve_entry(
         reserved_at: now,
         settled_at: None,
         void_reason: None,
+        continuing,
     };
     tx.reserve_issuance(&entry)?;
     issuance_event(tx, emit, grant, &entry.id, "reserved")?;

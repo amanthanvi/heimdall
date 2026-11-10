@@ -176,6 +176,38 @@ impl TxnGate {
         })
     }
 
+    /// ⟨M03⟩ The read-only assessment inside `txn` ([`TimeGate::assess_read_only_in`]'s
+    /// rules; persists nothing): one observation, its verdict (`Uncertain` without a
+    /// same-boot runtime anchor or confirmation), and, when `Safe`, the [`SafeNow`]
+    /// built from **that** observation. ⟨§17.19 item 1, W2-R01⟩ The observation and its
+    /// verdict travel together: a caller never pairs a `Safe` verdict with a later,
+    /// unassessed `observe()`.
+    pub(crate) fn assess_read_only(
+        &self,
+        txn: &mut Txn<'_>,
+    ) -> heimdall_store::Result<(TimeAnchor, TimeStatus, Option<SafeNow>)> {
+        let a = self.assess(txn)?;
+        let anchored = a
+            .previous
+            .as_ref()
+            .is_some_and(|p| p.boot_id == a.now.boot_id)
+            || txn
+                .time_confirmation()?
+                .is_some_and(|c| c.boot_id == a.now.boot_id);
+        let status = match a.status {
+            TimeStatus::Safe if !anchored => {
+                TimeStatus::Uncertain(TimeUncertainty::Unsynchronized { sync: a.sync })
+            }
+            status => status,
+        };
+        let safe = (status == TimeStatus::Safe).then(|| SafeNow {
+            anchor: a.now.clone(),
+            sync: a.sync,
+            tolerance_used: a.tolerance,
+        });
+        Ok((a.now, status, safe))
+    }
+
     /// [`TimeGate::check`] inside `txn`: a fresh observation, assessed; on `Safe`
     /// the mark and the runtime anchor are persisted in `txn`.
     pub(crate) fn check(
@@ -547,21 +579,8 @@ impl TimeGate {
         &self,
         txn: &mut Txn<'_>,
     ) -> heimdall_store::Result<(TimeAnchor, TimeStatus)> {
-        let a = self.in_txn().assess(txn)?;
-        let anchored = a
-            .previous
-            .as_ref()
-            .is_some_and(|p| p.boot_id == a.now.boot_id)
-            || txn
-                .time_confirmation()?
-                .is_some_and(|c| c.boot_id == a.now.boot_id);
-        let status = match a.status {
-            TimeStatus::Safe if !anchored => {
-                TimeStatus::Uncertain(TimeUncertainty::Unsynchronized { sync: a.sync })
-            }
-            status => status,
-        };
-        Ok((a.now, status))
+        let (now, status, _) = self.in_txn().assess_read_only(txn)?;
+        Ok((now, status))
     }
 
     /// Admission check for a grant against a `Safe` observation: wall bound and

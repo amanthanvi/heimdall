@@ -119,19 +119,18 @@ impl ServedAgent {
         let stop = CancellationToken::new();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<String>();
         let (a2, s2) = (Arc::clone(&agent), stop.clone());
-        #[cfg(windows)]
-        let _ = home; // the pipe name is random; no scratch path is needed
+        // ⟨wave-2 Windows native run⟩ The fixture endpoint testkit names: a socket in
+        // the run's scratch directory, or a fixture pipe `\\.\pipe\heimdall-hmtest-<hex>-
+        // <name>` (the default-identity guard admits only these; never loosened).
+        let fixture = heimdall_testkit::agent::Endpoint::in_scratch(home.scratch(), name).unwrap();
         #[cfg(unix)]
-        let socket = home
-            .scratch()
-            .subdir("a")
-            .unwrap()
-            .join(format!("{name}.sock"));
+        let heimdall_testkit::agent::Endpoint::UnixSocket(socket) = fixture else {
+            panic!("a Unix fixture endpoint is a socket");
+        };
         #[cfg(windows)]
-        let pipe = format!(
-            r"\\.\pipe\heimdall-intq10-{}-{name}",
-            heimdall_testkit::agent::random_hex(8)
-        );
+        let heimdall_testkit::agent::Endpoint::NamedPipe(pipe) = fixture else {
+            panic!("a Windows fixture endpoint is a pipe");
+        };
         let thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

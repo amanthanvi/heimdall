@@ -452,23 +452,34 @@ fn p_renders_owned_master_control_path_when_enabled() {
     let dest = DestinationId::parse("dst-work").unwrap();
     let mux = managed_mux_path(Path::new("/run/user/1000/heimdall"), &dest).unwrap();
     assert_eq!(mux, Path::new("/run/user/1000/heimdall/mux/dst-work"));
-    let bytes = render_sections(
-        &[managed_section(
-            "work",
-            Some(RenderPath::unix(&mux).unwrap()),
-        )],
-        PathStyle::Unix,
-        DEFAULT_MANAGED_IDENTITY_FORM,
-    )
-    .unwrap();
-    let text = String::from_utf8(bytes).unwrap();
-    assert!(
-        text.ends_with(
-            "    ControlMaster no\n    ControlPath \"/run/user/1000/heimdall/mux/dst-work\"\n"
-        ),
-        "{text}"
-    );
-    assert!(!text.contains("ControlPath none"));
+    // ⟨wave-2 Windows native run⟩ The mux path is a Unix runtime path, rendered only into a
+    // Unix P: on a Windows host `Path::join` writes `\` into it, which `RenderPath::unix`
+    // refuses (owned multiplexing is unavailable on Windows, D8, M-F7; the refusal of a
+    // mux path in a Windows file is asserted below on every host).
+    if cfg!(unix) {
+        let bytes = render_sections(
+            &[managed_section(
+                "work",
+                Some(RenderPath::unix(&mux).unwrap()),
+            )],
+            PathStyle::Unix,
+            DEFAULT_MANAGED_IDENTITY_FORM,
+        )
+        .unwrap();
+        let text = String::from_utf8(bytes).unwrap();
+        assert!(
+            text.ends_with(
+                "    ControlMaster no\n    ControlPath \"/run/user/1000/heimdall/mux/dst-work\"\n"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("ControlPath none"));
+    } else {
+        assert!(
+            RenderPath::unix(&mux).is_err(),
+            "a Windows-built path is never a Unix render path"
+        );
+    }
     // `%` in the path is escaped like every rendered path.
     let pct = render_sections(
         &[managed_section("work", Some(unix("/run/h%e/mux/dst-work")))],

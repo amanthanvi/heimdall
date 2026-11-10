@@ -3767,6 +3767,50 @@ Decided now, implemented in later waves:
    - **Pre-release DPAPI blobs:** the per-environment default directory (item 1) has no migration from the old shared path. No product caller of `default_dir` exists yet, and no release has written a blob. U10 wires the directory and refuses any blob outside it, never adopting one.
    - **The debug-only trace dump** writes raw client diagnostics. It exists only in debug builds and is never a support-log exporter or a secret sanitizer. Live accounts never use it.
 
+### 17.19 Orchestrator rulings on wave 2: the reviews, the native checks and the escalations (2026-11-10)
+
+**Sources:**
+- **The code review** (Codex, independent): `tests/evidence/artifacts/review-m03-code/wave2.md`. Verdict: fix first, with W2-R01 to W2-R03.
+- **The security review** (Codex, independent; plan §6.7): `wave2-security.md`. Verdict: fix first, with W2-S01. That is W2-R01, reproduced by a probe.
+- **The integrator's escalations:** `wave2-notes/m03-wave2-questions.md`.
+- **The native development checks:** at `0478f6cd`, on the devbox (OpenSSH 9.6p1) and on Windows (in-box OpenSSH_for_Windows_9.5p2).
+
+1. **W2-R01 and W2-S01: authorization uses the observation the time gate assessed.**
+   - **The defect:** the `ReadOnly` default kept only the verdict of `assess_read_only`, then built `SafeNow` from a second, unassessed `clock.observe()`. A wall-clock step between the two was never judged. The security review reproduced a release after a one-hour rollback, where the `Peek` control refused.
+   - **The ruling:** the observation and its verdict travel together. Authorization runs `TimeGate::assess_read_only_in` inside its own transaction and builds `SafeNow` from the observation that call returns. No later `observe()` replaces it.
+   - **The regression:** the rollback interleaving, through the real signer and enqueue path. It must refuse, and fail with the fix reverted.
+2. **W2-R02: the issuer knows a continuing re-issue from a new activation by a persisted fact.**
+   - **The defect:** `ISSUER_FACTS.new_activation` was always true. A re-issue for continuing work, which publication allows under a pause (spec §5.6; ADR-0006 §13.6 item 1), was refused by the issuer, so its verdict differed from the publish transaction's (D3 item 4).
+   - **The ruling:** the issuer reads the distinction from state the reserve transaction persisted, never from a field of the request.
+     - Existing persisted facts are preferred: a prior published issuance of the same grant at its current generation.
+     - If none fits, an additive migration is authorized. Any row written before it reads as a new activation, which fails closed.
+   - **The regression:** a continuing re-issue under a paused policy passes both the issuer and publication, and a new activation under the same pause is refused by both. The predicate-equivalence property must stop forcing `new_activation = true` on both sides.
+   - This closes U3-Q2.
+3. **W2-R03: `stop()` fences restarts.**
+   - The issuer client gets a lifecycle generation, or a cancellation token. `stop()` invalidates every restart or reload belonging to the stopped lifecycle, and waits for it.
+   - No child is spawned, and no CA reloaded, after `stop()` without a new explicit start.
+   - **The regression:** `stop()` during the restart backoff.
+4. **INT-Q10: the managed alias names the certificate as its identity file.**
+   - **What was observed:** D10's identity lines (`IdentityFile <key.pub>` with `CertificateFile <cert.pub>`) fail on every client tested: ssh exits 255 and never asks the agent. `IdentitiesOnly yes` with `IdentityFile <cert.pub>` (`CertificateAsIdentityFile`) signs once, through the certificate:
+     - on macOS 10.5p1, at both reviews;
+     - natively on the devbox's 9.6p1 (`managed_identity_form … form=certificate_as_identity_file`, and the rendered-P row);
+     - on Windows' in-box 9.5p2: **pending**. The observation test failed on a Windows fixture refusal at `0478f6cd`, before it reached the client. The row is recorded from the next native run.
+   - **The ruling:** D10 items 1 and 4 are amended to that form. F17 and D2 item 4 are unchanged: the signer never lists or signs the plain K_env key.
+   - **A client where the form fails** reports the managed alias as `capability_unavailable` with `client_unsupported`, per client.
+   - **`IdentitiesOnly yes` does not remove inherited `IdentityFile` or `CertificateFile` entries**, so D10 item 6's `not_exclusive` and `undetermined` classification still applies.
+   - **The verification endpoint** may accept a plain K_verify handle only when the signed data carries the operation's current positive certificate, which is the reviewed behaviour.
+5. **INT-Q13: verification signatures get a per-operation gate**, the integrator's option (a).
+   - Installing a verification certificate also checks it against the plan's CA and pair, and the verification factory receives the plan.
+   - This lands with U0b phase 2 and U10 (wave 4). Until then, every verification signature is refused, failing closed (`VERIFICATION_UNGATED_SIGNING = false`).
+6. **Confirmed readings and schedule:**
+   - U2-Q1: U10 persists `credential_instances`;
+   - U2-Q2: U6 and U10 wire the install view. Until then installs are refused;
+   - U3-Q3: the serial format check stands, and the install validator compares the serial;
+   - U3-Q4: U10 adds the `managed` feature for `internal issuer`;
+   - U8-Q1: the runtime uses `LocalProjection::writing`;
+   - U8-Q2, U8-Q3, U8-Q4 and U8-Q5: as the integrator read them;
+   - U8-Q6: an additive `preference` field on `inspect destinations` is authorized for U10 and U12. Until then, managed `connect` keeps M02's flow and fails closed.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

@@ -130,3 +130,50 @@ ManagedRunContext's real managed block U8), ADR-0007 §13 residuals (U8).
   node_modules,dist}`. Helper `.m03-wave2-xcheck-windows.sh` removed (`tools/validation/clippy-windows.sh`
   is the whole-workspace equivalent).
 - Notes archived to `tests/evidence/artifacts/review-m03-code/wave2-notes/` (dot dropped, paths redacted).
+
+## Round 2 (ADR-0008 §17.19; reviews `wave2.md`, `wave2-security.md`; native checks at `0478f6cd`; 2026-11-10)
+- **W2-R01 = W2-S01 (§17.19 item 1).** `TxnGate::assess_read_only` (timegate.rs) returns the assessed
+  observation, its read-only verdict and, when `Safe`, the `SafeNow` built from that same observation;
+  `TimeGate::assess_read_only_in` delegates to it. `authorize.rs` runs both seams inside the authorization
+  transaction and builds `safe` from the assessed observation (no second `observe()`). Regression
+  `integration_managed_signer::signature_refused_when_wall_clock_steps_back_after_the_time_assessment`
+  (the security review's interleaving through the real signer and `enqueue_signed`, a per-clock armed step,
+  not a shared static; control: zero step releases). With the old code restored in the closure → 101
+  ("step back 3600s": released); fixed → 0.
+- **W2-R02 (§17.19 item 2; closes U3-Q2).** Existing fact rejected: a pause is a policy upsert, which
+  advances the authority generation (`Txn::upsert_policy`), so no earlier publication is at the current
+  generation once a pause exists (asserted in the regression). Additive record field
+  `IssuanceEntry::continuing` (`#[serde(default, skip_serializing_if = Not::not)]`: old rows read `false` = new
+  activation; a new activation's stored bytes are unchanged). The reserve transaction persists
+  `!facts.new_activation`; a re-reservation copies it; publication judges `facts.new_activation ||
+  !entry.continuing` (a caller can only be stricter); the issuer reads `issuance_ro::issuer_facts(entry)`.
+  No SQL migration. Regressions: `integration_issuer_child::continuing_reissue_under_pause_passes_issuer_and_publication_new_activation_refused_by_both`;
+  the equivalence property now generates both readings; domain unit test
+  `continuing_is_additive_and_old_rows_read_as_new_activation`. Issuer side reverted → regression 101 and
+  property 101; publication side reverted → regression 101.
+- **W2-R03 (§17.19 item 3).** `client.rs`: a lifecycle generation and a stopped flag in the view; restart
+  cycles and on-demand reloads carry their lifecycle and spawn/load nothing once it is not current; they run
+  as tracked tasks; `stop()` ends the lifecycle first, then aborts and awaits every task, then takes the link;
+  demands after `stop()` start nothing; `start()`/`reload()` (explicit) begin a new lifecycle. Regression
+  `integration_issuer_child::stop_during_restart_backoff_spawns_no_child_and_reloads_no_ca` (cross-platform;
+  the child is the test binary with a filter matching nothing; spawns counted by the start-token callback).
+  `client.rs` from `0478f6cd` restored → 101 ("no child spawned after stop": 2); fixed → 0.
+- **Windows native failures at `0478f6cd`:**
+  - `e2e_consumer_m03` (3 tests, `NonScratchAgent`): the rendered environment/binding pipes now use the fixture
+    prefix (`\\.\pipe\heimdall-hmtest-tok-…`); the guard is unchanged.
+  - `integration_managed_identity_forms` (`NonScratchAgent`): the agent endpoint now comes from
+    `testkit::agent::Endpoint::in_scratch` (a scratch socket, or `\\.\pipe\heimdall-hmtest-<hex>-<name>`).
+  - `heimdall` bin `connect_cmd::tests::binding_files_follow_the_binding_endpoint_or_refuse`: the Unix-layout
+    positive half is Unix-host only (on Windows the Unix branch returns `None`, asserted).
+  - `integration_projection_managed::p_renders_owned_master_control_path_when_enabled`: the Unix mux render is
+    Unix-host only; on Windows `RenderPath::unix` refuses the joined path (asserted); the Windows-file refusal
+    stays unconditional. The renderer is unchanged.
+  - `integration_adapters::prepare_reports_the_full_selection_and_never_clears_a_stale_managed_entry`
+    (`agent endpoint absent`; the test passed at every M02 exit run, and nothing in its path changed in
+    wave 2): `adapters::detect::observe_pipe` now takes up to 3 `\\.\pipe\` listings before "not listed"
+    stands (passive, never an open; `Present` only from a listing that shows the pipe). Root cause not
+    reproduced here (needs Windows); hypothesis: the non-atomic pipe enumeration under concurrent pipe churn.
+    Unit test `detect::tests::pipe_presence_retries_a_bounded_number_of_listings`.
+- Round 2 checks: `check.sh` → **exit 0**, every step 0 (incl. `clippy-windows`, i.e. `tools/validation/clippy-windows.sh`):
+  2482 passed, 0 failed, 188 ignored; native-harness-selftest 316/0. `linux-xcheck.sh --workspace` → 0.
+  Cross-built `target/x86_64-*` removed afterwards; integrator `/tmp` scratch removed.
