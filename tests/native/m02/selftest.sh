@@ -670,7 +670,7 @@ check "X02 lib: random hex is lowercase hex of the requested length and differs 
 m02_record "$X0/commands" "a command" 101
 check "X03 lib: a command line carries its real exit code" grep_q "exit 101: a command" "$X0/commands"
 
-printf 'path C:\\Users\\Fix.User\\.ssh and C:\\\\Users\\\\Fix.User and C:/Users/fix.user and /mnt/c/Users/fix.user/x\nhost FixHost user fixuser sid S-1-5-21-1-2-3-1001 ip 203.0.113.9 and 127.0.0.1 and 0.0.0.0 v1.2.3.4.5\nshort a\n' >"$X0/redact.in"
+printf 'path C:\\Users\\Fix.User\\.ssh and C:\\\\Users\\\\Fix.User and C:/Users/fix.user and /mnt/c/Users/fix.user/x\nhost FixHost user fixuser sid S-1-5-21-1-2-3-1001 ip 203.0.113.9 and 127.0.0.1 and 0.0.0.0 v1.2.3.4.5\nshort a\nwsl-version=WSL version: 2.6.1.0\n' >"$X0/redact.in"
 m02_redact "$X0/redact.in" "$X0/redact.out" 'C:\Users\Fix.User' "<winhome>" "FixHost" "<h>" "fixuser" "<u>" "a" "<never>"
 check "X04 lib: redaction replaces the Windows home in its backslash, doubled, slash and /mnt forms, any case" \
     bash -c '! grep -qi "fix.user" "$1" && [ "$(grep -o "<winhome>" "$1" | wc -l | tr -d " ")" -ge 4 ]' _ "$X0/redact.out"
@@ -680,6 +680,8 @@ check "X06 lib: a domain SID and a non-loopback IPv4 address are masked, loopbac
     bash -c 'grep -q "S-1-5-21-<redacted>" "$1" && grep -q "<addr>" "$1" && grep -q "127.0.0.1" "$1" && grep -q "0.0.0.0" "$1" && ! grep -q "203.0.113.9" "$1"' _ "$X0/redact.out"
 check "X07 lib: a one-character value is ignored (it would mangle ordinary text)" \
     bash -c 'grep -q "^short a$" "$1"' _ "$X0/redact.out"
+check "X07b lib: a four-part version number after \"version:\" is kept, not masked as an address" \
+    bash -c 'grep -qx "wsl-version=WSL version: 2.6.1.0" "$1"' _ "$X0/redact.out"
 printf 'mac on macOS, Mac.local, mac-1 and xmac; heimdall_mac_x\n' >"$X0/word.in"
 m02_redact "$X0/word.in" "$X0/word.out" --word "mac" "<host>"
 check "X27 lib: a --word host name is replaced only as a whole word, any case, never inside another word" \
