@@ -966,3 +966,18 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - A21: Windows TUI pty cases, §12.47 D2;
     - T06: Windows typed-yes purge, §12.49 item 2.
   - **Next:** the documentation unit writes the M02 exit record and the matrix rows from these records. Then the M03 wave-0 merge.
+- **M02 exits at e4f43f84** (`docs/architecture/m02-exit.md`; ADR-0007 §12.51 item 9).
+  - The documentation unit wrote the exit record and the matrix's M02 rows. The draft is removed.
+  - The five Windows gaps that held the `ce21a76f` exit all ran natively:
+    - the in-box `ssh.exe`, `scp.exe` and `sftp.exe` now connect to the WSL fixture sshd;
+    - R-SE-04 runs 8 of 8 on Windows;
+    - the projection binaries run on Windows, including the Git name transitions;
+    - the junction and file-symlink tests pass;
+    - the account lookup passes.
+  - **Still not covered on Windows:** a Windows sshd, Git choosing its own client, and the interactive pty cases (deferred to M04).
+  - **The exit-gaps review** (Codex, `review-m02-code/exit-gaps.md`) covers the changes no earlier review did. It found two pre-existing medium defects in the evidence tool:
+    - R1: a configured exit code could hide a logged failure;
+    - R2: `//home/<name>` passed the importer.
+
+    Both are fixed with regressions. Neither touches the M02 records: the fixed generator rates `e4f43f84` identically.
+- **Next:** merge M03 wave 0 (`6c6b5e06`). `check.sh` on the merged tree already passed, with every step 0 and 2049 tests passed, 0 failed, 8 ignored. Then M03 wave 1.

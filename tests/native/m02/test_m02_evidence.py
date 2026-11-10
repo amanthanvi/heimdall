@@ -1038,6 +1038,29 @@ class Records(unittest.TestCase):
         self.assertEqual(row_status(summary, "G1", "macos"), "in_progress")
         self.assertEqual(rc, 0, "a failing test is a row status, not a generator error")
 
+    def test_a_configured_exit_code_never_replaces_an_observed_one(self):
+        # The exit-gaps review, R1: a zero in the configuration must not hide a failure the
+        # commands log recorded. The evaluation stops, and nothing is written.
+        s = Scratch(self, platforms={"macos": {"exit_codes": {"the required command": 0}}})
+        (s.dir / "macos.commands").write_text("exit 7: the required command\n")
+        rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 2, err)
+        self.assertIn("never replaces an observed one", err)
+        self.assertEqual(s.records(), {})
+        # A configured code for a command the logs do not hold still counts.
+        s = Scratch(self, platforms={"macos": {"exit_codes": {"another required command": 3}}})
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(row_status(summary, "G2", "macos"), "in_progress")
+
+    def test_a_command_logged_twice_keeps_its_failure(self):
+        # The exit-gaps review, R1: a later zero line never hides an earlier nonzero one.
+        s = Scratch(self)
+        (s.dir / "macos.commands").write_text("exit 7: the required command\nexit 0: the required command\n")
+        rc, summary, err = s.run()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(row_status(summary, "G2", "macos"), "in_progress")
+
     def test_dropping_a_whole_wildcard_target_or_one_test_cannot_verify(self):
         for drop in ("target", "one"):
             logs = full_logs()
@@ -1312,6 +1335,11 @@ class WindowsBundle(unittest.TestCase):
             "a macOS home starting with a plus": make_bundle({"build.txt": "at /Users/+synthetic-review-user/key\n"}),
             "a Unix home starting with an emoji": make_bundle({"build.txt": "at /home/\U0001f9ea-synthetic-review-user/key\n"}),
             "a fixture entry name extended": make_bundle({"build.txt": "at <scratch>/home/.ssh+synthetic-review-user/k\n"}),
+            # The exit-gaps review, R2: a run of separators is one separator.
+            "a Unix home after a doubled separator": make_bundle({"build.txt": "at //home/synthetic-review-user/key\n"}),
+            "a macOS home after a doubled separator": make_bundle({"build.txt": "at //Users/synthetic-review-user/key\n"}),
+            "a fixture home after a doubled separator": make_bundle(
+                {"build.txt": "at <scratch>//home/synthetic-review-user/key\n"}),
             "a Windows home path": make_bundle({"build.txt": "at C:\\Users\\someone\\src\n"}),
             "a WSL view of a Windows home": make_bundle({"build.txt": "at /mnt/c/Users/someone/x\n"}),
             "a macOS home path": make_bundle({"build.txt": "at /Users/someone/x\n"}),

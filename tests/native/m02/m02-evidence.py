@@ -641,13 +641,21 @@ def parse_observations(path):
 
 
 def parse_commands(path):
-    """{command: exit} from a harness commands.txt ("exit N: command")."""
+    """{command: exit} from a harness commands.txt ("exit N: command"). A command logged
+    more than once keeps its first nonzero exit: a later zero never hides a failure (the
+    exit-gaps review, R1)."""
     out = {}
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         m = re.match(r"^exit (-?\d+): (.+)$", line)
         if m:
-            out[m.group(2)] = int(m.group(1))
+            merge_code(out, m.group(2), int(m.group(1)))
     return out
+
+
+def merge_code(codes, command, code):
+    """Record `code` for `command`, keeping a nonzero exit already recorded for it."""
+    if codes.get(command, 0) == 0:
+        codes[command] = code
 
 
 def parse_facts(path):
@@ -855,8 +863,18 @@ def load_platforms(cfg):
                 merge(logs, parse_log(base / rel))
             codes = {}
             for rel in p.get("commands_logs", []):
-                codes.update(parse_commands(base / rel))
-            codes.update(p.get("exit_codes") or {})
+                for command, code in parse_commands(base / rel).items():
+                    merge_code(codes, command, code)
+            # A configured exit code may add a command the logs do not hold. It never
+            # replaces one they recorded (the exit-gaps review, R1): a disagreement stops
+            # the evaluation, so nothing is written from it.
+            for command, code in (p.get("exit_codes") or {}).items():
+                if command in codes and codes[command] != code:
+                    raise RunError(
+                        f"{pname}: exit_codes gives {code!r} for {command!r}, but its commands log recorded "
+                        f"{codes[command]}; a configured exit code never replaces an observed one"
+                    )
+                codes.setdefault(command, code)
             p["exit_codes"] = codes
             facts = {}
             for rel in p.get("facts", []):

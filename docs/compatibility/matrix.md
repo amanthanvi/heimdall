@@ -163,55 +163,107 @@ Records are in `tests/evidence/`; the observation ids (W, L, M) refer to the tab
     whose `%USERPROFILE%\.ssh` is empty. **Observed:** Git for Windows 2.55.0.windows.3, bundled
     `OpenSSH_10.3p1, OpenSSL 3.5.7`.
 
-## M02 existing-access rows (Heimdall build; M02-W5-run, 2026-11-06)
+## M02 existing-access rows (Heimdall build `e4f43f84`, M02 exit, 2026-11-10)
 
-These rows test Heimdall itself. Build: base commit `bcad82de` plus the uncommitted wave-5 working tree
-(`build_commit` in `tests/evidence/artifacts/m02/exit-bcad82de-w5/runs.json` gives the digests). Records: `tests/evidence/m02-*.json`. Artifacts:
-`tests/evidence/artifacts/m02/exit-bcad82de-w5/`.
+These rows test Heimdall itself.
+- **Build:** commit `e4f43f847af1b3a7396298f5a39af6d859b080d1`. Its `crates/` and `tests/` `*.rs` sources digest is
+  `63ad245b…20baa5` (`tests/native/m02/required-inventory.json`).
+- **Records:** `tests/evidence/m02-*.json`.
+- **Artifacts:** `tests/evidence/artifacts/m02/exit-e4f43f84/`. `runs.json` holds the configuration, and
+  `digests.txt` lists every artifact file.
+- **Exit record:** `docs/architecture/m02-exit.md`.
 
 - **Label.** Every row stays `not-tested`. ADR-0001 §9 keeps every platform at `not-tested` until ADR-0001 §5 (floors)
   and §6 (baseline worksheet) close, and both are still `blocked`. A row passing at M02 does not change that.
-- **M02 evidence.** The row status of the cited record on that platform (plan §1.4 statuses, lowest-row rule in
-  `tests/evidence/README.md`).
-  - macOS: every required test of the row passed, except one A27 test,
-    `e2e_run_m02 terminal::a27_ctrl_c_reaches_child_once`, which failed once ("heimdall did not finish"). That
-    failure made `check.sh` exit 1. Any nonzero required command keeps a row `in_progress`, so every macOS row is
-    `in_progress`.
-  - Linux: 29 tests failed. Most are a test-harness defect: the e2e pseudo-terminal children lose
-    `HEIMDALL_E2E_BIN` and exec the build host's path. The rest are four real client and Git differences, listed
-    under the facts below.
-  - Windows and the WSL distribution did not run. The Windows PC's WSL ssh endpoint did not answer during the run.
+- **M02 evidence.** This column gives the row status of the cited record on that platform (plan §1.4 statuses;
+  the lowest-row rule is in `tests/evidence/README.md`).
+  - **What `verified` means.** Every required test that applies on that platform ran and passed in this run. A
+    test excluded on a platform carries a case-index rationale, and a planned test that does not exist reads as
+    not run (ADR-0007 §12.47 item 1). It is not an independent review of the units (`runs.json`
+    `common_limitations`).
+  - **macOS arm64:** every required test passed. `check.sh` passed 1780, failed 0 and ignored 8, with all 9 steps
+    at exit 0; the observation pass passed 197.
+  - **Linux x86-64 (devbox):** every required test passed: 1776 passed, 0 failed, 8 ignored over 49 binaries. The
+    one build-host-path test, `heimdall_testkit-unit repo::tests::unset_or_empty_is_the_compile_time_root`, is
+    classified neutral and runs on the build host only.
+  - **Windows 11 x64:** every required test that applies on Windows passed: 1655 passed, 0 failed, 1 ignored over 49
+    binaries, and `windows_launch` 4 of 4. The run was native, in local mode (an agent on the PC). See "Windows
+    scope" below.
+  - **WSL2 disposable distribution:** the ordinary-ssh scenario passed (`wsl_ordinary_ssh` 11 of 11).
+- **Windows scope** (read this before M02-9 to M02-13).
+  - **The server.** Every Windows transport test connects to a loopback fixture sshd: Linux OpenSSH 9.6p1, non-root,
+    in WSL scratch, reached from Windows on 127.0.0.1.
+    - It authenticates the WSL account, not the Windows user (`windows/host.txt`, `fixture-sshd-account`).
+    - The strict variant (`MaxAuthTries 3`) is separate.
+    - No Windows sshd is tested.
+  - **The provider.** It is the fixture pipe agent: the testkit `FakeAgent` on a per-run `\\.\pipe\heimdall-hmtest-…`
+    name. The harness never opens the system agent's pipe (B4).
+  - **Which tests connect the in-box clients** (`windows/tests.txt`, all `ok`):
+    - **`ssh.exe`, `scp.exe` and `sftp.exe`:** `e2e_cli_m02 ssh::a35_matrix_ssh_git_scp_sftp_ordinary_alias_and_run_bound`.
+      Its log line shows `ssh`, `scp` and `sftp` resolved to `C:\WINDOWS\System32\OpenSSH\` and `git` to Git for
+      Windows' `mingw64\bin\git.exe`. The test asserts that:
+      - the copied bytes are identical;
+      - only the adopted key was accepted;
+      - the decoy agent was never contacted.
+    - **`ssh.exe` alone:** the other `e2e_cli_m02 ssh::` tests. 12 `ssh::` tests ran in all, and 8 of them start the
+      fixture sshd. Among them are `a01_cli_adopt_observed_and_managed_aliases_then_ordinary_ssh_with_scratch_f`,
+      `a01_no_remote_change`, `a35_wrong_key_exclusive_selection_fails_without_fallback`,
+      `a35_too_many_keys_succeeds_for_managed_alias_only` and
+      `host_key_substitution_fails_closed_and_nothing_written_to_known_hosts`.
+    - **`scp.exe` and `sftp.exe` under `heimdall run`:** `e2e_run_m02 a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths`.
+    - **`ssh.exe` under `heimdall run` and `connect`:** `a11::a27_binary_stdin_stdout_roundtrip_through_ssh` and
+      `a11::connect_reaches_the_fixture_sshd_through_the_verified_client`.
+    - **Git:** `a11::a27_git_clone_and_push_over_ssh_with_binary_blob`.
+    - **A note on resolution.** The `e2e_run_m02` tests resolve their clients from `PATH` and do not print the path.
+      That they used the System32 clients is inferred from `ssh-V-tests=OpenSSH_for_Windows_9.5p2`.
+  - **Still missing on Windows:**
+    - **Ordinary ssh without `-F`** against a real `%USERPROFILE%\.ssh\config` (B2). Every test above uses a scratch
+      configuration.
+    - **The Windows system agent** (B4) and **1Password** (B1).
+    - **An interactive `connect`** after provider approval, the TUI pty cases and the personal profile without a
+      repository. These are deferred to M04's pseudoconsole driver (ADR-0007 §12.47 D2 and D3, §12.49 item 4).
+    - **The interactive console Ctrl-C and resize** (B5).
+    - **Git for Windows choosing its own client during a transport.** Every Windows Git transport test sets
+      `GIT_SSH_COMMAND` explicitly. No test relies on Git reading `core.sshCommand` from the Q7 include, or on the
+      run-time `GIT_CONFIG_COUNT` injection, to carry a transport. The bundled MSYS `ssh` carries none.
 - **Unattended.** M02 claims nothing unattended. A managed unattended minimum is `capability_unavailable` until M03
-  (`m02-exit-no-unattended-claim.json`).
+  (`m02-exit-no-unattended-claim.json`, `verified` with 2 tests each on macOS, Linux and Windows).
 
 | # | Environment | Client | Provider / signer | Mechanism | Label | M02 evidence | Record |
 |---|---|---|---|---|---|---|---|
-| M02-1 | macOS 27.2 arm64 | OpenSSH ssh 10.5p1 | native ssh-agent (disposable, scratch `HOME`) | existing identity: ordinary alias and `heimdall run` | not-tested | in_progress | `m02-a35-reference-matrix.json`, `m02-a01-existing-access.json` |
-| M02-2 | macOS 27.2 arm64 | Apple Git 2.54.0 over ssh | native ssh-agent (disposable) | existing identity | not-tested | in_progress | `m02-a35-reference-matrix.json`, `m02-a27-child-integrity.json` |
-| M02-3 | macOS 27.2 arm64 | scp (10.5p1) | native ssh-agent (disposable) | existing identity | not-tested | in_progress | `m02-a35-reference-matrix.json`, `m02-a27-child-integrity.json` |
-| M02-4 | macOS 27.2 arm64 | sftp (10.5p1) | native ssh-agent (disposable) | existing identity | not-tested | in_progress | `m02-a35-reference-matrix.json`, `m02-a27-child-integrity.json` |
-| M02-5 | Linux x86-64 (devbox, Ubuntu, kernel 6.8) | OpenSSH ssh 9.6p1 | native ssh-agent (disposable) | existing identity: ordinary alias and `heimdall run` | not-tested | in_progress | `m02-a35-reference-matrix.json` (the ordinary-alias matrix test failed through the pty harness defect; the run-bound ssh test passed) |
-| M02-6 | Linux x86-64 (devbox) | git 2.43.0 over ssh | native ssh-agent (disposable) | existing identity | not-tested | in_progress | `m02-a27-child-integrity.json` (`a27_git_clone_and_push_over_ssh_with_binary_blob` passed) |
-| M02-7 | Linux x86-64 (devbox) | scp (9.6p1) | native ssh-agent (disposable) | existing identity | not-tested | in_progress | `m02-a27-child-integrity.json` (`a27_scp_and_sftp_binary_with_unicode_and_spaced_paths` passed) |
-| M02-8 | Linux x86-64 (devbox) | sftp (9.6p1) | native ssh-agent (disposable) | existing identity | not-tested | in_progress | as M02-7 |
-| M02-9 | Windows 11 x64 | in-box ssh.exe 9.5p2 | fixture pipe agent (selection) | existing identity | not-tested | blocked: the PC's WSL ssh endpoint was unreachable during the run | `m02-a35-reference-matrix.json` |
-| M02-10 | Windows 11 x64 | Git for Windows (System32 ssh through the Q7 include and through run-time injection; bundled MSYS as a recorded limitation) | fixture pipe agent | existing identity | not-tested | blocked: as M02-9 | `m02-a35-reference-matrix.json` |
-| M02-11 | Windows 11 x64 | scp.exe (in-box) | fixture pipe agent | existing identity | not-tested | blocked: as M02-9 | `m02-a35-reference-matrix.json` |
-| M02-12 | Windows 11 x64 | sftp.exe (in-box) | fixture pipe agent | existing identity | not-tested | blocked: as M02-9 | `m02-a35-reference-matrix.json` |
-| M02-13 | Windows 11 x64 | ssh / Git / scp / sftp | Windows OpenSSH agent service (`\\.\pipe\openssh-ssh-agent`), incl. its confirm-constrained row | existing identity | not-tested | blocked: B4, a disposable Windows host whose system agent may hold test keys | `m02-a35-reference-matrix.json`, `m02-a11-provider-interaction.json` |
+| M02-1 | macOS 27.2 (26B123) arm64 | OpenSSH ssh 10.5p1 (system) | native ssh-agent (disposable, scratch `HOME`) | existing identity: managed alias with a scratch `-F`, and `heimdall run` | not-tested | verified (A35 39 of 39, A01 13 of 13) | `m02-a35-reference-matrix.json`, `m02-a01-existing-access.json` |
+| M02-2 | macOS 27.2 arm64 | Apple Git 2.54.0 over ssh 10.5p1 | native ssh-agent (disposable) | existing identity | not-tested | verified (A35 39, A27 97) | `m02-a35-reference-matrix.json`, `m02-a27-child-integrity.json` |
+| M02-3 | macOS 27.2 arm64 | scp (10.5p1) | native ssh-agent (disposable) | existing identity | not-tested | verified (A35, A27) | as M02-2 |
+| M02-4 | macOS 27.2 arm64 | sftp (10.5p1) | native ssh-agent (disposable) | existing identity | not-tested | verified (A35, A27) | as M02-2 |
+| M02-5 | Linux x86-64 (devbox, Ubuntu, kernel 6.8, glibc 2.39) | OpenSSH ssh 9.6p1 (Ubuntu-3ubuntu13.20) | native ssh-agent (disposable) | existing identity: managed alias with a scratch `-F`, and `heimdall run` | not-tested | verified (A35 39 of 39, A01 13 of 13) | `m02-a35-reference-matrix.json`, `m02-a01-existing-access.json` |
+| M02-6 | Linux x86-64 (devbox) | git 2.43.0 over ssh 9.6p1 | native ssh-agent (disposable) | existing identity | not-tested | verified (A35 39, A27 97) | `m02-a35-reference-matrix.json`, `m02-a27-child-integrity.json` |
+| M02-7 | Linux x86-64 (devbox) | scp (9.6p1) | native ssh-agent (disposable) | existing identity | not-tested | verified (A35, A27) | as M02-6 |
+| M02-8 | Linux x86-64 (devbox) | sftp (9.6p1) | native ssh-agent (disposable) | existing identity | not-tested | verified (A35, A27) | as M02-6 |
+| M02-9 | Windows 11 x64 (10.0.26300.9818, Medium integrity) | in-box `ssh.exe` OpenSSH_for_Windows_9.5p2 (LibreSSL 3.8.2), System32; the PATH-first OpenSSH 10.3p1 was a candidate, not selected | fixture pipe agent; the server is the WSL fixture sshd 9.6p1 on 127.0.0.1 | existing identity: managed alias with a scratch configuration, `heimdall run` and `connect` | not-tested | verified (A35 38, A01 12, A11 29, A27 80, R-SE-04 8). Connects: `ssh::a35_matrix_…`, `ssh::a01_…`, `ssh::a35_…`, `ssh::host_key_substitution_…`, `a11::connect_reaches_the_fixture_sshd_…`, `a11::a27_binary_stdin_stdout_roundtrip_through_ssh` | `m02-a35-reference-matrix.json`, `m02-a01-existing-access.json`, `m02-a11-provider-interaction.json`, `m02-a27-child-integrity.json`, `m02-r-se-04-host-trust.json` |
+| M02-10 | Windows 11 x64 | Git for Windows 2.55.0.windows.3 (`mingw64\bin\git.exe`); its bundled MSYS `ssh.exe` is present (`git_bundles_msys_ssh="true"`) | fixture pipe agent | existing identity: Git observation; transport through the in-box client and through P_git's rendered command | not-tested | verified (A35 38, A22 463, A27 80). Transport: `ssh::a35_matrix_…` (`git ls-remote`), `a11::a27_git_clone_and_push_over_ssh_with_binary_blob`, `integration_projection_git git_spaced_client_path_is_quoted_and_runs` (authenticated `ls-remote` through a spaced copy of the in-box client). Each sets `GIT_SSH_COMMAND`. The `core.sshCommand` injection's precedence is tested with stub clients only | `m02-a35-reference-matrix.json`, `m02-a22-configuration-precedence.json`, `m02-a27-child-integrity.json` |
+| M02-11 | Windows 11 x64 | `scp.exe` (in-box 9.5p2, System32) | fixture pipe agent | existing identity | not-tested | verified (A35 38, A27 80). Connects: `ssh::a35_matrix_…` (upload, byte-identical), `a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths` (up and down under `heimdall run`) | `m02-a35-reference-matrix.json`, `m02-a27-child-integrity.json` |
+| M02-12 | Windows 11 x64 | `sftp.exe` (in-box 9.5p2, System32) | fixture pipe agent | existing identity | not-tested | verified (A35 38, A27 80). Connects: `ssh::a35_matrix_…` (batch `get`, byte-identical), `a11::a27_scp_and_sftp_binary_with_unicode_and_spaced_paths` (batch put and get) | as M02-11 |
+| M02-13 | Windows 11 x64 | ssh / Git / scp / sftp | Windows OpenSSH agent service (`\\.\pipe\openssh-ssh-agent`), incl. its confirm-constrained row | existing identity | not-tested | blocked: B4, a disposable Windows host whose system agent may hold test keys. The harness never opens this pipe | `m02-a35-reference-matrix.json`, `m02-a11-provider-interaction.json` |
 | M02-14 | macOS 27.2 arm64 | ssh / Git / scp / sftp | 1Password SSH agent | existing external signer | not-tested | blocked: B1, a disposable 1Password account with disposable SSH keys | `m02-a35-reference-matrix.json`, `m02-a11-provider-interaction.json` |
 | M02-15 | Linux x86-64 | ssh / Git / scp / sftp | 1Password SSH agent | existing external signer | not-tested | blocked: B1 | as M02-14 |
 | M02-16 | Windows 11 x64 | ssh / Git / scp / sftp | 1Password SSH agent (pipe) | existing external signer | not-tested | blocked: B1 | as M02-14 |
 | M02-17 | macOS arm64, a real `~/.ssh/config` | ordinary ssh / Git / scp / sftp **without `-F`** | native ssh-agent | ordinary alias after `setup apply` | not-tested | blocked: B3, a disposable macOS standard user account | `m02-a01-existing-access.json` |
 | M02-18 | Windows 11, a real `%USERPROFILE%\.ssh\config` | ordinary ssh **without `-F`** | fixture pipe agent | ordinary alias after `setup apply` | not-tested | blocked: B2, the disposable second Windows account | `m02-a01-existing-access.json` |
-| M02-19 | WSL2 disposable distribution (Ubuntu 24.04.5 image) | ordinary ssh / git / scp / sftp **without `-F`** | disposable ssh-agent | ordinary alias after `setup apply`, then `uninstall` (T06) | not-tested | blocked: the Windows PC endpoint was unreachable; the run also needs `HM_WSL_ROOTFS` or `HM_WSL_DOWNLOAD=1` | `m02-a01-existing-access.json`, `m02-t06-clean-uninstall.json`, `m02-exit-no-mandatory-wrapper.json` |
+| M02-19 | WSL2 disposable distribution (Ubuntu 24.04.5 image, imported and unregistered by the run; ext4 home, non-root user) | ordinary ssh / git / scp / sftp **without `-F`**: OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, git 2.43.0 | disposable ssh-agent holding the disposable key; loopback fixture sshd 9.6p1 (6 accepted logins) | ordinary alias after `setup apply`, then `uninstall` (T06) | not-tested | verified (A01 7 of 7, A35 4 of 4, A22 1 of 1 plus the birth-time `platform_required` test, T06 2 of 2, no mandatory wrapper 5 of 5) | `m02-a01-existing-access.json`, `m02-a35-reference-matrix.json`, `m02-a22-configuration-precedence.json`, `m02-t06-clean-uninstall.json`, `m02-exit-no-mandatory-wrapper.json` |
 | M02-20 | Linux arm64 | OpenSSH | any | existing identity | not-tested | blocked: B9, a native Linux arm64 host | `m02-a01-existing-access.json`, `m02-a35-reference-matrix.json` |
 | M02-21 | any | any | hardware security key (FIDO2), touch required | existing identity | not-tested | blocked: B6, a hardware key owned for testing (the synthetic `sk-` key covers only the non-interactive refusal) | `m02-a11-provider-interaction.json` |
 
 ### M02 per-configuration facts, unsupported cases and residuals
 
-Observed values come from this run's `observation` lines (`macos/observations.txt`, `linux/tests.txt`). "Not
-observed" means the platform did not run. A fact that has not been observed stays `[I]` for that target.
+**Where the values come from.** Observed values come from this build's `observation` lines, under the artifacts
+directory:
+- `macos/observations.txt`;
+- `linux/tests.txt`;
+- `windows/tests.txt`;
+- `wsl-distro/host.txt` and `wsl-distro/tests.txt`.
+
+"Not observed" means this run's artifacts do not show the fact. A fact that has not been observed stays `[I]` for
+that target.
 
 1. **Identity selection is a fact of each configuration, not of a platform.**
    - A selection is exclusive only when `IdentitiesOnly yes` is determined and the adopted identity is the only
@@ -220,82 +272,178 @@ observed" means the platform did not run. A fact that has not been observed stay
      A file-backed fallback is never cleared.
    - The default agent is the `SSH_AUTH_SOCK` of whatever session runs `ssh`. Consent to a state that uses it covers
      "the session's agent", not a particular endpoint (§12.16, §13).
-2. **Default identity files per client** (§12.17; Heimdall's list has six names: `id_rsa`, `id_ecdsa`,
-   `id_ecdsa_sk`, `id_ed25519`, `id_ed25519_sk`, `id_mldsa44_ed25519`).
-   - macOS OpenSSH_10.5p1: `ssh -G` printed exactly those six.
-   - Linux OpenSSH_9.6p1: it printed seven: `id_rsa`, `id_ecdsa`, `id_ecdsa_sk`, `id_ed25519`, `id_ed25519_sk`,
-     `id_xmss`, `id_dsa`. `id_xmss` and `id_dsa` are not in Heimdall's list, so on 9.6p1 the list is **not** a
-     superset (escalated).
-   - Windows in-box 9.5p2: not observed.
-3. **Client differences found on Linux OpenSSH_9.6p1** (`integration_sshconf_vs_ssh_g`, failed; escalated under
-   §12.15 item 4, "a supported client that disagrees is a defect, fixed by gating on client version"):
-   - `Match sessiontype` is unsupported: `ssh -G` exits 255 with "Unsupported Match attribute sessiontype".
-   - `User` and `SetEnv` are not environment-expanded (literal in the dump), and an `Include` path is not expanded.
-     Heimdall expands all three.
-   - Several first-pass and final-pass cases disagree in the reported `IdentityFile` list.
-
-   The corpus comparisons against the client (`corpus_*`, `bom_and_crlf_acceptance`,
-   `include_state_is_restored_after_included_file`) read the corpus at the build host's path and therefore ran on
-   macOS only. On macOS: a BOM file is not loaded; CRLF is accepted.
+2. **Default identity files per client** (§12.17, amended by §12.32 item 12).
+   - **Heimdall's list.** It is the union of the pinned manuals' six names and every observed client's list. That
+     makes eight names, in this order: `id_rsa`, `id_ecdsa`, `id_ecdsa_sk`, `id_ed25519`, `id_ed25519_sk`,
+     `id_mldsa44_ed25519`, `id_xmss`, `id_dsa` (`crates/sshconf/src/client.rs` `DEFAULT_IDENTITIES`).
+   - **What `ssh -G` printed** with no `IdentityFile`:
+     - macOS OpenSSH_10.5p1: six names, `id_rsa` to `id_mldsa44_ed25519`.
+     - Linux OpenSSH_9.6p1: seven, `id_rsa`, `id_ecdsa`, `id_ecdsa_sk`, `id_ed25519`, `id_ed25519_sk`, `id_xmss`,
+       `id_dsa`.
+     - Windows in-box OpenSSH_for_Windows_9.5p2: the same seven as 9.6p1. Its row in the observed-clients table now
+       records those seven (`recorded_for_this_client`; §12.47 item 5, D5).
+   - **The superset holds** for these three clients. On all three the observation reports no printed name outside
+     Heimdall's union (`not_in_heimdall_union=""`).
+3. **Client differences, gated per client** (§12.32 items 11–13; §12.47 item 5). `integration_sshconf_vs_ssh_g`
+   passes on all three platforms. An unobserved client takes the strictest reading.
+   - **Linux 9.6p1 refuses six constructs:** `Match command`, `Match sessiontype` and `Match version`, and the
+     keywords `RefuseConnection`, `VersionAddendum` and `WarnWeakCrypto`.
+     - `ssh -G` exits 255 for each, and Heimdall marks the file `invalid` for that client
+       (`gated_match_criteria_and_keywords_follow_the_client`).
+     - The same keywords exit 0 when they are listed as ignored.
+     - macOS 10.5p1 accepts all six (exit 0), and Windows 9.5p2 refuses all six, as 9.6p1 does.
+   - **`Match sessiontype` with `none` or `subsystem`,** with or without `-s`, is refused by 9.6p1 and by 9.5p2 (exit
+     255, `heimdall_stricter="false"`). 10.5p1 accepts it.
+   - **Environment expansion** (`s01_env_expansion_keywords_match_the_client`):
+     - 10.5p1 expands `User`, `SetEnv` and an `Include` path.
+     - 9.6p1 leaves all three literal, and Heimdall follows it (`heimdall_expands_env="false"`).
+     - 9.5p2 expands `User`, `RevokedHostKeys`, `LocalForward`, `RemoteForward`, `ControlPath` and `IdentityAgent`,
+       but leaves `SetEnv` literal and an `Include` path unexpanded. For those two, Heimdall reads the expanding form
+       (`heimdall_expands_env="true"`, `heimdall_stricter="true"`), which is the strict, unknown-client reading.
+   - **`%` tokens in `Include`** (`include_tokens_follow_the_client`):
+     - 10.5p1 expands them;
+     - 9.6p1 does not, and Heimdall follows it (port 2965 on both sides);
+     - 9.5p2 does not, and Heimdall's reading differs: port 22 against the client's 2965
+       (`heimdall_expands_include_tokens="true"`). That is the strict reading again.
+   - **BOM and CRLF user configurations** (`bom_and_crlf_acceptance`):
+     - **Windows 9.5p2:** it loads a BOM file and a CRLF file. Its encoding-table rows are present, and the planner
+       accepts both (`table_row="true"`, `planner_accepts="true"`; §12.47 item 5, D5).
+       `a22_crlf_bom_no_trailing_newline_preserved` passed on Windows, with a BOM, CRLF and no trailing newline
+       (§12.51 item 5).
+     - **macOS 10.5p1 and Linux 9.6p1:** a BOM file does not load, and a CRLF file does. Neither client has a table
+       row (`table_row="false"`), so the planner does not accept either encoding (manual mode, which fails closed).
+   - **An LF-only rendered P loads** on all three clients (`rendered_file_loads_on_target_client`, `loads=true`;
+     §12.48 item 6).
+   - **Git 2.43.0 behaves like 2.54.0.** The devbox's umask 0002 makes a fixture's Git directory group-writable, and
+     the writer refuses it. An account with umask 0002 therefore gets the Git item as `not_applicable`
+     (`unmanageable_file`), named at preview, while SSH still applies (§12.34).
 4. **Atomic exchange per filesystem** (ADR-0007 §5.9 item 3). Where it is absent, manual mode applies.
-   - APFS (macOS): supported.
-   - ext4 (Linux devbox): supported.
-   - NTFS, WSL ext4 and the container overlay filesystem: not observed.
+   - APFS (macOS): supported (`exchange_supported_on_target_fs os=macos supported=true`).
+   - ext4 (Linux devbox): supported (`os=linux supported=true`).
+   - ext4 in the WSL disposable distribution: supported (`rename-exchange=supported (renameat2 RENAME_EXCHANGE)`).
+   - Windows: supported (`os=windows supported=true`). The line names the OS, not the file system. `windows/host.txt`
+     does not record the scratch file system, so that it was NTFS is an inference, not an observation.
+   - The container overlay filesystem: not observed.
 5. **Birth time per filesystem** (F25).
    - APFS: birth time recorded; no inode reuse observed.
    - ext4 (devbox): birth time recorded; inode reuse observed.
-   - Windows: not observed.
-   - On a filesystem without birth time, a Git lock left after a crash is never claimed at recovery and is the
-     owner's to remove (§5.6, §13). K is the only lock holder Heimdall ever places at Git's lock name (§5.9 item 5).
-6. **Git observations.** On Apple Git 2.54.0 and on git 2.43.0:
-   - `git config --global` reads `~/.gitconfig` alone when it exists;
+   - ext4 in the WSL distribution: birth time recorded (`birth-time=recorded (statx STATX_BTIME)`; A22's
+     `platform_required` test `a22_birth_time_recorded_on_the_home_fs` passed).
+   - **Windows: not observed.**
+     - The line reads `birth_recorded=false inode_reused=false`.
+     - Windows identity is the `FILE_ID_INFO` form (volume serial number and a 128-bit file ID,
+       `FileIdentity::Windows`), which has no birth-time field.
+     - The test inspects birth time and inode reuse only on the Unix identity form
+       (`tests/integration/projection_replace.rs`).
+     - So the line does not show that NTFS lacks a birth time or never reuses file IDs.
+   - **Without birth time.** On a filesystem without birth time, a Git lock left after a crash is never claimed at
+     recovery and is the owner's to remove (§5.6, §13). K is the only lock holder Heimdall ever places at Git's lock
+     name (§5.9 item 5). `git_apply_releases_k_with_and_without_birth_time` passed on Windows.
+6. **Git observations.** These hold on Apple Git 2.54.0, git 2.43.0 and Git for Windows 2.55.0.windows.3:
+   - `git config --global` reads `~/.gitconfig` alone when it exists (`global_query_reads_xdg_when_home_file_exists="false"`);
    - the unscoped read order is XDG, then home;
-   - values through includes need `--includes`;
-   - a conditional include is not applied outside a repository.
+   - values through includes need `--includes` (exit 0 with it, 1 without);
+   - a conditional include is not applied outside a repository (the query exits 1).
 
-   On git 2.43.0 (Linux), a setup with both global files present was refused as `unmanageable_file` for both
-   items, where the test expects the include in the first-read file. That test failed (escalated). The
-   `git_user_value_shadowed` residual stands (§5.6).
+   Git for Windows only:
+   - **Bundled MSYS default.** `git_bundles_msys_ssh="true"`: a bundled `usr/bin/ssh.exe` is present beside the Git
+     installation, so with nothing set, Git's default SSH is classified as the bundled MSYS client
+     (`GitSshClassification::BundledMsys`, F16). On macOS and Linux the same test prints `false`.
+   - **Git name transitions through `ReplaceFileW`** ran natively. `integration_projection_git` passed 44 tests on
+     Windows, including `git_name_transitions_crash_at_every_point_reconciles`,
+     `git_lock_occupied_by_holder_until_settlement` and `git_lock_held_by_git_is_git_config_locked_nothing_written`.
+   - **A spaced client path.** A spaced configured client is quoted in P_git, executed by Git's MSYS shell, and used
+     for an authenticated `ls-remote` (`git_spaced_client_path_is_quoted_and_runs`,
+     `spaced_client_local_quoting=passed`).
+   - **Bundled OpenSSH version.** A Windows PATH-first OpenSSH 10.3p1 was recorded as a candidate and not selected.
+     Git for Windows' own bundled OpenSSH version is not recorded in this run's artifacts. The earlier G03 gate run
+     recorded `OpenSSH_10.3p1`; see the row 16 notes above.
+
+   The `git_user_value_shadowed` residual stands (§5.6). It needs `git config --show-origin`, so with
+   `--no-local-exec` the doctor reports nothing about shadowing (§12.39 item 5).
 7. **Git run-time limits** (§8).
    - The selection is resolved only in the child's starting directory. Git commands run in other repositories may
      select differently.
    - Unix: nothing is set for Git; the selection is only reported.
    - Windows: Heimdall injects `core.sshCommand` only for the bundled-MSYS default. That value is command scope, so
      it also overrides a repository-local value. The Q7 global include has neither limit.
-8. **Launch classification.** A `launching` record with nothing after it is `indeterminate` on Unix and on Windows,
-   never "launched" (§8). A SIGPIPE disposition ignored by the caller is reset, a recorded limitation.
+   - Windows tests: the injection's precedence (it yields to `-c` and `GIT_SSH_COMMAND`) is tested with stub clients
+     (`e2e_run_m02 git_run_injection_yields_to_dash_c_and_env`, passed on Windows). No Windows transport test relies
+     on the injection or on the Q7 include to pick its client (see "Windows scope").
+8. **Launch classification.**
+   - A `launching` record with nothing after it is `indeterminate` on Unix and on Windows, never "launched" (§8).
+   - On Windows a run is recorded as `launching, spawned, exited` (§12.43 item 4;
+     `a27_windows_spawned_record_is_positive_launch_proof`).
+   - A SIGPIPE disposition ignored by the caller is reset, a recorded limitation (Unix).
 9. **Unsupported concurrency** (§5.9; not counted toward A22):
    - item 1: a writer that writes through a descriptor it opened before the commit point, after the final content
      check;
    - item 2: on Windows, a replacement inside `ReplaceFileW` between its own open and its rename. This window stays
      `[U]`; no test injects one;
    - item 3: filesystems without exchange (manual mode);
-   - item 4: a same-user process writing into a Heimdall quarantine directory. These are private mode-0700
-     directories. Entries are removed only through a validated directory handle, with the expected digest re-read
-     (§5.3);
+   - item 4: a same-user process writing into a Heimdall quarantine directory. These are private directories (mode
+     0700 on Unix; on Windows the protected owner-only DACL, §12.48 item 4). Entries are removed only through a
+     validated directory handle, with the expected digest re-read (§5.3);
    - item 5: identity reuse without a birth time.
 10. **Held operations** (§5.7). A held setup operation blocks every other setup except its own repair. Repair is
-    retry, which continues the operation, or keep, which closes it without moving any file
-    (`a22_cli_held_operation_status_retry_and_keep`, passed on macOS).
+    retry, which continues the operation, or keep, which closes it without moving any file.
+    `unix::a22_cli_held_operation_status_retry_and_keep` passed on macOS and Linux. It is a pty case and has a
+    case-index rationale on Windows.
 11. **`config_tree_changed`** compares two observed snapshots. A change reverted before the second snapshot is not
     detected. `executed_config_commands` lists "constructs found before execution" and is never complete (§6).
 12. **Other residuals:**
     - an endpoint `stat` on a hung network filesystem cannot be interrupted (§12.23);
     - a holder with no start-time token reads as exited when the same query succeeds for the runtime's own process
-      (§12.24 item 5, §13).
-13. **Windows facts still open.** The Windows run did not happen, so these are not observed:
-    - the account-name lookup (§12.28 item 4; until it is observed, the account is unknown on Windows, which fails
-      closed);
-    - the DACL and displaced-identity retention;
-    - the Git name transitions through `ReplaceFileW`;
-    - the junction reparse-point refusal;
-    - the pseudoconsole Ctrl-C and resize rows.
+      (§12.24 item 5, §13);
+    - the Git residuals of §12.41 and §13:
+      - a rollback after the owner moved B_git leaves the moved block;
+      - an intact-shaped B_git whose include target was edited is not detected by the update arm;
+      - a user value only in a conditional include is read conservatively.
+13. **Windows facts.**
+    - **Observed natively in this build (the tests passed):**
+      - **The account-name lookup** (§12.28 item 4). `sys::account_name` has a Windows implementation.
+        `account_name_matches_inbox_ssh_g` shows that the token lookup equals the in-box client's `user`, with
+        `USER` and `USERNAME` set to a wrong value. `doctor_reads_localuser_from_the_account_database` passed too.
+      - **The DACLs.** A `~/.ssh` that Heimdall creates gets `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;<sid>)`,
+        and the user file it creates gets `D:P(A;;FA;;;<sid>)` (§12.48 item 4, §12.49 item 6).
+        `windows_replace_preserves_dacl` and `windows_replace_retains_displaced_identity_without_race` passed.
+      - **The reparse-point refusals.** `a22_windows_reparse_point_user_config_is_manual_mode` (the junction) and
+        `a22_windows_file_symlink_user_config_is_manual_mode` (Developer Mode on, read only; §12.47 item 7) passed.
+      - **The quarantine pins and the snapshot DACL check** (`sys::quarantine::windows_tests`). The pipe listener
+        identifies a client after its first write (ADR-0006 §13.21).
+      - **The pseudoconsole drivers** (`windows_launch`, 4 of 4):
+        - `ctrlc.event`, `ctrlc.keystroke` and `ctrlc.break` each delivered one interrupt to the child
+          (`heimdall_ctrl_c="processed"`, `child_interrupts=1`, heimdall exit 42);
+        - `resize` delivered `100x30`, then `132x40`;
+        - the agent's environment starts processes with Ctrl-C ignored (`ctrl-c-inherited=ignored`), and the driver
+          enables Ctrl-C processing for the heimdall it creates (§12.44 item 2).
+    - **Not observed:**
+      - **The Windows owner rule** of §5.3 with a foreign owner SID. It cannot be set at Medium integrity (§12.51
+        item 5, a stated limitation).
+      - **The interactive console Ctrl-C and resize rows** (B5).
+      - **The interactive TUI and `connect` pty cases, and the typed-yes purge refusal (exit 6).** These are deferred
+        to M04 (§12.47 D2 and D3, §12.49 items 2 and 4).
+14. **Evidence partials** (§12.30 item 13). This build's artifacts still do not capture:
+    - the A35 matrix's fingerprints and counts. The resolved executables appear only in the Windows log;
+    - the offered-key check through `HM_FIXTURE_SSHD_LOG`;
+    - the TUI's first-frame latency.
 
-    The file-symlink row also needs B10, and the interactive-console row needs B5.
-14. **Evidence partials** (§12.30 item 13). This run's artifacts do not capture the A35 matrix's executables,
-    fingerprints and counts, the offered-key check through `HM_FIXTURE_SSHD_LOG`, or the TUI's first-frame latency.
-    `check.sh` discards the output of passing tests, and `e2e_cli_m02` and `e2e_tui_m02` are not observation
-    targets. They remain open.
+    `check.sh` discards the output of passing tests, and `e2e_cli_m02` and `e2e_tui_m02` are not observation targets.
+    These remain open.
+15. **The WSL disposable distribution.**
+    - **The image.** The run imported the pinned Ubuntu 24.04.5 WSL image, downloaded over https; its sha256 matches
+      the pin.
+    - **The run:**
+      - it installed the OpenSSH server and `sftp-server` in the distribution only;
+      - it ran the scenario as a non-root user with a disposable home;
+      - it then terminated the distribution and unregistered it.
+    - **The user's SSH configuration.** Its sha256 was `99344213…ef9b` before the run, `3bceec60…f85b` after
+      `setup apply`, and `99344213…ef9b` again after `uninstall`.
+    - **The registered set** had one distribution before and one after, and it was equal.
+    - **Listening sockets.** The distribution had 3 non-loopback listening TCP sockets and 0 loopback ones, both
+      before and after the scenario. `runs.json` describes them as the distribution's own, unchanged by heimdall. The
+      artifacts do not say what they are.
+    - **The WSL version** is not recorded: `wsl-distro/host.txt` reads `wsl-version=WSL version: <addr>`.
 
 ## Mechanism observations (not product support)
 

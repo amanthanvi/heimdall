@@ -82,12 +82,14 @@ _SENSITIVE = (
     # other dot entry (`<scratch>/home/.private/name`, `<scratch>/home/.ssh+name`), a bare
     # `/home/.name` and `<scratch>/home/name` are refused: a home directory need not follow
     # user-name rules.
-    (re.compile(rf"(?<![\w/.>-])/home/(?!<){_HOME_NAME}"), "an unredacted Unix home path"),
-    (re.compile(rf"(?<=>)/home/(?!<|\.(?:gitconfig|config|ssh)(?={_HOME_END})){_HOME_NAME}"),
+    # A run of separators before `home` is one separator to the kernel (`//home/name` is
+    # `/home/name`; the exit-gaps review, R2), so each rule takes one or more.
+    (re.compile(rf"(?<![\w/.>-])/+home/(?!<){_HOME_NAME}"), "an unredacted Unix home path"),
+    (re.compile(rf"(?<=>)/+home/(?!<|\.(?:gitconfig|config|ssh)(?={_HOME_END})){_HOME_NAME}"),
      "an unredacted Unix home path"),
     # The macOS form is not applied right after a lone drive letter (C:/Users/... is the
     # Windows rule's), but it is after any other colon (PATH=...:/Users/x, file:/Users/x).
-    (re.compile(rf"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\"'<>]|$)){_HOME_NAME}"),
+    (re.compile(rf"(?<![\w/.-])(?<!\b[A-Za-z]:)/+Users/(?!<|Shared(?=[/\"'<>]|$)){_HOME_NAME}"),
      "an unredacted macOS home path"),
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")

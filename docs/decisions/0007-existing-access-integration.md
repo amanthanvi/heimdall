@@ -4912,6 +4912,15 @@ The evidence-generator and importer fixes (items 1–3) change no `*.rs` file. E
    - **What the next build carries:** item 7 and an inventory regenerated at that build.
    - **The runs:** all four platforms run again.
    - **The review:** an independent review of `9bce3f9b..517160e0` (Codex) returned **merge** with no findings: `review-m02-code/exit-517160e0.md`.
+9. **The M02 exit record (`docs/architecture/m02-exit.md`; 2026-11-10).** The exit builds on `e4f43f84`. All four platforms exited 0. 8 records are `verified`; the other 6 are `blocked` only on owner inputs, and the deferred rows cite their rulings. M02 exits. Its documentation unit flagged five points, ruled here:
+   1. **The Windows account lookup has landed.** §12.28 item 4 and §13 ("the account is unknown on Windows until the native lookup lands") are superseded. Wave 6x WU-4 wrote `sys::account_name` for Windows, and `integration_doctor::account_name_matches_inbox_ssh_g` passed natively at `e4f43f84`. An unknown account still fails closed wherever the lookup fails.
+   2. **§12.43 item 5 is superseded.** It said no Windows test uses the harness sshd. Since WU-0 (§12.47), the Windows transport tests use the WSL fixture sshd.
+   3. **B2 and B3 block A01's rows only.** m02-plan §7 names B2 and B3 for the "ordinary ssh without `-F`" rows of A01 and A35. The records carry those rows in A01, and that reading is ruled correct. A35's rows run with a scratch `-F`, so neither input blocks them. No claim is widened.
+   4. **The WSL version is masked.** `run-wsl-distro.sh` redacts the WSL version string as an address (`wsl-version=WSL version: <addr>`). This is a harness defect that hides a nonsecret fact. The M03 native harness work (m03-plan U13) fixes it. The M02 records do not depend on the value.
+   5. **The M02 evidence-tool changes now have a review.** §12.51 items 1 to 3 (`c167736e..9bce3f9b`), the single-flight property (item 7) and `96611c6f`'s `run_m02.rs` lines fell between the ranges of the earlier reviews. They were reviewed independently: `review-m02-code/exit-gaps.md`. Verdict: fix first. The reviewed changes hold, and so do the property and the `run_m02.rs` lines. The review observed two pre-existing medium defects, both fixed in the harness after the exit build, each with a regression that fails with its fix reverted:
+      - **R1, exit codes.** A configured `exit_codes` entry could replace a nonzero exit that the commands log recorded, and a command logged twice kept its last code. Now a configured code only adds a command the logs do not hold. A disagreement stops the evaluation, and nothing is written. A command logged twice keeps its first nonzero exit.
+      - **R2, doubled separators.** `//home/<name>` and `//Users/<name>` passed the importer's home rules. A run of separators before `home` or `Users` now counts as one.
+      - **Neither defect touches the M02 exit evidence.** No `runs.json` sets `exit_codes`, and no committed artifact holds a doubled separator before a home. The fixed generator rates `e4f43f84` exactly as before: exit 0, and an identical `case-summary.json`. The widened rules flag the same 444 of 50,234 artifact files as before.
 
 ## 13. Consequences
 
@@ -4977,7 +4986,8 @@ The evidence-generator and importer fixes (items 1–3) change no `*.rs` file. E
   that read the account (`Match localuser`, `Match user` while the remote user may be the
   local account, `%u`, `%r`) are `Unknown` or `TokenUnavailable`, and the doctor words its
   `identity_selection_undetermined` finding from that. The account is unknown on Windows
-  until the native lookup lands (§12.28 item 4).
+  until the native lookup lands (§12.28 item 4). ⟨§12.51 item 9⟩ It has landed: wave 6x WU-4,
+  verified natively at `e4f43f84`.
 * ⟨§12.16⟩ Residual, stated in the compatibility matrix: the **default** agent is the
   `SSH_AUTH_SOCK` of whatever session runs `ssh`. Consent to a state that uses the default
   agent covers "the session's agent", not a particular endpoint. An explicit variable
