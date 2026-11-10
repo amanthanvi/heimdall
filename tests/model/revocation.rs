@@ -190,11 +190,14 @@ fn seed(store: &Store) {
 }
 
 /// The fake adapter behind the production port, with one optionally delayed
-/// `prepare` call and an optionally failing `revoke` (unreachable remote).
+/// `prepare` call (or every call, `hold_all`) and an optionally failing `revoke`
+/// (unreachable remote).
 struct Gated {
     inner: Arc<FakeCredentialAdapter>,
     calls: AtomicUsize,
     hold_call: AtomicUsize,
+    /// Every `prepare` waits for a `release` permit (the single-flight property).
+    hold_all: AtomicBool,
     entered: Notify,
     release: Semaphore,
     revoke_fails: AtomicBool,
@@ -209,6 +212,7 @@ impl Gated {
             inner,
             calls: AtomicUsize::new(0),
             hold_call: AtomicUsize::new(0),
+            hold_all: AtomicBool::new(false),
             entered: Notify::new(),
             release: Semaphore::new(0),
             revoke_fails: AtomicBool::new(false),
@@ -252,6 +256,8 @@ impl CredentialAdapter for Gated {
         let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
         if n == self.hold_call.load(Ordering::SeqCst) {
             self.entered.notify_one();
+            let _permit = self.release.acquire().await.unwrap();
+        } else if self.hold_all.load(Ordering::SeqCst) {
             let _permit = self.release.acquire().await.unwrap();
         }
         self.inner.prepare(req).await
@@ -1100,6 +1106,22 @@ async fn equivalent_work_is_single_flight_with_separate_references() {
     assert_eq!(w.grant(&a.grant_id).state, GrantState::Released);
 }
 
+/// Spec §8.2 makes *concurrent* preparation single-flight (ADR-0007 §12.51 item 7): an
+/// equivalent request made after the first one finished is prepared again, with its
+/// own grant and its own effect, while the first grant stays as it was.
+#[tokio::test]
+async fn equivalent_work_after_the_first_finished_is_prepared_again() {
+    let w = World::new().await;
+    let until = || Some(DeadlineIntent::Absolute("2026-10-02T10:00:00Z".into()));
+    let a = w.ready("req-seq-1", "work-seq-1", &["h1"], until()).await;
+    let b = w.ready("req-seq-2", "work-seq-2", &["h1"], until()).await;
+    assert_eq!(a.expires_at, b.expires_at, "the same deadline instant");
+    assert_ne!(a.grant_id, b.grant_id, "no flight was in progress to join");
+    assert_eq!(w.fake.effect_count(), 2, "two preparations");
+    assert_eq!(w.grant(&a.grant_id).state, GrantState::Active);
+    assert_eq!(w.grant(&b.grant_id).state, GrantState::Active);
+}
+
 // =================================================================================
 // Properties
 // =================================================================================
@@ -1370,13 +1392,22 @@ proptest! {
     /// Plan §6.3 #8: concurrent equivalent and unrelated requests: bindings share a
     /// grant only for identical scope and deadline; no reference keeps a grant
     /// usable past its deadline.
+    ///
+    /// Spec §8.2 makes *concurrent* preparation single-flight. An equivalent request
+    /// that arrives after the first one finished gets its own grant, so the requests
+    /// are made concurrent by construction (ADR-0007 §12.51 item 7): every `prepare`
+    /// waits until every request has entered `Coalesce`, where it leads or joins a
+    /// flight. Spawning alone left that to the scheduler (the store's writes run on
+    /// blocking threads), and one devbox run at 517160e0 failed on it.
     #[test]
     fn sharing_never_merges_unrelated_scopes_or_outlives_the_deadline(
         reqs in prop::collection::vec(share(), 2..6),
         releases in prop::collection::vec(any::<bool>(), 6),
     ) {
         block(async move {
-            let w = World::new().await;
+            let hook = Arc::new(CountCoalesce::default());
+            let w = World::with_hook(hook.clone()).await;
+            w.gated.hold_all.store(true, Ordering::SeqCst);
             let mut handles = Vec::new();
             for (i, r) in reqs.iter().enumerate() {
                 let ops = w.ops.clone();
@@ -1395,6 +1426,10 @@ proptest! {
                 };
                 handles.push(tokio::spawn(async move { ops.ensure(&owner(501), req).await }));
             }
+            while hook.entries.load(Ordering::SeqCst) < reqs.len() {
+                hook.changed.notified().await;
+            }
+            w.gated.release.add_permits(reqs.len());
             let mut by_grant: BTreeMap<GrantId, Vec<(Scope, EnsureData)>> = BTreeMap::new();
             for h in handles {
                 let r = h.await.unwrap();
@@ -1415,8 +1450,12 @@ proptest! {
                 .map(|m| (m[0].0.pairs.iter().cloned().collect(), m[0].1.expires_at))
                 .collect();
             prop_assert_eq!(distinct.len(), by_grant.len(), "unrelated scopes or deadlines never share a grant");
+            // Concurrent equivalent requests share one preparation: one grant and one
+            // effect per distinct (scope, deadline) of the inputs.
+            let keys: BTreeSet<(u8, u8)> = reqs.iter().map(|r| (r.hosts, r.until)).collect();
+            prop_assert_eq!(by_grant.len(), keys.len(), "equivalent concurrent work is single-flight");
             let effects = w.fake.effect_count();
-            prop_assert!(effects >= by_grant.len());
+            prop_assert_eq!(effects, keys.len(), "one preparation per distinct request");
             // Release some references, then pass every deadline.
             let all: Vec<EnsureData> = by_grant.values().flatten().map(|(_, d)| d.clone()).collect();
             for (d, release) in all.iter().zip(releases.iter().cycle()) {
