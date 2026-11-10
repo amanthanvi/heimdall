@@ -43,7 +43,8 @@
 * ADR-0007 revision 5 with §12.1–§12.41, including its §13 residuals for M03;
 * ADR-0004 (the delegated decisions, the ADR-0004 §2 lock rule, the ADR-0004 §3 authorizations);
 * `docs/research/g04-managed-credentials.md`;
-* `docs/architecture/{m01-plan,m02-plan,m02-exit-draft,overview,dependencies}.md`;
+* `docs/architecture/{m01-plan,m02-plan,m02-exit-draft,overview,dependencies}.md` (the draft was removed at
+  the M02 exit, `47edb97d`; `m02-exit.md` supersedes it);
 * `tests/fixtures/MANIFEST.md`;
 * `progress.md`, for blocked inputs B1–B10 and lessons.
 
