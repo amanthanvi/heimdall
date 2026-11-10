@@ -447,6 +447,20 @@ impl Quarantine {
             .map_err(quarantine_error)
     }
 
+    /// The preview's quarantine check (ADR-0007 §5.3 item 9; §12.51 item 4): `dir`
+    /// still is what was validated when its handle was opened (as
+    /// [`Quarantine::open_or_create`] rechecks it), and an existing quarantine
+    /// validates. `Ok(None)` when there is none. Creates nothing.
+    ///
+    /// # Errors
+    /// [`Unmanageable`].
+    pub fn validate_existing(dir: &DirHandle) -> Result<Option<Quarantine>, Unmanageable> {
+        if !dir.still_valid() {
+            return Err(Unmanageable::Io("directory changed".into()));
+        }
+        Self::open_existing(dir)
+    }
+
     /// Re-check identity and digest, then remove `slot`. Called after
     /// `file.settled` is durable.
     ///
@@ -1908,5 +1922,31 @@ mod tests {
     fn modes_map_to_their_permission_bits() {
         assert_eq!(Mode::OwnerReadWrite.perm(), 0o600);
         assert_eq!(Mode::PublicRead.perm(), 0o644);
+    }
+
+    /// ADR-0007 §12.51 item 4: the preview's quarantine check creates nothing, and it
+    /// refuses a directory that changed after its handle was opened, where
+    /// `open_existing` alone would accept it.
+    #[cfg(unix)]
+    #[test]
+    fn validate_existing_creates_nothing_and_rechecks_the_directory() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let dir = DirHandle::open(path).unwrap();
+        assert!(Quarantine::validate_existing(&dir).unwrap().is_none());
+        assert!(!path.join(QUARANTINE_NAME).exists(), "nothing created");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(
+            Quarantine::open_existing(&dir).unwrap().is_none(),
+            "the observation alone does not recheck the directory"
+        );
+        assert!(matches!(
+            Quarantine::validate_existing(&dir),
+            Err(Unmanageable::Io(_))
+        ));
+        assert!(!path.join(QUARANTINE_NAME).exists(), "nothing created");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
 }

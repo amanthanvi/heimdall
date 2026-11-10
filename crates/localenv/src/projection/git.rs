@@ -14,7 +14,6 @@ use heimdall_domain::projection::{Base, Rendered, Sha256Hex, lock_holder_line};
 use super::replace::{self, DirHandle, Quarantine, ReplaceRefusal, Staged, rename_noreplace};
 use crate::env::{Env, Platform};
 use crate::local_query::{LOCAL_QUERY_OUTPUT_BYTES, LOCAL_QUERY_TIMEOUT, Spec, run_contained};
-use crate::sys::QUARANTINE_NAME;
 
 /// What [`check_global_file`] established about the file B_git would be written into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,10 +61,9 @@ pub fn check_global_file(path: &Path, bytes: Option<&[u8]>) -> GlobalFileCheck {
     let Ok(dir) = DirHandle::open(parent) else {
         return GlobalFileCheck::Unmanageable;
     };
-    // An existing quarantine must validate; a preview never creates one.
-    if std::fs::symlink_metadata(parent.join(QUARANTINE_NAME)).is_ok()
-        && Quarantine::open_or_create(&dir).is_err()
-    {
+    // The directory still is the one validated, and an existing quarantine must
+    // validate; a preview never creates one (ADR-0007 §12.51 item 4).
+    if Quarantine::validate_existing(&dir).is_err() {
         return GlobalFileCheck::Unmanageable;
     }
     match std::fs::symlink_metadata(path) {

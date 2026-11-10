@@ -879,9 +879,9 @@ impl<'a> Builder<'a> {
             self.manual(manual_reason::UNMANAGEABLE_FILE);
             return Ok(None);
         };
-        // An existing quarantine must validate; a preview never creates one
-        // (`open_existing`, W6X-R04).
-        if Quarantine::open_existing(&dir).is_err() {
+        // The directory still is the one validated, and an existing quarantine must
+        // validate; a preview never creates one (W6X-R04, ADR-0007 §12.51 item 4).
+        if Quarantine::validate_existing(&dir).is_err() {
             self.manual(manual_reason::UNMANAGEABLE_FILE);
             return Ok(None);
         }
@@ -2405,9 +2405,10 @@ fn selection_state(selection: &GitSshSelection) -> BehaviorState {
 /// one without a quarantine, is not; a directory that cannot be opened is left to the
 /// writer's own checks.
 fn quarantine_invalid(dir: &Path) -> bool {
-    // `open_existing` validates and never creates, so a quarantine removed after any
-    // earlier look is not recreated by the preview (W6X-R04).
-    DirHandle::open(dir).is_ok_and(|handle| Quarantine::open_existing(&handle).is_err())
+    // `validate_existing` rechecks the directory, validates and never creates, so a
+    // quarantine removed after any earlier look is not recreated by the preview
+    // (W6X-R04, ADR-0007 §12.51 item 4).
+    DirHandle::open(dir).is_ok_and(|handle| Quarantine::validate_existing(&handle).is_err())
 }
 
 /// The steps of a manual-mode SSH plan: the key files and P, with P (or, when P is

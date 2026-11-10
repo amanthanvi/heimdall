@@ -4854,16 +4854,52 @@ fn accepting_client(fx: &Fx) -> ProjectionConfig {
     c
 }
 
+/// The selected `ssh` is the in-box Windows client the U3 observation table records as
+/// loading a BOM and CRLF user file (`OpenSSH_for_Windows_9.5p2`; ADR-0007 §12.47 item
+/// 5, D5).
+#[cfg(windows)]
+fn windows_bom_crlf_client(fx: &Fx) -> ProjectionConfig {
+    use heimdall_localenv::clients::{ClientCandidate, ClientInventory, ClientKind, ClientSource};
+    let mut c = fx.config();
+    c.clients = ClientInventory {
+        candidates: vec![ClientCandidate {
+            kind: ClientKind::Ssh,
+            path: fx.home.root.join("bin").join("ssh.exe"),
+            source: ClientSource::Path,
+            version: Some(heimdall_sshconf::eval::OpenSshVersion {
+                major: 9,
+                minor: 5,
+                portable: Some(2),
+            }),
+            sha256: None,
+            selected: true,
+        }],
+    };
+    c
+}
+
 /// CRLF line endings and no trailing newline round-trip byte for byte on a client the
-/// U3 observation table says accepts CRLF (macOS 10.3p1). A BOM is accepted by no
-/// observed client on this platform, so a BOM file is manual mode (next test).
+/// U3 observation table says accepts them. macOS 10.3p1 accepts CRLF but not a BOM (a
+/// BOM file is manual mode there, next test). Windows 9.5p2 accepts both (D5), so there
+/// the file also starts with a BOM, which stays first (ADR-0007 §12.51 item 5). Linux
+/// has no observation row (the devbox's 9.6p1), so a CRLF file is manual mode there and
+/// the round trip is not reachable.
 #[test]
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 fn a22_crlf_bom_no_trailing_newline_preserved() {
     let fx = Fx::new();
-    let text = "# mine\r\nHost personal\r\n    User me";
+    #[cfg(target_os = "macos")]
+    let (text, config) = (
+        "# mine\r\nHost personal\r\n    User me",
+        accepting_client(&fx),
+    );
+    #[cfg(windows)]
+    let (text, config) = (
+        "\u{feff}# mine\r\nHost personal\r\n    User me",
+        windows_bom_crlf_client(&fx),
+    );
     std::fs::write(fx.user(), text).unwrap();
-    let writer = LocalProjection::new(accepting_client(&fx));
+    let writer = LocalProjection::new(config);
     let plan = writer
         .preview(&fx.spec(&["work"], None), &Fx::apply_intent())
         .unwrap();
@@ -4879,6 +4915,13 @@ fn a22_crlf_bom_no_trailing_newline_preserved() {
     assert!(after.contains("heimdall managed include (id hm-"));
     assert!(after.contains(");\u{20}remove with `heimdall setup rollback`\r\nInclude"));
     assert!(after.ends_with("    User me"), "no trailing newline added");
+    let bom = usize::from(text.starts_with('\u{feff}'));
+    assert_eq!(
+        usize::from(after.starts_with('\u{feff}')),
+        bom,
+        "a BOM stays first"
+    );
+    assert_eq!(after.matches('\u{feff}').count(), bom, "no BOM is added");
     let rb = writer
         .preview(
             &fx.spec(&[], Some(sink.record(&fx.env))),
@@ -6012,16 +6055,22 @@ fn production_code_never_unlinks_outside_quarantine() {
 /// directories without a quarantine leaves the scratch tree unchanged.
 #[test]
 fn preview_never_creates_a_quarantine() {
-    let plan_rs = heimdall_testkit::repo::repo_path("crates/localenv/src/projection/plan.rs");
-    let text = production_text(&std::fs::read_to_string(&plan_rs).unwrap());
-    assert!(
-        text.contains("Quarantine::open_existing"),
-        "the planner validates existing quarantines"
-    );
-    assert!(
-        !text.contains("open_or_create"),
-        "the planner never calls a creating quarantine API"
-    );
+    // The planner and the Git item's preview check (ADR-0007 §12.51 item 4).
+    for source in [
+        "crates/localenv/src/projection/plan.rs",
+        "crates/localenv/src/projection/git.rs",
+    ] {
+        let path = heimdall_testkit::repo::repo_path(source);
+        let text = production_text(&std::fs::read_to_string(&path).unwrap());
+        assert!(
+            text.contains("Quarantine::validate_existing"),
+            "{source} validates existing quarantines and rechecks the directory"
+        );
+        assert!(
+            !text.contains("open_or_create") && !text.contains("Quarantine::open_existing"),
+            "{source} never calls a creating quarantine API, nor one without the recheck"
+        );
+    }
     let fx = Fx::new();
     std::fs::write(fx.user(), USER_TEXT).unwrap();
     let (first, sink) = fx.adopt(&["work"]);

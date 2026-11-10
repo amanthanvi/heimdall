@@ -1194,7 +1194,8 @@
       "windows"
     ],
     "integration_projection::a22_crlf_bom_no_trailing_newline_preserved": [
-      "macos"
+      "macos",
+      "windows"
     ],
     "integration_projection::a22_foreign_owner_or_unwritable_is_manual_mode": [
       "linux",
@@ -1228,5 +1229,5 @@
     "linux",
     "windows"
   ],
-  "sources_sha256": "eae6215e14e8237dcc6f7b6f6a50dbb2a8b2ef7e7b3f0b0c4516411559e352e4"
+  "sources_sha256": "5afc7273d5646137aacaef45da245854570dfc2526f4602926546b9d9097f1a7"
 }

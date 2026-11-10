@@ -213,9 +213,17 @@
     },
     "integration_projection::a22_crlf_bom_no_trailing_newline_preserved": {
       "platforms": [
-        "macos"
+        "macos",
+        "windows"
       ],
-      "rationale": "#[cfg(target_os = \"macos\")]: the round trip needs a client the encoding table (localenv clients.rs ENCODING_OBSERVATIONS) records as accepting CRLF, and at ce21a76f only macOS 10.3p1 has a row. Linux: the devbox's OpenSSH 9.6p1 has no row, so a CRLF user configuration there is manual mode (fails closed) and the round trip is not reachable. Windows: ADR-0007 §12.47 item 5 (D5) adds 9.5p2, after which the test must run there too (A22 platform_required); widen this entry when it does."
+      "rationale": "#[cfg(any(target_os = \"macos\", windows))]: the round trip needs a client the encoding table (localenv clients.rs ENCODING_OBSERVATIONS) records as accepting the file's encoding: macOS 10.3p1 (CRLF) and Windows OpenSSH_for_Windows_9.5p2 (BOM and CRLF; ADR-0007 §12.47 item 5, D5; the Windows case adds a BOM, §12.51 item 5). Linux: the devbox's OpenSSH 9.6p1 has no row, so a CRLF user configuration there is manual mode (fails closed) and the round trip is not reachable."
+    },
+    "integration_projection::a22_foreign_owner_or_unwritable_is_manual_mode": {
+      "platforms": [
+        "macos",
+        "linux"
+      ],
+      "rationale": "#[cfg(unix)] (ADR-0007 §12.51 item 5): the group and other write bits are a Unix rule of §5.3 steps 1-2, and the test sets them with chmod. Windows' rules for the user file and its directory are a reparse point, the owner SID and the link count, with no DACL rule (the Windows rows are a22_windows_reparse_point_user_config_is_manual_mode and a22_windows_file_symlink_user_config_is_manual_mode, A22 platform_required); a foreign owner SID cannot be set at Medium integrity, so the Windows owner rule is not exercised natively in M02 (a stated limitation)."
     },
     "e2e_cli_m02::ssh::a01_personal_profile_without_repository": {
       "platforms": [
