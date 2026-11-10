@@ -54,6 +54,14 @@ MAX_LABEL = 200
 # ADR-0007 §12.35 item 3 (N03): content that must never leave the PC, checked in every file body
 # and in every metadata field that is persisted. The runner redacts and masks these before the
 # bundle is written; their presence is a defect, so nothing is imported.
+# A home component (W6X-R03 and its re-check): one or more characters that are not a path
+# separator, whitespace, a quote or bracket, or the shell and prose punctuation that ends a
+# path in text (a backtick, comma, pipe, semicolon, colon, `$`, `*`, `?`, `#`, `=`, `&`,
+# `!`, parentheses and brackets). So `+name`, `é-name` and an emoji-led name are home
+# names, while `` `/Users/` ``, `/home/,` and `/home/$U` (a variable) are not.
+_HOME_STOP = r"\s/\\\"'<>`,|;:$*?#=&!()\[\]{}"
+_HOME_NAME = rf"[^{_HOME_STOP}]+"
+_HOME_END = rf"[{_HOME_STOP}]|\Z"
 _SENSITIVE = (
     (re.compile(r"HEIMDALL_CANARY_"), "a canary prefix"),
     (re.compile(r"S-1-(5-21|12-1)-\d"), "an unmasked user or domain SID"),
@@ -66,21 +74,20 @@ _SENSITIVE = (
      "an unredacted Windows home path"),
     (re.compile(r"(?i)/mnt/[a-z]/Users/(?!<|(?:Default User|All Users|Public|Default)(?=[/\"'<>]|$))[^/\s\"'<>]+"),
      "an unredacted Windows home path"),
-    # A home under /home, anywhere a name may start. A home component is a run of word
-    # characters, `.` and `-`; Python's `\w` is Unicode, so a name that starts with a non-ASCII
-    # letter is one too (W6X-R03). The only exemption (W6W-R01, narrowed by W6X-R03) is a
-    # fixture's own `home` directory inside a redacted root, followed by exactly one of the
-    # fixture entries the harnesses print: `<scratch>/home/.gitconfig`, `<scratch>/home/.config`
-    # (Git's XDG file, observed in the Windows exit run at 1e69263d) and `<scratch>/home/.ssh`,
-    # each with anything after it. Any other dot
-    # entry (`<scratch>/home/.private/name`), a bare `/home/.name` and `<scratch>/home/name`
-    # are refused: a home directory need not follow user-name rules.
-    (re.compile(r"(?<![\w/.>-])/home/(?!<)[\w.-]+"), "an unredacted Unix home path"),
-    (re.compile(r"(?<=>)/home/(?!<|\.(?:gitconfig|config|ssh)(?![\w.-]))[\w.-]+"),
+    # A home under /home, anywhere a name may start; a home component is `_HOME_NAME`. The
+    # only exemption (W6W-R01, narrowed by W6X-R03) is a fixture's own `home` directory inside
+    # a redacted root, followed by exactly one of the fixture entries the harnesses print and
+    # then a separator or the end: `<scratch>/home/.gitconfig`, `<scratch>/home/.config` (Git's
+    # XDG file, observed in the Windows exit run at 1e69263d) and `<scratch>/home/.ssh`. Any
+    # other dot entry (`<scratch>/home/.private/name`, `<scratch>/home/.ssh+name`), a bare
+    # `/home/.name` and `<scratch>/home/name` are refused: a home directory need not follow
+    # user-name rules.
+    (re.compile(rf"(?<![\w/.>-])/home/(?!<){_HOME_NAME}"), "an unredacted Unix home path"),
+    (re.compile(rf"(?<=>)/home/(?!<|\.(?:gitconfig|config|ssh)(?={_HOME_END})){_HOME_NAME}"),
      "an unredacted Unix home path"),
     # The macOS form is not applied right after a lone drive letter (C:/Users/... is the
     # Windows rule's), but it is after any other colon (PATH=...:/Users/x, file:/Users/x).
-    (re.compile(r"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\"'<>]|$))[\w.-]+"),
+    (re.compile(rf"(?<![\w/.-])(?<!\b[A-Za-z]:)/Users/(?!<|Shared(?=[/\"'<>]|$)){_HOME_NAME}"),
      "an unredacted macOS home path"),
 )
 _IPV4 = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")

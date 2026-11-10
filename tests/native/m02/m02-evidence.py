@@ -877,6 +877,9 @@ def evaluate(cfg, index, inv):
     """(summary, rc) over every section and platform."""
     plats = load_platforms(cfg)
     rc = 0
+    # (kind, sid, platform) -> tests that ran but the inventory lacks: such a row is never
+    # verified (W6X-R02 re-check), whatever its other tests did.
+    not_in_inventory = {}
     # A current-build test in a whole-target ("*") spec that the inventory lacks: the
     # inventory is stale (regenerate; a removed test shows up as absent).
     for kind, sid, spec, _ in sections(index):
@@ -891,6 +894,7 @@ def evaluate(cfg, index, inv):
                 known |= {k.split("::", 1)[1] for k in index.get("child_entries", {}) if k.startswith(target + "::")}
                 for n in sorted(set(logs.get(target, {})) - known):
                     print(f"{sid}: {target}::{n} ran on {pname} but is not in the required inventory (regenerate)", file=sys.stderr)
+                    not_in_inventory.setdefault((kind, sid, pname), []).append(f"{target}::{n}")
                     rc = 1
 
     def rows_for(kind, sid, extra_rows, declared):
@@ -904,6 +908,10 @@ def evaluate(cfg, index, inv):
                       "add the platform to the entry or remove the entry", file=sys.stderr)
                 rc = 1
             r = row_for(index, pname, p, logs, tests, p.get("_observations"), guard)
+            if r and (kind, sid, pname) in not_in_inventory:
+                r["ran_not_in_inventory"] = not_in_inventory[(kind, sid, pname)]
+                if r["status"] == "verified":
+                    r["status"] = "in_progress"
             if r:
                 rows.append(r)
             elif pname in declared:
@@ -931,7 +939,10 @@ def evaluate(cfg, index, inv):
         for target, names in inv[kind][sid]["tests"].items():
             for n in names:
                 anywhere = any(n in logs.get(target, {}) for _, logs in plats.values())
-                applies = any(applicable(index, inv, target, n, pn) for pn in ran)
+                # A platform whose run names a missing capability for the test could not run
+                # it: its row is blocked on that reason, not inconsistent (W6X-R02 re-check).
+                applies = any(applicable(index, inv, target, n, pn)
+                              and not missing_capability(plats[pn][0], target, n) for pn in ran)
                 neutral_elsewhere = build_host_path(index, target, n)
                 if applies and not anywhere and not neutral_elsewhere:
                     print(f"{sid}: {target}::{n} not found in any log", file=sys.stderr)
@@ -1104,6 +1115,9 @@ def main(argv=None):
     except RunError as e:
         print(f"runs: {e}", file=sys.stderr)
         return 2
+    if rc:
+        # The summary is kept for diagnosis, marked so it is never read as evidence.
+        summary["evaluation_reported_errors"] = True
     Path(cfg["summary_out"]).write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     for kind in ("groups", "exit_claims"):
         for sid, s in summary[kind].items():

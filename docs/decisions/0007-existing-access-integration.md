@@ -4838,6 +4838,57 @@ The WSL rows are covered, apart from the WSL ext4 birth-time observation.
    - **The fix:** both preview-time checks (P's or the key files' directory, and the user file's directory) call `Quarantine::open_existing`. Before, they tested for the quarantine and then called `open_or_create`, which would recreate a quarantine removed between the two calls.
    - **Regression:** `preview_never_creates_a_quarantine`. It scans the planner's sources for a creating call, and it checks that a preview over directories without a quarantine leaves the tree unchanged.
 
+### 12.51 Rulings on the wave-6x re-check and the native runs of `c167736e` (orchestrator, 2026-11-10)
+
+**Sources:**
+- **The re-check:** M02-W6x re-check (Codex, independent, read-only), `tests/evidence/artifacts/review-m02-code/wave6x-recheck.md`, over `c51b8166..c167736e`. Verdict: fix first. R01 is resolved. R02, R03 and R04 are partly resolved, and the R02 and R04 fixes each introduced one defect.
+- **The native runs:** the exit build `c167736e` on all four platforms, in `tests/evidence/artifacts/m02/exit-c167736e/`. Every run exited 0, with canary 0 and leak 0:
+  - macOS: 1,778 passed, 0 failed, 8 ignored; observations 197 passed;
+  - devbox: 1,774 passed, 0 failed, 8 ignored;
+  - Windows: 1,653 passed, 0 failed, 1 ignored; `windows_launch` 4 of 4;
+  - the WSL disposable distribution: 11 of 11.
+
+The evidence-generator and importer fixes (items 1–3) change no `*.rs` file. Each regression fails with its fix reverted.
+
+1. **R02's remainder (medium): a test missing from the inventory never leaves a verified row.**
+   - **The defect:** a test that ran but is missing from the inventory made the generator exit 1, but its row could still read `verified` in the summary.
+   - **The fix:**
+     - such a row names the tests as `ran_not_in_inventory` and stays `in_progress`;
+     - a summary from an evaluation that reported errors is marked `evaluation_reported_errors`, so it is never read as evidence.
+   - **Regression:** `test_a_test_missing_from_the_inventory_keeps_its_row_in_progress`.
+2. **The R02 fix's defect (medium): a capability missing on every host.**
+   - **The defect:** when a run on each applicable host named a missing capability for a test, `check_found` still reported that test missing from every log. The new write refusal then dropped legitimately blocked records.
+   - **The fix:** `check_found` does not look for a test on a platform whose run names a missing capability for it. The rows stay `blocked` on that reason, and the records are written.
+   - **Regression:** `test_a_test_blocked_by_a_capability_on_every_host_still_writes_its_records`.
+3. **R03's remainder (medium): home components.**
+   - **The rules:**
+     - after `/home/` or `/Users/`, a home component is any run of characters up to a stop character (whitespace, a path separator, a quote, a bracket or shell punctuation). A name that starts with `+`, a non-ASCII letter or an emoji is therefore refused;
+     - after a redacted root, the exemption covers exactly `.gitconfig`, `.config` and `.ssh`, each ending at a stop character, so `.ssh+name` is refused.
+   - **Regressions:** refused-bundle cases for `.private`, `é`, `+`, an emoji and `.ssh+name`; accepted cases for `.ssh` and for prose such as `` `/Users/` ``.
+   - **Effect on existing artifacts:** over all 50,163 artifact files, the new rules flag exactly the files that `c167736e`'s rules flag (442 each, none differing). That count includes the exit-`c167736e` directories, which scan with 0 findings.
+4. **R04's remainder and the R04 fix's defect (low): the preview's quarantine checks.** This item is the first `*.rs` change, so it lands in the next exit build (item 6).
+   - **The fix:** a new `Quarantine::validate_existing`. It rechecks the directory (`still_valid`, as `open_or_create` does) and validates an existing quarantine; it creates nothing.
+   - **Its callers:** both planner checks, and `projection::git::check_global_file`. That function still tested for the quarantine and then called `open_or_create`.
+   - **Regressions:**
+     - `preview_never_creates_a_quarantine` now scans both `plan.rs` and `git.rs`;
+     - the unit test `validate_existing_creates_nothing_and_rechecks_the_directory` (Unix) refuses a directory made group- and other-writable after its handle was opened, where `open_existing` alone would accept it.
+5. **The `c167736e` runs: the coverage guard keeps A22's Windows row `in_progress`.** Every test passed, but two guard findings name the cause:
+   1. **A Windows round trip never ran (R2).**
+      - **The finding:** `a22_crlf_bom_no_trailing_newline_preserved` is in A22's Windows `platform_required`. §12.47 item 5 (D5) put it there: `OpenSSH_for_Windows_9.5p2` loads BOM and CRLF user configurations, so on Windows they no longer fall to manual mode. But the test was still `#[cfg(target_os = "macos")]`. The byte-for-byte round trip of exactly the files D5 made automatic was never run on Windows.
+      - **Ruling:** the test also runs on Windows, with the 9.5p2 client and a file that has a BOM, CRLF line endings and no trailing newline. The BOM stays first, and rollback restores the bytes. The case-index entry becomes macOS and Windows; the Linux rationale stays (no observation row for 9.6p1).
+   2. **An exclusion without a rationale (R1).**
+      - **The finding:** WU-2a made `a22_foreign_owner_or_unwritable_is_manual_mode` `#[cfg(unix)]`, but added no case-index rationale.
+      - **Ruling:** a `platform_only` entry (macOS, Linux) states it:
+        - group and other write bits are a Unix rule of §5.3 steps 1–2;
+        - on Windows the rules are a reparse point, the owner SID and the link count;
+        - a foreign owner SID cannot be set at Medium integrity, so the Windows owner rule is not exercised natively in M02. That is a stated limitation.
+
+   The guard is working as designed: it rates rows only from native logs and the regenerated inventory, which first met at `c167736e`.
+6. **The next exit build.**
+   - **What `c167736e` keeps:** it stays recorded as run evidence: the artifacts, `runs.json`, `digests.txt` and `case-summary.json`. No evidence record is written from it.
+   - **What the next build carries:** items 4 and 5, and an inventory regenerated at that build.
+   - **The runs:** all four platforms run again at that build.
+
 ## 13. Consequences
 
 * New crates: `heimdall-sshconf` (pure), `heimdall-localenv` (local I/O, discovery,

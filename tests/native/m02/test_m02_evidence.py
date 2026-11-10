@@ -1126,6 +1126,38 @@ class Records(unittest.TestCase):
         self.assertIn("a capability (synthetic)", s.records()["G1"]["blocked_on"])
         self.assertEqual(row_status(summary, "G1", "windows"), "in_progress", "the capability is named for linux only")
 
+    def test_a_test_blocked_by_a_capability_on_every_host_still_writes_its_records(self):
+        # W6X-R02 re-check: a test that every applicable host names a missing capability
+        # for is blocked, not missing from the logs, so the evaluation is consistent and
+        # --write writes the (blocked) records.
+        logs = full_logs()
+        del logs["t_pre"]
+        cap = {"missing_capabilities": {"t_pre": "a capability (synthetic)"}}
+        s = Scratch(self, logs=logs, platforms={"macos": cap, "linux": cap, "windows": cap})
+        rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("not found in any log", err)
+        for p in ("macos", "linux", "windows"):
+            self.assertEqual(row_status(summary, "G1", p), "blocked", p)
+        self.assertIn("a capability (synthetic)", s.records()["G1"]["blocked_on"])
+        self.assertNotIn("evaluation_reported_errors", summary)
+
+    def test_a_test_missing_from_the_inventory_keeps_its_row_in_progress(self):
+        # W6X-R02 re-check: a test that ran under a whole-target spec but is not in the
+        # inventory makes the inventory stale; the row is never verified, the summary is
+        # marked, and no record is written.
+        logs = full_logs()
+        logs["t_wild"]["new_test"] = "ok"
+        s = Scratch(self, logs=logs)
+        rc, summary, err = s.run("--write")
+        self.assertEqual(rc, 1)
+        self.assertIn("t_wild::new_test ran on windows but is not in the required inventory", err)
+        win = [r for r in summary["groups"]["G1"]["rows"] if r["platform"].startswith("windows")][0]
+        self.assertEqual(win["status"], "in_progress")
+        self.assertEqual(win["ran_not_in_inventory"], ["t_wild::new_test"])
+        self.assertTrue(summary["evaluation_reported_errors"])
+        self.assertEqual(s.records(), {})
+
     def test_a_configured_log_that_does_not_exist_stops_before_anything_is_written(self):
         s = Scratch(self)
         (s.dir / "linux.log").unlink()
@@ -1274,6 +1306,12 @@ class WindowsBundle(unittest.TestCase):
                 {"build.txt": "at <scratch>/home/.private/synthetic-review-user/key\n"}),
             "a Unix home starting with a non-ASCII letter": make_bundle({"build.txt": "at /home/é-review-user/key\n"}),
             "a macOS home starting with a non-ASCII letter": make_bundle({"build.txt": "at /Users/é-review-user/key\n"}),
+            # The W6X-R03 re-check: any non-separator character may start a home name, and a
+            # fixture entry is exempt only as a whole component.
+            "a Unix home starting with a plus": make_bundle({"build.txt": "at /home/+synthetic-review-user/key\n"}),
+            "a macOS home starting with a plus": make_bundle({"build.txt": "at /Users/+synthetic-review-user/key\n"}),
+            "a Unix home starting with an emoji": make_bundle({"build.txt": "at /home/\U0001f9ea-synthetic-review-user/key\n"}),
+            "a fixture entry name extended": make_bundle({"build.txt": "at <scratch>/home/.ssh+synthetic-review-user/k\n"}),
             "a Windows home path": make_bundle({"build.txt": "at C:\\Users\\someone\\src\n"}),
             "a WSL view of a Windows home": make_bundle({"build.txt": "at /mnt/c/Users/someone/x\n"}),
             "a macOS home path": make_bundle({"build.txt": "at /Users/someone/x\n"}),
@@ -1312,7 +1350,8 @@ class WindowsBundle(unittest.TestCase):
         # The Windows exit run at 1e69263d: a Git observation line names the fixture's own
         # `home` directory under the redacted scratch root. A user name never starts with ".".
         files = {"build.txt": 'git_var_global="<scratch>/home/.config/git/config,<scratch>/home/.gitconfig"\n'
-                              "metadata <scratch>/home/.ssh unchanged; read <scratch>/home/.ssh/config\n"}
+                              "metadata <scratch>/home/.ssh unchanged; read <scratch>/home/.ssh/config\n"
+                              "prose: no `/Users/` or `/home/` path; /Users/, /home/, host; s#/home/$U#<wslhome>#\n"}
         dest, _, _ = wb.import_bundle(make_bundle(files), "exit-dot", self.root)
         self.assertTrue((dest / "build.txt").exists())
 

@@ -1,0 +1,10 @@
+mode=local
+exit 0: prebuilt heimdall sha256 equals HM_PREBUILT_SHA256 recorded by the build host (bf598a8550eed86a920237be4ef1e15cca5ed28c7520d70aa9d63fb873ff8267)
+exit 0: remote: create the run directories exclusively (run M02-U11-wsl-9355855ef53c)
+exit 0: staged heimdall copy still has the verified sha256
+exit 0: local tar extraction of heimdall and the scenario files into WSL scratch
+exit 0: remote: pinned image, import, prepare, the ordinary-ssh scenario, terminate and unregister the disposable distribution
+exit 0: registered WSL distributions equal to the set before the import (the disposable one unregistered, no other touched)
+exit 0: canary-prefix scan over saved output (count = 0)
+exit 0: leak scan: saved files still naming a host, a user, a home or the controller distribution (0)
+exit 0: remote: unregister a distribution left by an interrupted run (if any), remove exactly the run directories, check they are absent

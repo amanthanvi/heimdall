@@ -928,3 +928,18 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - Waiting for WU-0: WU-1 (CLI transport, plus the D4 T06 split), WU-4 (the doctor, plus `account_name`), WU-5 (`run` and `connect`).
   - Then a new exit build, and a rerun on all four platforms.
 - I fixed the wave-6w review's W6W-R01 (importer) and the canary comparison (96611c6f). W6W-R02 (opens counted before identification) and R03 (silent-client timing) go to WU-0 or WU-5.
+- **Wave 6x integrated** (2026-11-08 to 2026-11-09):
+  - WU-0 to WU-8 landed in 250029ea and c167736e.
+  - The independent review's W6X-R01 to R04 are fixed (ADR-0007 §12.50).
+  - The independent re-check (Codex; `review-m02-code/wave6x-recheck.md`) left R02, R03 and R04 partly resolved, with two defects introduced by the fixes. Rulings are in ADR-0007 §12.51:
+    - items 1 to 3 (the evidence generator and the importer) are fixed in the harness;
+    - item 4 (the preview's quarantine checks) goes into the next exit build.
+- **Exit build c167736e, 2026-11-09.** Artifacts are under `tests/evidence/artifacts/m02/exit-c167736e/`. All four platforms exited 0, with canary 0, leak 0, and the owner's files unchanged:
+  - **macOS:** 1778 passed, 0 failed, 8 ignored; observations 197.
+  - **devbox:** 1774 passed, 0 failed, 8 ignored.
+  - **Windows** (local mode, 487 s): 1653 passed, 0 failed, 1 ignored; `windows_launch` 4 of 4.
+  - **WSL disposable distribution** (local mode, 101 s): 11 of 11; the registered set is unchanged.
+- **The coverage guard keeps A22's Windows row `in_progress`** (ADR-0007 §12.51 item 5), so no evidence record is written from c167736e:
+  - `a22_crlf_bom_no_trailing_newline_preserved` is required on Windows (D5), but was still compiled for macOS only;
+  - `a22_foreign_owner_or_unwritable_is_manual_mode` became Unix-only without a case-index rationale.
+- **Next:** a new exit build with §12.51 items 4 and 5 and a regenerated inventory; all four platforms run again.
