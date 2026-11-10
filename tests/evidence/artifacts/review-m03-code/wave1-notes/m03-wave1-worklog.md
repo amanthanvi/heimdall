@@ -92,3 +92,33 @@ Windows clippy clean; Linux type-check clean.
   `--workspace` → 0 after gating the macOS-only test fn and a `type_complexity` fix).
 - check.sh (round 2): every step exit 0; 2368 passed, 0 failed, 187 ignored; native-harness-selftest
   315/0.
+
+## Round 3 (independent review W1-R01–R03; native Linux and Windows runs; 2026-11-10)
+- B3: `M02_REPO_DIRS` + `docs/architecture tests/model` (only `managed_domain.rs` read outside); X29 extended.
+- B6/B7: platform-correct client path (`remote.rs` tests) and pipe forms (`target.rs` test).
+- B5: cause — the test read any `HEIMDALL_E2E_BIN` as a release CLI; both native harnesses ship the debug
+  CLI. Now the profile comes from the CLI's own answer; old logic reproduced failing here with E2E_BIN set.
+- B4: shell table by family; an unrowed version prints `m03 observation: shell_table_row`.
+- A3: `SourceSnapshot.{locked_entries, last_locked, unknown_entries}`, `locked_since`; native rows wait for a
+  real `locked` reading; unit test `unknown_never_counts_as_a_real_lock_observation` (mutation → 101).
+- A1/A2: `store::attributes::{AttributeStore, AttributeBackend}` (env-scoped put/get/delete/list);
+  Linux = AttributeStore<SecretServiceBackend>; macOS list scoped to the account; Windows default dir per
+  environment; `store_and_check` adopts exactly one installation-scoped item. Regressions: shared fake
+  attribute store (all hosts), macOS shared disposable keychain, Linux private-session row (gated). Both
+  mutations → 101.
+- B1: verify fixture sshd offers `PerSourcePenalties` and drops it only when `sshd -t` names it.
+- B2: cause found in a disposable Ubuntu 24.04 container (OpenSSH 9.6p1 Ubuntu-3ubuntu13.20, same as
+  the devbox): K_env `.pub` as IdentityFile + cert-only agent → 9.6 signs with the absent file key.
+  Tests use a decoy IdentityFile; new observation test; INT-Q10 escalated.
+- C: debug-only `Verifier::with_test_trace_dump`; the positive verification test prints
+  `m03 observation: client_trace_row` lines for an unrecorded client and fails. Container (9.6p1): every
+  10.5p1 pattern string observed identically; positive accepted, negative refused. Not recorded (devbox
+  rerun is the source).
+- Also found in the container: Ubuntu 9.6p1 lists `gssapikeyexchange`, so `effective_config_has_every_trust_pin`
+  now runs the Q23 two passes; CLI-death rows need an init that reaps orphans (`--init`; systemd on the
+  devbox).
+- D (for U13): the devbox has 12 GB free; the full 72-binary tar hit ENOSPC. The M03 Linux harness needs
+  batching (HM_ONLY lists) or debug-info stripping for the exit runs.
+- Round 3 checks: Docker up.sh 0, `integration_enroll_registry --ignored` 172 passed, the Debian 13
+  verifier row passed, down.sh 0 CLEANUP CONFIRMED; check.sh every step 0 (2372 passed, 0 failed,
+  187 ignored; native-harness-selftest 316/0); clippy-windows 0; linux-xcheck --workspace 0.

@@ -304,7 +304,6 @@ fn m03_test_gates_are_validated_before_anything_else() {
     let scratch = tempfile::tempdir().unwrap();
     let account = scratch.path().join("account");
     std::fs::create_dir_all(&account).unwrap();
-    let debug_build = cfg!(debug_assertions) && std::env::var_os("HEIMDALL_E2E_BIN").is_none();
 
     let home = scratch.path().join("home-enroll");
     let out = run(
@@ -317,6 +316,14 @@ fn m03_test_gates_are_validated_before_anything_else() {
     assert!(out.message().contains("HEIMDALL_TEST_"), "{out:?}");
     assert_ne!(out.message(), not_available_text());
     assert!(!home.exists());
+    // The CLI's build profile, from its own answer: a release CLI refuses every
+    // HEIMDALL_TEST_* variable with its release message. A native harness's copied CLI
+    // (`HEIMDALL_E2E_BIN`) comes from the same debug build as this test, so the presence
+    // of the variable says nothing about the profile (wave-1 native run, item B5).
+    let debug_build = !out.message().contains("not available in release builds");
+    if std::env::var_os("HEIMDALL_E2E_BIN").is_none() {
+        assert_eq!(debug_build, cfg!(debug_assertions), "{out:?}");
+    }
 
     // An absolute directory: a debug build goes on to the wave-0 answer, a release
     // build refuses the variable.

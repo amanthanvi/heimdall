@@ -793,16 +793,61 @@ mod tests {
     #[test]
     fn identity_agent_is_the_alias_own_and_never_ssh_auth_sock() {
         let f = Fixture::new();
+        // The endpoint forms of this platform (native Windows run, wave-1 item B7): a
+        // Unix socket path, or on Windows a named pipe (only pipes are endpoints there).
+        let windows = cfg!(windows);
+        let socket = |unix: &str, pipe: &str| -> (String, EndpointRef) {
+            if windows {
+                (
+                    format!("//./pipe/{pipe}"),
+                    EndpointRef {
+                        kind: EndpointKind::NamedPipe,
+                        locator: format!(r"\\.\pipe\{pipe}"),
+                    },
+                )
+            } else {
+                (
+                    unix.to_owned(),
+                    EndpointRef {
+                        kind: EndpointKind::UnixSocket,
+                        locator: unix.to_owned(),
+                    },
+                )
+            }
+        };
+        let own_home = f.home.join("agent.sock").to_string_lossy().into_owned();
+        let (managed_value, managed_ep) = socket("/tmp/hm-managed.sock", "hm-managed");
+        let (own_value, own_ep) = if windows {
+            socket("", "hm-own")
+        } else {
+            (
+                "~/agent.sock".to_owned(),
+                EndpointRef {
+                    kind: EndpointKind::UnixSocket,
+                    locator: own_home,
+                },
+            )
+        };
+        let (user_value, user_ep) = socket("/tmp/%u.sock", "%u");
+        let user_ep = EndpointRef {
+            locator: user_ep.locator.replace("%u", "localacct"),
+            ..user_ep
+        };
+        let (host_value, _) = socket("/tmp/%h.sock", "%h");
         let managed = f.home.join("heimdall-p.conf");
-        std::fs::write(&managed, "Host lab\n  IdentityAgent /tmp/hm-managed.sock\n").unwrap();
+        std::fs::write(
+            &managed,
+            format!("Host lab\n  IdentityAgent {managed_value}\n"),
+        )
+        .unwrap();
         f.config(&format!(
             "Include {}\n\
-             Host lab\n  IdentityAgent ~/agent.sock\n\
+             Host lab\n  IdentityAgent {own_value}\n\
              Host env\n  IdentityAgent $HM_T_AGENT\n\
              Host sock\n  IdentityAgent SSH_AUTH_SOCK\n\
              Host none\n  IdentityAgent none\n\
-             Host user\n  IdentityAgent /tmp/%u.sock\n\
-             Host host\n  IdentityAgent /tmp/%h.sock\n\
+             Host user\n  IdentityAgent {user_value}\n\
+             Host host\n  IdentityAgent {host_value}\n\
              Host rel\n  IdentityAgent relative.sock\n",
             managed.display()
         ));
@@ -810,17 +855,11 @@ mod tests {
         // P is first, so it wins unless excluded.
         assert_eq!(
             e.evaluate_identity_agent("lab", false),
-            IdentityAgentEvaluation::Determined(EndpointRef {
-                kind: EndpointKind::UnixSocket,
-                locator: "/tmp/hm-managed.sock".into(),
-            })
+            IdentityAgentEvaluation::Determined(managed_ep)
         );
         assert_eq!(
             e.evaluate_identity_agent("lab", true),
-            IdentityAgentEvaluation::Determined(EndpointRef {
-                kind: EndpointKind::UnixSocket,
-                locator: f.home.join("agent.sock").to_string_lossy().into_owned(),
-            })
+            IdentityAgentEvaluation::Determined(own_ep)
         );
         let u = |reason| IdentityAgentEvaluation::Undetermined { reason };
         assert!(matches!(
@@ -842,10 +881,7 @@ mod tests {
         );
         assert_eq!(
             e.evaluate_identity_agent("user", true),
-            IdentityAgentEvaluation::Determined(EndpointRef {
-                kind: EndpointKind::UnixSocket,
-                locator: "/tmp/localacct.sock".into(),
-            })
+            IdentityAgentEvaluation::Determined(user_ep)
         );
         assert_eq!(
             e.evaluate_identity_agent("host", true),

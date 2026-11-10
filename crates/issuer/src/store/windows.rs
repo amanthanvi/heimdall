@@ -2,8 +2,10 @@
 //! current user (`CryptProtectData`, no `CRYPTPROTECT_LOCAL_MACHINE`), with Heimdall
 //! entropy bound to the fingerprint and `CRYPTPROTECT_UI_FORBIDDEN`, in one blob file
 //! per CA, `<dir>\<fingerprint stem>.dpapi`, created exclusively with a **protected
-//! owner-only DACL**. The product directory is `%LOCALAPPDATA%\Heimdall\issuer`
-//! ([`WindowsDpapi::default_dir`], the local, non-roaming application data); a run
+//! owner-only DACL**. The product directory is `%LOCALAPPDATA%\Heimdall\issuer\<environment
+//! ID>` ([`WindowsDpapi::default_dir`], the local, non-roaming application data, one
+//! directory per installation so two installations of the same user holding the same
+//! CA keep two blobs; §17.17 item 3, wave-1 review W1-R01); a run
 //! with `HEIMDALL_HOME` in scratch passes a scratch directory, which is still the
 //! product store kind (ADR-0008 D1 "Test K_ca", D12).
 //!
@@ -37,17 +39,22 @@ pub struct WindowsDpapi {
 }
 
 impl WindowsDpapi {
-    /// The product directory, `%LOCALAPPDATA%\Heimdall\issuer`.
+    /// The product directory of the installation `environment`,
+    /// `%LOCALAPPDATA%\Heimdall\issuer\<environment ID>` (one per installation: the
+    /// blobs of two installations holding the same CA never share a path).
     ///
     /// # Errors
     /// [`StoreError::Unavailable`] (`missing`) when `LOCALAPPDATA` is unset or not
     /// absolute.
-    pub fn default_dir() -> Result<PathBuf, StoreError> {
+    pub fn default_dir(environment: &EnvironmentId) -> Result<PathBuf, StoreError> {
         let base = std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
             .ok_or(StoreError::Unavailable(StoreAvailability::Missing))?;
-        Ok(base.join("Heimdall").join("issuer"))
+        Ok(base
+            .join("Heimdall")
+            .join("issuer")
+            .join(environment.as_str()))
     }
 
     /// The store whose blobs live in `dir` ([`Self::default_dir`], or a directory

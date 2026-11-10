@@ -908,11 +908,19 @@ mod tests {
         }
     }
 
+    /// An absolute client path that does not exist, in this platform's form (a Unix
+    /// path is not absolute on Windows; native Windows run, wave-1 item B6).
+    const MISSING_CLIENT: &str = if cfg!(windows) {
+        r"C:\nonexistent\heimdall-test-ssh.exe"
+    } else {
+        "/nonexistent/heimdall-test-ssh"
+    };
+
     fn step() -> RemoteStep {
         RemoteStep {
             stage: RemoteStage::Inspect,
             step_token: "0".repeat(32),
-            client: "/nonexistent/heimdall-test-ssh".into(),
+            client: MISSING_CLIENT.into(),
             pins: StepPins {
                 target: TargetPins(vec![opt("HostName", "127.0.0.1"), opt("Port", "22")]),
                 narrowing: NarrowingPins(vec![opt("BatchMode", "yes")]),

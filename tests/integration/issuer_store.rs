@@ -45,6 +45,9 @@ use heimdall_issuer::ceremony::{
     RegisterRequest, ReplaceOrphanOptions, RestoreOptions, Restored, SessionError, Tty,
 };
 use heimdall_issuer::retire::{self, RetireError, StoreEffects, StoreFate};
+use heimdall_issuer::store::attributes::{
+    ATTR_ENVIRONMENT, ATTR_FINGERPRINT, AttrItem, AttributeBackend, AttributeStore,
+};
 use heimdall_issuer::store::{
     SecretStore, SecretStoreKind, StoreAvailability, StoreError, StoreItemRef,
 };
@@ -1465,6 +1468,174 @@ fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_sam
     assert_eq!(b.list().unwrap(), vec![b_item]);
 }
 
+/// ADR-0008 §17.17 item 3 (wave-1 review W1-R01, W1-R02): installations A and B of the
+/// same OS user share one store. A holds a CA; B restores the same backup with its log
+/// intact (the CA registered and active in B). B gets an item of its own; each lists,
+/// reads and deletes only its own (a second item never makes `get` `Corrupt`); a
+/// second restore in B, with A's item listed first, adopts B's own item, never A's; and
+/// retiring B leaves A's item, which A still reads.
+fn two_installations_restore_and_retire(a: &dyn SecretStore, b: &dyn SecretStore) {
+    let key = SecretCaKey::generate().unwrap();
+    let fp = key.fingerprint().unwrap();
+    let a_item = a.put(&fp, &key).unwrap();
+    let dir = scratch();
+    let pass = Passphrase::generate().unwrap();
+    let out = dir.path().join("ca.key");
+    backup::write_exact(&out, &backup::prepare(&key, &pass).unwrap()).unwrap();
+    let (mut session, _log) = FakeSession::new();
+    session.status.cas.push(ca_status(&fp, CaState::Active));
+    let restore_in_b = |session: &mut FakeSession| {
+        let mut tty = ScriptedTty::default().with_hidden(pass.expose());
+        match ceremony::restore(
+            &mut tty,
+            session,
+            b,
+            &RestoreOptions {
+                backup: &out,
+                not_stolen: true,
+                non_interactive: false,
+            },
+        )
+        .unwrap()
+        {
+            Restored::StoreItemRewritten { item, .. } => item,
+            other => panic!("expected the log-intact restore: {other:?}"),
+        }
+    };
+    let b_item = restore_in_b(&mut session);
+    assert_ne!(b_item.locator, a_item.locator, "B has an item of its own");
+    assert_eq!(
+        a.list().unwrap(),
+        vec![a_item.clone()],
+        "A lists only its own"
+    );
+    assert_eq!(
+        b.list().unwrap(),
+        vec![b_item.clone()],
+        "B lists only its own"
+    );
+    assert!(a.get(&fp).unwrap().same_key(&key));
+    assert!(
+        b.get(&fp).unwrap().same_key(&key),
+        "never Corrupt because another installation holds the CA"
+    );
+    // B restores again: its own existing item is adopted (A's was created first).
+    assert_eq!(restore_in_b(&mut session), b_item, "B adopts its own item");
+    // Retiring B deletes B's recorded item only.
+    let recorded_b = vec![b_item.clone()];
+    let mut effects = StoreEffects::new(b, &recorded_b, |_ca: &CaFingerprint| Ok(()));
+    retire::step(&fp, CaState::Unloaded, &mut effects).unwrap();
+    assert_eq!(b.get(&fp).err(), Some(StoreError::NotFound));
+    assert_eq!(b.list().unwrap(), Vec::new());
+    assert_eq!(a.list().unwrap(), vec![a_item.clone()]);
+    assert!(
+        a.get(&fp).unwrap().same_key(&key),
+        "A's item survives B's retirement"
+    );
+    // B cannot delete A's item, even named by its exact identity.
+    assert!(b.delete(&a_item).is_err());
+    assert!(a.get(&fp).unwrap().same_key(&key));
+    // A retires its own.
+    let recorded_a = vec![a_item];
+    let mut effects = StoreEffects::new(a, &recorded_a, |_ca: &CaFingerprint| Ok(()));
+    retire::step(&fp, CaState::Unloaded, &mut effects).unwrap();
+    assert_eq!(a.list().unwrap(), Vec::new());
+}
+
+/// An in-memory attribute-addressed store with the Secret Service's search semantics
+/// (every attribute must match), shared by several installations.
+#[derive(Clone, Default)]
+struct MemSecretService {
+    inner: Arc<std::sync::Mutex<(u64, Vec<MemItem>)>>,
+}
+
+struct MemItem {
+    path: String,
+    attributes: std::collections::BTreeMap<String, String>,
+    secret: Vec<u8>,
+}
+
+impl MemItem {
+    fn matches(&self, attributes: &[(&str, &str)]) -> bool {
+        attributes
+            .iter()
+            .all(|(k, v)| self.attributes.get(*k).map(String::as_str) == Some(*v))
+    }
+}
+
+impl AttributeBackend for MemSecretService {
+    fn availability(&self) -> StoreAvailability {
+        StoreAvailability::Available
+    }
+    fn search(&self, attributes: &[(&str, &str)]) -> Result<Vec<AttrItem>, StoreError> {
+        let g = self.inner.lock().unwrap();
+        Ok(g.1
+            .iter()
+            .filter(|i| i.matches(attributes))
+            .map(|i| AttrItem {
+                path: i.path.clone(),
+                fingerprint: i.attributes.get(ATTR_FINGERPRINT).cloned(),
+                environment: i.attributes.get(ATTR_ENVIRONMENT).cloned(),
+            })
+            .collect())
+    }
+    fn create(
+        &self,
+        _label: &str,
+        attributes: &[(&str, &str)],
+        secret: &[u8],
+    ) -> Result<String, StoreError> {
+        let mut g = self.inner.lock().unwrap();
+        g.0 += 1;
+        let path = format!("/org/freedesktop/secrets/collection/login/{}", g.0);
+        g.1.push(MemItem {
+            path: path.clone(),
+            attributes: attributes
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+            secret: secret.to_vec(),
+        });
+        Ok(path)
+    }
+    fn secret(
+        &self,
+        attributes: &[(&str, &str)],
+        path: &str,
+    ) -> Result<Zeroizing<Vec<u8>>, StoreError> {
+        let g = self.inner.lock().unwrap();
+        g.1.iter()
+            .find(|i| i.path == path && i.matches(attributes))
+            .map(|i| Zeroizing::new(i.secret.clone()))
+            .ok_or(StoreError::NotFound)
+    }
+    fn delete(&self, attributes: &[(&str, &str)], path: &str) -> Result<(), StoreError> {
+        let mut g = self.inner.lock().unwrap();
+        let at =
+            g.1.iter()
+                .position(|i| i.path == path && i.matches(attributes))
+                .ok_or(StoreError::NotFound)?;
+        g.1.remove(at);
+        Ok(())
+    }
+}
+
+/// ADR-0008 §17.17 item 3 (wave-1 review W1-R01): the Linux store's logic
+/// (`store::attributes::AttributeStore`, the Secret Service's) over one shared
+/// in-memory collection, on every host. The Linux-native row is
+/// `linux::linux_secret_service_two_installations_restore_and_retire_in_private_session`.
+#[test]
+fn two_installations_restore_and_retire_on_a_shared_attribute_store() {
+    let shared = MemSecretService::default();
+    let kind = SecretStoreKind::Product(StoreKind::LinuxSecretService);
+    let env_b = heimdall_contract::ids::EnvironmentId::from_random_bytes([8; 16]);
+    let a = AttributeStore::new(shared.clone(), &env_id(), kind);
+    let b = AttributeStore::new(shared.clone(), &env_b, kind);
+    two_installations_restore_and_retire(&a, &b);
+    // Every item carried its environment attribute.
+    assert!(shared.inner.lock().unwrap().1.is_empty());
+}
+
 fn enrollment_view(n: u8, ca: &CaFingerprint, state: EnrollmentState) -> EnrollmentView {
     let id = EnrollmentId::from_random_bytes([n; 16]);
     EnrollmentView {
@@ -1949,12 +2120,23 @@ mod macos {
         let a_item = a.put(&fp, &key).unwrap();
         let b_item = b.put(&fp, &key).unwrap();
         assert_ne!(a_item.locator, b_item.locator);
-        assert_eq!(a.list().unwrap().len(), 2, "the keychain lists both items");
+        // Each installation lists only its own item (W1-R02).
+        assert_eq!(a.list().unwrap(), vec![a_item.clone()]);
+        assert_eq!(b.list().unwrap(), vec![b_item.clone()]);
         assert_eq!(
             retire::delete_recorded(&a, &fp, None),
             Err(RetireError::LocatorNotRecorded)
         );
-        assert_eq!(a.list().unwrap().len(), 2, "nothing was deleted");
+        assert_eq!(
+            a.list().unwrap(),
+            vec![a_item.clone()],
+            "nothing was deleted"
+        );
+        assert_eq!(
+            b.list().unwrap(),
+            vec![b_item.clone()],
+            "nothing was deleted"
+        );
         let recorded = vec![a_item];
         let mut effects = StoreEffects::new(&a, &recorded, |_ca: &CaFingerprint| Ok(()));
         retire::step(&fp, CaState::Unloaded, &mut effects).unwrap();
@@ -1964,6 +2146,25 @@ mod macos {
             b.get(&fp).unwrap().same_key(&key),
             "B's item survives and reads"
         );
+        let path = kc.path.clone();
+        drop(kc);
+        assert!(!path.exists(), "the disposable keychain is deleted by path");
+        assert_eq!(owner_keychain_digests(), before);
+        owner.assert_unchanged();
+    }
+
+    /// ADR-0008 §17.17 item 3 (wave-1 review W1-R02) on one disposable file keychain:
+    /// two installations (two environment IDs, two accounts) and the restore that
+    /// adopts an existing item with the other account's item listed first.
+    #[test]
+    fn two_installations_restore_and_retire_on_a_shared_disposable_keychain() {
+        let owner = heimdall_testkit::owner_digest::OwnerDigest::capture().unwrap();
+        let before = owner_keychain_digests();
+        let kc = DisposableKeychain::create();
+        let env_b = heimdall_contract::ids::EnvironmentId::from_random_bytes([8; 16]);
+        let a = MacosLoginKeychain::disposable_file_keychain(&kc.path, &env_id());
+        let b = MacosLoginKeychain::disposable_file_keychain(&kc.path, &env_b);
+        two_installations_restore_and_retire(&a, &b);
         let path = kc.path.clone();
         drop(kc);
         assert!(!path.exists(), "the disposable keychain is deleted by path");
@@ -2247,8 +2448,24 @@ mod linux {
         if std::env::var_os(CHILD).is_none() {
             return;
         }
-        // A private gnome-keyring on this session's bus; its login keyring password
-        // is written to its stdin (never an argument).
+        let store = LinuxSecretService::new(&env_id());
+        start_private_keyring(&store);
+        let key = SecretCaKey::generate().unwrap();
+        let fp = key.fingerprint().unwrap();
+        let item = store.put(&fp, &key).unwrap();
+        assert_eq!(store.put(&fp, &key).err(), Some(StoreError::AlreadyExists));
+        assert!(store.get(&fp).unwrap().same_key(&key));
+        assert_eq!(store.list().unwrap(), vec![item.clone()]);
+        store.delete(&item).unwrap();
+        assert_eq!(store.get(&fp).err(), Some(StoreError::NotFound));
+        std::io::Write::write_all(&mut std::io::stdout(), b"SECRET-SERVICE-ROUND-TRIP-OK\n")
+            .unwrap();
+    }
+
+    /// Start a private gnome-keyring on this child's session bus; its login keyring
+    /// password is written to its stdin (never an argument). Waits until `store` is
+    /// available.
+    fn start_private_keyring(store: &LinuxSecretService) {
         let daemon = find("gnome-keyring-daemon").unwrap();
         let mut child = std::process::Command::new(daemon)
             .args(["--unlock", "--components=secrets"])
@@ -2262,7 +2479,6 @@ mod linux {
             .unwrap();
         drop(child.stdin.take());
         let _ = child.wait();
-        let store = LinuxSecretService::new(&env_id());
         let mut available = store.availability();
         for _ in 0..50 {
             if available == StoreAvailability::Available {
@@ -2272,21 +2488,31 @@ mod linux {
             available = store.availability();
         }
         assert_eq!(available, StoreAvailability::Available);
-        let key = SecretCaKey::generate().unwrap();
-        let fp = key.fingerprint().unwrap();
-        let item = store.put(&fp, &key).unwrap();
-        assert_eq!(store.put(&fp, &key).err(), Some(StoreError::AlreadyExists));
-        assert!(store.get(&fp).unwrap().same_key(&key));
-        assert_eq!(store.list().unwrap(), vec![item.clone()]);
-        store.delete(&item).unwrap();
-        assert_eq!(store.get(&fp).err(), Some(StoreError::NotFound));
-        std::io::Write::write_all(&mut std::io::stdout(), b"SECRET-SERVICE-ROUND-TRIP-OK\n")
-            .unwrap();
     }
 
+    /// Child-mode entry of the two-installation row (ADR-0008 §17.17 item 3; wave-1
+    /// review W1-R01), run inside `dbus-run-session` with a scratch `HOME`.
     #[test]
-    #[ignore = "needs dbus-run-session and gnome-keyring-daemon on the host; run with HM_SECRET_SERVICE_TESTS=1 cargo test -p heimdall-issuer --test integration_issuer_store -- --ignored linux::linux_secret_service_round_trip_in_private_session"]
-    fn linux_secret_service_round_trip_in_private_session() {
+    #[ignore = "child-mode entry of linux_secret_service_two_installations_restore_and_retire_in_private_session, started by it"]
+    fn linux_secret_service_two_installations_child() {
+        if std::env::var_os(CHILD).is_none() {
+            return;
+        }
+        let env_b = heimdall_contract::ids::EnvironmentId::from_random_bytes([8; 16]);
+        let a = LinuxSecretService::new(&env_id());
+        let b = LinuxSecretService::new(&env_b);
+        start_private_keyring(&a);
+        two_installations_restore_and_retire(&a, &b);
+        std::io::Write::write_all(
+            &mut std::io::stdout(),
+            b"SECRET-SERVICE-TWO-INSTALLATIONS-OK\n",
+        )
+        .unwrap();
+    }
+
+    /// Run `child` (a child-mode entry of this module) inside `dbus-run-session` with a
+    /// scratch `HOME`, and require its `marker` line.
+    fn run_in_private_session(child: &str, marker: &str) {
         assert_eq!(
             std::env::var(GATE).as_deref(),
             Ok("1"),
@@ -2308,7 +2534,7 @@ mod linux {
             .arg(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "linux::linux_secret_service_child",
+                child,
                 "--ignored",
                 "--nocapture",
                 "--test-threads=1",
@@ -2327,6 +2553,26 @@ mod linux {
             .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(out.status.success(), "child exit {:?}", out.status.code());
-        assert!(stdout.contains("SECRET-SERVICE-ROUND-TRIP-OK"));
+        assert!(stdout.contains(marker));
+    }
+
+    #[test]
+    #[ignore = "needs dbus-run-session and gnome-keyring-daemon on the host; run with HM_SECRET_SERVICE_TESTS=1 cargo test -p heimdall-issuer --test integration_issuer_store -- --ignored linux::linux_secret_service_round_trip_in_private_session"]
+    fn linux_secret_service_round_trip_in_private_session() {
+        run_in_private_session(
+            "linux::linux_secret_service_child",
+            "SECRET-SERVICE-ROUND-TRIP-OK",
+        );
+    }
+
+    /// ADR-0008 §17.17 item 3 (wave-1 review W1-R01) on the real Secret Service: two
+    /// installations of the same OS user, one login collection, the same restored CA.
+    #[test]
+    #[ignore = "needs dbus-run-session and gnome-keyring-daemon on the host; run with HM_SECRET_SERVICE_TESTS=1 cargo test -p heimdall-issuer --test integration_issuer_store -- --ignored linux::linux_secret_service_two_installations_restore_and_retire_in_private_session"]
+    fn linux_secret_service_two_installations_restore_and_retire_in_private_session() {
+        run_in_private_session(
+            "linux::linux_secret_service_two_installations_child",
+            "SECRET-SERVICE-TWO-INSTALLATIONS-OK",
+        );
     }
 }

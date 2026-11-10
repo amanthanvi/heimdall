@@ -18,6 +18,12 @@
 //! The issuer never triggers a prompt: no call here unlocks anything
 //! (`unlock`/`ensure_unlocked` are never used); a locked collection or item is
 //! [`StoreAvailability::Locked`]. There is no plaintext fallback.
+//!
+//! **Scoped to the installation** (ADR-0008 §17.17 item 3; wave-1 review W1-R01): the
+//! store logic is `store::attributes::AttributeStore`, whose every lookup carries
+//! `heimdall_environment_id`, over [`SecretServiceBackend`]. Two installations of the
+//! same OS user holding the same CA keep two items, and each sees, reads and deletes
+//! only its own.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -29,30 +35,17 @@ use heimdall_credential::cert::SecretCaKey;
 use secret_service::{Collection, EncryptionType, SecretService};
 use zeroize::Zeroizing;
 
-use super::{
-    SecretStore, SecretStoreKind, StoreAvailability, StoreError, StoreItemRef, item_label,
+use super::attributes::{
+    ATTR_ENVIRONMENT, ATTR_FINGERPRINT, AttrItem, AttributeBackend, AttributeStore,
 };
+use super::{SecretStore, SecretStoreKind, StoreAvailability, StoreError, StoreItemRef};
 
 /// The bound on one store operation (connect, negotiate, call).
 pub const OPERATION_BOUND: Duration = Duration::from_secs(5);
 /// The login collection's object path.
 const LOGIN_COLLECTION: &str = "/org/freedesktop/secrets/collection/login";
-/// Attribute: the application.
-const ATTR_APPLICATION: &str = "heimdall_application";
-/// Its value.
-const APPLICATION: &str = "heimdall-issuer";
-/// Attribute: the CA fingerprint.
-const ATTR_FINGERPRINT: &str = "heimdall_ca_fingerprint";
-/// Attribute: the environment ID.
-const ATTR_ENVIRONMENT: &str = "heimdall_environment_id";
 /// The secret's content type.
 const CONTENT_TYPE: &str = "application/x-openssh-private-key";
-
-/// The Linux Secret Service K_ca store.
-#[derive(Debug, Clone)]
-pub struct LinuxSecretService {
-    environment: String,
-}
 
 fn service_error(e: &secret_service::Error) -> StoreError {
     match e {
@@ -126,29 +119,26 @@ async fn unlocked_login<'a>(service: &'a SecretService<'a>) -> Result<Collection
     Ok(collection)
 }
 
-impl LinuxSecretService {
-    /// The store for the installation's `environment`.
-    #[must_use]
-    pub fn new(environment: &EnvironmentId) -> Self {
-        Self {
-            environment: environment.as_str().to_owned(),
-        }
-    }
-
-    fn reference(fingerprint: &CaFingerprint, path: &str) -> StoreItemRef {
-        StoreItemRef {
-            kind: SecretStoreKind::Product(StoreKind::LinuxSecretService),
-            fingerprint: fingerprint.clone(),
-            locator: path.to_owned(),
-        }
-    }
+fn owned(attributes: &[(&str, &str)]) -> Vec<(String, String)> {
+    attributes
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect()
 }
 
-impl SecretStore for LinuxSecretService {
-    fn kind(&self) -> SecretStoreKind {
-        SecretStoreKind::Product(StoreKind::LinuxSecretService)
-    }
+fn as_map(attributes: &[(String, String)]) -> HashMap<&str, &str> {
+    attributes
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
+}
 
+/// The Secret Service as an [`AttributeBackend`]: the login collection over a DH
+/// session, one bounded connection per call (module docs).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SecretServiceBackend;
+
+impl AttributeBackend for SecretServiceBackend {
     fn availability(&self) -> StoreAvailability {
         let result = drive(|| async {
             let service = connect().await?;
@@ -161,140 +151,137 @@ impl SecretStore for LinuxSecretService {
         }
     }
 
-    fn put(
-        &self,
-        fingerprint: &CaFingerprint,
-        key: &SecretCaKey,
-    ) -> Result<StoreItemRef, StoreError> {
-        if key.fingerprint().map_err(|_| StoreError::Failed)? != *fingerprint {
-            return Err(StoreError::Failed);
-        }
-        let secret = key.to_secret_bytes().map_err(|_| StoreError::Failed)?;
-        let fp = fingerprint.as_str().to_owned();
-        let label = item_label(fingerprint);
-        let environment = self.environment.clone();
-        let secret_ref: &[u8] = &secret;
-        let path = drive(move || async move {
-            let service = connect().await?;
-            let collection = unlocked_login(&service).await?;
-            let existing = collection
-                .search_items(HashMap::from([
-                    (ATTR_APPLICATION, APPLICATION),
-                    (ATTR_FINGERPRINT, fp.as_str()),
-                ]))
-                .await
-                .map_err(|e| service_error(&e))?;
-            if !existing.is_empty() {
-                return Err(StoreError::AlreadyExists);
-            }
-            let item = collection
-                .create_item(
-                    &label,
-                    HashMap::from([
-                        (ATTR_APPLICATION, APPLICATION),
-                        (ATTR_FINGERPRINT, fp.as_str()),
-                        (ATTR_ENVIRONMENT, environment.as_str()),
-                    ]),
-                    secret_ref,
-                    false,
-                    CONTENT_TYPE,
-                )
-                .await
-                .map_err(|e| service_error(&e))?;
-            Ok(item.item_path.as_str().to_owned())
-        })?;
-        drop(secret);
-        Ok(Self::reference(fingerprint, &path))
-    }
-
-    fn get(&self, fingerprint: &CaFingerprint) -> Result<SecretCaKey, StoreError> {
-        let fp = fingerprint.as_str().to_owned();
-        let secret = drive(move || async move {
-            let service = connect().await?;
-            let collection = unlocked_login(&service).await?;
-            let mut items = collection
-                .search_items(HashMap::from([
-                    (ATTR_APPLICATION, APPLICATION),
-                    (ATTR_FINGERPRINT, fp.as_str()),
-                ]))
-                .await
-                .map_err(|e| service_error(&e))?;
-            let item = match items.len() {
-                0 => return Err(StoreError::NotFound),
-                1 => items.swap_remove(0),
-                _ => return Err(StoreError::Corrupt),
-            };
-            if item.is_locked().await.map_err(|e| service_error(&e))? {
-                return Err(StoreError::Unavailable(StoreAvailability::Locked));
-            }
-            let secret = Zeroizing::new(item.get_secret().await.map_err(|e| service_error(&e))?);
-            Ok(secret)
-        })?;
-        let key = SecretCaKey::from_secret_bytes(&secret).map_err(|_| StoreError::Corrupt)?;
-        if key.fingerprint().map_err(|_| StoreError::Corrupt)? != *fingerprint {
-            return Err(StoreError::Corrupt);
-        }
-        Ok(key)
-    }
-
-    fn delete(&self, item: &StoreItemRef) -> Result<(), StoreError> {
-        if item.kind != self.kind() {
-            return Err(StoreError::Failed);
-        }
-        let fp = item.fingerprint.as_str().to_owned();
-        let locator = item.locator.clone();
+    fn search(&self, attributes: &[(&str, &str)]) -> Result<Vec<AttrItem>, StoreError> {
+        let attributes = owned(attributes);
         drive(move || async move {
             let service = connect().await?;
             let collection = unlocked_login(&service).await?;
-            let attrs = HashMap::from([
-                (ATTR_APPLICATION, APPLICATION),
-                (ATTR_FINGERPRINT, fp.as_str()),
-            ]);
             let items = collection
-                .search_items(attrs.clone())
-                .await
-                .map_err(|e| service_error(&e))?;
-            let Some(found) = items.iter().find(|i| i.item_path.as_str() == locator) else {
-                return Err(StoreError::NotFound);
-            };
-            found.delete().await.map_err(|e| service_error(&e))?;
-            let after = collection
-                .search_items(attrs)
-                .await
-                .map_err(|e| service_error(&e))?;
-            if after.iter().any(|i| i.item_path.as_str() == locator) {
-                return Err(StoreError::Failed);
-            }
-            Ok(())
-        })
-    }
-
-    fn list(&self) -> Result<Vec<StoreItemRef>, StoreError> {
-        let found = drive(|| async {
-            let service = connect().await?;
-            let collection = unlocked_login(&service).await?;
-            let items = collection
-                .search_items(HashMap::from([(ATTR_APPLICATION, APPLICATION)]))
+                .search_items(as_map(&attributes))
                 .await
                 .map_err(|e| service_error(&e))?;
             let mut out = Vec::new();
             for item in &items {
                 let attrs = item.get_attributes().await.map_err(|e| service_error(&e))?;
-                if let Some(fp) = attrs.get(ATTR_FINGERPRINT) {
-                    out.push((fp.clone(), item.item_path.as_str().to_owned()));
-                }
+                out.push(AttrItem {
+                    path: item.item_path.as_str().to_owned(),
+                    fingerprint: attrs.get(ATTR_FINGERPRINT).cloned(),
+                    environment: attrs.get(ATTR_ENVIRONMENT).cloned(),
+                });
             }
             Ok(out)
-        })?;
-        let mut items: Vec<StoreItemRef> = found
-            .iter()
-            .filter_map(|(fp, path)| {
-                CaFingerprint::parse(fp)
-                    .ok()
-                    .map(|f| Self::reference(&f, path))
-            })
-            .collect();
-        items.sort_by(|a, b| a.fingerprint.as_str().cmp(b.fingerprint.as_str()));
-        Ok(items)
+        })
+    }
+
+    fn create(
+        &self,
+        label: &str,
+        attributes: &[(&str, &str)],
+        secret: &[u8],
+    ) -> Result<String, StoreError> {
+        let attributes = owned(attributes);
+        let label = label.to_owned();
+        drive(move || async move {
+            let service = connect().await?;
+            let collection = unlocked_login(&service).await?;
+            let item = collection
+                .create_item(&label, as_map(&attributes), secret, false, CONTENT_TYPE)
+                .await
+                .map_err(|e| service_error(&e))?;
+            Ok(item.item_path.as_str().to_owned())
+        })
+    }
+
+    fn secret(
+        &self,
+        attributes: &[(&str, &str)],
+        path: &str,
+    ) -> Result<Zeroizing<Vec<u8>>, StoreError> {
+        let attributes = owned(attributes);
+        let path = path.to_owned();
+        drive(move || async move {
+            let service = connect().await?;
+            let collection = unlocked_login(&service).await?;
+            let items = collection
+                .search_items(as_map(&attributes))
+                .await
+                .map_err(|e| service_error(&e))?;
+            let Some(item) = items.iter().find(|i| i.item_path.as_str() == path) else {
+                return Err(StoreError::NotFound);
+            };
+            if item.is_locked().await.map_err(|e| service_error(&e))? {
+                return Err(StoreError::Unavailable(StoreAvailability::Locked));
+            }
+            Ok(Zeroizing::new(
+                item.get_secret().await.map_err(|e| service_error(&e))?,
+            ))
+        })
+    }
+
+    fn delete(&self, attributes: &[(&str, &str)], path: &str) -> Result<(), StoreError> {
+        let attributes = owned(attributes);
+        let path = path.to_owned();
+        drive(move || async move {
+            let service = connect().await?;
+            let collection = unlocked_login(&service).await?;
+            let items = collection
+                .search_items(as_map(&attributes))
+                .await
+                .map_err(|e| service_error(&e))?;
+            let Some(found) = items.iter().find(|i| i.item_path.as_str() == path) else {
+                return Err(StoreError::NotFound);
+            };
+            found.delete().await.map_err(|e| service_error(&e))
+        })
+    }
+}
+
+/// The Linux Secret Service K_ca store of one installation.
+#[derive(Debug)]
+pub struct LinuxSecretService {
+    inner: AttributeStore<SecretServiceBackend>,
+}
+
+impl LinuxSecretService {
+    /// The store for the installation's `environment`.
+    #[must_use]
+    pub fn new(environment: &EnvironmentId) -> Self {
+        Self {
+            inner: AttributeStore::new(
+                SecretServiceBackend,
+                environment,
+                SecretStoreKind::Product(StoreKind::LinuxSecretService),
+            ),
+        }
+    }
+}
+
+impl SecretStore for LinuxSecretService {
+    fn kind(&self) -> SecretStoreKind {
+        self.inner.kind()
+    }
+
+    fn availability(&self) -> StoreAvailability {
+        self.inner.availability()
+    }
+
+    fn put(
+        &self,
+        fingerprint: &CaFingerprint,
+        key: &SecretCaKey,
+    ) -> Result<StoreItemRef, StoreError> {
+        self.inner.put(fingerprint, key)
+    }
+
+    fn get(&self, fingerprint: &CaFingerprint) -> Result<SecretCaKey, StoreError> {
+        self.inner.get(fingerprint)
+    }
+
+    fn delete(&self, item: &StoreItemRef) -> Result<(), StoreError> {
+        self.inner.delete(item)
+    }
+
+    fn list(&self) -> Result<Vec<StoreItemRef>, StoreError> {
+        self.inner.list()
     }
 }

@@ -124,6 +124,29 @@ struct Latch {
     initialized: bool,
     transitions: u64,
     last_change: Option<Instant>,
+    /// Readings that entered `locked` itself (never `unknown`): the native evidence
+    /// rows' proof of a real lock (wave-1 review W1-R03). Latched: an unlock after it
+    /// does not lower it.
+    locked_entries: u64,
+    /// When the last of those arrived.
+    last_locked: Option<Instant>,
+    /// Readings that entered `unknown` (they advance the epoch, fail closed, but are
+    /// never evidence of a lock).
+    unknown_entries: u64,
+}
+
+impl Latch {
+    /// Count an entry into `next` for the evidence counters.
+    fn count_entry(&mut self, next: LockState) {
+        match next {
+            LockState::Locked => {
+                self.locked_entries = self.locked_entries.saturating_add(1);
+                self.last_locked = Some(Instant::now());
+            }
+            LockState::Unknown => self.unknown_entries = self.unknown_entries.saturating_add(1),
+            _ => {}
+        }
+    }
 }
 
 /// The state a platform thread records into, read by the port (in memory only).
@@ -161,6 +184,9 @@ impl Shared {
                 initialized: false,
                 transitions: 0,
                 last_change: None,
+                locked_entries: 0,
+                last_locked: None,
+                unknown_entries: 0,
             }),
             notify: Notify::new(),
             ready: Condvar::new(),
@@ -213,6 +239,7 @@ impl Shared {
                     if counts_as_lock(next) {
                         l.epoch = l.epoch.observe_lock();
                     }
+                    l.count_entry(next);
                     l.state = next;
                     l.transitions = l.transitions.saturating_add(1);
                     l.last_change = Some(Instant::now());
@@ -223,6 +250,7 @@ impl Shared {
                 if counts_as_lock(next) {
                     l.epoch = l.epoch.observe_lock();
                 }
+                l.count_entry(next);
                 l.state = next;
                 l.last_change = Some(Instant::now());
                 true
@@ -307,6 +335,25 @@ pub struct SourceSnapshot {
     pub events: u64,
     /// Of those, delivered on a thread other than the source's own (expected 0).
     pub events_off_thread: u64,
+    /// Readings that entered `locked` itself, latched (an unlock does not lower it).
+    /// The only evidence of a real lock: entering `unknown` advances the epoch (fail
+    /// closed) but never this count (wave-1 review W1-R03).
+    pub locked_entries: u64,
+    /// When the last `locked` reading arrived.
+    pub last_locked: Option<Instant>,
+    /// Readings that entered `unknown`.
+    pub unknown_entries: u64,
+}
+
+impl SourceSnapshot {
+    /// Whether a real `locked` reading arrived after `earlier` was taken (W1-R03): the
+    /// native lock rows' evidence. An epoch advanced only by `unknown` (a lost signal,
+    /// an unreadable session) never satisfies it; a lock followed by an unlock still
+    /// does (latched).
+    #[must_use]
+    pub fn locked_since(&self, earlier: &SourceSnapshot) -> bool {
+        self.locked_entries > earlier.locked_entries
+    }
 }
 
 impl PlatformSessionLockSource {
@@ -390,6 +437,9 @@ impl PlatformSessionLockSource {
             signal: self.signal(),
             events: self.shared.events.load(Ordering::SeqCst),
             events_off_thread: self.shared.events_off_thread.load(Ordering::SeqCst),
+            locked_entries: l.locked_entries,
+            last_locked: l.last_locked,
+            unknown_entries: l.unknown_entries,
         }
     }
 
@@ -462,6 +512,32 @@ mod tests {
             signal: LockSignal::None,
             worker: Mutex::new(None),
         }
+    }
+
+    /// W1-R03: entering `unknown` advances the epoch (fail closed: the revocation pass
+    /// runs) but is never evidence of a real lock; only a `locked` reading is, and it
+    /// stays counted after an unlock.
+    #[test]
+    fn unknown_never_counts_as_a_real_lock_observation() {
+        let s = Arc::new(Shared::new());
+        s.record(LockState::Unlocked);
+        let src = source_over(Arc::clone(&s));
+        let before = src.snapshot();
+        s.record(LockState::Unknown);
+        let lost = src.snapshot();
+        assert_eq!(lost.epoch.epoch, before.epoch.epoch + 1, "unknown latches");
+        assert!(lost.epoch.observed);
+        assert_eq!(lost.unknown_entries, 1);
+        assert!(!lost.locked_since(&before), "a lost signal is no lock");
+        s.record(LockState::Unlocked);
+        s.record(LockState::Locked);
+        s.record(LockState::Unlocked);
+        let after = src.snapshot();
+        assert_eq!(after.state, LockState::Unlocked);
+        assert!(after.locked_since(&before), "latched after the unlock");
+        assert!(after.locked_since(&lost));
+        assert_eq!(after.locked_entries, 1);
+        assert!(after.last_locked.is_some());
     }
 
     #[test]

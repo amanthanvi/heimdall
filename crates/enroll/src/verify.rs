@@ -203,6 +203,9 @@ pub struct Verifier {
     client: Option<VerifierClient>,
     runtime_dir: Option<PathBuf>,
     pause_dir: Option<PathBuf>,
+    /// Debug builds only ([`Verifier::with_test_trace_dump`]): where each attempt's raw
+    /// `-v` trace is written, for recording an unrecorded client's trace row.
+    trace_dump: Option<PathBuf>,
 }
 
 /// The pause point once the negative nonce exists (ADR-0008 D13 item 3; the test
@@ -225,7 +228,20 @@ impl Verifier {
             client: Some(client),
             runtime_dir: Some(runtime_dir.into()),
             pause_dir: None,
+            trace_dump: None,
         }
+    }
+
+    /// **Test configuration only** (debug builds; wave-1 native run, item C): write each
+    /// attempt's raw `-v` trace to `<dir>/positive.trace` and `<dir>/negative.trace`, so
+    /// a test can print an unrecorded client's trace lines for its row (recorded only
+    /// from a real run's output, never from expectation). The classification is
+    /// unchanged; the files are the caller's to read and remove.
+    #[cfg(debug_assertions)]
+    #[must_use]
+    pub fn with_test_trace_dump(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.trace_dump = Some(dir.into());
+        self
     }
 
     /// **Test configuration only** (ADR-0008 D13 item 3; the caller's test gate passes
@@ -355,6 +371,7 @@ impl Verifier {
             &k_verify.fingerprint,
             patterns,
             &ctx,
+            self.trace_dump.as_ref().map(|d| d.join("positive.trace")),
         )
         .await;
         if let Some(dir) = &self.pause_dir
@@ -370,6 +387,7 @@ impl Verifier {
             &k_verify.fingerprint,
             patterns,
             &ctx,
+            self.trace_dump.as_ref().map(|d| d.join("negative.trace")),
         )
         .await;
         drop(work);
@@ -445,7 +463,9 @@ fn pause_blocking(dir: &Path, nonce: &str) {
 #[cfg(not(unix))]
 fn pause_blocking(_dir: &Path, _nonce: &str) {}
 
-/// One attempt: install, run, count, parse (module documentation).
+/// One attempt: install, run, count, parse (module documentation). `trace_dump` (debug
+/// builds' [`Verifier::with_test_trace_dump`]) receives the raw trace.
+#[allow(clippy::too_many_arguments)]
 async fn attempt(
     client: &Path,
     config: &Path,
@@ -454,6 +474,7 @@ async fn attempt(
     fingerprint: &str,
     patterns: &trace::TracePatterns,
     ctx: &TraceContext<'_>,
+    trace_dump: Option<PathBuf>,
 ) -> (AttemptEvidence, Option<ClockMeasurement>) {
     if session.install(certificate).is_err() {
         return (
@@ -512,6 +533,9 @@ async fn attempt(
         }
     };
     let signatures = session.signatures(fingerprint).saturating_sub(before);
+    if let Some(path) = trace_dump {
+        let _ = std::fs::write(path, &trace_bytes);
+    }
     let parsed = trace::parse(patterns, &String::from_utf8_lossy(&trace_bytes), ctx);
     let clock = reading.and_then(|(remote, t2)| measurement(t1, t2, remote));
     (

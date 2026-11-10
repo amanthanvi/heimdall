@@ -103,6 +103,26 @@ mod fx {
         }
     }
 
+    /// `ssh -V`'s first line (the client's own text, for observations).
+    pub fn client_version_text(client: &Path) -> String {
+        Command::new(client)
+            .arg("-V")
+            .stdin(Stdio::null())
+            .output()
+            .map(|o| {
+                format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                )
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+            })
+            .unwrap_or_default()
+    }
+
     pub fn client_version(client: &Path) -> heimdall_enroll::trace::ClientVersion {
         let out = Command::new(client)
             .arg("-V")
@@ -161,30 +181,52 @@ mod fx {
             host_key.write_private(&key_file).unwrap();
             let log = dir.join("sshd.log");
             let config = dir.join("sshd_config");
+            // `PerSourcePenalties` exists only from OpenSSH 9.8 (the devbox runs 9.6p1):
+            // as the testkit's `LoopbackSshd` does, it is offered first and dropped only
+            // when `sshd -t` names it (wave-1 native run, item B1).
+            let mut penalties = true;
             for _ in 0..5 {
                 let port = heimdall_testkit::sshd::pick_loopback_port().unwrap();
-                let text = format!(
-                    "ListenAddress 127.0.0.1\nPort {port}\nAddressFamily inet\n\
-                     HostKey {}\nAuthorizedKeysFile {}\nPidFile none\nStrictModes no\n\
-                     UsePAM no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n\
-                     PubkeyAuthentication yes\nAuthenticationMethods publickey\n\
-                     PermitRootLogin no\nPermitUserRC no\nPermitUserEnvironment no\n\
-                     AllowAgentForwarding no\nAllowTcpForwarding no\nX11Forwarding no\n\
-                     UseDNS no\nMaxAuthTries 6\nLogLevel VERBOSE\nPerSourcePenalties no\n{extra}",
-                    key_file.display(),
-                    registry.display()
-                );
-                fs::write(&config, text).unwrap();
-                let check = Command::new(&program)
-                    .args(["-t", "-f"])
-                    .arg(&config)
-                    .env_clear()
-                    .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .output()
-                    .unwrap();
+                let render = |penalties: bool| {
+                    format!(
+                        "ListenAddress 127.0.0.1\nPort {port}\nAddressFamily inet\n\
+                         HostKey {}\nAuthorizedKeysFile {}\nPidFile none\nStrictModes no\n\
+                         UsePAM no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n\
+                         PubkeyAuthentication yes\nAuthenticationMethods publickey\n\
+                         PermitRootLogin no\nPermitUserRC no\nPermitUserEnvironment no\n\
+                         AllowAgentForwarding no\nAllowTcpForwarding no\nX11Forwarding no\n\
+                         UseDNS no\nMaxAuthTries 6\nLogLevel VERBOSE\n{}{extra}",
+                        key_file.display(),
+                        registry.display(),
+                        if penalties {
+                            "PerSourcePenalties no\n"
+                        } else {
+                            ""
+                        }
+                    )
+                };
+                let sshd_t = || {
+                    Command::new(&program)
+                        .args(["-t", "-f"])
+                        .arg(&config)
+                        .env_clear()
+                        .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::piped())
+                        .output()
+                        .unwrap()
+                };
+                fs::write(&config, render(penalties)).unwrap();
+                let mut check = sshd_t();
+                if !check.status.success()
+                    && penalties
+                    && String::from_utf8_lossy(&check.stderr).contains("PerSourcePenalties")
+                {
+                    penalties = false;
+                    fs::write(&config, render(penalties)).unwrap();
+                    check = sshd_t();
+                }
                 assert!(
                     check.status.success(),
                     "sshd -t: {}",
@@ -475,6 +517,20 @@ mod fx {
             endpoint: &str,
             interactive: bool,
         ) -> RemoteStep {
+            self.step_with_gssapi(approved, stage, not_after, endpoint, interactive, false)
+        }
+
+        /// [`step_with`](Self::step_with), with `GSSAPIKeyExchange=no` pinned when the
+        /// client's `ssh -G` lists the option (Q23; the second pass the runtime runs).
+        pub fn step_with_gssapi(
+            &self,
+            approved: &ApprovedTarget,
+            stage: StageInput<'_>,
+            not_after: Option<i64>,
+            endpoint: &str,
+            interactive: bool,
+            gssapi_key_exchange: bool,
+        ) -> RemoteStep {
             // The registry guard (m03-plan §0.2): the target registry is in scratch.
             heimdall_testkit::registry::RegistryGuard::new(self.scratch())
                 .unwrap()
@@ -531,7 +587,7 @@ mod fx {
                     client: &client,
                     timeout_ms: 60_000,
                     interactive,
-                    gssapi_key_exchange: false,
+                    gssapi_key_exchange,
                 },
             )
             .unwrap()
@@ -982,12 +1038,125 @@ mod fx {
                 .enable_all()
                 .build()
                 .unwrap();
-            rt.block_on(self.verifier.run_detailed(
+            let report = rt.block_on(self.verifier.run_detailed(
                 &self.plan,
                 &self.positive,
                 &self.negative,
                 &self.session,
-            ))
+            ));
+            if let Some(unrecorded) = report.unrecorded {
+                // Wave-1 native run, item C: no row for this client yet, so the
+                // verification rows cannot run (fail closed) until the row is recorded
+                // from `verify_positive_one_signature_negative_zero`'s observation lines,
+                // never from expectation.
+                panic!(
+                    "{}: this client has no recorded trace row, so the verification rows cannot run \
+                     until it is recorded from the `m03 observation: client_trace_row` lines \
+                     (inconclusive by design; not a pass)",
+                    unrecorded
+                );
+            }
+            report
+        }
+
+        /// Item C: run the same attempts once more under the recorded `10.5p1` label
+        /// (its patterns only parse; the raw trace is what counts), dump the raw traces
+        /// (`Verifier::with_test_trace_dump`, debug builds), and print each line a trace
+        /// row's fields come from, redacted, as `m03 observation:` lines. Nothing of this
+        /// run's report is used as evidence of a verification.
+        pub fn observe_unrecorded_trace(&self, version: heimdall_enroll::trace::ClientVersion) {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let dump = self.lab.scratch().subdir("trace-dump").unwrap();
+            let label = heimdall_enroll::trace::RECORDED[0].from;
+            let observer = heimdall_enroll::verify::Verifier::with_client(
+                heimdall_enroll::verify::VerifierClient {
+                    path: system_ssh(),
+                    version: label,
+                },
+                &self.runtime,
+            )
+            .with_test_trace_dump(&dump);
+            let r = rt.block_on(observer.run_detailed(
+                &self.plan,
+                &self.positive,
+                &self.negative,
+                &self.session,
+            ));
+            let family = version.family.as_str();
+            let root = self.lab.scratch().path().to_string_lossy().into_owned();
+            let user = me();
+            let redact = |l: &str| {
+                let t = l.replace(&root, "<scratch>");
+                if user.len() >= 2 {
+                    t.replace(&user, "<user>")
+                } else {
+                    t
+                }
+            };
+            const MARKERS: &[&str] = &[
+                "remote software version",
+                "is known and matches",
+                "Offering public key",
+                "Server accepts key",
+                "Authentications that can continue",
+                "Authenticated to",
+                "Permission denied",
+                "Host key verification failed",
+                "REMOTE HOST IDENTIFICATION HAS CHANGED",
+                "host key is known for",
+            ];
+            #[allow(clippy::print_stderr)] // the observed facts for the client's trace row
+            {
+                eprintln!(
+                    "m03 observation: client_trace_row family={family} version={version} client={:?} parsed_with={label} positive_events={:?} negative_events={:?} positive_exit={:?} negative_exit={:?} positive_signatures={} negative_signatures={}",
+                    client_version_text(&system_ssh()),
+                    r.positive.result.trace,
+                    r.negative.result.trace,
+                    r.positive.result.exit_status,
+                    r.negative.result.exit_status,
+                    r.positive.result.signatures,
+                    r.negative.result.signatures
+                );
+                for which in ["positive", "negative"] {
+                    let text = fs::read(dump.join(format!("{which}.trace")))
+                        .map(|b| String::from_utf8_lossy(&b).into_owned())
+                        .unwrap_or_default();
+                    for line in text.lines() {
+                        let line = line.trim_end_matches('\r');
+                        if MARKERS.iter().any(|m| line.contains(m)) {
+                            eprintln!(
+                                "m03 observation: client_trace_row family={family} version={version} attempt={which} line={:?}",
+                                redact(line)
+                            );
+                        }
+                    }
+                }
+            }
+            // The fixture sshd's own account of the attempts (refusal reasons), redacted.
+            #[allow(clippy::print_stderr)]
+            for line in self.lab.sshd.log_text().lines() {
+                if [
+                    "rror",
+                    "efus",
+                    "nvalid",
+                    "ertificate",
+                    "ccepted",
+                    "Failed",
+                    "uthentication",
+                ]
+                .iter()
+                .any(|m| line.contains(m))
+                {
+                    eprintln!(
+                        "m03 observation: client_trace_row family={family} version={version} sshd_log={:?}",
+                        redact(line)
+                    );
+                }
+            }
+            let _ = fs::remove_dir_all(&dump);
         }
 
         /// Nothing generated is left behind.
@@ -1549,9 +1718,34 @@ fn effective_config_has_every_trust_pin() {
          NoHostAuthenticationForLocalhost yes\n  ControlMaster auto\n  ControlPath /tmp/hm-%C\n  \
          ForkAfterAuthentication yes\n  CanonicalizeHostname yes\n",
     );
-    let step = lab.step(&approved, StageInput::Inspect, None);
+    let mut step = lab.step(&approved, StageInput::Inspect, None);
     let runner = SshStepRunner::new();
-    let g = runner.effective_config(&step).unwrap();
+    let mut g = runner.effective_config(&step).unwrap();
+    // Q23, the runtime's two passes (wave-1 native run: Ubuntu's 9.6p1 carries the
+    // GSSAPI key-exchange patch): a client whose `ssh -G` lists `gssapikeyexchange` is
+    // first reported `GssapiPinRequired`, then gets `GSSAPIKeyExchange=no` and is checked
+    // again.
+    if heimdall_registry::step::client_lists_gssapi_kex(&g) {
+        assert!(
+            matches!(
+                heimdall_registry::step::check_effective(&g, &step.pins),
+                Err(heimdall_registry::step::HostTrustUnpinnable {
+                    kind: heimdall_registry::step::UnpinnableKind::GssapiPinRequired,
+                    ..
+                })
+            ),
+            "{g}"
+        );
+        step = lab.step_with_gssapi(
+            &approved,
+            StageInput::Inspect,
+            None,
+            &lab.agent_sock(),
+            false,
+            true,
+        );
+        g = runner.effective_config(&step).unwrap();
+    }
     assert_eq!(
         heimdall_registry::step::check_effective(&g, &step.pins),
         Ok(()),
@@ -2593,6 +2787,12 @@ fn transition(
 #[test]
 fn verify_positive_one_signature_negative_zero() {
     let v = fx::VerifyLab::new();
+    // Wave-1 native run, item C: on a client with no recorded trace row, print the facts
+    // the row needs from this (the ordinary positive and negative) lab, then fail below.
+    let version = fx::client_version(&fx::system_ssh());
+    if heimdall_enroll::trace::patterns_for(version.family, version).is_err() {
+        v.observe_unrecorded_trace(version);
+    }
     let r = v.run();
     assert_eq!(r.refused, None);
     assert_eq!(r.unrecorded, None);

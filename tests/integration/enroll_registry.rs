@@ -3225,20 +3225,33 @@ mod rows {
             "shell_table_matches_round4_observed_rows: {name} [{}]: live child {live}, empty group {empty}, invalid syntax {bad} (with `--`: {bad_dashdash})",
             version.trim()
         );
-        let (want_version, want) = match name {
+        // The round-4 rows (ADR-0008 D5 §6.3 shell table), compared by shell family: the
+        // behaviour is the claim, not the package version. A version with no row of its
+        // own is recorded as an observed row (native devbox: dash 0.5.12-6ubuntu5); a
+        // behaviour that differs from its family's row is a real finding and fails.
+        let (row_version, want) = match name {
             "dash" => ("0.5.12-12", ["0/0/0", "0/1/0", "2/2/0"]),
             "bash" => ("5.2.37", ["0/0/0", "0/1/0", "1/1/0"]),
             "busybox" => ("v1.37.0", ["1/1/0", "1/2/0", "1/1/0"]),
             _ => ("3.2.57", ["0/0/0", "0/1/0", "1/1/0"]),
         };
-        assert!(
-            version.contains(want_version),
-            "{name}: version {version:?} is not the round-4 row's {want_version}"
-        );
+        let observed = [live.as_str(), empty.as_str(), bad.as_str()];
+        let recorded = version.contains(row_version);
+        if !recorded {
+            #[allow(clippy::print_stderr)] // an observed row for the shell table
+            {
+                eprintln!(
+                    "m03 observation: shell_table_row family={name} version={:?} control_probe_listing live={live} empty={empty} invalid={bad} invalid_dashdash={bad_dashdash} recorded_row={row_version} matches_recorded_row={}",
+                    version.trim(),
+                    observed == want
+                );
+            }
+        }
         assert_eq!(
-            [live.as_str(), empty.as_str(), bad.as_str()],
+            observed,
             want,
-            "{name}"
+            "{name} [{}]: the behaviour differs from the round-4 {row_version} row (live, empty, invalid): a real finding for the shell table",
+            version.trim()
         );
         // The injected disagreements (three branches) are unproven.
         let r = t.reg();

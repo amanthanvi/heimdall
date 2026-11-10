@@ -318,6 +318,12 @@ impl SecretStore for MacosLoginKeychain {
             let (Some(service), Some(account)) = (attrs.get("svce"), attrs.get("acct")) else {
                 continue;
             };
+            // Only this installation's items (§17.17 item 3; wave-1 review W1-R02): the
+            // keychain is shared by every installation of the OS user, and an item of
+            // another environment is never listed, adopted or deleted here.
+            if *account != self.account {
+                continue;
+            }
             let Some(fp) = service
                 .strip_prefix(ITEM_LABEL_PREFIX)
                 .and_then(|f| CaFingerprint::parse(f).ok())

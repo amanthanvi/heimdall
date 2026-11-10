@@ -696,15 +696,16 @@ check "X28 lib: the leak scan counts a --word value only as a whole word (as it 
     bash -c '[ "$1" = 0 ] && [ "$2" = 1 ] && [ "$3" = 2 ]' _ "$wleak_clean" "$wleak_hit" "$wleak_any"
 mkdir -p "$X0/repo-src/crates/x/src" "$X0/repo-src/crates/x/target" "$X0/repo-src/schemas" "$X0/repo-src/docs/decisions" \
     "$X0/repo-src/docs/other" "$X0/repo-src/tests/e2e" "$X0/repo-src/tests/evidence/a" "$X0/repo-src/tests/contracts/golden" \
-    "$X0/repo-src/tests/fixtures/f" "$X0/repo-src/tests/native"
+    "$X0/repo-src/tests/fixtures/f" "$X0/repo-src/tests/native" "$X0/repo-src/tests/model/golden" "$X0/repo-src/docs/architecture"
 for f in crates/x/src/lib.rs crates/x/target/big schemas/s.json docs/decisions/0007.md docs/other/no.md tests/e2e/t.rs \
-    tests/evidence/a/p.rs tests/contracts/golden/g.json tests/fixtures/f/c tests/native/n.sh; do
+    tests/evidence/a/p.rs tests/contracts/golden/g.json tests/fixtures/f/c tests/native/n.sh \
+    tests/model/golden/m.json docs/architecture/m03-plan.md; do
     echo "$f" >"$X0/repo-src/$f"
 done
 ln -s "$X0/repo-src/schemas/s.json" "$X0/repo-src/schemas/link.json"
 repo_n=$(m02_stage_repo "$X0/repo-src" "$X0/repo-stage")
 check "X29 lib: the repository copy for HM_REPO_ROOT holds the listed directories and every tests/*.rs, never build output, evidence, other files or symbolic links" \
-    bash -c 'd=$1/repo; [ "$2" = 6 ] && for f in crates/x/src/lib.rs schemas/s.json docs/decisions/0007.md tests/e2e/t.rs tests/contracts/golden/g.json tests/fixtures/f/c; do [ -f "$d/$f" ] || exit 1; done &&
+    bash -c 'd=$1/repo; [ "$2" = 8 ] && for f in crates/x/src/lib.rs schemas/s.json docs/decisions/0007.md tests/e2e/t.rs tests/contracts/golden/g.json tests/fixtures/f/c tests/model/golden/m.json docs/architecture/m03-plan.md; do [ -f "$d/$f" ] || exit 1; done &&
         for f in crates/x/target/big docs/other/no.md tests/evidence tests/native/n.sh schemas/link.json; do [ ! -e "$d/$f" ] || exit 1; done' _ "$X0/repo-stage" "$repo_n"
 
 mkdir -p "$X0/scan"

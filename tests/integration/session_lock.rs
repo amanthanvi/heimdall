@@ -410,7 +410,9 @@ fn wait_for_real_lock(row: &str, expected: LockSignal) {
         "{row}: start unlocked (the harness locks after the source starts)"
     );
     let started = Instant::now();
-    while src.lock_epoch().epoch == initial.epoch.epoch && started.elapsed() < wait {
+    // W1-R03: wait for a real `locked` reading. An epoch advanced only by `unknown` (a
+    // lost or unreadable signal) does not end the wait and never satisfies the row.
+    while !src.snapshot().locked_since(&initial) && started.elapsed() < wait {
         std::thread::sleep(Duration::from_millis(10));
     }
     let snap = src.snapshot();
@@ -419,7 +421,7 @@ fn wait_for_real_lock(row: &str, expected: LockSignal) {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
-        let since_change = snap.last_change.map_or(0, |t| t.elapsed().as_millis());
+        let since_change = snap.last_locked.map_or(0, |t| t.elapsed().as_millis());
         now_ms.saturating_sub(since_change)
     };
     let latency_ms = env_u64("HM_LOCK_TRIGGERED_AT_MS")
@@ -432,6 +434,8 @@ fn wait_for_real_lock(row: &str, expected: LockSignal) {
         "observed_state": format!("{:?}", snap.state),
         "epoch": snap.epoch.epoch,
         "observed": snap.epoch.observed,
+        "locked_entries": snap.locked_entries,
+        "unknown_entries": snap.unknown_entries,
         "events": snap.events,
         "events_off_thread": snap.events_off_thread,
         "waited_ms": started.elapsed().as_millis(),
@@ -445,10 +449,16 @@ fn wait_for_real_lock(row: &str, expected: LockSignal) {
     {
         eprintln!("m03 observation: {record}");
     }
-    assert_eq!(
-        snap.epoch.epoch,
-        initial.epoch.epoch + 1,
-        "{row}: a real lock was observed within {wait:?}"
+    // W1-R03: the evidence is a `locked` reading after the source started, latched if
+    // the screen was unlocked again by now; `unknown` never counts.
+    assert!(
+        snap.locked_since(&initial),
+        "{row}: no real `locked` reading within {wait:?} (unknown entries: {})",
+        snap.unknown_entries
+    );
+    assert!(
+        snap.epoch.epoch > initial.epoch.epoch,
+        "{row}: the lock latched the epoch"
     );
     assert!(snap.epoch.observed, "{row}: latched until acknowledged");
     assert_eq!(snap.events_off_thread, 0);

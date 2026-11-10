@@ -1088,6 +1088,12 @@ fn certificate_accepted_by_fixture_sshd() {
 }
 
 #[cfg(unix)]
+#[test]
+fn certificate_identity_file_selection_observed_per_client() {
+    capture::certificate_identity_file_selection_observed_per_client();
+}
+
+#[cfg(unix)]
 mod capture {
     //! The capture agent, the host-key sshd and the real-client test bodies.
 
@@ -1102,7 +1108,7 @@ mod capture {
     use std::time::{Duration, Instant};
 
     use heimdall_credential::purpose::UserAuthMethod;
-    use heimdall_testkit::agent::frame;
+    use heimdall_testkit::agent::{FixtureKey, frame};
     use heimdall_testkit::assert_no_canary;
     use heimdall_testkit::home::{
         ClientKind, Scratch, ScratchHome, find_program, ssh_config_quote,
@@ -1307,9 +1313,58 @@ mod capture {
     /// scratch identity), and the alias's own lines.
     fn alias_block(name: &str, port: u16, identity: &Path, extra: &str) -> String {
         format!(
-            "Host {name}\n  HostName 127.0.0.1\n  Port {port}\n  IdentityFile {}\n{extra}",
+            "Host {name}\n  HostName 127.0.0.1\n  Port {port}\n  IdentityFile {}\n  LogLevel VERBOSE\n{extra}",
             ssh_config_quote(&identity.to_string_lossy())
         )
+    }
+
+    /// Why a login failed, for its assertion message (wave-1 native run, item B2): the
+    /// last lines of ssh's stderr and the fixture sshd's refusal lines, with the scratch
+    /// root and the account name redacted.
+    fn failure_reason(home: &ScratchHome, out: &Output, sshd: Option<&LoopbackSshd>) -> String {
+        let root = home.root.to_string_lossy().into_owned();
+        let me = account();
+        let redact = |text: &str| {
+            let t = text.replace(&root, "<scratch>");
+            if me.len() >= 2 {
+                t.replace(&me, "<user>")
+            } else {
+                t
+            }
+        };
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let tail: Vec<&str> = stderr.lines().rev().take(20).collect();
+        let mut text = format!(
+            "ssh stderr (last {} lines):\n{}",
+            tail.len(),
+            redact(&tail.into_iter().rev().collect::<Vec<_>>().join("\n"))
+        );
+        if let Some(sshd) = sshd {
+            let mut lines: Vec<String> = Vec::new();
+            for needle in [
+                "rror",
+                "efus",
+                "nvalid",
+                "enied",
+                "ertificate",
+                "uthentication",
+                "fatal",
+                "Failed",
+                "losed",
+            ] {
+                for l in sshd.log_lines_containing(needle) {
+                    if !lines.contains(&l) {
+                        lines.push(l);
+                    }
+                }
+            }
+            let lines: Vec<String> = lines.into_iter().rev().take(20).rev().collect();
+            text.push_str(&format!(
+                "\nsshd log (refusal lines):\n{}",
+                redact(&lines.join("\n"))
+            ));
+        }
+        text
     }
 
     /// `ssh <alias> true` with only the isolation arguments, its agent at `agent`.
@@ -1338,7 +1393,29 @@ mod capture {
         current_account().expect("the current account name")
     }
 
-    fn write_identity(home: &ScratchHome, kenv: &Kenv) -> PathBuf {
+    /// The alias's `IdentityFile` (the default-identity guard requires one): an
+    /// unrelated decoy public key, never K_env's own. With K_env's `.pub` as the
+    /// `IdentityFile` and only its certificate in the agent, OpenSSH 9.6p1 pairs the
+    /// agent's certificate with that file identity and signs with the file's (absent)
+    /// private key, so the certificate never authenticates (observed on 9.6p1, wave-1
+    /// native run item B2; `certificate_identity_file_selection_observed_per_client`
+    /// records each client's behaviour). 10.5p1 signs through the agent either way.
+    fn write_identity(home: &ScratchHome, _kenv: &Kenv) -> PathBuf {
+        let identity = home.root.join("decoy.pub");
+        if !identity.exists() {
+            let decoy = FixtureKey::generate();
+            fs::write(
+                &identity,
+                format!("{}\n", decoy.public().to_openssh().unwrap().trim_end()),
+            )
+            .unwrap();
+        }
+        identity
+    }
+
+    /// K_env's own public key as the `IdentityFile` (the managed alias's shape), for the
+    /// observation of each client's identity selection.
+    fn write_kenv_identity(home: &ScratchHome, kenv: &Kenv) -> PathBuf {
         let identity = home.root.join("kenv.pub");
         fs::write(
             &identity,
@@ -1416,8 +1493,9 @@ mod capture {
             let out = login(&home, alias, &agent);
             assert!(
                 out.status.success(),
-                "{alias}: ssh exit {:?}",
-                out.status.code()
+                "{alias}: ssh exit {:?}\n{}",
+                out.status.code(),
+                failure_reason(&home, &out, Some(&cert_sshd))
             );
             let signed = agent.signed();
             assert_eq!(signed.len(), 1, "{alias}: one signature");
@@ -1464,8 +1542,9 @@ mod capture {
             let out = login(&home, alias, &agent);
             assert!(
                 out.status.success(),
-                "{alias}: ssh exit {:?}",
-                out.status.code()
+                "{alias}: ssh exit {:?}\n{}",
+                out.status.code(),
+                failure_reason(&home, &out, Some(&plain_sshd))
             );
             let signed = agent.signed();
             assert_eq!(signed.len(), 1, "{alias}: one signature");
@@ -1702,8 +1781,9 @@ mod capture {
             let out = login(&home, alias, &agent);
             assert!(
                 out.status.success(),
-                "{alias}: ssh exit {:?}",
-                out.status.code()
+                "{alias}: ssh exit {:?}\n{}",
+                out.status.code(),
+                failure_reason(&home, &out, None)
             );
             let binds = agent.binds();
             assert_eq!(binds.len(), 1, "{alias}: the client sent one session-bind");
@@ -1776,8 +1856,9 @@ mod capture {
             let out = login(&home, "u1-cert", &agent);
             assert!(
                 out.status.success(),
-                "{form}: ssh exit {:?}",
-                out.status.code()
+                "{form}: ssh exit {:?}\n{}",
+                out.status.code(),
+                failure_reason(&home, &out, Some(&sshd))
             );
             let accepted = sshd.accepted_certificates();
             assert_eq!(accepted.len(), 1, "{form}");
@@ -1801,6 +1882,92 @@ mod capture {
                 "{form}: a foreign principal is refused"
             );
             assert_eq!(sshd.accepted_certificates().len(), 1, "{form}");
+        }
+    }
+
+    /// ⟨wave-1 native run, item B2⟩ An observation per client, for U2 and U8: the managed
+    /// alias's shape (`IdentityFile` K_env's `.pub`) with an agent listing (a) only the
+    /// certificate and (b) the certificate and the plain key. Records the login's exit and
+    /// which key blob the client asked the agent to sign (`cert`, `plain`, `none`). The
+    /// control (a decoy `IdentityFile`, only the certificate) must log in on every
+    /// client. Nothing else is asserted: the rows are observations.
+    pub(super) fn certificate_identity_file_selection_observed_per_client() {
+        let me = account();
+        let ca = TestCa::new();
+        let home = ScratchHome::new();
+        let kenv = Kenv::new();
+        let p = pair("u1-dest", &me);
+        let (_, cert) = issued(&kenv, &ca, &p);
+        let cert_blob = cert.to_bytes().unwrap();
+        let sshd = LoopbackSshd::start(
+            home.scratch(),
+            SshdConfig {
+                registry_seed: Some(cert_authority_line(&p, &ca)),
+                ..SshdConfig::default()
+            },
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        home.trust_host_key(&sshd.host_key_line).unwrap();
+        let kenv_file = write_kenv_identity(&home, &kenv);
+        let decoy_file = write_identity(&home, &kenv);
+        home.write_user_config(
+            &[
+                alias_block("u1-sel-kenv", sshd.port, &kenv_file, ""),
+                alias_block("u1-sel-decoy", sshd.port, &decoy_file, ""),
+            ]
+            .concat(),
+        )
+        .unwrap();
+        let client = Command::new(find_program("ssh").unwrap())
+            .arg("-V")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stderr).trim().to_owned())
+            .unwrap_or_default();
+        let which = |agent: &CaptureAgent| -> &'static str {
+            match agent.signed().first() {
+                None => "none",
+                Some((k, _, _)) if *k == cert_blob => "cert",
+                Some((k, _, _)) if *k == kenv.info.blob => "plain",
+                Some(_) => "other",
+            }
+        };
+        let cases: [(&str, &str, Vec<Vec<u8>>); 3] = [
+            (
+                "a_kenv_file_cert_only",
+                "u1-sel-kenv",
+                vec![cert_blob.clone()],
+            ),
+            (
+                "b_kenv_file_cert_and_plain",
+                "u1-sel-kenv",
+                vec![cert_blob.clone(), kenv.info.blob.clone()],
+            ),
+            (
+                "control_decoy_file_cert_only",
+                "u1-sel-decoy",
+                vec![cert_blob.clone()],
+            ),
+        ];
+        for (case, alias, identities) in cases {
+            let agent = CaptureAgent::start(home.scratch(), case, &kenv, identities);
+            let out = login(&home, alias, &agent);
+            #[allow(clippy::print_stderr)] // an observation for U2 and U8
+            {
+                eprintln!(
+                    "m03 observation: identity_file_selection client={client:?} case={case} exit={:?} signed={}",
+                    out.status.code(),
+                    which(&agent)
+                );
+            }
+            if case.starts_with("control") {
+                assert!(
+                    out.status.success(),
+                    "{case}: ssh exit {:?}\n{}",
+                    out.status.code(),
+                    failure_reason(&home, &out, Some(&sshd))
+                );
+                assert_eq!(which(&agent), "cert");
+            }
         }
     }
 }

@@ -728,6 +728,11 @@ fn show_passphrase(tty: &mut dyn Tty, passphrase: &Passphrase) -> Result<(), Cer
 /// Write `key` to `store`, read it back by identity and compare. An item already
 /// holding the same key (an orphan being adopted by a restore) is accepted when
 /// `adopt` is set.
+///
+/// ⟨§17.17 item 3; wave-1 review W1-R01, W1-R02⟩ The adopted item's identity comes from
+/// the store's own, installation-scoped `list` (the same scope its `get` reads back),
+/// and exactly one item must hold the CA there: another installation's item is never
+/// adopted, and more than one is refused rather than guessed.
 fn store_and_check(
     store: &dyn SecretStore,
     fingerprint: &CaFingerprint,
@@ -736,11 +741,18 @@ fn store_and_check(
 ) -> Result<StoreItemRef, CeremonyError> {
     let item = match store.put(fingerprint, key) {
         Ok(item) => item,
-        Err(StoreError::AlreadyExists) if adopt => store
-            .list()?
-            .into_iter()
-            .find(|i| i.fingerprint == *fingerprint)
-            .ok_or(CeremonyError::Store(StoreError::NotFound))?,
+        Err(StoreError::AlreadyExists) if adopt => {
+            let mut mine: Vec<StoreItemRef> = store
+                .list()?
+                .into_iter()
+                .filter(|i| i.fingerprint == *fingerprint && i.kind == store.kind())
+                .collect();
+            match mine.len() {
+                1 => mine.swap_remove(0),
+                0 => return Err(CeremonyError::Store(StoreError::NotFound)),
+                _ => return Err(CeremonyError::Store(StoreError::Corrupt)),
+            }
+        }
         Err(e) => return Err(e.into()),
     };
     let back = store.get(fingerprint)?;
