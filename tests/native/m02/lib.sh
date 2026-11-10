@@ -199,7 +199,13 @@ for form, label, word in sorted(forms, key=lambda p: len(p[0]), reverse=True):
 text = re.sub(r"S-1-5-21(-\d+){2,4}", "S-1-5-21-<redacted>", text)
 def addr(m):
     a = m.group(0)
-    return a if a.startswith("127.") or a == "0.0.0.0" else "<addr>"
+    if a.startswith("127.") or a == "0.0.0.0":
+        return a
+    # A four-part version number is not an address: `wsl --version` prints
+    # "WSL version: 2.6.1.0" (ADR-0007 §12.51 item 9).
+    if re.search(r"(?i)\bversion:?\s*$", m.string[max(0, m.start() - 16):m.start()]):
+        return a
+    return "<addr>"
 text = re.sub(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])", addr, text)
 open(dst, "w", encoding="utf-8").write(text)
 PY
