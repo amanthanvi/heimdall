@@ -10,16 +10,22 @@
 //! `acknowledge(epoch)` is called only after it, so a lock whose revocations did not
 //! commit stays latched and the next pass revokes again (idempotent: a grant already
 //! revoking is not in the set).
+//!
+//! ⟨M03⟩ U9 (ADR-0008 §17.15 item 12, R3): the effective behaviour also merges the M01
+//! `[session] lock_behavior` **floor** ([`Operations::set_session_lock_floor`]): `revoke`
+//! from either side wins. And each pass records one `session_lock` event in its commit
+//! (`{state, revoked}`; the record m03-plan §4.4 step 4 verifies), so a coalesced storm
+//! of locks yields one event per pass, never one per lock.
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
+use heimdall_contract::event::EventType;
 use heimdall_contract::ids::{EnvironmentId, GrantId, ProfileId};
-use heimdall_contract::managed::LockBehavior;
+use heimdall_contract::managed::{LockBehavior, SessionLockEventPayload, SessionLockState};
 use heimdall_contract::{GrantState, Timestamp};
 use heimdall_domain::grant::GrantSnapshot;
 use heimdall_domain::managed::LockEpoch;
-use heimdall_domain::policy::strictest_lock_behavior;
 use heimdall_domain::revocation::{RevocationCause, Tombstone};
 use heimdall_store::Txn;
 
@@ -40,29 +46,35 @@ pub struct LockRevocation {
     pub report: Option<NarrowingReport>,
 }
 
-/// The effective lock behaviour of `g`: the strictest of its origin's recorded value
-/// and every policy of `profile` applicable here (ADR-0008 D9 item 2).
+/// The effective lock behaviour of `g`: the strictest of its origin's recorded value,
+/// every policy of `profile` applicable here (ADR-0008 D9 item 2) and the R3 `floor`
+/// (`crate::lock::effective_behavior_with_floor`).
 pub(super) fn effective_lock_behavior(
     tx: &mut Txn<'_>,
     env: &EnvironmentId,
     g: &GrantSnapshot,
     profile: Option<&ProfileId>,
+    floor: LockBehavior,
 ) -> heimdall_store::Result<LockBehavior> {
-    let mut b = tx
-        .grant_origin(&g.id)?
-        .and_then(|o| o.lock_behavior)
-        .unwrap_or_default();
-    if let Some(p) = profile {
-        for q in tx.policies_for(p, env)? {
-            b = strictest_lock_behavior(b, q.lock_behavior);
-        }
-    }
-    Ok(b)
+    let origin = tx.grant_origin(&g.id)?;
+    let policies = match profile {
+        Some(p) => tx.policies_for(p, env)?,
+        None => Vec::new(),
+    };
+    Ok(crate::lock::effective_behavior_with_floor(
+        origin.as_ref(),
+        &policies,
+        floor,
+    ))
 }
 
 /// The lock set: every live grant (not terminal, not already revoking) whose
 /// effective behaviour is `revoke_on_lock`, with its descendants.
-fn lock_set(tx: &mut Txn<'_>, env: &EnvironmentId) -> heimdall_store::Result<Vec<GrantId>> {
+fn lock_set(
+    tx: &mut Txn<'_>,
+    env: &EnvironmentId,
+    floor: LockBehavior,
+) -> heimdall_store::Result<Vec<GrantId>> {
     let mut out: Vec<GrantId> = Vec::new();
     let mut seen: BTreeSet<GrantId> = BTreeSet::new();
     for g in tx.grants_due(Timestamp::MAX)? {
@@ -70,7 +82,8 @@ fn lock_set(tx: &mut Txn<'_>, env: &EnvironmentId) -> heimdall_store::Result<Vec
             continue;
         }
         let ctx = grant_context(tx, &g)?;
-        if effective_lock_behavior(tx, env, &g, ctx.profile.as_ref())? != LockBehavior::RevokeOnLock
+        if effective_lock_behavior(tx, env, &g, ctx.profile.as_ref(), floor)?
+            != LockBehavior::RevokeOnLock
         {
             continue;
         }
@@ -86,6 +99,30 @@ fn lock_set(tx: &mut Txn<'_>, env: &EnvironmentId) -> heimdall_store::Result<Vec
 }
 
 impl Operations {
+    /// ⟨M03⟩ U9 (ADR-0008 §17.15 item 12, R3): set the M01 `[session] lock_behavior`
+    /// floor (`heimdall_runtime::session_lock::lock_floor`). `revoke_on_lock` makes every
+    /// grant's effective behaviour `revoke_on_lock` while it is set (the lock pass, the
+    /// per-signature check); `continue` (the default) adds nothing.
+    pub fn set_session_lock_floor(&self, floor: LockBehavior) {
+        *self
+            .inner
+            .narrowing
+            .lock_floor
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = floor;
+    }
+
+    /// ⟨M03⟩ U9: the R3 floor in force ([`Self::set_session_lock_floor`]).
+    #[must_use]
+    pub fn session_lock_floor(&self) -> LockBehavior {
+        *self
+            .inner
+            .narrowing
+            .lock_floor
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// ⟨M03⟩ U0b row 25: one lock pass for `epoch` (from `source.lock_epoch()`). With
     /// `epoch.observed`, every `revoke_on_lock` grant is revoked through the narrowing
     /// protocol (cause `session_locked`), and only after that commit is
@@ -109,8 +146,16 @@ impl Operations {
         let requested_at = self.inner.config.clock.wall();
         let env = self.environment().clone();
         let retention = self.retention();
+        let floor = self.session_lock_floor();
+        // ⟨U9⟩ The observed state the event records: `unknown` when the source reads it
+        // (treated as a lock), otherwise the latched lock.
+        let observed_state = if source.state() == SessionLockState::Unknown {
+            SessionLockState::Unknown
+        } else {
+            SessionLockState::Locked
+        };
         let e2 = env.clone();
-        let reader: SetReader = Arc::new(move |tx: &mut Txn<'_>| lock_set(tx, &e2));
+        let reader: SetReader = Arc::new(move |tx: &mut Txn<'_>| lock_set(tx, &e2, floor));
         let n = epoch.epoch;
         let narrowed = self
             .narrow(
@@ -118,7 +163,7 @@ impl Operations {
                 requested_at,
                 reader,
                 move |tx, emit, ctx| {
-                    let ids = lock_set(tx, &env)?;
+                    let ids = lock_set(tx, &env, floor)?;
                     let set: BTreeSet<GrantId> = ids.iter().cloned().collect();
                     let mut roots: Vec<GrantId> = Vec::new();
                     for id in &ids {
@@ -158,6 +203,21 @@ impl Operations {
                     {
                         tx.set_acknowledged_lock_epoch(n)?;
                     }
+                    // ⟨U9⟩ One `session_lock` event per pass, in its commit.
+                    let payload = SessionLockEventPayload {
+                        state: observed_state,
+                        revoked: revoked
+                            .iter()
+                            .flat_map(|(_, all)| all.iter().cloned())
+                            .collect(),
+                    };
+                    emit.event(
+                        tx,
+                        EventType::SessionLock,
+                        None,
+                        None,
+                        serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
+                    )?;
                     Ok(revoked)
                 },
             )

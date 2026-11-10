@@ -10,6 +10,15 @@
 //! query cannot run, the lookup is not complete and the doctor claims no
 //! `known_host_missing`. `@cert-authority` lines are not host keys and are skipped;
 //! `@revoked` keys are reported with `revoked`.
+//!
+//! ⟨M03⟩ **Raw public keys** (m03-plan U5, §0.4 M10; ADR-0008 §17.1 item 12):
+//! [`lookup_raw_in`] is an additive variant of [`lookup_in`] that also returns each
+//! key's base64 blob ([`RawHostKeyObservation`]), for `localenv::target`'s
+//! `TargetEvaluator`. It reads the same files the same way and never writes; it is
+//! stricter about what counts as a host key: a line whose blob does not decode, whose
+//! blob names another key type than its type field, or whose type is a certificate
+//! type is not a key, and marks the lookup incomplete (it cannot be checked). The M02
+//! functions above keep their behaviour.
 
 use std::path::{Path, PathBuf};
 
@@ -317,6 +326,204 @@ pub fn base64_encode_unpadded(bytes: &[u8]) -> String {
     out
 }
 
+// --- ⟨M03⟩ raw public keys (additive; m03-plan U5, M10) --------------------------------
+
+/// ⟨M03⟩ One host key with its raw public key (m03-plan U5; M10): what
+/// [`HostKeyObservation`] reports plus the key blob, for an approved target.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawHostKeyObservation {
+    /// Key type (`ssh-ed25519` …), as the line writes it and the blob names it.
+    pub key_type: String,
+    /// The key blob, standard base64 **with** padding (OpenSSH's own form), re-encoded
+    /// from the decoded bytes so that two spellings of one key compare equal.
+    pub key_b64: String,
+    /// SHA-256 fingerprint (`SHA256:…`) of the blob.
+    pub fingerprint: String,
+    /// The known-hosts file and line (display form).
+    pub origin_display: String,
+    /// Whether the entry is marked `@revoked`.
+    pub revoked: bool,
+}
+
+impl RawHostKeyObservation {
+    /// The M02 observation of this key (no blob).
+    #[must_use]
+    pub fn observation(&self) -> HostKeyObservation {
+        HostKeyObservation {
+            key_type: self.key_type.clone(),
+            fingerprint: self.fingerprint.clone(),
+            origin_display: self.origin_display.clone(),
+            revoked: self.revoked,
+        }
+    }
+}
+
+/// ⟨M03⟩ A raw-key lookup with its completeness ([`KnownHostsLookup`]'s rule, plus:
+/// a matching line that is not a usable host key leaves it incomplete).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RawKnownHostsLookup {
+    /// The keys found, in file and line order.
+    pub keys: Vec<RawHostKeyObservation>,
+    /// Whether every entry of every readable file could be matched and decoded.
+    pub complete: bool,
+}
+
+/// ⟨M03⟩ [`lookup_in`] with each key's raw blob (module documentation). Passive: it
+/// reads `files` and, for a file with hashed entries and [`LocalQueries::Enabled`],
+/// runs `keygen -F <name> -f <file>` as [`lookup_in`] does. Writes nothing.
+#[must_use]
+pub fn lookup_raw_in(
+    files: &[PathBuf],
+    home: &Path,
+    host: &str,
+    port: u16,
+    queries: LocalQueries,
+    keygen: Option<&Path>,
+) -> RawKnownHostsLookup {
+    let name = lookup_name(&host.to_ascii_lowercase(), port);
+    let mut out = RawKnownHostsLookup {
+        keys: Vec::new(),
+        complete: true,
+    };
+    let push =
+        |out: &mut RawKnownHostsLookup, l: &str, display: &str, line: u32| match raw_entry_key(
+            l, display, line,
+        ) {
+            RawEntry::Key(k) => out.keys.push(k),
+            RawEntry::NotAKey => {}
+            RawEntry::Unusable => out.complete = false,
+        };
+    for file in files {
+        let bytes = match read_bounded(file, KNOWN_HOSTS_FILE_BYTES) {
+            Ok(b) => b.bytes,
+            Err(heimdall_sshconf::include::SourceError::NotFound) => continue,
+            Err(_) => {
+                out.complete = false;
+                continue;
+            }
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        let display = crate::paths::display_path(home, file);
+        let hashed = text.lines().any(|l| {
+            let (_, rest) = split_marker(l.trim_start());
+            rest.starts_with("|1|")
+        });
+        if hashed {
+            match (queries, keygen) {
+                (LocalQueries::Enabled, Some(keygen)) => match keygen_lookup(keygen, file, &name) {
+                    Some(found) => {
+                        for (line, entry) in found {
+                            push(&mut out, &entry, &display, line);
+                        }
+                        continue;
+                    }
+                    None => out.complete = false,
+                },
+                _ => out.complete = false,
+            }
+        }
+        for (i, raw) in text.lines().enumerate() {
+            let line = u32::try_from(i + 1).unwrap_or(u32::MAX);
+            let l = raw.trim_start();
+            let (_, rest) = split_marker(l);
+            if rest.starts_with("|1|") {
+                continue;
+            }
+            if let Some(hosts) = rest.split_whitespace().next()
+                && hosts_match(hosts, &name)
+            {
+                push(&mut out, l, &display, line);
+            }
+        }
+    }
+    out
+}
+
+/// ⟨M03⟩ [`lookup_raw_in`] over the default files of `paths`.
+#[must_use]
+pub fn lookup_raw_detailed(
+    paths: &SshPaths,
+    host: &str,
+    port: u16,
+    queries: LocalQueries,
+    keygen: Option<&Path>,
+) -> RawKnownHostsLookup {
+    lookup_raw_in(
+        &default_files(paths),
+        &paths.account_home,
+        host,
+        port,
+        queries,
+        keygen,
+    )
+}
+
+enum RawEntry {
+    Key(RawHostKeyObservation),
+    /// A comment, a blank line or a `@cert-authority` line: not a host key.
+    NotAKey,
+    /// A matching line that cannot be read as a host key (malformed, mismatched, a
+    /// certificate type, an unknown marker): the lookup cannot be complete.
+    Unusable,
+}
+
+/// The raw key of one matching known-hosts line.
+fn raw_entry_key(l: &str, display: &str, line: u32) -> RawEntry {
+    let l = l.trim_start();
+    if l.is_empty() || l.starts_with('#') {
+        return RawEntry::NotAKey;
+    }
+    let (marker, rest) = split_marker(l);
+    let revoked = match marker {
+        None => false,
+        Some(m) if m.eq_ignore_ascii_case("revoked") => true,
+        Some(m) if m.eq_ignore_ascii_case("cert-authority") => return RawEntry::NotAKey,
+        Some(_) => return RawEntry::Unusable,
+    };
+    let mut fields = rest.split_whitespace();
+    let (Some(_hosts), Some(key_type), Some(b64)) = (fields.next(), fields.next(), fields.next())
+    else {
+        return RawEntry::Unusable;
+    };
+    if key_type.ends_with("-cert-v01@openssh.com") {
+        return RawEntry::Unusable;
+    }
+    let Some(blob) = base64_decode(b64) else {
+        return RawEntry::Unusable;
+    };
+    if blob_key_type(&blob) != Some(key_type) {
+        return RawEntry::Unusable;
+    }
+    RawEntry::Key(RawHostKeyObservation {
+        key_type: key_type.to_owned(),
+        key_b64: base64_encode_padded(&blob),
+        fingerprint: fingerprint(&blob),
+        origin_display: format!("{display}:{line}"),
+        revoked,
+    })
+}
+
+/// The key type a public key blob names (its first SSH `string`), when it is ASCII.
+fn blob_key_type(blob: &[u8]) -> Option<&str> {
+    let len = u32::from_be_bytes(blob.get(..4)?.try_into().ok()?);
+    let end = 4usize.checked_add(usize::try_from(len).ok()?)?;
+    let name = blob.get(4..end)?;
+    if end >= blob.len() || name.is_empty() || !name.iter().all(u8::is_ascii_graphic) {
+        return None;
+    }
+    std::str::from_utf8(name).ok()
+}
+
+/// Standard base64 with padding (the form OpenSSH writes).
+#[must_use]
+pub fn base64_encode_padded(bytes: &[u8]) -> String {
+    let mut out = base64_encode_unpadded(bytes);
+    while !out.len().is_multiple_of(4) {
+        out.push('=');
+    }
+    out
+}
+
 /// Standard base64 (padding optional); `None` for anything malformed.
 #[must_use]
 pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
@@ -402,6 +609,67 @@ mod tests {
         assert!(look("h4.example", 22).keys.is_empty());
     }
 
+    /// ⟨M03⟩ The raw lookup reports the blob, re-encoded with padding, for exactly the
+    /// keys the M02 lookup reports, and leaves the lookup incomplete for a matching line
+    /// it cannot use.
+    #[test]
+    fn raw_lookup_reports_blobs_and_refuses_unusable_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("known_hosts");
+        let key = base64_encode_unpadded(&blob());
+        let padded = base64_encode_padded(&blob());
+        assert_eq!(padded.len() % 4, 0);
+        assert!(padded.starts_with(&key));
+        std::fs::write(
+            &file,
+            format!(
+                "# comment\n\
+                 h1.example ssh-ed25519 {key}\n\
+                 [h2.example]:2222 ssh-ed25519 {padded} c\n\
+                 @revoked h3.example ssh-ed25519 {key}\n\
+                 @cert-authority h4.example ssh-ed25519 {key}\n\
+                 h5.example ssh-rsa {key}\n\
+                 h6.example ssh-ed25519-cert-v01@openssh.com {key}\n\
+                 h7.example ssh-ed25519 not*base64\n\
+                 @other h8.example ssh-ed25519 {key}\n"
+            ),
+        )
+        .unwrap();
+        let files = vec![file];
+        let raw =
+            |h: &str, p: u16| lookup_raw_in(&files, dir.path(), h, p, LocalQueries::Disabled, None);
+        let old =
+            |h: &str, p: u16| lookup_in(&files, dir.path(), h, p, LocalQueries::Disabled, None);
+        for (h, p) in [("h1.example", 22), ("h2.example", 2222), ("h3.example", 22)] {
+            let r = raw(h, p);
+            assert!(r.complete, "{h}");
+            assert_eq!(r.keys.len(), 1, "{h}");
+            assert_eq!(r.keys[0].key_b64, padded);
+            assert_eq!(r.keys[0].key_type, "ssh-ed25519");
+            assert_eq!(r.keys[0].fingerprint, fingerprint(&blob()));
+            let o = old(h, p);
+            assert_eq!(
+                r.keys
+                    .iter()
+                    .map(RawHostKeyObservation::observation)
+                    .collect::<Vec<_>>(),
+                o.keys
+            );
+        }
+        assert!(raw("h3.example", 22).keys[0].revoked);
+        // A CA line is not a host key, and does not make the lookup incomplete.
+        let ca = raw("h4.example", 22);
+        assert!(ca.complete && ca.keys.is_empty());
+        // A type that disagrees with the blob, a certificate type, a malformed blob
+        // and an unknown marker are unusable: no key, incomplete.
+        for h in ["h5.example", "h6.example", "h7.example", "h8.example"] {
+            let r = raw(h, 22);
+            assert!(r.keys.is_empty(), "{h}");
+            assert!(!r.complete, "{h}");
+        }
+        assert!(raw("absent.example", 22).complete);
+    }
+
     #[test]
     fn hashed_entries_are_matched_by_ssh_keygen() {
         let Some(keygen) = std::env::var_os("PATH").and_then(|p| {
@@ -448,5 +716,26 @@ mod tests {
             Some(&keygen),
         );
         assert!(none.complete && none.keys.is_empty());
+        // ⟨M03⟩ The raw lookup reads the hashed entry through the same query.
+        let raw = lookup_raw_in(
+            &files,
+            dir.path(),
+            "h5.example",
+            2200,
+            LocalQueries::Enabled,
+            Some(&keygen),
+        );
+        assert!(raw.complete);
+        assert_eq!(raw.keys.len(), 1);
+        assert_eq!(raw.keys[0].key_b64, base64_encode_padded(&blob()));
+        let raw_off = lookup_raw_in(
+            &files,
+            dir.path(),
+            "h5.example",
+            2200,
+            LocalQueries::Disabled,
+            None,
+        );
+        assert!(!raw_off.complete && raw_off.keys.is_empty());
     }
 }

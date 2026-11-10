@@ -2123,6 +2123,11 @@ Its path, version and SHA-256 are reported (R-SS-03).
   IdentityAgent in the configuration wins (F8). Heimdall reports this as a
   `consumer_override` with provenance (spec §10.3 "Do not set SSH_AUTH_SOCK and assume that
   every consumer uses it").
+* ⟨ADR-0008 §17.17 item 1⟩ On macOS, when the caller's environment lacks
+  `__CF_USER_TEXT_ENCODING`, CoreFoundation's load-time initializer in the `heimdall`
+  process sets it (`0x<uid>:0x<n>:0x<n>`, the user's default text encoding, not a
+  secret), so the `run` or `connect` child inherits it: the one documented platform
+  addition to the caller's environment.
 
 **TUI handoff** follows the `system(3)` model, for both connect and run from the TUI:
 

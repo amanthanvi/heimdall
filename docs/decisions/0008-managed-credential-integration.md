@@ -107,7 +107,7 @@ this ADR adds.
 | ⟨r2⟩ M-F20 | ssh_config(5) documents `none` for `IdentityFile` ("no identity files should be loaded") but **not** for `CertificateFile`: "Multiple CertificateFile directives will add to the list of certificates used for authentication". `IdentityAgent` takes the first value obtained, and the command line is read first | [S01] (pinned snapshot `docs/sources/snapshots/S01.txt.gz`); what each client does with `-o CertificateFile=none` is `[U]`, settled by `certificate_file_none_behaviour_recorded_per_client` (U5). See Q19 |
 | ⟨r2⟩ M-F21 | ADR-0007 §8 and §11 rejected a kill-on-close job object for Windows `run`: it "kills grandchildren left running on purpose after a normal exit; not exec-equivalent". M02's probes already use a kill-on-close job with assignment after spawn (`localenv::local_query`, `localenv::sys::JobObject::assign_child`) | Observed in the code at `7f6f1c05`. See D8 item 2 and Q18 |
 | ⟨r2⟩ M-F22 | `ssh -v` writes the remote software version, the host-key match, each public key or certificate offered, the server's acceptance or "Authentications that can continue", and the final authentication result to stderr. The exact wording is client-version-specific | [I]; the per-client patterns are recorded and tested by `verify_trace_patterns_per_client` (U5); an unrecorded client is `verification_inconclusive` (D5 §6.5) |
-| ⟨r2⟩ M-F23 | POSIX `mkdir` fails if the directory exists (an atomic test-and-create, usable as a lock); POSIX `awk 'BEGIN { srand(); print srand() }'` prints the current time in seconds since the Epoch (POSIX `date` has no `%s`) | [I] (POSIX.1-2017, not pinned). Settled per remote shell by `registry_protocol_on_target_shell` and `remote_clock_reading_per_target` (U5) |
+| ⟨r2⟩ M-F23 | POSIX `mkdir` fails if the directory exists (an atomic test-and-create, usable as a lock); ⟨r7⟩ the remote clock is read as POSIX `date -u '+%Y %m %d %H %M %S'`, converted to seconds since the Epoch in `awk` by civil-from-days, and used only within 2000–3000 UTC (otherwise unmeasured); POSIX `date` has no `%s` (§17.17 item 7) | [I] (POSIX.1-2017, not pinned). ⟨r7⟩ Observed: Debian 13's mawk 1.3.4 prints **nanoseconds** from `srand()`, so revision 2's `awk 'BEGIN { srand(); print srand() }'` reading is not used (U5S-Q1, INT-Q3). Settled per remote shell by `registry_protocol_on_target_shell` and `remote_clock_reading_per_target` (U5) |
 | ⟨r2⟩ M-F24 | `rusqlite` transactions release the store's connection mutex when they return (`crates/store/src/lib.rs` `transaction`), so an authorization read cannot by itself hold anything across the signature | Observed (R01) |
 | ⟨r3⟩ M-F25 | The host-trust sources of the pinned ssh_config(5): `UserKnownHostsFile` (`none` documented); `GlobalKnownHostsFile` (no `none` documented); `KnownHostsCommand`, which supplies "a list of host keys, in addition to those listed in UserKnownHostsFile and GlobalKnownHostsFile" (no `none` documented); `VerifyHostKeyDNS yes`, under which "the client will implicitly trust keys that match a secure fingerprint from DNS"; `UpdateHostKeys`, which adds server-sent keys to `UserKnownHostsFile`; `CheckHostIP yes`, which adds addresses "regardless of the setting of StrictHostKeyChecking"; `NoHostAuthenticationForLocalhost`, which can "disable host authentication for localhost". Command-line options are read first, and the first value obtained wins. `IgnoreUnknown` "will not be applied to unknown options that appear before it" | [S01], [S02] (pinned snapshots). Observed by reviewer A (OpenSSH 10.5p1, loopback): key A was approved in the generated file, the server's key was B, and an inherited `KnownHostsCommand` printed B. ssh accepted B (exit 0). With `-o KnownHostsCommand=none` it failed host verification (exit 255). Whether `none` is a keyword or a command name is Q22 |
 | ⟨r3⟩ M-F26 | `sh -s` executes each complete line of its input as it arrives, so a truncated script runs its prefix and can exit 0 | Observed by reviewer B with `/bin/sh` and `dash`: the prefix created the lock and the token. Settled by `truncated_script_does_nothing_at_every_truncation_point` (U5) |
@@ -1370,9 +1370,10 @@ of the script's own output must be `HM1 v=1`. Otherwise the remote shell is not 
 printed before the script ran, and the step fails with `registry_unsupported`, writing nothing.
 
 **Utilities** (M-F10, M-F23, ⟨r3⟩ M-F30, M-F31): `sh`, `id`, `ls`, `test`, `cat`, `cmp`, `od`, `tail`,
-`grep`, `awk`, `mkdir`, `chmod`, `mv`, `rm`, `printf`, ⟨r3⟩ `ln`, `kill`, `ps` and `uname`, plus the
-start-identity sources below. No `stat`, `sha256sum`, `base64`, `xxd`, `readlink` or `date +%s`, because
-none of them is POSIX.1-2017.
+`grep`, `awk`, `mkdir`, `chmod`, `mv`, `rm`, `printf`, ⟨r3⟩ `ln`, `kill`, `ps` and `uname`, ⟨r7⟩ `date`
+(POSIX fields only, for the remote clock) and `sleep` (the fence's waits after a signal; §17.17 item 7),
+plus the start-identity sources below. No `stat`, `sha256sum`, `base64`, `xxd`, `readlink` or `date +%s`,
+because none of them is POSIX.1-2017.
 
 ⟨r3⟩ **Script hardening** (§17.4 item 2; B R2-10, B R2-14).
 * **A truncated script does nothing.** Every script is one function, `hm_main() { … }`, called on its
@@ -1450,7 +1451,10 @@ Every combination not in the first two rows is **unproven**.
 
 **The decision.**
 * **gone** when:
-  * the boot identity differs (every process of that boot has ended); or
+  * the boot identity differs (every process of that boot has ended), ⟨r7⟩ **only on a row whose boot
+    identity is stable** (Linux `boot_id`, macOS `kern.bootsessionuuid`). On a row whose boot identity
+    is a timestamp (the BSDs' `kern.boottime`, which a clock step moves), a difference alone never
+    proves `gone`: the group proof below is still required (§17.17 item 2); or
   * the group is **empty** by agreement, **and** `PID` either does not exist or exists with a
     different start identity. ⟨r4⟩ A different start identity alone no longer decides: revision 3
     inferred "gone" from the PID-reuse rule (M-F30); now the group proof must agree.
@@ -1496,8 +1500,8 @@ and L the listing `ps -A -o pgid=`. The probes ran in containers from
 | dash **0.5.12-12** (Debian 13, Ubuntu 24.04) | ⟨r6⟩ token 20 after the last `)` of `/proc/$$/stat` (field 22, `starttime`), through the shared parser | clock ticks since boot | `/proc/sys/kernel/random/boot_id` | ⟨r6⟩ token 3 after the last `)` of `/proc/$$/stat` (field 5), the same parser (Q29); `ps -o pgid= -p $$` also works | built-in `kill -s 0 -- -PGID`. `kill -0 -- -PGID` is rejected (round 3), so it is not used | procps `ps -A -o pgid=` | live child 0/0/0 → live; empty group 0/1/0 → empty; invalid syntax 2/2/0 → unproven; injected disagreements (3 branches) → unproven | **automatic recovery** (gone by agreement) | start, boot identity and process group **not POSIX** (Linux procfs; read with POSIX `awk` and `cat`); probe and listing **POSIX** |
 | bash **5.2.37** as `sh` (Linux) | as for dash | as for dash | as for dash | as for dash | built-in `kill -s 0 -- -PGID` | procps `ps -A -o pgid=` | live child 0/0/0 → live; empty 0/1/0 → empty; invalid syntax 1/1/0 → unproven; disagreements → unproven | **automatic recovery** | as for dash |
 | BusyBox **1.37.0** `ash` (Alpine) | as for dash | as for dash | as for dash | ⟨r6⟩ token 3 after the last `)` of `/proc/$$/stat` (field 5), the shared parser (Q29). **`ps -p` is unsupported** (exit 1), so a literal `ps -o pgid= -p $$` stops the script with exit 33 | built-in `kill` **rejects `--`** ("invalid number '--'") | BusyBox `ps -A -o pgid=` (exit 0) | live child 1/1/0 → unproven; empty group 1/2/0 → unproven; invalid syntax 1/1/0 → unproven; disagreements → unproven | **always `unproven`: manual recovery only.** Automatic recovery is never claimed for BusyBox (§17.10 item 5) | as for dash |
-| macOS `/bin/sh` (**bash 3.2.57** in POSIX mode) | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | `ps -o pgid= -p $$` (works) | built-in `kill -s 0 -- -PGID` | BSD `ps -A -o pgid=` | live child 0/0/0 → live; empty 0/1/0 → empty; invalid syntax 1/1/0 → unproven; disagreements → unproven | **automatic recovery** | start and boot identity **not POSIX** (`lstart` is a BSD `ps` field; `sysctl` is not POSIX); process group, probe and listing **POSIX** |
-| FreeBSD, NetBSD and OpenBSD `sh` | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` | `ps -o pgid= -p $$` [I] | built-in `kill -s 0 -- -PGID` [I] | BSD `ps -A -o pgid=` [I] | not run | [I]: no M03 target runs them | as for macOS |
+| macOS `/bin/sh` (**bash 3.2.57** in POSIX mode) | `ps -o lstart= -p $$` | 1 s | ⟨r7⟩ `sysctl -n kern.bootsessionuuid` (stable across clock steps; §17.17 item 2) | `ps -o pgid= -p $$` (works) | built-in `kill -s 0 -- -PGID` | BSD `ps -A -o pgid=` | live child 0/0/0 → live; empty 0/1/0 → empty; invalid syntax 1/1/0 → unproven; disagreements → unproven | **automatic recovery** | start and boot identity **not POSIX** (`lstart` is a BSD `ps` field; `sysctl` is not POSIX); process group, probe and listing **POSIX** |
+| FreeBSD, NetBSD and OpenBSD `sh` | `ps -o lstart= -p $$` | 1 s | `sysctl -n kern.boottime` (up to its first `}`): ⟨r7⟩ a **timestamp**, so a difference alone never proves `gone` and the group proof is still required (§17.17 item 2) [I] | `ps -o pgid= -p $$` [I] | built-in `kill -s 0 -- -PGID` [I] | BSD `ps -A -o pgid=` [I] | not run | [I]: no M03 target runs them | as for macOS |
 | Anything else (`uname -s` not recognized) | — | — | — | — | — | — | — | The mutating scripts exit 30 (`start_identity_unavailable`) before the lock; `inspect` still runs | — |
 
 * **Why not POSIX `ps -o etime=`.** It gives the elapsed time, but "now minus elapsed" moves with
@@ -1676,8 +1680,12 @@ ADR-0005 §3.3, as implemented:
    The client is invoked as `ssh -F <generated> -v -T hm-verify <command>`. Stderr is bounded (64 KiB)
    and ⟨r2⟩ parsed for the trace events of item 5.
 4. ⟨r2⟩ **The destination clock is measured** in the positive login (§17.1 item 10; M03-R10).
-   * **The command** is `awk 'BEGIN { srand(); print "HM1 now=" srand() }'` (M-F23). It is a fixed
-     literal and needs no extension.
+   * **The command** is ⟨r7⟩ the scripts' POSIX
+     `date -u '+%Y %m %d %H %M %S'` reading converted in `awk` (M-F23 as revised; §17.17 item 7), printed
+     as `HM1 now=<seconds>`, without a stderr redirection because the account's login shell runs it. A
+     reading outside 2000–3000 UTC is discarded, and the clock is then `unmeasured`. It is a fixed
+     literal and needs no extension. It replaces revision 2's `awk 'BEGIN { srand(); print "HM1 now="
+     srand() }'`.
    * **The bound.** With local wall times t₁ (just before the process starts) and t₂ (when the output
      line is read), and the remote reading T, the destination's clock lags local time by at most
      `behind_upper = max(0, t₂ − T + 1 s)`. The 1 s is the reading's resolution.
@@ -2490,7 +2498,7 @@ plan §1.2).
 
    | Platform | Query | Events | Status in M03 |
    |---|---|---|---|
-   | macOS | `CGSessionCopyCurrentDictionary`, `CGSSessionScreenIsLocked` | distributed notifications on a dedicated run-loop thread | implemented; native evidence through P1 (M-F12) |
+   | macOS | `CGSessionCopyCurrentDictionary`, `CGSSessionScreenIsLocked` | ⟨r7⟩ a poll of `CGSessionCopyCurrentDictionary` every 250 ms on a thread the source owns: distributed notifications are delivered only on the main thread's run loop, which is tokio's, so no observer is registered (§17.17 item 10, U9-Q4) | implemented; native evidence through P1 (M-F12) |
    | Windows | `WTSQuerySessionInformationW(WTSSessionInfoEx)` for the current session | `WTSRegisterSessionNotification` on a hidden message-only window thread | implemented; native evidence through P-W1 (M-F13) |
    | Linux desktop | logind `LockedHint` (D-Bus system bus) | `Lock`/`Unlock` signals | implemented; **native evidence blocked on B11**. ⟨r2⟩ `revoke_on_lock` is accepted there but labelled `signal_unverified` in every result and in the disclosure until B11's evidence exists (F19) |
    | Linux headless, WSL, containers | — | — | `unavailable` |
@@ -3652,6 +3660,112 @@ Decided now, implemented in later waves:
 7. **The re-check.** An independent re-check (Codex Sol, `tests/evidence/artifacts/review-m03-code/wave0-recheck.md`) found R1–R5 resolved at `6c6b5e06`, with no new defect in the touched code. Its verdict was merge.
    - **Mutation evidence:** with its fix reverted, each regression test exits 101.
    - **Limit:** R2's regression exercises only the removal of `automatic_activation`.
+
+### 17.17 Orchestrator rulings on the wave-1 escalations (2026-11-10)
+
+**Source:** the wave-1 integrator's questions file, archived as `tests/evidence/artifacts/review-m03-code/wave1-notes/m03-wave1-questions.md`. The integrator's fail-closed readings stand unless an item below changes them. Items 1 to 6 are **changes**, made before wave 1 merges. Items 7 to 12 **confirm** a reading. Items 13 and 14 **schedule** contract work for a later wave.
+
+1. **INT-Q2: `__CF_USER_TEXT_ENCODING` is a documented macOS platform addition.**
+   - **The finding:** linking CoreFoundation, Security or CoreGraphics (U4's keychain store, U9's lock source) makes CoreFoundation's load-time initializer set `__CF_USER_TEXT_ENCODING` in the process environment, before `main`, when it is absent. A child that `heimdall run` or `connect` starts from such an environment inherits it.
+   - **The ruling:** the variable is a documented addition to ADR-0007's "exactly the caller's environment" (§8), on macOS only, and only when it was absent from the caller's environment:
+     - when present with the current user's uid, it passes through unchanged, like every other variable;
+     - ⟨INT-Q9⟩ when present with another uid, or malformed, CoreFoundation rewrites it before `main`, as it does in every process that links CoreFoundation. The child receives the rewritten value. The rewrite is the operating system's, not Heimdall's, and is disclosed with the addition;
+     - its value is the user's default text encoding (the form `0x<uid>:0x<n>:0x<n>`), neither a secret nor a Heimdall value;
+     - an ordinary macOS session already carries it, so nothing changes there.
+   - **Why not the alternatives:**
+     - loading the frameworks lazily through `dlopen` would widen the `unsafe` surface;
+     - restoring the exec-time environment would need a new `unsafe` call, `KERN_PROCARGS2`;
+     - splitting the executable would change ADR-0002's distribution shape.
+
+     None buys anything a user can observe.
+   - **The regression:** `a27_cwd_and_env_preserved_plus_only_documented_additions` accepts exactly this pair on macOS, in exactly that form, only when the input environment lacks it, and fails on any other addition. `a27_cf_text_encoding_form_is_exact` pins the form.
+2. **INT-Q5: on Darwin, the boot identity is `kern.bootsessionuuid`.**
+   - **Why `kern.boottime` cannot serve:** XNU adjusts it when the wall clock is stepped. A fence could then read a different boot identity for a live holder and decide `gone` without the group proof.
+   - **What replaces it:** on macOS, `sysctl -n kern.bootsessionuuid`, which does not move with the clock, is the boot identity in the start-identity record.
+   - **A boot-identity difference alone never proves `gone`** on a target whose boot identity is a timestamp: on such a row, the group proof is still required.
+   - **The BSD rows** stay `[I]`, with that rule.
+   - **D5 §6.3's shell table** is amended accordingly.
+3. **INT-Q7: retirement deletes exactly the store item this installation recorded.**
+   - `put` returns the `StoreItemRef`. The issuer records it, and retirement deletes only that locator, after the absence check. It never deletes everything `list()` reports for a fingerprint.
+   - So a second installation of the same OS user, holding the same restored CA, never loses its item.
+   - A missing recorded locator refuses the deletion, with nothing deleted, and leaves an orphan to report.
+4. **U9-Q2: a grant records the session-lock floor at creation.**
+   - The integrator passes `session_lock_floor()` into `with_lock_and_connection` and into the `no_mechanism` and unattended-refusal lock arguments. The grant's recorded origin is then `lock::origin_behavior(&policies, floor)`.
+   - So a later configuration edit plus a restart cannot turn a grant created under `revoke` into `continue` without an attended decision.
+   - **The regression:** a grant created under the `revoke` floor stays `revoke_on_lock` after the configuration changes to `continue` and the runtime restarts.
+5. **U5IO-Q1: Linux steps get `PR_SET_PDEATHSIG(SIGKILL)`, as §17.4 item 2 requires.**
+   - **A fourth `unsafe` module,** `crates/enroll/src/sys.rs`, holds exactly one `CommandExt::pre_exec` closure. It calls rustix's `set_parent_process_death_signal(Some(Signal::Kill))` and nothing else that is not async-signal-safe.
+   - Its invariant table goes into overview §9, and `remote::PARENT_DEATH_SIGNAL_APPLIED` becomes `true` on Linux.
+   - **The regression** (Linux-native, on the devbox): `cli_death_ends_ssh_step_process` ends the step's child when the CLI is SIGKILLed.
+6. **U5S-Q5: a failed write after the decision to write is `Uncertain`.** `classify_step` reads an append or remove exit 30 with `reason=write_failed` as `Uncertain`, never as `NotApplied`.
+7. **Clock and boot-identity readings.**
+   - **M-F23 is revised (U5S-Q1, INT-Q3).** Debian 13's mawk prints nanoseconds from `srand()`. The remote clock is therefore read as POSIX `date -u '+%Y %m %d %H %M %S'`, converted in awk by civil-from-days, with a plausibility range (2000 to 3000 UTC, otherwise unmeasured). The verifier uses the same reading. The utility list gains `date` and `sleep` (U5S-Q3).
+   - **U5S-Q8 and U5S-Q9 are confirmed:** the `TZ` normalization, the `lstart` blank collapsing, and `kill -s 0 -x` as the invalid-syntax input.
+8. **Confirmed readings of the pure enrollment plan:** U5P-Q1 (a), the plan context in `CaView`; U5P-Q2 (a); U5P-Q4 (a); U5P-Q5 (a), §6.7 wins; U5P-Q6 (a); U5P-Q7 (a).
+9. **Confirmed readings of the credential core:**
+   - U1-Q1 (a): the type name is public, with private fields and no constructor;
+   - U1-Q2: each stricter validator is kept, behind its named refusal;
+   - U1-Q3 (a): a decimal serial in the key ID;
+   - U1-Q4 (a): the `/proc/<pid>/mem` attach probe;
+   - U1-Q5 (a): it is re-run against `heimdall service run` once U10 calls `harden_process`.
+10. **Confirmed readings of the stores and the lock source:**
+    - U4-Q2 (b): Heimdall never triggers a store prompt. `issuer unlock` reports the locked store and how to unlock it, which is stricter than D4 item 2 allows.
+    - U9-Q1 (a): `unknown` is treated as a lock, revocation included. The disclosed cost is that a transient `unknown` revokes `revoke_on_lock` grants.
+    - U9-Q3 (a): U10 and U12 apply the `signal_unverified` labels.
+    - U9-Q4 (a): macOS polls `CGSessionCopyCurrentDictionary` every 250 ms on a thread the source owns. D9 item 3's notification rows and overview §9 item 6 are amended.
+    - U9-Q5 (b): `meta.session_lock_last` is dropped, and each lock pass's `session_lock` event is the record.
+11. **Confirmed readings of enrollment I/O:**
+    - U5IO-Q2 (a): on Windows, the CLI injects the job object through `StepContainment`, and a step without one is refused;
+    - U5IO-Q3 (c): an interactive `/dev/tty` prompt stops ssh until the step's bound ends it, failing closed. U12 prefers agent-held identities for interactive steps, and rules the terminal handoff with its own escalation;
+    - U5IO-Q5 (a): the Verifier installs each certificate;
+    - U5IO-Q6 (a): `known_hosts_incomplete` is an undetermined reason, which the plan maps to `host_trust_undetermined`;
+    - U5IO-W0: the confirmations are accepted.
+12. **Confirmed readings, and what is left as built:**
+    - U5S-Q2 (a): the test form exists in debug builds only;
+    - U5S-Q4 (a): exit 40 `busy`;
+    - U5S-Q6 and U5S-Q7: as listed;
+    - INT-Q1 (a): pinned workspace crates may be added as dependencies of new crates; `Cargo.lock` changes only within the `heimdall-*` arrays;
+    - INT-Q4 (a): the `m03 observation:` prefix, which U13 captures;
+    - INT-Q6 (a): a removal or rollback redispatch narrows trust, so it needs neither approval validity nor an attended session;
+    - INT-Q8 (b): as built. A bootstrap that created the directory and then refused leaves an empty private directory, which the next `inspect` reports. This is recorded as a limitation;
+    - U11-Q1 and U11-Q2: resolved by the units.
+13. **Contract additions, scheduled for the integration that first needs them.**
+    - The reasons `registry_path_invalid` (U5P-Q3) and `account_override_refused` (U5P-Q6) are registered, as `USAGE_ERROR`, in the M03 reason golden. Until then no wire result carries either one.
+    - **U4-Q1 (b), the test store:** a `#[doc(hidden)]` test store kind, omitted from the wire unless set and absent from the public schema golden.
+      - It is accepted only by a test-configured runtime. A release build refuses any request that carries it.
+      - A record or claim never reads it as a product store (D12 item 3).
+      - It lands with U3 or U10, whichever first registers a CA through the wire.
+14. **U5IO-Q4 (a): the verification classification moves into `domain::verification::classify` with U10** (wave 4). `TraceEvents` gains `host_key_failure`, `VerificationOutcome` gains an `unrecorded` flag, and `classify` takes the known clock offset. Until then, classification stays inconclusive, failing closed.
+
+### 17.18 Orchestrator rulings on the wave-1 review and the first native runs (2026-11-10)
+
+**Sources:**
+- **The review:** M03-W1-code-review (Codex, independent), `tests/evidence/artifacts/review-m03-code/wave1.md`. Verdict: fix first, with three findings, W1-R01 to W1-R03.
+- **The native runs:** the first development-check runs of the wave on the devbox (OpenSSH 9.6p1, dash 0.5.12-6ubuntu5) and on the Windows PC (in-box OpenSSH_for_Windows_9.5p2).
+- **The integrator's round-3 escalations:** INT-Q10 to INT-Q12, archived in `wave1-notes/`.
+
+1. **W1-R01 and W1-R02: every secret store is scoped to the installation.**
+   - `put`, `get`, `delete` and `list` all select by `heimdall_environment_id`. The shared logic is `store/attributes.rs`, and the Linux Secret Service store is that logic over the Secret Service.
+   - On Windows, the DPAPI blob directory is per environment: `%LOCALAPPDATA%\Heimdall\issuer\<environment ID>\` (INT-Q11). Without it, two installations of one user shared one directory. This **replaces the plan's path text** in m03-plan U4.
+   - A restore adopts exactly one installation-scoped item. Zero items, or more than one, refuses; nothing is guessed. The frozen trait's `list` is documented as "this installation's items", with its signature unchanged (INT-Q12).
+2. **W1-R03: the native lock rows need a real `Locked` reading.**
+   - The source keeps a latched count of `Locked` readings, separate from the epoch. An `Unknown` still advances the epoch and still revokes `revoke_on_lock` grants (§17.17 item 10), but it never satisfies a lock-evidence row.
+   - **The regression** is `unknown_never_counts_as_a_real_lock_observation`.
+3. **INT-Q10: OpenSSH 9.5 and 9.6 never ask the agent for the certificate in the managed-alias shape.**
+   - **Observed** in a container with the devbox's exact 9.6p1 build, and then natively on the devbox at `5b36b3d8` (the `identity_file_selection` observation lines):
+     - with `IdentityFile` set to K_env's `.pub`, and an agent listing only the certificate, 9.6p1 tries the file's missing private key, exits 255, and asks the agent for nothing;
+     - when the agent also lists the plain key, 9.6p1 asks it to sign the plain key;
+     - 10.5p1 always asks for the certificate.
+   - **The ruling:**
+     - D2 item 4 and F17 stand. The signer never lists or signs the plain K_env key; this is not weakened for older clients.
+     - **U2 and U8 (wave 2)** must find a projection and signer form that 9.5p2 and 9.6p1 complete through the certificate alone. Candidates are `IdentityFile` naming the certificate file, `IdentitiesOnly` with `CertificateFile`, or the agent's key ordering. Each candidate's evidence must come from the real clients: Windows in-box 9.5p2 natively, and the devbox's 9.6p1.
+     - If no form works, U2 and U8 escalate with that evidence. The managed alias on those clients is then `capability_unavailable` (`client_unsupported`), reported per client and never silently degraded.
+   - The observation test that records this behaviour per client stays in the suite.
+4. **Development-check native runs are not exit evidence.** They locate defects before the M03 exit build. U13's exit runs are the evidence. U13 must run the Linux harness in batches, or strip debug information: the devbox has about 12 GB free, and 72 debug test binaries no longer fit, as the first wave-1 run showed with ENOSPC.
+5. **The re-check** (Codex, independent; `tests/evidence/artifacts/review-m03-code/wave1-recheck.md`) found W1-R01 to W1-R03 resolved at `5b36b3d8`, with verdict merge. Its notes are ruled as follows:
+   - **W1-C01, low:** for a staged CLI, `m03_test_gates_are_validated_before_anything_else` infers the expected build profile from the behaviour under test. This is accepted for wave 1, because `release-gate.sh` builds and probes the release CLI on its own. U13 passes the staged CLI's profile to the test from the harness, and the test then checks that it agrees.
+   - **Pre-release DPAPI blobs:** the per-environment default directory (item 1) has no migration from the old shared path. No product caller of `default_dir` exists yet, and no release has written a blob. U10 wires the directory and refuses any blob outside it, never adopting one.
+   - **The debug-only trace dump** writes raw client diagnostics. It exists only in debug builds and is never a support-log exporter or a secret sanitizer. Live accounts never use it.
 
 ## 18. Consequences
 

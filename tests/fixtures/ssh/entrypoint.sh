@@ -6,6 +6,25 @@ set -eu
 # shellcheck disable=SC1091
 . /fixture/role.env   # ROLE, ACCOUNT, KEYS_MODE (root|account)
 
+# M03 hook (m03-plan U11; lib.sh ca_trust_test_ca): `fixture-entrypoint.sh ca-trust-test-ca`
+# reads one `ssh-ed25519 <base64>` line on stdin and appends it, once, to this container's
+# TrustedUserCAKeys. Container-internal only; sshd reads the file at each authentication.
+if [ "${1:-}" = ca-trust-test-ca ]; then
+  [ "$KEYS_MODE" = ca ] || { echo "fixture: not a CA-trusting role" >&2; exit 2; }
+  IFS= read -r line || true
+  case "$line" in
+    "ssh-ed25519 "*) ;;
+    *) echo "fixture: not an ssh-ed25519 line" >&2; exit 2 ;;
+  esac
+  b64="${line#ssh-ed25519 }"
+  case "$b64" in
+    ""|*[!A-Za-z0-9+/=]*) echo "fixture: malformed key" >&2; exit 2 ;;
+  esac
+  grep -qxF "$line" /etc/ssh/user_ca.pub 2>/dev/null || printf '%s\n' "$line" >> /etc/ssh/user_ca.pub
+  echo "fixture: test CA trusted in $ROLE"
+  exit 0
+fi
+
 id "$ACCOUNT" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$ACCOUNT"
 usermod -p '*' "$ACCOUNT"          # not locked ('!'), but no password login possible
 

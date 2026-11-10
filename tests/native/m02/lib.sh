@@ -262,8 +262,10 @@ PY
 # §12.32 item 3; heimdall_testkit::repo): the schemas and examples, the contract golden
 # files, the decision records, the fixtures, and the crates (the sources the static scans
 # read and the TUI snapshots). Every *.rs under tests/ goes too (the testkit's scan that no
-# test reads the compile-time root), the evidence artifacts excepted.
-M02_REPO_DIRS="crates schemas docs/decisions tests/contracts tests/fixtures"
+# test reads the compile-time root), the evidence artifacts excepted. M03 wave 1 (native
+# run): the model goldens (tests/model/golden: model_managed_domain's transition table and
+# recovery paths) and the architecture plans that test reads (docs/architecture/m03-plan.md).
+M02_REPO_DIRS="crates schemas docs/decisions docs/architecture tests/contracts tests/fixtures tests/model"
 
 # m02_stage_repo ROOT DIR: DIR/repo, a tree of symbolic links to the regular files of
 # M02_REPO_DIRS under ROOT and to every *.rs under ROOT/tests (never a `target`, `.git`,

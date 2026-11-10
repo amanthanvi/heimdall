@@ -23,6 +23,8 @@ pub mod holders;
 pub mod ids;
 // ⟨M03⟩ U3: the read-only issuance check (body U3's; fail closed in wave 0).
 pub mod issuance_ro;
+// ⟨M03⟩ U9: the effective lock behaviour (ADR-0008 D9; §17.15 item 12).
+pub mod lock;
 // ⟨M03⟩ U0b rows 21 and 24: the signing gates, pending marks, permits and the
 // managed effect driver's entry point.
 pub mod managed;

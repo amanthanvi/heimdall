@@ -99,3 +99,9 @@ path = "../../tests/e2e/tui_m02.rs"
 [[test]]
 name = "e2e_cli_m03"
 path = "../../tests/e2e/cli_m03.rs"
+
+# M03-U4: the owner-present issuer ceremonies through a pty (A33: the passphrase only on
+# the terminal transcript).
+[[test]]
+name = "e2e_issuer_ceremony"
+path = "../../tests/e2e/issuer_ceremony.rs"

@@ -22,6 +22,26 @@ use heimdall_contract::issuer::StoreKind;
 use heimdall_credential::cert::SecretCaKey;
 use serde::{Deserialize, Serialize};
 
+// M03-U4: the product implementations (ADR-0008 D1), and the environment-scoped logic of
+// the attribute-addressed store (§17.17 item 3; wave-1 review W1-R01).
+pub mod attributes;
+// M03-U4: the product implementations (ADR-0008 D1).
+#[cfg(target_os = "linux")]
+pub mod linux;
+#[cfg(target_os = "macos")]
+pub mod macos;
+#[cfg(windows)]
+pub mod windows;
+#[cfg(target_os = "linux")]
+pub use linux::LinuxSecretService;
+#[cfg(target_os = "macos")]
+pub use macos::MacosLoginKeychain;
+#[cfg(windows)]
+pub use windows::WindowsDpapi;
+// M03-U4: the key type the trait names, for implementors whose crate does not depend
+// on heimdall-credential directly (the e2e ceremony suite's test store).
+pub use heimdall_credential::cert::SecretCaKey as StoredCaKey;
+
 /// The prefix of every store item's label.
 pub const ITEM_LABEL_PREFIX: &str = "heimdall-issuer/";
 
@@ -173,8 +193,11 @@ pub trait SecretStore: Send + Sync {
     /// Delete exactly `item` (by its exact identity; never by pattern).
     fn delete(&self, item: &StoreItemRef) -> Result<(), StoreError>;
 
-    /// Every Heimdall item in the store (labels with [`ITEM_LABEL_PREFIX`]), for the
-    /// orphan report and uninstall.
+    /// Every Heimdall item **of this installation** in the store (labels with
+    /// [`ITEM_LABEL_PREFIX`]), for the orphan report and uninstall. ⟨§17.17 item 3;
+    /// wave-1 review W1-R01, W1-R02⟩ A store the OS user shares across installations
+    /// (the keychain, the Secret Service, the DPAPI directory) lists only this
+    /// installation's items, so nothing here ever names another installation's item.
     fn list(&self) -> Result<Vec<StoreItemRef>, StoreError>;
 }
 

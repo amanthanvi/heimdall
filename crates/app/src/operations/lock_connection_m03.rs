@@ -112,18 +112,17 @@ fn lock_signal_available(source: Option<&Arc<dyn SessionLockSource>>) -> bool {
 }
 
 /// The origin `origin_of` built, with the lock behaviour and connection policy in
-/// force at creation (module docs). `request` is the operation's stored request.
+/// force at creation (module docs). `request` is the operation's stored request;
+/// `floor` is the R3 session-lock floor in force (ADR-0008 §17.17 item 4).
 pub(super) fn with_lock_and_connection(
     tx: &mut Txn<'_>,
     environment: &EnvironmentId,
     mut origin: GrantOrigin,
     request: &serde_json::Value,
+    floor: LockBehavior,
 ) -> heimdall_store::Result<GrantOrigin> {
     let policies = tx.policies_for(&origin.profile, environment)?;
     let merged = merged_policy(&policies);
-    let lock = merged
-        .as_ref()
-        .map_or(LockBehavior::default(), |p| p.lock_behavior);
     let mut connection = merged
         .as_ref()
         .map_or(ConnectionPolicy::default(), |p| p.connection);
@@ -134,7 +133,10 @@ pub(super) fn with_lock_and_connection(
     {
         connection.existing = ExistingConnectionsMode::Strict;
     }
-    origin.lock_behavior = (lock != LockBehavior::Continue).then_some(lock);
+    // ⟨M03⟩ ADR-0008 §17.17 item 4 (U9-Q2): the strictest of the applicable policies
+    // and the R3 floor in force at creation, so a later configuration edit plus a
+    // restart cannot turn this grant into `continue` without an attended decision.
+    origin.lock_behavior = crate::lock::origin_behavior(&policies, floor);
     origin.connection = (!connection.is_default()).then_some(connection);
     Ok(origin)
 }

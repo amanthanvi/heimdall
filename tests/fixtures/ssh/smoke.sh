@@ -23,7 +23,7 @@ echo "$G" | grep -i '^identityfile ' | grep -q '/\.ssh/'; [ $? -ne 0 ]; check "c
 grep -v '^[[:space:]]*#' "$RUNTIME/ssh_config" | grep -Eqi 'accept-new|StrictHostKeyChecking[[:space:]]+(no|off|ask)'; [ $? -ne 0 ]; check "config:no accept-new/no" $? "grep on runtime/ssh_config"
 
 echo "== published ports are loopback-only"
-for r in fixed enroll ca1 ca2 bastion; do
+for r in fixed enroll enroll2 ca1 ca2 bastion; do
   b="$(docker port "$(cname $r)" 22/tcp | tr '\n' ' ')"
   case "$b" in "127.0.0.1:"*) [ "$(echo $b | wc -w | tr -d ' ')" = 1 ]; check "port:$r" $? "$b";; *) check "port:$r" 1 "$b";; esac
 done
@@ -69,6 +69,16 @@ perm="$(hm_ssh enrollable 'stat -c "%U:%a" ~/.ssh/authorized_keys')"
 cur="$(hm_ssh enrollable 'cat ~/.ssh/authorized_keys' | shasum -a 256 | awk '{print $1}')"
 [ "$cur" = "$EXP" ]; check "enroll:restored-sha256" $? "sha256=$cur expected=$EXP"
 
+echo "== (b2) M03 enrollable2: seeded like enrollable, its own keys, log not readable by the account"
+EXP2="$(cat "$RUNTIME/seed/enroll2_authorized_keys.sha256")"
+cur="$(hm_ssh enrollable2 'cat ~/.ssh/authorized_keys' | shasum -a 256 | awk '{print $1}')"
+[ "$cur" = "$EXP2" ]; check "enroll2:seed-intact" $? "sha256=$cur expected=$EXP2"
+shape() { sed -E 's/(^|[[:space:]])ssh-ed25519 .*$/\1KEY/' "$1"; }
+cmp -s <(shape "$RUNTIME/seed/enroll_authorized_keys") <(shape "$RUNTIME/seed/enroll2_authorized_keys"); check "enroll2:same-shape-as-enrollable" $? "line kinds and options equal, keys differ"
+cmp -s "$RUNTIME/seed/enroll_authorized_keys" "$RUNTIME/seed/enroll2_authorized_keys"; [ $? -ne 0 ]; check "enroll2:own-keys" $? "seeds differ"
+out="$(hm_ssh enrollable2 'ls /proc/1/fd >/dev/null 2>&1 && echo fd-readable || echo fd-denied; grep -rls "Accepted publickey" /var/log 2>/dev/null | wc -l | tr -d " "' 2>&1)"; rc=$?
+[ $rc -eq 0 ] && [ "$(echo $out)" = "fd-denied 0" ]; check "enroll2:sshd-log-not-readable" $? "exit=$rc out=$(echo $out)"
+
 echo "== (c) two CA-trusting hosts with different principal mappings"
 sign() { # name principals validity [ca]
   rm -f "$C/$1-cert.pub"
@@ -98,6 +108,19 @@ sign future p-host1 +1h:+2h;   check "ca:sign not-yet-valid cert" $? "ok"
 out="$(certssh future ca-host1 true 2>&1)"; rc=$?; [ $rc -ne 0 ]; check "ca:not-yet-valid cert REJECTED" $? "exit=$rc"
 sign rogue p-host1 +1h "$K/user_ca_rogue"; check "ca:sign rogue-CA cert" $? "ok"
 out="$(certssh rogue ca-host1 true 2>&1)"; rc=$?; [ $rc -ne 0 ]; check "ca:untrusted-issuer cert REJECTED" $? "exit=$rc"
+
+echo "== (c2) M03 hook ca-trust-test-ca: the run's test CA, container-internal only"
+"$SSH_KEYGEN" -q -t ed25519 -N '' -C "hm-fixture-testca-$RUN_ID" -f "$K/user_testca" </dev/null 2>/dev/null || true
+printf 'cert-authority %s\n' "$(cat "$K/user_testca.pub")" > "$RUNTIME/bad_ca.pub"
+"$FIX_DIR/up.sh" ca-trust-test-ca "$RUNTIME/bad_ca.pub" >/dev/null 2>&1; rc=$?; [ $rc -ne 0 ]; check "cahook:malformed-refused" $? "exit=$rc"
+"$FIX_DIR/up.sh" ca-trust-test-ca "$K/user_testca.pub" >/dev/null 2>&1; check "cahook:applied" $? "up.sh ca-trust-test-ca"
+want="$(awk '{print $1" "$2}' "$K/user_testca.pub")"
+for r in ca1 ca2; do docker exec "$(cname $r)" grep -qxF "$want" /etc/ssh/user_ca.pub; check "cahook:$r trusts the test CA" $? "inside the container"; done
+docker exec "$(cname fixed)" sh -c 'cat /etc/ssh/user_ca.pub 2>/dev/null' | grep -qxF "$want"; [ $? -ne 0 ]; check "cahook:other containers untouched" $? "fixed"
+rm -f "$C/testca-cert.pub"
+"$SSH_KEYGEN" -q -s "$K/user_testca" -I hm-fixture-testca -n p-host1 -V +1h -z "$(date +%s)" "$K/user_cert.pub" >/dev/null 2>&1 && mv "$K/user_cert-cert.pub" "$C/testca-cert.pub"
+out="$(certssh testca ca-host1 'echo host1-ok' 2>&1)"; rc=$?; check "cahook:test-CA cert -> host1 accepted" $rc "exit=$rc out=$out"
+rm -f "$RUNTIME/bad_ca.pub"
 
 echo "== (d) bastion + internal-only target"
 out="$(hm_ssh internal-target 'echo target-ok; hostname; echo "agent_sock=${SSH_AUTH_SOCK:-unset}"' 2>&1)"; rc=$?

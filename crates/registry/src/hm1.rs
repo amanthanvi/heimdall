@@ -9,9 +9,13 @@
 //! the script is sent; the first line of the script's own output is
 //! [`VERSION_LINE`].
 //!
-//! The parser body ([`parse`]) is U5's. Until U5 lands it fails closed: every input is
-//! refused with [`ParseError::Unavailable`], so no step result is ever read as
-//! applied.
+//! **The parser** ([`parse`], U5) is strict: the output is bounded
+//! ([`MAX_STDOUT_BYTES`]); its first line is exactly [`READY_LINE`] and its second
+//! exactly [`VERSION_LINE`]; every later line is `HM1 <key>=<value>` with a key of
+//! the frozen set (never `v` again) and a value of that key's shape; every line,
+//! the last included, ends with `\n` (a cut line is refused, never read as a shorter
+//! value); no `\r`, no other byte. [`handshake`] says how far a run got, for the
+//! classification of a run that printed no version line.
 
 use std::fmt;
 
@@ -419,14 +423,125 @@ pub enum ParseError {
     },
 }
 
+/// How far a run's output got (ADR-0008 D5 §6.3 "the ready handshake").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Handshake {
+    /// The first line is not [`READY_LINE`]: the CLI never sent the script.
+    NoReady,
+    /// [`READY_LINE`] only: the script was sent, but its first line,
+    /// [`VERSION_LINE`], never arrived.
+    Ready,
+    /// Both lines arrived: the script ran.
+    Versioned,
+}
+
+const READY_WITH_NL: &[u8] = b"HM1 ready\n";
+const VERSION_WITH_NL: &[u8] = b"HM1 v=1\n";
+
+/// How far `stdout` got, read from its first two lines only (whatever its length).
+#[must_use]
+pub fn handshake(stdout: &[u8]) -> Handshake {
+    let Some(rest) = stdout.strip_prefix(READY_WITH_NL) else {
+        return Handshake::NoReady;
+    };
+    if rest.starts_with(VERSION_WITH_NL) {
+        Handshake::Versioned
+    } else {
+        Handshake::Ready
+    }
+}
+
 /// Parse a step's stdout: bounded ([`MAX_STDOUT_BYTES`]), first line
-/// [`READY_LINE`], then [`VERSION_LINE`], then `HM1 <key>=<value>` lines.
+/// [`READY_LINE`], then [`VERSION_LINE`], then `HM1 <key>=<value>` lines (module
+/// docs for the rules). The record holds the pairs after the version line.
 ///
-/// **Wave 0:** fails closed with [`ParseError::Unavailable`] for every input (U5 owns
-/// the body; m03-plan U5 "Interfaces").
+/// # Errors
+/// [`ParseError::TooLarge`] beyond the bound; [`ParseError::NoReadyLine`] and
+/// [`ParseError::NoVersionLine`] for the first two lines; [`ParseError::Malformed`]
+/// (1-based line) for anything else.
 pub fn parse(stdout: &[u8]) -> Result<Hm1Record, ParseError> {
-    let _ = stdout;
-    Err(ParseError::Unavailable)
+    if stdout.len() > MAX_STDOUT_BYTES {
+        return Err(ParseError::TooLarge);
+    }
+    let mut lines = stdout.split_inclusive(|b| *b == b'\n');
+    if lines.next() != Some(READY_WITH_NL) {
+        return Err(ParseError::NoReadyLine);
+    }
+    if lines.next() != Some(VERSION_WITH_NL) {
+        return Err(ParseError::NoVersionLine);
+    }
+    let mut fields = Vec::new();
+    for (index, raw) in lines.enumerate() {
+        let line = index + 3;
+        let malformed = ParseError::Malformed { line };
+        let pair = raw
+            .strip_suffix(b"\n")
+            .and_then(|body| std::str::from_utf8(body).ok())
+            .and_then(|text| text.strip_prefix(LINE_PREFIX))
+            .and_then(|rest| rest.split_once('='))
+            .and_then(|(name, value)| Hm1Key::from_wire(name).map(|k| (k, value)));
+        let Some((key, value)) = pair else {
+            return Err(malformed);
+        };
+        let bounded = key != Hm1Key::ContentHex || value.len() <= 2 * MAX_CONTENT_BYTES;
+        if key == Hm1Key::V || !bounded || !key.shape().accepts(value) {
+            return Err(malformed);
+        }
+        fields.push((key, value.to_owned()));
+    }
+    Ok(Hm1Record { fields })
+}
+
+/// Decode an HM1 hex value (lowercase pairs, as [`ValueShape::Hex`] accepts).
+#[must_use]
+pub fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    if !ValueShape::Hex.accepts(value) {
+        return None;
+    }
+    value
+        .as_bytes()
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16)?;
+            let lo = (pair[1] as char).to_digit(16)?;
+            u8::try_from(hi * 16 + lo).ok()
+        })
+        .collect()
+}
+
+/// Encode bytes as an HM1 hex value (lowercase pairs, `od -An -v -tx1` without the
+/// spaces).
+#[must_use]
+pub fn encode_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+/// A key that a reading needs at most once appeared again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+#[error("HM1 key {0} repeats")]
+pub struct DuplicateKey(pub Hm1Key);
+
+impl Hm1Record {
+    /// The single value of `key`: `Ok(None)` when absent.
+    ///
+    /// # Errors
+    /// [`DuplicateKey`] when `key` appears more than once.
+    pub fn single(&self, key: Hm1Key) -> Result<Option<&str>, DuplicateKey> {
+        let mut values = self.all(key);
+        let first = values.next();
+        if values.next().is_some() {
+            return Err(DuplicateKey(key));
+        }
+        Ok(first)
+    }
 }
 
 #[cfg(test)]
@@ -522,9 +637,41 @@ mod tests {
     }
 
     #[test]
-    fn wave0_parse_fails_closed() {
-        let ok = format!("{READY_LINE}\n{VERSION_LINE}\nHM1 status=ok\n");
-        assert_eq!(parse(ok.as_bytes()), Err(ParseError::Unavailable));
-        assert_eq!(parse(b""), Err(ParseError::Unavailable));
+    fn parse_is_strict() {
+        let ok = format!("{READY_LINE}\n{VERSION_LINE}\nHM1 status=ok\nHM1 size=3\n");
+        let rec = parse(ok.as_bytes()).unwrap();
+        assert_eq!(rec.get(Hm1Key::Status), Some("ok"));
+        assert_eq!(rec.single(Hm1Key::Size), Ok(Some("3")));
+        assert_eq!(parse(b""), Err(ParseError::NoReadyLine));
+        assert_eq!(parse(b"motd\nHM1 ready\n"), Err(ParseError::NoReadyLine));
+        assert_eq!(parse(b"HM1 ready\n"), Err(ParseError::NoVersionLine));
+        assert_eq!(
+            parse(b"HM1 ready\nHM1 v=2\n"),
+            Err(ParseError::NoVersionLine)
+        );
+        for bad in [
+            "HM1 status=ok",     // no final newline
+            "HM1 status=ok\r\n", // CR
+            "HM1 nope=1\n",      // unknown key
+            "HM1 size=-1\n",     // shape
+            "HM1 v=1\n",         // version again
+            "status=ok\n",       // no prefix
+            "HM1 status\n",      // no value
+        ] {
+            let text = format!("HM1 ready\nHM1 v=1\n{bad}");
+            assert_eq!(
+                parse(text.as_bytes()),
+                Err(ParseError::Malformed { line: 3 }),
+                "{bad:?}"
+            );
+        }
+        let big = vec![b'a'; MAX_STDOUT_BYTES + 1];
+        assert_eq!(parse(&big), Err(ParseError::TooLarge));
+        assert_eq!(handshake(b"HM1 ready\nHM1 v=1\nx"), Handshake::Versioned);
+        assert_eq!(handshake(b"HM1 ready\n"), Handshake::Ready);
+        assert_eq!(handshake(b"HM1 read"), Handshake::NoReady);
+        assert_eq!(decode_hex("0a41"), Some(vec![0x0a, 0x41]));
+        assert_eq!(decode_hex("0A"), None);
+        assert_eq!(encode_hex(&[0, 255]), "00ff");
     }
 }

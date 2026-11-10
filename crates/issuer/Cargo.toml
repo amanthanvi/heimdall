@@ -27,13 +27,26 @@ thiserror = { workspace = true }
 ssh-key = { workspace = true }
 # ADR-0008 D1: K_ca and passphrases zeroize on drop.
 zeroize = { workspace = true }
+# M03-U4 (ADR-0008 D4 item 1): `backup_sha256`, the SHA-256 of the exact D5 bytes.
+sha2 = { workspace = true }
+
+# M03-U4: the ceremonies' controlling terminal (`/dev/tty`): echo off for a typed
+# passphrase through rustix's safe `tcgetattr`/`tcsetattr` (no `unsafe`).
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["termios"] }
 
 # U4's platform stores (ADR-0008 D1; dependencies.md §5).
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { workspace = true }
+# M03-U4 `sys.rs`: CFString/CFArray for `SecAccessCreate` (the access list trusting
+# only this executable); the version security-framework already uses.
+core-foundation = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 secret-service = { workspace = true }
+# M03-U4: the synchronous `SecretStore` drives the async Secret Service client on a
+# current-thread runtime of its own, on a scoped thread, under a timeout.
+tokio = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }     # CryptProtectData/CryptUnprotectData (Win32_Security_Cryptography, root list)
@@ -41,4 +54,12 @@ windows-sys = { workspace = true }     # CryptProtectData/CryptUnprotectData (Wi
 [dev-dependencies]
 # The repository root for the protocol golden (HM_REPO_ROOT; ADR-0007 §12.32 item 3).
 # A dev-dependency cycle like heimdall-ipc's: no store or app graph.
-heimdall-testkit = { workspace = true, default-features = false }
+heimdall-testkit = { workspace = true, default-features = false, features = ["managed", "fixtures"] }
+# M03 wave 1 (m03-plan U4 "Tests"): scratch directories.
+tempfile = { workspace = true }
+
+# Test targets (m01-plan §0 convention). M03-U4: the K_ca stores, the D5 backup,
+# retirement, the uninstall store plan and the recovery bundle.
+[[test]]
+name = "integration_issuer_store"
+path = "../../tests/integration/issuer_store.rs"

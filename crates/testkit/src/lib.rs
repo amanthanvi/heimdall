@@ -1047,6 +1047,26 @@ pub mod scratch_store;
 #[cfg(feature = "managed")]
 pub mod session_lock;
 
+// M03 wave 1 (m03-plan U11; ADR-0008 D13): the managed-credential fixtures. Pure or
+// process fixtures under `fixtures`; the ones naming credential or issuer types under
+// `managed` as well.
+#[cfg(all(feature = "fixtures", feature = "managed"))]
+pub mod ca;
+#[cfg(feature = "fixtures")]
+pub mod installation;
+#[cfg(feature = "managed")]
+pub mod lock;
+#[cfg(all(feature = "fixtures", feature = "managed"))]
+pub mod managed;
+#[cfg(feature = "fixtures")]
+pub mod owner_digest;
+#[cfg(feature = "fixtures")]
+pub mod procstat;
+#[cfg(feature = "fixtures")]
+pub mod registry;
+#[cfg(feature = "fixtures")]
+pub mod shells;
+
 /// Proptest strategies for domain values (plan §6.3). Seeds: tests set
 /// `ProptestConfig { cases, .. }` and commit `proptest-regressions/` files; the
 /// harness prints the seed on failure, which is reproducible with

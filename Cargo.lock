@@ -1134,12 +1134,22 @@ dependencies = [
 name = "heimdall-credential"
 version = "0.1.0-m01"
 dependencies = [
+ "getrandom 0.4.3",
  "heimdall-app",
  "heimdall-contract",
  "heimdall-domain",
  "heimdall-ipc",
+ "heimdall-testkit",
  "libc",
+ "proptest",
+ "serde",
+ "sha2 0.10.9",
+ "ssh-agent-lib",
+ "ssh-encoding",
  "ssh-key",
+ "tempfile",
+ "thiserror",
+ "tokio",
  "windows-sys",
  "zeroize",
 ]
@@ -1163,11 +1173,20 @@ dependencies = [
 name = "heimdall-enroll"
 version = "0.1.0-m01"
 dependencies = [
+ "async-trait",
  "heimdall-app",
  "heimdall-contract",
+ "heimdall-credential",
  "heimdall-domain",
+ "heimdall-localenv",
  "heimdall-registry",
+ "heimdall-testkit",
+ "proptest",
+ "rustix",
+ "ssh-key",
+ "tempfile",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -1196,18 +1215,23 @@ dependencies = [
 name = "heimdall-issuer"
 version = "0.1.0-m01"
 dependencies = [
+ "core-foundation",
  "heimdall-app",
  "heimdall-contract",
  "heimdall-credential",
  "heimdall-domain",
  "heimdall-store",
  "heimdall-testkit",
+ "rustix",
  "secret-service",
  "security-framework",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "ssh-key",
+ "tempfile",
  "thiserror",
+ "tokio",
  "windows-sys",
  "zeroize",
 ]
@@ -1258,6 +1282,9 @@ version = "0.1.0-m01"
 dependencies = [
  "heimdall-contract",
  "heimdall-domain",
+ "heimdall-testkit",
+ "proptest",
+ "serde_json",
  "thiserror",
 ]
 

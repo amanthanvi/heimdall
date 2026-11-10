@@ -16,3 +16,19 @@ workspace = true
 heimdall-contract = { workspace = true }
 heimdall-domain = { workspace = true }
 thiserror = { workspace = true }
+# M03 wave 1 (U5-pure): `plan::plan_digest` canonicalizes the plan through
+# `heimdall_contract::canonical::request_hash`, which takes a `serde_json::Value`.
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# M03 wave 1 (m03-plan U5 "Tests"): fixed-seed properties (>= 256 cases) and the
+# repository root for the script goldens (HM_REPO_ROOT; ADR-0007 §12.32 item 3).
+proptest = { workspace = true }
+heimdall-testkit = { workspace = true, default-features = false }
+serde_json = { workspace = true }
+
+# Test targets (m01-plan §0 convention). M03-U5: the pure registry protocol, the
+# enrollment plan, the step builder and the classifications.
+[[test]]
+name = "model_registry_pure"
+path = "../../tests/model/registry_pure.rs"

@@ -128,3 +128,9 @@ required-features = ["fixtures"]
 name = "integration_store_m03"
 path = "../../tests/integration/store_m03.rs"
 required-features = ["store"]
+
+# M03-U11 fixture self-tests (m03-plan U11 "Tests").
+[[test]]
+name = "integration_testkit_m03"
+path = "../../tests/integration/testkit_m03.rs"
+required-features = ["fixtures", "managed"]
