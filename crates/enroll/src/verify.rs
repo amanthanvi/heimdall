@@ -1218,7 +1218,7 @@ mod tests {
         assert_eq!(c(&hk, None), VerificationVerdict::HostKeyMismatch);
         let mut un = report(pass, neg_refused);
         un.unrecorded = Some(UnrecordedClient {
-            version: ClientVersion::parse("OpenSSH_9.6p1").unwrap(),
+            version: ClientVersion::parse("OpenSSH_9.7p1").unwrap(),
         });
         assert_eq!(
             c(&un, None),

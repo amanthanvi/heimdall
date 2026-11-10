@@ -3737,6 +3737,36 @@ Decided now, implemented in later waves:
       - It lands with U3 or U10, whichever first registers a CA through the wire.
 14. **U5IO-Q4 (a): the verification classification moves into `domain::verification::classify` with U10** (wave 4). `TraceEvents` gains `host_key_failure`, `VerificationOutcome` gains an `unrecorded` flag, and `classify` takes the known clock offset. Until then, classification stays inconclusive, failing closed.
 
+### 17.18 Orchestrator rulings on the wave-1 review and the first native runs (2026-11-10)
+
+**Sources:**
+- **The review:** M03-W1-code-review (Codex, independent), `tests/evidence/artifacts/review-m03-code/wave1.md`. Verdict: fix first, with three findings, W1-R01 to W1-R03.
+- **The native runs:** the first development-check runs of the wave on the devbox (OpenSSH 9.6p1, dash 0.5.12-6ubuntu5) and on the Windows PC (in-box OpenSSH_for_Windows_9.5p2).
+- **The integrator's round-3 escalations:** INT-Q10 to INT-Q12, archived in `wave1-notes/`.
+
+1. **W1-R01 and W1-R02: every secret store is scoped to the installation.**
+   - `put`, `get`, `delete` and `list` all select by `heimdall_environment_id`. The shared logic is `store/attributes.rs`, and the Linux Secret Service store is that logic over the Secret Service.
+   - On Windows, the DPAPI blob directory is per environment: `%LOCALAPPDATA%\Heimdall\issuer\<environment ID>\` (INT-Q11). Without it, two installations of one user shared one directory. This **replaces the plan's path text** in m03-plan U4.
+   - A restore adopts exactly one installation-scoped item. Zero items, or more than one, refuses; nothing is guessed. The frozen trait's `list` is documented as "this installation's items", with its signature unchanged (INT-Q12).
+2. **W1-R03: the native lock rows need a real `Locked` reading.**
+   - The source keeps a latched count of `Locked` readings, separate from the epoch. An `Unknown` still advances the epoch and still revokes `revoke_on_lock` grants (§17.17 item 10), but it never satisfies a lock-evidence row.
+   - **The regression** is `unknown_never_counts_as_a_real_lock_observation`.
+3. **INT-Q10: OpenSSH 9.5 and 9.6 never ask the agent for the certificate in the managed-alias shape.**
+   - **Observed** in a container with the devbox's exact 9.6p1 build, and then natively on the devbox at `5b36b3d8` (the `identity_file_selection` observation lines):
+     - with `IdentityFile` set to K_env's `.pub`, and an agent listing only the certificate, 9.6p1 tries the file's missing private key, exits 255, and asks the agent for nothing;
+     - when the agent also lists the plain key, 9.6p1 asks it to sign the plain key;
+     - 10.5p1 always asks for the certificate.
+   - **The ruling:**
+     - D2 item 4 and F17 stand. The signer never lists or signs the plain K_env key; this is not weakened for older clients.
+     - **U2 and U8 (wave 2)** must find a projection and signer form that 9.5p2 and 9.6p1 complete through the certificate alone. Candidates are `IdentityFile` naming the certificate file, `IdentitiesOnly` with `CertificateFile`, or the agent's key ordering. Each candidate's evidence must come from the real clients: Windows in-box 9.5p2 natively, and the devbox's 9.6p1.
+     - If no form works, U2 and U8 escalate with that evidence. The managed alias on those clients is then `capability_unavailable` (`client_unsupported`), reported per client and never silently degraded.
+   - The observation test that records this behaviour per client stays in the suite.
+4. **Development-check native runs are not exit evidence.** They locate defects before the M03 exit build. U13's exit runs are the evidence. U13 must run the Linux harness in batches, or strip debug information: the devbox has about 12 GB free, and 72 debug test binaries no longer fit, as the first wave-1 run showed with ENOSPC.
+5. **The re-check** (Codex, independent; `tests/evidence/artifacts/review-m03-code/wave1-recheck.md`) found W1-R01 to W1-R03 resolved at `5b36b3d8`, with verdict merge. Its notes are ruled as follows:
+   - **W1-C01, low:** for a staged CLI, `m03_test_gates_are_validated_before_anything_else` infers the expected build profile from the behaviour under test. This is accepted for wave 1, because `release-gate.sh` builds and probes the release CLI on its own. U13 passes the staged CLI's profile to the test from the harness, and the test then checks that it agrees.
+   - **Pre-release DPAPI blobs:** the per-environment default directory (item 1) has no migration from the old shared path. No product caller of `default_dir` exists yet, and no release has written a blob. U10 wires the directory and refuses any blob outside it, never adopting one.
+   - **The debug-only trace dump** writes raw client diagnostics. It exists only in debug builds and is never a support-log exporter or a secret sanitizer. Live accounts never use it.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

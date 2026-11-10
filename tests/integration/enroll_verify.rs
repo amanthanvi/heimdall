@@ -1173,8 +1173,10 @@ mod fx {
 // --- trace patterns (every platform) ------------------------------------------------------
 
 /// ADR-0008 D5 §6.5 item 5, §17.4 item 11: patterns are keyed by upstream release
-/// family and carry only recorded ranges. This host's row is recorded here; the Linux
-/// 9.6p1 and Windows rows are the orchestrator's native runs and stay unrecorded.
+/// family and carry only recorded ranges. This host's 10.5p1 row and the devbox's 9.6p1
+/// row (observed in two devbox runs: at `5b36b3d8`, then the host-key-failure lines on
+/// the round-4 tree) are recorded; the Windows rows are the orchestrator's native runs
+/// and stay unrecorded.
 #[test]
 fn trace_patterns_keyed_by_release_family() {
     assert!(!RECORDED.is_empty());
@@ -1193,9 +1195,12 @@ fn trace_patterns_keyed_by_release_family() {
     assert_eq!(win.family, ClientFamily::Win32);
     assert!(patterns_for(ClientFamily::Win32, win).is_err());
     assert!(patterns_for(ClientFamily::Portable, win).is_err());
-    // Rows the orchestrator records natively: unrecorded until then.
+    // The devbox's 9.6p1, recorded from its observed run (any portable 9.6p1 build).
+    let devbox = ClientVersion::parse("OpenSSH_9.6p1 Ubuntu-3ubuntu13.20, OpenSSL 3.0.13").unwrap();
+    assert!(patterns_for(devbox.family, devbox).is_ok());
+    // Rows not observed yet: unrecorded until a native run records them.
     for text in [
-        "OpenSSH_9.6p1 Ubuntu-3ubuntu13.5, OpenSSL 3.0.13",
+        "OpenSSH_9.7p1 Ubuntu-3ubuntu13.5, OpenSSL 3.0.13",
         "OpenSSH_for_Windows_10.3p1, LibreSSL 3.4.3",
         "OpenSSH_for_Windows_9.5p2, LibreSSL 3.4.3",
     ] {
@@ -1217,12 +1222,12 @@ fn trace_patterns_keyed_by_release_family() {
 /// doctor (`client_trace_family_unrecorded`, family and version).
 #[test]
 fn unrecorded_client_family_doctor_finding_names_version() {
-    let v = ClientVersion::parse("OpenSSH_9.6p1 Ubuntu-3ubuntu13.5").unwrap();
+    let v = ClientVersion::parse("OpenSSH_9.7p1 Ubuntu-3ubuntu13.5").unwrap();
     let e = patterns_for(v.family, v).unwrap_err();
     assert_eq!(e.finding(), UNRECORDED_FINDING);
-    assert_eq!(e.detail(), "portable 9.6p1");
+    assert_eq!(e.detail(), "portable 9.7p1");
     assert!(e.to_string().contains("client_trace_family_unrecorded"));
-    assert!(e.to_string().contains("9.6p1"));
+    assert!(e.to_string().contains("9.7p1"));
     let w = ClientVersion::parse("OpenSSH_for_Windows_10.3p1").unwrap();
     assert_eq!(
         patterns_for(w.family, w).unwrap_err().detail(),
@@ -2846,7 +2851,7 @@ fn verify_unrecorded_client_trace_is_inconclusive() {
     let unrecorded = heimdall_enroll::verify::Verifier::with_client(
         heimdall_enroll::verify::VerifierClient {
             path: fx::system_ssh(),
-            version: ClientVersion::parse("OpenSSH_9.6p1 Ubuntu-3ubuntu13.5").unwrap(),
+            version: ClientVersion::parse("OpenSSH_9.7p1 Ubuntu-3ubuntu13.5").unwrap(),
         },
         &v.runtime,
     );
@@ -2857,7 +2862,7 @@ fn verify_unrecorded_client_trace_is_inconclusive() {
         .unwrap();
     let r = rt.block_on(unrecorded.run_detailed(&v.plan, &v.positive, &v.negative, &v.session));
     let u = r.unrecorded.expect("unrecorded");
-    assert_eq!(u.detail(), "portable 9.6p1");
+    assert_eq!(u.detail(), "portable 9.7p1");
     assert_eq!(r.positive.end, AttemptEnd::NotStarted);
     assert_eq!(v.session.installs(), 0);
     assert!(v.lab.sshd.accepted().is_empty() && !v.lab.sshd.log_text().contains("Connection from"));

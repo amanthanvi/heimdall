@@ -122,3 +122,39 @@ Windows clippy clean; Linux type-check clean.
 - Round 3 checks: Docker up.sh 0, `integration_enroll_registry --ignored` 172 passed, the Debian 13
   verifier row passed, down.sh 0 CLEANUP CONFIRMED; check.sh every step 0 (2372 passed, 0 failed,
   187 ignored; native-harness-selftest 316/0); clippy-windows 0; linux-xcheck --workspace 0.
+
+## Round 4 (9.6p1 trace row from the devbox run at `5b36b3d8`; 2026-11-10)
+- Recorded `RECORDED` row portable 9.6p1..9.6p1 from the devbox log's `m03 observation: client_trace_row
+  family=portable version=9.6p1` lines only (source comment: observed on the devbox, `5b36b3d8`). Observed:
+  server_version, host_key_matched, offered, accepted, can_continue, publickey_failure.
+- **Missing from that log:** the host-key-failure lines (no attempt failed host verification). Not inferred:
+  the row's `host_key_failure` is empty, so on 9.6p1 a host-key failure classifies as transport-inconclusive
+  (fail closed). `verification_host_key_mismatch_holds_no_rollback` now prints
+  `… field=host_key_failure` observation lines for such a row and fails (not a pass) until they are recorded.
+- Tests that used 9.6p1 as the unrecorded example now use 9.7p1 (trace unit test, verify unit test,
+  `trace_patterns_keyed_by_release_family`, the doctor-finding and unrecorded-client verification tests).
+- Validation only, not a source: `integration_enroll_verify` cross-built for x86_64 Linux ran in a disposable
+  `--network none` Ubuntu 24.04 container (`OpenSSH_9.6p1 Ubuntu-3ubuntu13.20`): 50 passed, 1 failed (the
+  host-key test above, by design), 1 ignored; it printed "Host key verification failed." and
+  "REMOTE HOST IDENTIFICATION HAS CHANGED" for both attempts. Image and scratch removed.
+- ADR-0008 §17.18 and `wave1.md` (orchestrator's) untouched; INT-Q10 unchanged (wave 2).
+- Round 4 checks: check.sh every step 0 (2372 passed, 0 failed, 187 ignored; native-harness-selftest 316/0).
+  Devbox rerun: `HM_ONLY="integration_enroll_verify heimdall_enroll-unit"`.
+
+## Round 5 (9.6p1 host-key-failure patterns from the second devbox run; 2026-11-10)
+- Source: the devbox rerun on the round-4 tree (`HM_ONLY="integration_enroll_verify heimdall_enroll-unit"`):
+  `… field=host_key_failure` lines, both attempts against a changed host key, both exit 255.
+- 9.6p1 `host_key_failure` = "Host key verification failed.", "REMOTE HOST IDENTIFICATION HAS CHANGED",
+  " has changed and you have requested strict checking." (each in both attempts). The unknown-host lines
+  (`No … host key is known for`) were not observed on 9.6p1 and are not recorded. Row comment and evidence
+  name both devbox runs.
+- `verification_host_key_mismatch_holds_no_rollback` restored to its `5b36b3d8` form; the
+  `observe_host_key_failure_trace` helper removed (nothing else used it).
+- New unit test `devbox_9_6p1_changed_host_key_trace_is_a_host_key_failure`: each 9.6p1 string occurs in
+  the observed (redacted) trace, which parses as a host-key failure with no other event; adding an
+  unobserved string → 101. `only_recorded_rows_have_patterns` now requires every recorded row to carry
+  host-key-failure strings.
+- Validation only: disposable `--network none` Ubuntu 24.04 container (`OpenSSH_9.6p1
+  Ubuntu-3ubuntu13.20`): `heimdall_enroll` lib 13/13, `integration_enroll_verify` 51 passed, 0 failed,
+  1 ignored. Image and scratch removed.
+- check.sh every step 0 (2373 passed, 0 failed, 187 ignored; native-harness-selftest 316/0).
