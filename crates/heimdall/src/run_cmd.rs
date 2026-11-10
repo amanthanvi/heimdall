@@ -28,6 +28,22 @@
 //!    `prelaunch_failed` record; §12.26 item 3(a), §12.28 item 7) and never launched;
 //! 8. the launch: Unix `exec` after `launching`, Windows spawn and wait.
 //!
+//! **⟨M03⟩ A managed binding** (ADR-0008 D8 item 2, D10 item 5; m03-plan U8), after
+//! step 4:
+//! * **the slot check:** the binding must hold the slot of every managed pair. A free
+//!   slot is claimed (auto-materialize); a slot another binding holds (or that is still
+//!   clearing) is refused before launch, `CONFIG_CONFLICT` `managed_slot_held`
+//!   ([`require_slots`]). The slot table is the runtime's (U6's files, U10's wiring);
+//!   this build has no request for it, so the production [`ManagedSlots`] refuses
+//!   `driver_unavailable` (fail closed). Today a managed pair never gets this far:
+//!   `ensure` refuses it `driver_unavailable` until the managed adapter is registered;
+//! * **an owned launch** (the program is the verified `ssh` client): the foreground pins
+//!   right after the program name, and the refusal of `-f`, `-M`, `-S`, `-O` and the
+//!   `-o` forms of `ForkAfterAuthentication`, `ControlMaster`, `ControlPath` and
+//!   `ControlPersist` (`owned_connection_option_conflict`). On Windows an owned launch
+//!   needs U7's contained spawn, so it is refused there (fail closed);
+//! * the deadline notice follows the pairs' identity selection (D8 item 6).
+//!
 //! The control session is closed and the async runtime shut down before step 8, so
 //! the child inherits neither. Every failure before launch writes `prelaunch_failed`
 //! (when a side channel is open) and is reported on stderr; stdout is the child's.
@@ -79,11 +95,12 @@ pub(crate) fn run(ctx: &Ctx, args: RunArgs) -> ExitCode {
             ctx,
             Launch {
                 program: prepared.program,
-                args: args
-                    .argv
-                    .get(1..)
-                    .map(<[OsString]>::to_vec)
-                    .unwrap_or_default(),
+                args: prepared.args.unwrap_or_else(|| {
+                    args.argv
+                        .get(1..)
+                        .map(<[OsString]>::to_vec)
+                        .unwrap_or_default()
+                }),
                 delta: prepared.delta,
                 meta: launch_flow::with_ids(meta, prepared.operation, prepared.binding),
                 hooks,
@@ -102,6 +119,9 @@ pub(crate) fn run(ctx: &Ctx, args: RunArgs) -> ExitCode {
 /// What a successful preparation hands to the launch.
 struct Prepared {
     program: heimdall_launch::resolve::ResolvedProgram,
+    /// ⟨M03⟩ An owned launch's arguments (the pins, then the user's); `None`: the
+    /// user's arguments unchanged.
+    args: Option<Vec<OsString>>,
     delta: EnvDelta,
     operation: Option<heimdall_contract::ids::OperationId>,
     binding: Option<heimdall_contract::ids::BindingId>,
@@ -243,6 +263,17 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
                 Some(ids.clone()),
             )
         })?;
+        // ⟨M03⟩ 4b. A managed binding: the slot of every managed pair, and an owned
+        // launch's foreground pins and refusals (module docs).
+        let owned_args = managed_checks(
+            &program,
+            &env,
+            &args.argv,
+            &data.binding_id,
+            &bound_data.consumer.pairs,
+            &mut UnavailableSlots,
+        )
+        .map_err(|f| (f, Some(ids.clone())))?;
         // 5. Git's selection in the child's directory, with the child's environment.
         let ssh_paths = launch_flow::ssh_paths(hooks)
             .unwrap_or_else(|_| SshPaths::with_test_override(cwd.clone(), cwd.clone()));
@@ -290,9 +321,11 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
             .await
             .map_err(|f| (f, Some(ids.clone())))?;
         drop(client);
+        launch_flow::report_deadline(ctx, &bound_data);
         let delta = EnvDelta::from_integration(&bound_data.consumer, &env, &git, platform);
         Ok(Prepared {
             program,
+            args: owned_args,
             delta,
             operation: ids.0,
             binding: ids.1,
@@ -304,9 +337,228 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
     Ok(prepared)
 }
 
+// --- ⟨M03⟩ the managed checks (ADR-0008 D8 item 2, D10 item 5) ---------------------------
+
+/// The slot table of the managed pairs, as `run` needs it (D10 item 2). The runtime owns
+/// it (U6's files, U10's wiring); the CLI reaches it only through a request, which this
+/// build does not have ([`UnavailableSlots`]).
+pub(crate) trait ManagedSlots {
+    /// The slot's state for `pair`.
+    fn state(
+        &mut self,
+        pair: &heimdall_contract::request::PairIntegration,
+    ) -> Result<heimdall_domain::managed::SlotState, Failure>;
+    /// Claim the free slot of `pair` for `binding` (auto-materialize: the files are
+    /// written, then the environment endpoint lists the key).
+    fn claim(
+        &mut self,
+        binding: &heimdall_contract::ids::BindingId,
+        pair: &heimdall_contract::request::PairIntegration,
+    ) -> Result<(), Failure>;
+}
+
+/// The production slot table of this build: none (fail closed).
+pub(crate) struct UnavailableSlots;
+
+impl ManagedSlots for UnavailableSlots {
+    fn state(
+        &mut self,
+        _pair: &heimdall_contract::request::PairIntegration,
+    ) -> Result<heimdall_domain::managed::SlotState, Failure> {
+        Err(launch_flow::managed_unavailable("the managed slot table"))
+    }
+
+    fn claim(
+        &mut self,
+        _binding: &heimdall_contract::ids::BindingId,
+        _pair: &heimdall_contract::request::PairIntegration,
+    ) -> Result<(), Failure> {
+        Err(launch_flow::managed_unavailable("the managed slot table"))
+    }
+}
+
+/// D10 item 5: `binding` must hold the slot of every managed pair of `pairs`. Every
+/// slot is read first; any slot another binding holds, or one still clearing, refuses
+/// the launch (`managed_slot_held`) before anything is claimed. Then each free slot is
+/// claimed (the domain's `slot_transition` decides each case). Returns how many slots
+/// were claimed.
+pub(crate) fn require_slots(
+    slots: &mut dyn ManagedSlots,
+    binding: &heimdall_contract::ids::BindingId,
+    pairs: &[heimdall_contract::request::PairIntegration],
+) -> Result<usize, Failure> {
+    use heimdall_domain::managed::{SlotEvent, SlotState, slot_transition};
+    let claim = SlotEvent::Claim {
+        binding: binding.clone(),
+    };
+    let mut free = Vec::new();
+    for pair in pairs
+        .iter()
+        .filter(|p| p.mechanism == launch_flow::MANAGED_CERTIFICATE)
+    {
+        let state = slots.state(pair)?;
+        match slot_transition(&state, &claim) {
+            Ok(next) if next == state => {}
+            Ok(_) if matches!(state, SlotState::Free { .. }) => free.push(pair),
+            // Held by another binding, clearing, or anything this build cannot claim.
+            _ => return Err(launch_flow::managed_slot_held(binding)),
+        }
+    }
+    for pair in &free {
+        slots.claim(binding, pair)?;
+    }
+    Ok(free.len())
+}
+
+/// ⟨M03⟩ The checks of a managed binding (module docs): `None` for a binding with no
+/// managed pair (M02, unchanged); otherwise the slot check, and for an owned launch the
+/// pinned arguments. On Windows an owned launch is refused until U7's contained spawn.
+fn managed_checks(
+    program: &heimdall_launch::resolve::ResolvedProgram,
+    env: &Env,
+    argv: &[OsString],
+    binding: &heimdall_contract::ids::BindingId,
+    pairs: &[heimdall_contract::request::PairIntegration],
+    slots: &mut dyn ManagedSlots,
+) -> Result<Option<Vec<OsString>>, Failure> {
+    if !launch_flow::is_managed(pairs) {
+        return Ok(None);
+    }
+    let owned = launch_flow::is_verified_ssh(program, env);
+    let pinned = if owned {
+        Some(launch_flow::owned_ssh_args(
+            argv.get(1..).unwrap_or_default(),
+        )?)
+    } else {
+        None
+    };
+    if owned && cfg!(windows) {
+        return Err(launch_flow::managed_unavailable(
+            "the contained launch of the verified ssh client (Windows)",
+        ));
+    }
+    require_slots(slots, binding, pairs)?;
+    Ok(pinned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use heimdall_contract::ids::{AccountName, BindingId, DestinationId, IdentityId};
+    use heimdall_contract::provider::{
+        EvidenceBasis, IdentitySelection, InteractionKind, NoninteractiveEligibility,
+    };
+    use heimdall_contract::request::PairIntegration;
+    use heimdall_domain::managed::SlotState;
+
+    fn pair(n: u8, mechanism: &str) -> PairIntegration {
+        PairIntegration {
+            destination: DestinationId::parse(&format!("host-{n}"))
+                .unwrap_or_else(|_| unreachable!()),
+            account: AccountName::parse("deploy").unwrap_or_else(|_| unreachable!()),
+            identity: IdentityId::from_random_bytes([n; 16]),
+            mechanism: mechanism.to_owned(),
+            endpoint: None,
+            alias: Some(format!("host{n}")),
+            interaction: InteractionKind::None,
+            interaction_basis: EvidenceBasis::Observed,
+            declared_at: None,
+            identity_selection: IdentitySelection::Exclusive,
+            selection_observed_at: heimdall_contract::Timestamp::now(),
+            declaration: None,
+            noninteractive: NoninteractiveEligibility {
+                eligible: true,
+                reason: None,
+            },
+            eligibility_checked_at: heimdall_contract::Timestamp::now(),
+            identity_selection_report: None,
+        }
+    }
+
+    /// A fake slot table: each pair's state by destination, and the claims made.
+    struct FakeSlots {
+        states: Vec<(DestinationId, SlotState)>,
+        claims: Vec<DestinationId>,
+    }
+
+    impl ManagedSlots for FakeSlots {
+        fn state(&mut self, pair: &PairIntegration) -> Result<SlotState, Failure> {
+            Ok(self
+                .states
+                .iter()
+                .find(|(d, _)| *d == pair.destination)
+                .map_or(SlotState::Free { generation: 0 }, |(_, s)| s.clone()))
+        }
+        fn claim(&mut self, _binding: &BindingId, pair: &PairIntegration) -> Result<(), Failure> {
+            self.claims.push(pair.destination.clone());
+            Ok(())
+        }
+    }
+
+    /// ADR-0008 D10 item 5, against a fake slot table: free slots are claimed, a slot
+    /// the binding holds is kept, a slot another binding holds (or one still clearing)
+    /// refuses before any claim (`CONFIG_CONFLICT`, `managed_slot_held`, next
+    /// `release_binding`), and existing-access pairs need no slot.
+    #[test]
+    fn the_slot_check_claims_free_slots_and_refuses_a_held_one_before_any_claim() {
+        let me = BindingId::from_random_bytes([1; 16]);
+        let other = BindingId::from_random_bytes([2; 16]);
+        let pairs = [
+            pair(1, launch_flow::MANAGED_CERTIFICATE),
+            pair(2, launch_flow::MANAGED_CERTIFICATE),
+            pair(3, "native_agent"),
+        ];
+        let mut slots = FakeSlots {
+            states: vec![(
+                pairs[1].destination.clone(),
+                SlotState::Held {
+                    binding: me.clone(),
+                    generation: 4,
+                },
+            )],
+            claims: Vec::new(),
+        };
+        assert_eq!(require_slots(&mut slots, &me, &pairs).ok(), Some(1));
+        assert_eq!(slots.claims, [pairs[0].destination.clone()]);
+
+        for blocking in [
+            SlotState::Held {
+                binding: other.clone(),
+                generation: 7,
+            },
+            SlotState::Clearing { generation: 7 },
+        ] {
+            let mut slots = FakeSlots {
+                states: vec![(pairs[1].destination.clone(), blocking)],
+                claims: Vec::new(),
+            };
+            let Err(f) = require_slots(&mut slots, &me, &pairs) else {
+                panic!("a held slot must refuse");
+            };
+            assert!(
+                slots.claims.is_empty(),
+                "nothing is claimed before the refusal"
+            );
+            assert_eq!(f.env.code, heimdall_contract::Code::ConfigConflict);
+            assert_eq!(f.env.data["error"]["reason"], "managed_slot_held");
+            assert_eq!(
+                f.env.next.as_ref().map(|n| n.action.as_str()),
+                Some("release_binding")
+            );
+        }
+        // No managed pair: no slot is read.
+        let mut none = FakeSlots {
+            states: Vec::new(),
+            claims: Vec::new(),
+        };
+        assert_eq!(require_slots(&mut none, &me, &pairs[2..]).ok(), Some(0));
+        // The production table of this build refuses, fail closed.
+        let Err(f) = require_slots(&mut UnavailableSlots, &me, &pairs) else {
+            panic!("no slot table in this build");
+        };
+        assert_eq!(f.env.data["error"]["reason"], "driver_unavailable");
+    }
 
     #[test]
     fn the_argument_bound_counts_every_byte_and_terminator() {

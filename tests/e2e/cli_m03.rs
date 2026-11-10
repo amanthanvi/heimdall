@@ -213,7 +213,8 @@ const M03_LINES: &[&[&str]] = &[
     ],
     &["connections"],
     &["connections", "close", "conn-1"],
-    &["internal", "issuer"],
+    // ⟨wave 2⟩ `internal issuer` is no longer a wave-0 line: on a pipe it runs the
+    // issuer child (U3); see the end of the test below.
     &["internal", "session-lock-state"],
 ];
 
@@ -269,6 +270,16 @@ fn w0_m03_cli_commands_report_not_available_and_never_panic() {
         assert_eq!(out.json()["code"], "USAGE_ERROR", "{line:?}");
         assert_ne!(out.message(), expected, "{line:?}");
     }
+
+    // ⟨wave 2, U3⟩ `internal issuer` on a pipe is the issuer child: its stdout is the
+    // `heimdall-issuer/1` channel, so it prints no envelope. With no installation (no
+    // state database) it cannot serve and exits `unavailable` (5), reading nothing and
+    // creating neither the home nor a runtime.
+    let home = scratch.path().join("home-issuer");
+    let out = run(&home, &account, &["internal", "issuer"], &[]);
+    assert_eq!(out.code, 5, "{out:?}");
+    assert!(out.stdout.is_empty(), "{out:?}");
+    assert!(!home.exists(), "internal issuer created the Heimdall home");
 
     // `internal` is not listed in help; the M03 user commands are.
     let help = run(

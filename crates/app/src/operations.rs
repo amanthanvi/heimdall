@@ -255,6 +255,8 @@ pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use pair_mechanism_m03::unattended_refusal;
 pub use verification_m03::VerificationRequest;
+// ⟨M03⟩ U3: the issuer's read-only check shares the publish predicate (`issuance_ro`).
+pub(crate) use verification_m03::verification_check_read_only;
 
 /// Bounds the application enforces regardless of caller (spec §11.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1323,6 +1325,20 @@ fn revalidate_chain_verdict(
     grant: &GrantSnapshot,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<Validated, RevalidationFailure>> {
+    revalidate_chain_verdict_with(tx, environment, adapters, grant, now, true)
+}
+
+/// [`revalidate_chain_verdict`]; with `record` false (⟨M03⟩ U3: the issuer's
+/// read-only check) the new validated generation is **not** recorded, so the
+/// verdict is computed without any write.
+fn revalidate_chain_verdict_with(
+    tx: &mut Txn<'_>,
+    environment: &EnvironmentId,
+    adapters: &[AdapterInfo],
+    grant: &GrantSnapshot,
+    now: Timestamp,
+    record: bool,
+) -> heimdall_store::Result<Result<Validated, RevalidationFailure>> {
     let withdrawn = |msg: &str| RevalidationFailure {
         error: revalidation_failed(msg),
         withdrawn: true,
@@ -1355,8 +1371,10 @@ fn revalidate_chain_verdict(
         parent = Some(copy.clone());
         members.push(copy);
     }
-    for id in &revalidated {
-        tx.record_grant_validation(id, current)?;
+    if record {
+        for id in &revalidated {
+            tx.record_grant_validation(id, current)?;
+        }
     }
     let Some(grant) = members.pop() else {
         return Err(conflict("empty grant chain"));
@@ -11266,6 +11284,46 @@ fn run_issuance_check(
     safe: Option<&SafeNow>,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<(), IssuanceRefusal>> {
+    let verdict = issuance_check_snapshot(
+        tx,
+        env,
+        adapters,
+        grant,
+        pair,
+        bounds,
+        facts,
+        time,
+        safe.map(|s| &s.anchor),
+        now,
+        true,
+    )?;
+    // ⟨r2.7⟩ ADR-0006 §13.10 item 2: after every predicate held, a grant whose
+    // credential mechanism is unavailable is still refused (nothing ends).
+    let mechanism = mechanism_refuses(tx, adapters, grant)?;
+    Ok(match verdict {
+        Ok(()) if mechanism => Err(IssuanceRefusal::MechanismUnavailable),
+        r => r,
+    })
+}
+
+/// ⟨M03⟩ U3: the body of [`run_issuance_check`] before the mechanism check, shared
+/// with the issuer's read-only check ([`issuance_check_read_only`]). `safe` is the
+/// accepted observation (`None` on uncertain time); with `record` false a
+/// re-validation is judged but not recorded, so nothing is written.
+#[allow(clippy::too_many_arguments)]
+fn issuance_check_snapshot(
+    tx: &mut Txn<'_>,
+    env: &EnvironmentId,
+    adapters: &[AdapterInfo],
+    grant: &GrantSnapshot,
+    pair: &AccessPair,
+    bounds: &CertificateBounds,
+    facts: &IssuanceFacts,
+    time: dtime::TimeStatus,
+    safe: Option<&dtime::TimeAnchor>,
+    now: Timestamp,
+    record: bool,
+) -> heimdall_store::Result<Result<(), IssuanceRefusal>> {
     let current_generation = tx.authority_generation()?;
     let raw = ancestry(tx, grant)?;
     let mut stale = validated_generation(tx, grant)? != current_generation;
@@ -11290,7 +11348,7 @@ fn run_issuance_check(
             false,
         )
     } else if stale {
-        match revalidate_chain(tx, env, adapters, grant, now)? {
+        match revalidate_chain_verdict_with(tx, env, adapters, grant, now, record)? {
             Ok(v) => (v.grant, v.ancestors, false),
             Err(_) => (
                 at_current(grant.clone()),
@@ -11305,7 +11363,73 @@ fn run_issuance_check(
             false,
         )
     };
-    let (parent, ancestors) = match chain.split_first() {
+    // Continuous admission from the **same** observation the gate assessed.
+    let admission = match (safe, tx.grant_anchor(&grant.id)?) {
+        (Some(s), Some(anchor)) => dtime::admission(&anchor, s),
+        _ => Admission::NeedsAnchor,
+    };
+    let verdict = issuance_predicate(
+        tx,
+        env,
+        &IssuanceSnapshot {
+            grant,
+            subject,
+            chain: &chain,
+            revalidation_failed,
+            current_generation,
+        },
+        pair,
+        bounds,
+        facts,
+        time,
+        admission,
+        now,
+    )?;
+    Ok(match verdict {
+        Ok(()) if revalidation_failed => Err(IssuanceRefusal::StaleGeneration),
+        r => r,
+    })
+}
+
+/// ⟨M03⟩ U3 (ADR-0008 D3 item 4 step 2; §17.1 item 12, F21): the snapshot one
+/// issuance predicate run sees, assembled by the reserve and publish transactions
+/// ([`run_issuance_check`]) and by the issuer's read-only check
+/// ([`issuance_check_read_only`]) alike.
+struct IssuanceSnapshot<'a> {
+    /// The grant as stored.
+    grant: &'a GrantSnapshot,
+    /// The grant as the predicate sees it (at the current generation when
+    /// re-validated, else at its validated generation's copy).
+    subject: GrantSnapshot,
+    /// Its ancestors, nearest first, as the predicate sees them.
+    chain: &'a [GrantSnapshot],
+    /// A re-validation was attempted and failed: the recorded policy revision stays
+    /// the expected one.
+    revalidation_failed: bool,
+    /// The current authority generation.
+    current_generation: heimdall_domain::policy::AuthorityGeneration,
+}
+
+/// The predicate over one assembled snapshot (merged or continuing policy, the
+/// expected policy revision, tombstones, the CA facts): the code the reserve and
+/// publish transactions and the issuer's read-only check share, so they can never
+/// disagree about what the predicate sees (ADR-0008 D3 item 4 step 2). Reads only.
+#[allow(clippy::too_many_arguments)]
+fn issuance_predicate(
+    tx: &mut Txn<'_>,
+    env: &EnvironmentId,
+    snapshot: &IssuanceSnapshot<'_>,
+    pair: &AccessPair,
+    bounds: &CertificateBounds,
+    facts: &IssuanceFacts,
+    time: dtime::TimeStatus,
+    admission: Admission,
+    now: Timestamp,
+) -> heimdall_store::Result<Result<(), IssuanceRefusal>> {
+    let grant = snapshot.grant;
+    let revalidation_failed = snapshot.revalidation_failed;
+    let current_generation = snapshot.current_generation;
+    let (parent, ancestors) = match snapshot.chain.split_first() {
         Some((p, rest)) => (Some(p), rest),
         None => (None, &[][..]),
     };
@@ -11328,7 +11452,7 @@ fn run_issuance_check(
     // validated against the current applicable revision. That revision is then the
     // expected one (and the one the validated copy carries); a chain that failed
     // re-validation keeps its recorded revision, so a changed policy refuses.
-    let mut subject = subject;
+    let mut subject = snapshot.subject.clone();
     let mut expected_policy_revision = ctx.expected_policy_revision;
     if !revalidation_failed
         && let Some(p) = policy.filter(|p| Some(&p.profile) == ctx.profile.as_ref())
@@ -11341,11 +11465,6 @@ fn run_issuance_check(
         }
     }
     let tombstoned = tx.denied_ancestor(&grant.id)?.is_some();
-    // Continuous admission from the **same** observation the gate assessed.
-    let admission = match (safe, tx.grant_anchor(&grant.id)?) {
-        (Some(s), Some(anchor)) => dtime::admission(&anchor, &s.anchor),
-        _ => Admission::NeedsAnchor,
-    };
     let permitted = permitted_extensions(grant, pair);
     // ⟨M03⟩ U0b row 2 (O): the CA inputs, read here (`None` on the M01 path).
     let cas = ca_issuance_m03::ca_facts(tx, &grant.id, pair, bounds)?;
@@ -11368,12 +11487,62 @@ fn run_issuance_check(
         now,
         enrolled_cas: cas.as_ref().map(ca_issuance_m03::CaFacts::input),
     };
-    // ⟨r2.7⟩ ADR-0006 §13.10 item 2: after every predicate held, a grant whose
-    // credential mechanism is unavailable is still refused (nothing ends).
-    let mechanism = mechanism_refuses(tx, adapters, grant)?;
-    Ok(match heimdall_domain::issuance::check(&check) {
-        Ok(()) if revalidation_failed => Err(IssuanceRefusal::StaleGeneration),
-        Ok(()) if mechanism => Err(IssuanceRefusal::MechanismUnavailable),
+    Ok(heimdall_domain::issuance::check(&check))
+}
+
+/// ⟨M03⟩ U3 (ADR-0008 D3 item 4 step 2; §17.1 item 12, F21): the publish
+/// predicate over the stored `entry`, read-only, for the issuer child. It is
+/// [`issuance_check_snapshot`], the code [`run_issuance_check`] runs at reserve and
+/// publish, with two differences a read-only reader needs:
+/// * **a re-validation is judged, never recorded** (`record` false). It runs without
+///   the runtime's adapter list: `resolve_existing` reads adapters only for the
+///   destination's enforcement label, `unknown` without one, which no caller minimum
+///   is checked against here, so the verdict is the runtime's;
+/// * **the mechanism is judged from the store only:** a grant `degraded` for a reason
+///   whose rule refuses every use is refused; whether the mechanism is configured is
+///   the runtime's own fact, judged again by its publish transaction.
+///
+/// When every predicate holds but the entry was reserved at another authority
+/// generation, it refuses [`IssuanceRefusal::StaleGeneration`] where publish would
+/// void and re-reserve: the D3 item 4 generation-only refusal. So the verdict is the
+/// publish transaction's, with "re-reserved" read as `stale_generation`.
+///
+/// `time` is the read-only assessment of the observation `now`. Reads only.
+pub(crate) fn issuance_check_read_only(
+    tx: &mut Txn<'_>,
+    entry: &IssuanceEntry,
+    facts: &IssuanceFacts,
+    now: &dtime::TimeAnchor,
+    time: &dtime::TimeStatus,
+) -> heimdall_store::Result<Result<(), IssuanceRefusal>> {
+    let Some(grant) = tx.grant(&entry.grant)? else {
+        return Ok(Err(IssuanceRefusal::GrantNotIssuable(GrantState::Revoked)));
+    };
+    let Some(env) = tx.self_environment()? else {
+        return Ok(Err(IssuanceRefusal::GrantNotIssuable(GrantState::Revoked)));
+    };
+    let safe = (*time == dtime::TimeStatus::Safe).then_some(now);
+    let verdict = issuance_check_snapshot(
+        tx,
+        &env,
+        &[],
+        &grant,
+        &entry.pair,
+        &entry.bounds,
+        facts,
+        *time,
+        safe,
+        now.wall,
+        false,
+    )?;
+    let degraded_refuses = grant.state == GrantState::Degraded
+        && tx
+            .grant_degradation(&grant.id)?
+            .is_some_and(degraded_refuses_use);
+    let current_generation = tx.authority_generation()?;
+    Ok(match verdict {
+        Ok(()) if degraded_refuses => Err(IssuanceRefusal::MechanismUnavailable),
+        Ok(()) if entry.generation != current_generation => Err(IssuanceRefusal::StaleGeneration),
         r => r,
     })
 }

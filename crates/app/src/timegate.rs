@@ -513,13 +513,55 @@ impl TimeGate {
     /// **nothing**: no high-water mark, no runtime anchor. Synchronous store reads;
     /// call it on the blocking pool.
     ///
-    /// **Wave 0:** the body is U3's. Until it lands it answers `Uncertain`
-    /// (`Unsynchronized`, sync `Unknown`), so nothing it gates is admitted.
+    /// It is [`TimeGate::assess_read_only_in`] in one transaction of its own. A store
+    /// that cannot be read answers `Uncertain` (`Unsynchronized`, sync `Unknown`), so
+    /// nothing it gates is admitted (fail closed).
     #[must_use]
-    pub fn assess_read_only(&self, _store: &Store) -> TimeStatus {
-        TimeStatus::Uncertain(TimeUncertainty::Unsynchronized {
-            sync: SyncStatus::Unknown,
-        })
+    pub fn assess_read_only(&self, store: &Store) -> TimeStatus {
+        store
+            .transaction(|txn| self.assess_read_only_in(txn))
+            .map_or(
+                TimeStatus::Uncertain(TimeUncertainty::Unsynchronized {
+                    sync: SyncStatus::Unknown,
+                }),
+                |(_, status)| status,
+            )
+    }
+
+    /// ⟨M03⟩ [`TimeGate::assess_read_only`] inside a caller's transaction (the issuer
+    /// child's one read transaction, ADR-0008 D3 item 4 step 2): a fresh observation
+    /// and the gate's verdict on it, with that observation returned so the caller's
+    /// predicate judges the **same** reading. Reads the runtime anchor, the high-water
+    /// mark and this boot's confirmation; writes nothing.
+    ///
+    /// **Fails closed without an anchor:** the gate's rules apply unchanged, except
+    /// that an observation with no same-boot reference (neither a runtime anchor nor
+    /// an attended confirmation of this boot) is `Uncertain` (`Unsynchronized`, with
+    /// the sync report) even on synchronized time. The read-write gate would accept it
+    /// and persist the boot's first anchor; a read-only reader cannot, so it never
+    /// accepts time that no anchor vouches for.
+    ///
+    /// # Errors
+    /// A store read error.
+    pub fn assess_read_only_in(
+        &self,
+        txn: &mut Txn<'_>,
+    ) -> heimdall_store::Result<(TimeAnchor, TimeStatus)> {
+        let a = self.in_txn().assess(txn)?;
+        let anchored = a
+            .previous
+            .as_ref()
+            .is_some_and(|p| p.boot_id == a.now.boot_id)
+            || txn
+                .time_confirmation()?
+                .is_some_and(|c| c.boot_id == a.now.boot_id);
+        let status = match a.status {
+            TimeStatus::Safe if !anchored => {
+                TimeStatus::Uncertain(TimeUncertainty::Unsynchronized { sync: a.sync })
+            }
+            status => status,
+        };
+        Ok((a.now, status))
     }
 
     /// Admission check for a grant against a `Safe` observation: wall bound and

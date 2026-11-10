@@ -105,3 +105,9 @@ path = "../../tests/e2e/cli_m03.rs"
 [[test]]
 name = "e2e_issuer_ceremony"
 path = "../../tests/e2e/issuer_ceremony.rs"
+
+# M03 wave 2 (U8): consumer integration for managed pairs (connect, run, the slot check;
+# m03-plan U8 "Tests").
+[[test]]
+name = "e2e_consumer_m03"
+path = "../../tests/e2e/consumer_m03.rs"

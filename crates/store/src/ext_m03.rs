@@ -635,7 +635,10 @@ impl Txn<'_> {
         Ok(())
     }
 
-    fn verification_entry(&mut self, id: &IssuanceId) -> Result<Option<VerificationEntry>> {
+    /// ⟨M03 wave 2, integrator; U3-Q1⟩ One verification issuance entry by ID, in any
+    /// state (the issuer child's D3 item 4 step 1 lookup over its read-only store).
+    /// Read-only.
+    pub fn verification_entry(&mut self, id: &IssuanceId) -> Result<Option<VerificationEntry>> {
         self.one_doc(
             "SELECT record_json FROM verification_issuance WHERE id = ?1",
             [id.as_str()],

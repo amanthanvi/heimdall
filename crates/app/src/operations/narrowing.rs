@@ -280,18 +280,19 @@ pub struct NarrowingReport {
 }
 
 /// ⟨M03⟩ Row 5: where `admit` takes its time assessment (integrator reading; questions
-/// file G-Q3). U3 switches the default to [`AuthorizationTime::ReadOnly`] once
-/// `TimeGate::assess_read_only` has its body.
+/// file G-Q3). ⟨wave 2⟩ The default is [`AuthorizationTime::ReadOnly`]: ADR-0008
+/// §17.15 item 8 makes U3's `TimeGate::assess_read_only` replace the `Peek` seam before
+/// the U2 signer lands (a wave-2 acceptance criterion).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AuthorizationTime {
     /// The time gate's rules evaluated over the authorization's own read transaction,
     /// persisting nothing (no high-water mark, no anchor; as `TimeGate::peek`, §0.4
-    /// M15). The wave-0 default.
-    #[default]
+    /// M15). The wave-0 default; kept only as an explicit, non-default choice.
     Peek,
-    /// `TimeGate::assess_read_only` (U3; wave 0: always `Uncertain`, so every
-    /// signature is refused).
+    /// `TimeGate::assess_read_only` (U3): the gate over a read transaction, persisting
+    /// nothing, failing closed without a same-boot anchor. The default since wave 2.
+    #[default]
     ReadOnly,
 }
 

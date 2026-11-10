@@ -17,10 +17,11 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use heimdall_sshconf::render::ManagedIdentityForm;
 use ssh_key::{HashAlg, PublicKey};
 
 use crate::agent::Endpoint;
-use crate::home::{ScratchHome, ssh_config_quote};
+use crate::home::ScratchHome;
 
 /// The domain-separation label of the seeded K_env derivation (version 1).
 pub const K_ENV_SEED_LABEL: &[u8] = b"heimdall-test-key-seed/k_env/v1\0";
@@ -95,14 +96,25 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// The identity form of [`ManagedRunContext`]'s block (a named switch): the
+/// certificate as both `IdentityFile` and `CertificateFile`, which INT-Q10 observed to
+/// authenticate through an agent that lists only the certificate on macOS 10.5p1 and
+/// 9.6p1, like P's default form (`ManagedIdentityForm::select`, the certificate as
+/// `IdentityFile` alone). Naming it in both directives keeps the block's
+/// `CertificateFile` line, which the context's own test reads from `ssh -G`.
+pub const CONTEXT_IDENTITY_FORM: ManagedIdentityForm =
+    ManagedIdentityForm::CertificateAsIdentityFileAndCertificateFile;
+
 /// A child environment as a managed `run` produces it (m03-plan U11; ADR-0008 D5 §6.3
 /// "Why it holds"; M17): `SSH_AUTH_SOCK` is the **binding** endpoint, `HOME` the scratch
 /// home, and the scratch user configuration starts with the managed block for the
-/// alias (`IdentityAgent` = the **environment** endpoint, the slot's public key and
-/// certificate files, `IdentitiesOnly yes`), as the projection renders it. The slot
-/// files are real scratch files. U8's renderer replaces [`Self::managed_block`]'s text
-/// once it lands; the shape (where each endpoint appears) is what the maintenance
-/// tests rely on.
+/// alias. ⟨M03 wave 2, U8⟩ The block is **the projection renderer's own output**
+/// (`heimdall_sshconf::render::render_sections`, one `Section::ManagedCertificate`:
+/// `IdentityAgent` = the **environment** endpoint, `IdentitiesOnly yes`, the slot's
+/// files in [`CONTEXT_IDENTITY_FORM`], `ControlMaster no`, `ControlPath none`), with its
+/// route lines (`HostName`, `User`) left out: the context has no route, and the
+/// caller's own section for the alias supplies it, as before. The slot files are real
+/// scratch files.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedRunContext {
     alias: String,
@@ -151,18 +163,7 @@ impl ManagedRunContext {
         )?;
         let binding_endpoint = binding.locator();
         let environment_endpoint = environment.locator();
-        let quote = |p: &OsStr| ssh_config_quote(&p.to_string_lossy());
-        let block = format!(
-            "# Heimdall managed block (fixture stand-in for the projection's rendering)\n\
-             Host {alias}\n\
-             \x20 IdentityAgent {}\n\
-             \x20 IdentityFile {}\n\
-             \x20 CertificateFile {}\n\
-             \x20 IdentitiesOnly yes\n",
-            quote(&environment_endpoint),
-            quote(slot_public.as_os_str()),
-            quote(slot_certificate.as_os_str()),
-        );
+        let block = managed_block(alias, environment, &slot_public, &slot_certificate)?;
         let env = vec![
             (OsString::from("SSH_AUTH_SOCK"), binding_endpoint.clone()),
             (
@@ -239,6 +240,52 @@ impl ManagedRunContext {
         }
     }
 }
+
+/// The renderer's section for `alias` (module docs of [`ManagedRunContext`]), without
+/// its route lines.
+fn managed_block(
+    alias: &str,
+    environment: &Endpoint,
+    slot_public: &Path,
+    slot_certificate: &Path,
+) -> io::Result<String> {
+    use heimdall_sshconf::render::{
+        AliasName, HostName, PathStyle, RenderPath, Section, render_sections,
+    };
+    let refused = |what: &str| io::Error::other(format!("the managed block cannot render {what}"));
+    let (style, file): (PathStyle, fn(&Path) -> Result<RenderPath, _>) = if cfg!(windows) {
+        (PathStyle::Windows, RenderPath::windows)
+    } else {
+        (PathStyle::Unix, RenderPath::unix)
+    };
+    let endpoint = match environment {
+        Endpoint::UnixSocket(p) => file(p),
+        Endpoint::NamedPipe(n) => RenderPath::pipe(n),
+    }
+    .map_err(|_| refused("the environment endpoint"))?;
+    // A placeholder route, removed below: the caller's section supplies the real one.
+    let section = Section::ManagedCertificate {
+        alias: AliasName::parse(alias).map_err(|_| refused("the alias"))?,
+        hostname: HostName::parse(ROUTE_PLACEHOLDER).map_err(|_| refused("the route"))?,
+        port: None,
+        user: ROUTE_PLACEHOLDER.to_owned(),
+        endpoint,
+        key_pub: file(slot_public).map_err(|_| refused("the slot key"))?,
+        cert: file(slot_certificate).map_err(|_| refused("the slot certificate"))?,
+        control_path: None,
+    };
+    let rendered = render_sections(&[section], style, CONTEXT_IDENTITY_FORM)
+        .map_err(|_| refused("the section"))?;
+    let text = String::from_utf8(rendered).map_err(|_| refused("UTF-8"))?;
+    Ok(text
+        .lines()
+        .filter(|l| !l.ends_with(&format!(" {ROUTE_PLACEHOLDER}")))
+        .map(|l| format!("{l}\n"))
+        .collect())
+}
+
+/// The placeholder `HostName` and `User` of [`managed_block`]'s render (never kept).
+const ROUTE_PLACEHOLDER: &str = "hm-route-placeholder";
 
 #[cfg(test)]
 mod tests {

@@ -134,14 +134,15 @@ use heimdall_sshconf::include::{ConfigSet, ConfigSource, Roots, SourceBytes, Sou
 use heimdall_sshconf::limits::Limits;
 use heimdall_sshconf::relevant::consent_behavior_state;
 use heimdall_sshconf::render::{
-    self, AliasName, HostName, ManagedAlias, MarkerId, Newline, PathStyle, RenderPath,
+    self, AliasName, HostName, ManagedAlias, ManagedIdentityForm, MarkerId, Newline, PathStyle,
+    RenderPath, Section,
 };
 use sha2::{Digest as _, Sha256};
 
-use super::ProjectionConfig;
 use super::apply::random_hex;
 use super::git::{GlobalFileCheck, check_global_file, lock_holder};
 use super::replace::{self, DirHandle, Quarantine, ReplaceRefusal};
+use super::{ManagedSectionSpec, ProjectionConfig};
 use crate::clients::ClientKind;
 use crate::fs::BoundedSource;
 use crate::git::{DefaultGitSsh, observe_global, observe_global_for, origin_of, winning_origin};
@@ -384,10 +385,20 @@ impl<'a> Builder<'a> {
         if self.spec.aliases.len() > bounds::KEY_FILES_MAX {
             return Err(PreviewError::TooLarge);
         }
-        // ADR-0007 §12.22 item 8: a managed alias always names its key file. An empty
-        // path is refused, never rendered as an empty `IdentityFile` (the runtime's
-        // writer fills it from the catalog before a preview).
-        if self.spec.aliases.iter().any(|a| a.key_file.is_empty()) {
+        // ⟨M03⟩ ADR-0008 D10 item 1: which aliases' pairs prefer `managed_certificate`
+        // (none without a source: every alias is existing access, as in M02).
+        let managed = self.managed_sections()?;
+        // ADR-0007 §12.22 item 8: an existing-access alias always names its key file. An
+        // empty path is refused, never rendered as an empty `IdentityFile` (the runtime's
+        // writer fills it from the catalog before a preview). A managed-certificate
+        // alias renders the slot's files instead.
+        if self
+            .spec
+            .aliases
+            .iter()
+            .zip(&managed)
+            .any(|(a, m)| m.is_none() && a.key_file.is_empty())
+        {
             return Err(PreviewError::Unavailable(
                 "a managed alias has no key file".to_owned(),
             ));
@@ -397,10 +408,16 @@ impl<'a> Builder<'a> {
             return Ok(());
         }
         let changes_before = self.changes.len();
-        let mut aliases = Vec::new();
+        let mut sections = Vec::new();
         let mut key_steps: Vec<FileStep> = Vec::new();
-        for a in &self.spec.aliases {
-            aliases.push(self.managed_alias(a)?);
+        let mut disclosures = Vec::new();
+        for (a, m) in self.spec.aliases.iter().zip(&managed) {
+            if let Some(m) = m {
+                sections.push(self.managed_certificate(a, m)?);
+                disclosures.push(slot_free_disclosure(&a.alias, &a.destination));
+                continue;
+            }
+            sections.push(Section::ExistingAccess(self.managed_alias(a)?));
             let key = self.key_bytes(a)?;
             if key.bytes().len() > bounds::KEY_FILE_MAX {
                 return Err(PreviewError::TooLarge);
@@ -412,11 +429,14 @@ impl<'a> Builder<'a> {
                 key_steps.push(step);
             }
         }
-        let p = render::rendered_managed(&aliases, self.style)
+        let p = render::rendered_sections(&sections, self.style, self.identity_form())
             .map_err(|e| PreviewError::Unavailable(format!("render: {e}")))?;
         if p.bytes().len() > bounds::MANAGED_SSH_MAX {
             return Err(PreviewError::TooLarge);
         }
+        // ⟨M03⟩ ADR-0008 D10 item 2, §17.4 item 12: the preview of a managed alias says
+        // that ordinary `ssh <alias>` needs a held slot, and names the command.
+        self.findings.extend(disclosures);
         self.p_now = self.read(FileRole::ManagedSsh, &p_path)?;
         self.p_after = Some(p.bytes().to_vec());
         let p_step = self.whole_step(FileRole::ManagedSsh, &p_path, p)?;
@@ -1555,6 +1575,65 @@ impl<'a> Builder<'a> {
         })
     }
 
+    /// ⟨M03⟩ Each alias's managed section, in spec order (`None`: existing access).
+    fn managed_sections(&self) -> Result<Vec<Option<ManagedSectionSpec>>, PreviewError> {
+        let Some(source) = self.config.managed.as_ref() else {
+            return Ok(vec![None; self.spec.aliases.len()]);
+        };
+        self.spec
+            .aliases
+            .iter()
+            .map(|a| {
+                source
+                    .managed_section(a)
+                    .map_err(|e| PreviewError::Unavailable(format!("managed pair: {e}")))
+            })
+            .collect()
+    }
+
+    /// ⟨M03⟩ The identity form of the managed sections: the one selector
+    /// (`ManagedIdentityForm::select`, reading R4) for the selected `ssh` client, unless
+    /// a test configuration names one.
+    fn identity_form(&self) -> ManagedIdentityForm {
+        self.config.test.managed_identity_form.unwrap_or_else(|| {
+            ManagedIdentityForm::select(
+                self.config
+                    .clients
+                    .selected(ClientKind::Ssh)
+                    .and_then(|c| c.version),
+            )
+        })
+    }
+
+    /// ⟨M03⟩ ADR-0008 D10 item 1: a managed-certificate section, with ADR-0007 §4's
+    /// value rules (paths `~/…` under the home, a Windows pipe `//./pipe/…`).
+    fn managed_certificate(
+        &self,
+        a: &ManagedAliasSpec,
+        m: &ManagedSectionSpec,
+    ) -> Result<Section, PreviewError> {
+        let refused = |e: render::RenderError| PreviewError::Unavailable(format!("render: {e}"));
+        let endpoint = match m.environment_endpoint.kind {
+            EndpointKind::NamedPipe => {
+                RenderPath::pipe(&m.environment_endpoint.locator).map_err(refused)?
+            }
+            _ => self.render_path(Path::new(&m.environment_endpoint.locator))?,
+        };
+        Ok(Section::ManagedCertificate {
+            alias: AliasName::parse(&a.alias).map_err(refused)?,
+            hostname: HostName::parse(&a.hostname).map_err(refused)?,
+            port: a.port.filter(|p| *p != 22),
+            user: a.account.as_str().to_owned(),
+            endpoint,
+            key_pub: self.render_path(&m.key_pub)?,
+            cert: self.render_path(&m.cert_pub)?,
+            control_path: match &m.control_path {
+                None => None,
+                Some(p) => Some(self.render_path(p)?),
+            },
+        })
+    }
+
     fn key_bytes(&self, a: &ManagedAliasSpec) -> Result<Rendered, PreviewError> {
         let line = self
             .config
@@ -2287,6 +2366,84 @@ impl ConfigSource for Overlay<'_> {
 
 /// Each `Host <name>` section of Heimdall's rendered P, by name, without the blank
 /// lines that separate sections.
+/// ⟨M03⟩ The command that holds a managed alias's slot, as the `slot_free` disclosure
+/// names it (ADR-0008 D10 item 2: `heimdall run …`; `heimdall bind materialize` is
+/// U12's and is not offered until it exists).
+#[must_use]
+pub fn slot_free_command(alias: &str) -> String {
+    format!("heimdall run --profile <profile> -- ssh {alias}")
+}
+
+/// ⟨M03⟩ The `slot_free` disclosure of a managed alias (ADR-0008 D10 item 2, §17.4 item
+/// 12): ordinary `ssh <alias>` works only while a binding holds the alias's slot, with
+/// the command that holds one ([`slot_free_command`]). The `ApplyProjection` preview
+/// lists it for every managed alias it renders; the doctor reports the same finding for
+/// an alias whose slot is free.
+#[must_use]
+pub fn slot_free_disclosure(
+    alias: &str,
+    destination: &heimdall_contract::ids::DestinationId,
+) -> Finding {
+    Finding {
+        code: heimdall_contract::doctor::finding::SLOT_FREE.to_owned(),
+        severity: FindingSeverity::Info,
+        subject: ResourceRef {
+            kind: "destination".to_owned(),
+            id: Some(destination.to_string()),
+        },
+        level: ProbeLevel::Static,
+        provenance: None,
+        message: format!(
+            "ordinary `ssh {alias}` works only while a binding holds this alias's managed \
+             slot; `{}` holds one while it runs (automatic activation is not available)",
+            slot_free_command(alias)
+        ),
+        next: NextAction {
+            action: "none".to_owned(),
+            ..NextAction::default()
+        },
+        reason: None,
+    }
+}
+
+/// ⟨M03⟩ ADR-0008 D8 item 6 (F15): the graceful text for an `exclusive` selection
+/// (spec §6.6).
+pub const DEADLINE_GRACEFUL_EXCLUSIVE: &str =
+    "New connections stop at the deadline; existing sessions may stay connected.";
+/// ⟨M03⟩ ADR-0008 D8 item 6: the graceful text for a `not_exclusive` or `undetermined`
+/// selection.
+pub const DEADLINE_GRACEFUL_NOT_EXCLUSIVE: &str = "New connections through Heimdall's key stop \
+     at the deadline. Your other configured identities for this host are not controlled; \
+     existing sessions may stay connected.";
+/// ⟨M03⟩ ADR-0008 D8 item 2's table: the `strict` text for an `exclusive` selection.
+pub const DEADLINE_STRICT_EXCLUSIVE: &str =
+    "Connections Heimdall started are closed at the deadline.";
+/// ⟨M03⟩ The `strict` text for a `not_exclusive` or `undetermined` selection: D8 item
+/// 6's identity sentence with the `strict` table text (U8's composition; U8-Q4).
+pub const DEADLINE_STRICT_NOT_EXCLUSIVE: &str = "New connections through Heimdall's key stop \
+     at the deadline. Your other configured identities for this host are not controlled. \
+     Connections Heimdall started are closed at the deadline.";
+
+/// ⟨M03⟩ ADR-0008 D8 item 6 (F15): the deadline wording of a managed alias, which
+/// follows its identity selection (D10 item 6) and the effective `existing` mode. Only
+/// `exclusive` gets the unqualified text; `not_exclusive` and `undetermined` name the
+/// identities Heimdall does not control. `connect` and `run` notices use it.
+#[must_use]
+pub fn deadline_wording(
+    selection: heimdall_contract::provider::IdentitySelection,
+    existing: heimdall_contract::managed::ExistingConnectionsMode,
+) -> &'static str {
+    use heimdall_contract::managed::ExistingConnectionsMode;
+    use heimdall_contract::provider::IdentitySelection;
+    let exclusive = selection == IdentitySelection::Exclusive;
+    match (existing, exclusive) {
+        (ExistingConnectionsMode::Strict, true) => DEADLINE_STRICT_EXCLUSIVE,
+        (ExistingConnectionsMode::Strict, false) => DEADLINE_STRICT_NOT_EXCLUSIVE,
+        (_, true) => DEADLINE_GRACEFUL_EXCLUSIVE,
+        (_, false) => DEADLINE_GRACEFUL_NOT_EXCLUSIVE,
+    }
+}
+
 fn sections(p: &[u8]) -> BTreeMap<String, Vec<u8>> {
     let mut out: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     let mut current: Option<String> = None;
