@@ -699,6 +699,29 @@ impl LoopbackSshd {
             .collect()
     }
 
+    /// ⟨M03 wave 4⟩ The server log's current length: a mark for
+    /// [`log_lines_since`](Self::log_lines_since), so a test reads only what one attempt
+    /// logged (0 when there is no log).
+    #[must_use]
+    pub fn log_mark(&self) -> u64 {
+        self.log
+            .as_ref()
+            .and_then(|p| fs::metadata(p).ok())
+            .map_or(0, |m| m.len())
+            .max(self.log_start)
+    }
+
+    /// ⟨M03 wave 4⟩ The server log lines containing `needle` logged after `mark`
+    /// ([`log_mark`](Self::log_mark)).
+    #[must_use]
+    pub fn log_lines_since(&self, mark: u64, needle: &str) -> Vec<String> {
+        self.log_text_from(mark.max(self.log_start))
+            .lines()
+            .filter(|l| l.contains(needle))
+            .map(str::to_owned)
+            .collect()
+    }
+
     /// ⟨M03⟩ Every log line (from where this fixture started) containing `needle`, for
     /// the transport-failure oracles of [`Faults`] (`drop connection`, …).
     #[must_use]

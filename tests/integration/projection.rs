@@ -6908,6 +6908,7 @@ mod generated {
             approval: None,
             consent: heimdall_domain::projection::ConsentRecord::default(),
             files: vec![k, b],
+            managed_pairs: Default::default(),
         };
         intent.validate().unwrap();
         let slot = "cd".repeat(16);
@@ -7057,6 +7058,7 @@ mod generated {
                 staged_name: None,
                 displaced_name: None,
             }],
+            managed_pairs: Default::default(),
         };
         intent.validate().unwrap();
         Some(Built {
@@ -7122,6 +7124,7 @@ mod generated {
             approval: None,
             consent: heimdall_domain::projection::ConsentRecord::default(),
             files: vec![step],
+            managed_pairs: Default::default(),
         };
         intent.validate().unwrap();
         let slot = "cd".repeat(16);

@@ -14,8 +14,8 @@
 //!
 //! [`admissible`] is the precondition (§17.1 item 7): every enrollment of the CA is
 //! final or `abandoned`. [`StoreItemDeletion`] is the `unloaded → deleted` effect over
-//! a [`SecretStore`], as `app::operations::CaStoreItemDeletion`, the port restart
-//! recovery (`Operations::resume_ca_retirements`) calls.
+//! a [`SecretStore`], as `app::operations::CaStoreItemDeletion`, the port
+//! `Operations::resume_ca_retirements` calls.
 //!
 //! **Exact identity** (ADR-0008 §17.17 item 3; D1). `put` returns the item's
 //! [`StoreItemRef`]; this installation records it, and retirement deletes **only that
@@ -23,13 +23,19 @@
 //! to be absent. It never deletes everything `list()` reports for a fingerprint, so a
 //! second installation of the same OS user holding the same (restored) CA keeps its
 //! item. A CA with **no recorded locator** is refused, with nothing deleted: its item
-//! stays, as an orphan to report. The recorded locators come from [`RecordedItems`];
-//! until the runtime persists them (U10), production passes [`NoRecordedItems`], so
-//! the step refuses and the CA stays `unloaded` (fail closed).
+//! stays, as an orphan to report. ⟨ADR-0008 §17.21 item 3⟩ The runtime records the
+//! locator in the CA's `issuers` row (`Txn::set_issuer_store_locator`) and
+//! `Operations::resume_ca_retirements` passes exactly it to
+//! [`StoreItemDeletion`]'s `delete_recorded`; a CA without one stops at `unloaded`
+//! (`issuer_store_locator_unrecorded`) before this module is called. [`StoreEffects`]
+//! takes its locators from a [`RecordedItems`] instead ([`NoRecordedItems`] refuses
+//! every deletion).
 //!
 //! [`uninstall_store_plan`] is D4 item 6's rule for U12's uninstall: the item is kept,
 //! with its reason, while any enrollment under its CA is not final; otherwise deleting
 //! it (the retirement steps run to `retired`) is offered behind a typed confirmation.
+
+use std::ops::Deref;
 
 use heimdall_app::operations::CaStoreItemDeletion;
 use heimdall_app::ports::IssuerError;
@@ -192,8 +198,8 @@ pub fn admissible(
 /// [`RetireError::LocatorMismatch`] when it names another CA or store kind (nothing is
 /// deleted in either case); [`RetireError::Store`] when the store cannot delete or
 /// list, or the locator is still there.
-pub fn delete_recorded(
-    store: &dyn SecretStore,
+pub fn delete_recorded<S: SecretStore + ?Sized>(
+    store: &S,
     ca: &CaFingerprint,
     recorded: Option<&StoreItemRef>,
 ) -> Result<(), RetireError> {
@@ -218,37 +224,52 @@ pub fn delete_recorded(
     Ok(())
 }
 
-/// The `unloaded → deleted` effect over a [`SecretStore`], for restart recovery
-/// (`app::operations::CaStoreItemDeletion`).
-pub struct StoreItemDeletion<'a> {
-    store: &'a dyn SecretStore,
-    recorded: &'a (dyn RecordedItems + Sync),
+/// The `unloaded → deleted` effect over a [`SecretStore`], for restart recovery and
+/// the supervision pass (`app::operations::CaStoreItemDeletion`). `S` is any handle
+/// to the store (`&ScratchSecretStore`, `Arc<dyn SecretStore>`, …).
+///
+/// ⟨ADR-0008 §17.21 item 3⟩ It deletes exactly the locator the runtime recorded and
+/// passes in ([`delete_recorded`]), then requires that locator absent on a re-read.
+/// It never lists to choose what to delete.
+pub struct StoreItemDeletion<S> {
+    store: S,
 }
 
-impl<'a> StoreItemDeletion<'a> {
-    /// The deletion step over `store`, deleting only the items in `recorded`
-    /// ([`NoRecordedItems`] refuses every deletion).
+impl<S> StoreItemDeletion<S> {
+    /// The deletion step over `store`.
     #[must_use]
-    pub fn new(store: &'a dyn SecretStore, recorded: &'a (dyn RecordedItems + Sync)) -> Self {
-        Self { store, recorded }
+    pub fn new(store: S) -> Self {
+        Self { store }
     }
 }
 
-impl CaStoreItemDeletion for StoreItemDeletion<'_> {
-    /// Refuses when `store` is not this store's product kind (a CA registered in
-    /// another store, or a test-configuration store, S3): nothing is deleted.
-    fn delete_confirmed_absent(
+impl<S> CaStoreItemDeletion for StoreItemDeletion<S>
+where
+    S: Deref + Send + Sync,
+    S::Target: SecretStore,
+{
+    /// Refuses, deleting nothing, when `store` is not this store's product kind (a CA
+    /// registered in another store, or a test-configuration store, S3), when the
+    /// locator is empty, or when it is not this CA's item here ([`delete_recorded`]).
+    fn delete_recorded(
         &self,
         ca: &CaFingerprint,
         store: StoreKind,
+        locator: &str,
     ) -> Result<(), IssuerError> {
-        if self.store.kind().product() != Some(store) {
+        let secret_store: &S::Target = &self.store;
+        let kind = secret_store.kind();
+        if kind.product() != Some(store) || locator.is_empty() {
             return Err(IssuerError::Unavailable(
                 reason::ISSUER_STORE_UNAVAILABLE.to_owned(),
             ));
         }
-        let recorded = self.recorded.recorded(ca);
-        delete_recorded(self.store, ca, recorded.as_ref()).map_err(|e| match e {
+        let item = StoreItemRef {
+            kind,
+            fingerprint: ca.clone(),
+            locator: locator.to_owned(),
+        };
+        delete_recorded(secret_store, ca, Some(&item)).map_err(|e| match e {
             RetireError::Store(StoreError::Unavailable(a)) => IssuerError::Unavailable(
                 a.refusal_reason()
                     .unwrap_or(reason::ISSUER_STORE_UNAVAILABLE)

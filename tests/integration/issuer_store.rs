@@ -1262,9 +1262,20 @@ fn retire_deletes_store_item_and_issuer_zeroizes() {
         );
     }
     // The restart-recovery port over the same store: it refuses a store kind it is
-    // not (the scratch store has no product kind, S3), deleting nothing.
-    let deletion = retire::StoreItemDeletion::new(&store, &recorded);
+    // not (the scratch store has no product kind, S3), deleting nothing, even with
+    // the item's exact locator; the superseded locator-less shape always refuses.
+    let deletion = retire::StoreItemDeletion::new(&store);
     let other_fp = other.fingerprint().unwrap();
+    let other_locator = store.list().unwrap()[0].locator.clone();
+    assert!(
+        heimdall_app::operations::CaStoreItemDeletion::delete_recorded(
+            &deletion,
+            &other_fp,
+            StoreKind::WindowsDpapi,
+            &other_locator,
+        )
+        .is_err()
+    );
     assert!(
         heimdall_app::operations::CaStoreItemDeletion::delete_confirmed_absent(
             &deletion,
@@ -1334,6 +1345,9 @@ struct SharedOsStore {
 struct Installation<'a> {
     shared: &'a SharedOsStore,
     environment: &'static str,
+    /// ⟨§17.21 item 3⟩ Report this product kind (a stand-in for a platform store, to
+    /// drive `StoreItemDeletion`'s product-kind path; no platform store is touched).
+    product: Option<StoreKind>,
 }
 
 impl Installation<'_> {
@@ -1344,7 +1358,10 @@ impl Installation<'_> {
 
 impl SecretStore for Installation<'_> {
     fn kind(&self) -> SecretStoreKind {
-        SecretStoreKind::Test("shared_os_store")
+        match self.product {
+            Some(kind) => SecretStoreKind::Product(kind),
+            None => SecretStoreKind::Test("shared_os_store"),
+        }
     }
     fn availability(&self) -> StoreAvailability {
         StoreAvailability::Available
@@ -1370,6 +1387,10 @@ impl SecretStore for Installation<'_> {
     }
     fn delete(&self, item: &StoreItemRef) -> Result<(), StoreError> {
         let mut items = self.shared.items.lock().unwrap();
+        // Like the platform stores, an installation deletes only within its own scope.
+        if !item.locator.starts_with(&format!("{}/", self.environment)) {
+            return Err(StoreError::NotFound);
+        }
         items
             .remove(&item.locator)
             .map(drop)
@@ -1402,10 +1423,12 @@ fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_sam
     let a = Installation {
         shared: &shared,
         environment: "env_a",
+        product: None,
     };
     let b = Installation {
         shared: &shared,
         environment: "env_b",
+        product: None,
     };
     let key = SecretCaKey::generate().unwrap();
     let fp = key.fingerprint().unwrap();
@@ -1428,14 +1451,16 @@ fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_sam
         Err(RetireError::LocatorNotRecorded)
     );
     let none = retire::NoRecordedItems;
-    let port = retire::StoreItemDeletion::new(&a, &none);
+    let port = retire::StoreItemDeletion::new(&a);
     assert!(
-        heimdall_app::operations::CaStoreItemDeletion::delete_confirmed_absent(
+        heimdall_app::operations::CaStoreItemDeletion::delete_recorded(
             &port,
             &fp,
             StoreKind::LinuxSecretService,
+            &a_item.locator,
         )
-        .is_err()
+        .is_err(),
+        "a test store is never a product store (S3)"
     );
     let mut effects = StoreEffects::new(&a, &none, |_ca: &CaFingerprint| Ok(()));
     assert_eq!(
@@ -1466,6 +1491,61 @@ fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_sam
     // Idempotent: the step again (a crash before its persist) succeeds, B untouched.
     retire::step(&fp, CaState::Unloaded, &mut effects).unwrap();
     assert_eq!(b.list().unwrap(), vec![b_item]);
+}
+
+/// ⟨ADR-0008 §17.21 item 3; §17.17 item 3⟩ The retirement port
+/// (`retire::StoreItemDeletion`, what `Operations::resume_ca_retirements` calls with
+/// the locator the runtime recorded) deletes **exactly that locator**: over a store of
+/// the record's product kind, A's recorded item goes, while B's item for the same CA
+/// (another locator) and another CA's item in A survive. A store of another kind, or
+/// another installation's locator, deletes nothing. Absent counts as deleted. (A
+/// product-kinded in-memory stand-in; no platform store is touched, so this closes no
+/// native store claim.)
+#[test]
+fn store_item_deletion_port_deletes_exactly_the_recorded_locator() {
+    use heimdall_app::operations::CaStoreItemDeletion;
+    let shared = SharedOsStore::default();
+    let a = Installation {
+        shared: &shared,
+        environment: "env_a",
+        product: Some(StoreKind::LinuxSecretService),
+    };
+    let b = Installation {
+        shared: &shared,
+        environment: "env_b",
+        product: Some(StoreKind::LinuxSecretService),
+    };
+    let key = SecretCaKey::generate().unwrap();
+    let fp = key.fingerprint().unwrap();
+    let a_item = a.put(&fp, &key).unwrap();
+    let b_item = b.put(&fp, &key).unwrap();
+    let other = SecretCaKey::generate().unwrap();
+    let other_fp = other.fingerprint().unwrap();
+    let other_item = a.put(&other_fp, &other).unwrap();
+    let port = retire::StoreItemDeletion::new(&a);
+
+    // The record names another store kind: refused, nothing deleted.
+    assert!(
+        port.delete_recorded(&fp, StoreKind::WindowsDpapi, &a_item.locator)
+            .is_err()
+    );
+    // Another installation's locator: B's item is not A's to delete.
+    let _ = port.delete_recorded(&fp, StoreKind::LinuxSecretService, &b_item.locator);
+    assert_eq!(a.list().unwrap().len(), 3, "nothing was deleted");
+
+    // The recorded locator: exactly that item goes.
+    port.delete_recorded(&fp, StoreKind::LinuxSecretService, &a_item.locator)
+        .unwrap();
+    let left: Vec<StoreItemRef> = a.list().unwrap();
+    assert!(!left.contains(&a_item));
+    assert!(left.contains(&b_item), "B's item for the same CA survives");
+    assert!(left.contains(&other_item), "another CA's item survives");
+    assert!(b.get(&fp).unwrap().same_key(&key));
+    assert!(a.get(&other_fp).unwrap().same_key(&other));
+    // Idempotent: already absent counts as deleted; still nothing else touched.
+    port.delete_recorded(&fp, StoreKind::LinuxSecretService, &a_item.locator)
+        .unwrap();
+    assert_eq!(a.list().unwrap().len(), 2);
 }
 
 /// ADR-0008 §17.17 item 3 (wave-1 review W1-R01, W1-R02): installations A and B of the

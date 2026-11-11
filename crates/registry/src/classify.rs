@@ -29,7 +29,10 @@ use heimdall_contract::enrollment::RemoteStage;
 
 use crate::hm1::{self, ExitCode, Handshake, Hm1Key, Hm1Record};
 use crate::line::marker_lines;
-use crate::post_image::{check_post_append, check_post_remove};
+use crate::post_image::{
+    ImageDigest, check_post_append, check_post_append_digest, check_post_remove,
+    check_post_remove_digest,
+};
 
 /// Why a step was not applied (nothing changed on the remote).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -101,6 +104,13 @@ pub struct Expected {
     pub preimage: Option<Vec<u8>>,
     /// The expected post-image (`remove`).
     pub post_image: Option<Vec<u8>>,
+    /// ⟨wave 4, round 2⟩ The inspected preimage by its digest, used when
+    /// [`preimage`](Self::preimage) is `None` (§17.21 item 4: the journal keeps no
+    /// foreign bytes).
+    pub preimage_digest: Option<ImageDigest>,
+    /// ⟨wave 4, round 2⟩ The expected post-image by its digest, used when
+    /// [`post_image`](Self::post_image) is `None`.
+    pub post_image_digest: Option<ImageDigest>,
 }
 
 // --- typed readings ------------------------------------------------------------------
@@ -372,6 +382,37 @@ impl Inspection {
         }
     }
 
+    /// ⟨wave 4, round 2⟩ The preimage by its length and SHA-256 (`None` for a symlink
+    /// or another kind).
+    #[must_use]
+    pub fn preimage_digest(&self) -> Option<ImageDigest> {
+        self.preimage().map(ImageDigest::of)
+    }
+
+    /// ⟨wave 4, round 2⟩ This reading without the server owner's bytes (ADR-0008
+    /// §17.21 item 4): the content keeps only the lines containing `marker` (each with
+    /// its `\n`), so other keys' lines and comments are gone. The marker count, the
+    /// exact-line comparison and the lock read the same as on the full reading;
+    /// [`preimage`](Self::preimage) of the result is **not** the registry's (use
+    /// [`preimage_digest`](Self::preimage_digest) of the full reading for that).
+    #[must_use]
+    pub fn without_foreign_lines(&self, marker: &str) -> Inspection {
+        let content = self.content.as_ref().map(|c| {
+            let mut kept = Vec::new();
+            for l in crate::line::lines(c) {
+                if !marker.is_empty() && crate::line::contains(l, marker.as_bytes()) {
+                    kept.extend_from_slice(l);
+                    kept.push(b'\n');
+                }
+            }
+            kept
+        });
+        Inspection {
+            content,
+            ..self.clone()
+        }
+    }
+
     /// The holder record of a held lock.
     #[must_use]
     pub fn holder(&self) -> Option<&HolderRecord> {
@@ -492,10 +533,12 @@ fn classify_append(code: ExitCode, rec: &Hm1Record, expected: &Expected) -> Step
     };
     match code {
         ExitCode::Ok => {
-            let Some(pre) = expected.preimage.as_deref() else {
-                return StepClass::Uncertain;
+            let checked = match (&expected.preimage, &expected.preimage_digest) {
+                (Some(pre), _) => check_post_append(pre, &content, line),
+                (None, Some(pre)) => check_post_append_digest(pre, &content, line),
+                (None, None) => return StepClass::Uncertain,
             };
-            match check_post_append(pre, &content, line) {
+            match checked {
                 Ok(()) => StepClass::Confirmed,
                 Err(_) => StepClass::Held,
             }
@@ -527,15 +570,18 @@ fn classify_remove(code: ExitCode, rec: &Hm1Record, expected: &Expected) -> Step
     match code {
         ExitCode::ChangedSinceRead => StepClass::NotApplied(NotAppliedReason::ChangedSinceRead),
         ExitCode::Ok => {
-            let (Some(post_image), Some(content)) =
-                (expected.post_image.as_deref(), reported_content(rec))
-            else {
+            let Some(content) = reported_content(rec) else {
                 return StepClass::Uncertain;
             };
             if expected.marker.is_empty() {
                 return StepClass::Uncertain;
             }
-            match check_post_remove(post_image, &content, &expected.marker) {
+            let checked = match (&expected.post_image, &expected.post_image_digest) {
+                (Some(image), _) => check_post_remove(image, &content, &expected.marker),
+                (None, Some(image)) => check_post_remove_digest(image, &content, &expected.marker),
+                (None, None) => return StepClass::Uncertain,
+            };
+            match checked {
                 Ok(()) => StepClass::Confirmed,
                 Err(_) => StepClass::Held,
             }
@@ -682,6 +728,43 @@ mod tests {
         assert!(HolderRecord::parse(&format!("{text}-x")).is_none());
     }
 
+    /// ⟨round 2⟩ §17.21 item 4: a minimized reading keeps only the marker's lines;
+    /// the marker count and the lock read as on the full reading, and the full
+    /// reading's digest is the registry's.
+    #[test]
+    fn without_foreign_lines_keeps_only_marker_lines() {
+        let marker = "heimdall:enr_0123456789abcdef0123456789abcdef";
+        let content =
+            format!("# owner comment\nssh-ed25519 AAAA foreign\ncert-authority x {marker}\n");
+        let full = Inspection {
+            path: b"/r".to_vec(),
+            dir: DirState::Present,
+            dir_mode: None,
+            dir_owner_self: None,
+            file: FileKind::Regular,
+            links: Some(1),
+            mode: None,
+            owner_self: None,
+            content: Some(content.clone().into_bytes()),
+            last_byte_newline: Some(true),
+            marker_lines: 1,
+            lock: LockReading::None,
+            remote_now: 1,
+        };
+        let min = full.without_foreign_lines(marker);
+        assert_eq!(
+            min.content.as_deref(),
+            Some(format!("cert-authority x {marker}\n").as_bytes())
+        );
+        assert_eq!(min.marker_lines, 1);
+        assert_eq!(
+            full.preimage_digest(),
+            Some(ImageDigest::of(content.as_bytes()))
+        );
+        let none = full.without_foreign_lines("");
+        assert_eq!(none.content.as_deref(), Some(&b""[..]));
+    }
+
     /// ADR-0008 §17.17 item 6 (U5S-Q5): an append or remove exit 30 with
     /// `reason=write_failed` attempted a write, so it is `Uncertain`, never
     /// `NotApplied`; any other exit-30 reason stays "nothing changed".
@@ -692,6 +775,7 @@ mod tests {
             line: Some("cert-authority x heimdall:enr_0123456789abcdef0123456789abcdef".into()),
             preimage: Some(b"a\n".to_vec()),
             post_image: Some(b"a\n".to_vec()),
+            ..Expected::default()
         };
         for stage in [RemoteStage::Append, RemoteStage::Remove] {
             let failed = result(30, "HM1 status=refused\nHM1 reason=write_failed\n");

@@ -398,6 +398,21 @@ impl StoreCleanup {
             for b in &bindings {
                 slots.extend(tx.slots_for_binding(b)?);
             }
+            // ⟨wave 4 round 2, integrator (R2-D → R2-C request)⟩ A released binding has
+            // no grant reference any more, but its slot rows still name it: an ended
+            // grant's held or clearing slots are also found by their binding's grant.
+            for (g, slot) in tx.held_slots_of_ended_grants(&self.sources.environment)? {
+                if g == *grant
+                    && !slots
+                        .iter()
+                        .any(|s| s.pair == slot.pair && s.environment == slot.environment)
+                {
+                    if let Some(b) = &slot.binding {
+                        bindings.insert(b.clone());
+                    }
+                    slots.push(slot);
+                }
+            }
             Ok((bindings.into_iter().collect(), slots, masters))
         })
     }
@@ -821,5 +836,995 @@ mod tests {
             w.sources.slot(&env(), &p).unwrap(),
             SlotState::Held { generation: 4, .. }
         ));
+    }
+}
+
+/// ⟨M03 wave 4, round 2⟩ ADR-0008 §17.21 item 1, live: the production effect driver
+/// through the real `Operations`, `ManagedCertificateAdapter`, [`StoreSources`],
+/// [`OpsInstallView`], [`StoreCleanup`], `ManagedEffectsImpl`, signer table and
+/// **`EndpointRegistry`** (a real binding endpoint on a Unix socket in a scratch
+/// runtime directory). Certificates are signed in process by a per-run K_ca (the
+/// fixture issuer: `IssuerPort` over `heimdall_credential::cert::build_and_sign`); every
+/// key is generated per run; nothing of the owner's is touched; the only listener is
+/// the binding endpoint, owner-only, in the scratch directory.
+#[cfg(all(test, unix))]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod live_tests {
+    use super::*;
+    use heimdall_adapters::managed::ManagedCertificateAdapter;
+    use heimdall_adapters::managed::effects::BindingEndpoints;
+    use heimdall_adapters::managed::files::SlotRoot;
+    use heimdall_app::ensure::{EnsureStage, NoStageHook, StageHook};
+    use heimdall_app::managed::ManagedWiring;
+    use heimdall_app::operations::Limits;
+    use heimdall_app::ports::{CredentialAdapter, IssuanceRef, IssuerError};
+    use heimdall_app::{Caller, OperationsConfig};
+    use heimdall_contract::Code;
+    use heimdall_contract::ids::{
+        AccountName, DestinationId, DeviceId, EnrollmentId, IdentityId, OperationId, PolicyId,
+        ProfileId, RequestId, WorkId,
+    };
+    use heimdall_contract::issuer::{CaState, IssuerState, IssuerStatus, StoreKind};
+    use heimdall_contract::managed::{
+        ClockMeasurement, ConnectionPolicy, IssuerIsolation, PreferredMechanism,
+    };
+    use heimdall_contract::provider::EndpointRef;
+    use heimdall_contract::request::{
+        EnsureData, EnsureRequest, InteractionMode, RequiredCapabilities, RevokeRequest, WaitMode,
+    };
+    use heimdall_credential::cert::{CertificateProfile, SecretCaKey, build_and_sign};
+    use heimdall_credential::endpoints::{EndpointLayout, EndpointRegistry};
+    use heimdall_credential::signer::SignerLimits;
+    use heimdall_credential::table::SignerTable;
+    use heimdall_credential::vault::KeyVault;
+    use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+    use heimdall_domain::enrollment::{
+        ApprovedHostKey, ApprovedTarget, EnrollmentEvidence, EnrollmentForm, EnrollmentState,
+        ExistingAccessRecord, NoProxy, PairPreference, ProjectionStatus, RegistryCanonical,
+        RegistryRef, RegistryResolvedBy, marker_for,
+    };
+    use heimdall_domain::environment::{
+        EnvironmentKind, EnvironmentPermissions, EnvironmentRecord,
+    };
+    use heimdall_domain::issuance::CredentialState;
+    use heimdall_domain::policy::{PauseState, PolicyRevision, PolicySource, StandingPolicy};
+    use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
+    use heimdall_domain::profile::ProfileDefinition;
+    use heimdall_domain::scope::{Capability, Scope};
+    use heimdall_domain::time::{SyncStatus, TimePolicy};
+    use heimdall_ipc::agent_client::{AgentLocator, ClientBounds, list_identities};
+    use heimdall_store::{IssuerRecord, NoFaults};
+    use heimdall_testkit::{ScriptedTimeSync, VirtualClock};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+
+    const HOUR: Duration = Duration::from_secs(3600);
+
+    fn t0() -> Timestamp {
+        "2026-11-02T09:00:00Z".parse().unwrap()
+    }
+
+    fn env() -> EnvironmentId {
+        EnvironmentId::from_random_bytes([7; 16])
+    }
+
+    fn pair(d: &str, a: &str) -> AccessPair {
+        AccessPair {
+            destination: DestinationId::parse(d).unwrap(),
+            account: AccountName::parse(a).unwrap(),
+        }
+    }
+
+    fn pairs() -> Vec<AccessPair> {
+        vec![pair("h1", "deploy"), pair("h2", "ops")]
+    }
+
+    fn caller() -> Caller {
+        Caller::unattended(CallerContext {
+            principal: PrincipalRef::UnixUser { uid: 501 },
+            role: ClientRole::Owner,
+        })
+    }
+
+    fn owner_only(path: &std::path::Path) {
+        use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+        std::fs::DirBuilder::new().mode(0o700).create(path).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+
+    fn enrollment(seed: u8, ca: &CaFingerprint, p: &AccessPair) -> EnrollmentRecord {
+        let id = EnrollmentId::from_random_bytes([seed; 16]);
+        EnrollmentRecord {
+            marker: marker_for(&id),
+            id,
+            destination: p.destination.clone(),
+            account: p.account.clone(),
+            ca_fingerprint: ca.clone(),
+            form: EnrollmentForm::Account,
+            registry: RegistryRef {
+                path_display: "~/.ssh/authorized_keys".into(),
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            registry_canonical: RegistryCanonical {
+                path: None,
+                resolved_by: RegistryResolvedBy::RemoteHome,
+            },
+            line_sha256: "ab".repeat(32),
+            target: ApprovedTarget {
+                hostname: format!("{}.example.invalid", p.destination.as_str()),
+                port: 22,
+                user: p.account.clone(),
+                proxy: NoProxy::None,
+                host_key: ApprovedHostKey {
+                    algorithm: "ssh-ed25519".into(),
+                    key: "AAAAC3NzaC1lZDI1NTE5AAAAIhostfixture".into(),
+                    fingerprint: "SHA256:hostfixture".into(),
+                },
+            },
+            existing_access: ExistingAccessRecord {
+                identity: IdentityId::from_random_bytes([1; 16]),
+                endpoint: None,
+                public_key_file: None,
+            },
+            hold: None,
+            removal_origin: None,
+            late_write: None,
+            state: EnrollmentState::Verified,
+            verified_at: Some(t0()),
+            evidence: Some(EnrollmentEvidence {
+                client: "OpenSSH_10.5p1".into(),
+                server: "OpenSSH_10.0p2".into(),
+                operation: OperationId::from_random_bytes([seed; 16]),
+                verified_at: t0(),
+                fresh_until: Timestamp::from_second(t0().as_second() + 90 * 86_400).unwrap(),
+                clock: Some(ClockMeasurement {
+                    behind_upper_ms: 1400,
+                    rtt_ms: 38,
+                    measured_at: t0(),
+                }),
+            }),
+            created_at: t0(),
+            updated_at: t0(),
+        }
+    }
+
+    fn existing_identity() -> heimdall_domain::catalog::IdentityRecord {
+        heimdall_domain::catalog::IdentityRecord {
+            id: IdentityId::from_random_bytes([1; 16]),
+            revision: 1,
+            source: heimdall_domain::catalog::IdentitySource::PublicKeyFile {
+                path: "/nonexistent/fixture.pub".into(),
+            },
+            public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIfixture".into(),
+            fingerprint: "SHA256:fixture".into(),
+            interaction: heimdall_domain::catalog::InteractionProfile {
+                interaction: heimdall_contract::provider::InteractionKind::Unknown,
+                basis: heimdall_contract::provider::EvidenceBasis::Inferred,
+            },
+            label: None,
+            adopted_at: t0(),
+            updated_at: t0(),
+        }
+    }
+
+    fn seed(store: &Store, ca: &SecretCaKey) {
+        let fp = ca.fingerprint().unwrap();
+        let public = ca.public_openssh().unwrap();
+        store
+            .transaction(|tx| {
+                tx.init_self_environment(&env())?;
+                tx.upsert_environment(&EnvironmentRecord {
+                    id: env(),
+                    device: DeviceId::from_random_bytes([8; 16]),
+                    kind: EnvironmentKind::NativeSession,
+                    label: None,
+                    permissions: EnvironmentPermissions {
+                        automatic_activation: true,
+                        managed_signing: true,
+                        issuer_access: true,
+                    },
+                })?;
+                let scope = Scope {
+                    pairs: pairs().into_iter().collect(),
+                    capabilities: [Capability::SshAuthentication].into_iter().collect(),
+                };
+                tx.upsert_profile(&ProfileDefinition {
+                    id: ProfileId::parse("dev").unwrap(),
+                    revision: 1,
+                    scope: scope.clone(),
+                    label: None,
+                })?;
+                tx.upsert_policy(
+                    &StandingPolicy {
+                        id: PolicyId::parse("pol").unwrap(),
+                        revision: PolicyRevision(1),
+                        profile: ProfileId::parse("dev").unwrap(),
+                        workspace: None,
+                        scope,
+                        environments: [env()].into_iter().collect(),
+                        max_window: 2 * HOUR,
+                        pause: PauseState::Active,
+                        cutoff_at: None,
+                        source: PolicySource::SetupDefault,
+                        lock_behavior: LockBehavior::Continue,
+                        connection: ConnectionPolicy::default(),
+                    },
+                    false,
+                )?;
+                tx.upsert_identity(&existing_identity())?;
+                tx.insert_issuer(&IssuerRecord {
+                    ca_fingerprint: fp.clone(),
+                    public_key: public.clone(),
+                    state: CaState::Active,
+                    store_kind: StoreKind::LinuxSecretService,
+                    backup_sha256: "ab".repeat(32),
+                    backup_created_at: t0(),
+                    restored_without_log: false,
+                    created_at: t0(),
+                    retired_at: None,
+                })?;
+                for (i, p) in pairs().iter().enumerate() {
+                    // A managed destination (P renders the alias) whose identity is the
+                    // pair's existing access (an adopted public-key file, never read).
+                    tx.upsert_destination(&DestinationRecord {
+                        id: p.destination.clone(),
+                        alias: p.destination.as_str().into(),
+                        revision: 1,
+                        definition: DestinationDefinition::Managed {
+                            hostname: format!("{}.example.invalid", p.destination.as_str()),
+                            port: None,
+                            account: p.account.clone(),
+                            identity: existing_identity().id,
+                        },
+                        label: None,
+                        updated_at: t0(),
+                    })?;
+                    tx.seed_enrollment(&enrollment(u8::try_from(i + 1).unwrap(), &fp, p))?;
+                    tx.set_pair_preference(
+                        &PairPreference {
+                            destination: p.destination.clone(),
+                            account: p.account.clone(),
+                            mechanism: PreferredMechanism::ManagedCertificate,
+                            projection: ProjectionStatus::Applied { generation: 1 },
+                            issuing_cas: [fp.clone()].into_iter().collect(),
+                        },
+                        t0(),
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    /// The fixture issuer: K_ca signs exactly the reserved bounds, for the grant's
+    /// live K_env (read from the signer table), in process.
+    struct FixtureIssuer {
+        store: Arc<Store>,
+        table: SignerTable,
+        ca: Arc<SecretCaKey>,
+    }
+
+    fn ready() -> IssuerStatusSnapshot {
+        IssuerStatusSnapshot {
+            status: IssuerStatus {
+                state: IssuerState::Ready,
+                reason: None,
+                cas: Vec::new(),
+                orphan_store_items: Vec::new(),
+                issuer_isolation: IssuerIsolation::SameUserProcess,
+                bundle_stale: false,
+            },
+        }
+    }
+
+    impl IssuerPort for FixtureIssuer {
+        fn status(&self) -> IssuerStatusSnapshot {
+            ready()
+        }
+
+        fn sign<'a, 'b, 'c>(
+            &'a self,
+            entry: IssuanceRef,
+            _subject: &'b str,
+        ) -> BoxFuture<'c, Result<String, IssuerError>>
+        where
+            'a: 'c,
+            'b: 'c,
+            Self: 'c,
+        {
+            Box::pin(async move {
+                let refused = || IssuerError::Protocol("fixture".into());
+                let e = self
+                    .store
+                    .transaction(|tx| tx.issuance_entry(&entry.id))
+                    .map_err(|_| refused())?
+                    .ok_or_else(refused)?;
+                let key = self
+                    .table
+                    .public_key(&e.grant)
+                    .ok_or_else(refused)?
+                    .public_key()
+                    .map_err(|_| refused())?;
+                build_and_sign(&CertificateProfile::from_bounds(&e.bounds), &key, &self.ca)
+                    .map_err(|_| refused())?
+                    .to_openssh()
+                    .map_err(|_| refused())
+            })
+        }
+
+        fn unload<'a, 'b, 'c>(
+            &'a self,
+            _ca: &'b CaFingerprint,
+        ) -> BoxFuture<'c, Result<(), IssuerError>>
+        where
+            'a: 'c,
+            'b: 'c,
+            Self: 'c,
+        {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    /// The registry, set after `Operations::start` (its authority is the
+    /// `Operations`), as the runtime's late registry does.
+    #[derive(Default)]
+    struct Late(RwLock<Option<EndpointRegistry>>);
+
+    impl Late {
+        fn get(&self) -> Option<EndpointRegistry> {
+            self.0.read().unwrap().clone()
+        }
+    }
+
+    impl BindingEndpoints for Late {
+        fn binding_endpoint(&self, binding: &BindingId) -> Option<EndpointRef> {
+            self.get()
+                .and_then(|r| BindingEndpoints::binding_endpoint(&r, binding))
+        }
+        fn create_binding_endpoint(
+            &self,
+            binding: &BindingId,
+            generation: u64,
+        ) -> Result<EndpointRef, AdapterError> {
+            self.get()
+                .ok_or_else(|| AdapterError::Unavailable("no registry".into()))?
+                .create_binding_endpoint(binding, generation)
+        }
+        fn remove_binding_endpoint(
+            &self,
+            binding: &BindingId,
+            generation: u64,
+        ) -> Result<bool, AdapterError> {
+            match self.get() {
+                Some(r) => r.remove_binding_endpoint(binding, generation),
+                None => Ok(false),
+            }
+        }
+    }
+
+    /// Fails the stage before `Commit` while armed: the crash point between the
+    /// materialization (inside the preparation) and the commit.
+    #[derive(Default)]
+    struct CrashBeforeCommit(AtomicBool);
+
+    impl StageHook for CrashBeforeCommit {
+        fn before(&self, stage: EnsureStage) -> Result<(), Code> {
+            if stage == EnsureStage::Commit && self.0.load(Ordering::SeqCst) {
+                Err(Code::ServiceUnavailable)
+            } else {
+                Ok(())
+            }
+        }
+        fn after(&self, _stage: EnsureStage) -> Result<(), Code> {
+            Ok(())
+        }
+    }
+
+    /// The real managed adapter, whose `prepare_from` refuses (after the effect
+    /// driver ran) while `fail` is set: a failure between materialization and commit.
+    struct FailPrepare {
+        inner: ManagedCertificateAdapter,
+        fail: Arc<AtomicBool>,
+    }
+
+    impl CredentialAdapter for FailPrepare {
+        fn descriptor(&self) -> &heimdall_app::ports::AdapterDescriptor {
+            self.inner.descriptor()
+        }
+        fn prepare<'a, 'b, 'c>(
+            &'a self,
+            req: heimdall_app::ports::PrepareRequest<'b>,
+        ) -> BoxFuture<'c, Result<heimdall_app::ports::PrepareOutcome, AdapterError>>
+        where
+            'a: 'c,
+            'b: 'c,
+            Self: 'c,
+        {
+            self.inner.prepare(req)
+        }
+        fn read_sources(
+            &self,
+            pairs: &[heimdall_app::ports::PreparePair],
+        ) -> heimdall_app::ports::IntegrationSnapshot {
+            self.inner.read_sources(pairs)
+        }
+        fn prepare_from<'a, 'b, 'c, 'd>(
+            &'a self,
+            req: heimdall_app::ports::PrepareRequest<'b>,
+            sources: &'c heimdall_app::ports::IntegrationSnapshot,
+        ) -> BoxFuture<'d, Result<heimdall_app::ports::PrepareOutcome, AdapterError>>
+        where
+            'a: 'd,
+            'b: 'd,
+            'c: 'd,
+            Self: 'd,
+        {
+            if self.fail.load(Ordering::SeqCst) {
+                return Box::pin(async { Err(AdapterError::CapabilityUnavailable) });
+            }
+            self.inner.prepare_from(req, sources)
+        }
+        fn renew<'a, 'b, 'c>(
+            &'a self,
+            req: heimdall_app::ports::PrepareRequest<'b>,
+        ) -> BoxFuture<'c, Result<heimdall_app::ports::PrepareOutcome, AdapterError>>
+        where
+            'a: 'c,
+            'b: 'c,
+            Self: 'c,
+        {
+            self.inner.renew(req)
+        }
+        fn reconcile<'a, 'b, 'c, 'd>(
+            &'a self,
+            grant: &'b GrantId,
+            token: &'c str,
+        ) -> BoxFuture<'d, Result<heimdall_app::ports::ReconcileOutcome, AdapterError>>
+        where
+            'a: 'd,
+            'b: 'd,
+            'c: 'd,
+            Self: 'd,
+        {
+            self.inner.reconcile(grant, token)
+        }
+        fn revoke<'a, 'b, 'c>(
+            &'a self,
+            grant: &'b GrantId,
+            now: Timestamp,
+        ) -> BoxFuture<'c, Result<heimdall_app::ports::RevokeOutcome, AdapterError>>
+        where
+            'a: 'c,
+            'b: 'c,
+            Self: 'c,
+        {
+            self.inner.revoke(grant, now)
+        }
+    }
+
+    /// One runtime process: its own vault, table, registry, effects, adapter and
+    /// `Operations` over the shared store.
+    struct Process {
+        ops: Operations,
+        table: SignerTable,
+        registry: EndpointRegistry,
+        effects: ManagedEffectsImpl,
+        shutdown: CancellationToken,
+    }
+
+    struct Live {
+        dir: tempfile::TempDir,
+        store: Arc<Store>,
+        clock: Arc<VirtualClock>,
+        sync: Arc<ScriptedTimeSync>,
+        ca: Arc<SecretCaKey>,
+    }
+
+    impl Live {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            owner_only(&dir.path().join("state"));
+            owner_only(&dir.path().join("run"));
+            let store = Arc::new(
+                Store::open(
+                    &dir.path().join("state").join("state.db"),
+                    Arc::new(NoFaults),
+                )
+                .unwrap(),
+            );
+            let ca = Arc::new(SecretCaKey::generate().unwrap());
+            seed(&store, &ca);
+            Self {
+                dir,
+                store,
+                clock: VirtualClock::at(t0()),
+                sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+                ca,
+            }
+        }
+
+        fn run_dir(&self) -> std::path::PathBuf {
+            self.dir.path().join("run")
+        }
+
+        async fn process(&self, hook: Arc<dyn StageHook>) -> Process {
+            self.process_with(hook, Arc::default()).await
+        }
+
+        async fn process_with(&self, hook: Arc<dyn StageHook>, fail: Arc<AtomicBool>) -> Process {
+            let sources = StoreSources::new(self.store.clone(), env());
+            let table = SignerTable::new(Arc::new(KeyVault::new()));
+            let late = Arc::new(Late::default());
+            let layout = EndpointLayout::unix(&self.run_dir()).unwrap();
+            let effects = ManagedEffectsImpl::new(
+                table.clone(),
+                late.clone(),
+                Arc::new(sources.clone()),
+                self.run_dir(),
+                SlotRoot {
+                    data_dir: self.dir.path().join("state"),
+                    environment: env(),
+                },
+            )
+            .with_slot_store(Arc::new(sources.clone()));
+            let adapter = ManagedCertificateAdapter::new(
+                "managed-1",
+                Arc::new(sources.clone()),
+                Some(effects.clone()),
+                Some(layout.clone()),
+            )
+            .with_cleanup(Arc::new(StoreCleanup::new(
+                sources.clone(),
+                effects.clone(),
+                None,
+            )));
+            let ops = Operations::start(OperationsConfig {
+                store: self.store.clone(),
+                clock: self.clock.clone(),
+                time_sync: self.sync.clone(),
+                time_policy: TimePolicy::default(),
+                environment: env(),
+                adapters: vec![Arc::new(FailPrepare {
+                    inner: adapter,
+                    fail,
+                }) as Arc<dyn CredentialAdapter>],
+                stage_hook: hook,
+                limits: Limits::default(),
+                default_window: 12 * HOUR,
+                projection: None,
+            })
+            .await
+            .unwrap();
+            let shutdown = CancellationToken::new();
+            let registry = EndpointRegistry::new(
+                layout,
+                heimdall_ipc::endpoint::ExpectedOwner::Uid(heimdall_ipc::unix::current_uid()),
+                table.clone(),
+                Arc::new(ops.clone()),
+                SignerLimits::default(),
+                shutdown.clone(),
+            );
+            *late.0.write().unwrap() = Some(registry.clone());
+            table.set_install_view(Arc::new(OpsInstallView::new(ops.clone())));
+            let issuer: Arc<dyn IssuerPort> = Arc::new(FixtureIssuer {
+                store: self.store.clone(),
+                table: table.clone(),
+                ca: self.ca.clone(),
+            });
+            sources.set_issuer(issuer.clone());
+            ops.set_managed_wiring(ManagedWiring {
+                effects: Some(Arc::new(effects.clone())),
+                issuer: Some(issuer),
+                ..ManagedWiring::default()
+            });
+            Process {
+                ops,
+                table,
+                registry,
+                effects,
+                shutdown,
+            }
+        }
+
+        async fn ensure(
+            &self,
+            p: &Process,
+            tag: &str,
+            required: RequiredCapabilities,
+        ) -> Result<EnsureData, heimdall_app::OpError> {
+            p.ops
+                .ensure(
+                    &caller(),
+                    EnsureRequest {
+                        profile: ProfileId::parse("dev").unwrap(),
+                        profile_revision: None,
+                        scope: pairs().into_iter().collect(),
+                        environment: None,
+                        work_id: WorkId::parse(&format!("w-{tag}")).unwrap(),
+                        until: None,
+                        required_capabilities: required,
+                        request_id: RequestId::parse(&format!("r-{tag}")).unwrap(),
+                        // An interactive request: a non-interactive one is refused at the
+                        // commit by M02's catalog-identity eligibility (R2C-Q1).
+                        interaction: InteractionMode::Interactive,
+                        wait: WaitMode::Sync { timeout_ms: 30_000 },
+                        connection: None,
+                    },
+                )
+                .await
+                .map(|c| c.data)
+        }
+
+        /// The binding directories on disk whose marker names `binding`.
+        fn binding_dirs(&self, binding: &BindingId) -> Vec<(std::path::PathBuf, u64)> {
+            files::binding_directories_of(&self.run_dir(), binding).unwrap()
+        }
+
+        /// The grant of `op` (its recovery intent).
+        fn grant_of(&self, op: &OperationId) -> GrantId {
+            self.store
+                .transaction(|tx| tx.recovery_intent(op))
+                .unwrap()
+                .and_then(|i| i.resolved)
+                .and_then(|r| r.grant)
+                .expect("a grant")
+        }
+
+        /// `grant`'s credential instances still live (`pending` or `installed`).
+        fn live_instances(&self, grant: &GrantId) -> usize {
+            self.store
+                .transaction(|tx| tx.credential_instances_for_grant(grant))
+                .unwrap()
+                .iter()
+                .filter(|i| {
+                    matches!(
+                        i.state,
+                        CredentialState::Pending | CredentialState::Installed
+                    )
+                })
+                .count()
+        }
+
+        /// The binding ID minted at resolve for `op` (its recovery intent).
+        fn minted_binding(&self, op: &OperationId) -> BindingId {
+            self.store
+                .transaction(|tx| tx.recovery_intent(op))
+                .unwrap()
+                .and_then(|i| i.resolved)
+                .and_then(|r| r.binding_id)
+                .expect("a binding ID minted at resolve")
+        }
+    }
+
+    async fn listed(endpoint: &str) -> Result<usize, heimdall_ipc::agent_client::AgentClientError> {
+        list_identities(
+            &AgentLocator::UnixSocket(std::path::PathBuf::from(endpoint)),
+            &ClientBounds::default(),
+        )
+        .await
+        .map(|l| l.identities.len())
+    }
+
+    /// The endpoint stops answering (its accept loop ends asynchronously).
+    async fn gone(endpoint: &str) -> bool {
+        for _ in 0..200 {
+            if listed(endpoint).await.is_err() {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        false
+    }
+
+    /// §17.21 item 1: a managed `ensure` materializes the binding during preparation
+    /// under the ID minted at resolve: the binding endpoint (generation 1) is named in
+    /// `consumer.signing_endpoint` and on every pair, and it lists the grant's two
+    /// certificates; the binding files are on disk at generation 1. A replay of the same
+    /// request returns the same binding and endpoint. The revoke removes the endpoint,
+    /// the files and the key.
+    #[tokio::test]
+    async fn managed_ensure_names_binding_endpoint_listing_grant_certificates() {
+        let w = Live::new();
+        let p = w.process(Arc::new(NoStageHook)).await;
+        let data = w
+            .ensure(&p, "named", RequiredCapabilities::default())
+            .await
+            .unwrap_or_else(|e| panic!("ensure: {} {}", e.code, e.message));
+        let (endpoint, generation) = p
+            .registry
+            .binding_endpoint(&data.binding_id)
+            .expect("the binding endpoint was created");
+        assert_eq!(generation, heimdall_domain::resource::ResourceGeneration(1));
+        assert_eq!(
+            data.consumer.signing_endpoint.as_deref(),
+            Some(endpoint.locator.as_str()),
+            "the result names the binding endpoint"
+        );
+        assert!(
+            data.consumer
+                .pairs
+                .iter()
+                .all(|pi| pi.endpoint.as_ref() == Some(&endpoint))
+        );
+        assert_eq!(
+            listed(&endpoint.locator).await.unwrap(),
+            2,
+            "the endpoint lists the grant's two certificates"
+        );
+        let dirs = w.binding_dirs(&data.binding_id);
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0].1, 1, "generation 1");
+        assert!(dirs[0].0.join(files::BINDING_KEY_FILE).exists());
+        for pr in pairs() {
+            let name = files::binding_cert_name(&pr.destination).unwrap();
+            assert!(dirs[0].0.join(name).exists());
+        }
+        // A replay of the same request: the same binding and endpoint.
+        let again = w
+            .ensure(&p, "named", RequiredCapabilities::default())
+            .await
+            .unwrap();
+        assert_eq!(again.binding_id, data.binding_id);
+        assert_eq!(
+            again.consumer.signing_endpoint,
+            data.consumer.signing_endpoint
+        );
+        assert_eq!(
+            p.registry.binding_endpoint(&data.binding_id),
+            Some((endpoint.clone(), generation))
+        );
+        // The revoke: endpoint, files and key gone.
+        p.ops
+            .revoke(
+                &caller(),
+                RevokeRequest {
+                    grant_id: data.grant_id.clone(),
+                    request_id: RequestId::parse("rv-named").unwrap(),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(p.registry.binding_endpoint(&data.binding_id).is_none());
+        assert!(gone(&endpoint.locator).await, "the endpoint is gone");
+        assert!(
+            w.binding_dirs(&data.binding_id).is_empty(),
+            "no binding file"
+        );
+        assert_eq!(p.table.vault().len(), 0, "no key");
+        assert_eq!(w.live_instances(&data.grant_id), 0);
+    }
+
+    /// §17.21 item 1: a failure after the driver materialized (`prepare_from` refuses)
+    /// is cleaned up before the call returns: no endpoint, no binding file, no key, no
+    /// live instance, no binding committed, no cleanup intent left.
+    #[tokio::test]
+    async fn managed_prepare_failure_after_materialize_leaves_no_endpoint_file_or_key() {
+        let w = Live::new();
+        let p = w
+            .process_with(Arc::new(NoStageHook), Arc::new(AtomicBool::new(true)))
+            .await;
+        let e = w
+            .ensure(&p, "refused", RequiredCapabilities::default())
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::CapabilityUnavailable, "{}", e.message);
+        let op = e.operation_id.clone().expect("the operation");
+        let binding = w.minted_binding(&op);
+        let grant = w.grant_of(&op);
+        let stages: Vec<String> = w
+            .store
+            .transaction(|tx| tx.stage_receipts(&op))
+            .unwrap()
+            .into_iter()
+            .map(|r| r.stage)
+            .collect();
+        assert!(
+            stages.iter().any(|s| s == "managed.materialize"),
+            "the driver materialized before the refusal: {stages:?}"
+        );
+        assert!(
+            p.registry.binding_endpoint(&binding).is_none(),
+            "no endpoint"
+        );
+        assert!(w.binding_dirs(&binding).is_empty(), "no binding file");
+        assert_eq!(p.table.vault().len(), 0, "no key");
+        assert!(p.table.public_key(&grant).is_none());
+        assert_eq!(w.live_instances(&grant), 0);
+        assert!(!p.ops.signing_gates().contains(&grant), "the gate released");
+        let (committed, intents) = w
+            .store
+            .transaction(|tx| Ok((tx.binding(&binding)?, tx.cleanup_intents()?)))
+            .unwrap();
+        assert!(committed.is_none());
+        assert!(intents.is_empty());
+    }
+
+    /// §17.21 item 1: a crash between the materialization and the commit (the stage
+    /// before `Commit` fails; the process then dies: its endpoint stops without its
+    /// own cleanup) and a restart over the same store: recovery fails the operation
+    /// with a cleanup intent, and once the effects are wired the cleanup pass leaves no
+    /// endpoint, no binding file and no key; nothing is committed.
+    #[tokio::test]
+    async fn crash_between_materialize_and_commit_leaves_no_endpoint_file_or_key() {
+        let w = Live::new();
+        let hook = Arc::new(CrashBeforeCommit(AtomicBool::new(true)));
+        let p = w.process(hook).await;
+        let e = w
+            .ensure(&p, "crash", RequiredCapabilities::default())
+            .await
+            .unwrap_err();
+        let op = e.operation_id.clone().expect("the operation");
+        let binding = w.minted_binding(&op);
+        let grant = w.grant_of(&op);
+        let (endpoint, _) = p
+            .registry
+            .binding_endpoint(&binding)
+            .expect("materialized before the crash");
+        assert_eq!(listed(&endpoint.locator).await.unwrap(), 2);
+        assert_eq!(w.binding_dirs(&binding).len(), 1, "the files were written");
+        // The crash: the process ends; nothing of it runs its own cleanup.
+        p.shutdown.cancel();
+        drop(p);
+        assert!(gone(&endpoint.locator).await);
+        // The restart: recovery, then the wiring, then the supervisor's cleanup pass.
+        let q = w.process(Arc::new(NoStageHook)).await;
+        q.ops.process_cleanup_intents().await.unwrap();
+        assert!(w.binding_dirs(&binding).is_empty(), "no binding file");
+        assert!(
+            q.registry.binding_endpoint(&binding).is_none(),
+            "no endpoint"
+        );
+        assert!(listed(&endpoint.locator).await.is_err());
+        assert_eq!(q.table.vault().len(), 0, "no key");
+        assert!(q.table.public_key(&grant).is_none());
+        assert_eq!(w.live_instances(&grant), 0);
+        let (committed, intents, state, grant_state) = w
+            .store
+            .transaction(|tx| {
+                Ok((
+                    tx.binding(&binding)?,
+                    tx.cleanup_intents()?,
+                    tx.operation(&op)?.map(|o| o.state),
+                    tx.grant(&grant)?.map(|g| g.state),
+                ))
+            })
+            .unwrap();
+        assert!(committed.is_none(), "no binding committed");
+        assert!(intents.is_empty(), "the cleanup intent was processed");
+        assert_eq!(state, Some(heimdall_contract::OperationState::Failed));
+        assert_eq!(grant_state, Some(GrantState::Failed));
+    }
+
+    async fn launch_bind(
+        p: &Process,
+        binding: &BindingId,
+        tag: &str,
+        holder: Option<heimdall_contract::request::ProcessHolder>,
+    ) -> Result<EnsureData, heimdall_app::OpError> {
+        use heimdall_contract::request::{BindForm, BindRequest, LaunchBinding};
+        p.ops
+            .bind(
+                &caller(),
+                BindRequest {
+                    binding_id: binding.clone(),
+                    form: BindForm::Launch(LaunchBinding {
+                        executable: "/usr/bin/true".into(),
+                        holder,
+                    }),
+                    request_id: RequestId::parse(&format!("bind-{tag}")).unwrap(),
+                },
+            )
+            .await
+            .map(|c| c.data)
+    }
+
+    fn slot_of(w: &Live, pr: &AccessPair) -> SlotState {
+        w.store.transaction(|tx| tx.slot(&env(), pr)).unwrap()
+    }
+
+    /// §17.21 item 2: `BindForm::Launch` of a managed binding claims each pair's free
+    /// environment slot in the runtime: the store CAS (`held(b, 1)`), the slot files
+    /// at that generation, and the signer's environment listing of the binding's
+    /// certificates.
+    #[tokio::test]
+    async fn launch_bind_claims_the_free_slot() {
+        let w = Live::new();
+        let p = w.process(Arc::new(NoStageHook)).await;
+        let data = w
+            .ensure(&p, "slot", RequiredCapabilities::default())
+            .await
+            .unwrap();
+        for pr in pairs() {
+            assert_eq!(slot_of(&w, &pr), SlotState::Free { generation: 0 });
+        }
+        launch_bind(&p, &data.binding_id, "slot", None)
+            .await
+            .unwrap_or_else(|e| panic!("bind: {} {}", e.code, e.message));
+        let root = p.effects.slot_root().clone();
+        for pr in pairs() {
+            assert_eq!(
+                slot_of(&w, &pr),
+                SlotState::Held {
+                    binding: data.binding_id.clone(),
+                    generation: 1
+                }
+            );
+            assert_eq!(files::slot_generation(&root, &pr).unwrap(), Some(1));
+            let paths = files::slot_paths(&root.data_dir, &pr).unwrap();
+            assert!(paths.key_pub.exists() && paths.cert_pub.exists());
+            assert_eq!(
+                p.table.materialized_generation(&data.binding_id, &pr),
+                Some(1),
+                "the environment listing names the binding at the slot's generation"
+            );
+        }
+        assert_eq!(
+            p.table
+                .list(&heimdall_app::ports::SignerEndpoint::Environment)
+                .len(),
+            2,
+            "the environment endpoint lists the binding's two certificates"
+        );
+    }
+
+    /// §17.21 item 2: a slot another binding holds refuses the launch bind with its
+    /// reason (`CONFIG_CONFLICT`, `managed_slot_held`, next `release_binding`) and
+    /// writes nothing else: no slot claim, no holder, no slot file or listing for the
+    /// refused binding; the holder's slot is untouched.
+    #[tokio::test]
+    async fn launch_bind_refuses_a_held_slot_with_its_reason_and_writes_nothing_else() {
+        let w = Live::new();
+        let p = w.process(Arc::new(NoStageHook)).await;
+        let first = w
+            .ensure(&p, "first", RequiredCapabilities::default())
+            .await
+            .unwrap();
+        let second = w
+            .ensure(&p, "second", RequiredCapabilities::default())
+            .await
+            .unwrap();
+        assert_ne!(first.binding_id, second.binding_id);
+        launch_bind(&p, &first.binding_id, "first", None)
+            .await
+            .unwrap();
+        let holder = heimdall_contract::request::ProcessHolder {
+            pid: std::process::id(),
+            started_at: "fixture-start".into(),
+        };
+        let e = launch_bind(&p, &second.binding_id, "second", Some(holder))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::ConfigConflict, "{}", e.message);
+        assert_eq!(e.reason.as_deref(), Some("managed_slot_held"));
+        assert_eq!(e.next.action, "release_binding");
+        for pr in pairs() {
+            assert_eq!(
+                slot_of(&w, &pr),
+                SlotState::Held {
+                    binding: first.binding_id.clone(),
+                    generation: 1
+                },
+                "the holder's slot is untouched"
+            );
+            assert_eq!(
+                p.table.materialized_generation(&second.binding_id, &pr),
+                None
+            );
+        }
+        let (holder, slots, connections) = w
+            .store
+            .transaction(|tx| {
+                Ok((
+                    tx.binding_holder(&second.binding_id)?,
+                    tx.slots_for_binding(&second.binding_id)?,
+                    tx.owned_connections_for_binding(&second.binding_id)?,
+                ))
+            })
+            .unwrap();
+        assert!(holder.is_none(), "no holder registered");
+        assert!(slots.is_empty(), "no slot claimed");
+        assert!(connections.is_empty(), "no owned connection");
+        assert_eq!(p.table.materialized_pairs(&second.binding_id), Vec::new());
     }
 }

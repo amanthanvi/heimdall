@@ -527,9 +527,15 @@ impl Service {
             // ⟨M02⟩ ADR-0007 §12.22 item 10: `[setup] declaration_validity_days`.
             limits.declaration_validity = config.declaration_validity()?;
         }
-        // ⟨M03⟩ The endpoint layout and owner (the Windows instance token is shared by
-        // the control endpoint and the managed endpoints).
-        let token = endpoint_token(&options.endpoint_prefix, options.managed.is_some())?;
+        // ⟨M03⟩ The endpoint owner and tokens: the control endpoint keeps M01's
+        // per-start instance token; ⟨§17.21 item 8⟩ the managed endpoints are named by
+        // the stable per-installation token (D10 item 1), created once and reused, so
+        // P keeps naming the live environment pipe after a restart.
+        let token = endpoint_token(&options.endpoint_prefix, false)?;
+        let managed_token = match &options.managed {
+            Some(_) => installation_pipe_token(&store, &options.endpoint_prefix).await?,
+            None => String::new(),
+        };
         let owner = expected_owner()?;
         // ⟨M03⟩ wave 4: what the managed adapter needs before `Operations::start`
         // (module docs): the vault, the signer table, the late-bound endpoint registry,
@@ -540,7 +546,7 @@ impl Service {
                 &paths,
                 &store,
                 &environment,
-                &token,
+                &managed_token,
                 crate::session_lock::lock_floor(&config.session),
             )?),
             None => None,
@@ -551,7 +557,7 @@ impl Service {
         // `ManagedPairSource`, over the store and the environment endpoint).
         let pair_source = managed_parts
             .as_ref()
-            .map(|p| p.pair_source(&store, &paths));
+            .map(|p| p.pair_source(&store, &paths, &environment));
         let with_pairs = |mut c: ProjectionConfig| {
             // The runtime's writer takes the original files' snapshots under this
             // runtime's state directory when the configuration names none (an explicit
@@ -583,7 +589,7 @@ impl Service {
         }
         // ⟨M03⟩ U6's managed adapter, after M02's (their order is unchanged).
         if let Some(parts) = &managed_parts {
-            adapters.push(parts.adapter());
+            adapters.push(parts.adapter(wired.as_ref().map(|w| Arc::clone(&w.writer))));
         }
         let operations = Operations::start(OperationsConfig {
             store: store.clone(),
@@ -761,7 +767,9 @@ impl Service {
             cleaner,
         );
         if let Some(m) = &managed {
-            sup = sup.with_connections(Arc::clone(&m.connections));
+            sup = sup
+                .with_connections(Arc::clone(&m.connections))
+                .with_end_cleanup(m.end_cleanup());
             if let Some(source) = &m.lock_source {
                 sup = sup.with_session_lock(Arc::clone(source), m.lock_passes);
             }
@@ -836,7 +844,9 @@ impl Service {
             self.cleaner.clone(),
         );
         match &self.managed {
-            Some(m) => sup.with_connections(Arc::clone(&m.connections)),
+            Some(m) => sup
+                .with_connections(Arc::clone(&m.connections))
+                .with_end_cleanup(m.end_cleanup()),
             None => sup,
         }
     }
@@ -932,12 +942,39 @@ fn endpoint_string(path: &std::path::Path) -> Result<String, ServiceError> {
     })
 }
 
+/// ⟨M03⟩ ADR-0008 D10 item 1, §17.21 item 8: the installation's stable Windows
+/// environment pipe token, read from the store (`Txn::windows_pipe_token`) or, at the
+/// first managed start, created once (CSPRNG hex after the test prefix's ASCII
+/// alphanumerics; `EndpointLayout::windows` takes alphanumerics only) and recorded in
+/// the same transaction. Every later start reuses it, so the environment pipe P names
+/// is the one this runtime serves. Recorded on every platform (the Unix layout does not
+/// use it), so a state directory moved between hosts keeps it.
+async fn installation_pipe_token(store: &Arc<Store>, prefix: &str) -> Result<String, ServiceError> {
+    let fresh = endpoint_token_on(prefix, true, true)?;
+    let s = Arc::clone(store);
+    let token = blocking(move || {
+        s.transaction(|tx| match tx.windows_pipe_token()? {
+            Some(t) => Ok(t),
+            None => {
+                tx.set_windows_pipe_token(&fresh)?;
+                Ok(fresh)
+            }
+        })
+    })
+    .await??;
+    Ok(token)
+}
+
 /// The Windows instance token of this start (empty on Unix): CSPRNG hex, no labels
-/// (g03 §3.1 N2); a test prefix only makes test pipes recognizable. With the managed
-/// wiring the token names the managed endpoints too (`EndpointLayout::windows`), which
-/// take ASCII alphanumerics only, so the prefix's `-` are left out.
+/// (g03 §3.1 N2); a test prefix only makes test pipes recognizable.
 fn endpoint_token(prefix: &str, managed: bool) -> Result<String, ServiceError> {
-    if cfg!(not(windows)) {
+    endpoint_token_on(prefix, managed, cfg!(windows))
+}
+
+/// [`endpoint_token`] on `windows` (else empty). A `managed` token (the managed
+/// layout's) takes ASCII alphanumerics only, so the prefix's `-` are left out.
+fn endpoint_token_on(prefix: &str, managed: bool, windows: bool) -> Result<String, ServiceError> {
+    if !windows {
         return Ok(String::new());
     }
     use std::fmt::Write as _;
@@ -1587,6 +1624,33 @@ impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
             .and_then(|r| r.binding_endpoint(binding))
             .map(|(e, _)| e)
     }
+
+    /// ⟨§17.21 item 1⟩ Step 6's endpoint creation, through the live registry; before it
+    /// is set (or after stop) the creation refuses, so the materialization fails closed.
+    fn create_binding_endpoint(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        generation: u64,
+    ) -> Result<EndpointRef, heimdall_app::ports::AdapterError> {
+        self.get()
+            .ok_or_else(|| {
+                heimdall_app::ports::AdapterError::Unavailable(
+                    heimdall_adapters::managed::effects::BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+                )
+            })?
+            .create_binding_endpoint(binding, generation)
+    }
+
+    fn remove_binding_endpoint(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+        generation: u64,
+    ) -> Result<bool, heimdall_app::ports::AdapterError> {
+        match self.get() {
+            Some(r) => r.remove_binding_endpoint(binding, generation),
+            None => Ok(false),
+        }
+    }
 }
 
 impl crate::connections::BindingEndpoints for LateRegistry {
@@ -1600,14 +1664,52 @@ impl crate::connections::BindingEndpoints for LateRegistry {
 /// ⟨M03⟩ U8's `ManagedPairSource` over the store (U8-Q1/Q6 hand-off): a pair whose
 /// stored preference is `managed_certificate` renders its managed section with the
 /// environment endpoint and the slot paths of the one path function
-/// (`content::managed_slot_paths(<state_dir>, destination)`), `ControlPath none` (the mux
-/// path is rendered only once owned masters are enabled and applied, which this source
-/// does not establish: fail closed to no multiplexing). A store failure refuses the
+/// (`content::managed_slot_paths(<state_dir>, destination)`). A store failure refuses the
 /// preview, never rendering existing access instead.
+///
+/// ⟨§17.21 item 9⟩ The control path: the slot's stable mux path
+/// (`content::checked_mux_path(<runtime_dir>, destination)`, D8 item 3) only when owned
+/// masters are enabled for the pair ([`pair_masters_enabled`]); otherwise `ControlPath
+/// none`. This source is read only by the setup preview, so the path reaches P only
+/// through the `setup apply` of that preview (enabling masters is widening: it takes
+/// effect through an approved projection). On Windows (owned masters unavailable, M-F7)
+/// and for a path past the socket limit (`mux_path_too_long`): `ControlPath none`.
 struct StorePairSource {
     store: Arc<Store>,
+    environment: EnvironmentId,
     environment_endpoint: EndpointRef,
     state_dir: PathBuf,
+    runtime_dir: PathBuf,
+}
+
+/// ⟨§17.21 item 9⟩ Whether owned masters are enabled for `pair` in `environment`: D8
+/// item 1's fail-closed merge (`effective_connection_policy`, strictest wins) over every
+/// current standing policy that applies to the pair (its profile defined, its
+/// environments containing `environment`, its scope naming the pair) is
+/// `owned_masters`. No applicable policy: disabled (the default). A grant's own origin
+/// cannot enable it here: P is per pair, and each master is still started only for a
+/// grant whose own effective policy is `owned_masters` (U7's `start_context`).
+fn pair_masters_enabled(
+    tx: &mut heimdall_store::Txn<'_>,
+    environment: &EnvironmentId,
+    pair: &heimdall_domain::scope::AccessPair,
+) -> heimdall_store::Result<bool> {
+    let mut applicable = Vec::new();
+    for profile in tx.profiles()? {
+        for p in tx.policies_for(&profile.id, environment)? {
+            if p.scope.pairs.contains(pair) {
+                applicable.push(p.connection);
+            }
+        }
+    }
+    let Some((first, rest)) = applicable.split_first() else {
+        return Ok(false);
+    };
+    Ok(
+        heimdall_domain::connection::effective_connection_policy(Some(*first), rest, None)
+            .multiplexing
+            == heimdall_contract::managed::MultiplexingMode::OwnedMasters,
+    )
 }
 
 impl heimdall_localenv::projection::ManagedPairSource for StorePairSource {
@@ -1619,9 +1721,18 @@ impl heimdall_localenv::projection::ManagedPairSource for StorePairSource {
             destination: alias.destination.clone(),
             account: alias.account.clone(),
         };
-        let preference = self
+        let (preference, masters) = self
             .store
-            .transaction(|tx| tx.pair_preference(&pair))
+            .transaction(|tx| {
+                let preference = tx.pair_preference(&pair)?;
+                let masters = match &preference {
+                    Some(p) if p.mechanism == PreferredMechanism::ManagedCertificate => {
+                        pair_masters_enabled(tx, &self.environment, &pair)?
+                    }
+                    _ => false,
+                };
+                Ok((preference, masters))
+            })
             .map_err(|_| "the pair preference could not be read".to_owned())?;
         match preference {
             Some(p) if p.mechanism == PreferredMechanism::ManagedCertificate => {
@@ -1630,16 +1741,47 @@ impl heimdall_localenv::projection::ManagedPairSource for StorePairSource {
                     &alias.destination,
                 )
                 .map_err(|e| e.to_string())?;
+                let control_path = if masters && cfg!(not(windows)) {
+                    heimdall_localenv::projection::content::checked_mux_path(
+                        &self.runtime_dir,
+                        &alias.destination,
+                    )
+                    .ok()
+                } else {
+                    None
+                };
                 Ok(Some(heimdall_localenv::projection::ManagedSectionSpec {
                     environment_endpoint: self.environment_endpoint.clone(),
                     key_pub: slot.key_pub,
                     cert_pub: slot.cert_pub,
-                    control_path: None,
+                    control_path,
                 }))
             }
             _ => Ok(None),
         }
     }
+}
+
+/// ⟨M03 wave 4, round 2 (R2-F)⟩ The runtime's store-backed `ManagedPairSource`
+/// ([`StorePairSource`]), exactly as [`Service`] wires it into its projection writer, for
+/// a harness that builds the writer itself ([`wire_runtime_projection`]) over its own
+/// `Operations`: `environment_endpoint` is the managed layout's environment endpoint,
+/// `state_dir` the slot data directory, `runtime_dir` the mux paths' directory.
+#[must_use]
+pub fn store_pair_source(
+    store: Arc<Store>,
+    environment: EnvironmentId,
+    environment_endpoint: EndpointRef,
+    state_dir: PathBuf,
+    runtime_dir: PathBuf,
+) -> Arc<dyn heimdall_localenv::projection::ManagedPairSource> {
+    Arc::new(StorePairSource {
+        store,
+        environment,
+        environment_endpoint,
+        state_dir,
+        runtime_dir,
+    })
 }
 
 /// What the managed adapter needs before `Operations::start`.
@@ -1674,8 +1816,117 @@ mod sources {
     use crate::managed_store::{OpsInstallView, StoreCleanup, StoreSources};
     use crate::supervisor::ManagedConnections;
 
-    pub(super) fn read(s: &StoreSources) -> Arc<dyn ManagedSourceRead> {
-        Arc::new(s.clone())
+    pub(super) fn read(
+        s: &StoreSources,
+        writer: Option<Arc<dyn heimdall_app::ports::ProjectionWriter>>,
+    ) -> Arc<dyn ManagedSourceRead> {
+        Arc::new(Observing {
+            inner: s.clone(),
+            writer,
+        })
+    }
+
+    /// ⟨§17.21 item 11⟩ `StoreSources` with D10 item 6's static observation of the
+    /// managed aliases: the runtime's projection writer's `observe` over the stored
+    /// projection record, exactly as M02's `RuntimeSources::observe_aliases`. No writer,
+    /// no record or a store failure: no observation (every pair `undetermined`, fail
+    /// closed). Every other read is `StoreSources`'.
+    struct Observing {
+        inner: StoreSources,
+        writer: Option<Arc<dyn heimdall_app::ports::ProjectionWriter>>,
+    }
+
+    impl ManagedSourceRead for Observing {
+        fn enrollments(
+            &self,
+            pairs: &[heimdall_domain::scope::AccessPair],
+        ) -> Vec<heimdall_domain::enrollment::EnrollmentRecord> {
+            self.inner.enrollments(pairs)
+        }
+
+        fn issuing_cas(
+            &self,
+            pairs: &[heimdall_domain::scope::AccessPair],
+        ) -> std::collections::BTreeMap<
+            heimdall_domain::scope::AccessPair,
+            std::collections::BTreeSet<heimdall_contract::ids::CaFingerprint>,
+        > {
+            self.inner.issuing_cas(pairs)
+        }
+
+        fn slots(
+            &self,
+            pairs: &[heimdall_domain::scope::AccessPair],
+        ) -> Vec<heimdall_app::ports::ManagedSlot> {
+            self.inner.slots(pairs)
+        }
+
+        fn claims(&self) -> Vec<heimdall_domain::claims::Claim> {
+            self.inner.claims()
+        }
+
+        fn issuer(&self) -> Option<heimdall_app::ports::IssuerStatusSnapshot> {
+            self.inner.issuer()
+        }
+
+        fn prepared(
+            &self,
+            pairs: &[heimdall_domain::scope::AccessPair],
+        ) -> Option<heimdall_app::ports::ManagedPrepared> {
+            self.inner.prepared(pairs)
+        }
+
+        fn terms(
+            &self,
+            grant: &GrantId,
+        ) -> Option<heimdall_adapters::managed::prepare::GrantTerms> {
+            self.inner.terms(grant)
+        }
+
+        fn cascade(&self, grant: &GrantId) -> Vec<GrantId> {
+            self.inner.cascade(grant)
+        }
+
+        fn issuance_entries(&self, grants: &[GrantId]) -> Vec<IssuanceEntry> {
+            self.inner.issuance_entries(grants)
+        }
+
+        fn key_only_restore(&self) -> bool {
+            self.inner.key_only_restore()
+        }
+
+        fn recorded_outcome(
+            &self,
+            grant: &GrantId,
+            effect_token: &str,
+        ) -> Option<heimdall_app::ports::PrepareOutcome> {
+            self.inner.recorded_outcome(grant, effect_token)
+        }
+
+        fn owned_connections(
+            &self,
+            grants: &[GrantId],
+        ) -> Vec<heimdall_domain::managed::OwnedConnection> {
+            self.inner.owned_connections(grants)
+        }
+
+        fn observations(
+            &self,
+            aliases: &[String],
+        ) -> Vec<heimdall_contract::doctor::AliasObservation> {
+            let Some(writer) = &self.writer else {
+                return Vec::new();
+            };
+            let environment = self.inner.environment().clone();
+            match self
+                .inner
+                .store()
+                .transaction(|tx| tx.projection_record(&environment))
+            {
+                Ok(Some(record)) => writer.observe(&record, aliases),
+                _ => Vec::new(),
+            }
+        }
     }
 
     pub(super) fn scopes(s: &StoreSources) -> Arc<dyn GrantScopes> {
@@ -1843,12 +2094,15 @@ impl ManagedParts {
         })
     }
 
-    fn adapter(&self) -> Arc<dyn CredentialAdapter> {
+    fn adapter(
+        &self,
+        writer: Option<Arc<dyn heimdall_app::ports::ProjectionWriter>>,
+    ) -> Arc<dyn CredentialAdapter> {
         let cleanup: Arc<dyn heimdall_adapters::managed::EndCleanup> = self.cleanup.clone();
         Arc::new(
             ManagedCertificateAdapter::new(
                 "default",
-                sources::read(&self.sources),
+                sources::read(&self.sources, writer),
                 Some(self.effects.clone()),
                 Some(self.layout.clone()),
             )
@@ -1860,12 +2114,15 @@ impl ManagedParts {
         &self,
         store: &Arc<Store>,
         paths: &Paths,
+        environment: &EnvironmentId,
     ) -> Arc<dyn heimdall_localenv::projection::ManagedPairSource> {
-        Arc::new(StorePairSource {
-            store: Arc::clone(store),
-            environment_endpoint: self.layout.environment(),
-            state_dir: paths.state_dir.clone(),
-        })
+        store_pair_source(
+            Arc::clone(store),
+            environment.clone(),
+            self.layout.environment(),
+            paths.state_dir.clone(),
+            paths.runtime_dir.clone(),
+        )
     }
 
     /// m03-plan U10's start order after recovery (module docs).
@@ -2127,6 +2384,13 @@ struct ManagedRuntime {
 }
 
 impl ManagedRuntime {
+    /// ⟨§17.21 item 11⟩ The end-of-grant cleanup the supervisor's ended-slot pass runs
+    /// (the late-bound `StoreCleanup`; unset or after stop it refuses, so the slot rows
+    /// stay the intent).
+    fn end_cleanup(&self) -> Arc<dyn heimdall_adapters::managed::EndCleanup> {
+        self.cleanup.clone()
+    }
+
     /// m03-plan U10's stop order, after accepting stopped: close the owned masters,
     /// zeroize the vault, shut the issuer down, remove the endpoints; then the M03
     /// wiring is cleared (breaking the reference cycles).
@@ -2503,5 +2767,186 @@ mod enrollment_host_tests {
         assert!(h.heimdall_endpoints().contains(&slash_path(&run)));
         assert!(!h.endpoint_valid(&slash_path(&run.join("signing.sock"))));
         assert!(!h.endpoint_valid("/nonexistent/agent.sock"));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod pair_source_tests {
+    use super::*;
+    use heimdall_contract::ids::{AccountName, DestinationId, IdentityId, PolicyId, ProfileId};
+    use heimdall_contract::managed::{ExistingConnectionsMode, MultiplexingMode};
+    use heimdall_contract::request::Capability;
+    use heimdall_domain::enrollment::{PairPreference, ProjectionStatus};
+    use heimdall_domain::policy::{
+        ConnectionPolicy, PauseState, PolicyRevision, PolicySource, StandingPolicy,
+    };
+    use heimdall_domain::profile::ProfileDefinition;
+    use heimdall_domain::projection::ManagedAliasSpec;
+    use heimdall_domain::scope::{AccessPair, Scope};
+    use heimdall_localenv::projection::ManagedPairSource as _;
+
+    fn t0() -> heimdall_contract::Timestamp {
+        "2026-11-11T10:00:00Z".parse().unwrap()
+    }
+
+    fn env() -> EnvironmentId {
+        EnvironmentId::from_random_bytes([0x5a; 16])
+    }
+
+    fn pair() -> AccessPair {
+        AccessPair {
+            destination: DestinationId::parse("lab").unwrap(),
+            account: AccountName::parse("deploy").unwrap(),
+        }
+    }
+
+    fn alias() -> ManagedAliasSpec {
+        ManagedAliasSpec {
+            alias: "lab".into(),
+            destination: pair().destination,
+            hostname: "lab.example.invalid".into(),
+            port: None,
+            account: pair().account,
+            identity: IdentityId::from_random_bytes([0x41; 16]),
+            endpoint: None,
+            key_file: "/k/lab.pub".into(),
+        }
+    }
+
+    /// A store with the pair preferring `managed_certificate` and one standing policy
+    /// per entry of `policies` (`(profile, multiplexing, covers the pair)`).
+    fn store(policies: &[(&str, MultiplexingMode, bool)]) -> Arc<Store> {
+        let store = Arc::new(Store::open_in_memory(Arc::new(NoFaults)).unwrap());
+        store
+            .transaction(|tx| {
+                tx.set_pair_preference(
+                    &PairPreference {
+                        destination: pair().destination,
+                        account: pair().account,
+                        mechanism: PreferredMechanism::ManagedCertificate,
+                        projection: ProjectionStatus::Applied { generation: 1 },
+                        issuing_cas: Default::default(),
+                    },
+                    t0(),
+                )?;
+                for (n, (profile, multiplexing, covers)) in policies.iter().enumerate() {
+                    let other = AccessPair {
+                        destination: DestinationId::parse("other").unwrap(),
+                        account: pair().account,
+                    };
+                    let scope = Scope {
+                        pairs: [if *covers { pair() } else { other }].into_iter().collect(),
+                        capabilities: [Capability::SshAuthentication].into_iter().collect(),
+                    };
+                    tx.upsert_profile(&ProfileDefinition {
+                        id: ProfileId::parse(profile).unwrap(),
+                        revision: 1,
+                        scope: scope.clone(),
+                        label: None,
+                    })?;
+                    tx.upsert_policy(
+                        &StandingPolicy {
+                            id: PolicyId::parse(&format!("pol{n}")).unwrap(),
+                            revision: PolicyRevision(1),
+                            profile: ProfileId::parse(profile).unwrap(),
+                            workspace: None,
+                            scope,
+                            environments: [env()].into_iter().collect(),
+                            max_window: Duration::from_secs(3600),
+                            pause: PauseState::Active,
+                            cutoff_at: None,
+                            source: PolicySource::SetupDefault,
+                            lock_behavior: Default::default(),
+                            connection: ConnectionPolicy {
+                                existing: ExistingConnectionsMode::Graceful,
+                                multiplexing: *multiplexing,
+                            },
+                        },
+                        false,
+                    )?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        store
+    }
+
+    fn source(store: Arc<Store>, runtime_dir: &std::path::Path) -> StorePairSource {
+        StorePairSource {
+            store,
+            environment: env(),
+            environment_endpoint: EndpointRef {
+                kind: AgentEndpointKind::UnixSocket,
+                locator: runtime_dir
+                    .join("signing.sock")
+                    .to_string_lossy()
+                    .into_owned(),
+            },
+            state_dir: runtime_dir.join("state"),
+            runtime_dir: runtime_dir.to_path_buf(),
+        }
+    }
+
+    /// ADR-0008 §17.21 item 9 (U10-D-Q4 option (a); D8 items 1 and 3): the store-backed
+    /// pair source renders the slot's stable mux path in P only when owned masters are
+    /// enabled for the pair (every applicable standing policy `owned_masters`); with
+    /// masters disabled, with any applicable policy disabled (the fail-closed merge),
+    /// or with no applicable policy, `ControlPath none`. A policy that does not cover
+    /// the pair does not count. (On Windows owned masters are unavailable: never a
+    /// path.)
+    #[test]
+    fn pair_source_renders_mux_path_only_when_owned_masters_enabled() {
+        use MultiplexingMode::{Disabled, OwnedMasters};
+        let tmp = tempfile::tempdir().unwrap();
+        let run = tmp.path().join("r");
+        let path_of = |policies: &[(&str, MultiplexingMode, bool)]| {
+            source(store(policies), &run)
+                .managed_section(&alias())
+                .unwrap()
+                .expect("managed section")
+                .control_path
+        };
+        let mux =
+            heimdall_localenv::projection::content::checked_mux_path(&run, &pair().destination)
+                .unwrap();
+        let enabled = path_of(&[("dev", OwnedMasters, true)]);
+        if cfg!(windows) {
+            assert_eq!(enabled, None, "owned masters are unavailable on Windows");
+        } else {
+            assert_eq!(enabled, Some(mux.clone()), "enabled: the stable mux path");
+            assert_eq!(
+                path_of(&[("dev", OwnedMasters, true), ("ops", OwnedMasters, true)]),
+                Some(mux)
+            );
+        }
+        assert_eq!(path_of(&[("dev", Disabled, true)]), None, "disabled");
+        assert_eq!(
+            path_of(&[("dev", OwnedMasters, true), ("ops", Disabled, true)]),
+            None,
+            "one applicable policy disabled: the strictest wins"
+        );
+        assert_eq!(path_of(&[]), None, "no applicable policy");
+        assert_eq!(
+            path_of(&[("dev", OwnedMasters, false)]),
+            None,
+            "a policy that does not cover the pair does not enable it"
+        );
+    }
+
+    /// The same source with a path past the socket limit (`mux_path_too_long`, D8 item
+    /// 3) renders `ControlPath none` even with masters enabled.
+    #[test]
+    fn pair_source_mux_path_too_long_renders_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let run = tmp.path().join("x".repeat(120));
+        let section = source(
+            store(&[("dev", MultiplexingMode::OwnedMasters, true)]),
+            &run,
+        )
+        .managed_section(&alias())
+        .unwrap()
+        .unwrap();
+        assert_eq!(section.control_path, None);
     }
 }

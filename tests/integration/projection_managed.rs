@@ -709,12 +709,17 @@ fn projection_pending_until_setup_apply() {
     assert_eq!(sink.0.lock().unwrap().len(), 1, "one item committed");
 }
 
-/// ADR-0008 D10 item 1: the Windows environment pipe name carries the installation token;
-/// a changed token makes P stale, so the setup preview shows an update (and `ensure`
-/// refuses `projection_pending` until it is applied, U0b row 9). The renderer row runs on
-/// every platform; the preview row on Windows (the pipe is a Windows endpoint).
+/// ADR-0008 D10 item 1: the Windows environment pipe name P renders carries the
+/// installation token (`//./pipe/heimdall-<token>-signing`), so P names the live pipe
+/// exactly while the token is the runtime's. ⟨§17.21 item 8⟩ The token is stable per
+/// installation (`Txn::windows_pipe_token`), so a runtime restart changes neither: round
+/// 1's `windows_token_change_makes_p_stale_and_ensure_projection_pending` is replaced by
+/// the runtime's `windows_pipe_token_stable_across_runtime_restart` (every host) and
+/// `windows_native_restart_p_still_names_live_pipe_ensure_not_projection_pending`
+/// (Windows-native) in `integration_runtime_m03`. The renderer row runs on every
+/// platform.
 #[test]
-fn windows_token_change_makes_p_stale_and_ensure_projection_pending() {
+fn windows_environment_pipe_renders_installation_token() {
     let render = |token: &str| {
         let section = Section::ManagedCertificate {
             alias: AliasName::parse("work").unwrap(),
@@ -736,37 +741,13 @@ fn windows_token_change_makes_p_stale_and_ensure_projection_pending() {
         )
         .unwrap()
     };
-    let (a, b) = (render("tokena"), render("tokenb"));
-    assert_ne!(a, b, "a new token is a new P");
+    let (a, again, b) = (render("tokena"), render("tokena"), render("tokenb"));
+    assert_eq!(a, again, "the same token renders the same P");
+    assert_ne!(a, b, "another token would be another P");
     assert!(
         a.contains("//./pipe/heimdall-tokena-signing")
             && b.contains("//./pipe/heimdall-tokenb-signing")
     );
-    #[cfg(windows)]
-    {
-        let fx = Fx::new();
-        let spec = fx.alias("work", "work.example.invalid", None, "deploy");
-        fx.prefer_managed(&spec, fx.environment_endpoint("tokena"));
-        let writer = fx.writer(true);
-        let plan = writer
-            .preview(&fx.spec(vec![spec.clone()]), &apply_intent())
-            .unwrap();
-        writer.apply(&plan.intent(), &mut Sink::default()).unwrap();
-        // The token changes (a state reset): the next preview plans an update of P.
-        fx.prefer_managed(&spec, fx.environment_endpoint("tokenb"));
-        let record = heimdall_domain::projection::ProjectionRecord {
-            environment: fx.env.clone(),
-            items: Default::default(),
-        };
-        let mut next = fx.spec(vec![spec]);
-        next.record = Some(record);
-        let update = writer.preview(&next, &apply_intent()).unwrap();
-        assert!(planned_p(&update).contains("//./pipe/heimdall-tokenb-signing"));
-        assert!(
-            update.files.iter().any(|s| s.role == FileRole::ManagedSsh),
-            "P is stale"
-        );
-    }
 }
 
 /// ADR-0008 D8 item 6 (F15): the deadline wording follows the identity selection: only

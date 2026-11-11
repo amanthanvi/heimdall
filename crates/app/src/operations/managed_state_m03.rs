@@ -24,8 +24,6 @@ pub(super) struct ManagedOpsState {
     verification_reserved: Mutex<HashMap<IssuanceId, ReservedVerification>>,
     /// ⟨wave 4⟩ The wired M03 ports; `None` until the runtime sets them.
     wiring: RwLock<Option<Arc<ManagedWiring>>>,
-    /// ⟨wave 4⟩ The issuer handling's in-memory state (pending registrations).
-    pub(super) issuer: Arc<super::issuer_m03::IssuerProcessState>,
     /// ⟨wave 4⟩ The enrollment driver's in-memory state (host port, previews).
     pub(super) enrollment: super::enrollment_m03::EnrollmentProcessState,
 }

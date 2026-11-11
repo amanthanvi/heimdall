@@ -838,6 +838,7 @@ async fn held_plan(
         consent: heimdall_domain::projection::ConsentRecord::default(),
         files: Vec::new(),
         summary: None,
+        managed_pairs: Default::default(),
     })
 }
 
@@ -2379,6 +2380,69 @@ fn committed_record(
     record
 }
 
+/// ⟨M03 wave 4, round 2 (R2-F)⟩ The preference switch (ADR-0008 D5 §6.6; m03-plan U0b
+/// row 9): in the SSH item's commit transaction, a pair whose preference is
+/// `managed_certificate` is recorded `projection: applied { generation }` exactly when
+/// the committed plan rendered its managed section ([`SetupIntent::managed_pairs`],
+/// computed with the rendering at preview; never the preference read here alone), and
+/// `pending` when the committed P does not render it (a rollback, an apply that renders
+/// its existing-access block or no longer renders the alias). A block repair
+/// (`remove_duplicate_markers`, `move_include_to_top`) leaves P as it is, so it changes
+/// nothing here. A pair whose preference is not `managed_certificate` (`existing`, or
+/// none: every M02 pair) is never written. Store reads only for an M02 intent.
+fn record_managed_projection(
+    tx: &mut Txn<'_>,
+    intent: &SetupIntent,
+    generation: u64,
+    at: Timestamp,
+) -> heimdall_store::Result<()> {
+    use heimdall_contract::managed::PreferredMechanism;
+    use heimdall_contract::setup::RepairResolution as R;
+    use heimdall_domain::enrollment::ProjectionStatus;
+    use heimdall_domain::scope::AccessPair;
+    let none = BTreeSet::new();
+    let rendered = match &intent.intent {
+        PreviewIntent::Repair {
+            resolution: R::RemoveDuplicateMarkers | R::MoveIncludeToTop,
+            ..
+        } => return Ok(()),
+        PreviewIntent::Apply { .. }
+        | PreviewIntent::Repair {
+            resolution: R::Rerender | R::ManualMode,
+            ..
+        } => &intent.managed_pairs,
+        // A rollback removes P; any other intent renders no managed section.
+        _ => &none,
+    };
+    let mut pairs: BTreeSet<AccessPair> = rendered.clone();
+    for d in tx.destinations()? {
+        if let DestinationDefinition::Managed { account, .. } = d.definition {
+            pairs.insert(AccessPair {
+                destination: d.id,
+                account,
+            });
+        }
+    }
+    for pair in pairs {
+        let Some(mut preference) = tx.pair_preference(&pair)? else {
+            continue;
+        };
+        if preference.mechanism != PreferredMechanism::ManagedCertificate {
+            continue;
+        }
+        let next = if rendered.contains(&pair) {
+            ProjectionStatus::Applied { generation }
+        } else {
+            ProjectionStatus::Pending
+        };
+        if preference.projection != next {
+            preference.projection = next;
+            tx.set_pair_preference(&preference, at)?;
+        }
+    }
+    Ok(())
+}
+
 impl StageSink for StoreSink {
     fn append(&mut self, receipt: &LocalReceipt) -> Result<(), SinkError> {
         let stage = StageReceipt {
@@ -2431,7 +2495,11 @@ impl StageSink for StoreSink {
                     record,
                     ..commit.clone()
                 };
-                tx.commit_projection_item(op, &full, &receipt)
+                tx.commit_projection_item(op, &full, &receipt)?;
+                if commit.item == ProjectionItem::Ssh {
+                    record_managed_projection(tx, intent, commit.generation, now)?;
+                }
+                Ok(())
             })
             .map_err(|e| SinkError(format!("commit not durable: {e}")))?;
         self.wrote = true;
@@ -2490,6 +2558,7 @@ mod tests {
                 restore: Vec::new(),
                 diff_text: "+".repeat(n),
             }),
+            managed_pairs: Default::default(),
         }
     }
 
@@ -2755,6 +2824,7 @@ mod tests {
             approval: None,
             consent: ConsentRecord::default(),
             files: Vec::new(),
+            managed_pairs: Default::default(),
         };
         let commit = |item: ProjectionItem, generation: u64, include_file: Option<&str>| {
             let record = ProjectionRecord {

@@ -22,22 +22,31 @@
 //! generation, ADR-0006 §13.7 item 5) and, when the record disclosed it, the lock
 //! disclosure's acknowledgement; after the commit the child is started or reloaded.
 //!
-//! **The registration's public key** is not part of the `RegisterIssuer` record (the
-//! frozen `DecisionKind` names the fingerprint and digests only), and no store table
-//! holds it before approval. It is kept in this process (`PendingRegistrations`,
-//! keyed by the decision ID, bounded) between the request and its decision. A
-//! decision this process does not hold the key for (a restart in between) is refused
-//! `DECISION_STALE` and not consumed: register again (questions file U10B-Q1).
+//! **The registration's public key** and `backup_created_at` are part of the
+//! `RegisterIssuer` record (ADR-0008 §17.21 item 3: additive `ca_public_key` and
+//! `backup_created_at`), so the pending registration survives a restart and its
+//! approval reads only the record: no process memory. A record written before those
+//! fields is refused `DECISION_STALE` on approval and not consumed: register again.
+//!
+//! **The store locator** (§17.21 item 3; §17.17 item 3) of the CA's K_ca item is
+//! recorded once, after approval, by [`Operations::record_issuer_store_locator`]
+//! (`Txn::set_issuer_store_locator`: the additive `store_locator` key of the CA's
+//! `record_json`). The `put` that returns it happens in the CLI-side ceremony
+//! between the request and the approval (D4 item 1 step 6), and no request carries
+//! it to the runtime yet (questions file R2B-Q1): until one does, nothing records
+//! it, and retirement stops at `unloaded` (`issuer_store_locator_unrecorded`).
 //!
 //! **`retire`** (D4 item 3; §17.1 item 7) is refused, writing nothing, while any
 //! enrollment of the CA is neither final nor `abandoned`; otherwise it creates (or
 //! joins) a `RetireIssuer` decision listing the abandoned enrollments. Approval moves
 //! the CA to `retiring` in the decide transaction (which refuses new reservations
 //! for it, `ca_retiring`); after the commit the retirement steps are driven by
-//! [`Operations::resume_ca_retirements`] (the child's unload; the store item's
-//! deletion needs this installation's recorded store locator, ADR-0008 §17.17 item 3,
-//! which nothing persists yet: the CA then stays `unloaded`, questions file
-//! U10B-Q2). The supervision pass resumes them.
+//! [`Operations::resume_ca_retirements`]: the child's unload, then the deletion of
+//! exactly the recorded store locator through the lifecycle's store-deletion port
+//! (`IssuerLifecycle::store_item_deletion`; none in production yet, questions file
+//! R2B-Q2: the CA then stays `unloaded`, nothing deleted). A CA without a recorded
+//! locator stays `unloaded`, `issuer_store_locator_unrecorded`. The supervision
+//! pass resumes them.
 //!
 //! **`unlock`** (D4 item 2; §17.17 item 10, U4-Q2(b)) reloads the CA set through the
 //! lifecycle. Heimdall never shows a store prompt: a locked store is reported
@@ -46,11 +55,8 @@
 //! **`status`** is the child's last observed state (no I/O) with the store's CA
 //! records filled in; **`bundle`** is `crate::issuer::bundle::export` over the store.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-
 use heimdall_contract::envelope::reason;
-use heimdall_contract::ids::{CaFingerprint, DecisionId, EnrollmentId, OperationId};
+use heimdall_contract::ids::{CaFingerprint, EnrollmentId, OperationId};
 use heimdall_contract::issuer::{
     CaState, CaStatus, IssuerRequest, IssuerState, IssuerStatus, StoreKind,
 };
@@ -75,85 +81,8 @@ use crate::ports::{IssuerError, IssuerPort, IssuerStatusSnapshot};
 use crate::timegate::uncertain;
 
 // -----------------------------------------------------------------------------
-// The registrations waiting for their decision
+// Per-instance state
 // -----------------------------------------------------------------------------
-
-/// The most registrations held at once; the oldest is forgotten first (its decision
-/// is then refused `DECISION_STALE`, not consumed).
-pub(crate) const MAX_PENDING_REGISTRATIONS: usize = 64;
-
-/// What a pending `RegisterIssuer` decision needs at approval and its record does not
-/// carry (module docs). Public values only.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PendingRegistration {
-    public_key: String,
-    backup_created_at: Timestamp,
-    /// Insertion order, for the bound.
-    seq: u64,
-}
-
-/// Decision ID → its registration. Process-wide: decision IDs are random, so two
-/// runtimes in one process (tests) never share an entry.
-#[derive(Default)]
-struct PendingRegistrations {
-    by_decision: HashMap<DecisionId, PendingRegistration>,
-    next: u64,
-}
-
-/// ⟨wave 4, integrator⟩ The registrations held by **this** `Operations` instance
-/// (one field of its M03 state), so a restart — in-process or not — forgets them
-/// and refuses the waiting approval `DECISION_STALE`, not consumed (U10B-Q1).
-#[derive(Default)]
-pub(super) struct IssuerProcessState {
-    pending: Mutex<PendingRegistrations>,
-}
-
-impl IssuerProcessState {
-    fn lock(&self) -> MutexGuard<'_, PendingRegistrations> {
-        self.pending.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-fn hold_registration(
-    state: &IssuerProcessState,
-    decision: &DecisionId,
-    public_key: &str,
-    backup_created_at: Timestamp,
-) {
-    let mut p = state.lock();
-    let seq = p.next;
-    p.next = p.next.saturating_add(1);
-    p.by_decision.insert(
-        decision.clone(),
-        PendingRegistration {
-            public_key: public_key.to_owned(),
-            backup_created_at,
-            seq,
-        },
-    );
-    while p.by_decision.len() > MAX_PENDING_REGISTRATIONS {
-        let Some(oldest) = p
-            .by_decision
-            .iter()
-            .min_by_key(|(_, r)| r.seq)
-            .map(|(id, _)| id.clone())
-        else {
-            break;
-        };
-        p.by_decision.remove(&oldest);
-    }
-}
-
-fn held_registration(
-    state: &IssuerProcessState,
-    decision: &DecisionId,
-) -> Option<PendingRegistration> {
-    state.lock().by_decision.get(decision).cloned()
-}
-
-fn forget_registration(state: &IssuerProcessState, decision: &DecisionId) {
-    state.lock().by_decision.remove(decision);
-}
 
 // -----------------------------------------------------------------------------
 // Pure views and checks
@@ -274,14 +203,18 @@ fn read_cas_and_enrollments(
 #[derive(Debug, Clone)]
 struct RegisterAsk {
     fingerprint: CaFingerprint,
+    public_key: String,
     store: StoreKind,
     backup_sha256: String,
+    backup_created_at: Timestamp,
     rotation_of: Option<CaFingerprint>,
     restored_without_log: bool,
 }
 
 impl RegisterAsk {
-    /// Whether `kind` is a `RegisterIssuer` for exactly this registration.
+    /// Whether `kind` is a `RegisterIssuer` for exactly this registration, the
+    /// recorded public key and backup time included (§17.21 item 3: a record written
+    /// before them is never joined, it could not be approved).
     fn same(&self, kind: &DecisionKind) -> bool {
         matches!(
             kind,
@@ -291,14 +224,38 @@ impl RegisterAsk {
                 backup_sha256,
                 rotation_of,
                 restored_without_log,
+                ca_public_key,
+                backup_created_at,
                 ..
             } if *ca_fingerprint == self.fingerprint
                 && *store == self.store
                 && *backup_sha256 == self.backup_sha256
                 && *rotation_of == self.rotation_of
                 && *restored_without_log == self.restored_without_log
+                && ca_public_key.as_deref() == Some(self.public_key.as_str())
+                && *backup_created_at == Some(self.backup_created_at)
         )
     }
+}
+
+/// ⟨§17.21 item 3⟩ The registration facts a `RegisterIssuer` record must carry for
+/// its approval: the public key (matching the recorded fingerprint) and the backup
+/// time. A record without them (written before the fields) or whose key does not
+/// match is stale: refused, not consumed.
+fn recorded_registration(
+    ca_fingerprint: &CaFingerprint,
+    ca_public_key: Option<&String>,
+    backup_created_at: Option<Timestamp>,
+) -> Result<(String, Timestamp), OpError> {
+    let (Some(public_key), Some(backup_created_at)) = (ca_public_key, backup_created_at) else {
+        return Err(stale(
+            "this registration decision was recorded without the CA's public key; run the registration again",
+        ));
+    };
+    if ca_public_key_fingerprint(public_key).as_ref() != Some(ca_fingerprint) {
+        return Err(stale("the registration does not match its decision"));
+    }
+    Ok((public_key.clone(), backup_created_at))
 }
 
 /// The state checks a registration needs now (request and approval alike): the CA
@@ -495,16 +452,16 @@ impl Operations {
         }
         let ask = RegisterAsk {
             fingerprint,
+            public_key: reg.ca_public_key,
             store: reg.store,
             backup_sha256: reg.backup_sha256,
+            backup_created_at: reg.backup_created_at,
             rotation_of: reg.rotation_of,
             restored_without_log: reg.restored_without_log,
         };
-        let (public_key, backup_created_at) = (reg.ca_public_key, reg.backup_created_at);
         let gate = self.inner.timegate.in_txn();
         let decision_id = crate::ids::new_decision_id()?;
         let lifetime = self.inner.config.limits.decision_lifetime;
-        let held_here = Arc::clone(&self.inner.managed_ops.issuer);
         let decided = self
             .write(move |tx, emit| {
                 // A decision's lifetime is measured on accepted time only (G10).
@@ -522,7 +479,6 @@ impl Operations {
                     .into_iter()
                     .find(|d| ask.same(&d.kind) && now < d.expires_at && d.generation == current)
                 {
-                    hold_registration(&held_here, &existing.id, &public_key, backup_created_at);
                     return Ok(Ok(existing.id));
                 }
                 let acknowledged = tx.lock_disclosure_ack()?.is_some();
@@ -535,6 +491,8 @@ impl Operations {
                         rotation_of: ask.rotation_of.clone(),
                         restored_without_log: ask.restored_without_log,
                         disclosures: register_disclosures(ask.restored_without_log, acknowledged),
+                        ca_public_key: Some(ask.public_key.clone()),
+                        backup_created_at: Some(ask.backup_created_at),
                     },
                     generation: current,
                     created_at: now,
@@ -544,7 +502,6 @@ impl Operations {
                 };
                 tx.insert_decision(&d)?;
                 emit.decision(tx, &d, None)?;
-                hold_registration(&held_here, &d.id, &public_key, backup_created_at);
                 Ok(Ok(d.id))
             })
             .await??;
@@ -684,8 +641,12 @@ impl Operations {
                 CaState::Retiring | CaState::Unloaded | CaState::Deleted
             )
         }) {
+            let deletion = wiring
+                .issuer_lifecycle
+                .as_ref()
+                .and_then(|l| l.store_item_deletion());
             let report = self
-                .resume_ca_retirements(Some(issuer.as_ref()), None)
+                .resume_ca_retirements(Some(issuer.as_ref()), deletion.as_deref())
                 .await?;
             for (ca, state, why) in &report.stalled {
                 tracing::debug!(ca = %ca, ?state, reason = %why, "a CA retirement waits");
@@ -694,13 +655,67 @@ impl Operations {
         Ok(())
     }
 
+    /// ⟨ADR-0008 §17.21 item 3; §17.17 item 3⟩ Record `locator`, the exact
+    /// `StoreItemRef::locator` the K_ca `put` returned (the ceremony's report), as
+    /// the store item of the registered CA `ca`: retirement then deletes exactly it
+    /// and nothing else. Recorded once, while the CA is `active` or `pending`; the
+    /// same locator again is a no-op. Refused, writing nothing: an unknown CA
+    /// (`NOT_FOUND`), a CA whose retirement has begun or that already has another
+    /// locator (`CONFIG_CONFLICT`: a recorded locator is never re-pointed), a
+    /// malformed locator (`USAGE_ERROR`).
+    ///
+    /// The narrowest additive sink for whichever reporter is ruled (questions file
+    /// R2B-Q1): no request carries a locator to the runtime yet, so nothing in
+    /// production calls this.
+    ///
+    /// # Errors
+    /// [`OpError`] as above, or the store.
+    pub async fn record_issuer_store_locator(
+        &self,
+        ca: &CaFingerprint,
+        locator: &str,
+    ) -> Result<(), OpError> {
+        if locator.is_empty() || locator.len() > 4096 || locator.chars().any(char::is_control) {
+            return Err(OpError::new(
+                Code::UsageError,
+                "a store locator is 1 to 4096 bytes without control characters",
+            ));
+        }
+        let (ca, locator) = (ca.clone(), locator.to_owned());
+        self.write(move |tx, _| {
+            let conflict = || {
+                OpError::new(
+                    Code::ConfigConflict,
+                    "the CA's store item is already recorded, or its retirement has begun",
+                )
+                .with_resource("issuer", Some(ca.to_string()))
+            };
+            let Some(record) = tx.issuer(&ca)? else {
+                return Ok(Err(unknown_ca(&ca)));
+            };
+            match tx.issuer_store_locator(&ca)? {
+                Some(l) if l == locator => return Ok(Ok(())),
+                Some(_) => return Ok(Err(conflict())),
+                None => {}
+            }
+            if !matches!(record.state, CaState::Active | CaState::Pending) {
+                return Ok(Err(conflict()));
+            }
+            match tx.set_issuer_store_locator(&ca, &locator) {
+                Ok(()) => Ok(Ok(())),
+                Err(StoreError::GenerationConflict(_)) => Ok(Err(conflict())),
+                Err(e) => Err(e),
+            }
+        })
+        .await?
+    }
+
     /// After an issuer decision committed (see `decisions_m03`): a registration's
     /// child start or reload, a retirement's steps. Never fails the decide request.
     pub(super) async fn issuer_after_decision(&self, record: &DecisionRecord, verdict: Verdict) {
         let wiring = self.managed_wiring();
         match (&record.kind, verdict) {
             (DecisionKind::RegisterIssuer { .. }, Verdict::Approve) => {
-                forget_registration(&self.inner.managed_ops.issuer, &record.id);
                 let Some(lifecycle) = wiring.as_ref().and_then(|w| w.issuer_lifecycle.clone())
                 else {
                     return;
@@ -715,12 +730,16 @@ impl Operations {
                     Err(_) => tracing::warn!("the issuer child did not load the new CA in time"),
                 }
             }
-            (DecisionKind::RegisterIssuer { .. }, _) => {
-                forget_registration(&self.inner.managed_ops.issuer, &record.id)
-            }
             (DecisionKind::RetireIssuer { .. }, Verdict::Approve) => {
                 let issuer = wiring.as_ref().and_then(|w| w.issuer.clone());
-                if let Err(e) = self.resume_ca_retirements(issuer.as_deref(), None).await {
+                let deletion = wiring
+                    .as_ref()
+                    .and_then(|w| w.issuer_lifecycle.as_ref())
+                    .and_then(|l| l.store_item_deletion());
+                if let Err(e) = self
+                    .resume_ca_retirements(issuer.as_deref(), deletion.as_deref())
+                    .await
+                {
                     tracing::warn!(code = %e.code, "a CA retirement could not be resumed");
                 }
             }
@@ -745,12 +764,12 @@ struct Registration {
 
 /// `decisions_m03::precheck` for `RegisterIssuer` and `RetireIssuer`: an approval
 /// re-checks what the request checked against the current store (and, for a
-/// registration, that this process holds its public key); a refusal writes nothing,
+/// registration, that its record carries the public key and backup time, §17.21
+/// item 3); a refusal writes nothing,
 /// so the record stays pending and is not consumed. A denial always proceeds. Neither
 /// kind waits on an operation.
 pub(super) fn decision_precheck(
     tx: &mut Txn<'_>,
-    state: &IssuerProcessState,
     d: &DecisionRecord,
     verdict: Verdict,
     _now: Timestamp,
@@ -762,15 +781,14 @@ pub(super) fn decision_precheck(
         DecisionKind::RegisterIssuer {
             ca_fingerprint,
             rotation_of,
+            ca_public_key,
+            backup_created_at,
             ..
         } => {
-            let Some(held) = held_registration(state, &d.id) else {
-                return Ok(Err(stale(
-                    "this runtime no longer holds the registration's public key; run the registration again",
-                )));
-            };
-            if ca_public_key_fingerprint(&held.public_key).as_ref() != Some(ca_fingerprint) {
-                return Ok(Err(stale("the registration does not match its decision")));
+            if let Err(e) =
+                recorded_registration(ca_fingerprint, ca_public_key.as_ref(), *backup_created_at)
+            {
+                return Ok(Err(e));
             }
             Ok(register_admissible(tx, ca_fingerprint, rotation_of.as_ref())?.map(|()| None))
         }
@@ -795,7 +813,6 @@ pub(super) fn decision_precheck(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn decision_apply(
     tx: &mut Txn<'_>,
-    state: &IssuerProcessState,
     _emit: &mut Emit,
     record: &DecisionRecord,
     verdict: Verdict,
@@ -814,18 +831,23 @@ pub(super) fn decision_apply(
             rotation_of,
             restored_without_log,
             disclosures,
+            ca_public_key,
+            backup_created_at,
         } => {
-            let Some(held) = held_registration(state, &record.id) else {
-                return Ok(Err(stale(
-                    "this runtime no longer holds the registration's public key; run the registration again",
-                )));
+            let (public_key, backup_created_at) = match recorded_registration(
+                ca_fingerprint,
+                ca_public_key.as_ref(),
+                *backup_created_at,
+            ) {
+                Ok(facts) => facts,
+                Err(e) => return Ok(Err(e)),
             };
             if let Err(e) = register_admissible(tx, ca_fingerprint, rotation_of.as_ref())? {
                 return Ok(Err(e));
             }
             let issuer = IssuerRecord {
                 ca_fingerprint: ca_fingerprint.clone(),
-                public_key: held.public_key,
+                public_key,
                 // D4 item 3: a rotation's new CA starts `pending`.
                 state: if rotation_of.is_some() {
                     CaState::Pending
@@ -834,7 +856,7 @@ pub(super) fn decision_apply(
                 },
                 store_kind: *store,
                 backup_sha256: backup_sha256.clone(),
-                backup_created_at: held.backup_created_at,
+                backup_created_at,
                 restored_without_log: *restored_without_log,
                 created_at: now,
                 retired_at: None,

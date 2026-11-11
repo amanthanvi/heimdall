@@ -17,3 +17,19 @@ Workers: **A** enrollment stage driver; **B** issuer handling, `IssuerLifecycle`
 gate; **C** managed effect driver, credential instances, install view, re-issue, slots, revocation data;
 **D** runtime start/stop order, supervisor passes, dispatch, phase-2 capabilities, managed-alias selection
 classification, `preference` on `inspect destinations`.
+
+## Round 2 (ADR-0008 §17.21)
+
+Round 1 was checkpointed at `d74e35cf`. Round 2 worked through §17.21 items 1–11 with workers **R2-A**
+(enrollment: journal minimized, verification authorities, the remaining enrollment plan tests), **R2-B** (issuer
+registration and retirement facts persisted), **R2-C** (binding minted at resolve and materialized at step 6;
+slots claimed at `bind`; instance query), **R2-D** (one `reissue::eligible`, stable Windows pipe token, mux path
+in P, selection feed, ended-grant slot pass, `inspect connections`), **R2-E** (the cross-cutting e2e tests) and
+**R2-F** (D5 §6.6's projection-applied switch; the issuer store reason).
+
+| File | What it is |
+|---|---|
+| `m03-wave4-r2-api.md` | Round-2 ownership map, readings, each worker's landed interfaces, requests. |
+| `m03-wave4-r2-questions.md` | Round-2 escalations (integrator status at the top). |
+| `m03-wave4-r2-worklog.md` | The integrator's round-2 worklog (integration steps, checks, exit codes). |
+| `m03-wave4-r2-worklog-{A..F}.md` | Each worker's worklog with its revert proofs. R2-F was interrupted by a server restart after finishing its fixes; the integrator ran its final checks. |

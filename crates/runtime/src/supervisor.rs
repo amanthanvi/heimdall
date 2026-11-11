@@ -496,7 +496,23 @@ impl Supervisor {
             connections,
             finished: tokio::sync::Mutex::new(std::collections::BTreeSet::new()),
             uncertain_close_owed: std::sync::atomic::AtomicBool::new(false),
+            end_cleanup: None,
         });
+        self
+    }
+
+    /// ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11): the managed adapter's
+    /// end-of-grant cleanup (`StoreCleanup` behind the runtime's late binding), which
+    /// [`Self::ended_slot_pass`] runs for every ended grant that still holds a slot.
+    /// Effective only after [`Self::with_connections`].
+    #[must_use]
+    pub fn with_end_cleanup(
+        mut self,
+        cleanup: Arc<dyn heimdall_adapters::managed::EndCleanup>,
+    ) -> Self {
+        if let Some(m) = self.managed.as_mut() {
+            m.end_cleanup = Some(cleanup);
+        }
         self
     }
 
@@ -764,6 +780,8 @@ impl Supervisor {
         // re-validation): closed by the policy, with their events.
         if self.managed.is_some() {
             let _ = self.connection_end_sweep().await;
+            // ⟨§17.21 item 11⟩ Then the slots those grants still hold.
+            let _ = self.ended_slot_pass().await;
         }
         let mut bounded_at = None;
         let retry_in = match self.revocation_pass().await {
@@ -1101,7 +1119,7 @@ impl Supervisor {
 
     /// ⟨M03⟩ wave 4 (m03-plan U10; exposed for tests): one round of the M03 passes, each
     /// logged and retried by the next round on failure: the connection-end sweep, the
-    /// owed `time_uncertain_close` while time stays uncertain (`uncertain`), the reap
+    /// ended-grant slot pass ([`Self::ended_slot_pass`]), the owed `time_uncertain_close` while time stays uncertain (`uncertain`), the reap
     /// pass, issuer supervision, re-verification and the enrollment step timeout. A
     /// supervisor without M03 wiring does nothing.
     pub async fn managed_pass(&self, uncertain: bool) {
@@ -1109,6 +1127,7 @@ impl Supervisor {
             return;
         };
         let _ = self.connection_end_sweep().await;
+        let _ = self.ended_slot_pass().await;
         if uncertain
             && m.uncertain_close_owed
                 .load(std::sync::atomic::Ordering::SeqCst)
@@ -1195,6 +1214,51 @@ impl Supervisor {
             }
         }
         sweep
+    }
+
+    /// ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11; exposed for tests): slot
+    /// cleanup when a grant ends. Every grant of this environment that has ended
+    /// (terminal, or `revoking`) while a binding of it still holds (or is clearing) a
+    /// managed slot (`Txn::held_slots_of_ended_grants`) gets the managed adapter's
+    /// end-of-grant cleanup (`StoreCleanup`: each slot cleared by its own store
+    /// generation, the binding files removed by generation, the owned connections
+    /// closed). It runs after every scheduler `tick` (an expiry ends grants there, and
+    /// M01's expiry calls no adapter `revoke`) and in every M03 pass, so a failed or
+    /// missed cleanup is retried (the slot rows are the cleanup intent). Returns the
+    /// grants whose cleanup succeeded, in grant order. Without M03 wiring, an end
+    /// cleanup or state, nothing.
+    ///
+    /// # Errors
+    /// The store read failed (nothing was cleaned; the next pass retries).
+    pub async fn ended_slot_pass(&self) -> Result<Vec<GrantId>, heimdall_app::OpError> {
+        let (Some(m), Some((store, _))) = (&self.managed, &self.state) else {
+            return Ok(Vec::new());
+        };
+        let Some(cleanup) = &m.end_cleanup else {
+            return Ok(Vec::new());
+        };
+        let environment = self.operations.environment().clone();
+        let held = match read_store(store, move |tx| tx.held_slots_of_ended_grants(&environment))
+            .await
+        {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(code = %e.code, "ended-grant slot pass could not enumerate; retrying");
+                return Err(e);
+            }
+        };
+        let grants: std::collections::BTreeSet<GrantId> =
+            held.into_iter().map(|(g, _)| g).collect();
+        let mut cleaned = Vec::new();
+        for grant in grants {
+            match cleanup.after_end(std::slice::from_ref(&grant)).await {
+                Ok(()) => cleaned.push(grant),
+                Err(_) => {
+                    tracing::warn!("an ended grant's slot cleanup is incomplete; retrying");
+                }
+            }
+        }
+        Ok(cleaned)
     }
 
     async fn next_wake(&self) -> Result<Option<Timestamp>, heimdall_app::OpError> {
@@ -1905,6 +1969,8 @@ struct ManagedSupervision {
     finished: tokio::sync::Mutex<std::collections::BTreeSet<GrantId>>,
     /// `time_uncertain_close` is owed (the gate left `Safe` and the last attempt failed).
     uncertain_close_owed: std::sync::atomic::AtomicBool,
+    /// ⟨§17.21 item 11⟩ The end-of-grant cleanup [`Supervisor::ended_slot_pass`] runs.
+    end_cleanup: Option<Arc<dyn heimdall_adapters::managed::EndCleanup>>,
 }
 
 /// Wait for the next committed change (`true`), or forever once the publisher is

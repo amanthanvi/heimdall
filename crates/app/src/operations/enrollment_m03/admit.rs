@@ -512,16 +512,27 @@ impl Operations {
                     (VerifyMode::Presence, S::AppliedUnverified) => {
                         // Through reconcile while the `enrollment.apply` approval is
                         // valid (B R2-06); through `enroll verify` after it lapsed.
-                        if let Some((open, j)) = open_operation_of(tx, &record.id)?
+                        if let Some((mut open, j)) = open_operation_of(tx, &record.id)?
                             && open.kind == OperationKind::EnrollmentApply
-                            && j.approval_valid(now, validity)
                         {
-                            return Ok(Err(OpError::new(
-                                Code::ConfigConflict,
-                                "the enrollment's approval is still valid: retry the verification with `enroll reconcile`",
+                            if j.approval_valid(now, validity) {
+                                return Ok(Err(OpError::new(
+                                    Code::ConfigConflict,
+                                    "the enrollment's approval is still valid: retry the verification with `enroll reconcile`",
+                                )
+                                .with_next(super::next("reconcile", Some(&open.id)))
+                                .with_effect(EffectStatus::None)));
+                            }
+                            // B R2-06: the lapsed `enrollment.apply` ends here (as its
+                            // reconcile would end it), so this verification is the
+                            // record's only operation and borrows nothing of it.
+                            let lapsed = OpError::new(
+                                Code::DecisionStale,
+                                "the enrollment's approval lapsed: verify it with `enroll verify`",
                             )
-                            .with_next(super::next("reconcile", Some(&open.id)))
-                            .with_effect(EffectStatus::None)));
+                            .with_reason(heimdall_contract::envelope::reason::APPROVAL_LAPSED)
+                            .with_effect(EffectStatus::Applied);
+                            super::settle_open(tx, emit, &mut open, &lapsed, now, retention)?;
                         }
                         EnrollmentEventKind::StartVerification
                     }

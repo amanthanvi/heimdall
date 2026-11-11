@@ -2305,6 +2305,7 @@ fn classify_documented_exit_codes_per_stage() {
         line: Some(ours.clone()),
         preimage: Some(pre.clone()),
         post_image: Some(pre.clone()),
+        ..Expected::default()
     };
     let hex = |s: &str| hm1::encode_hex(s.as_bytes());
     let out = |body: &str| {

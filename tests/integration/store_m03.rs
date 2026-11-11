@@ -466,6 +466,64 @@ fn set_issuer_state_cas_along_ca_transition() {
     .unwrap();
 }
 
+/// ⟨ADR-0008 §17.21 item 3⟩ `set_issuer_store_locator` / `issuer_store_locator`: a
+/// record written without the key reads `None`; the locator is recorded once while
+/// the CA is `pending` or `active` (the same value again is a no-op, another one a
+/// conflict, writing nothing), refused for a missing CA, a malformed locator or a CA
+/// whose retirement has begun, and kept by every `set_issuer_state` transition. The
+/// `IssuerRecord` itself is unchanged by it.
+#[test]
+fn issuer_store_locator_recorded_once_and_kept_through_transitions() {
+    let s = mem();
+    s.transaction(|tx| {
+        tx.insert_issuer(&issuer(1, CaState::Pending))?;
+        tx.insert_issuer(&issuer(2, CaState::Active))?;
+        assert_eq!(tx.issuer_store_locator(&ca(1))?, None, "written before it");
+        assert_eq!(tx.issuer_store_locator(&ca(9))?, None);
+        assert!(is_missing(&tx.set_issuer_store_locator(&ca(9), "loc-9")));
+        for bad in [String::new(), "a\nb".to_owned(), "x".repeat(4097)] {
+            assert!(
+                tx.set_issuer_store_locator(&ca(1), &bad).is_err(),
+                "{bad:?}"
+            );
+        }
+        assert_eq!(tx.issuer_store_locator(&ca(1))?, None);
+        tx.set_issuer_store_locator(&ca(1), "service=heimdall;account=one")?;
+        tx.set_issuer_store_locator(&ca(1), "service=heimdall;account=one")?;
+        let other = tx.set_issuer_store_locator(&ca(1), "service=heimdall;account=two");
+        assert!(is_conflict(&other), "{other:?}");
+        assert_eq!(
+            tx.issuer_store_locator(&ca(1))?.as_deref(),
+            Some("service=heimdall;account=one")
+        );
+        assert_eq!(tx.issuer(&ca(1))?, Some(issuer(1, CaState::Pending)));
+        assert_eq!(tx.issuer_store_locator(&ca(2))?, None, "per CA");
+        let steps = [
+            (CaState::Pending, CaEvent::FirstEnrollmentVerified),
+            (CaState::Active, CaEvent::RetireApproved),
+            (CaState::Retiring, CaEvent::UnloadConfirmed),
+            (CaState::Unloaded, CaEvent::StoreItemDeleted),
+            (CaState::Deleted, CaEvent::RetirementRecorded),
+        ];
+        for (from, event) in steps {
+            tx.set_issuer_state(&ca(1), from, event, t0())?.unwrap();
+            assert_eq!(
+                tx.issuer_store_locator(&ca(1))?.as_deref(),
+                Some("service=heimdall;account=one"),
+                "{from:?} -> {event:?}"
+            );
+        }
+        // A retirement that began fixes the (absent) locator.
+        tx.set_issuer_state(&ca(2), CaState::Active, CaEvent::RetireApproved, t0())?
+            .unwrap();
+        let late = tx.set_issuer_store_locator(&ca(2), "loc-2");
+        assert!(is_conflict(&late), "{late:?}");
+        assert_eq!(tx.issuer_store_locator(&ca(2))?, None);
+        Ok(())
+    })
+    .unwrap();
+}
+
 // --- enrollments -----------------------------------------------------------------------
 
 /// `insert_enrollment`: `planned` only, the marker is `heimdall:<id>`, and the CA must
@@ -1813,6 +1871,7 @@ fn setup_op(env: &EnvironmentId) -> (OperationRecord, IdempotencyRecord, Recover
             staged_name: Some(".heimdall.conf.hm-stage-00112233445566778899aabbccddeeff".into()),
             displaced_name: None,
         }],
+        managed_pairs: Default::default(),
     };
     let rec = RecoveryIntent {
         request: serde_json::json!({"action": kind.as_str(), "request_id": "setup-1"}),

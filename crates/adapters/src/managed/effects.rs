@@ -47,11 +47,12 @@ use heimdall_app::ports::{
     AdapterError, KeyRegistration, ManagedEffects, MaterializeSpec, MaterializedFiles,
 };
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::{BindingId, DestinationId, GrantId, IssuanceId};
+use heimdall_contract::ids::{BindingId, DestinationId, GrantId, IssuanceId, ResourceId};
 use heimdall_contract::provider::EndpointRef;
-use heimdall_credential::endpoints::EndpointRegistry;
+use heimdall_credential::endpoints::{EndpointError, EndpointRegistry, endpoint_resource};
 use heimdall_credential::table::{InstallRefusal, SignerTable};
 use heimdall_domain::issuance::IssuanceEntry;
+use heimdall_domain::resource::ResourceGeneration;
 use heimdall_domain::scope::AccessPair;
 
 use heimdall_domain::managed::SlotState;
@@ -74,15 +75,103 @@ pub struct NoGrantScopes;
 
 impl GrantScopes for NoGrantScopes {}
 
-/// Where binding endpoints are found (U2's `EndpointRegistry`, or a fixture).
+/// Where binding endpoints are found (U2's `EndpointRegistry`, or a fixture), and
+/// ⟨§17.21 item 1⟩ where `materialize` creates them and `clear` removes them. An
+/// adapters-local trait, not a port: the defaults create nothing (fail closed:
+/// `binding_endpoint_unavailable`) and remove nothing.
 pub trait BindingEndpoints: Send + Sync {
     /// The newest endpoint of `binding`, if it exists.
     fn binding_endpoint(&self, binding: &BindingId) -> Option<EndpointRef>;
+
+    /// Create `binding`'s endpoint at `generation` (`EndpointRegistry::create_binding`),
+    /// or return the one already running at exactly that generation (idempotent). It
+    /// lists and signs for the grant the binding is attached to in the signer table,
+    /// and nothing while it is not attached.
+    ///
+    /// # Errors
+    /// [`AdapterError`]; the default refuses with `binding_endpoint_unavailable`.
+    fn create_binding_endpoint(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+    ) -> Result<EndpointRef, AdapterError> {
+        let _ = (binding, generation);
+        Err(AdapterError::Unavailable(
+            BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+        ))
+    }
+
+    /// Stop and remove `binding`'s endpoint of exactly `generation` (its socket and
+    /// private directory), when it runs; another generation is untouched. Returns
+    /// whether one was removed. The default removes nothing.
+    ///
+    /// # Errors
+    /// [`AdapterError`].
+    fn remove_binding_endpoint(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+    ) -> Result<bool, AdapterError> {
+        let _ = (binding, generation);
+        Ok(false)
+    }
 }
 
 impl BindingEndpoints for EndpointRegistry {
     fn binding_endpoint(&self, binding: &BindingId) -> Option<EndpointRef> {
         EndpointRegistry::binding_endpoint(self, binding).map(|(e, _)| e)
+    }
+
+    fn create_binding_endpoint(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+    ) -> Result<EndpointRef, AdapterError> {
+        let at = ResourceGeneration(generation);
+        for _ in 0..2 {
+            if let Some((e, g)) = EndpointRegistry::binding_endpoint(self, binding)
+                && g == at
+            {
+                return Ok(e);
+            }
+            match self.create_binding(binding, at) {
+                Ok(e) => return Ok(e),
+                // Created concurrently at this generation: read it back.
+                Err(EndpointError::AlreadyRunning) => {}
+                Err(e) => {
+                    return Err(AdapterError::Unavailable(format!(
+                        "{BINDING_ENDPOINT_UNAVAILABLE}: {e}"
+                    )));
+                }
+            }
+        }
+        Err(AdapterError::Unavailable(
+            BINDING_ENDPOINT_UNAVAILABLE.to_owned(),
+        ))
+    }
+
+    fn remove_binding_endpoint(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+    ) -> Result<bool, AdapterError> {
+        let at = ResourceGeneration(generation);
+        let Some((endpoint, g)) = EndpointRegistry::binding_endpoint(self, binding) else {
+            return Ok(false);
+        };
+        if g != at {
+            return Ok(false);
+        }
+        // `remove` matches the kind, the owner, the generation and the locator only;
+        // the resource ID and timestamp of this transient record are not read.
+        self.remove(&endpoint_resource(
+            ResourceId::from_random_bytes([0; 16]),
+            binding,
+            at,
+            &endpoint,
+            Timestamp::now(),
+        ))?;
+        Ok(true)
     }
 }
 
@@ -93,6 +182,9 @@ pub const DEFAULT_CALL_TIMEOUT: Duration = heimdall_app::ports::DEFAULT_ADAPTER_
 pub const GRANT_SCOPE_UNAVAILABLE: &str = "grant_scope_unavailable";
 /// The `AdapterError::Unavailable` text when the binding has no endpoint.
 pub const BINDING_ENDPOINT_UNAVAILABLE: &str = "binding_endpoint_unavailable";
+/// ⟨§17.21 item 2⟩ The `AdapterError::Protocol` text of a slots-only `materialize`
+/// for a binding this instance did not materialize.
+pub const BINDING_NOT_MATERIALIZED: &str = "binding_not_materialized";
 /// The `AdapterError::Unavailable` text when the table has no store view (U2-Q2).
 pub const INSTALL_VIEW_UNAVAILABLE: &str = "store_view_unavailable";
 /// The `AdapterError::Protocol` text when the store no longer shows the binding
@@ -130,6 +222,17 @@ struct State {
     validity: HashMap<(GrantId, AccessPair), InstalledValidity>,
     /// The files each binding's last materialization wrote.
     bindings: HashMap<BindingId, BindingFiles>,
+    /// ⟨§17.21 items 1–2⟩ Each binding materialized through this instance: its grant,
+    /// whether this instance created its endpoint, and the spec written (public
+    /// content only), which a slots-only `materialize` (the bind's slot claim) reuses.
+    materialized: HashMap<BindingId, MaterializedBinding>,
+}
+
+/// What [`State::materialized`] records per binding.
+#[derive(Debug, Clone)]
+struct MaterializedBinding {
+    grant: GrantId,
+    spec: MaterializeSpec,
 }
 
 /// One lock per slot (pair) of the environment (§17.20 item 1).
@@ -487,15 +590,35 @@ impl ManagedEffects for ManagedEffectsImpl {
         Ok(())
     }
 
+    /// ⟨§17.21 item 1⟩ D6 item 1 step 6. For a binding not yet attached, its grant is
+    /// the one whose K_env (generated through this instance and still live) is
+    /// `spec.public_key`; the binding endpoint is created at `spec.generation` through
+    /// [`BindingEndpoints`] when none runs, the files are written, and only **then** is
+    /// the binding attached in the signer table, so the endpoint lists the grant's
+    /// certificates only once its files exist. A failure leaves nothing this call
+    /// created (the endpoint it created is removed).
+    ///
+    /// ⟨§17.21 item 2⟩ **A slots-only spec** (an empty `public_key`, no certificates,
+    /// `environment_slots`) asks for the environment slots of a binding this instance
+    /// already materialized: each of its pairs' slots is written at its own store
+    /// generation from the content recorded then (the bind's slot claim; the binding
+    /// files are not rewritten). Refused for a binding this instance did not
+    /// materialize (`binding_not_materialized`: a restart lost its key anyway).
     fn materialize(
         &self,
         binding: &BindingId,
         spec: &MaterializeSpec,
     ) -> Result<MaterializedFiles, AdapterError> {
-        let grant = self
-            .table
-            .binding_grant(binding)
-            .ok_or_else(|| AdapterError::Protocol("binding_not_attached".to_owned()))?;
+        if spec.public_key.is_empty() && spec.certificates.is_empty() {
+            return self.materialize_slots_only(binding, spec);
+        }
+        let attached = self.table.binding_grant(binding);
+        let grant = match &attached {
+            Some(g) => g.clone(),
+            None => self
+                .grant_of_key(&spec.public_key)
+                .ok_or_else(|| AdapterError::Protocol("binding_not_attached".to_owned()))?,
+        };
         let key = self
             .table
             .public_key(&grant)
@@ -515,36 +638,66 @@ impl ManagedEffects for ManagedEffectsImpl {
                 "one_certificate_per_pair".to_owned(),
             ));
         }
-        let files = self.files_for(binding, &dests)?;
+        // The endpoint first (it lists nothing until the binding is attached below).
+        let created = if self.endpoints.binding_endpoint(binding).is_none() {
+            self.endpoints
+                .create_binding_endpoint(binding, spec.generation)?;
+            true
+        } else {
+            false
+        };
+        let undo = || {
+            if created {
+                let _ = self
+                    .endpoints
+                    .remove_binding_endpoint(binding, spec.generation);
+            }
+        };
+        let files = match self.files_for(binding, &dests) {
+            Ok(f) => f,
+            Err(e) => {
+                undo();
+                return Err(e);
+            }
+        };
         let certs: Vec<(DestinationId, String)> = spec
             .certificates
             .iter()
             .map(|c| (c.pair.destination.clone(), c.certificate.clone()))
             .collect();
-        let mut written =
-            files::write_binding_files(&files, binding, spec.generation, &spec.public_key, &certs)
-                .map_err(|e| adapter_from_files(&e))?;
-        self.lock().bindings.insert(binding.clone(), files.clone());
-        if spec.environment_slots {
-            // Each slot at **its own** store generation (U6-Q4), re-validated under the
-            // slot's lock (§17.20 item 1).
-            for c in &spec.certificates {
-                let lock = self.slot_lock(&c.pair);
-                let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
-                let generation = match self.slot_store.slot(&self.slots.environment, &c.pair)? {
-                    SlotState::Held {
-                        binding: holder,
-                        generation,
-                    } if &holder == binding => generation,
-                    _ => return Err(AdapterError::Protocol(SLOT_HOLDER_CHANGED.to_owned())),
-                };
-                written.extend(self.write_slot_locked(
-                    binding,
-                    &c.pair,
-                    generation,
-                    self.slot_store.as_ref(),
-                )?);
+        let mut written = match files::write_binding_files(
+            &files,
+            binding,
+            spec.generation,
+            &spec.public_key,
+            &certs,
+        ) {
+            Ok(w) => w,
+            Err(e) => {
+                undo();
+                return Err(adapter_from_files(&e));
             }
+        };
+        // The files exist: now the endpoint lists the grant's certificates.
+        if attached.is_none() {
+            self.table.attach_binding(binding, &grant);
+        }
+        {
+            let mut s = self.lock();
+            s.bindings.insert(binding.clone(), files.clone());
+            s.materialized.insert(
+                binding.clone(),
+                MaterializedBinding {
+                    grant,
+                    spec: MaterializeSpec {
+                        environment_slots: false,
+                        ..spec.clone()
+                    },
+                },
+            );
+        }
+        if spec.environment_slots {
+            written.extend(self.write_slots(binding, &spec.certificates)?);
         }
         Ok(MaterializedFiles {
             directory: files.directory,
@@ -553,11 +706,19 @@ impl ManagedEffects for ManagedEffectsImpl {
         })
     }
 
+    /// The binding's files of `generation` only (the port's contract), and ⟨§17.21
+    /// item 1⟩ its endpoint of that generation: the endpoint is removed first (the key
+    /// is unlisted at once), then the files; once no endpoint of the binding runs, the
+    /// binding is detached from the signer table. The environment listing and the slots
+    /// are each cleared by their own store generation through `clear_slot` (U6-Q4;
+    /// §17.20 item 2): a clear of an older resource generation never unlists the
+    /// binding's current slots.
     fn clear(&self, binding: &BindingId, generation: u64) -> Result<(), AdapterError> {
-        // The binding's files of `generation` only (the port's contract). The
-        // environment listing and the slots are each cleared by their own store
-        // generation through `clear_slot` (U6-Q4; §17.20 item 2): a clear of an older
-        // resource generation never unlists the binding's current slots.
+        self.endpoints
+            .remove_binding_endpoint(binding, generation)?;
+        if self.endpoints.binding_endpoint(binding).is_none() {
+            self.table.detach_binding(binding);
+        }
         let remembered = self.lock().bindings.get(binding).cloned();
         let mut dirs: Vec<BindingFiles> = remembered.into_iter().collect();
         for (dir, g) in files::binding_directories_of(&self.runtime_dir, binding)
@@ -575,7 +736,128 @@ impl ManagedEffects for ManagedEffectsImpl {
             files::clear_binding_files(f, binding, generation)
                 .map_err(|e| adapter_from_files(&e))?;
         }
+        let mut s = self.lock();
+        if s.materialized
+            .get(binding)
+            .is_some_and(|m| m.spec.generation == generation)
+        {
+            s.materialized.remove(binding);
+            s.bindings.remove(binding);
+        }
         Ok(())
+    }
+}
+
+impl ManagedEffectsImpl {
+    /// The grant whose live K_env, generated through this instance, is `public_key`.
+    fn grant_of_key(&self, public_key: &str) -> Option<GrantId> {
+        let wanted = public_key.trim_end();
+        let candidates: Vec<(GrantId, String)> = self
+            .lock()
+            .generated
+            .iter()
+            .filter(|(_, g)| g.registration.public_key.trim_end() == wanted)
+            .map(|(id, g)| (id.clone(), g.registration.fingerprint.clone()))
+            .collect();
+        candidates.into_iter().find_map(|(grant, fp)| {
+            self.table
+                .public_key(&grant)
+                .filter(|k| k.fingerprint == fp)
+                .map(|_| grant)
+        })
+    }
+
+    /// Each pair's environment slot for `binding`, at **its own** store generation
+    /// (U6-Q4), re-validated under the slot's lock (§17.20 item 1).
+    fn write_slots(
+        &self,
+        binding: &BindingId,
+        certificates: &[heimdall_app::ports::MaterializedCertificate],
+    ) -> Result<Vec<PathBuf>, AdapterError> {
+        let mut written = Vec::new();
+        for c in certificates {
+            let lock = self.slot_lock(&c.pair);
+            let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
+            let generation = match self.slot_store.slot(&self.slots.environment, &c.pair)? {
+                SlotState::Held {
+                    binding: holder,
+                    generation,
+                } if &holder == binding => generation,
+                _ => return Err(AdapterError::Protocol(SLOT_HOLDER_CHANGED.to_owned())),
+            };
+            written.extend(self.write_slot_locked(
+                binding,
+                &c.pair,
+                generation,
+                self.slot_store.as_ref(),
+            )?);
+        }
+        Ok(written)
+    }
+
+    /// ⟨§17.21 item 2⟩ The slots-only form of `materialize` (its docs).
+    fn materialize_slots_only(
+        &self,
+        binding: &BindingId,
+        spec: &MaterializeSpec,
+    ) -> Result<MaterializedFiles, AdapterError> {
+        if !spec.environment_slots {
+            return Err(AdapterError::Protocol("empty_materialize_spec".to_owned()));
+        }
+        let (recorded, files) = {
+            let s = self.lock();
+            (
+                s.materialized.get(binding).cloned(),
+                s.bindings.get(binding).cloned(),
+            )
+        };
+        let (Some(recorded), Some(files)) = (recorded, files) else {
+            return Err(AdapterError::Protocol(BINDING_NOT_MATERIALIZED.to_owned()));
+        };
+        if self.table.binding_grant(binding).as_ref() != Some(&recorded.grant) {
+            return Err(AdapterError::Protocol("binding_not_attached".to_owned()));
+        }
+        let written = self.write_slots(binding, &recorded.spec.certificates)?;
+        Ok(MaterializedFiles {
+            directory: files.directory,
+            files: written,
+            generation: recorded.spec.generation,
+        })
+    }
+
+    /// ⟨§17.21 item 1⟩ Clear every binding this instance materialized for a grant in
+    /// `grants` (its endpoint and files, [`ManagedEffects::clear`]): the managed
+    /// adapter's `revoke` calls it after the key destruction, so a binding that was
+    /// never committed (a failed or cancelled preparation) leaves nothing behind.
+    ///
+    /// # Errors
+    /// The first clear that failed (every binding is still attempted).
+    pub fn clear_bindings_of(&self, grants: &[GrantId]) -> Result<(), AdapterError> {
+        let targets: Vec<(BindingId, u64)> = self
+            .lock()
+            .materialized
+            .iter()
+            .filter(|(_, m)| grants.contains(&m.grant))
+            .map(|(b, m)| (b.clone(), m.spec.generation))
+            .collect();
+        let mut first = None;
+        for (b, g) in targets {
+            if let Err(e) = self.clear(&b, g) {
+                first.get_or_insert(e);
+            }
+        }
+        first.map_or(Ok(()), Err)
+    }
+
+    /// ⟨§17.21 items 1–2⟩ The bindings this instance materialized for `grant`.
+    #[must_use]
+    pub fn materialized_bindings(&self, grant: &GrantId) -> Vec<BindingId> {
+        self.lock()
+            .materialized
+            .iter()
+            .filter(|(_, m)| m.grant == *grant)
+            .map(|(b, _)| b.clone())
+            .collect()
     }
 }
 
@@ -619,7 +901,7 @@ pub trait SlotStore: Send + Sync {
 }
 
 /// The text of the default [`SlotStore`]'s refusal (`CAPABILITY_UNAVAILABLE`,
-/// `driver_unavailable`, as `run_cmd::UnavailableSlots`).
+/// `driver_unavailable`).
 pub const SLOT_STORE_UNAVAILABLE: &str = "driver_unavailable";
 
 /// The default [`SlotStore`]: no slot table in this build.

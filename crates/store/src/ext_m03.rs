@@ -74,6 +74,22 @@ pub struct IssuerRecord {
     pub retired_at: Option<Timestamp>,
 }
 
+/// ⟨ADR-0008 §17.21 item 3⟩ The longest store locator recorded.
+const MAX_STORE_LOCATOR_BYTES: usize = 4096;
+
+/// ⟨ADR-0008 §17.21 item 3⟩ An `issuers.record_json` document: the [`IssuerRecord`]
+/// and the additive `store_locator` ([`Txn::issuer_store_locator`]). The locator is
+/// deliberately not a field of `IssuerRecord`, so the record's shape (and every
+/// caller building one) is unchanged; a document without the key (written before
+/// it) reads as no recorded locator.
+#[derive(Serialize, Deserialize)]
+struct IssuerDoc {
+    #[serde(flatten)]
+    record: IssuerRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    store_locator: Option<String>,
+}
+
 /// One `managed_slots` row (ADR-0008 D10 item 2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedSlot {
@@ -288,35 +304,98 @@ impl Txn<'_> {
         event: CaEvent,
         at: Timestamp,
     ) -> Result<std::result::Result<IssuerRecord, InvalidCaTransition>> {
-        let Some(mut issuer) = self.issuer(ca)? else {
+        // ⟨§17.21 item 3⟩ Read and written whole, so the recorded store locator stays.
+        let Some(mut doc) = self.issuer_doc(ca)? else {
             return Err(missing());
         };
-        if issuer.state != expected {
+        if doc.record.state != expected {
             return Err(conflict(format!("issuer {ca} is not {expected:?}")));
         }
         let next = match ca_transition(expected, event) {
             Ok(next) => next,
             Err(refused) => return Ok(Err(refused)),
         };
-        issuer.state = next;
+        doc.record.state = next;
         if next == CaState::Retired {
-            issuer.retired_at = Some(at);
+            doc.record.retired_at = Some(at);
         }
         let n = self.tx.execute(
             "UPDATE issuers SET state = ?2, retired_at = ?3, record_json = ?4
              WHERE ca_fingerprint = ?1 AND state = ?5",
             rusqlite::params![
                 ca.as_str(),
-                codec::enum_str(&issuer.state)?,
-                issuer.retired_at.map(codec::ts),
-                codec::doc(&issuer)?,
+                codec::enum_str(&doc.record.state)?,
+                doc.record.retired_at.map(codec::ts),
+                codec::doc(&doc)?,
                 codec::enum_str(&expected)?,
             ],
         )?;
         if n == 0 {
             return Err(conflict(format!("issuer {ca} is not {expected:?}")));
         }
-        Ok(Ok(issuer))
+        Ok(Ok(doc.record))
+    }
+
+    /// ⟨ADR-0008 §17.21 item 3; §17.17 item 3⟩ The exact store locator this
+    /// installation recorded for `ca`'s K_ca item (the `StoreItemRef::locator` its
+    /// `put` returned; the store kind is the record's `store_kind`), kept in the
+    /// row's `record_json` under the additive key `store_locator`. `None` when the
+    /// CA is not registered or nothing was recorded (a record written before the key:
+    /// its retirement stops at `unloaded`, `issuer_store_locator_unrecorded`).
+    pub fn issuer_store_locator(&mut self, ca: &CaFingerprint) -> Result<Option<String>> {
+        Ok(self.issuer_doc(ca)?.and_then(|d| d.store_locator))
+    }
+
+    fn issuer_doc(&mut self, ca: &CaFingerprint) -> Result<Option<IssuerDoc>> {
+        self.one_doc(
+            "SELECT record_json FROM issuers WHERE ca_fingerprint = ?1",
+            [ca.as_str()],
+        )
+    }
+
+    /// ⟨ADR-0008 §17.21 item 3⟩ Record `locator` as `ca`'s K_ca store item, **once**,
+    /// while the CA is `active` or `pending` (retirement deletes exactly this
+    /// locator). Recording the same locator again is a no-op. Refused, writing
+    /// nothing: a missing CA (`QueryReturnedNoRows`); a CA in a retirement state, or
+    /// one that already has **another** locator ([`StoreError::GenerationConflict`]:
+    /// a recorded locator is never replaced, so nothing re-points a retirement); an
+    /// empty or oversized locator, or one with control characters (a document error).
+    pub fn set_issuer_store_locator(&mut self, ca: &CaFingerprint, locator: &str) -> Result<()> {
+        if locator.is_empty()
+            || locator.len() > MAX_STORE_LOCATOR_BYTES
+            || locator.chars().any(char::is_control)
+        {
+            return Err(codec::doc_error(
+                "a store locator is 1 to 4096 bytes without control characters",
+            ));
+        }
+        let Some(mut doc) = self.issuer_doc(ca)? else {
+            return Err(missing());
+        };
+        match doc.store_locator.as_deref() {
+            Some(l) if l == locator => return Ok(()),
+            Some(_) => {
+                return Err(conflict(format!(
+                    "issuer {ca} already has a recorded store locator"
+                )));
+            }
+            None => {}
+        }
+        let state = doc.record.state;
+        if !matches!(state, CaState::Active | CaState::Pending) {
+            return Err(conflict(format!(
+                "issuer {ca} is {state:?}: its store locator is fixed"
+            )));
+        }
+        doc.store_locator = Some(locator.to_owned());
+        let n = self.tx.execute(
+            "UPDATE issuers SET record_json = ?2 WHERE ca_fingerprint = ?1 AND state = ?3",
+            rusqlite::params![ca.as_str(), codec::doc(&doc)?, codec::enum_str(&state)?],
+        )?;
+        if n == 0 {
+            return Err(conflict(format!("issuer {ca} is not {state:?}")));
+        }
+        Ok(())
     }
 
     // --- enrollments (ADR-0008 D5 §6.2) ---------------------------------------------------
@@ -1074,7 +1153,90 @@ impl Txn<'_> {
             .collect()
     }
 
+    /// ⟨M03 wave 4, round 2⟩ ADR-0008 §17.21 item 11: the slots of `environment` that
+    /// are still `held` or `clearing` for a binding whose grant has ended (any terminal
+    /// state, or `revoking`), with that grant, in (grant, destination, account) order.
+    /// The supervisor's end-of-grant pass clears each by its own generation. A slot row
+    /// whose binding has no grant row is not listed (the foreign keys forbid it).
+    pub fn held_slots_of_ended_grants(
+        &mut self,
+        environment: &EnvironmentId,
+    ) -> Result<Vec<(GrantId, ManagedSlot)>> {
+        type Row = (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            i64,
+            String,
+            String,
+            String,
+        );
+        let rows: Vec<Row> = {
+            let mut stmt = self.tx.prepare_cached(
+                "SELECT s.environment_id, s.destination_id, s.account, s.state, s.binding_id,
+                        s.generation, s.updated_at, g.id, g.state
+                 FROM managed_slots s
+                 JOIN bindings b ON b.id = s.binding_id
+                 JOIN grants g ON g.id = b.grant_id
+                 WHERE s.environment_id = ?1 AND s.state IN ('held', 'clearing')
+                 ORDER BY g.id, s.destination_id, s.account",
+            )?;
+            let rows = stmt.query_map([environment.as_str()], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                ))
+            })?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        let mut out = Vec::new();
+        for (env, destination, account, state, holder, generation, updated, grant, grant_state) in
+            rows
+        {
+            let grant_state: heimdall_contract::GrantState = codec::enum_parse(&grant_state)?;
+            if !(grant_state.is_terminal()
+                || grant_state == heimdall_contract::GrantState::Revoking)
+            {
+                continue;
+            }
+            let grant = GrantId::parse(&grant)
+                .map_err(|_| codec::doc_error("stored grant id is malformed"))?;
+            out.push((
+                grant,
+                ManagedSlot {
+                    environment: parse_env(&env)?,
+                    pair: AccessPair {
+                        destination: parse_destination(&destination)?,
+                        account: parse_account(&account)?,
+                    },
+                    state: slot_from_columns(&state, holder.as_deref(), generation)?,
+                    binding: holder.as_deref().map(parse_binding).transpose()?,
+                    updated_at: codec::parse_ts(&updated)?,
+                },
+            ));
+        }
+        Ok(out)
+    }
+
     // --- owned connections (ADR-0008 D8 item 2) ------------------------------------------
+
+    /// ⟨M03 wave 4, round 2⟩ §17.21 item 11 (`inspect connections`, read-only): every
+    /// owned connection, in every state, oldest first.
+    pub fn owned_connections(&mut self) -> Result<Vec<OwnedConnection>> {
+        self.docs(
+            "SELECT record_json FROM owned_connections ORDER BY started_at, id",
+            [],
+        )
+    }
 
     /// Insert an owned connection, `up` (written at bind on Unix, at registration on
     /// Windows). Its binding and grant must exist (a foreign-key violation is a SQLite

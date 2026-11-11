@@ -10867,6 +10867,7 @@ mod m02_integration {
                 ),
                 displaced_name: None,
             }],
+            managed_pairs: Default::default(),
         }
     }
 
@@ -10961,6 +10962,7 @@ mod m02_integration {
             adapter: None,
             approval: None,
             covered: None,
+            binding_id: None,
         });
         refused(&both, &approved, "local beside resolved");
     }
@@ -13988,6 +13990,7 @@ mod u0b_phase2 {
                 consent: ConsentRecord::default(),
                 files: base.files,
                 summary: Some(summary()),
+                managed_pairs: Default::default(),
             })
         }
 

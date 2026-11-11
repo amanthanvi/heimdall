@@ -274,6 +274,9 @@ struct Builder<'a> {
     account: Option<String>,
     /// The Git selection now and after the plan, when the plan changes it.
     git_selection: Option<(GitSshSelection, GitSshSelection)>,
+    /// ⟨M03⟩ The pairs whose managed-certificate section the rendered P holds (set
+    /// with the rendering; [`ProjectionPlan::managed_pairs`]).
+    managed_rendered: BTreeSet<heimdall_domain::scope::AccessPair>,
     /// ADR-0007 §12.18 item 3: every file the preview read so far, with the base it
     /// found (absent, or the digest of its bytes). A derived marker binds them.
     reads: BTreeMap<(FileRole, PathBuf), Base>,
@@ -308,6 +311,7 @@ impl<'a> Builder<'a> {
             manual_for: None,
             account: crate::doctor::local_account(),
             git_selection: None,
+            managed_rendered: BTreeSet::new(),
             reads: BTreeMap::new(),
         }
     }
@@ -482,6 +486,20 @@ impl<'a> Builder<'a> {
             }
             return Ok(());
         }
+        // ⟨M03⟩ ADR-0008 D5 §6.6: the pairs this rendering of P holds as managed
+        // certificates, taken from the rendering itself (the commit of this plan records
+        // exactly these as applied).
+        self.managed_rendered = self
+            .spec
+            .aliases
+            .iter()
+            .zip(&managed)
+            .filter(|(_, m)| m.is_some())
+            .map(|(a, _)| heimdall_domain::scope::AccessPair {
+                destination: a.destination.clone(),
+                account: a.account.clone(),
+            })
+            .collect();
         self.added = self.spec.aliases.iter().map(|a| a.alias.clone()).collect();
 
         let user = self.config.paths.user_config.clone();
@@ -2279,6 +2297,17 @@ impl<'a> Builder<'a> {
                 decided.record
             } else {
                 ConsentRecord::default()
+            },
+            // ⟨M03⟩ Only a plan that writes the SSH item renders P (a conflict plans no
+            // SSH step and commits nothing).
+            managed_pairs: if self
+                .steps
+                .iter()
+                .any(|s| s.role.item() == ProjectionItem::Ssh)
+            {
+                self.managed_rendered
+            } else {
+                BTreeSet::new()
             },
             files: self.steps,
             summary,

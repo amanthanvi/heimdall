@@ -203,6 +203,10 @@ struct FixtureEffects {
     keys: Mutex<HashMap<GrantId, (String, KeyRegistration)>>,
     installed: Mutex<Vec<(GrantId, IssuanceEntry)>>,
     destroyed: Mutex<Vec<GrantId>>,
+    /// ⟨§17.21 item 1⟩ Every `materialize` call (binding, spec), in order.
+    materialized: Mutex<Vec<(BindingId, MaterializeSpec)>>,
+    /// Every `clear` call (binding, generation), in order.
+    cleared: Mutex<Vec<(BindingId, u64)>>,
 }
 
 impl FixtureEffects {
@@ -212,6 +216,8 @@ impl FixtureEffects {
             keys: Mutex::new(HashMap::new()),
             installed: Mutex::new(Vec::new()),
             destroyed: Mutex::new(Vec::new()),
+            materialized: Mutex::new(Vec::new()),
+            cleared: Mutex::new(Vec::new()),
         })
     }
     fn live(&self, g: &GrantId) -> bool {
@@ -304,14 +310,28 @@ impl ManagedEffects for FixtureEffects {
 
     fn materialize(
         &self,
-        _binding: &BindingId,
-        _files: &MaterializeSpec,
+        binding: &BindingId,
+        files: &MaterializeSpec,
     ) -> Result<MaterializedFiles, AdapterError> {
         self.timeline.push(Ev::Effect("materialize"));
-        Err(AdapterError::Protocol("fixture: not materialized".into()))
+        self.materialized
+            .lock()
+            .unwrap()
+            .push((binding.clone(), files.clone()));
+        // Named, never written (the real files are the managed adapter suite's).
+        let directory = std::path::PathBuf::from(format!("fixture-run/b/{binding}"));
+        Ok(MaterializedFiles {
+            files: vec![directory.join("key.pub")],
+            directory,
+            generation: files.generation,
+        })
     }
 
-    fn clear(&self, _binding: &BindingId, _generation: u64) -> Result<(), AdapterError> {
+    fn clear(&self, binding: &BindingId, generation: u64) -> Result<(), AdapterError> {
+        self.cleared
+            .lock()
+            .unwrap()
+            .push((binding.clone(), generation));
         Ok(())
     }
 }
@@ -385,6 +405,8 @@ struct FixtureManaged {
     timeline: Arc<Timeline>,
     seen_managed: Mutex<Vec<bool>>,
     revoke_rows: Mutex<Vec<RemoteEffectReport>>,
+    /// ⟨§17.21 item 1⟩ `prepare_from` refuses (after the driver ran) while set.
+    fail_prepare: std::sync::atomic::AtomicBool,
 }
 
 impl FixtureManaged {
@@ -405,6 +427,7 @@ impl FixtureManaged {
             timeline,
             seen_managed: Mutex::new(Vec::new()),
             revoke_rows: Mutex::new(Vec::new()),
+            fail_prepare: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -494,6 +517,8 @@ impl CredentialAdapter for FixtureManaged {
                 .push(sources.managed.is_some());
             let r = if self.descriptor.identity.mechanism != MANAGED_CERTIFICATE {
                 Ok(outcome_for(&req))
+            } else if self.fail_prepare.load(Ordering::SeqCst) {
+                Err(AdapterError::CapabilityUnavailable)
             } else {
                 match prepared {
                     Some(p) if p.certificates.len() == req.scope.pairs.len() => {
@@ -863,7 +888,7 @@ async fn ensure_on(
 // =================================================================================
 
 /// U10 "Tests" (row 21): every effect of the stage sequence (key, sign per pair,
-/// install per pair) runs with no store transaction open, each separated from the next
+/// install per pair, ⟨§17.21 item 1⟩ materialize) runs with no store transaction open, each separated from the next
 /// by at least one committed store transaction (a reservation, a publication, or a
 /// stage receipt), and the operation carries the stage receipts in order.
 #[tokio::test]
@@ -885,7 +910,14 @@ async fn managed_effect_steps_run_outside_store_transactions() {
         .collect();
     assert_eq!(
         names,
-        vec!["generate_key", "sign", "sign", "install", "install"],
+        vec![
+            "generate_key",
+            "sign",
+            "sign",
+            "install",
+            "install",
+            "materialize"
+        ],
         "the fixture driver's effects, in D6 item 1's order"
     );
     for (e, depth) in &effects {
@@ -924,6 +956,7 @@ async fn managed_effect_steps_run_outside_store_transactions() {
             "managed.publish",
             "managed.install",
             "managed.install",
+            "managed.materialize",
             "managed.prepared",
         ]
     );
@@ -1354,4 +1387,232 @@ async fn revoke_destroys_k_env_under_the_gates() {
         assert!(*held >= 1, "the grant's gate is held at UnderGates");
         assert!(!live, "K_env destroyed before the gates are released");
     }
+}
+
+// =================================================================================
+// ⟨M03 wave 4, round 2⟩ ADR-0008 §17.21 item 1: the binding minted at resolve
+// =================================================================================
+
+fn stored_intent(w: &World, op: &OperationId) -> heimdall_domain::operation::RecoveryIntent {
+    w.store
+        .transaction(|tx| tx.recovery_intent(op))
+        .unwrap()
+        .expect("a recovery intent")
+}
+
+/// §17.21 item 1: a managed `ensure` mints the binding ID at resolve (recorded in the
+/// intent as `binding_id`), the driver materializes exactly that binding at step 6
+/// (generation 1, K_env's public key, one certificate per pair, no slots), and the
+/// commit creates the binding under the same ID.
+#[tokio::test]
+async fn managed_binding_minted_at_resolve_materialized_then_committed_under_it() {
+    let w = World::new().await;
+    let (data, op) = w.ensure("minted", &[h1(), h2()]).await;
+    let resolved = stored_intent(&w, &op).resolved.expect("resolved");
+    assert_eq!(resolved.binding_id.as_ref(), Some(&data.binding_id));
+    assert_eq!(resolved.binding.as_ref(), Some(&data.binding_id));
+    let calls = w.effects.materialized.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1, "one materialization");
+    let (b, spec) = &calls[0];
+    assert_eq!(b, &data.binding_id, "materialized under the minted ID");
+    assert_eq!(spec.generation, 1);
+    assert!(!spec.environment_slots, "no slot at preparation");
+    let key = w
+        .effects
+        .keys
+        .lock()
+        .unwrap()
+        .get(&data.grant_id)
+        .unwrap()
+        .1
+        .public_key
+        .clone();
+    assert_eq!(spec.public_key, key);
+    let pairs: BTreeSet<AccessPair> = spec.certificates.iter().map(|c| c.pair.clone()).collect();
+    assert_eq!(pairs, [h1(), h2()].into_iter().collect());
+    let stored = w
+        .store
+        .transaction(|tx| tx.binding(&data.binding_id))
+        .unwrap()
+        .expect("the binding committed under the minted ID");
+    assert_eq!(stored.grant, data.grant_id);
+    assert!(
+        w.effects.cleared.lock().unwrap().is_empty(),
+        "nothing cleared"
+    );
+}
+
+/// §17.21 item 1: a replay of the same `request_id` returns the same binding, and the
+/// driver does not run again (one materialization).
+#[tokio::test]
+async fn managed_replay_of_request_returns_same_binding() {
+    let w = World::new().await;
+    let (first, op1) = w.ensure("replay", &[h1()]).await;
+    let (again, op2) = w.ensure("replay", &[h1()]).await;
+    assert_eq!(op1, op2, "the same operation");
+    assert_eq!(again.binding_id, first.binding_id);
+    assert_eq!(again.grant_id, first.grant_id);
+    let calls = w.effects.materialized.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1, "the driver ran once");
+    assert_eq!(
+        calls[0].0, first.binding_id,
+        "the replayed binding is the materialized one"
+    );
+}
+
+/// §17.21 item 1: a failure after the driver materialized (here `prepare_from`
+/// refuses) is cleaned up by the operation's cleanup intent before the call returns:
+/// K_env destroyed, the instance `destroyed` with its gate released, the minted
+/// binding cleared at generation 1, no binding committed, no intent left.
+#[tokio::test]
+async fn managed_failure_before_commit_cleans_binding_key_and_instance() {
+    let w = World::new().await;
+    w.adapter.fail_prepare.store(true, Ordering::SeqCst);
+    let e = w.try_ensure("fails", &[h1()]).await.unwrap_err();
+    assert_eq!(e.code, Code::CapabilityUnavailable);
+    let calls = w.effects.materialized.lock().unwrap().clone();
+    assert_eq!(calls.len(), 1, "the driver materialized");
+    let binding = calls[0].0.clone();
+    assert_eq!(
+        *w.effects.cleared.lock().unwrap(),
+        vec![(binding.clone(), 1)],
+        "the minted binding's endpoint and files cleared"
+    );
+    let gid = w
+        .effects
+        .destroyed
+        .lock()
+        .unwrap()
+        .first()
+        .cloned()
+        .expect("K_env destroyed");
+    assert!(!w.effects.live(&gid));
+    let instances = w
+        .store
+        .transaction(|tx| tx.credential_instances_for_grant(&gid))
+        .unwrap();
+    assert_eq!(instances.len(), 1);
+    assert_eq!(instances[0].state, CredentialState::Destroyed);
+    assert!(!w.ops.signing_gates().contains(&gid), "the gate released");
+    assert_eq!(w.grant_state(&gid), GrantState::Failed);
+    let (committed, intents) = w
+        .store
+        .transaction(|tx| Ok((tx.binding(&binding)?, tx.cleanup_intents()?)))
+        .unwrap();
+    assert!(committed.is_none(), "no binding committed");
+    assert!(intents.is_empty(), "the cleanup intent was processed");
+}
+
+/// The M02 shape of a resolved intent's JSON keys (ADR-0006; `approval`/`covered`
+/// omitted when absent).
+const M02_RESOLVED_KEYS: [&str; 9] = [
+    "adapter",
+    "binding",
+    "deadline",
+    "generation",
+    "grant",
+    "policy_revision",
+    "profile",
+    "profile_revision",
+    "scope",
+];
+
+/// §17.21 item 1: an existing-access `ensure` is byte-identical to M02. Its stored
+/// intent has exactly the M02 keys (no `binding_id`), and those bytes (the shape an
+/// M02 build wrote) decode with no `binding_id` and re-encode byte-identically; the
+/// driver never runs (no key, no materialization) and the result names no managed
+/// endpoint.
+#[tokio::test]
+async fn existing_access_ensure_intent_and_result_byte_identical_to_m02() {
+    let w = World::with("fake_agent", true).await;
+    let (data, op) = w.ensure("m02-shape", &[h1()]).await;
+    let intent = stored_intent(&w, &op);
+    let resolved = intent.resolved.clone().unwrap();
+    assert_eq!(resolved.binding_id, None);
+    let value = serde_json::to_value(&resolved).unwrap();
+    let keys: Vec<&str> = value
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(keys, M02_RESOLVED_KEYS, "the M02 key set");
+    let bytes = serde_json::to_string(&intent).unwrap();
+    assert!(!bytes.contains("binding_id"));
+    let decoded: heimdall_domain::operation::RecoveryIntent = serde_json::from_str(&bytes).unwrap();
+    assert_eq!(serde_json::to_string(&decoded).unwrap(), bytes);
+    // The result names no managed endpoint, and the binding is the intent's.
+    assert_eq!(data.consumer.signing_endpoint, None);
+    assert_eq!(resolved.binding.as_ref(), Some(&data.binding_id));
+    assert!(w.effects.keys.lock().unwrap().is_empty());
+    assert!(w.effects.materialized.lock().unwrap().is_empty());
+    // A managed intent carries the key; removing it gives the M02 bytes, which decode
+    // to no `binding_id` and re-encode byte-identically.
+    let mw = World::new().await;
+    let (mdata, mop) = mw.ensure("m02-managed", &[h1()]).await;
+    let managed = serde_json::to_string(&stored_intent(&mw, &mop)).unwrap();
+    let field = format!(",\"binding_id\":\"{}\"", mdata.binding_id);
+    assert!(
+        managed.contains(&field),
+        "the managed intent records the minted ID"
+    );
+    let m02_bytes = managed.replace(&field, "");
+    let read: heimdall_domain::operation::RecoveryIntent =
+        serde_json::from_str(&m02_bytes).unwrap();
+    assert_eq!(read.resolved.as_ref().unwrap().binding_id, None);
+    assert_eq!(serde_json::to_string(&read).unwrap(), m02_bytes);
+}
+
+// =================================================================================
+// §17.21 item 7: the credential instances of a grant, by store query
+// =================================================================================
+
+/// §17.21 item 7: `Txn::credential_instances_for_grant` lists every instance of the
+/// grant (any state, any ID scheme) and no other grant's; the revoke's cleanup finds an
+/// instance whose ID is not derived from any key fingerprint through it, destroys it
+/// and releases its gate.
+#[tokio::test]
+async fn credential_instances_found_by_grant_query_not_fingerprint() {
+    use heimdall_domain::issuance::CredentialInstance;
+    let w = World::new().await;
+    let (a, _) = w.ensure("inst-a", &[h1()]).await;
+    let (b, _) = w.ensure("inst-b", &[h2()]).await;
+    let extra = CredentialInstance {
+        id: heimdall_contract::ids::CredentialInstanceId::from_random_bytes([0xAB; 16]),
+        grant: a.grant_id.clone(),
+        key_handle_ref: "fixture-extra".into(),
+        certificates: Vec::new(),
+        state: CredentialState::Installed,
+    };
+    w.store
+        .transaction(|tx| tx.insert_credential_instance(&extra))
+        .unwrap();
+    w.ops.signing_gates().retain(&a.grant_id, &[]);
+    let of = |g: &GrantId| {
+        w.store
+            .transaction(|tx| tx.credential_instances_for_grant(g))
+            .unwrap()
+    };
+    let listed = of(&a.grant_id);
+    assert_eq!(listed.len(), 2, "the driver's instance and the extra one");
+    assert!(listed.iter().all(|i| i.grant == a.grant_id));
+    assert!(listed.iter().any(|i| i.id == extra.id));
+    assert_eq!(
+        of(&b.grant_id).len(),
+        1,
+        "the other grant's own instance only"
+    );
+    assert!(of(&GrantId::from_random_bytes([0xEE; 16])).is_empty());
+    w.revoke(&a.grant_id, "rv-inst-a").await;
+    assert!(
+        of(&a.grant_id)
+            .iter()
+            .all(|i| i.state == CredentialState::Destroyed),
+        "every instance of the grant destroyed, found by the query"
+    );
+    assert!(
+        !w.ops.signing_gates().contains(&a.grant_id),
+        "both gate holds released"
+    );
+    assert_eq!(of(&b.grant_id)[0].state, CredentialState::Installed);
 }

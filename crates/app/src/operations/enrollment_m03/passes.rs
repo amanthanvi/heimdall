@@ -114,8 +114,16 @@ impl Operations {
     /// The re-verification pass: every `verified` record whose evidence is older
     /// than `reverify_after` (80 days), or whose verifying client is not the current
     /// one (a prompt re-verification, §17.4 item 11), gets a non-interactive
-    /// `enrollment.verify` (presence) that changes nothing remotely. A host-key change
-    /// is never re-verified automatically.
+    /// `enrollment.verify` (presence) that changes nothing remotely.
+    ///
+    /// ⟨round 2⟩ **A host-key change** (the `TargetEvaluator` now finds another key for
+    /// the approved `HostName`, `Port` and `User`; D5 §6.5 freshness) invalidates the
+    /// evidence at once: with [`HOST_KEY_CHANGE_PROMPT_REVERIFY`] the pass runs the
+    /// presence re-verification promptly (at most once per `reverify_prompt_delay`),
+    /// **with the approved target's pins**, so the server's other key ends it `held`
+    /// (`host_key_changed`) and the pair's evidence stops counting. The new key is
+    /// never accepted automatically: only an approved `ApproveTargetChange` does that,
+    /// and the pass never touches a `held` record.
     pub(super) async fn reverify_due(&self) -> Result<Vec<EnrollmentId>, OpError> {
         let Ok(ports) = self.verification_ports() else {
             return Ok(Vec::new());
@@ -123,28 +131,45 @@ impl Operations {
         let client = ports.host.client_version();
         let now = self.clock().wall();
         let after = self.limits().reverify_after;
-        let due = self
+        let prompt = self.limits().reverify_prompt_delay;
+        let candidates = self
             .write(move |tx, _| {
-                let mut due = Vec::new();
+                let mut out = Vec::new();
                 for r in tx.open_enrollments()? {
-                    if r.state != EnrollmentState::Verified {
+                    if r.state != EnrollmentState::Verified
+                        || super::open_operation_of(tx, &r.id)?.is_some()
+                    {
                         continue;
                     }
-                    let Some(e) = &r.evidence else {
-                        due.push(r.id.clone());
-                        continue;
-                    };
-                    let old = super::super::plus(e.verified_at, after) <= now;
-                    let changed = client.as_deref().map(version_token).is_some_and(|v| {
-                        !v.is_empty() && !e.client.split_whitespace().any(|t| t == v)
-                    });
-                    if (old || changed) && super::open_operation_of(tx, &r.id)?.is_none() {
-                        due.push(r.id.clone());
-                    }
+                    let alias = tx.destination(&r.destination)?.map(|d| d.alias);
+                    out.push((r, alias));
                 }
-                Ok(due)
+                Ok(out)
             })
             .await?;
+        let mut due = Vec::new();
+        for (r, alias) in candidates {
+            let key_changed = HOST_KEY_CHANGE_PROMPT_REVERIFY
+                && match (&alias, ports.wiring.target.as_ref()) {
+                    (Some(a), Some(t)) => host_key_changed(&r.target, &t.evaluate(a)),
+                    _ => false,
+                };
+            let Some(e) = &r.evidence else {
+                due.push(r.id.clone());
+                continue;
+            };
+            let old = super::super::plus(e.verified_at, after) <= now;
+            let changed = client
+                .as_deref()
+                .map(version_token)
+                .is_some_and(|v| !v.is_empty() && !e.client.split_whitespace().any(|t| t == v));
+            // A host-key change re-verifies at most once per `reverify_prompt_delay`
+            // (the approved key may still be the server's: a pass then renews it).
+            let key_changed = key_changed && super::super::plus(e.verified_at, prompt) <= now;
+            if old || changed || key_changed {
+                due.push(r.id.clone());
+            }
+        }
         // The supervisor's own idempotency namespace (no session: unattended,
         // non-interactive; a re-verification needs no decision).
         let caller = Caller::unattended(CallerContext {
@@ -173,6 +198,28 @@ impl Operations {
         }
         Ok(done)
     }
+}
+
+/// ⟨round 2⟩ The fail-closed reading of D5 §6.5's host-key invalidation (questions
+/// file R2-A-Q1): a verified pair whose approved host key the evaluator no longer
+/// finds is re-verified at once with the approved pins (ending `held`,
+/// `host_key_changed`), instead of keeping its evidence until it ages out.
+pub(super) const HOST_KEY_CHANGE_PROMPT_REVERIFY: bool = true;
+
+/// Whether `eval` finds the approved `HostName`, `Port` and `User`, directly and
+/// determined, but not exactly the approved host key (a host-key change; a route
+/// change is not one).
+fn host_key_changed(
+    approved: &heimdall_contract::enrollment::ApprovedTarget,
+    eval: &heimdall_domain::enrollment::TargetEvaluation,
+) -> bool {
+    use heimdall_domain::enrollment::{Determinism, ProxyRoute};
+    eval.determinism == Determinism::Determined
+        && eval.proxy == ProxyRoute::None
+        && eval.hostname == approved.hostname
+        && eval.port == approved.port
+        && eval.user == approved.user.as_str()
+        && !crate::enrollment::route_matches(approved, eval)
 }
 
 /// The version token of a client version line: `OpenSSH_10.5p1, LibreSSL …` →

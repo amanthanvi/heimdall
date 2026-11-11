@@ -9,6 +9,8 @@
 //! handling applies ([`ca_public_key_fingerprint`], [`retire_admissible`],
 //! [`enrollment_counts`], [`register_disclosures`], [`unlock_guidance`]).
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use heimdall_contract::enrollment::{DisclosureKind, EnrollmentState};
 use heimdall_contract::envelope::reason;
@@ -42,6 +44,16 @@ pub trait IssuerLifecycle: Send + Sync {
 
     /// Stop the child (zeroizing every CA it holds); idempotent.
     async fn stop(&self);
+
+    /// ⟨ADR-0008 §17.21 item 3⟩ The retirement's `unloaded → deleted` step over the
+    /// store that holds K_ca (`heimdall_issuer::retire::StoreItemDeletion`), which
+    /// deletes exactly the locator the runtime recorded for the CA. `None` (the
+    /// default, and production until R2B-Q2 is ruled: the issuer child never writes
+    /// the store, D3, and the runtime holds no store handle): a CA with a recorded
+    /// locator stays `unloaded` (`issuer_store_unavailable`), nothing deleted.
+    fn store_item_deletion(&self) -> Option<Arc<dyn crate::operations::CaStoreItemDeletion>> {
+        None
+    }
 }
 
 /// The length of an Ed25519 OpenSSH public-key blob: `string "ssh-ed25519"` (4 + 11)

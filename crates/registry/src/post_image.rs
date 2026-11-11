@@ -1,6 +1,11 @@
 //! Post-image construction and the post-write checks (ADR-0008 D5 §6.3, §6.8; m03-plan
 //! U5): [`post_image_without`], [`check_post_append`], [`check_post_remove`].
 //!
+//! ⟨wave 4, round 2⟩ **Digest forms** (ADR-0008 §17.21 item 4): the runtime never
+//! stores an inspected registry's foreign bytes, so the checks also take the image
+//! by its length and SHA-256 ([`ImageDigest`]); "starts with the image" is then
+//! "the first `len` bytes hash to it", which a different prefix cannot meet.
+//!
 //! **Byte-preserving.** A registry is split into lines at `\n` only
 //! ([`crate::line::lines`]); a line's bytes are everything up to its `\n`, so a `\r`
 //! (CRLF), a BOM, comments, options and trailing spaces are part of the line they are
@@ -15,7 +20,39 @@
 
 use heimdall_domain::enrollment::HoldReason;
 
+use heimdall_domain::projection::Sha256Hex;
+
 use crate::line::{contains, marker_lines, marker_of};
+
+/// A registry image kept by its length and SHA-256 only (§17.21 item 4: the
+/// journal never stores another key's line or a comment).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImageDigest {
+    /// The image's length in bytes.
+    pub len: u64,
+    /// Its SHA-256.
+    pub sha256: Sha256Hex,
+}
+
+impl ImageDigest {
+    /// The digest of `bytes`.
+    #[must_use]
+    pub fn of(bytes: &[u8]) -> ImageDigest {
+        ImageDigest {
+            len: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+            sha256: Sha256Hex::of(bytes),
+        }
+    }
+
+    /// Whether `bytes` starts with the image (or equals it).
+    #[must_use]
+    pub fn is_prefix_of(&self, bytes: &[u8]) -> bool {
+        usize::try_from(self.len)
+            .ok()
+            .and_then(|n| bytes.get(..n))
+            .is_some_and(|head| Sha256Hex::of(head) == self.sha256)
+    }
+}
 
 /// Why no post-image was built.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -112,6 +149,26 @@ pub fn post_image_without(preimage: &[u8], line: &str) -> Result<Vec<u8>, PostIm
 /// # Errors
 /// [`PostWriteError`]: `LineDamaged`, `PreimageChanged` or `InvalidLine`.
 pub fn check_post_append(pre: &[u8], post: &[u8], line: &str) -> Result<(), PostWriteError> {
+    post_append(|without| without.starts_with(pre), post, line)
+}
+
+/// [`check_post_append`] with the inspected preimage by its digest.
+///
+/// # Errors
+/// As [`check_post_append`].
+pub fn check_post_append_digest(
+    pre: &ImageDigest,
+    post: &[u8],
+    line: &str,
+) -> Result<(), PostWriteError> {
+    post_append(|without| pre.is_prefix_of(without), post, line)
+}
+
+fn post_append(
+    starts_with_pre: impl Fn(&[u8]) -> bool,
+    post: &[u8],
+    line: &str,
+) -> Result<(), PostWriteError> {
     let marker = marker_of(line).ok_or(PostWriteError::InvalidLine)?;
     let count = marker_lines(post, marker);
     if count != 1 {
@@ -128,7 +185,7 @@ pub fn check_post_append(pre: &[u8], post: &[u8], line: &str) -> Result<(), Post
             marker_lines: count,
         });
     }
-    if without.starts_with(pre) {
+    if starts_with_pre(&without) {
         Ok(())
     } else {
         Err(PostWriteError::PreimageChanged)
@@ -146,13 +203,29 @@ pub fn check_post_remove(
     post: &[u8],
     marker: &str,
 ) -> Result<(), PostWriteError> {
+    post_remove(post.starts_with(post_image), post, marker)
+}
+
+/// [`check_post_remove`] with the post-image by its digest.
+///
+/// # Errors
+/// As [`check_post_remove`].
+pub fn check_post_remove_digest(
+    post_image: &ImageDigest,
+    post: &[u8],
+    marker: &str,
+) -> Result<(), PostWriteError> {
+    post_remove(post_image.is_prefix_of(post), post, marker)
+}
+
+fn post_remove(starts_with_image: bool, post: &[u8], marker: &str) -> Result<(), PostWriteError> {
     let count = marker_lines(post, marker);
     if count != 0 {
         return Err(PostWriteError::MarkerPresent {
             marker_lines: count,
         });
     }
-    if post.starts_with(post_image) {
+    if starts_with_image {
         Ok(())
     } else {
         Err(PostWriteError::PostImageChanged)
@@ -205,5 +278,41 @@ mod tests {
             check_post_remove(b"A\nB\n", b"A\n", "heimdall:enr_1"),
             Err(PostWriteError::PostImageChanged)
         );
+    }
+
+    /// ⟨round 2⟩ §17.21 item 4: the digest forms agree with the byte forms.
+    #[test]
+    fn digest_checks_agree_with_byte_checks() {
+        let pre = b"# owner note\nssh-ed25519 BBBB other\n".to_vec();
+        let pre_d = ImageDigest::of(&pre);
+        let post = [pre.clone(), format!("{LINE}\n").into_bytes()].concat();
+        assert_eq!(check_post_append_digest(&pre_d, &post, LINE), Ok(()));
+        assert_eq!(check_post_append(&pre, &post, LINE), Ok(()));
+        let later = [post.clone(), b"admin\n".to_vec()].concat();
+        assert_eq!(check_post_append_digest(&pre_d, &later, LINE), Ok(()));
+        let changed = [
+            b"# other note\nssh-ed25519 BBBB other\n".to_vec(),
+            format!("{LINE}\n").into_bytes(),
+        ]
+        .concat();
+        assert_eq!(
+            check_post_append_digest(&pre_d, &changed, LINE),
+            Err(PostWriteError::PreimageChanged)
+        );
+        assert_eq!(
+            check_post_append(&pre, &changed, LINE),
+            Err(PostWriteError::PreimageChanged)
+        );
+        let image = ImageDigest::of(b"A\n");
+        assert_eq!(
+            check_post_remove_digest(&image, b"A\nB\n", "heimdall:enr_1"),
+            Ok(())
+        );
+        assert_eq!(
+            check_post_remove_digest(&ImageDigest::of(b"A\nB\n"), b"A\n", "heimdall:enr_1"),
+            Err(PostWriteError::PostImageChanged)
+        );
+        assert!(!ImageDigest::of(b"AB").is_prefix_of(b"A"));
+        assert!(ImageDigest::of(b"").is_prefix_of(b"anything"));
     }
 }

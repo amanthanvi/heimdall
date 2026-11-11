@@ -1056,8 +1056,10 @@ name = "heimdall"
 version = "0.1.0-m01"
 dependencies = [
  "clap",
+ "heimdall-adapters",
  "heimdall-app",
  "heimdall-contract",
+ "heimdall-credential",
  "heimdall-domain",
  "heimdall-enroll",
  "heimdall-ipc",

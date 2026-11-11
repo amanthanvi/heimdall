@@ -104,6 +104,16 @@ pub enum DecisionKind {
         restored_without_log: bool,
         /// The disclosures shown.
         disclosures: Vec<DisclosureKind>,
+        /// ⟨ADR-0008 §17.21 item 3⟩ The CA's OpenSSH public key line, as registered,
+        /// so the approval needs no process memory and survives a restart. Additive:
+        /// absent in a record written before it (serde default, omitted when absent),
+        /// whose approval is refused `DECISION_STALE`, not consumed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ca_public_key: Option<String>,
+        /// ⟨ADR-0008 §17.21 item 3⟩ When the backup bytes were prepared (the request's
+        /// `backup_created_at`). Additive, as `ca_public_key`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        backup_created_at: Option<Timestamp>,
     },
     /// ⟨M03⟩ Retire a CA (ADR-0008 D4 item 3): every enrollment under it is final or
     /// abandoned.

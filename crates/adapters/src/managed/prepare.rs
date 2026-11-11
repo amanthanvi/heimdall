@@ -18,6 +18,7 @@ use heimdall_app::ports::{
     ManagedSources, PrepareOutcome, PreparePair, PrepareRequest, PreparedCertificate,
 };
 use heimdall_contract::Timestamp;
+use heimdall_contract::doctor::AliasObservation;
 use heimdall_contract::envelope::reason;
 use heimdall_contract::ids::{CaFingerprint, GrantId};
 use heimdall_contract::issuer::IssuerState;
@@ -133,6 +134,49 @@ pub trait ManagedSourceRead: Send + Sync {
         let _ = grants;
         Vec::new()
     }
+
+    /// ⟨§17.21 item 11⟩ The static observation of the managed `aliases` (D10 item 6's
+    /// classification: the projection writer's `observe` over the stored projection
+    /// record, as M02's existing-access sources read it). Default: none, so every
+    /// pair's selection is `undetermined` (fail closed).
+    fn observations(&self, aliases: &[String]) -> Vec<AliasObservation> {
+        let _ = aliases;
+        Vec::new()
+    }
+}
+
+/// ⟨§17.21 item 11⟩ D10 item 6's classification of the request's pairs, as the report
+/// takes it: each pair's managed-alias observation (`identity_selection.selection`:
+/// `exclusive`, `not_exclusive`, anything else `undetermined`; a pair without an alias
+/// or without an observation is `undetermined`), the weakest over the pairs
+/// (`undetermined` < `not_exclusive` < `exclusive`). No pair: `undetermined`.
+#[must_use]
+pub fn selection_class(pairs: &[PreparePair], observations: &[AliasObservation]) -> SelectionClass {
+    fn rank(c: SelectionClass) -> u8 {
+        match c {
+            SelectionClass::Exclusive => 2,
+            SelectionClass::NotExclusive => 1,
+            SelectionClass::Undetermined => 0,
+        }
+    }
+    let of = |p: &PreparePair| -> SelectionClass {
+        let observed = p.alias.as_deref().and_then(|alias| {
+            observations
+                .iter()
+                .find(|o| o.alias == alias)
+                .and_then(|o| o.identity_selection.as_ref())
+        });
+        match observed.map(|r| r.selection) {
+            Some(IdentitySelection::Exclusive) => SelectionClass::Exclusive,
+            Some(IdentitySelection::NotExclusive) => SelectionClass::NotExclusive,
+            _ => SelectionClass::Undetermined,
+        }
+    };
+    pairs
+        .iter()
+        .map(of)
+        .min_by_key(|c| rank(*c))
+        .unwrap_or(SelectionClass::Undetermined)
 }
 
 /// Sources that claim nothing.
@@ -145,6 +189,13 @@ impl ManagedSourceRead for NoManagedSources {}
 /// through `sources` (U0b row 21).
 #[must_use]
 pub fn snapshot(sources: &dyn ManagedSourceRead, pairs: &[PreparePair]) -> IntegrationSnapshot {
+    // ⟨§17.21 item 11⟩ The request's managed aliases' static observation (D10 item 6).
+    let aliases: Vec<String> = pairs.iter().filter_map(|p| p.alias.clone()).collect();
+    let observations = if aliases.is_empty() {
+        Vec::new()
+    } else {
+        sources.observations(&aliases)
+    };
     let pairs: Vec<AccessPair> = pairs
         .iter()
         .map(|p| AccessPair {
@@ -161,6 +212,7 @@ pub fn snapshot(sources: &dyn ManagedSourceRead, pairs: &[PreparePair]) -> Integ
             issuer: sources.issuer(),
             prepared: sources.prepared(&pairs),
         }),
+        observations,
         ..IntegrationSnapshot::default()
     }
 }
@@ -335,11 +387,25 @@ pub fn binding_endpoint(
 pub fn pair_integrations(
     pairs: &[PreparePair],
     endpoint: Option<&EndpointRef>,
+    observations: &[AliasObservation],
     now: Timestamp,
 ) -> Vec<PairIntegration> {
     pairs
         .iter()
-        .map(|p| PairIntegration {
+        .map(|p| {
+            // ⟨wave 4, integrator; §17.21 item 11, R2C-Q1⟩ Each pair's own D10 item 6
+            // classification (its managed alias's static observation); absent:
+            // `undetermined`. The M02 commit re-check refuses a non-exclusive managed
+            // pair non-interactively (`fresh_fallback_refusal`).
+            let report = p.alias.as_deref().and_then(|alias| {
+                observations
+                    .iter()
+                    .find(|o| o.alias == alias)
+                    .and_then(|o| o.identity_selection.clone())
+            });
+            (p, report)
+        })
+        .map(|(p, report)| PairIntegration {
             destination: p.destination.clone(),
             account: p.account.clone(),
             identity: p.identity.id.clone(),
@@ -349,7 +415,9 @@ pub fn pair_integrations(
             interaction: InteractionKind::None,
             interaction_basis: EvidenceBasis::Inferred,
             declared_at: None,
-            identity_selection: IdentitySelection::Undetermined,
+            identity_selection: report
+                .as_ref()
+                .map_or(IdentitySelection::Undetermined, |r| r.selection),
             selection_observed_at: now,
             declaration: None,
             noninteractive: NoninteractiveEligibility {
@@ -357,7 +425,7 @@ pub fn pair_integrations(
                 reason: None,
             },
             eligibility_checked_at: now,
-            identity_selection_report: None,
+            identity_selection_report: report,
         })
         .collect()
 }
@@ -433,7 +501,8 @@ pub fn outcome(
         issuer_ready: issuer_ready(managed),
         reissue_pending: false,
         now: req.now,
-        selection: SelectionClass::Undetermined,
+        // ⟨§17.21 item 11⟩ D10 item 6's classification, weakest over the pairs.
+        selection: selection_class(req.pairs, &sources.observations),
     };
     let report = report::compute(req.grant, prepared, &managed.claims, &ctx, &evidence);
     check_minimums(req, &report, terms, capabilities)
@@ -441,7 +510,7 @@ pub fn outcome(
     let endpoint = binding_endpoint(prepared, layout);
     let integration = ConsumerIntegration {
         signing_endpoint: endpoint.as_ref().map(|e| e.locator.clone()),
-        pairs: pair_integrations(req.pairs, endpoint.as_ref(), req.now),
+        pairs: pair_integrations(req.pairs, endpoint.as_ref(), &sources.observations, req.now),
         ..ConsumerIntegration::default()
     };
     let outcome = PrepareOutcome {

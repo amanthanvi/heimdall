@@ -129,6 +129,9 @@ struct Previewed {
 /// How many previews a runtime remembers.
 const PREVIEW_MEMORY: usize = 64;
 
+/// How many inspected registries a runtime remembers (in memory only; §17.21 item 4).
+const INSPECTED_MEMORY: usize = 16;
+
 /// ⟨wave 4, integrator⟩ The enrollment driver's in-memory state of **this**
 /// `Operations` instance (one field of its M03 state): the host port and the
 /// remembered previews (the enrollment ID minted at preview, with its digest). A
@@ -137,6 +140,11 @@ const PREVIEW_MEMORY: usize = 64;
 pub(super) struct EnrollmentProcessState {
     host: RwLock<Option<Arc<dyn EnrollmentHost>>>,
     previews: Mutex<VecDeque<(PlanDigest, Previewed)>>,
+    /// ⟨round 2⟩ The full bytes of each operation's latest `inspect` reading, in
+    /// memory only: the journal keeps the registry's digest and Heimdall's own
+    /// lines (§17.21 item 4), and a removal's post-image needs the bytes. A restart
+    /// forgets them, and the removal then inspects again.
+    inspected: Mutex<VecDeque<(OperationId, Vec<u8>)>>,
 }
 
 impl EnrollmentProcessState {
@@ -147,6 +155,33 @@ impl EnrollmentProcessState {
         while v.len() > PREVIEW_MEMORY {
             v.pop_front();
         }
+    }
+
+    /// Remember `op`'s latest inspected registry bytes (replacing older ones).
+    pub(super) fn remember_inspected(&self, op: &OperationId, content: Vec<u8>) {
+        let mut v = self
+            .inspected
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        v.retain(|(o, _)| o != op);
+        v.push_back((op.clone(), content));
+        while v.len() > INSPECTED_MEMORY {
+            v.pop_front();
+        }
+    }
+
+    /// `op`'s remembered registry bytes, if they are exactly `digest`'s image.
+    pub(super) fn inspected(
+        &self,
+        op: &OperationId,
+        digest: &crate::enrollment::RegistryDigest,
+    ) -> Option<Vec<u8>> {
+        self.inspected
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(o, c)| o == op && digest.matches(c))
+            .map(|(_, c)| c.clone())
     }
 
     fn recall(&self, digest: &PlanDigest) -> Option<Previewed> {
@@ -222,6 +257,11 @@ impl Operations {
             .host
             .write()
             .unwrap_or_else(PoisonError::into_inner) = Some(host);
+    }
+
+    /// This instance's enrollment driver state.
+    pub(super) fn enrollment_state(&self) -> &EnrollmentProcessState {
+        &self.inner.managed_ops.enrollment
     }
 
     fn enrollment_host(&self) -> Option<Arc<dyn EnrollmentHost>> {
@@ -1065,44 +1105,223 @@ pub(super) fn decision_apply(
     admit::decision_apply(tx, emit, record, verdict, waiting, now, retention)
 }
 
-/// ⟨for `verification_m03` (U0b row 4, INT-Q13)⟩ The verification authority of an
-/// enrollment operation, from the store: the enrollment it drives and whether its
-/// authorization is in place (ADR-0008 D5 §6.5 item 2 "the operation is an approved
-/// `enrollment.apply` … or an `enrollment.verify`"):
-/// * `enrollment.apply`: its `EnrollAccount` / `EnrollSystemForm` approval is
-///   recorded in the journal (E1);
-/// * `enrollment.verify`: presence and absence need no decision; a target change needs
-///   its `ApproveTargetChange` approval recorded;
-/// * anything else: `None`.
+/// Which verification an operation's authority is (ADR-0008 §17.21 item 5): wave 0's
+/// stored-request presence check, and the three that the driver's durable facts
+/// authorize, each with its own predicate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum VerificationKind {
+    /// An `enrollment.verify` in mode `presence` (wave 0's rule: no decision).
+    Presence,
+    /// The system form's absence check: an `enrollment.verify` in mode `absence`
+    /// whose system-form record is `removal_verifying` (D5 §6.9).
+    SystemAbsence,
+    /// An `enrollment.apply`'s initial verification (E4, D5 §6.4).
+    ApplyInitial,
+    /// A target change's verification (`ApproveTargetChange`; §17.7 item 5).
+    TargetChange,
+}
+
+/// The verification authority of one operation (module docs of
+/// [`verification_authority`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct VerificationAuthority {
+    /// The enrollment the operation verifies (from its immutable request, or its
+    /// journal for an `enrollment.apply`).
+    pub(super) enrollment: EnrollmentId,
+    /// Which verification.
+    pub(super) kind: VerificationKind,
+    /// Its own authorization is in place.
+    pub(super) authorized: bool,
+    /// The operation and the record are at **this** verification's stage, and no
+    /// other open operation drives the record (so no operation borrows another's
+    /// stage). The attempt count is the caller's check.
+    pub(super) at_stage: bool,
+}
+
+/// The other open enrollment operations whose journal names `enrollment`.
+fn other_open_operations(
+    tx: &mut Txn<'_>,
+    op: &OperationId,
+    enrollment: &EnrollmentId,
+) -> heimdall_store::Result<Vec<OperationRecord>> {
+    let mut ops = tx.open_operations()?;
+    for o in tx.unresolved_operations()? {
+        if ops.iter().all(|x| x.id != o.id) {
+            ops.push(o);
+        }
+    }
+    let mut out = Vec::new();
+    for o in ops {
+        if o.id == *op || !o.kind.is_enrollment() || o.state.is_settled() {
+            continue;
+        }
+        let receipts = tx.stage_receipts(&o.id)?;
+        if journal_of(&receipts).is_some_and(|j| j.enrollment.as_ref() == Some(enrollment)) {
+            out.push(o);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether the journal's approval is an **approved** decision of `kind_ok`'s shape
+/// (the decision record itself, never the journal's word alone).
+fn approved_decision(
+    tx: &mut Txn<'_>,
+    j: &Journal,
+    kind_ok: impl Fn(&DecisionKind) -> bool,
+) -> heimdall_store::Result<bool> {
+    let Some(a) = &j.approval else {
+        return Ok(false);
+    };
+    Ok(tx.decision(&a.decision)?.is_some_and(|d| {
+        d.state == heimdall_domain::decision::DecisionState::Approved && kind_ok(&d.kind)
+    }))
+}
+
+/// ⟨for `verification_m03` (U0b row 4, INT-Q13; ADR-0008 §17.21 item 5)⟩ The
+/// verification authority of `op`, from the store. Each verification has **its own**
+/// predicate, so an operation never borrows another operation's authority or stage:
 ///
-/// The verification stage itself (the record `verifying`/`reverifying`/
-/// `removal_verifying`, an `enroll.verify.started` receipt) is the caller's check; an
-/// operation reconciled after an uncertain append is `outcome_unknown` while it
-/// verifies (an M01 `outcome_unknown` operation never returns to `running`).
+/// | Verification | Operation | Authorized | At its stage |
+/// |---|---|---|---|
+/// | presence (wave 0) | `enrollment.verify`, stored request `presence` | always | `running`; record `verifying`, or `reverifying` without a proposed target |
+/// | system absence | `enrollment.verify`, stored request `absence` | always | `running`; system-form record `removal_verifying` with its origin |
+/// | apply's initial | `enrollment.apply` | the journal's approval is an **approved** `EnrollAccount` naming this operation | `running` or `outcome_unknown` (reconciled); account-form record `verifying`; an `enroll.append` `Confirmed` receipt with the record's marker; nothing outstanding or uncertain |
+/// | target change | `enrollment.verify`, stored request `target_change` | the journal's approval is an **approved** `ApproveTargetChange` naming this operation, this enrollment, the journal's proposed target and the record's approved target | `running`; record `reverifying` from `held` |
+///
+/// Every row also needs the journal (when present) to name the same enrollment and
+/// mode, and no other open enrollment operation of the record (a system-form manual
+/// removal's own `enrollment.remove` excepted for the absence check). Anything else
+/// is `None` (refused `operation_not_verifying`).
 pub(super) fn verification_authority(
     tx: &mut Txn<'_>,
     op: &OperationRecord,
-) -> heimdall_store::Result<Option<(EnrollmentId, bool)>> {
-    if !matches!(
-        op.kind,
-        OperationKind::EnrollmentApply | OperationKind::EnrollmentVerify
-    ) {
-        return Ok(None);
-    }
+) -> heimdall_store::Result<Option<VerificationAuthority>> {
+    use EnrollmentState as S;
     let receipts = tx.stage_receipts(&op.id)?;
-    let Some(j) = journal_of(&receipts) else {
+    let journal = journal_of(&receipts);
+    let (enrollment, kind) = match op.kind {
+        OperationKind::EnrollmentVerify => {
+            // The immutable intent names the enrollment and the mode.
+            let Some((e, mode)) = stored_verify_request(tx, &op.id)? else {
+                return Ok(None);
+            };
+            if let Some(j) = &journal
+                && (j.enrollment.as_ref() != Some(&e) || j.mode.is_some_and(|m| m != mode))
+            {
+                return Ok(None);
+            }
+            let kind = match mode {
+                VerifyMode::Presence => VerificationKind::Presence,
+                VerifyMode::Absence => VerificationKind::SystemAbsence,
+                VerifyMode::TargetChange => VerificationKind::TargetChange,
+                _ => return Ok(None),
+            };
+            (e, kind)
+        }
+        OperationKind::EnrollmentApply => {
+            let Some(e) = journal.as_ref().and_then(|j| j.enrollment.clone()) else {
+                return Ok(None);
+            };
+            (e, VerificationKind::ApplyInitial)
+        }
+        _ => return Ok(None),
+    };
+    let Some(record) = tx.enrollment(&enrollment)? else {
         return Ok(None);
     };
-    let Some(enrollment) = j.enrollment.clone() else {
-        return Ok(None);
+    let others = other_open_operations(tx, &op.id, &enrollment)?;
+    let running = op.state == OperationState::Running;
+    let (authorized, at_stage) = match kind {
+        VerificationKind::Presence => {
+            let proposed = journal
+                .as_ref()
+                .is_some_and(|j| j.proposed_target.is_some());
+            let stage = running
+                && (record.state == S::Verifying || (record.state == S::Reverifying && !proposed))
+                && others.is_empty();
+            (true, stage)
+        }
+        VerificationKind::SystemAbsence => {
+            let stage = running
+                && record.form == heimdall_contract::enrollment::EnrollmentForm::System
+                && record.state == S::RemovalVerifying
+                && record.removal_origin.is_some()
+                && others
+                    .iter()
+                    .all(|o| o.kind == OperationKind::EnrollmentRemove);
+            (true, stage)
+        }
+        VerificationKind::ApplyInitial => {
+            let Some(j) = journal.as_ref() else {
+                return Ok(None);
+            };
+            let oid = op.id.clone();
+            let authorized = record.form == heimdall_contract::enrollment::EnrollmentForm::Account
+                && approved_decision(
+                    tx,
+                    j,
+                    |k| matches!(k, DecisionKind::EnrollAccount { operation, .. } if *operation == oid),
+                )?;
+            let appended = receipts.iter().any(|r| {
+                r.stage == heimdall_domain::operation::enrollment_stage::APPEND
+                    && matches!(&r.effect, EffectReceipt::Confirmed { credential_ref, .. }
+                        if *credential_ref == record.marker)
+            });
+            let stage = matches!(
+                op.state,
+                OperationState::Running | OperationState::OutcomeUnknown
+            ) && record.state == S::Verifying
+                && appended
+                && j.outstanding.is_none()
+                && j.uncertain.is_none()
+                && others.is_empty();
+            (authorized, stage)
+        }
+        VerificationKind::TargetChange => {
+            let Some(j) = journal.as_ref() else {
+                return Ok(None);
+            };
+            let (oid, eid) = (op.id.clone(), enrollment.clone());
+            let (proposed, approved_now) = (j.proposed_target.clone(), record.target.clone());
+            let authorized = proposed.is_some()
+                && approved_decision(tx, j, |k| {
+                    matches!(k, DecisionKind::ApproveTargetChange { operation, enrollment, approved, proposed: p }
+                        if *operation == oid
+                            && *enrollment == eid
+                            && *approved == approved_now
+                            && Some(p) == proposed.as_ref())
+                })?;
+            let stage = running
+                && record.state == S::Reverifying
+                && j.reverify_from == Some(heimdall_domain::enrollment::ReverifyFrom::Held)
+                && others.is_empty();
+            (authorized, stage)
+        }
     };
-    let authorized = match op.kind {
-        OperationKind::EnrollmentApply => j.approval.is_some(),
-        _ => match j.mode {
-            Some(VerifyMode::TargetChange) => j.approval.is_some(),
-            Some(VerifyMode::Presence | VerifyMode::Absence) => true,
-            _ => false,
-        },
-    };
-    Ok(Some((enrollment, authorized)))
+    Ok(Some(VerificationAuthority {
+        enrollment,
+        kind,
+        authorized,
+        at_stage,
+    }))
+}
+
+/// The enrollment and mode an operation's stored `enrollment.verify` request names
+/// (the immutable recovery intent).
+fn stored_verify_request(
+    tx: &mut Txn<'_>,
+    operation: &OperationId,
+) -> heimdall_store::Result<Option<(EnrollmentId, VerifyMode)>> {
+    Ok(tx
+        .recovery_intent(operation)?
+        .and_then(|i| serde_json::from_value::<heimdall_contract::request::Request>(i.request).ok())
+        .and_then(|r| match r {
+            heimdall_contract::request::Request::Enrollment(EnrollmentRequest::Verify {
+                enrollment_id,
+                mode,
+                ..
+            }) => Some((enrollment_id, mode)),
+            _ => None,
+        }))
 }

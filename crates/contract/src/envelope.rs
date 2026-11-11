@@ -317,6 +317,10 @@ pub mod reason {
     pub const ISSUER_STORE_LOCKED: &str = "issuer_store_locked";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The issuer's platform store is unavailable.
     pub const ISSUER_STORE_UNAVAILABLE: &str = "issuer_store_unavailable";
+    /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: A CA's retirement stops at `unloaded`: this
+    /// installation recorded no store locator for its key item, so nothing is deleted
+    /// (ADR-0008 §17.21 item 3, §17.17 item 3).
+    pub const ISSUER_STORE_LOCATOR_UNRECORDED: &str = "issuer_store_locator_unrecorded";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair has no `verified` enrollment.
     pub const PAIR_NOT_ENROLLED: &str = "pair_not_enrolled";
     /// ⟨M03⟩ `CAPABILITY_UNAVAILABLE`: The pair is not in the catalog.
@@ -443,6 +447,7 @@ pub mod reason {
         (ISSUER_UNAVAILABLE, Code::CapabilityUnavailable),
         (ISSUER_STORE_LOCKED, Code::CapabilityUnavailable),
         (ISSUER_STORE_UNAVAILABLE, Code::CapabilityUnavailable),
+        (ISSUER_STORE_LOCATOR_UNRECORDED, Code::CapabilityUnavailable),
         (PAIR_NOT_ENROLLED, Code::CapabilityUnavailable),
         (PAIR_NOT_ADOPTED, Code::CapabilityUnavailable),
         (ENROLLMENT_UNVERIFIED, Code::CapabilityUnavailable),

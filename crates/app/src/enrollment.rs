@@ -34,6 +34,8 @@ use heimdall_domain::enrollment::{
     Determinism, EnrollmentRecord, ProxyRoute, ReverifyFrom, TargetEvaluation,
 };
 use heimdall_domain::projection::Sha256Hex;
+use heimdall_registry::classify::{DirState, FileKind, HolderRecord, Inspection, LockReading};
+use heimdall_registry::post_image::ImageDigest;
 use heimdall_registry::step;
 use serde::{Deserialize, Serialize};
 
@@ -208,20 +210,185 @@ pub struct IssuedStep {
     /// `fence --terminate`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub terminate: bool,
-    /// The preimage a `remove` must still equal (hex).
+    /// The preimage a `remove` must still equal, by its digest (§17.21 item 4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preimage_hex: Option<String>,
-    /// The post-image a `remove` renames over the registry (hex).
+    pub preimage: Option<RegistryDigest>,
+    /// The post-image a `remove` renames over the registry, by its digest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub post_image_hex: Option<String>,
+    pub post_image: Option<RegistryDigest>,
 }
 
-/// The latest `inspect` reading (E2 `enroll.inspect.observed`): the HM1 output itself
-/// (re-parsed when needed), and when it arrived.
+/// A registry image by its length and SHA-256 (ADR-0008 §17.21 item 4: the
+/// journal never stores the inspected registry's foreign bytes).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryDigest {
+    /// Length in bytes.
+    pub len: u64,
+    /// SHA-256.
+    pub sha256: Sha256Hex,
+}
+
+impl RegistryDigest {
+    /// The digest of `bytes`.
+    #[must_use]
+    pub fn of(bytes: &[u8]) -> RegistryDigest {
+        RegistryDigest::from(&ImageDigest::of(bytes))
+    }
+
+    /// The registry crate's form.
+    #[must_use]
+    pub fn image(&self) -> ImageDigest {
+        ImageDigest {
+            len: self.len,
+            sha256: self.sha256.clone(),
+        }
+    }
+
+    /// Whether `bytes` are exactly this image.
+    #[must_use]
+    pub fn matches(&self, bytes: &[u8]) -> bool {
+        u64::try_from(bytes.len()).ok() == Some(self.len) && Sha256Hex::of(bytes) == self.sha256
+    }
+}
+
+impl From<&ImageDigest> for RegistryDigest {
+    fn from(d: &ImageDigest) -> RegistryDigest {
+        RegistryDigest {
+            len: d.len,
+            sha256: d.sha256.clone(),
+        }
+    }
+}
+
+/// The parsed facts of an `inspect` reading that the stage machine needs, **without
+/// the server owner's bytes** (§17.21 item 4): the registry's own metadata, the lock,
+/// and only the lines containing this enrollment's marker (Heimdall's own entries).
+/// Every other key's line and every comment is dropped before anything is stored.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredReading {
+    /// The resolved registry path (hex; the plan's path).
+    pub path_hex: String,
+    /// The directory is present.
+    pub dir_present: bool,
+    /// The directory's mode string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir_mode: Option<String>,
+    /// The directory is owned by the account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir_owner_self: Option<bool>,
+    /// The file's kind (`regular`, `absent`, `symlink`, `other`).
+    pub file: String,
+    /// Link count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<u64>,
+    /// The file's mode string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// The file is owned by the account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_self: Option<bool>,
+    /// The file's last byte is a newline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_byte_newline: Option<bool>,
+    /// Lines containing the marker.
+    pub marker_lines: u64,
+    /// Those lines only, each with its `\n` (hex), for a regular file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_entries_hex: Option<String>,
+    /// The lock's holder record (Heimdall's own lock), when held with one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_holder: Option<String>,
+    /// A lock is held whose record is not a holder record.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lock_foreign: bool,
+}
+
+impl StoredReading {
+    /// The stored form of `full`, minimized to `marker`'s lines.
+    #[must_use]
+    pub fn of(full: &Inspection, marker: &str) -> StoredReading {
+        let min = full.without_foreign_lines(marker);
+        StoredReading {
+            path_hex: heimdall_registry::hm1::encode_hex(&min.path),
+            dir_present: min.dir == DirState::Present,
+            dir_mode: min.dir_mode,
+            dir_owner_self: min.dir_owner_self,
+            file: match min.file {
+                FileKind::Regular => "regular",
+                FileKind::Absent => "absent",
+                FileKind::Symlink => "symlink",
+                _ => "other",
+            }
+            .to_owned(),
+            links: min.links,
+            mode: min.mode,
+            owner_self: min.owner_self,
+            last_byte_newline: min.last_byte_newline,
+            marker_lines: min.marker_lines,
+            marker_entries_hex: min
+                .content
+                .as_deref()
+                .map(heimdall_registry::hm1::encode_hex),
+            lock_holder: match &min.lock {
+                LockReading::Held(h) => Some(h.render()),
+                _ => None,
+            },
+            lock_foreign: matches!(min.lock, LockReading::HeldForeign),
+        }
+    }
+
+    /// The minimized reading (its `preimage()` holds Heimdall's lines only; module
+    /// docs of [`StoredReading`]). `None` when a stored field does not decode.
+    #[must_use]
+    pub fn inspection(&self, remote_now: i64) -> Option<Inspection> {
+        let lock = match (&self.lock_holder, self.lock_foreign) {
+            (Some(h), _) => LockReading::Held(HolderRecord::parse(h)?),
+            (None, true) => LockReading::HeldForeign,
+            (None, false) => LockReading::None,
+        };
+        let content = match &self.marker_entries_hex {
+            Some(h) => Some(heimdall_registry::hm1::decode_hex(h)?),
+            None => None,
+        };
+        Some(Inspection {
+            path: heimdall_registry::hm1::decode_hex(&self.path_hex)?,
+            dir: if self.dir_present {
+                DirState::Present
+            } else {
+                DirState::Absent
+            },
+            dir_mode: self.dir_mode.clone(),
+            dir_owner_self: self.dir_owner_self,
+            file: match self.file.as_str() {
+                "regular" => FileKind::Regular,
+                "absent" => FileKind::Absent,
+                "symlink" => FileKind::Symlink,
+                _ => FileKind::Other,
+            },
+            links: self.links,
+            mode: self.mode.clone(),
+            owner_self: self.owner_self,
+            content,
+            last_byte_newline: self.last_byte_newline,
+            marker_lines: self.marker_lines,
+            lock,
+            remote_now,
+        })
+    }
+}
+
+/// The latest `inspect` reading (E2 `enroll.inspect.observed`), minimized (§17.21
+/// item 4): the registry's SHA-256, Heimdall's own marker entries and the parsed
+/// facts the stage machine needs, and when it arrived. A later step that needs the
+/// full bytes (the removal's post-image) takes them from this runtime's memory of the
+/// same reading, checked against [`registry`](Self::registry), or inspects again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InspectFact {
-    /// The script's stdout (HM1 lines).
-    pub stdout: String,
+    /// The registry's length and SHA-256 (`None`: a symlink or another kind).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<RegistryDigest>,
+    /// The parsed, minimized reading.
+    pub reading: StoredReading,
     /// The client's exit status.
     pub exit_status: i32,
     /// The continuous clock when the reading arrived (milliseconds).
@@ -235,6 +402,14 @@ pub struct InspectFact {
     /// A mutation ran after it (a later mutation needs a fresh inspect).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub consumed: bool,
+}
+
+impl InspectFact {
+    /// The minimized reading (see [`StoredReading::inspection`]).
+    #[must_use]
+    pub fn inspection(&self) -> Option<Inspection> {
+        self.reading.inspection(self.remote_now)
+    }
 }
 
 /// An uncertain mutation awaiting reconcile.

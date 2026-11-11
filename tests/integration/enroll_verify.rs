@@ -1307,6 +1307,7 @@ fn expected_for(lab: &fx::Lab, preimage: Option<Vec<u8>>) -> Expected {
         line: Some(lab.line.clone()),
         preimage,
         post_image: None,
+        ..Expected::default()
     }
 }
 

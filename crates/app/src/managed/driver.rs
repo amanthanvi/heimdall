@@ -16,12 +16,18 @@
 //! follows the M01 rule for that refusal (the reserve and publish transactions end it
 //! for withdrawn authority or expiry), and the operation fails.
 //!
-//! **Materialize (step 6) is not run at preparation** (question U10-C-Q1): the binding
-//! a managed preparation materializes for is minted by the ensure pipeline's commit,
-//! **after** `prepare_from`, so no binding (and no binding endpoint) exists yet. The
-//! driver's results carry `materialized: None`; `prepare_from` then names no binding
-//! endpoint, and nothing lists K_env on any endpoint until a later step materializes
-//! a binding (fail closed: the key signs for no one).
+//! **Materialize (step 6; ADR-0008 §17.21 item 1).** The binding ID is minted when
+//! the mechanism resolves to `managed_certificate` and recorded in the operation's
+//! recovery intent (`ResolvedIntent.binding_id`). The driver reads it from the open
+//! operation whose `Attempted` receipt carries the effect token (`PrepareRequest` is
+//! unchanged), and calls [`ManagedEffects::materialize`] for it at
+//! [`BINDING_GENERATION`]: the effects create and attach the binding endpoint and
+//! write the binding's files. `prepare_from` then names that endpoint in
+//! `consumer.signing_endpoint`, and the commit creates the binding under the same ID.
+//! Without a minted ID (the re-issue pass: no operation) nothing is materialized. A
+//! failure after the materialization clears the binding (endpoint and files) with the
+//! key; a failure after the driver returned is cleaned up by the operation's cleanup
+//! intent (`Operations::cleanup_uncommitted_managed`).
 
 use base64ct::{Base64Unpadded, Encoding as _};
 use heimdall_contract::ids::{CredentialInstanceId, GrantId};
@@ -32,8 +38,9 @@ use heimdall_domain::issuance::{IssuanceEntry, extension_profile, principal_for}
 use crate::operations::{IssuanceFacts, IssuanceRequest, Operations, Publication};
 use crate::ports::{
     AdapterError, IssuanceRef, IssuanceTable, IssuerError, IssuerPort, ManagedEffects,
-    ManagedPrepared, PrepareRequest, PreparedCertificate,
+    ManagedPrepared, MaterializeSpec, MaterializedCertificate, PrepareRequest, PreparedCertificate,
 };
+use heimdall_contract::ids::BindingId;
 
 use crate::error::OpError;
 
@@ -51,6 +58,8 @@ pub mod stage {
     pub const PUBLISH: &str = "managed.publish";
     /// A pair's certificate installed (after the last, the instance is `installed`).
     pub const INSTALL: &str = "managed.install";
+    /// ⟨§17.21 item 1⟩ The binding's endpoint created and attached, its files written.
+    pub const MATERIALIZE: &str = "managed.materialize";
     /// The driver's results handed to `prepare_from`.
     pub const PREPARED: &str = "managed.prepared";
 }
@@ -82,6 +91,10 @@ pub fn instance_id_for(fingerprint: &str) -> Option<CredentialInstanceId> {
     Some(CredentialInstanceId::from_random_bytes(first))
 }
 
+/// ⟨§17.21 item 1⟩ The resource generation of a binding materialized at preparation
+/// (its endpoint and files; one generation per binding in M03).
+pub const BINDING_GENERATION: u64 = 1;
+
 /// How far before `now` a certificate's validity starts (ADR-0005 §3.4: clock skew
 /// allowance).
 pub const VALID_AFTER_SKEW_SECS: i64 = 60;
@@ -91,6 +104,8 @@ pub const VALID_AFTER_SKEW_SECS: i64 = 60;
 const PUBLISH_ROUNDS: usize = 4;
 
 /// The `AdapterError::Unavailable` text when the issuer refused or could not sign.
+/// ⟨R2-F⟩ When the issuer answered one of its store reasons, the text is
+/// `issuer_sign_failed:<reason>`; read it with [`issuer_sign_failure_reason`].
 pub const ISSUER_SIGN_FAILED: &str = "issuer_sign_failed";
 /// The `AdapterError::Unavailable` text when a bounded effect timed out (the key
 /// was destroyed: the outcome is known).
@@ -137,6 +152,15 @@ pub(crate) async fn run_stages(
     if grant.scope.pairs.is_empty() {
         return Err(AdapterError::CapabilityUnavailable);
     }
+    // The binding minted at resolve (§17.21 item 1), from the operation's intent; a
+    // re-issue (continuing work, no operation) materializes nothing new.
+    let binding = if new_activation {
+        ops.managed_binding_of_token(token)
+            .await
+            .map_err(|e| adapter_error_of(&e))?
+    } else {
+        None
+    };
     let limit = ops.managed_effect_limit();
     // 1. key (an effect), then its instance `pending` and the gate (a transaction).
     let key = match tokio::time::timeout(limit, effects.generate_key(&grant.id, token)).await {
@@ -160,25 +184,34 @@ pub(crate) async fn run_stages(
         new_activation,
         &key,
         &instance,
+        binding.as_ref(),
     )
     .await;
     match staged {
         Ok(p) => Ok(p),
         Err(e) => {
-            abandon(ops, effects, &grant.id, &instance).await;
+            abandon(ops, effects, &grant.id, &instance, binding.as_ref()).await;
             Err(e)
         }
     }
 }
 
 /// Zeroize K_env and destroy its instance (D6 item 1: a refusal at reserve or
-/// publish; D6 item 8 for a failed later step).
+/// publish; D6 item 8 for a failed later step); ⟨§17.21 item 1⟩ a binding the driver
+/// materialized loses its endpoint and files first (idempotent: nothing to clear
+/// before step 6).
 async fn abandon(
     ops: &Operations,
     effects: &dyn ManagedEffects,
     grant: &GrantId,
     instance: &CredentialInstanceId,
+    binding: Option<&BindingId>,
 ) {
+    if let Some(b) = binding
+        && effects.clear(b, BINDING_GENERATION).is_err()
+    {
+        tracing::warn!("managed driver: the abandoned binding's files could not be cleared");
+    }
     let _ = effects.destroy(std::slice::from_ref(grant)).await;
     if ops.managed_instance_destroyed(instance).await.is_err() {
         tracing::warn!("managed driver: the abandoned credential instance could not be updated");
@@ -196,6 +229,7 @@ async fn stages_after_key(
     new_activation: bool,
     key: &crate::ports::KeyRegistration,
     instance: &CredentialInstanceId,
+    binding: Option<&BindingId>,
 ) -> Result<ManagedPrepared, AdapterError> {
     let receipt = |s: &'static str| async move {
         ops.managed_stage_receipt(token, s)
@@ -279,7 +313,28 @@ async fn stages_after_key(
     )
     .await
     .map_err(|e| adapter_error_of(&e))?;
-    // 6. materialize: not at preparation (module docs, U10-C-Q1).
+    // 6. materialize (§17.21 item 1): the binding's endpoint, attached, and its files
+    // (synchronous file work, outside every store transaction).
+    let materialized = match binding {
+        None => None,
+        Some(b) => {
+            let spec = MaterializeSpec {
+                generation: BINDING_GENERATION,
+                public_key: key.public_key.clone(),
+                certificates: published
+                    .iter()
+                    .map(|(e, cert)| MaterializedCertificate {
+                        pair: e.pair.clone(),
+                        certificate: cert.clone(),
+                    })
+                    .collect(),
+                environment_slots: false,
+            };
+            let files = effects.materialize(b, &spec)?;
+            receipt(stage::MATERIALIZE).await?;
+            Some(files)
+        }
+    };
     // 7. prepared.
     let certificates = published
         .iter()
@@ -301,7 +356,7 @@ async fn stages_after_key(
         instance: instance.clone(),
         key: key.clone(),
         certificates,
-        materialized: None,
+        materialized,
     })
 }
 
@@ -331,6 +386,48 @@ async fn sign(
     match r {
         Ok(Ok(cert)) => Ok(cert),
         Ok(Err(IssuerError::Refused(_))) => Err(AdapterError::CapabilityUnavailable),
+        Ok(Err(IssuerError::Unavailable(why))) => {
+            Err(AdapterError::Unavailable(match issuer_store_reason(&why) {
+                Some(store) => format!("{ISSUER_SIGN_FAILED}{ISSUER_SIGN_FAILED_SEP}{store}"),
+                None => ISSUER_SIGN_FAILED.to_owned(),
+            }))
+        }
         Ok(Err(_)) | Err(_) => Err(AdapterError::Unavailable(ISSUER_SIGN_FAILED.to_owned())),
     }
+}
+
+/// The separator between [`ISSUER_SIGN_FAILED`] and the issuer's store reason.
+const ISSUER_SIGN_FAILED_SEP: char = ':';
+
+/// The issuer's store reasons a refused activation reports instead of
+/// `issuer_unavailable` (ADR-0008 D3 item 7: "reason `issuer_unavailable` (or the store
+/// reason)"). Any other issuer text is not carried.
+fn issuer_store_reason(why: &str) -> Option<&'static str> {
+    use heimdall_contract::envelope::reason;
+    [
+        reason::ISSUER_STORE_LOCKED,
+        reason::ISSUER_STORE_UNAVAILABLE,
+    ]
+    .into_iter()
+    .find(|r| *r == why)
+}
+
+/// ⟨M03 wave 4, round 2 (R2-F)⟩ The contract reason of a driver failure to have a
+/// certificate signed, or `None` when `e` is not one: `issuer_store_locked` /
+/// `issuer_store_unavailable` when the issuer answered that store reason, else
+/// `issuer_unavailable` (a timeout, a restart, a protocol error, any other
+/// unavailability; ADR-0008 D3 item 7).
+pub fn issuer_sign_failure_reason(e: &AdapterError) -> Option<&'static str> {
+    let AdapterError::Unavailable(t) = e else {
+        return None;
+    };
+    if t == ISSUER_SIGN_FAILED {
+        return Some(heimdall_contract::envelope::reason::ISSUER_UNAVAILABLE);
+    }
+    let rest = t.strip_prefix(ISSUER_SIGN_FAILED)?;
+    let store = rest.strip_prefix(ISSUER_SIGN_FAILED_SEP)?;
+    Some(
+        issuer_store_reason(store)
+            .unwrap_or(heimdall_contract::envelope::reason::ISSUER_UNAVAILABLE),
+    )
 }

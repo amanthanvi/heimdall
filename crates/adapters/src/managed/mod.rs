@@ -22,8 +22,10 @@
 //!   * `reconcile`: `NotApplied` when nothing is published, `Applied` when every pair
 //!     is published and installed (with the outcome U10 recorded), else `Unknown`.
 //!   * `revoke(grant, now)` (D7 item 2): K_env of the grant and of its cascade is
-//!     destroyed (zeroized and unlisted, in memory), then ⟨wave 4⟩ the runtime's
-//!     [`EndCleanup`] removes the files and closes the owned connections;
+//!     destroyed (zeroized and unlisted, in memory), ⟨§17.21 item 1⟩ every binding the
+//!     effects materialized for it loses its endpoint and files
+//!     ([`effects::ManagedEffectsImpl::clear_bindings_of`]), then ⟨wave 4⟩ the runtime's
+//!     [`EndCleanup`] removes the slot files and closes the owned connections;
 //!     the residual is the maximum `valid_before` over `reserved`|`published` entries
 //!     (voided excluded), and `remote_effects` has one row per (destination,
 //!     account) with its clock and D7 item 3 status. Files are not removed here (D7
@@ -467,6 +469,10 @@ impl CredentialAdapter for ManagedCertificateAdapter {
         }
         if let Some(effects) = &self.effects {
             effects.destroy(&grants).await?;
+            // ⟨§17.21 item 1⟩ Every binding this process materialized for the
+            // cascade, committed or not: its endpoint and files go (a failure leaves
+            // the round unconfirmed, so it is retried).
+            effects.clear_bindings_of(&grants)?;
         }
         // ⟨wave 4⟩ D7 item 2 step 4: the files and the owned connections, after the
         // gates (the revocation round runs after the narrowing released them). A

@@ -3969,6 +3969,91 @@ Several findings overlap: W3-S01 is W3-R04, W3-S05 is W3-R01, and W3-S03 is part
       - **Not re-checked:** this small, test-only change was not independently re-reviewed.
     - **No product code changed in rounds 3 to 5.**
 
+### 17.21 Orchestrator rulings on wave 4, round 1: the activation's escalations (2026-11-11)
+
+**Sources:**
+- the integrator's report at the round-1 checkpoint, `d74e35cf`;
+- `wave4-notes/m03-wave4-questions.md`, with INT-W4-Q1 to Q6, A-Q1 to Q5, U10B-Q1 to Q5, U10C-Q1 to Q6 and U10-D-Q1 to Q4.
+
+No review has run yet. These rulings complete the wave before its reviews.
+
+1. **INT-W4-Q1 (= U10C-Q1): a managed binding is materialized during preparation, under an ID minted at resolve.** Option (a).
+   - **The defect:** the pipeline minted the binding in `stage_commit`, after `prepare_from`. No production caller created a binding endpoint, so an activated managed grant signed for no one, and `consumer.signing_endpoint` was absent.
+   - **The ruling:**
+     - **The binding ID is minted when the mechanism resolves to `managed_certificate`,** and recorded in the recovery intent. This adds `ResolvedIntent.binding_id: Option<BindingId>`, serde default and omitted when absent, so M01 and M02 intents decode and re-encode byte-identically. That domain change is authorized.
+     - **Step 6 (D6 item 1)** calls the existing `ManagedEffects::materialize`. `ManagedEffectsImpl` creates and attaches the binding endpoint through its `BindingEndpoints` (`EndpointRegistry::create_binding`, `SignerTable::attach_binding`) and writes the binding files. No port gains a method.
+     - **The result:** `prepare_from` names the binding endpoint in `consumer.signing_endpoint`, and `stage_commit` commits the binding under the pre-minted ID.
+     - **A failure before the commit** is cleaned up by the operation's cleanup intent: the endpoint and the files go, and the key is destroyed. A replay of the same `request_id` returns the same binding.
+     - **Existing-access ensures are unchanged.** The M01 and M02 suites and request hashes stay as they are.
+   - **The regressions:**
+     - `enroll_preview_apply_verify_setup_apply_ensure_ssh` exercises its `ensure` and `ssh` legs;
+     - a managed `ensure` names the binding endpoint;
+     - a crash between materialization and commit leaves no endpoint, file or key after recovery;
+     - an existing-access `ensure` is byte-identical to M02.
+2. **INT-W4-Q2 (= U10C-Q2): the runtime claims a managed binding's slots in `bind`.** Option (b).
+   - `BindForm::Launch` of a managed binding claims each pair's environment slot in the runtime. That covers the store compare-and-swap, the files through `ManagedSlotTable`, and the signer's listing. A slot that cannot be claimed refuses the bind, naming the slot's reason.
+   - The CLI's `run_cmd::ManagedSlots` becomes a reader of the bind's outcome, with no claim of its own.
+   - If the reply needs a field, an additive one is authorized. No new request.
+3. **INT-W4-Q3 (= U10B-Q2) and INT-W4-Q4 (= U10B-Q1): registration and retirement facts are persisted.**
+   - **The pending registration:** `DecisionKind::RegisterIssuer` gains additive `ca_public_key` and `backup_created_at` fields (serde default). The pending registration then survives a restart, and approval needs no process memory.
+   - **The store item:** `IssuerRecord`'s `record_json` gains an additive `store_locator`, written from whichever component reports the K_ca put: the ceremony's report or the issuer child's.
+   - **Retirement** deletes exactly that locator (§17.17 item 3).
+   - **Records written before these fields** read as absent:
+     - an approval of such a decision refuses with `DECISION_STALE`;
+     - retirement stops at `unloaded`, reported as `issuer_store_locator_unrecorded`. Nothing is guessed.
+   - These domain and decision-golden changes are authorized. No migration is needed.
+4. **INT-W4-Q5 (= A-Q1): journal receipts are accepted, but minimized.**
+   - The enrollment journal may live in `enroll.journal` stage receipts.
+   - **It never stores the inspected registry's foreign bytes.** Other keys' lines and comments are the server owner's data. Store only:
+     - the registry's SHA-256;
+     - Heimdall's own marker entries;
+     - the parsed facts the stage machine needs.
+   - If a later step needs the full bytes, re-inspect.
+   - **The regression:** after an enrollment against a registry holding foreign lines with comments, no stored receipt contains those comments.
+5. **The verification authorities are extended together: A-Q2 (a) and U10B-Q4 (a).**
+   - `verification_m03::operation_facts` and the read-only check authorize three verifications:
+     - an `enrollment.apply`'s initial verification;
+     - a target change's verification;
+     - the system form's absence check.
+   - That covers reservation and signing alike. Each has its own predicate: it must be that operation's own verification, at its stage.
+   - **The reconcile test:** `enroll_reconcile_applied` then expects `verified`, not "`applied_unverified` or `verified`".
+6. **One re-issue rule: U10C-Q5, amended.**
+   - The pure `reissue::eligible` moves to a crate that both `app` and `adapters` can call, and both call that one implementation. A second, re-implemented copy in `app` is not kept.
+   - **If the crate graph forbids the move,** keep the copy, and add a property test (at least 256 cases) asserting the two agree.
+7. **Credential instances are found by a store query: U10C-Q6, option (a).**
+   - Add `Txn::credential_instances_for_grant`, a store query with no migration.
+   - Do not derive instance IDs from key fingerprints.
+8. **The Windows environment pipe token is stable per installation: U10-D-Q1, option (a).**
+   - Add `Txn::{windows_pipe_token, set_windows_pipe_token}` over the existing `meta` table, with no migration. D10 item 1 requires a stable name.
+   - **The regression:** after a runtime restart on Windows, P still names the live pipe, and `ensure` is not `projection_pending`.
+9. **P renders the stable mux path once owned masters are enabled and applied: U10-D-Q4, option (a).**
+   - The store-backed `ManagedPairSource` reads the effective connection policy, D8 item 1's merge, and renders the mux path only when `owned_masters` is enabled and that rendering is applied by `setup apply`. Until then it renders `ControlPath none`.
+10. **Accepted as built:**
+    - **A-Q3:** the clock measurement is taken outside the Verifier, which is conservative;
+    - **A-Q4:** a fixed supervisor principal. It is unattended, holds the owner role only for re-verification, and is never accepted for an attended decision;
+    - **A-Q5:** the `EnrollmentHost` port;
+    - **U10B-Q3 (b):** `bundle_stale` is true while any enrollment exists, and `orphan_store_items` is empty. U12 may refine it with an additive `last_bundle_at` meta key, which is authorized;
+    - **U10B-Q5:** no test store kind;
+    - **U10C-Q3:** K_env is destroyed under the gates, as now built;
+    - **U10C-Q4:** `NarrowingKind::Enrollment`;
+    - **U10-D-Q2:** the runtime's own stop has no `CloseReason`;
+    - **U10-D-Q3 (= INT-W4-Q6):** `wire_runtime_projection` serves the runtime, and M02's `wire_projection` is kept.
+11. **Also owed in round 2:**
+    - **The selection classification feeds the report.** The managed adapter passes the actual `SelectionClass` from D10 item 6's classification, now that `MANAGED_SELECTION_CLASSIFIED` is true.
+    - **Slot cleanup when a grant ends:** add the store query for the held slots of ended grants (no migration), and run the cleanup from the supervisor.
+    - **`inspect connections`:** implement it read-only over the owned-connection rows, matching the existing example.
+    - **The plan tests not yet written:**
+      - the four fence and terminate tests;
+      - `enroll_remove_lists_affected_grants_and_degrades_them`;
+      - both `target_change_*` tests that remain;
+      - both `held_*` tests that remain;
+      - both `initial_verification_*` tests;
+      - `e5_rotation_keeps_projection_and_adds_issuing_ca` and `rotation_two_accounts_one_unreachable`;
+      - both `a10_narrow_certificate_refused_on_other_host_*` tests;
+      - `issuer_crash_blocks_reissue_not_signing`;
+      - the host-key half of `evidence_invalidated_on_host_key_or_client_change`;
+      - the abandon path of `foreign_removal_held_recovery_by_new_decision_or_abandon`.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

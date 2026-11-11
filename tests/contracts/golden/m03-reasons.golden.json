@@ -18,6 +18,10 @@
    "code": "CAPABILITY_UNAVAILABLE"
   },
   {
+   "reason": "issuer_store_locator_unrecorded",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
    "reason": "pair_not_enrolled",
    "code": "CAPABILITY_UNAVAILABLE"
   },

@@ -265,10 +265,27 @@ fn fresh_inspection<'a>(
     })
 }
 
-/// The inspection reading of a stored fact.
-fn parsed(i: &InspectFact, marker: &str) -> Option<Inspection> {
-    let rec = hm1::parse(i.stdout.as_bytes()).ok()?;
-    Inspection::from_record(&rec, marker).ok()
+/// The (minimized) inspection reading of a stored fact (§17.21 item 4: Heimdall's
+/// own marker lines only; never the registry's preimage).
+fn parsed(i: &InspectFact) -> Option<Inspection> {
+    i.inspection()
+}
+
+/// The stored fact of a full `inspect` reading: the registry's digest and the
+/// reading minimized to `marker`'s lines (§17.21 item 4).
+fn inspect_fact(reading: &Inspection, marker: &str, r: &Recording<'_>) -> InspectFact {
+    InspectFact {
+        registry: reading
+            .preimage_digest()
+            .map(|d| crate::enrollment::RegistryDigest::from(&d)),
+        reading: crate::enrollment::StoredReading::of(reading, marker),
+        exit_status: r.exit_status,
+        read_continuous_ms: r.c_read,
+        read_wall: r.now,
+        boot_id: r.boot.to_owned(),
+        remote_now: reading.remote_now,
+        consumed: false,
+    }
 }
 
 /// The exact line of a record (rebuilt from the CA key; digest-checked).
@@ -281,8 +298,17 @@ pub(super) fn line_of(ctx: &Ctx) -> Option<String> {
         .then_some(line)
 }
 
-/// The stage the operation needs next (pure; D5 §6.4 table).
-fn next_of(ctx: &Ctx, boot: &str, now_ms: u64, max_age_ms: u64, approval_valid: bool) -> Next {
+/// The stage the operation needs next (pure; D5 §6.4 table). `full` is this
+/// runtime's memory of the fresh reading's registry bytes (digest-checked), which a
+/// removal's post-image needs; without it the removal inspects again.
+fn next_of(
+    ctx: &Ctx,
+    boot: &str,
+    now_ms: u64,
+    max_age_ms: u64,
+    approval_valid: bool,
+    full: Option<&[u8]>,
+) -> Next {
     use EnrollmentState as S;
     let j = &ctx.journal;
     if let Some(r) = &j.reconcile {
@@ -310,7 +336,7 @@ fn next_of(ctx: &Ctx, boot: &str, now_ms: u64, max_age_ms: u64, approval_valid: 
     }
     let fresh = fresh_inspection(j, boot, now_ms, max_age_ms);
     match ctx.record.state {
-        S::Applying => match fresh.and_then(|i| parsed(i, &ctx.record.marker)) {
+        S::Applying => match fresh.and_then(parsed) {
             None => Next::Issue {
                 stage: RemoteStage::Inspect,
                 purpose: StepPurpose::Append,
@@ -340,20 +366,29 @@ fn next_of(ctx: &Ctx, boot: &str, now_ms: u64, max_age_ms: u64, approval_valid: 
             } else {
                 StepPurpose::Removal
             };
-            let Some(i) = fresh.and_then(|i| parsed(i, &ctx.record.marker)) else {
-                return Next::Issue {
-                    stage: RemoteStage::Inspect,
-                    purpose,
-                    terminate: false,
-                    removal: None,
-                };
+            let inspect = Next::Issue {
+                stage: RemoteStage::Inspect,
+                purpose,
+                terminate: false,
+                removal: None,
             };
-            let (Some(pre), Some(line)) = (i.preimage(), line_of(ctx)) else {
+            let Some(i) = fresh.and_then(parsed) else {
+                return inspect;
+            };
+            // `i` holds only our marker lines: enough to decide absent or damaged.
+            let (Some(ours), Some(line)) = (i.preimage(), line_of(ctx)) else {
                 return Next::RemovalDamaged;
             };
             if i.marker_lines == 0 {
                 return Next::AlreadyRemoved;
             }
+            if heimdall_registry::post_image::post_image_without(ours, &line).is_err() {
+                return Next::RemovalDamaged;
+            }
+            // The post-image needs the full bytes: from memory, or inspect again.
+            let Some(pre) = full else {
+                return inspect;
+            };
             match heimdall_registry::post_image::post_image_without(pre, &line) {
                 Ok(post) => Next::Issue {
                     stage: RemoteStage::Remove,
@@ -373,14 +408,6 @@ fn next_of(ctx: &Ctx, boot: &str, now_ms: u64, max_age_ms: u64, approval_valid: 
         }
         _ => Next::Nothing,
     }
-}
-
-fn hex(b: &[u8]) -> String {
-    hm1::encode_hex(b)
-}
-
-fn unhex(s: &str) -> Option<Vec<u8>> {
-    hm1::decode_hex(s)
 }
 
 /// The step's target: a removal of a held host-key change uses the freshly
@@ -501,7 +528,20 @@ impl Operations {
             let validity = self.limits().enrollment_approval_validity;
             let approval_valid = safe_ok && ctx.journal.approval_valid(safe, validity);
             let max_age = ms(self.limits().enrollment_inspect_max_age);
-            match next_of(&ctx, &boot, now_ms, max_age, approval_valid) {
+            let full = ctx
+                .journal
+                .inspection
+                .as_ref()
+                .and_then(|i| i.registry.as_ref())
+                .and_then(|d| self.enrollment_state().inspected(&ctx.op.id, d));
+            match next_of(
+                &ctx,
+                &boot,
+                now_ms,
+                max_age,
+                approval_valid,
+                full.as_deref(),
+            ) {
                 Next::Issue {
                     stage,
                     purpose,
@@ -701,11 +741,23 @@ impl Operations {
         let gssapi = ctx.journal.effective_checked.unwrap_or(false);
         let timeout_ms = ms(timeout);
         let hard_ms = ms(hard);
+        // ⟨round 2⟩ D5 §6.7: `fence` fences the **uncertain step's** lock (its token
+        // is in the holder record); the fence step keeps its own step token, which
+        // its result must carry.
+        let script_token = match stage {
+            RemoteStage::Fence => ctx
+                .journal
+                .uncertain
+                .as_ref()
+                .map(|u| u.token.clone())
+                .ok_or_else(|| internal("a fence without an uncertain step"))?,
+            _ => token.clone(),
+        };
         let build = |gss: bool| {
             step::remote_step_for(
                 input,
                 &st,
-                &token,
+                &script_token,
                 hard_ms,
                 not_after,
                 &StepEnv {
@@ -715,6 +767,10 @@ impl Operations {
                     gssapi_key_exchange: gss,
                 },
             )
+            .map(|mut s| {
+                s.step_token.clone_from(&token);
+                s
+            })
             .map_err(|_| internal("the remote step cannot be built"))
         };
         let mut remote = build(gssapi)?;
@@ -757,8 +813,12 @@ impl Operations {
             hard_deadline_wall: super::super::plus(wall, hard.saturating_sub(c_issue)),
             not_after_remote: not_after,
             terminate,
-            preimage_hex: removal.as_ref().map(|(p, _)| hex(p)),
-            post_image_hex: removal.as_ref().map(|(_, p)| hex(p)),
+            preimage: removal
+                .as_ref()
+                .map(|(p, _)| crate::enrollment::RegistryDigest::of(p)),
+            post_image: removal
+                .as_ref()
+                .map(|(_, p)| crate::enrollment::RegistryDigest::of(p)),
         };
         let (oid, expected_state, marker, eid) = (
             ctx.op.id.clone(),
@@ -840,21 +900,36 @@ impl Operations {
             .take(limits.remote_stderr_excerpt)
             .collect();
         let line = line_of(&ctx);
-        let preimage = ctx
-            .journal
-            .inspection
-            .as_ref()
-            .and_then(|i| parsed(i, &ctx.record.marker))
-            .and_then(|i| i.preimage().map(<[u8]>::to_vec));
+        // §17.21 item 4: the checks take the images by their digests.
+        let preimage_digest = match issued.stage {
+            RemoteStage::Remove => issued.preimage.as_ref(),
+            _ => ctx
+                .journal
+                .inspection
+                .as_ref()
+                .and_then(|i| i.registry.as_ref()),
+        };
         let expected = Expected {
             marker: ctx.record.marker.clone(),
             line: line.clone(),
-            preimage: match issued.stage {
-                RemoteStage::Remove => issued.preimage_hex.as_deref().and_then(unhex),
-                _ => preimage,
-            },
-            post_image: issued.post_image_hex.as_deref().and_then(unhex),
+            preimage: None,
+            post_image: None,
+            preimage_digest: preimage_digest.map(crate::enrollment::RegistryDigest::image),
+            post_image_digest: issued
+                .post_image
+                .as_ref()
+                .map(crate::enrollment::RegistryDigest::image),
         };
+        if issued.stage == RemoteStage::Inspect {
+            // The full bytes stay in this runtime's memory only (§17.21 item 4).
+            if let Some(content) = hm1::parse(stdout.as_bytes())
+                .ok()
+                .and_then(|rec| Inspection::from_record(&rec, &ctx.record.marker).ok())
+                .and_then(|i| i.preimage().map(<[u8]>::to_vec))
+            {
+                self.enrollment_state().remember_inspected(id, content);
+            }
+        }
         let result = RegistryStepResult {
             exit_status,
             stdout: stdout.clone(),
@@ -1160,15 +1235,7 @@ fn record_result(
                     let offset = i64::try_from(remote_ms - local_ms).unwrap_or(i64::MIN);
                     let rtt = r.c_read.saturating_sub(r.issued.issued_continuous_ms);
                     ctx.journal.remote_offset = Some((offset, rtt.saturating_add(1000)));
-                    ctx.journal.inspection = Some(InspectFact {
-                        stdout: r.stdout.to_owned(),
-                        exit_status: r.exit_status,
-                        read_continuous_ms: r.c_read,
-                        read_wall: now,
-                        boot_id: r.boot.to_owned(),
-                        remote_now: reading.remote_now,
-                        consumed: false,
-                    });
+                    ctx.journal.inspection = Some(inspect_fact(&reading, &marker, r));
                     put_journal(tx, &ctx.op.id, &ctx.journal, now)?;
                     Ok(false)
                 }
@@ -1658,15 +1725,7 @@ fn record_reconcile(
                 })
                 .flatten();
             if let Some(reading) = &reading {
-                ctx.journal.inspection = Some(InspectFact {
-                    stdout: r.stdout.to_owned(),
-                    exit_status: r.exit_status,
-                    read_continuous_ms: r.c_read,
-                    read_wall: now,
-                    boot_id: r.boot.to_owned(),
-                    remote_now: reading.remote_now,
-                    consumed: false,
-                });
+                ctx.journal.inspection = Some(inspect_fact(reading, &marker, r));
             }
         }
         RemoteStage::Fence => {
@@ -1713,7 +1772,7 @@ fn record_reconcile(
         _ => {}
     }
     let observation = match ctx.journal.inspection.as_ref().filter(|i| !i.consumed) {
-        Some(i) => match parsed(i, &marker) {
+        Some(i) => match parsed(i) {
             Some(p) => Observation::Inspected(Box::new(p)),
             None => Observation::Unavailable,
         },
@@ -1763,6 +1822,10 @@ fn record_reconcile(
             put_journal(tx, &op_id, &ctx.journal, now)?;
             match expected.purpose {
                 ReconcilePurpose::Append => {
+                    // D5 §6.7: "Applied → `Confirmed`, then `applied_unverified`": the
+                    // append's confirmation receipt, which the initial verification's
+                    // own authority requires (§17.21 item 5).
+                    append_confirmed(tx, ctx, now)?;
                     move_ctx(
                         tx,
                         emit,
@@ -1908,6 +1971,7 @@ fn record_reconcile(
             }
             if present && purpose == RecoveryPurpose::Append {
                 updated.hold = None;
+                append_confirmed(tx, ctx, now)?;
             }
             move_ctx(tx, emit, ctx, event, &updated)?;
             let data = serde_json::to_value(result_of(&ctx.record, None))
@@ -1944,6 +2008,22 @@ fn record_reconcile(
             Ok(false)
         }
     }
+}
+
+/// The `enroll.append` `Confirmed` receipt (effect = the marker) of a line found
+/// present by a reconcile.
+fn append_confirmed(tx: &mut Txn<'_>, ctx: &Ctx, now: Timestamp) -> heimdall_store::Result<()> {
+    tx.append_stage_receipt(
+        &ctx.op.id,
+        &receipt(
+            enrollment_stage::APPEND,
+            now,
+            EffectReceipt::Confirmed {
+                adapter: adapter(&ctx.record.id.to_string()),
+                credential_ref: ctx.record.marker.clone(),
+            },
+        ),
+    )
 }
 
 /// Milliseconds of a duration (saturating).

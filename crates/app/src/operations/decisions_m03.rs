@@ -18,39 +18,20 @@ use heimdall_domain::decision::{DecisionKind, DecisionRecord};
 use heimdall_domain::operation::OperationRecord;
 use heimdall_store::Txn;
 
-use std::sync::Arc;
-
 use super::{Emit, Operations};
 use crate::error::OpError;
-
-/// The per-`Operations` M03 state a decision's precheck and apply read inside the
-/// decide transaction (cloned before it).
-#[derive(Clone)]
-pub(super) struct DecideCtx {
-    pub(super) issuer: Arc<super::issuer_m03::IssuerProcessState>,
-}
-
-impl Operations {
-    /// The [`DecideCtx`] of this instance.
-    pub(super) fn m03_decide_ctx(&self) -> DecideCtx {
-        DecideCtx {
-            issuer: Arc::clone(&self.inner.managed_ops.issuer),
-        }
-    }
-}
 
 /// Before completion: refuse (nothing written) or name the operation the record
 /// waits on (`None`: the record waits on no operation).
 pub(super) fn precheck(
     tx: &mut Txn<'_>,
-    ctx: &DecideCtx,
     d: &DecisionRecord,
     verdict: Verdict,
     now: Timestamp,
 ) -> heimdall_store::Result<Result<Option<OperationRecord>, OpError>> {
     match &d.kind {
         DecisionKind::RegisterIssuer { .. } | DecisionKind::RetireIssuer { .. } => {
-            super::issuer_m03::decision_precheck(tx, &ctx.issuer, d, verdict, now)
+            super::issuer_m03::decision_precheck(tx, d, verdict, now)
         }
         DecisionKind::EnrollAccount { .. }
         | DecisionKind::EnrollSystemForm { .. }
@@ -70,7 +51,6 @@ pub(super) fn precheck(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply(
     tx: &mut Txn<'_>,
-    ctx: &DecideCtx,
     emit: &mut Emit,
     record: &DecisionRecord,
     verdict: Verdict,
@@ -80,16 +60,7 @@ pub(super) fn apply(
 ) -> heimdall_store::Result<Result<Vec<OperationId>, OpError>> {
     match &record.kind {
         DecisionKind::RegisterIssuer { .. } | DecisionKind::RetireIssuer { .. } => {
-            super::issuer_m03::decision_apply(
-                tx,
-                &ctx.issuer,
-                emit,
-                record,
-                verdict,
-                waiting,
-                now,
-                retention,
-            )
+            super::issuer_m03::decision_apply(tx, emit, record, verdict, waiting, now, retention)
         }
         DecisionKind::EnrollAccount { .. }
         | DecisionKind::EnrollSystemForm { .. }

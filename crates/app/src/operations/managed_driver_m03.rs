@@ -11,16 +11,16 @@
 //!
 //! **Credential instances (U2-Q1).** One row per K_env, written `pending` when the key
 //! is registered ([`Operations::managed_instance_created`]), `installed` when every
-//! pair's certificate is installed, `destroyed` when the key is destroyed. Its ID is
-//! derived from K_env's SHA-256 fingerprint ([`instance_id_for`]: the first 16 bytes of
-//! the digest), so the instances of a grant are found again from the subject
-//! fingerprints its issuance entries record, with no new store query. The creation of
+//! pair's certificate is installed, `destroyed` when the key is destroyed. A new
+//! instance's ID is derived from K_env's SHA-256 fingerprint ([`instance_id_for`]: the
+//! first 16 bytes of the digest; stable, so a repeated creation for the same key is
+//! idempotent); ⟨§17.21 item 7⟩ the instances of a grant are always found through the
+//! store query `Txn::credential_instances_for_grant`, never from a fingerprint. The creation of
 //! an instance **retains** the grant's signing gate (with the grant's ancestor chain);
 //! the release of an instance takes the gate **exclusively**
 //! (`SigningGates::release_exclusive`; §17.15 item 1, G-Q13). A `lost` instance (from
 //! before a restart) holds no gate in this process, so destroying it releases none.
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use heimdall_contract::event::EventType;
@@ -34,7 +34,7 @@ use heimdall_domain::issuance::{
 use heimdall_domain::lifecycle::GrantEvent;
 use heimdall_domain::operation::{EffectReceipt, StageReceipt};
 use heimdall_domain::scope::AccessPair;
-use heimdall_domain::time::{self as dtime, Admission};
+use heimdall_domain::time::{self as dtime, Admission, TimeStatus};
 use heimdall_store::Txn;
 
 use super::ca_issuance_m03::grant_is_managed;
@@ -91,27 +91,13 @@ fn ancestors_root_first(
     Ok(chain)
 }
 
-/// The credential instances of `grant` this store records: those of every subject
-/// key its issuance entries name.
+/// The credential instances of `grant` this store records (ADR-0008 §17.21 item 7:
+/// the store query, never an ID derived from a key fingerprint).
 fn instances_of(
     tx: &mut Txn<'_>,
     grant: &GrantId,
 ) -> heimdall_store::Result<Vec<CredentialInstance>> {
-    let fingerprints: BTreeSet<String> = tx
-        .issuance_entries(grant)?
-        .into_iter()
-        .map(|e| e.bounds.subject_fingerprint)
-        .collect();
-    let mut out = Vec::new();
-    for fp in fingerprints {
-        if let Some(id) = instance_id_for(&fp)
-            && let Some(i) = tx.credential_instance(&id)?
-            && i.grant == *grant
-        {
-            out.push(i);
-        }
-    }
-    Ok(out)
+    tx.credential_instances_for_grant(grant)
 }
 
 fn lifecycle_event(
@@ -487,8 +473,9 @@ impl Operations {
     /// continuing work (`new_activation: false`): same pairs, same deadline. Never for
     /// an ended or tombstoned grant, past its bound or cutoff, on time that is not
     /// `Safe` (it stays `credential_reissue_pending` until time is accepted), or for a
-    /// `revoke_on_lock` grant ([`Operations::lock_blocks_reissue`]). A no-op while the
-    /// driver is unwired. Returns the grants re-issued.
+    /// `revoke_on_lock` grant: exactly when [`heimdall_domain::reissue::eligible`]
+    /// refuses (§17.21 item 6). A no-op while the driver is unwired. Returns the grants
+    /// re-issued.
     ///
     /// # Errors
     /// [`OpError`]: a store failure is reported (W3-R11), never an empty success.
@@ -502,9 +489,9 @@ impl Operations {
         let candidates = self.reissue_candidates().await?;
         let mut done = Vec::new();
         for gid in candidates {
-            if self.lock_blocks_reissue(&gid).await? {
-                continue;
-            }
+            // ⟨§17.21 item 6⟩ The one rule (`heimdall_domain::reissue::eligible`),
+            // rule 5 included (the effective lock behaviour with the R3 floor, as
+            // `Operations::lock_blocks_reissue` computes it).
             let Some((grant, now)) = self.reissue_eligible(&gid).await? else {
                 continue;
             };
@@ -549,39 +536,66 @@ impl Operations {
         .await
     }
 
-    /// The stored grant, bounded by its recorded bound, when it may re-issue now
-    /// (ADR-0005 §3.7 as D6 item 4 applies it): `degraded`, no tombstone, time
-    /// `Safe`, the bound not passed, the continuous budget not expired.
+    /// The stored grant, bounded by its recorded bound, when it may re-issue now.
+    /// ⟨§17.21 item 6⟩ The rule is the one pure implementation,
+    /// [`heimdall_domain::reissue::eligible`] (the managed adapter's `reissue_from`
+    /// asks the same function); this only reads its inputs in one store transaction:
+    /// the stored grant (rule 4: `GrantSource::Store`) bounded by its ancestors, every
+    /// applicable cutoff and its persisted anchor bound; its origin; the tombstones of
+    /// it and its ancestors; the gate's verdict; the admission check (after the first
+    /// validation in this boot re-anchors it from `Safe` time, as every use does); and
+    /// the effective lock behaviour with the R3 floor. A grant that is no longer a
+    /// candidate (`degraded`, `credential_reissue_pending`) is skipped.
     async fn reissue_eligible(
         &self,
         grant: &GrantId,
     ) -> Result<Option<(GrantSnapshot, Timestamp)>, OpError> {
+        use heimdall_domain::reissue::{GrantSource, StoreRead, eligible};
         let gate = self.inner.timegate.in_txn();
         let env = self.inner.config.environment.clone();
+        let floor = self.session_lock_floor();
+        let clock = Arc::clone(&self.inner.config.clock);
         let gid = grant.clone();
         self.write(move |tx, _| {
-            let Ok(safe) = gate.check(tx)? else {
+            let (Some(mut g), Some(origin)) = (tx.grant(&gid)?, tx.grant_origin(&gid)?) else {
                 return Ok(None);
             };
-            let Some(mut g) = tx.grant(&gid)? else {
-                return Ok(None);
-            };
-            if g.state != GrantState::Degraded || tx.denied_ancestor(&gid)?.is_some() {
-                return Ok(None);
-            }
-            let ctx = grant_context(tx, &g)?;
-            let bound = bound_of(tx, &env, &g, ctx.profile.as_ref())?;
-            let now = safe.wall();
-            // A grant first validated in an earlier boot needs a new anchor, which the
-            // reserve transaction takes (its first validation in this boot); only an
-            // expired continuous budget refuses here.
-            if dtime::is_expired(now, bound)
-                || gate.admission(tx, &gid, &safe)? == Admission::Expired
+            if g.state != GrantState::Degraded
+                || tx.grant_degradation(&gid)? != Some(DegradedReason::CredentialReissuePending)
             {
                 return Ok(None);
             }
+            let policies = tx.policies_for(&origin.profile, &env)?;
+            let lock = crate::lock::effective_behavior_with_floor(Some(&origin), &policies, floor);
+            let cutoff_at = super::merged_policy(&policies).and_then(|p| p.cutoff_at);
+            let tombstoned = tx.denied_ancestor(&gid)?.is_some();
+            let bound = bound_of(tx, &env, &g, Some(&origin.profile))?;
             g.deadline.effective = g.deadline.effective.min(bound);
-            Ok(Some((g, now)))
+            let (time, admission, now) = match gate.check(tx)? {
+                Ok(safe) => {
+                    let now = safe.wall();
+                    if !tombstoned && !dtime::is_expired(now, bound) {
+                        super::first_validation_anchor(tx, &gate, &gid, &safe, bound)?;
+                    }
+                    (TimeStatus::Safe, gate.admission(tx, &gid, &safe)?, now)
+                }
+                // Not accepted: the rule refuses (`time_not_accepted`, or an earlier
+                // rule); the wall reading is not trusted for anything else.
+                Err(u) => (
+                    TimeStatus::Uncertain(u),
+                    Admission::NeedsAnchor,
+                    clock.wall(),
+                ),
+            };
+            let read = StoreRead {
+                source: GrantSource::Store,
+                tombstoned,
+                cutoff_at,
+                now,
+            };
+            Ok(eligible(&g, &origin, &time, &admission, lock, &read)
+                .ok()
+                .map(|()| (g, now)))
         })
         .await
     }
@@ -853,5 +867,305 @@ impl Operations {
         {
             tracing::warn!("managed release cleanup: the adapter's cleanup did not complete");
         }
+    }
+}
+
+// --- ⟨M03 wave 4, ADR-0008 §17.21 item 1⟩ the binding minted at resolve ---------------
+
+/// Whether the effect driver's results are in `sources` (the managed adapter's
+/// preparation ran its effects: key, certificates, binding endpoint and files), so a
+/// later failure needs the cleanup intent. Always `false` for an existing-access
+/// adapter, whose snapshot has no managed part (`operations.rs` never names it).
+pub(super) fn driver_ran(sources: &IntegrationSnapshot) -> bool {
+    sources
+        .managed
+        .as_ref()
+        .is_some_and(|m| m.prepared.is_some())
+}
+
+/// The binding ID of a `managed_certificate` resolution (§17.21 item 1): `binding` is
+/// recorded in the intent of an allowed or waiting resolution whose adapter is the
+/// managed one; every other resolution is returned unchanged (its intent, and so its
+/// stored bytes and request hash, exactly as in M01/M02).
+pub(super) fn with_managed_binding(
+    r: super::Resolution,
+    binding: &heimdall_contract::ids::BindingId,
+) -> super::Resolution {
+    fn managed(i: &heimdall_domain::operation::ResolvedIntent) -> bool {
+        i.adapter
+            .as_ref()
+            .is_some_and(|a| a.mechanism == MANAGED_CERTIFICATE)
+    }
+    match r {
+        super::Resolution::Allowed(mut i) => {
+            if managed(&i) {
+                i.binding_id = Some(binding.clone());
+            }
+            super::Resolution::Allowed(i)
+        }
+        super::Resolution::Approval(mut a) => {
+            if managed(&a.intent) {
+                a.intent.binding_id = Some(binding.clone());
+            }
+            super::Resolution::Approval(a)
+        }
+    }
+}
+
+impl Operations {
+    /// ⟨§17.21 item 1⟩ The binding ID minted at resolve for the open operation whose
+    /// preparation attempt carries `token` (its `Attempted` receipt): the effect driver
+    /// materializes the binding under it (step 6). `None` without such an operation
+    /// (the re-issue pass) or for an intent with no minted ID.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub(crate) async fn managed_binding_of_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<heimdall_contract::ids::BindingId>, OpError> {
+        let token = token.to_owned();
+        self.write(move |tx, _| {
+            for op in tx.open_operations()? {
+                let carries = tx.stage_receipts(&op.id)?.iter().any(|r| {
+                    matches!(&r.effect, EffectReceipt::Attempted { effect_token, .. }
+                        if *effect_token == token)
+                });
+                if carries {
+                    return Ok(tx
+                        .recovery_intent(&op.id)?
+                        .and_then(|i| i.resolved)
+                        .and_then(|r| r.binding_id));
+                }
+            }
+            Ok(None)
+        })
+        .await
+    }
+
+    /// ⟨§17.21 item 1⟩ A managed preparation that failed **after** the effect driver
+    /// ran (its `prepare_from` refused, or, after a restart, its effect could not be
+    /// reconciled): as `fail_running` (the grant `PreparationFailed`, the operation
+    /// failed with `err`), and, in the same transaction, the cleanup decision for the
+    /// applied effect ([`super::settle_effect_in`]), so the key, the binding endpoint
+    /// and the binding files never outlive the failure, a crash included. Returns the
+    /// cleanup intent to process after the commit (the prepare step's return path
+    /// processes it in any case).
+    ///
+    /// # Errors
+    /// A store failure.
+    pub(super) async fn fail_managed_preparation(
+        &self,
+        id: &heimdall_contract::ids::OperationId,
+        err: OpError,
+        grant: &GrantId,
+    ) -> Result<Option<heimdall_domain::revocation::CleanupIntent>, OpError> {
+        use heimdall_contract::OperationState;
+        let (id, gid) = (id.clone(), grant.clone());
+        let clock = self.clock();
+        let retention = self.retention();
+        let cap = self
+            .inner
+            .revocation_cap
+            .load(std::sync::atomic::Ordering::SeqCst);
+        self.write(move |tx, emit| {
+            let Some(mut op) = tx.operation(&id)? else {
+                return Ok(None);
+            };
+            let continuing = super::continues_for_others(tx, &op)?;
+            if !continuing
+                && !matches!(
+                    op.state,
+                    OperationState::Running | OperationState::OutcomeUnknown
+                )
+            {
+                return Ok(None);
+            }
+            let now = clock.wall();
+            if let Some(mut g) = tx.grant(&gid)?
+                && grant_try(&mut g, GrantEvent::PreparationFailed)
+            {
+                put_grant(tx, emit, &g, Some(&id))?;
+            }
+            if !continuing {
+                super::settle_failed(tx, emit, &mut op, &err, now, retention)?;
+            }
+            super::settle_effect_in(tx, &gid, &id, cap, now)
+        })
+        .await
+    }
+
+    /// ⟨§17.21 item 1⟩ The managed part of a cleanup intent whose call is made (after
+    /// the adapters' `revoke`): for a `managed_certificate` grant, its keys are destroyed
+    /// and its live credential instances become `destroyed` (the gate released, as a
+    /// narrowing's cleanup does), and the binding minted for the intent's operation, when
+    /// it was never committed, loses its endpoint and files (`ManagedEffects::clear` at
+    /// [`crate::managed::driver::BINDING_GENERATION`]; the files are found on disk by
+    /// their marker, so this also holds after a restart). `false` when the clear failed
+    /// (the intent is kept and retried); `true` otherwise, and for any other grant.
+    pub(super) async fn cleanup_uncommitted_managed(
+        &self,
+        intent: &heimdall_domain::revocation::CleanupIntent,
+    ) -> bool {
+        let (gid, op) = (intent.grant.clone(), intent.operation.clone());
+        let read = self
+            .write(move |tx, _| {
+                if !grant_is_managed(tx, &gid)? {
+                    return Ok(None);
+                }
+                let minted = tx
+                    .recovery_intent(&op)?
+                    .and_then(|i| i.resolved)
+                    .and_then(|r| r.binding_id);
+                let uncommitted = match minted {
+                    Some(b) if tx.binding(&b)?.is_none() => Some(b),
+                    _ => None,
+                };
+                Ok(Some(uncommitted))
+            })
+            .await;
+        let uncommitted = match read {
+            Ok(None) => return true,
+            Ok(Some(u)) => u,
+            Err(_) => return false,
+        };
+        self.managed_after_narrowing(std::slice::from_ref(&intent.grant))
+            .await;
+        let Some(binding) = uncommitted else {
+            return true;
+        };
+        let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone()) else {
+            // No effects in this process: nothing of this process holds the binding;
+            // its files wait for a runtime with the effects (the intent is kept).
+            return false;
+        };
+        effects
+            .clear(&binding, crate::managed::driver::BINDING_GENERATION)
+            .is_ok()
+    }
+}
+
+// --- ⟨M03 wave 4, ADR-0008 §17.21 item 2⟩ the slots of a managed launch bind -----------
+
+/// The refusal of a managed launch bind whose slot for `pair` cannot be claimed (D10
+/// item 2; §17.21 item 2): `CONFIG_CONFLICT`, reason `managed_slot_held`, next
+/// `release_binding`, nothing written but the failed operation.
+fn slot_refusal(
+    binding: &heimdall_contract::ids::BindingId,
+    state: &heimdall_domain::managed::SlotState,
+) -> OpError {
+    let message = match state {
+        heimdall_domain::managed::SlotState::Clearing { .. } => {
+            "this pair's managed slot is still being cleared; retry, or use `heimdall connect`, which needs no slot"
+        }
+        _ => {
+            "another binding holds this pair's managed slot; release it, or use `heimdall connect`, which needs no slot"
+        }
+    };
+    OpError::new(Code::ConfigConflict, message)
+        .with_effect(heimdall_contract::EffectStatus::None)
+        .with_reason(heimdall_contract::envelope::reason::MANAGED_SLOT_HELD)
+        .with_resource("binding", Some(binding.to_string()))
+        .with_next(heimdall_contract::NextAction {
+            action: "release_binding".to_owned(),
+            ..heimdall_contract::NextAction::default()
+        })
+}
+
+/// ⟨§17.21 item 2⟩ In the bind's transaction: every pair of the managed binding `b`
+/// must be claimable by it (`free`, or already held by it); any other state refuses
+/// ([`slot_refusal`]) before anything is claimed. Then each slot is claimed (CAS
+/// `free(g) → held(b, g + 1)`, idempotent for the holder).
+///
+/// # Errors
+/// A store failure (the whole transaction rolls back).
+pub(super) fn claim_bind_slots_in(
+    tx: &mut Txn<'_>,
+    environment: &heimdall_contract::ids::EnvironmentId,
+    b: &heimdall_domain::binding::BindingRecord,
+    now: Timestamp,
+) -> heimdall_store::Result<Result<(), OpError>> {
+    use heimdall_domain::managed::{SlotEvent, slot_transition};
+    let claim = SlotEvent::Claim {
+        binding: b.id.clone(),
+    };
+    for pair in &b.scope.pairs {
+        let state = tx.slot(environment, pair)?;
+        if slot_transition(&state, &claim).is_err() {
+            return Ok(Err(slot_refusal(&b.id, &state)));
+        }
+    }
+    for pair in &b.scope.pairs {
+        if tx.claim_slot(environment, pair, &b.id, now)?.is_err() {
+            return Err(heimdall_store::StoreError::Corrupt(
+                "a checked slot claim was refused".into(),
+            ));
+        }
+    }
+    Ok(Ok(()))
+}
+
+impl Operations {
+    /// ⟨§17.21 item 2⟩ After the claim committed: each claimed slot's files are
+    /// written at its own store generation, then the environment endpoint lists the
+    /// key (`ManagedEffects::materialize` with `environment_slots` and a slots-only
+    /// spec: the content the preparation materialized for the binding).
+    ///
+    /// # Errors
+    /// `driver_unavailable` without the effects; the effects' refusal otherwise.
+    pub(super) async fn write_bind_slots_managed(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+    ) -> Result<(), AdapterError> {
+        let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone()) else {
+            return Err(AdapterError::Unavailable(
+                heimdall_contract::envelope::reason::DRIVER_UNAVAILABLE.to_owned(),
+            ));
+        };
+        effects
+            .materialize(
+                binding,
+                &crate::ports::MaterializeSpec {
+                    generation: crate::managed::driver::BINDING_GENERATION,
+                    public_key: String::new(),
+                    certificates: Vec::new(),
+                    environment_slots: true,
+                },
+            )
+            .map(|_| ())
+    }
+
+    /// ⟨§17.21 item 2⟩ The slot files of a claimed launch bind could not be written:
+    /// the bind fails (`SERVICE_UNAVAILABLE`, effect `partial`). The claim stays (the
+    /// binding holds the slots with no files, so ssh fails closed for the aliases)
+    /// until the binding or its grant ends, whose cleanup clears them; a later launch
+    /// bind of the same binding claims them again idempotently.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub(super) async fn fail_managed_bind(
+        &self,
+        id: &heimdall_contract::ids::OperationId,
+        cause: AdapterError,
+    ) -> Result<(), OpError> {
+        let _ = cause;
+        let err = OpError::new(
+            Code::ServiceUnavailable,
+            "the managed slot files could not be written; nothing was launched",
+        )
+        .with_effect(heimdall_contract::EffectStatus::Partial);
+        let id = id.clone();
+        let clock = self.clock();
+        let retention = self.retention();
+        self.write(move |tx, emit| {
+            let Some(mut op) = tx.operation(&id)? else {
+                return Ok(());
+            };
+            if op.state.is_quiescent() {
+                return Ok(());
+            }
+            super::settle_failed(tx, emit, &mut op, &err, clock.wall(), retention)
+        })
+        .await
     }
 }
