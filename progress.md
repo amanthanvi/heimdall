@@ -993,4 +993,27 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
   - **Open for wave 2, INT-Q10:** with the managed-alias shape, OpenSSH 9.5p2/9.6p1 never ask the agent for the certificate (observed natively). The signer still never signs with the plain key (F17). U2 and U8 must find a certificate-only form, or report `client_unsupported`.
   - **For U13:** the devbox (12 GB free) cannot hold all 72 debug test binaries, so the Linux harness needs batching. Use `HM_ONLY` until then.
   - **check.sh:** every step 0; 2373 passed, 0 failed, 187 ignored.
-- **Next: M03 wave 2** — U2 (signer and endpoints), U3 (issuer child and client), U8 (projection and consumer integration).
+- **M03 wave 2 merged** (`0e581fc1`, 2026-11-11). It covers U2 (signer and endpoints), U3 (issuer child, protocol and client) and U8 (projection and consumer integration, plus the M02 residuals).
+  - **How it was built:** one integrator agent (Opus 5.5) ran a subagent per unit in a single worktree, in two rounds.
+  - **Rulings, ADR-0008 §17.19:**
+    - W2-R01/S01: authorization builds `SafeNow` from the observation the time gate assessed;
+    - W2-R02: a persisted `IssuanceEntry::continuing` fact;
+    - W2-R03: `stop()` fences issuer restarts;
+    - INT-Q10: the managed alias names the certificate as its identity file;
+    - INT-Q13: a per-operation verification gate, in wave 4;
+    - the U2, U3 and U8 readings.
+  - **Reviews:**
+    - the code review was fix first, with W2-R01 to W2-R03;
+    - the security review (plan §6.7) was fix first, with W2-S01: a wall-clock rollback between assessment and `SafeNow` released a signature, reproduced by a probe;
+    - the re-check of the fixes was merge, with no new findings.
+  - **INT-Q10 is closed:** `IdentitiesOnly yes` with `IdentityFile <cert.pub>` completes through the certificate alone. It was observed on macOS 10.5p1, natively on the devbox's 9.6p1, and natively on Windows' in-box 9.5p2. D10's original shape fails on all three. No client needs `client_unsupported`, and F17 stands.
+  - **Native development checks at `5adb67da`** (not exit evidence):
+    - **devbox:** all 18 selected binaries pass (799 passed), canary count 0;
+    - **Windows:** all 78 binaries pass (2183 passed, 0 failed, 5 ignored), canary count 0. The first attempt never reached the WSL fixture sshd because localhost forwarding did not answer. The repeat, with the harness unchanged, reached it.
+  - **check.sh**, the integrator's round 2: every step 0; 2482 passed, 0 failed, 188 ignored.
+  - **Left failing closed for wave 4 (U10):**
+    - verification signatures (INT-Q13);
+    - the signer's install view (U2-Q2);
+    - `credential_instances` rows (U2-Q1);
+    - the `preference` field on `inspect destinations` (U8-Q6).
+- **Next: M03 wave 3:** U6 (the managed credential adapter) and U7 (connection control).
