@@ -3955,6 +3955,19 @@ Several findings overlap: W3-S01 is W3-R04, W3-S05 is W3-R01, and W3-S03 is part
       - **The regression:** `production_anchors_are_owner_only_under_umask_002`, which runs in a child process under umask 002.
     - **W3-R10, the gate test:** the registration test is accepted as a test of the real registration gate, using a `fake_agent` grant with a real gate that the test contends on. The full managed-credential workflow is U10's, and the test says so.
     - **W3-R10, the non-ssh test:** when the test runs in no job, the child must not be in a job (`IsProcessInJob == false`). When the test is in an ambient job, the child's immediate job must also hold the launcher. The test stops its grandchild by exact PID and creation time.
+17. **Rounds 4 and 5: the connection fixture's process ownership** (test code only; `wave3-recheck3.md`, `wave3-recheck4.md`).
+    - **W3-C03:** a server command's shell escaped cleanup before it became `/bin/sleep`. Round 4 fixed it: an exact walk of the fixture's unreaped sshd, receipts with the image actually read, a cancel marker before `exec`, and an audit on a normal drop.
+    - **Residual, accepted and disclosed:** a shell stopped **indefinitely** before its pidfile, whose client closes before teardown, is reparented out of the sshd's tree and is not found.
+      - It needs an injected `SIGSTOP`. An ordinary delay reaches the cancel marker, or the 40 s self-termination after `exec`.
+      - The fixture's doc comment states this limit, and the drop audit claims only what is in the tree or receipted.
+      - U13's exit harness counts leftover processes by exact identity at the suite level.
+    - **W3-C04: fixed by the orchestrator.**
+      - The descendant walk could trust an intermediate parent by PID number alone. If two PIDs were reused within the walk, it could admit, and later signal, an unrelated process of the same user.
+      - The frontier now carries each walked parent's start token, and the walk confirms it again after reading the child's parent.
+      - **The regression:** `descendant_walk_never_admits_a_child_under_a_reused_parent`, a deterministic model of the reviewer's schedule. It fails with the check removed: the reused child `10002` is admitted.
+      - **Checks:** the full `integration_connections` target passed 43 of 43 on three runs, and clippy and the Linux cross-check are clean.
+      - **Not re-checked:** this small, test-only change was not independently re-reviewed.
+    - **No product code changed in rounds 3 to 5.**
 
 ## 18. Consequences
 

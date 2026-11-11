@@ -288,10 +288,18 @@ mod unix {
 
     /// The live descendants of `root` (a process this fixture owns and has not reaped,
     /// so its PID cannot be reused): an exact parent walk over `ps -A -o pid=,ppid=`
-    /// (numbers only). Each descendant's start token and image are read, and **then** its
-    /// parent is confirmed again to be the walked (live, already identified) parent, so a
-    /// PID reused meanwhile is never taken for a descendant. Zombies have no start token
-    /// and are skipped.
+    /// (numbers only). Each descendant's start token and image are read; **then** its
+    /// parent is confirmed again to be the walked parent, and **then** that parent's own
+    /// recorded start token is confirmed still current (ADR-0008 §17.20 item 17; W3-C04).
+    /// A process with the same start token is the same process, so the parent was alive
+    /// and identified across the child's parent read: a PID reused meanwhile, for the
+    /// child or for any ancestor between it and `root`, is never taken for a descendant.
+    /// Zombies have no start token and are skipped.
+    ///
+    /// **Limit (§17.20 item 17):** the walk sees what is in `root`'s tree when it runs. A
+    /// command shell stopped indefinitely before its pidfile and reparented away from the
+    /// tree (its client closed first) is outside it; ordinary delays end at the cancel
+    /// marker or the `REMOTE_SECS` bound instead.
     fn descendants(root: u32) -> Vec<Receipt> {
         let Ok(out) = Command::new("/bin/ps")
             .args(["-A", "-o", "pid=,ppid="])
@@ -308,26 +316,124 @@ mod unix {
                 Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
             })
             .collect();
+        descendants_from(root, &pairs, &LiveProcs)
+    }
+
+    /// What [`descendants_from`] reads about a process: the live system, or a model.
+    trait ProcView {
+        fn start_token(&self, pid: u32) -> Option<String>;
+        fn image(&self, pid: u32) -> Option<PathBuf>;
+        fn parent(&self, pid: u32) -> Option<u32>;
+    }
+
+    struct LiveProcs;
+
+    impl ProcView for LiveProcs {
+        fn start_token(&self, pid: u32) -> Option<String> {
+            process_start_time(pid)
+        }
+        fn image(&self, pid: u32) -> Option<PathBuf> {
+            image_of(pid)
+        }
+        fn parent(&self, pid: u32) -> Option<u32> {
+            parent_of(pid)
+        }
+    }
+
+    /// The walk of [`descendants`] over a `ps` snapshot. The frontier carries each walked
+    /// parent's recorded start token (`None` only for `root`, which cannot be reused).
+    fn descendants_from(root: u32, pairs: &[(u32, u32)], view: &dyn ProcView) -> Vec<Receipt> {
         let mut found = Vec::new();
-        let mut frontier = vec![root];
-        while let Some(parent) = frontier.pop() {
+        let mut frontier: Vec<(u32, Option<String>)> = vec![(root, None)];
+        while let Some((parent, parent_token)) = frontier.pop() {
             for &(pid, _) in pairs.iter().filter(|(p, pp)| *pp == parent && *p != root) {
-                let (Some(token), image) = (process_start_time(pid), image_of(pid)) else {
+                let Some(token) = view.start_token(pid) else {
                     continue;
                 };
-                if parent_of(pid) != Some(parent) {
+                let image = view.image(pid);
+                if view.parent(pid) != Some(parent) {
+                    continue;
+                }
+                // The parent is still the process that was identified when it was walked.
+                if let Some(expected) = parent_token.as_deref()
+                    && view.start_token(parent).as_deref() != Some(expected)
+                {
                     continue;
                 }
                 found.push(Receipt {
                     role: Role::Server,
                     pid,
-                    token,
+                    token: token.clone(),
                     images: command_images(image),
                 });
-                frontier.push(pid);
+                frontier.push((pid, Some(token)));
             }
         }
         found
+    }
+
+    /// §17.20 item 17 (W3-C04): an intermediate parent whose PID is reused while the walk
+    /// is below it is never trusted, so a reused child PID under it is never admitted.
+    /// A deterministic model of the reviewer's schedule: R (root) → P → C in the `ps`
+    /// snapshot; after P is admitted, P and C exit and unrelated P′ and C′ reuse both
+    /// numbers, so C′ reports parent P (numerically) and P reports P′'s start token.
+    #[test]
+    fn descendant_walk_never_admits_a_child_under_a_reused_parent() {
+        use std::cell::Cell;
+        struct Model {
+            reuse: bool,
+            reused: Cell<bool>,
+        }
+        const R: u32 = 10_000;
+        const P: u32 = 10_001;
+        const C: u32 = 10_002;
+        impl ProcView for Model {
+            fn start_token(&self, pid: u32) -> Option<String> {
+                if pid == C && self.reuse {
+                    // C is examined after P was admitted: by now both numbers are reused.
+                    self.reused.set(true);
+                }
+                let tag = if self.reused.get() { "reused" } else { "owned" };
+                Some(format!("{pid}-{tag}"))
+            }
+            fn image(&self, _pid: u32) -> Option<PathBuf> {
+                Some(PathBuf::from("/bin/sleep"))
+            }
+            fn parent(&self, pid: u32) -> Option<u32> {
+                match pid {
+                    P => Some(R),
+                    C => Some(P),
+                    _ => None,
+                }
+            }
+        }
+        let pairs = [(P, R), (C, P)];
+        // Control: no reuse, so P and C are both the fixture's.
+        let owned = descendants_from(
+            R,
+            &pairs,
+            &Model {
+                reuse: false,
+                reused: Cell::new(false),
+            },
+        );
+        let pids: Vec<u32> = owned.iter().map(|r| r.pid).collect();
+        assert_eq!(pids, vec![P, C]);
+        // Reuse below an admitted parent: P is kept (admitted before), C′ is refused.
+        let walked = descendants_from(
+            R,
+            &pairs,
+            &Model {
+                reuse: true,
+                reused: Cell::new(false),
+            },
+        );
+        let pids: Vec<u32> = walked.iter().map(|r| r.pid).collect();
+        assert_eq!(
+            pids,
+            vec![P],
+            "a child under a reused parent was admitted: {walked:?}"
+        );
     }
 
     /// Whether `r`'s exact identity is still a live process.
