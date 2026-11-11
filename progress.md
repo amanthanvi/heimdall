@@ -1016,4 +1016,22 @@ ADR-0004 records every decision. Still blocked on a physical input only the owne
     - the signer's install view (U2-Q2);
     - `credential_instances` rows (U2-Q1);
     - the `preference` field on `inspect destinations` (U8-Q6).
-- **Next: M03 wave 3:** U6 (the managed credential adapter) and U7 (connection control).
+- **M03 wave 3 merged** (`336c9a2f`, 2026-11-11): U6 (the managed credential adapter) and U7 (connection control: owned masters, owned dedicated connections, the policies, and the Windows kill-on-close job with registration while the child is suspended).
+  - **How it was built:** one integrator agent (Opus 5.5) with a subagent per unit, in five rounds.
+  - **Reviews** (Codex, independent, on `codex-cpamc`; the `codex` account is out of quota until 2026-11-16):
+    - **the code review:** fix first, with W3-R01 to W3-R11, six of them high: stale-generation writes and clears, unserialized master replacement, a restart keeping overdue masters, a non-holder replacing the slot's master, and readiness over-claimed by a short certificate;
+    - **the security review (plan §6.7):** fix first, with W3-S01 to W3-S05, four reproduced by probes: an overdue master surviving restart, a foreign listener reused after revocation, `-O exit` reaching a replacement master, symlinked managed directories, and a stale write rolling a slot back;
+    - **three re-checks:** they confirmed every original finding fixed, and found fixture-only issues W3-C01 to W3-C04, which are fixed. The W3-C03 residual, an indefinitely stopped and reparented pre-pidfile shell, is accepted and disclosed.
+  - **Native development checks** (not exit evidence):
+    - **devbox, 9.6p1:**
+      - at `3f7a582e`, W3-N01: ext4 reused a socket's inode at once, so the socket identity became a per-slot lock and a `-O check` PID proof;
+      - at `5ee3e143`, the new owner-only directory check refused `tempfile` anchors under umask 002;
+      - at `155d2f6c` and `66932c68`, all selected binaries passed.
+    - **Windows, 9.5p2:** all 81 binaries passed at `3f7a582e`, `5ee3e143` and `155d2f6c` (2239, 2252 and 2252 passed), with all 11 `platform_only` U7 tests and the DACL and junction test.
+  - **Rulings:** ADR-0008 §17.20 items 1 to 17. The managed `ensure` example names the binding endpoint locator (U6-Q6, W3-R2-Q1), and m03-plan §0.6 gains the runtime → sshconf edge (U7-Q1).
+  - **check.sh at `d26724d1`:** every step 0; 2588 passed, 0 failed, 188 ignored.
+  - **Still failing closed for wave 4 (U10 and U0b phase 2):**
+    - `drive_preparation`, the install view and verification signatures (INT-Q13);
+    - managed `connect` (U8-Q6) and `run`'s slot table;
+    - Windows registration dispatch and the managed-alias `exclusive` classification.
+- **Next: M03 wave 4,** the activation change set: U10 (drivers and runtime wiring) and U0b phase 2.
