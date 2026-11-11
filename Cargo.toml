@@ -131,7 +131,10 @@ libc = { version = "=0.2.191", default-features = false, features = ["std"] }
 # wrapper `fs::renameat_with` (Linux renameat2 RENAME_EXCHANGE/RENAME_NOREPLACE, macOS
 # renameatx_np RENAME_SWAP/RENAME_EXCL), m02-plan §6 P5. The version the lock already
 # carries through tempfile. Dev-only users add `pty`, `termios`, `process`.
-rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"] }
+# M03 wave 3 (m03-plan U7; ADR-0008 D8 item 2 "Closing"): `process` adds the safe
+# `pidfd_open`/`pidfd_send_signal` wrappers for the Linux owned-connection close
+# (authorized for this wave; a feature of the pinned crate, no package enters the lock).
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process"] }
 windows-sys = { version = "=0.61.2", features = [
     "Win32_Foundation",
     "Win32_Security",

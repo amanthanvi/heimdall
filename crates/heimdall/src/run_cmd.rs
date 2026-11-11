@@ -40,8 +40,14 @@
 //! * **an owned launch** (the program is the verified `ssh` client): the foreground pins
 //!   right after the program name, and the refusal of `-f`, `-M`, `-S`, `-O` and the
 //!   `-o` forms of `ForkAfterAuthentication`, `ControlMaster`, `ControlPath` and
-//!   `ControlPersist` (`owned_connection_option_conflict`). On Windows an owned launch
-//!   needs U7's contained spawn, so it is refused there (fail closed);
+//!   `ControlPersist` (`owned_connection_option_conflict`). ⟨M03 U7, reading R9⟩ On
+//!   Windows an owned launch (`heimdall_launch::windows::launch_uses_kill_on_close_job`)
+//!   is the contained one: the child is created suspended in a kill-on-close job,
+//!   registered while suspended through `Request::Connections(Register)`, and resumed
+//!   only after a successful reply. Until the runtime accepts that request (U10) every
+//!   registration fails, so the job is closed, the child dies never having run, and
+//!   `prelaunch_failed` is written with `connection_registration_failed` (or
+//!   `connection_registration_refused`) (fail closed);
 //! * the deadline notice follows the pairs' identity selection (D8 item 6).
 //!
 //! The control session is closed and the async runtime shut down before step 8, so
@@ -91,6 +97,8 @@ pub(crate) fn run(ctx: &Ctx, args: RunArgs) -> ExitCode {
         Err(f) => return launch_flow::fail(ctx, &mut None, f),
     };
     match prepare(ctx, &args, &hooks) {
+        #[cfg(windows)]
+        Ok(prepared) if prepared.contained => contained::launch(ctx, &args, prepared, meta),
         Ok(prepared) => launch_flow::launch(
             ctx,
             Launch {
@@ -125,6 +133,9 @@ struct Prepared {
     delta: EnvDelta,
     operation: Option<heimdall_contract::ids::OperationId>,
     binding: Option<heimdall_contract::ids::BindingId>,
+    /// ⟨M03⟩ Windows: the contained launch of the verified `ssh` (module docs).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    contained: bool,
 }
 
 type Ids = (
@@ -322,6 +333,13 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
             .map_err(|f| (f, Some(ids.clone())))?;
         drop(client);
         launch_flow::report_deadline(ctx, &bound_data);
+        #[cfg(windows)]
+        let contained = heimdall_launch::windows::launch_uses_kill_on_close_job(
+            launch_flow::is_managed(&bound_data.consumer.pairs),
+            launch_flow::is_verified_ssh(&program, &env),
+        );
+        #[cfg(not(windows))]
+        let contained = false;
         let delta = EnvDelta::from_integration(&bound_data.consumer, &env, &git, platform);
         Ok(Prepared {
             program,
@@ -329,6 +347,7 @@ fn prepare(ctx: &Ctx, args: &RunArgs, hooks: &LaunchHooks) -> Result<Prepared, R
             delta,
             operation: ids.0,
             binding: ids.1,
+            contained,
         })
     });
     rt.shutdown_background();
@@ -412,7 +431,8 @@ pub(crate) fn require_slots(
 
 /// ⟨M03⟩ The checks of a managed binding (module docs): `None` for a binding with no
 /// managed pair (M02, unchanged); otherwise the slot check, and for an owned launch the
-/// pinned arguments. On Windows an owned launch is refused until U7's contained spawn.
+/// pinned arguments. On Windows an owned launch then goes through the contained spawn
+/// ([`Prepared::contained`]).
 fn managed_checks(
     program: &heimdall_launch::resolve::ResolvedProgram,
     env: &Env,
@@ -432,13 +452,150 @@ fn managed_checks(
     } else {
         None
     };
-    if owned && cfg!(windows) {
-        return Err(launch_flow::managed_unavailable(
-            "the contained launch of the verified ssh client (Windows)",
-        ));
-    }
     require_slots(slots, binding, pairs)?;
     Ok(pinned)
+}
+
+/// ⟨M03 U7, reading R9⟩ The Windows contained launch of the verified `ssh` (ADR-0008 D8
+/// item 2): the production registrar sends `Request::Connections(Register)` over a fresh
+/// control session; any answer but `OK` fails closed.
+#[cfg(windows)]
+mod contained {
+    use std::ffi::OsString;
+    use std::path::Path;
+
+    use heimdall_contract::envelope::reason;
+    use heimdall_contract::ids::BindingId;
+    use heimdall_contract::managed::ConnectionsRequest;
+    use heimdall_contract::request::{InteractionMode, Request};
+    use heimdall_contract::{Code, ExitCode, Timestamp};
+    use heimdall_launch::LaunchFailure;
+    use heimdall_launch::windows::{ContainedFailure, Registration, spawn_contained_and_wait};
+
+    use super::Prepared;
+    use crate::cli::RunArgs;
+    use crate::client::{Ctx, connect_as};
+    use crate::launch_flow::{self, Failure};
+
+    /// One registration over a fresh session (the launch's own was closed before it).
+    fn register(
+        ctx: &Ctx,
+        interaction: InteractionMode,
+        binding: &BindingId,
+        pid: u32,
+        created_at: Timestamp,
+        image: &Path,
+    ) -> Registration {
+        let Some(image) = image.to_str() else {
+            return Registration::Failed;
+        };
+        let Ok(rt) = crate::service_cmd::current_thread() else {
+            return Registration::Failed;
+        };
+        let answer = rt.block_on(async {
+            let mut client = connect_as(ctx, false, &[], interaction).await.ok()?;
+            Some(
+                client
+                    .request(Request::Connections(ConnectionsRequest::Register {
+                        binding_id: binding.clone(),
+                        pid,
+                        created_at,
+                        image: image.to_owned(),
+                    }))
+                    .await,
+            )
+        });
+        rt.shutdown_background();
+        match answer {
+            Some(env) if env.code == Code::Ok => Registration::Registered,
+            Some(env)
+                if env.data["error"]["reason"].as_str()
+                    == Some(reason::CONNECTION_REGISTRATION_REFUSED) =>
+            {
+                Registration::Refused
+            }
+            _ => Registration::Failed,
+        }
+    }
+
+    pub(super) fn launch(
+        ctx: &Ctx,
+        args: &RunArgs,
+        prepared: Prepared,
+        meta: Option<heimdall_launch::meta::SideChannel>,
+    ) -> ExitCode {
+        let meta =
+            launch_flow::with_ids(meta, prepared.operation.clone(), prepared.binding.clone());
+        let Some(binding) = prepared.binding.clone() else {
+            let mut meta = meta;
+            return launch_flow::fail(
+                ctx,
+                &mut meta,
+                Failure::new(
+                    Code::LaunchFailed,
+                    "the contained launch has no binding to register; nothing was launched",
+                    Some(reason::CONNECTION_REGISTRATION_FAILED),
+                ),
+            );
+        };
+        let interaction = launch_flow::interaction(ctx, &args.launch);
+        let user_args: Vec<OsString> = args
+            .argv
+            .get(1..)
+            .map(<[OsString]>::to_vec)
+            .unwrap_or_default();
+        let child_args = prepared.args.clone().unwrap_or(user_args);
+        let mut registrar = |pid: u32, created_at: Timestamp, image: &Path| {
+            register(ctx, interaction, &binding, pid, created_at, image)
+        };
+        match spawn_contained_and_wait(
+            &prepared.program,
+            &child_args,
+            &prepared.delta,
+            meta,
+            &mut registrar,
+        ) {
+            Ok(code) => {
+                // The child's exact status, not an exit class.
+                #[allow(clippy::cast_possible_wrap, clippy::exit)]
+                std::process::exit(code as i32)
+            }
+            Err(failure) => {
+                let why = failure.reason();
+                match failure {
+                    ContainedFailure::Registration { refused, mut meta } => {
+                        let message = if refused {
+                            "the runtime refused to register the ssh client for this grant; the client was never resumed and nothing ran"
+                        } else {
+                            "the ssh client could not be registered with the runtime; the client was never resumed and nothing ran"
+                        };
+                        launch_flow::fail(
+                            ctx,
+                            &mut meta,
+                            Failure::new(Code::LaunchFailed, message, why),
+                        )
+                    }
+                    // The record is already written; report only.
+                    ContainedFailure::Launch(f) => {
+                        let failure = match f {
+                            LaunchFailure::Refused(r) => Failure::refused(r),
+                            LaunchFailure::MetaUnavailable => Failure::new(
+                                Code::LaunchFailed,
+                                "the run record could not be written; nothing was launched",
+                                Some(reason::META_UNAVAILABLE),
+                            ),
+                            _ => Failure::new(
+                                Code::LaunchFailed,
+                                "the program could not be started",
+                                Some(reason::EXEC_ERROR),
+                            ),
+                        };
+                        launch_flow::fail(ctx, &mut None, failure)
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

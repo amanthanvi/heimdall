@@ -2561,3 +2561,115 @@ async fn w0_no_reachable_todo() {
     }
     assert!(hits.is_empty(), "reachable placeholders: {hits:?}");
 }
+
+/// ⟨M03 wave 3, round 3⟩ The production anchors of the managed files (ADR-0008 §17.20
+/// item 7): `Paths::ensure` creates `state_dir` and `runtime_dir` (and the other
+/// directories) owner-only **whatever the umask**, tightens an existing owned directory
+/// an older install left looser, and `ManagedDir::open_root` then accepts them; an anchor
+/// loosened after `ensure` is refused (`managed_dir_unsafe`), never repaired by the
+/// managed code. The umask is set in a **child process** (a re-execution of this test
+/// binary through `/bin/sh -c 'umask 002 …'`), never in this parallel test process.
+#[cfg(unix)]
+mod umask_anchors {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::path::Path;
+
+    use heimdall_localenv::sys::{ManagedDir, ManagedDirError};
+    use heimdall_runtime::paths::Paths;
+
+    const HOME_ENV: &str = "HM_W3_UMASK_CHILD_HOME";
+
+    /// The child entry (a no-op unless re-executed by [`ensure_under_umask_002`]): it
+    /// runs the production `Paths::ensure` under the inherited umask, plus a control
+    /// directory made with the default mode, which shows the umask in effect.
+    #[test]
+    fn umask_child_entry() {
+        let Some(home) = std::env::var_os(HOME_ENV) else {
+            return;
+        };
+        let home = Path::new(&home);
+        std::fs::create_dir(home.join("control")).unwrap();
+        Paths::under(home).ensure().unwrap();
+        std::process::exit(0);
+    }
+
+    fn ensure_under_umask_002(home: &Path) {
+        let exe = std::env::current_exe().unwrap();
+        let status = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(
+                "umask 002 && exec \"$0\" --exact umask_anchors::umask_child_entry \
+                 --nocapture --test-threads=1 -q",
+            )
+            .arg(exe)
+            .env(HOME_ENV, home)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "the umask-002 child failed: {status:?}");
+    }
+
+    fn mode(p: &Path) -> u32 {
+        std::fs::symlink_metadata(p).unwrap().permissions().mode() & 0o7777
+    }
+
+    #[test]
+    fn production_anchors_are_owner_only_under_umask_002() {
+        // A fresh install under umask 002.
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        ensure_under_umask_002(&home);
+        assert_eq!(
+            mode(&home.join("control")),
+            0o775,
+            "control: the child ran under umask 002"
+        );
+        let paths = Paths::under(&home);
+        for dir in [
+            &paths.config_dir,
+            &paths.state_dir,
+            &paths.runtime_dir,
+            &paths.log_dir,
+        ] {
+            assert_eq!(mode(dir), 0o700, "{}", dir.display());
+        }
+        for anchor in [&paths.state_dir, &paths.runtime_dir] {
+            assert!(
+                ManagedDir::open_root(anchor).unwrap().is_some(),
+                "open_root accepts {}",
+                anchor.display()
+            );
+        }
+
+        // An older install left the anchors 0775: `ensure` (under umask 002 again)
+        // tightens them, and `open_root` accepts them.
+        let older = tmp.path().join("older");
+        let paths = Paths::under(&older);
+        for anchor in [&paths.state_dir, &paths.runtime_dir] {
+            std::fs::create_dir_all(anchor).unwrap();
+            std::fs::set_permissions(anchor, std::fs::Permissions::from_mode(0o775)).unwrap();
+            assert!(
+                matches!(
+                    ManagedDir::open_root(anchor),
+                    Err(ManagedDirError::Unsafe(_))
+                ),
+                "before ensure, a 0775 anchor is refused"
+            );
+        }
+        ensure_under_umask_002(&older);
+        for anchor in [&paths.state_dir, &paths.runtime_dir] {
+            assert_eq!(mode(anchor), 0o700, "{}", anchor.display());
+            assert!(ManagedDir::open_root(anchor).unwrap().is_some());
+        }
+
+        // Loosened after `ensure`: the managed code refuses it and repairs nothing.
+        std::fs::set_permissions(&paths.state_dir, std::fs::Permissions::from_mode(0o775)).unwrap();
+        let refused = ManagedDir::open_root(&paths.state_dir);
+        assert!(
+            matches!(refused, Err(ManagedDirError::Unsafe(_))),
+            "{refused:?}"
+        );
+        assert_eq!(mode(&paths.state_dir), 0o775, "never repaired by open_root");
+    }
+}

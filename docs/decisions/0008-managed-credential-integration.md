@@ -3816,6 +3816,159 @@ Decided now, implemented in later waves:
    - U8-Q2, U8-Q3, U8-Q4 and U8-Q5: as the integrator read them;
    - U8-Q6: an additive `preference` field on `inspect destinations` is authorized for U10 and U12. Until then, managed `connect` keeps M02's flow and fails closed.
 
+### 17.20 Orchestrator rulings on wave 3: the reviews, the native checks and the escalations (2026-11-11)
+
+**Sources:**
+- **The code review** (Codex, independent): `tests/evidence/artifacts/review-m03-code/wave3.md`. Verdict: fix first, with W3-R01 to W3-R11.
+- **The security review** (Codex, independent; plan §6.7): `wave3-security.md`. Verdict: fix first, with W3-S01 to W3-S05. Four were reproduced by probes against the unchanged libraries.
+- **The integrator's escalations:** `wave3-notes/m03-wave3-questions.md`.
+- **The native development checks at `3f7a582e`:**
+  - **devbox** (OpenSSH 9.6p1): 17 of the 18 selected binaries passed (654 passed, 1 failed); canary count 0. The failure is W3-N01 below;
+  - **Windows** (in-box 9.5p2): all 81 binaries passed (2239 passed, 0 failed, 6 ignored); canary count 0. All 11 `platform_only` Windows tests of U7 passed.
+
+Several findings overlap: W3-S01 is W3-R04, W3-S05 is W3-R01, and W3-S03 is part of W3-R03. Each item names every finding it covers.
+
+1. **The slot and binding files are fenced by generation and holder: W3-R01, W3-S05.**
+   - **The defect:** `files::write_generation` replaced the marker unconditionally. A delayed write for generation N, run after N+1 was claimed and written, rolled the slot back. A probe reproduced it.
+   - **The ruling:**
+     - a write refuses a generation older than the directory's marker, or a holder that differs at the same generation;
+     - a claim, its materialization and a clear of one slot are serialized, and the write re-validates the store's current holder and generation before it publishes;
+     - individual atomic renames stay, but they are not the protocol.
+   - **The regression:** a generation-1 write delayed past a release and a generation-2 claim leaves generation 2's marker and bytes unchanged.
+2. **A stale clear never unlists the current binding: W3-R02.**
+   - The signer's listing is withdrawn per binding, pair and generation. A clear for an older generation is a no-op in the signer as well as on disk. Clearing one pair withdraws only that pair.
+   - **The regression:** a binding re-materialized at generation N+1 keeps its listing after a clear for N. A second pair keeps its listing after a clear of the first.
+3. **The master lifecycle of a slot is serialized and proven: W3-R03, W3-S03, W3-N01.**
+   - **The defects:**
+     - two concurrent `start_master` calls could both take the same generation and claim one socket;
+     - `close_master` sent `-O exit` to the stable path without proving who listened there. A probe killed an unrelated replacement master;
+     - **W3-N01:** the socket identity was `(dev, ino)` alone. ext4 reused the inode number at once on the devbox (`master_socket_removed_only_if_same_inode`: left == right), so a stale cleanup could unlink generation N+1's socket.
+   - **The ruling:**
+     - start, replace and close of one slot run under one per-slot lock, and the generation is reserved inside it;
+     - **readiness is proven to belong to the spawned child.** Before a row is recorded, the listener's process must be the child: `ssh -S <path> -O check` reports `pid=<child>`, or peer credentials do. A socket that is not proven is never recorded;
+     - **a control command goes only to a proven listener.** Before `-O exit`, the path's inode and the `-O check` PID must match the row being closed. Otherwise no control command is sent, and only the verified-process signal is used;
+     - a socket is removed only under the slot's lock, while no newer generation owns the path. An inode number alone never proves identity;
+     - the test asserts the protocol, never that inode numbers differ.
+4. **Restart judges each recovered master by fresh admission facts: W3-R04, W3-S01.**
+   - **The defect:** `connection_restart_pass` kept a master whose deadline passed while the runtime was down, because the stored grant was still `Active`. A probe ran a new session over it after the deadline.
+   - **The ruling:** a recovered master is kept only if the grant is usable now under the existing time gate and admission: the absolute deadline, the cutoff, the continuous budget and the parent's bound, with time accepted. Uncertain time closes masters, as in `time_uncertain_close`.
+   - **The regression:** the deadline passes while the runtime is absent and the stored state is still `Active`. The pass closes the master, and no session is admitted after the deadline.
+5. **Only the slot holder's master serves the stable path: W3-R05.**
+   - `start_master(binding, pair)` requires:
+     - the pair is in the binding's scope;
+     - the binding holds that pair's environment slot at the slot's current generation;
+     - owned multiplexing is enabled and applied for the grant.
+   - After the spawn's awaited work, the slot holder, its generation and the policy are read again. If any changed, the new child is closed and nothing is recorded.
+   - **The regression:** a binding that does not hold the slot is refused, and a slot transfer during the spawn leaves no recorded master.
+6. **An unproven listener on the stable path never serves a managed alias: W3-S02.**
+   - **The defect:** `mux_path_occupied` refused to start a master, but ordinary `ssh` still reused the foreign listener, also after revocation. A probe reproduced it.
+   - **The ruling:**
+     - **the mux directory** `<runtime_dir>/mux/` is created and re-verified owner-only: owner, mode 0700 and no symlink component;
+     - **the stable path's entry is Heimdall's namespace.** A socket there that is not proven to be the slot holder's current master is never trusted, never recorded and never signalled;
+     - **its path entry is removed, by a same-inode check under the slot's lock,** before Heimdall starts its own master, and whenever the slot's grant ends;
+     - **the result is reported** as `mux_path_foreign_listener_removed`. The residual is disclosed: sessions already open through that listener are `not_controlled`.
+   - **The regression:** the probe's scenario. A foreign master at the path, then the grant is revoked, then an ordinary `ssh <alias>` makes no session through it.
+7. **Managed files never follow a planted directory: W3-S04.**
+   - **D10 item 2 stands: the slot files are public,** and mode 0644 is correct. The integrity requirement is on the directories.
+   - Every write, clear and enumeration under `<state_dir>/managed/` and `<runtime_dir>/b/` follows these rules:
+     - it is anchored to verified directory handles, using the repository's existing handle-relative, identity-checked patterns;
+     - it rejects a symlink or reparse point in any component;
+     - it refuses an existing directory that is not owner-only (0700, or an owner-only DACL on Windows), reporting `managed_dir_unsafe`. Nothing is repaired silently;
+     - it never deletes through a directory it has not verified.
+   - **The regression:** the probe's three cases: a parent symlink, a leaf symlink on clear, and a pre-existing 0777 directory. Also restart enumeration over a planted entry.
+8. **Coverage never exceeds the shortest certificate: W3-R06.**
+   - `check_prepared` refuses an expired or not-yet-valid certificate.
+   - `usable_until` and `offline_until` are bounded by the minimum `valid_before` across the pairs.
+   - An offline minimum beyond that bound is `capability_unavailable`.
+9. **The deadline wording follows the selection and multiplexing: W3-R07.**
+   - The policy wording is computed from the identity selection and the policy by U8's existing `plan::deadline_wording`, with no retyped text.
+   - When owned masters are applied, it adds D8 item 3's disclosure that sessions shared through Heimdall's connection end at the deadline.
+   - With today's `Undetermined` selection, the qualified D8 item 6 wording applies.
+10. **The aggregate clock is the weakest one now: W3-R08.**
+    - The revocation report chooses the pair with the largest completion allowance at the report's observation time: `behind_upper + rtt + drift × age`.
+    - An unknown measurement, or an overflow, is the weakest.
+11. **Every signal re-verifies the image: W3-R09.** The Linux pidfd stays. Before the second signal (SIGKILL), the executable and start identity are re-read, as on macOS (D8 item 2).
+12. **The Windows tests prove what they name: W3-R10.**
+    - **`windows_register_while_suspended_under_gate`** uses a managed fixture whose grant has a real registered signing gate, and contends on that gate.
+    - **`windows_non_ssh_run_has_no_job_object_by_default`** launches through `run`'s launch path. It asserts that the child is not in a job (`IsProcessInJob` false), and that a deliberately surviving grandchild outlives the launcher's normal exit.
+    - A test that cannot be built that way is renamed to what it checks.
+13. **A pass reports a discovery failure: W3-R11.**
+    - A store failure while enumerating rows, in any pass, is returned as an explicit failure, never as an empty `PassReport`.
+    - U10 then keeps the cleanup intent and retries (D7 item 2).
+14. **The escalations:**
+    - **W3-Q1:** option (a) is accepted.
+      - The master uses `OWNED_LAUNCH_PINS[0..2]` (`ForkAfterAuthentication=no`), then its own `-M -N -o ControlMaster=yes -o ControlPersist=no -o ControlPath=<mux>`, then §17.19 item 4's identity options.
+      - A unit test pins that slice to exactly `["-o", "ForkAfterAuthentication=no"]`.
+      - D8 item 3's `key.pub` and `CertificateFile` lines are superseded by §17.19 item 4.
+    - **U7-Q1:** the production edge `heimdall-runtime → heimdall-sshconf` is accepted. It adds no package and no cycle. m03-plan §0.6 is amended to list it.
+    - **U6-Q1 and U6-Q2:** accepted. `GrantScopes` must read the grant's stored scope (U10), never a request or a process file.
+    - **U6-Q3:** accepted. The selection is `unknown` until U0b phase 2, with item 9's wording.
+    - **U6-Q4:** accepted. U10 clears each slot by its own store generation. Items 1 and 2 supply the fencing.
+    - **U6-Q5: amended.** Missing grant terms refuse the computation, `grant_terms_unavailable`, instead of defaulting to `continue`. A default could report `verified` for a `revoke_on_lock` grant once a claim exists.
+      - **The regression:** a `revoke_on_lock` grant whose terms are absent never reports `verified`, even with a matching claim.
+    - **U6-Q6:** the binding endpoint is right (D10 item 4; `connect`'s derivation).
+      - The example `schemas/examples/ensure-data.managed.json` changes its `consumer.signing_endpoint` to the binding endpoint, in the locator form of item 15.
+      - The contract tests that read the example follow, and `report_for_local_managed_binding_with_empty_claim_table` compares `consumer` too.
+      - That example change is authorized. The schema is unchanged.
+    - **U7-Q2:** option (a), the reap pass, is accepted. Option (b) is optional for U0b phase 2.
+    - **U7-Q3:** accepted. Emitting the `Connection` events, with the close reason, is part of U10's delivery.
+    - **U7-Q4:** accepted. The invariant behind it is checked where rows are inserted, with a test: a dedicated row only for a launch binding with a holder, and a master only with a resource.
+    - **U7-Q5: recorded,** with the devbox row. On 9.6p1 the behaviour is the same as on 10.5p1:
+      - `-O stop` leaves the master and its sessions alive and removes the socket;
+      - a later `-O exit` fails with 255;
+      - `-O exit` alone ends the master and its sessions.
+
+      The close uses `-O exit` (item 3), then the verified-process signal, and never `-O stop`.
+
+15. **The round-2 questions** (`wave3-notes/m03-wave3-r2-questions.md`):
+    - **W3-R2-Q1:** option (a). The contract carries the **locator** the product emits and `connect` parses:
+      - `\\.\pipe\heimdall-<token>-b<tag>` on Windows, and the socket path on Unix;
+      - P's rendered spelling, `//./pipe/…`, stays a property of the configuration file (ADR-0007 §4).
+
+      The example names the locator, and the golden test compares it with no mapping. Item 14's original wording named the rendered spelling by mistake.
+    - **W3-R2-Q2:** option (b) is accepted for now.
+      - `valid_after` is read from the signer's install record, and a missing or mismatched record refuses (`prepared_certificate_not_yet_valid`).
+      - Adding `valid_after` to `PreparedCertificate` is left for U10, if the driver needs it. It would be a recorded frozen-port change.
+    - **W3-R2-Q3:** option (a) is accepted. On Windows the slot and binding files carry an owner-only DACL.
+      - "Public" in D10 item 2 means the files hold no secret. It does not require them to be readable by others.
+      - The same user's `ssh.exe` must read them, and the Windows-native run confirms this.
+    - **The disclosed residuals are accepted:**
+      - **A directory that is not owner-only, planted under `<runtime_dir>/b/`,** makes binding clears refuse `managed_dir_unsafe` until it is removed. That fails closed, and the doctor (U12) reports it.
+      - **A failed `-O check` during a close removes the path entry** of a master that is being closed anyway. Clients then connect directly, through the gated signer.
+16. **Round 3: the re-check and the second native runs.**
+    - **The re-check** (`wave3-recheck.md`, Codex, independent) of `3f7a582e..5ee3e143` was **fix first**:
+      - it confirmed W3-R01 to R11, W3-S01 to S05 and W3-N01 as resolved, with its own revert runs;
+      - **W3-C01:** the connection fixture leaked server-side command processes on green runs, and a recorded master when its store read failed;
+      - **W3-C02:** the symlink regressions were masked by the permission check.
+    - **The devbox at `5ee3e143`** failed 33 managed-file tests, for one reason:
+      - `tempfile` anchors take the user's umask, which is 002 on the devbox, so they came out 0775, and `open_root` correctly refused them;
+      - the test anchors are now created owner-only, and `open_root`'s check is unchanged.
+    - **Windows at `5ee3e143`:** all 81 binaries passed (2252 passed, 0 failed).
+    - **The fixes:**
+      - **W3-C01:** the fixture keeps exact receipts (PID, start time, image) independent of the store, the server commands end on their own, and each world audits for survivors;
+      - **W3-C02:** the planted targets are owner-only, so only no-follow can refuse them.
+    - **Production anchors keep M01's behaviour.**
+      - `Paths::ensure` creates Heimdall's directories 0700 whatever the umask, and tightens an existing one the user owns to 0700.
+      - A symlink, a non-directory or another owner's directory is refused.
+      - A directory loosened after `ensure` is refused by `open_root` with `managed_dir_unsafe`, and is not repaired.
+      - Tightening Heimdall's own directory is a safe repair; a refusal is kept for what Heimdall does not own.
+      - **The regression:** `production_anchors_are_owner_only_under_umask_002`, which runs in a child process under umask 002.
+    - **W3-R10, the gate test:** the registration test is accepted as a test of the real registration gate, using a `fake_agent` grant with a real gate that the test contends on. The full managed-credential workflow is U10's, and the test says so.
+    - **W3-R10, the non-ssh test:** when the test runs in no job, the child must not be in a job (`IsProcessInJob == false`). When the test is in an ambient job, the child's immediate job must also hold the launcher. The test stops its grandchild by exact PID and creation time.
+17. **Rounds 4 and 5: the connection fixture's process ownership** (test code only; `wave3-recheck3.md`, `wave3-recheck4.md`).
+    - **W3-C03:** a server command's shell escaped cleanup before it became `/bin/sleep`. Round 4 fixed it: an exact walk of the fixture's unreaped sshd, receipts with the image actually read, a cancel marker before `exec`, and an audit on a normal drop.
+    - **Residual, accepted and disclosed:** a shell stopped **indefinitely** before its pidfile, whose client closes before teardown, is reparented out of the sshd's tree and is not found.
+      - It needs an injected `SIGSTOP`. An ordinary delay reaches the cancel marker, or the 40 s self-termination after `exec`.
+      - The fixture's doc comment states this limit, and the drop audit claims only what is in the tree or receipted.
+      - U13's exit harness counts leftover processes by exact identity at the suite level.
+    - **W3-C04: fixed by the orchestrator.**
+      - The descendant walk could trust an intermediate parent by PID number alone. If two PIDs were reused within the walk, it could admit, and later signal, an unrelated process of the same user.
+      - The frontier now carries each walked parent's start token, and the walk confirms it again after reading the child's parent.
+      - **The regression:** `descendant_walk_never_admits_a_child_under_a_reused_parent`, a deterministic model of the reviewer's schedule. It fails with the check removed: the reused child `10002` is admitted.
+      - **Checks:** the full `integration_connections` target passed 43 of 43 on three runs, and clippy and the Linux cross-check are clean.
+      - **Not re-checked:** this small, test-only change was not independently re-reviewed.
+    - **No product code changed in rounds 3 to 5.**
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

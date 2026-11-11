@@ -23,6 +23,12 @@
 //! | [`killpg`] | Unix | `getpgrp`, `killpg(pgid, SIGKILL)` | only a process group a probe or local query created (`process_group(0)`, so the group ID is the child's PID); never 0, 1, a negative ID or this process's own group; called only while the group leader is alive or an unreaped zombie, so the ID cannot have been reused |
 //! | [`exited_unreaped`] | Unix | `waitid(P_PID, pid, WEXITED \| WNOHANG \| WNOWAIT)` | only a child this process spawned and has not reaped; `WNOWAIT` leaves it a zombie, which keeps its PID (and so its process group ID) from being reused until `Child::wait` reaps it |
 //! | [`JobObject`] | Windows | `CreateJobObjectW`, `SetInformationJobObject(JobObjectExtendedLimitInformation, KILL_ON_JOB_CLOSE)`, `OpenProcess(PROCESS_SET_QUOTA \| PROCESS_TERMINATE)`, `AssignProcessToJobObject`, `CloseHandle` (through `OwnedHandle`) | no breakaway flag is ever set; the job handle is owned by one `OwnedHandle` and closed exactly once, on drop, which kills every process still in the job; a process handle opened for assignment is closed exactly once |
+//! | ⟨M03⟩ [`JobObject::contains_pid`] | Windows | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`, `IsProcessInJob` | the process handle is owned by an `OwnedHandle` and closed exactly once; a process that cannot be opened is an error, never "not in the job" (U7) |
+//! | ⟨M03⟩ [`JobObject::spawn_suspended`], [`SuspendedChild`] | Windows | `CreateProcessW` through std with `CREATE_SUSPENDED` as the only creation flag, the [`JobObject`] calls, `GetProcessTimes` + `GetExitCodeProcess` on the child's handle; `resume`: `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`, `Thread32First`/`Thread32Next`, `OpenThread(THREAD_SUSPEND_RESUME)`, `ResumeThread` | the child is assigned to the kill-on-close job (no breakaway) before it runs any code; a failed assignment or time read terminates and reaps the still-suspended child; `resume` resumes exactly one thread from a suspend count of 1, else closes the job (the child dies never having run); every snapshot, thread and job handle is owned by one `OwnedHandle` and closed exactly once; the child's PID cannot be reused while `std::process::Child` holds its handle (ADR-0008 D8 item 2; §17.4 item 8; U7) |
+//! | ⟨M03⟩ [`current_job_process_ids`] | Windows | `IsProcessInJob(GetCurrentProcess(), NULL)`, `QueryInformationJobObject(NULL, JobObjectBasicProcessIdList)` | the pseudo-handle of `GetCurrentProcess` is never closed; a null job handle names the calling process's immediate job; the list is written into a `usize`-aligned buffer of 4 096 + 2 slots whose byte length is passed, the header read only after success, and the IDs read as a safe slice bounded by both the reported count and the buffer (§17.20 item 12; U7's no-job test) |
+//! | ⟨M03⟩ [`ProcessPin`], [`VerifiedProcess`] | Linux | `pidfd_open`, `pidfd_send_signal` (rustix, safe), `readlink(/proc/<pid>/exe)` (std) | the pidfd is opened **before** the caller compares the start token and before the image is read, so a matching start time proves the pidfd names that process, and every signal goes through the pidfd (no PID-reuse race); never PID 0, 1 or this process (ADR-0008 D8 item 2 "Closing"; U7) |
+//! | ⟨M03⟩ [`ProcessPin`], [`VerifiedProcess`] | macOS | `kill(pid, 0)` and `kill(pid, SIGTERM \| SIGKILL)` (rustix, safe), `proc_pidpath` | `proc_pidpath` writes at most the buffer's `PROC_PIDPATHINFO_MAXSIZE` bytes and its returned length is checked before any read; a signal is sent only after the caller's start-token match and the image match; the small reuse window between that check and `kill` is disclosed (D8 item 2); never PID 0, 1 or this process (U7) |
+//! | ⟨M03⟩ [`ProcessPin`], [`VerifiedProcess`] | Windows | `OpenProcess(PROCESS_TERMINATE \| PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes`, `GetExitCodeProcess`, `QueryFullProcessImageNameW(PROCESS_NAME_WIN32)`, `TerminateProcess` | the creation time and image are read on the same handle `TerminateProcess` uses, which pins the process; the handle is owned by one `OwnedHandle` and closed exactly once; the image buffer is 32 768 units and the returned length is checked before use (U7) |
 //! | [`replace_file`] | Windows | `ReplaceFileW` with a backup name | the backup keeps the displaced file's identity (`windows_replace_retains_displaced_identity_without_race`); W2-U4a |
 //! | [`handle_identity`] | Windows | `GetFileInformationByHandleEx(FileIdInfo)` | volume serial and 128-bit file ID of an open handle; W2-U4a |
 //! | `quarantine::fsentry::euid` | Unix | `geteuid()` | no preconditions; cannot fail; W2-U4a |
@@ -34,6 +40,7 @@
 //! | [`adopt_inherited_fd`] | Unix | `fcntl(F_GETFD)`, `fstat`, `fcntl(F_GETFL)`, `fcntl(F_DUPFD_CLOEXEC)`, `OwnedFd::from_raw_fd` on the duplicate, `fcntl(F_SETFD, FD_CLOEXEC)`, `fcntl(F_SETFL, flags & !O_NONBLOCK)` | `run --meta-fd`: the descriptor is above 2, open, a pipe, socket or regular file opened for writing; the returned `OwnedFd` owns a fresh duplicate, never the inherited number, so no descriptor ever has two owners (X01, §12.18 item 1); at most one adoption per process; close-on-exec and blocking after adoption (ADR-0007 §8, §12.15 item 8 E1; U8) |
 //! | [`create_owner_only_exclusive`] | Unix | `open(O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_CLOEXEC, 0600)` through `std::fs::OpenOptions` (no `unsafe` needed) | never follows or replaces an existing entry (a symlink at the name is `EEXIST`); the mode can only be narrowed by the umask |
 //! | [`create_owner_only_exclusive`] | Windows | `OpenProcessToken`, `GetTokenInformation(TokenUser)`, `ConvertSidToStringSidW`, `ConvertStringSecurityDescriptorToSecurityDescriptorW` (`O:<user>D:P(A;;FA;;;<user>)`), `CreateFileW(CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT)` with that `SECURITY_ATTRIBUTES`, `LocalFree` | every `LocalAlloc`ed buffer freed exactly once after its last use; the descriptor outlives `CreateFileW`, which copies it; a reparse point at the name is the existing entry, never followed; the handle is not inheritable (ADR-0007 §12.15 item 8 E4) |
+//! | ⟨M03⟩ [`ManagedDir`] | all | none of its own: Unix rustix `openat(O_DIRECTORY \| O_NOFOLLOW)`, `fstat`, `mkdirat`, `fchmod`, `renameat`, `fdopendir` relative to a verified directory descriptor (safe), every removal through [`QuarantineDir::remove_verified`]; Windows the `quarantine::fsentry` pin (`FILE_FLAG_OPEN_REPARSE_POINT`, no delete sharing), owner SID and owner-only DACL checks, `CreateDirectoryW` with the owner-only DACL, `ReplaceFileW`, no-replace `MoveFileExW` (their rows above) | every level below the anchor is opened relative to its verified parent, a symlink or reparse point is refused, an existing directory that is not owner-only is refused (`managed_dir_unsafe`) and never repaired; files are written to an exclusive temporary name and renamed over the target relative to the same handle; a directory is never removed (ADR-0008 §17.20 item 7; W3-S04) |
 #![allow(unsafe_code)]
 
 use std::path::PathBuf;
@@ -74,6 +81,11 @@ impl SysError {
 // (owned by W2-U4a), re-exported so every public path stays `sys::…`.
 mod quarantine;
 pub use quarantine::*;
+
+// ⟨M03⟩ ADR-0008 §17.20 item 7 (W3-S04): the managed directories' anchored file work
+// (no `unsafe` of its own; it composes `quarantine::fsentry`).
+mod managed_dir;
+pub use managed_dir::*;
 
 /// The account's home directory from the account database (ADR-0007 F19): Unix
 /// `getpwuid_r(getuid())`, Windows the profile folder of the process token. Never
@@ -262,6 +274,368 @@ impl JobObject {
     pub fn assign_child(&self, child: &std::process::Child) -> Result<(), SysError> {
         use std::os::windows::io::AsRawHandle;
         windows::job_assign_handle(&self.handle, child.as_raw_handle())
+    }
+
+    /// ⟨M03⟩ Whether the live process `pid` is in this job (`IsProcessInJob`), read on a
+    /// handle opened with `PROCESS_QUERY_LIMITED_INFORMATION` (U7's
+    /// `windows_ssh_grandchild_inside_job`). A process that cannot be opened is an
+    /// error, never `false`.
+    ///
+    /// # Errors
+    /// [`SysError`].
+    pub fn contains_pid(&self, pid: u32) -> Result<bool, SysError> {
+        windows::job_contains_pid(&self.handle, pid)
+    }
+
+    /// ⟨M03⟩ ADR-0008 D8 item 2 step 1 (§17.4 item 8; m03-plan U7): spawn `command`
+    /// **suspended** (`CREATE_SUSPENDED`, the command's only creation flag) and assign
+    /// it to a new kill-on-close job without breakaway, before any of its code runs. Its
+    /// creation time is read on the child's own handle.
+    ///
+    /// The child never runs until [`SuspendedChild::resume`]. If the assignment or the
+    /// creation-time read fails, the child is terminated (it is still suspended) and
+    /// waited for, and the error returned: no child ever runs outside the job.
+    ///
+    /// # Errors
+    /// [`SysError`] (`CreateProcessW` through std, the job, the assignment, the time).
+    pub fn spawn_suspended(mut command: std::process::Command) -> Result<SuspendedChild, SysError> {
+        use std::os::windows::process::CommandExt;
+        let job = JobObject::kill_on_close()?;
+        command.creation_flags(windows::CREATE_SUSPENDED_FLAG);
+        let mut child = command.spawn().map_err(|e| {
+            SysError::new(
+                "CreateProcessW",
+                format!(
+                    "{:?} (os error {})",
+                    e.kind(),
+                    e.raw_os_error().unwrap_or(0)
+                ),
+            )
+        })?;
+        let contained = job
+            .assign_child(&child)
+            .and_then(|()| windows::child_creation_time(&child));
+        match contained {
+            Ok(created_at) => Ok(SuspendedChild {
+                pid: child.id(),
+                created_at,
+                job,
+                child,
+            }),
+            Err(e) => {
+                // Still suspended: it has run no code. Terminate and reap it.
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(e)
+            }
+        }
+    }
+}
+
+/// ⟨M03⟩ A child created suspended inside its kill-on-close job
+/// ([`JobObject::spawn_suspended`]; ADR-0008 D8 item 2). It has run no code. The launcher
+/// registers `pid` and `created_at` (the creation time read on the child's handle, the
+/// value `Connections::Register` carries) while it stays suspended, then calls
+/// [`SuspendedChild::resume`] only after a successful reply; any refusal is
+/// [`SuspendedChild::close`] (or a drop), which closes the job and so kills the child
+/// before it ever ran.
+#[cfg(windows)]
+#[derive(Debug)]
+pub struct SuspendedChild {
+    /// The child's PID (stable: this value holds the child's process handle).
+    pub pid: u32,
+    /// The child's creation time, read on its handle (`GetProcessTimes`).
+    pub created_at: heimdall_contract::Timestamp,
+    /// The kill-on-close job holding the child.
+    pub job: JobObject,
+    child: std::process::Child,
+}
+
+/// ⟨M03⟩ A resumed contained child: the job stays open as long as this value (the
+/// launcher) does, so the launcher's death ends the child (ADR-0008 D8 item 2).
+#[cfg(windows)]
+#[derive(Debug)]
+pub struct ContainedChild {
+    /// The kill-on-close job holding the child.
+    pub job: JobObject,
+    /// The running child.
+    pub child: std::process::Child,
+}
+
+#[cfg(windows)]
+impl SuspendedChild {
+    /// Resume the child's only thread (a `CREATE_SUSPENDED` process has exactly one),
+    /// found by a thread snapshot (`CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`) and
+    /// opened with `THREAD_SUSPEND_RESUME`. Anything but exactly one thread resumed from
+    /// a suspend count of 1 is an error, and the job is then closed (the child dies).
+    ///
+    /// # Errors
+    /// [`SysError`]; the child has been terminated.
+    pub fn resume(self) -> Result<ContainedChild, SysError> {
+        match windows::resume_only_thread(self.pid) {
+            Ok(()) => Ok(ContainedChild {
+                job: self.job,
+                child: self.child,
+            }),
+            Err(e) => {
+                self.close();
+                Err(e)
+            }
+        }
+    }
+
+    /// Close the job, which kills the still-suspended child, and reap it.
+    pub fn close(self) {
+        let SuspendedChild { job, mut child, .. } = self;
+        drop(job);
+        // The job's close terminated it; `kill` covers a job close that did not.
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+/// ⟨M03⟩ The job this process is directly in, if any (ADR-0008 §17.20 item 12): `None`
+/// when `IsProcessInJob(GetCurrentProcess(), NULL)` is false; otherwise the IDs of the
+/// processes in the calling process's **immediate** job (for nested jobs, the
+/// innermost), from `QueryInformationJobObject(NULL, JobObjectBasicProcessIdList)`.
+/// U7's `windows_non_ssh_run_has_no_job_object_by_default` reads it inside the child
+/// `run` launched: a job of the child's own would not contain the launcher.
+///
+/// # Errors
+/// [`SysError`] (either call; more than 4 096 processes in the job is
+/// `ERROR_MORE_DATA`).
+#[cfg(windows)]
+pub fn current_job_process_ids() -> Result<Option<Vec<u32>>, SysError> {
+    windows::current_job_process_ids()
+}
+
+// --- ⟨M03⟩ owned-connection identity and signalling (ADR-0008 D8 item 2 "Closing";
+// reading R8) ---------------------------------------------------------------------------
+
+/// ⟨M03⟩ A process pinned for verification and signalling (ADR-0008 D8 item 2):
+///
+/// * **Linux:** a pidfd (`pidfd_open`, rustix's safe wrapper), opened **before** any
+///   verification, so a later matching start time proves the pidfd names that process,
+///   and every signal goes through it (no PID-reuse race);
+/// * **macOS:** the PID only. A small reuse window remains between the verification and
+///   `kill` (disclosed, D8 item 2);
+/// * **Windows:** a handle opened with `PROCESS_TERMINATE |
+///   PROCESS_QUERY_LIMITED_INFORMATION`; the creation time and the image are read on it,
+///   and `TerminateProcess` is called on it.
+///
+/// A pin cannot signal: only [`ProcessPin::verify`] makes a [`VerifiedProcess`], and
+/// only from a matching start identity and image. Nothing here looks a process up by
+/// name or pattern.
+#[derive(Debug)]
+pub struct ProcessPin {
+    pid: u32,
+    #[cfg(target_os = "linux")]
+    fd: std::os::fd::OwnedFd,
+    #[cfg(windows)]
+    handle: std::os::windows::io::OwnedHandle,
+}
+
+/// ⟨M03⟩ A process whose start identity and image were verified
+/// ([`ProcessPin::verify`]): the only value that can be signalled.
+#[derive(Debug)]
+pub struct VerifiedProcess(ProcessPin);
+
+impl ProcessPin {
+    /// Pin `pid`. `Ok(None)`: no such process (Linux/macOS `ESRCH`; Windows
+    /// `ERROR_INVALID_PARAMETER`). PID 0, 1 and this process are refused.
+    ///
+    /// # Errors
+    /// [`SysError`] (another failure, for example access denied: the caller reports the
+    /// identity unverified).
+    pub fn open(pid: u32) -> Result<Option<ProcessPin>, SysError> {
+        if pid <= 1 || pid == std::process::id() {
+            return Err(SysError::new("process_pin", "refused process ID"));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let raw = i32::try_from(pid)
+                .ok()
+                .and_then(rustix::process::Pid::from_raw)
+                .ok_or_else(|| SysError::new("pidfd_open", "process ID out of range"))?;
+            match rustix::process::pidfd_open(raw, rustix::process::PidfdFlags::empty()) {
+                Ok(fd) => Ok(Some(ProcessPin { pid, fd })),
+                Err(rustix::io::Errno::SRCH) => Ok(None),
+                Err(e) => Err(SysError::new(
+                    "pidfd_open",
+                    format!("os error {}", e.raw_os_error()),
+                )),
+            }
+        }
+        #[cfg(all(unix, not(target_os = "linux")))]
+        {
+            let raw = i32::try_from(pid)
+                .ok()
+                .and_then(rustix::process::Pid::from_raw)
+                .ok_or_else(|| SysError::new("kill", "process ID out of range"))?;
+            match rustix::process::test_kill_process(raw) {
+                Ok(()) | Err(rustix::io::Errno::PERM) => Ok(Some(ProcessPin { pid })),
+                Err(rustix::io::Errno::SRCH) => Ok(None),
+                Err(e) => Err(SysError::new(
+                    "kill",
+                    format!("os error {}", e.raw_os_error()),
+                )),
+            }
+        }
+        #[cfg(windows)]
+        {
+            windows::open_process_pin(pid).map(|h| h.map(|handle| ProcessPin { pid, handle }))
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            Err(SysError::new("process_pin", "unsupported platform"))
+        }
+    }
+
+    /// The pinned PID.
+    #[must_use]
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// The process's executable image: Linux `/proc/<pid>/exe` (read after the pidfd
+    /// was opened), macOS `proc_pidpath`, Windows `QueryFullProcessImageNameW` on the
+    /// pinned handle. `None` when it cannot be read (exited, or not this user's).
+    #[must_use]
+    pub fn image(&self) -> Option<PathBuf> {
+        #[cfg(target_os = "linux")]
+        {
+            std::fs::read_link(format!("/proc/{}/exe", self.pid)).ok()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            unix::proc_pidpath(self.pid)
+        }
+        #[cfg(windows)]
+        {
+            windows::process_image(&self.handle)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+        {
+            None
+        }
+    }
+
+    /// Windows: the creation time read on the pinned handle (`GetProcessTimes`), as the
+    /// `Timestamp` `Connections::Register` carries; `None` once the process has exited.
+    #[cfg(windows)]
+    #[must_use]
+    pub fn created_at(&self) -> Option<heimdall_contract::Timestamp> {
+        windows::handle_creation_time(&self.handle)
+    }
+
+    /// Verify the pin. `start_token_matches` is the caller's comparison of the
+    /// persisted start token with one read **after** [`ProcessPin::open`] (on Unix from
+    /// the same source that wrote it, `heimdall_runtime::platform::process_start_time`;
+    /// on Windows [`ProcessPin::created_at`]). The image is read here, after that, and
+    /// must equal `expected_image` (Unix: after canonicalizing `expected_image`;
+    /// Windows: ASCII case-insensitively, without a `\\?\` prefix). A process still
+    /// running another image (on Unix `heimdall` before or after a failed `exec`) is
+    /// refused. `None`: not verified, never to be signalled.
+    #[must_use]
+    pub fn verify(
+        self,
+        start_token_matches: bool,
+        expected_image: &std::path::Path,
+    ) -> Option<VerifiedProcess> {
+        if !start_token_matches {
+            return None;
+        }
+        let image = self.image()?;
+        image_matches(&image, expected_image).then_some(VerifiedProcess(self))
+    }
+}
+
+/// Whether a read process image is the expected one (see [`ProcessPin::verify`]).
+fn image_matches(image: &std::path::Path, expected: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        let strip = |p: &std::path::Path| {
+            let s = p.to_string_lossy().into_owned();
+            s.strip_prefix("\\\\?\\").map(str::to_owned).unwrap_or(s)
+        };
+        strip(image).eq_ignore_ascii_case(&strip(expected))
+    }
+    #[cfg(not(windows))]
+    {
+        let expected = std::fs::canonicalize(expected).unwrap_or_else(|_| expected.to_path_buf());
+        image == expected
+    }
+}
+
+/// A signal to a verified process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProcessSignal {
+    /// Unix `SIGTERM`; Windows `TerminateProcess`.
+    Terminate,
+    /// Unix `SIGKILL`; Windows `TerminateProcess`.
+    Kill,
+}
+
+impl VerifiedProcess {
+    /// The verified PID.
+    #[must_use]
+    pub fn pid(&self) -> u32 {
+        self.0.pid
+    }
+
+    /// Send `signal`: Linux `pidfd_send_signal` on the pidfd; macOS `kill` on the PID;
+    /// Windows `TerminateProcess` (exit code 1) on the handle. A process that is already
+    /// gone (`ESRCH`; Windows: already exited) is not an error.
+    ///
+    /// # Errors
+    /// [`SysError`].
+    pub fn signal(&self, signal: ProcessSignal) -> Result<(), SysError> {
+        #[cfg(unix)]
+        let sig = match signal {
+            ProcessSignal::Terminate => rustix::process::Signal::TERM,
+            ProcessSignal::Kill => rustix::process::Signal::KILL,
+        };
+        #[cfg(target_os = "linux")]
+        {
+            match rustix::process::pidfd_send_signal(&self.0.fd, sig) {
+                Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
+                Err(e) => Err(SysError::new(
+                    "pidfd_send_signal",
+                    format!("os error {}", e.raw_os_error()),
+                )),
+            }
+        }
+        #[cfg(all(unix, not(target_os = "linux")))]
+        {
+            let raw = i32::try_from(self.0.pid)
+                .ok()
+                .and_then(rustix::process::Pid::from_raw)
+                .ok_or_else(|| SysError::new("kill", "process ID out of range"))?;
+            match rustix::process::kill_process(raw, sig) {
+                Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
+                Err(e) => Err(SysError::new(
+                    "kill",
+                    format!("os error {}", e.raw_os_error()),
+                )),
+            }
+        }
+        #[cfg(windows)]
+        {
+            let _ = signal;
+            windows::terminate(&self.0.handle)
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = signal;
+            Err(SysError::new("signal", "unsupported platform"))
+        }
+    }
+
+    /// Windows: whether the process has exited (`GetExitCodeProcess` on the handle).
+    #[cfg(windows)]
+    #[must_use]
+    pub fn exited(&self) -> bool {
+        windows::handle_creation_time(&self.0.handle).is_none()
     }
 }
 
@@ -485,6 +859,24 @@ mod unix {
         }
         Ok(owned)
     }
+
+    /// ⟨M03⟩ The executable path of `pid` (`proc_pidpath`), or `None`.
+    #[cfg(target_os = "macos")]
+    pub(super) fn proc_pidpath(pid: u32) -> Option<PathBuf> {
+        let pid = libc::c_int::try_from(pid).ok()?;
+        let size = usize::try_from(libc::PROC_PIDPATHINFO_MAXSIZE).ok()?;
+        let mut buf = vec![0u8; size];
+        let len = u32::try_from(buf.len()).ok()?;
+        // SAFETY: `buf` is `len` writable bytes that outlive the call; proc_pidpath
+        // writes at most `len` bytes and returns the length written (0 or less on
+        // failure), checked before any read.
+        let rc = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), len) };
+        let n = usize::try_from(rc)
+            .ok()
+            .filter(|n| *n > 0 && *n <= buf.len())?;
+        buf.truncate(n);
+        Some(PathBuf::from(OsStr::from_bytes(&buf)))
+    }
 }
 
 #[cfg(windows)]
@@ -496,7 +888,8 @@ mod windows {
     use std::ptr;
 
     use windows_sys::Win32::Foundation::{
-        GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, LocalFree,
+        FILETIME, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, LocalFree,
+        STILL_ACTIVE,
     };
     use windows_sys::Win32::Security::Authorization::{
         ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
@@ -510,13 +903,20 @@ mod windows {
         CREATE_NEW, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OPEN_REPARSE_POINT,
         FILE_SHARE_READ,
     };
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
     use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        SetInformationJobObject,
+        AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_BASIC_PROCESS_ID_LIST,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicProcessIdList,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
     };
     use windows_sys::Win32::System::Threading::{
-        GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        CREATE_SUSPENDED, GetCurrentProcess, GetExitCodeProcess, GetProcessTimes, OpenProcess,
+        OpenProcessToken, OpenThread, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+        PROCESS_SET_QUOTA, PROCESS_TERMINATE, QueryFullProcessImageNameW, ResumeThread,
+        THREAD_SUSPEND_RESUME, TerminateProcess,
     };
     use windows_sys::Win32::System::WindowsProgramming::GetComputerNameW;
     use windows_sys::Win32::UI::Shell::GetUserProfileDirectoryW;
@@ -752,6 +1152,256 @@ mod windows {
         // SAFETY: OpenProcess succeeded; the handle is owned here and closed once.
         let process = unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) };
         job_assign_handle(job, process.as_raw_handle())
+    }
+
+    // --- ⟨M03⟩ contained launch and owned-connection identity (U7; reading R8) -------
+
+    /// `CREATE_SUSPENDED`, the only creation flag of a contained launch.
+    pub(super) const CREATE_SUSPENDED_FLAG: u32 = CREATE_SUSPENDED;
+
+    /// The `ERROR_INVALID_PARAMETER` `OpenProcess` returns for a PID with no process.
+    const ERROR_INVALID_PARAMETER: i32 = 87;
+
+    /// Windows FILETIME ticks (100 ns since 1601-01-01) at the Unix epoch.
+    const FILETIME_UNIX_EPOCH: u64 = 116_444_736_000_000_000;
+
+    pub(super) fn job_contains_pid(job: &OwnedHandle, pid: u32) -> Result<bool, SysError> {
+        // SAFETY: plain call; a failure returns null.
+        let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if raw.is_null() {
+            return Err(SysError::last_os("OpenProcess"));
+        }
+        // SAFETY: OpenProcess succeeded; the handle is owned here and closed once.
+        let process = unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) };
+        let mut inside: windows_sys::core::BOOL = 0;
+        // SAFETY: both handles are open for the call; `inside` is a valid out-pointer.
+        let ok = unsafe {
+            IsProcessInJob(
+                process.as_raw_handle() as HANDLE,
+                job.as_raw_handle() as HANDLE,
+                &raw mut inside,
+            )
+        };
+        if ok == 0 {
+            return Err(SysError::last_os("IsProcessInJob"));
+        }
+        Ok(inside != 0)
+    }
+
+    /// See [`super::current_job_process_ids`].
+    pub(super) fn current_job_process_ids() -> Result<Option<Vec<u32>>, SysError> {
+        let mut inside: windows_sys::core::BOOL = 0;
+        // SAFETY: `GetCurrentProcess` returns a pseudo-handle that needs no closing; a
+        // null job handle asks about any job; `inside` is a valid out-pointer.
+        let ok = unsafe { IsProcessInJob(GetCurrentProcess(), ptr::null_mut(), &raw mut inside) };
+        if ok == 0 {
+            return Err(SysError::last_os("IsProcessInJob"));
+        }
+        if inside == 0 {
+            return Ok(None);
+        }
+        const SLOTS: usize = 4096;
+        let first = std::mem::offset_of!(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList);
+        if first % size_of::<usize>() != 0
+            || std::mem::align_of::<JOBOBJECT_BASIC_PROCESS_ID_LIST>() > align_of::<usize>()
+        {
+            return Err(SysError::new(
+                "QueryInformationJobObject",
+                "unexpected list layout",
+            ));
+        }
+        let first = first / size_of::<usize>();
+        let mut buf = vec![0usize; first + SLOTS];
+        let bytes = u32::try_from(buf.len() * size_of::<usize>())
+            .map_err(|_| SysError::new("QueryInformationJobObject", "buffer too large"))?;
+        // SAFETY: a null job handle names the calling process's immediate job; `buf` is
+        // writable for `bytes` bytes and aligned for the structure (checked above); the
+        // returned-length pointer may be null.
+        let ok = unsafe {
+            QueryInformationJobObject(
+                ptr::null_mut(),
+                JobObjectBasicProcessIdList,
+                buf.as_mut_ptr().cast::<c_void>(),
+                bytes,
+                ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(SysError::last_os("QueryInformationJobObject"));
+        }
+        // SAFETY: the call succeeded, so the header at the start of `buf` (aligned and
+        // inside it) is initialized.
+        let listed = unsafe {
+            (*buf.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>()).NumberOfProcessIdsInList
+        };
+        let n = usize::try_from(listed).unwrap_or(SLOTS).min(SLOTS);
+        Ok(Some(
+            buf[first..first + n]
+                .iter()
+                .filter_map(|&id| u32::try_from(id).ok())
+                .collect(),
+        ))
+    }
+
+    /// The creation time of a **live** process, read on `handle` (`GetProcessTimes`;
+    /// `GetExitCodeProcess` says it is still active), as a `Timestamp`.
+    fn creation_time(handle: HANDLE) -> Option<heimdall_contract::Timestamp> {
+        let zero = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+        // SAFETY: `handle` is an open process handle with query rights (the caller's);
+        // every out-pointer is valid, aligned and writable.
+        let times = unsafe {
+            GetProcessTimes(
+                handle,
+                &raw mut created,
+                &raw mut exited,
+                &raw mut kernel,
+                &raw mut user,
+            )
+        };
+        let mut code: u32 = 0;
+        // SAFETY: as above; `code` is a writable u32.
+        let alive = unsafe { GetExitCodeProcess(handle, &raw mut code) } != 0
+            && code == STILL_ACTIVE.cast_unsigned();
+        if times == 0 || !alive {
+            return None;
+        }
+        let ticks = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+        let since_epoch = ticks.checked_sub(FILETIME_UNIX_EPOCH)?;
+        heimdall_contract::Timestamp::from_nanosecond(i128::from(since_epoch) * 100).ok()
+    }
+
+    pub(super) fn handle_creation_time(
+        handle: &OwnedHandle,
+    ) -> Option<heimdall_contract::Timestamp> {
+        creation_time(handle.as_raw_handle() as HANDLE)
+    }
+
+    pub(super) fn child_creation_time(
+        child: &std::process::Child,
+    ) -> Result<heimdall_contract::Timestamp, SysError> {
+        creation_time(child.as_raw_handle() as HANDLE)
+            .ok_or_else(|| SysError::new("GetProcessTimes", "creation time unavailable"))
+    }
+
+    /// Resume the only thread of the suspended process `pid` (module docs of
+    /// `SuspendedChild::resume`).
+    pub(super) fn resume_only_thread(pid: u32) -> Result<(), SysError> {
+        // SAFETY: plain call; a failure returns INVALID_HANDLE_VALUE.
+        let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if snap == INVALID_HANDLE_VALUE {
+            return Err(SysError::last_os("CreateToolhelp32Snapshot"));
+        }
+        // SAFETY: the snapshot handle is owned here alone and closed exactly once.
+        let snap = unsafe { OwnedHandle::from_raw_handle(snap as RawHandle) };
+        // SAFETY: plain old data; all-zero is valid, and dwSize is set before use.
+        let mut entry: THREADENTRY32 = unsafe { std::mem::zeroed() };
+        entry.dwSize = u32::try_from(size_of::<THREADENTRY32>())
+            .map_err(|_| SysError::new("Thread32First", "size out of range"))?;
+        let mut threads = Vec::new();
+        // SAFETY: the snapshot is open; `entry` is a valid THREADENTRY32 with dwSize set.
+        let mut more =
+            unsafe { Thread32First(snap.as_raw_handle() as HANDLE, &raw mut entry) } != 0;
+        while more {
+            if entry.th32OwnerProcessID == pid {
+                threads.push(entry.th32ThreadID);
+            }
+            // SAFETY: as above.
+            more = unsafe { Thread32Next(snap.as_raw_handle() as HANDLE, &raw mut entry) } != 0;
+        }
+        drop(snap);
+        let [thread] = threads[..] else {
+            return Err(SysError::new(
+                "Thread32Next",
+                format!("{} threads in a suspended child", threads.len()),
+            ));
+        };
+        // SAFETY: plain call; a failure returns null.
+        let raw = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread) };
+        if raw.is_null() {
+            return Err(SysError::last_os("OpenThread"));
+        }
+        // SAFETY: OpenThread succeeded; the handle is owned here and closed once.
+        let thread = unsafe { OwnedHandle::from_raw_handle(raw as RawHandle) };
+        // SAFETY: an open thread handle with THREAD_SUSPEND_RESUME.
+        let previous = unsafe { ResumeThread(thread.as_raw_handle() as HANDLE) };
+        if previous == u32::MAX {
+            return Err(SysError::last_os("ResumeThread"));
+        }
+        if previous != 1 {
+            return Err(SysError::new(
+                "ResumeThread",
+                format!("suspend count {previous}"),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn open_process_pin(pid: u32) -> Result<Option<OwnedHandle>, SysError> {
+        // SAFETY: plain call; a failure returns null.
+        let raw = unsafe {
+            OpenProcess(
+                PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+                0,
+                pid,
+            )
+        };
+        if raw.is_null() {
+            let e = std::io::Error::last_os_error();
+            if e.raw_os_error() == Some(ERROR_INVALID_PARAMETER) {
+                return Ok(None);
+            }
+            return Err(SysError::new(
+                "OpenProcess",
+                format!(
+                    "{:?} (os error {})",
+                    e.kind(),
+                    e.raw_os_error().unwrap_or(0)
+                ),
+            ));
+        }
+        // SAFETY: OpenProcess succeeded; the handle is owned by the pin and closed once.
+        Ok(Some(unsafe {
+            OwnedHandle::from_raw_handle(raw as RawHandle)
+        }))
+    }
+
+    pub(super) fn process_image(handle: &OwnedHandle) -> Option<PathBuf> {
+        let mut buf = vec![0u16; MAX_PROFILE_CHARS as usize];
+        let mut len = MAX_PROFILE_CHARS;
+        // SAFETY: `buf` holds `len` UTF-16 units and outlives the call; the handle has
+        // PROCESS_QUERY_LIMITED_INFORMATION; `len` is updated to the units written.
+        let ok = unsafe {
+            QueryFullProcessImageNameW(
+                handle.as_raw_handle() as HANDLE,
+                PROCESS_NAME_WIN32,
+                buf.as_mut_ptr(),
+                &raw mut len,
+            )
+        };
+        if ok == 0 || len as usize > buf.len() {
+            return None;
+        }
+        Some(PathBuf::from(OsString::from_wide(&buf[..len as usize])))
+    }
+
+    pub(super) fn terminate(handle: &OwnedHandle) -> Result<(), SysError> {
+        if creation_time(handle.as_raw_handle() as HANDLE).is_none() {
+            return Ok(());
+        }
+        // SAFETY: an open process handle with PROCESS_TERMINATE.
+        if unsafe { TerminateProcess(handle.as_raw_handle() as HANDLE, 1) } == 0 {
+            // Exited between the check and the call: access denied on an exiting
+            // process; re-check before reporting.
+            if creation_time(handle.as_raw_handle() as HANDLE).is_none() {
+                return Ok(());
+            }
+            return Err(SysError::last_os("TerminateProcess"));
+        }
+        Ok(())
     }
 
     /// Memory an API documents `LocalFree` as the release for.

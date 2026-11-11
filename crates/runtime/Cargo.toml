@@ -20,6 +20,11 @@ heimdall-ipc = { workspace = true }
 # cleaner (`heimdall-localenv`) and the existing-access adapters (`heimdall-adapters`).
 heimdall-localenv = { workspace = true }
 heimdall-adapters = { workspace = true }
+# M03 wave 3 (U7, reading R4; U7-Q1): the owned master's argv uses the command-line half
+# of P's directive set (`heimdall_sshconf::render::{OWNED_LAUNCH_PINS,
+# managed_identity_options}`), never retyped. sshconf is already in runtime's graph through
+# localenv (contract, domain only): no package enters the lock and no cycle forms.
+heimdall-sshconf = { workspace = true }
 # M03 (m03-plan §0.6; ADR-0008 §18): the signer and endpoints, the issuer client and
 # supervision, the verifier (VerificationRunner).
 heimdall-credential = { workspace = true }
@@ -117,3 +122,9 @@ path = "../../tests/integration/runtime_m03.rs"
 [[test]]
 name = "integration_session_lock"
 path = "../../tests/integration/session_lock.rs"
+
+# M03-U7 connection control: owned masters, owned dedicated connections, the policies
+# (m03-plan U7; ADR-0008 D8).
+[[test]]
+name = "integration_connections"
+path = "../../tests/integration/connections.rs"

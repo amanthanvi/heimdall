@@ -373,13 +373,43 @@ four more (4–7 below; ADR-0008 §18, ⟨r7⟩ §17.17 item 5 for the fourth):
    `fs::renameat_with` (m02-plan §6 P5; `dependencies.md`). The module's own table
    lists each call with its invariant.
 
+   ⟨M03⟩ U7 (m03-plan U7; ADR-0008 D8 item 2; reading R8 of wave 3) adds, with these
+   invariants (the module's table repeats them per call):
+
+   | Call | Invariant |
+   |---|---|
+   | `JobObject::spawn_suspended` (Windows): `CreateProcessW` through std with `CREATE_SUSPENDED` as the only creation flag, the job calls above, `GetProcessTimes`/`GetExitCodeProcess` on the child's handle | the child is assigned to the kill-on-close job (no breakaway) before it runs any code; a failed assignment or creation-time read terminates and reaps the still-suspended child |
+   | `SuspendedChild::resume` (Windows): `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`, `Thread32First`/`Thread32Next`, `OpenThread(THREAD_SUSPEND_RESUME)`, `ResumeThread` | exactly one thread, resumed from a suspend count of 1; anything else closes the job, so the child dies never having run; every snapshot and thread handle is owned by one `OwnedHandle` and closed once |
+   | `JobObject::contains_pid` (Windows): `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`, `IsProcessInJob` | a process that cannot be opened is an error, never "not in the job" |
+   | `current_job_process_ids` (Windows): `IsProcessInJob(GetCurrentProcess(), NULL)`, `QueryInformationJobObject(NULL, JobObjectBasicProcessIdList)` | the current-process pseudo-handle is never closed; the list goes into a `usize`-aligned buffer whose byte length is passed, the header is read only after success, and the IDs as a safe slice bounded by the reported count and the buffer (§17.20 item 12) |
+   | `ProcessPin`/`VerifiedProcess` (Linux): `pidfd_open`, `pidfd_send_signal` (rustix, safe), `readlink(/proc/<pid>/exe)` | the pidfd is opened before the start token and image are checked, and every signal goes through it (no PID-reuse race); never PID 0, 1 or this process |
+   | `ProcessPin`/`VerifiedProcess` (macOS): `kill` (rustix, safe), `proc_pidpath` | the path length returned is checked before any read; a signal only after the start-token and image match; the window between that check and `kill` is disclosed (D8 item 2) |
+   | `ProcessPin`/`VerifiedProcess` (Windows): `OpenProcess(PROCESS_TERMINATE \| PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes`, `GetExitCodeProcess`, `QueryFullProcessImageNameW`, `TerminateProcess` | the creation time and image are read on the handle `TerminateProcess` uses, which pins the process |
+
+   Only a `VerifiedProcess` can be signalled, and only `ProcessPin::verify` makes one:
+   from a start token read after the pin and compared by the caller with the persisted
+   one (Unix: `platform.rs`'s `process_start_time`, the writer's source; Windows: the
+   creation time on the handle), then the image. Nothing signals by name or pattern.
+
+   ⟨M03⟩ `sys/managed_dir.rs` (ADR-0008 §17.20 item 7; W3-S04) adds `ManagedDir`, the
+   anchored file work of `<state_dir>/managed/` and `<runtime_dir>/b/`, with **no
+   `unsafe` of its own**: on Unix rustix's safe `openat(O_DIRECTORY | O_NOFOLLOW)`,
+   `fstat`, `mkdirat`, `fchmod`, `renameat` and `fdopendir` relative to a verified
+   directory descriptor, and every removal through `QuarantineDir::remove_verified`
+   (the name is first moved into the directory's validated `.hm-quarantine`); on Windows the `quarantine::fsentry` calls above (the
+   reparse-point-refusing, no-delete-sharing pin, owner SID and owner-only DACL checks,
+   `CreateDirectoryW` with the owner-only DACL, `ReplaceFileW`, no-replace `MoveFileExW`).
+   Invariant: every level below the anchor is opened relative to its verified parent; a
+   symlink or reparse point is refused, an existing directory that is not owner-only is
+   refused (`managed_dir_unsafe`) and never repaired, and a directory is never removed.
+
 ⟨M03⟩ Three more modules may opt in (ADR-0008 §18; m03-plan U0). Wave 0 declares none
 of them: each is created, with its `#![allow(unsafe_code)]` and its own table, by the
 unit named below, and the table here is the invariant each call must keep. The
-existing `crates/localenv/src/sys/mod.rs` also gains `JobObject::spawn_contained` (U7:
-`CREATE_SUSPENDED`, assignment, then `ResumeThread` on the main thread found through
-`CreateToolhelp32Snapshot`/`Thread32First`/`Thread32Next`), and `pidfd_open`/
-`pidfd_send_signal` go through `rustix` or the existing `platform.rs`.
+existing `crates/localenv/src/sys/mod.rs` also gains U7's contained launch
+(`JobObject::spawn_suspended`, `SuspendedChild::resume`) and the owned-connection pin
+(`ProcessPin`, `VerifiedProcess`), listed under item 3 above; `pidfd_open`/
+`pidfd_send_signal` go through `rustix`.
 
 4. `crates/credential/src/sys.rs` (U1; memory protection of K_env, K_verify and their
    certificates, ADR-0008 D1, D2):

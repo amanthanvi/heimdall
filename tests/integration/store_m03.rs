@@ -1431,6 +1431,39 @@ fn owned_connection_insert_and_close_by_generation() {
     .unwrap();
 }
 
+/// ⟨M03 wave 3⟩ U7-Q4 (ADR-0008 §17.20 item 14): a dedicated row is inserted only for a
+/// launch binding with a recorded holder (the connection passes find dedicated rows
+/// through the holders); a master row needs no holder.
+#[test]
+fn dedicated_owned_connection_needs_the_binding_holder() {
+    let s = mem();
+    s.transaction(|tx| {
+        let (g, b) = grant_and_binding(tx, 1, 1);
+        let mut dedicated = connection(1, &b, &g, 1);
+        dedicated.kind = ConnectionKind::Dedicated;
+        dedicated.control_path = None;
+        assert!(
+            tx.insert_owned_connection(&dedicated).is_err(),
+            "a dedicated row without its binding's holder is refused"
+        );
+        assert_eq!(tx.owned_connection(&dedicated.id)?, None);
+        tx.set_binding_holder(
+            &b,
+            &heimdall_domain::holder::ProcessHolder {
+                pid: 4242,
+                started_at: "start-1".into(),
+            },
+        )?;
+        tx.insert_owned_connection(&dedicated)?;
+        assert_eq!(tx.owned_connection(&dedicated.id)?, Some(dedicated.clone()));
+        // A master row needs no holder.
+        let (g2, b2) = grant_and_binding(tx, 2, 2);
+        tx.insert_owned_connection(&connection(2, &b2, &g2, 1))?;
+        Ok(())
+    })
+    .unwrap();
+}
+
 // --- foreign removals ------------------------------------------------------------------
 
 /// `insert_foreign_removal`, `transition_foreign_removal`, `foreign_removal`,
