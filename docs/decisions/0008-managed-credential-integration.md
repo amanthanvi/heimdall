@@ -3935,6 +3935,26 @@ Several findings overlap: W3-S01 is W3-R04, W3-S05 is W3-R01, and W3-S03 is part
     - **The disclosed residuals are accepted:**
       - **A directory that is not owner-only, planted under `<runtime_dir>/b/`,** makes binding clears refuse `managed_dir_unsafe` until it is removed. That fails closed, and the doctor (U12) reports it.
       - **A failed `-O check` during a close removes the path entry** of a master that is being closed anyway. Clients then connect directly, through the gated signer.
+16. **Round 3: the re-check and the second native runs.**
+    - **The re-check** (`wave3-recheck.md`, Codex, independent) of `3f7a582e..5ee3e143` was **fix first**:
+      - it confirmed W3-R01 to R11, W3-S01 to S05 and W3-N01 as resolved, with its own revert runs;
+      - **W3-C01:** the connection fixture leaked server-side command processes on green runs, and a recorded master when its store read failed;
+      - **W3-C02:** the symlink regressions were masked by the permission check.
+    - **The devbox at `5ee3e143`** failed 33 managed-file tests, for one reason:
+      - `tempfile` anchors take the user's umask, which is 002 on the devbox, so they came out 0775, and `open_root` correctly refused them;
+      - the test anchors are now created owner-only, and `open_root`'s check is unchanged.
+    - **Windows at `5ee3e143`:** all 81 binaries passed (2252 passed, 0 failed).
+    - **The fixes:**
+      - **W3-C01:** the fixture keeps exact receipts (PID, start time, image) independent of the store, the server commands end on their own, and each world audits for survivors;
+      - **W3-C02:** the planted targets are owner-only, so only no-follow can refuse them.
+    - **Production anchors keep M01's behaviour.**
+      - `Paths::ensure` creates Heimdall's directories 0700 whatever the umask, and tightens an existing one the user owns to 0700.
+      - A symlink, a non-directory or another owner's directory is refused.
+      - A directory loosened after `ensure` is refused by `open_root` with `managed_dir_unsafe`, and is not repaired.
+      - Tightening Heimdall's own directory is a safe repair; a refusal is kept for what Heimdall does not own.
+      - **The regression:** `production_anchors_are_owner_only_under_umask_002`, which runs in a child process under umask 002.
+    - **W3-R10, the gate test:** the registration test is accepted as a test of the real registration gate, using a `fake_agent` grant with a real gate that the test contends on. The full managed-credential workflow is U10's, and the test says so.
+    - **W3-R10, the non-ssh test:** when the test runs in no job, the child must not be in a job (`IsProcessInJob == false`). When the test is in an ambient job, the child's immediate job must also hold the launcher. The test stops its grandchild by exact PID and creation time.
 
 ## 18. Consequences
 

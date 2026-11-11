@@ -206,15 +206,48 @@ mod unix {
         /// test recorded for them are stopped by exact identity (a panicking test leaks
         /// none).
         bindings: Mutex<Vec<BindingId>>,
+        /// Fixture-owned receipts (exact PID, start token, image) of every process this
+        /// world started or recorded: its children, the masters it saw started, and the
+        /// loopback server's commands ([`World::remote_sleep`]). Cleanup uses them even
+        /// when the store cannot be read; the drop audit checks them all.
+        receipts: Mutex<Vec<Receipt>>,
+        /// Pidfiles of remote commands not yet read into a receipt.
+        remote_pending: Mutex<Vec<PathBuf>>,
         next: Mutex<u8>,
     }
 
+    /// What a receipt names.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Role {
+        /// A child of the test, stopped by its handle.
+        Child,
+        /// A master a supervisor under test started, stopped by exact identity.
+        Master,
+        /// A loopback-server command (`exec /bin/sleep`), stopped by exact identity.
+        Remote,
+    }
+
+    /// One process's exact identity, read when the fixture started or recorded it.
+    #[derive(Debug, Clone)]
+    struct Receipt {
+        role: Role,
+        pid: u32,
+        token: String,
+        image: PathBuf,
+    }
+
+    /// The bound of every fixture remote command (self-terminating even if cleanup
+    /// never ran); no test needs a session longer than this.
+    const REMOTE_SECS: u32 = 40;
+
     impl Drop for World {
         fn drop(&mut self) {
-            // The masters the supervisors under test started and recorded (also on a
-            // panic, before the fixture sshd goes): each by its exact PID, start token
-            // and image, never by name. A master a supervisor never recorded was already
-            // killed by its own start guard.
+            // Remote commands whose pidfile appeared but was not read yet.
+            self.collect_remote(Duration::ZERO);
+            // The masters the supervisors under test started and recorded: the fixture's
+            // own receipts, and the store's rows when it can be read (a failure never
+            // drops a receipt). Then the server's commands. Each by its exact PID, start
+            // token and image (`stop_exact`), never by name; before the fixture sshd goes.
             let bindings = self
                 .bindings
                 .lock()
@@ -233,8 +266,26 @@ mod unix {
             .ok()
             .and_then(Result::ok)
             .unwrap_or_default();
+            let mut receipts = self
+                .receipts
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
             for c in rows.iter().filter(|c| c.kind == ConnectionKind::Master) {
-                stop_exact(c.pid, &c.start_token, Path::new(&c.image));
+                if !receipts
+                    .iter()
+                    .any(|r| r.pid == c.pid && r.token == c.start_token)
+                {
+                    receipts.push(Receipt {
+                        role: Role::Master,
+                        pid: c.pid,
+                        token: c.start_token.clone(),
+                        image: PathBuf::from(&c.image),
+                    });
+                }
+            }
+            for r in receipts.iter().filter(|r| r.role != Role::Child) {
+                stop_exact(r.pid, &r.token, &r.image);
             }
             // The test's own children, by their handles.
             for mut c in self
@@ -246,6 +297,40 @@ mod unix {
                 let _ = c.kill();
                 let _ = c.wait();
             }
+            record_receipts(&receipts);
+            // The audit (§W3-C01): none of the exact identities this world started or
+            // recorded survives it. Skipped while unwinding (the panic is the report).
+            if !std::thread::panicking() {
+                let survivors: Vec<u32> = receipts
+                    .iter()
+                    .filter(|r| {
+                        !wait_until(Duration::from_secs(5), || {
+                            process_start_time(r.pid).as_deref() != Some(r.token.as_str())
+                        })
+                    })
+                    .map(|r| r.pid)
+                    .collect();
+                assert!(
+                    survivors.is_empty(),
+                    "processes this test started or recorded survived it: {survivors:?}"
+                );
+            }
+        }
+    }
+
+    /// `HM_U7_RECEIPTS`: append every receipt (`<pid> <start token>`) to that file, for
+    /// an exact-PID audit after the whole target ran.
+    fn record_receipts(receipts: &[Receipt]) {
+        use std::io::Write as _;
+        let Some(path) = std::env::var_os("HM_U7_RECEIPTS") else {
+            return;
+        };
+        let text: String = receipts
+            .iter()
+            .map(|r| format!("{} {}\n", r.pid, r.token))
+            .collect();
+        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = f.write_all(text.as_bytes());
         }
     }
 
@@ -395,6 +480,8 @@ mod unix {
             pairs,
             children: Mutex::new(Vec::new()),
             bindings: Mutex::new(Vec::new()),
+            receipts: Mutex::new(Vec::new()),
+            remote_pending: Mutex::new(Vec::new()),
             next: Mutex::new(1),
         }
     }
@@ -404,6 +491,102 @@ mod unix {
             let mut n = self.next.lock().unwrap();
             *n += 1;
             *n
+        }
+
+        /// Keep a receipt of `pid` (read now) in `role` with `image`.
+        fn receipt(&self, role: Role, pid: u32, image: &Path) {
+            if let Some(token) = process_start_time(pid) {
+                self.receipts
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(Receipt {
+                        role,
+                        pid,
+                        token,
+                        image: image.to_path_buf(),
+                    });
+            }
+        }
+
+        /// A master a supervisor under test started: its receipt, from the row.
+        fn track(&self, m: &OwnedConnection) {
+            self.receipts
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(Receipt {
+                    role: Role::Master,
+                    pid: m.pid,
+                    token: m.start_token.clone(),
+                    image: PathBuf::from(&m.image),
+                });
+        }
+
+        /// A self-terminating remote command for the loopback server: it writes its
+        /// own PID to a fixture pidfile, then `exec`s `/bin/sleep <REMOTE_SECS>` (same
+        /// PID). [`World::collect_remote`] turns the pidfile into an exact receipt.
+        fn remote_sleep(&self) -> String {
+            let n = self.n();
+            let pidfile = self.home.root.join(format!("remote-{n}.pid"));
+            self.remote_pending
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(pidfile.clone());
+            format!(
+                "echo $$ > {}; exec /bin/sleep {REMOTE_SECS}",
+                heimdall_testkit::home::sh_quote(pidfile.as_os_str())
+            )
+        }
+
+        /// Read the pending remote pidfiles into receipts, waiting up to `bound` for
+        /// each to appear (the command runs only once its session is admitted).
+        fn collect_remote(&self, bound: Duration) {
+            let pending: Vec<PathBuf> = self
+                .remote_pending
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .drain(..)
+                .collect();
+            for f in pending {
+                let mut pid = None;
+                wait_until(bound, || {
+                    pid = fs::read_to_string(&f)
+                        .ok()
+                        .and_then(|t| t.trim().parse::<u32>().ok());
+                    pid.is_some()
+                });
+                match pid {
+                    Some(pid) => {
+                        // The pidfile is written just before the `exec`: wait (bounded)
+                        // until the process runs the image the receipt names, so exact
+                        // cleanup never meets the shell in its place.
+                        let sleep = fs::canonicalize("/bin/sleep").ok();
+                        wait_until(Duration::from_secs(5), || {
+                            heimdall_localenv::sys::ProcessPin::open(pid)
+                                .ok()
+                                .flatten()
+                                .and_then(|p| p.image())
+                                == sleep
+                        });
+                        self.receipt(Role::Remote, pid, Path::new("/bin/sleep"));
+                    }
+                    None if bound.is_zero() => {}
+                    None => self
+                        .remote_pending
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push(f),
+                }
+            }
+        }
+
+        /// A long-running ordinary client the test owns whose remote command is a
+        /// tracked [`World::remote_sleep`]; returns the client's exact PID once the
+        /// remote command runs.
+        fn spawn_remote_sleep(&self, alias: &str) -> u32 {
+            let command = self.remote_sleep();
+            let pid = self.spawn_ordinary(alias, &[&command]);
+            self.collect_remote(Duration::from_secs(20));
+            pid
         }
 
         fn config(&self) -> ConnectionConfig {
@@ -583,7 +766,9 @@ mod unix {
             i: usize,
         ) -> OwnedConnection {
             self.hold(b, i);
-            rt.block_on(sup.start_master(b, &self.pair(i))).unwrap()
+            let m = rt.block_on(sup.start_master(b, &self.pair(i))).unwrap();
+            self.track(&m);
+            m
         }
 
         /// The binding directory of `b` (its endpoint, `key.pub`, `cert-<dest>.pub`).
@@ -623,6 +808,7 @@ mod unix {
                 .unwrap();
             let pid = child.id();
             self.children.lock().unwrap().push(child);
+            self.receipt(Role::Child, pid, &self.ssh);
             assert!(
                 wait_until(Duration::from_secs(20), || self
                     .master_pid(&p.alias, &p.mux)
@@ -682,6 +868,7 @@ mod unix {
             let child = cmd.spawn().unwrap();
             let pid = child.id();
             self.children.lock().unwrap().push(child);
+            self.receipt(Role::Child, pid, &self.ssh);
             pid
         }
 
@@ -698,7 +885,7 @@ mod unix {
         /// until the server accepted its authentication.
         fn dedicated(&self, g: &GrantId, b: &BindingId, alias: &str) -> OwnedConnection {
             let before = self.auths();
-            let pid = self.spawn_ordinary(alias, &["sleep", "120"]);
+            let pid = self.spawn_remote_sleep(alias);
             let end = Instant::now() + Duration::from_secs(20);
             while self.auths() == before {
                 assert!(
@@ -759,6 +946,7 @@ mod unix {
                 .unwrap();
             let pid = child.id();
             self.children.lock().unwrap().push(child);
+            self.receipt(Role::Child, pid, Path::new(program));
             pid
         }
 
@@ -1163,7 +1351,9 @@ mod unix {
             .map(|a| heimdall_testkit::home::sh_quote(a))
             .collect();
         client_words.push(format!("{}-direct", w.pairs[0].alias));
-        client_words.push("sleep 120".into());
+        client_words.push(heimdall_testkit::home::sh_quote(std::ffi::OsStr::new(
+            &w.remote_sleep(),
+        )));
         let script = format!(
             "while [ ! -e {m} ]; do sleep 0.05; done; exec {ssh} {args}",
             m = heimdall_testkit::home::sh_quote(marker.as_os_str()),
@@ -1183,6 +1373,7 @@ mod unix {
             .unwrap();
         let pid = child.id();
         w.children.lock().unwrap().push(child);
+        w.receipt(Role::Child, pid, Path::new("/bin/sh"));
         assert!(wait_until(Duration::from_secs(2), || process_start_time(
             pid
         )
@@ -1208,6 +1399,7 @@ mod unix {
             wait_until(Duration::from_secs(20), || w.auths() > before),
             "the exec'd client authenticated"
         );
+        w.collect_remote(Duration::from_secs(20));
         let r = rt
             .block_on(sup.revocation_close(std::slice::from_ref(&g)))
             .unwrap();
@@ -1313,7 +1505,7 @@ mod unix {
         let rt = rt();
         let m = w.start(&sup, &rt, &b, 0);
         let a = w.auths();
-        let session = w.spawn_ordinary(&w.pairs[0].alias, &["sleep", "120"]);
+        let session = w.spawn_remote_sleep(&w.pairs[0].alias);
         std::thread::sleep(Duration::from_millis(800));
         assert!(
             w.reap(session).is_none(),
@@ -1487,7 +1679,7 @@ mod unix {
         // `-O stop`.
         let (_g1, b1) = w.grant(graceful_masters(), true);
         let m = w.start(&sup, &rt, &b1, 0);
-        let session = w.spawn_ordinary(&alias, &["sleep", "120"]);
+        let session = w.spawn_remote_sleep(&alias);
         std::thread::sleep(Duration::from_millis(800));
         let stop = control("stop");
         std::thread::sleep(Duration::from_millis(500));
@@ -1517,7 +1709,7 @@ mod unix {
         // `-O exit`.
         let (_g2, b2) = w.grant(graceful_masters(), true);
         let m = w.start(&sup, &rt, &b2, 0);
-        let session = w.spawn_ordinary(&alias, &["sleep", "120"]);
+        let session = w.spawn_remote_sleep(&alias);
         std::thread::sleep(Duration::from_millis(800));
         let exit = control("exit");
         let gone = wait_until(Duration::from_secs(5), || !alive(m.pid, &m.start_token));
@@ -1546,7 +1738,7 @@ mod unix {
         // The loopback server runs as this account, so the "remote" process is a local
         // PID this test started and stops itself.
         let remote = format!(
-            "nohup sleep 120 >/dev/null 2>&1 < /dev/null & echo $! > {}",
+            "nohup /bin/sleep {REMOTE_SECS} >/dev/null 2>&1 < /dev/null & echo $! > {}",
             pidfile.display()
         );
         assert!(w.ordinary(&w.pairs[0].alias, &[&remote]).status.success());
@@ -1556,6 +1748,7 @@ mod unix {
             .parse()
             .unwrap();
         let token = process_start_time(pid).unwrap();
+        w.receipt(Role::Remote, pid, Path::new("/bin/sleep"));
         rt.block_on(sup.revocation_close(std::slice::from_ref(&g)))
             .unwrap();
         let survived = alive(pid, &token);
@@ -1593,8 +1786,7 @@ mod unix {
         ));
         let (g, b) = w.grant(policy(ExistingConnectionsMode::Strict, false), true);
         // A shell the launcher would run, with an ssh child of its own.
-        let shell_child =
-            w.spawn_ordinary(&format!("{}-direct", w.pairs[0].alias), &["sleep", "60"]);
+        let shell_child = w.spawn_remote_sleep(&format!("{}-direct", w.pairs[0].alias));
         let r = rt()
             .block_on(w.supervisor().revocation_close(std::slice::from_ref(&g)))
             .unwrap();
@@ -1847,6 +2039,8 @@ mod unix {
             tokio::join!(sup.start_master(&b, &pair), sup.start_master(&b, &pair))
         });
         let (a, c) = (a.unwrap(), c.unwrap());
+        w.track(&a);
+        w.track(&c);
         assert_ne!(
             a.generation, c.generation,
             "each start reserved its own generation"
@@ -1882,7 +2076,7 @@ mod unix {
         let alias = w.pairs[0].alias.clone();
         let mux = w.pairs[0].mux.clone();
         let m = w.start(&sup, &rt, &b, 0);
-        let session = w.spawn_ordinary(&alias, &["sleep", "120"]);
+        let session = w.spawn_remote_sleep(&alias);
         std::thread::sleep(Duration::from_millis(800));
         assert!(w.reap(session).is_none(), "a session through the master");
         let stop = Command::new(&w.ssh)
@@ -1947,6 +2141,7 @@ mod unix {
         }
         let foreign = w.foreign_master(&b, 0);
         let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        w.track(&m);
         assert_eq!(sup.foreign_listeners_removed(), vec![mux.clone()]);
         assert_eq!(w.master_pid(&alias, &mux), Some(m.pid));
         w.end_grant(&g, GrantState::Revoked);
@@ -2274,6 +2469,51 @@ mod unix {
         assert!(with_holder);
         let _ = g;
         rt.block_on(sup.shutdown());
+    }
+
+    /// W3-C01 (b): a test that panics while the store cannot be read leaks nothing. A
+    /// world starts a master and a session through it (a tracked server command), arms
+    /// the store's transaction failure and panics; its drop cannot read the rows, and
+    /// stops the master and the server command from its own receipts, by exact
+    /// identity.
+    #[test]
+    fn panic_with_store_failure_leaks_no_process() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let probe = std::thread::spawn(move || {
+            let w = world();
+            let (_g, b) = w.grant(graceful_masters(), true);
+            let sup = w.supervisor();
+            let rt = rt();
+            let m = w.start(&sup, &rt, &b, 0);
+            let client = w.spawn_remote_sleep(&w.pairs[0].alias);
+            let identities: Vec<(u32, String)> = w
+                .receipts
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|r| (r.pid, r.token.clone()))
+                .collect();
+            assert!(identities.iter().any(|(p, _)| *p == m.pid));
+            assert!(identities.iter().any(|(p, _)| *p == client));
+            assert!(identities.len() >= 3, "master, client and server command");
+            tx.send(identities).unwrap();
+            w.faults.0.store(true, Ordering::SeqCst);
+            assert!(
+                w.store
+                    .transaction(|tx| tx.owned_connection(&m.id))
+                    .is_err(),
+                "the store fails"
+            );
+            panic!("forced panic with the master up and the store failing");
+        });
+        assert!(probe.join().is_err(), "the probe panicked");
+        let identities = rx.recv().unwrap();
+        let survivors: Vec<u32> = identities
+            .iter()
+            .filter(|(p, t)| !wait_until(Duration::from_secs(5), || !alive(*p, t)))
+            .map(|(p, _)| *p)
+            .collect();
+        assert!(survivors.is_empty(), "survivors: {survivors:?}");
     }
 
     /// Every process the test (and the supervisor in it) started is gone after the

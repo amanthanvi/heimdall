@@ -774,8 +774,8 @@ impl World {
 
     async fn with(o: Opts) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("state")).unwrap();
-        std::fs::create_dir_all(dir.path().join("run")).unwrap();
+        owner_only_anchor(&dir.path().join("state"));
+        owner_only_anchor(&dir.path().join("run"));
         let db = dir.path().join("state").join("state.db");
         let store = Arc::new(Store::open(&db, Arc::new(NoFaults)).unwrap());
         let ca = SecretCaKey::generate().unwrap();
@@ -1294,8 +1294,8 @@ fn slot_and_binding_files_are_generation_bound() {
     let dir = tempfile::tempdir().unwrap();
     // The anchors exist (the state and runtime directories); every level below them is
     // created owner-only (§17.20 item 7).
-    std::fs::create_dir(dir.path().join("state")).unwrap();
-    std::fs::create_dir(dir.path().join("run")).unwrap();
+    owner_only_anchor(&dir.path().join("state"));
+    owner_only_anchor(&dir.path().join("run"));
     let root = SlotRoot {
         data_dir: dir.path().join("state"),
         environment: env_id(),
@@ -4131,10 +4131,25 @@ fn fix_cert(n: u8) -> String {
 }
 
 /// A scratch state and runtime directory (the anchors exist, as in production).
+/// The state or runtime directory a managed root is opened at, created owner-only as
+/// `Paths::ensure` creates it in production (mode 0700, explicitly, whatever the umask:
+/// the devbox's umask 002 would leave a plain `create_dir` at 0775, which the anchor
+/// check refuses; ADR-0008 §17.20 item 7, round 3).
+fn owner_only_anchor(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+        std::fs::DirBuilder::new().mode(0o700).create(path).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    #[cfg(not(unix))]
+    std::fs::create_dir(path).unwrap();
+}
+
 fn anchors() -> (tempfile::TempDir, SlotRoot, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("state")).unwrap();
-    std::fs::create_dir(dir.path().join("run")).unwrap();
+    owner_only_anchor(&dir.path().join("state"));
+    owner_only_anchor(&dir.path().join("run"));
     let root = SlotRoot {
         data_dir: dir.path().join("state"),
         environment: env_id(),
@@ -4429,37 +4444,49 @@ fn managed_files_never_follow_a_planted_directory() {
     let unsafe_dir = |r: Result<Vec<PathBuf>, files::FilesError>| {
         assert!(matches!(r, Err(files::FilesError::Unsafe(_))), "{r:?}");
     };
+    // W3-C02: only the no-follow refusal may fire. Every planted target is an
+    // **acceptable** directory (owned, mode 0700, set explicitly whatever the umask), so
+    // the permission check cannot mask a followed link; the refusal must name the link.
+    let link_refused = |r: Result<(), files::FilesError>, what: &str| match r {
+        Err(files::FilesError::Unsafe(why)) => {
+            assert!(
+                why.contains("symlink"),
+                "{what}: refused for {why}, not the link"
+            )
+        }
+        other => panic!("{what}: a planted symlink was followed: {other:?}"),
+    };
+    let owner_only_victim = |p: &Path| {
+        std::fs::create_dir(p).unwrap();
+        set_mode(p, 0o700);
+        assert_eq!(mode(p), 0o700, "the victim is an acceptable directory");
+    };
     let b1 = BindingId::from_random_bytes([1; 16]);
 
-    // 1. A parent symlink: `<state_dir>/managed` → an unrelated directory.
+    // 1. A parent symlink: `<state_dir>/managed` → an unrelated owner-only directory.
     let (dir, root, _rd) = anchors();
     let victim = dir.path().join("victim");
-    std::fs::create_dir(&victim).unwrap();
+    owner_only_victim(&victim);
     symlink(&victim, root.data_dir.join("managed")).unwrap();
-    unsafe_dir(files::write_slot(
-        &root,
-        &env_id(),
-        &h1(),
-        &b1,
-        1,
-        FIX_KEY,
-        &fix_cert(1),
-    ));
+    link_refused(
+        files::write_slot(&root, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1)).map(|_| ()),
+        "parent write",
+    );
     assert_eq!(
         std::fs::read_dir(&victim).unwrap().count(),
         0,
         "nothing written there"
     );
-    assert!(matches!(
-        files::slots_written_by(&root.data_dir, &b1),
-        Err(files::FilesError::Unsafe(_))
-    ));
+    link_refused(
+        files::slots_written_by(&root.data_dir, &b1).map(|_| ()),
+        "parent enumeration",
+    );
 
     // 2. A leaf symlink on clear: `<state_dir>/managed/h1` → a directory holding a
     // matching plaintext marker and the slot's file names.
     let (dir, root, rd) = anchors();
     let victim = dir.path().join("victim");
-    std::fs::create_dir(&victim).unwrap();
+    owner_only_victim(&victim);
     for (n, c) in [
         (files::GENERATION_FILE, format!("1 {}\n", b1.as_str())),
         ("key.pub", "unrelated\n".to_owned()),
@@ -4471,18 +4498,36 @@ fn managed_files_never_follow_a_planted_directory() {
     std::fs::create_dir(&managed).unwrap();
     set_mode(&managed, 0o700);
     symlink(&victim, managed.join("h1")).unwrap();
-    assert!(matches!(
-        files::clear_slot(&root, &env_id(), &h1(), 1),
-        Err(files::FilesError::Unsafe(_))
-    ));
-    assert!(matches!(
-        files::slot_generation(&root, &h1()),
-        Err(files::FilesError::Unsafe(_))
-    ));
-    assert!(matches!(
-        files::clear_slot_dir(&managed.join("h1"), &b1, 1),
-        Err(files::FilesError::Unsafe(_))
-    ));
+    let victim_names = || {
+        let mut n: Vec<String> = std::fs::read_dir(&victim)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    };
+    let before = victim_names();
+    link_refused(
+        files::clear_slot(&root, &env_id(), &h1(), 1).map(|_| ()),
+        "leaf clear",
+    );
+    link_refused(
+        files::slot_generation(&root, &h1()).map(|_| ()),
+        "leaf read",
+    );
+    link_refused(
+        files::clear_slot_dir(&managed.join("h1"), &b1, 1).map(|_| ()),
+        "leaf clear by directory",
+    );
+    link_refused(
+        files::write_slot(&root, &env_id(), &h1(), &b1, 2, FIX_KEY, &fix_cert(2)).map(|_| ()),
+        "leaf write",
+    );
+    assert_eq!(
+        victim_names(),
+        before,
+        "nothing written into or removed from it"
+    );
     // Restart enumeration over the planted entry: never followed, never listed.
     assert!(
         files::slots_written_by(&root.data_dir, &b1)
@@ -4495,12 +4540,20 @@ fn managed_files_never_follow_a_planted_directory() {
     set_mode(&rd.join("b"), 0o700);
     symlink(&victim, rd.join("b").join(tag.as_str())).unwrap();
     let bf = files::binding_files(&rd, &tag, &[h1().destination]).unwrap();
-    assert!(matches!(
-        files::clear_binding_files(&bf, &b1, 1),
-        Err(files::FilesError::Unsafe(_))
-    ));
-    unsafe_dir(files::write_binding_files(&bf, &b1, 1, FIX_KEY, &[]));
+    link_refused(
+        files::clear_binding_files(&bf, &b1, 1).map(|_| ()),
+        "binding clear",
+    );
+    link_refused(
+        files::write_binding_files(&bf, &b1, 1, FIX_KEY, &[]).map(|_| ()),
+        "binding write",
+    );
     assert!(files::binding_directories_of(&rd, &b1).unwrap().is_empty());
+    assert_eq!(
+        victim_names(),
+        before,
+        "nothing written into or removed from it"
+    );
     for n in [files::GENERATION_FILE, "key.pub", "cert.pub"] {
         assert!(
             victim.join(n).exists(),
@@ -4510,10 +4563,11 @@ fn managed_files_never_follow_a_planted_directory() {
     // A planted `b` itself: refused.
     let (_d3, _root3, rd3) = anchors();
     symlink(&victim, rd3.join("b")).unwrap();
-    assert!(matches!(
-        files::binding_directories_of(&rd3, &b1),
-        Err(files::FilesError::Unsafe(_))
-    ));
+    link_refused(
+        files::binding_directories_of(&rd3, &b1).map(|_| ()),
+        "planted b",
+    );
+    assert_eq!(victim_names(), before);
 
     // 3. A pre-existing 0777 directory: refused, `managed_dir_unsafe`, never repaired.
     let (_d4, root, _rd) = anchors();
@@ -4598,8 +4652,15 @@ fn managed_dir_windows_refuses_inherited_dacl_and_junction() {
     assert!(matches!(r, Err(files::FilesError::Unsafe(_))), "{r:?}");
     // A junction (no privilege needed) at `managed`.
     let (dir2, root2, _rd2) = anchors();
+    // W3-C02: the victim gets Heimdall's owner-only DACL (created through `ManagedDir`,
+    // which then verifies it), so only the reparse-point refusal can fire.
     let victim = dir2.path().join("victim");
-    std::fs::create_dir(&victim).unwrap();
+    heimdall_localenv::sys::ManagedDir::open_root(dir2.path())
+        .unwrap()
+        .unwrap()
+        .child("victim", true)
+        .unwrap()
+        .unwrap();
     let status = std::process::Command::new("cmd")
         .args(["/C", "mklink", "/J"])
         .arg(root2.data_dir.join("managed"))
@@ -4609,7 +4670,10 @@ fn managed_dir_windows_refuses_inherited_dacl_and_junction() {
         .unwrap();
     assert!(status.success(), "mklink /J failed");
     let r = files::write_slot(&root2, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1));
-    assert!(matches!(r, Err(files::FilesError::Unsafe(_))), "{r:?}");
+    assert!(
+        matches!(&r, Err(files::FilesError::Unsafe(why)) if why.contains("reparse point")),
+        "{r:?}"
+    );
     assert_eq!(std::fs::read_dir(&victim).unwrap().count(), 0);
     // The positive case: created levels pass their own check.
     let (_d3, root3, _rd3) = anchors();

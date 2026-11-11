@@ -516,13 +516,21 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt as _;
 
+    /// A scratch anchor created owner-only (mode 0700 whatever the umask: under the
+    /// devbox's umask 002 `tempdir()` is 0775, which `open_root` rightly refuses).
+    fn owner_only_tempdir() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        tmp
+    }
+
     fn mode(p: &Path) -> u32 {
         std::fs::symlink_metadata(p).unwrap().permissions().mode() & 0o7777
     }
 
     #[test]
     fn levels_are_created_owner_only_and_verified() {
-        let tmp = tempfile::tempdir().unwrap();
+        let tmp = owner_only_tempdir();
         let root = ManagedDir::open_root(tmp.path()).unwrap().unwrap();
         let a = root.child("managed", true).unwrap().unwrap();
         assert_eq!(mode(&tmp.path().join("managed")), 0o700);
@@ -542,16 +550,31 @@ mod tests {
 
     #[test]
     fn symlinks_and_open_directories_are_refused_never_repaired() {
-        let tmp = tempfile::tempdir().unwrap();
-        let elsewhere = tempfile::tempdir().unwrap();
+        let tmp = owner_only_tempdir();
+        // W3-C02: the link's target is an acceptable directory (owned, 0700), so only
+        // the no-follow refusal can fire, never the permission check.
+        let elsewhere = owner_only_tempdir();
+        assert!(
+            ManagedDir::open_root(elsewhere.path())
+                .unwrap()
+                .unwrap()
+                .child("sub", true)
+                .unwrap()
+                .is_some()
+        );
         std::os::unix::fs::symlink(elsewhere.path(), tmp.path().join("link")).unwrap();
         let root = ManagedDir::open_root(tmp.path()).unwrap().unwrap();
         for create in [false, true] {
-            assert!(matches!(
-                root.child("link", create),
-                Err(ManagedDirError::Unsafe(_))
-            ));
+            match root.child("link", create) {
+                Err(ManagedDirError::Unsafe(why)) => assert!(why.contains("symlink"), "{why}"),
+                other => panic!("the link was followed: {other:?}"),
+            }
         }
+        assert_eq!(
+            std::fs::read_dir(elsewhere.path()).unwrap().count(),
+            1,
+            "nothing created through the link"
+        );
         std::fs::create_dir(tmp.path().join("open")).unwrap();
         std::fs::set_permissions(
             tmp.path().join("open"),

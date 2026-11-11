@@ -458,6 +458,12 @@ mod windows {
     /// contended: held exclusively past the wait, the registration is refused
     /// (`gate_timeout`) and the child dies suspended; held and released while the
     /// registration waits, the registration completes only after the release.
+    ///
+    /// **What it tests (§17.20 item 16):** the **registration gate**: U0b row 26's shared
+    /// acquisition of the grant's signing gate around the registration. The grant is a
+    /// `fake_agent` fixture grant whose gate is registered with `SigningGates::retain`;
+    /// this is not evidence of a managed credential (that workflow is U10's). The plan
+    /// name `windows_register_while_suspended_under_gate` is kept.
     #[test]
     fn windows_register_while_suspended_under_gate() {
         let w = world(ExistingConnectionsMode::Graceful);
@@ -954,7 +960,14 @@ mod windows {
             || "none".to_owned(),
             |ids| ids.iter().map(u32::to_string).collect::<Vec<_>>().join(","),
         );
-        std::fs::write(&out, format!("{job}\n{pid} {created}\n")).unwrap();
+        // `current_job_process_ids` is `None` exactly when `IsProcessInJob(
+        // GetCurrentProcess(), NULL)` is false.
+        let in_job = job != "none";
+        std::fs::write(
+            &out,
+            format!("{job}\n{pid} {created}\nis_process_in_job={in_job}\n"),
+        )
+        .unwrap();
     }
 
     /// §17.3 item 1 (Q18), §17.20 item 12: only a managed launch of the verified ssh gets
@@ -1016,12 +1029,27 @@ mod windows {
         let job = lines.next().unwrap();
         let (gpid, created) = lines.next().unwrap().split_once(' ').unwrap();
         let (gpid, created): (u32, Timestamp) = (gpid.parse().unwrap(), created.parse().unwrap());
+        // The grandchild is stopped when this test ends, pass or fail: by its exact PID
+        // and creation time, verified on a handle (`ProcessPin`), never by name.
+        let grandchild = ExactStop { pid: gpid, created };
+        let child_in_job = match lines.next() {
+            Some("is_process_in_job=true") => true,
+            Some("is_process_in_job=false") => false,
+            other => panic!("the fixture child's IsProcessInJob line: {other:?}"),
+        };
         let ambient = heimdall_localenv::sys::current_job_process_ids().unwrap();
         println!(
             "m03 observation: windows_non_ssh_run child_job={} test_in_job={}",
             if job == "none" { "none" } else { "enclosing" },
             ambient.is_some()
         );
+        if ambient.is_none() {
+            // No enclosing job: the child must be in none at all.
+            assert!(
+                !child_in_job,
+                "IsProcessInJob is false for the child (no job of Heimdall's)"
+            );
+        }
         if job != "none" {
             let ids: Vec<u32> = job.split(',').map(|i| i.parse().unwrap()).collect();
             assert!(
@@ -1030,17 +1058,35 @@ mod windows {
             );
         }
         let survived = alive(gpid, &created);
-        // Stop the grandchild by its exact PID and creation time (the test caused it).
-        if let Ok(Some(pin)) = heimdall_localenv::sys::ProcessPin::open(gpid)
-            && pin.created_at().as_ref() == Some(&created)
-            && let Some(image) = pin.image()
-            && let Some(v) = pin.verify(true, &image)
-        {
-            let _ = v.signal(heimdall_localenv::sys::ProcessSignal::Kill);
-        }
         assert!(
             survived,
             "a grandchild outlives the launcher's normal exit (no kill-on-close job)"
         );
+        drop(grandchild);
+        assert!(
+            !alive(gpid, &created),
+            "the grandchild was stopped by its exact PID"
+        );
+    }
+
+    /// Stops one process this test caused, on drop: only if `ProcessPin` opens `pid` and
+    /// reads `created` on its handle, then verifies the image it reads on that handle,
+    /// and signals through the verified handle. Bounded wait for the exit.
+    struct ExactStop {
+        pid: u32,
+        created: Timestamp,
+    }
+
+    impl Drop for ExactStop {
+        fn drop(&mut self) {
+            if let Ok(Some(pin)) = heimdall_localenv::sys::ProcessPin::open(self.pid)
+                && pin.created_at().as_ref() == Some(&self.created)
+                && let Some(image) = pin.image()
+                && let Some(v) = pin.verify(true, &image)
+            {
+                let _ = v.signal(heimdall_localenv::sys::ProcessSignal::Kill);
+                let _ = wait_until(Duration::from_secs(10), || !alive(self.pid, &self.created));
+            }
+        }
     }
 }
