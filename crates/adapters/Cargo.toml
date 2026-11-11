@@ -27,7 +27,15 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-heimdall-testkit = { workspace = true }
+heimdall-testkit = { workspace = true, features = ["fixtures", "managed"] }
+# M03 wave 3 (m03-plan U6 "Owner paths"): the managed adapter suite drives a real issuer
+# child (`heimdall-issuer`), the signer (`heimdall-credential`, already a production
+# edge) and a real store (`heimdall-store`). Workspace crates as dev-dependencies only.
+heimdall-issuer = { workspace = true }
+heimdall-store = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+proptest = { workspace = true }
+tempfile = { workspace = true }
 
 # Test targets hosted here (convention, m01-plan.md §0; review F09): real Cargo
 # `[[test]]` targets whose sources live under the repository `tests/` tree.
@@ -37,3 +45,8 @@ heimdall-testkit = { workspace = true }
 [[test]]
 name = "integration_adapters"
 path = "../../tests/integration/adapters.rs"
+
+# M03-U6 the managed credential adapter (m03-plan U6; ADR-0008 D6, D7, D12).
+[[test]]
+name = "integration_managed_adapter"
+path = "../../tests/integration/managed_adapter.rs"

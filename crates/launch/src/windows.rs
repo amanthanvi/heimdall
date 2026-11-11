@@ -21,6 +21,14 @@
 //! ADR-0007 §8). A failure of the wait itself (an invalid handle; not expected)
 //! returns [`LaunchFailure::ExecError`] without a `prelaunch_failed`: `spawned` is
 //! already written and stays the truthful last record.
+//!
+//! ⟨M03⟩ **The one exception to "no job object"** (ADR-0008 D8 item 2; §17.3 item 1,
+//! Q18): a managed launch whose program is the verified `ssh`
+//! ([`launch_uses_kill_on_close_job`]) goes through [`spawn_contained_and_wait`]: the
+//! child is created suspended in a kill-on-close job without breakaway, registered
+//! while suspended through the caller's registrar, and resumed only after a successful
+//! registration. The disclosed residual: ssh's own `ProxyCommand` or `LocalCommand`
+//! helpers end with it. Every other `run` keeps [`spawn_and_wait`].
 
 use std::ffi::OsString;
 
@@ -80,6 +88,142 @@ pub fn spawn_and_wait(
     }
     let status = child.wait().map_err(|_| LaunchFailure::ExecError)?;
     drop(guard);
+    let code = exit_code(status);
+    if let Some(channel) = meta.as_mut() {
+        let _ = channel.write_exited(code);
+    }
+    Ok(code)
+}
+
+// --- ⟨M03⟩ the contained launch of the verified ssh (ADR-0008 D8 item 2; §17.3 item 1,
+// §17.4 item 8; m03-plan U7) -----------------------------------------------------------
+
+/// Q18 as ruled (§17.3 item 1): a launch gets the kill-on-close job **only** when it is
+/// the launch of a managed binding (a binding with a `managed_certificate` pair) whose
+/// program is the verified `ssh` client. `run` of any other program keeps M02's
+/// semantics: no job object (ADR-0007 §8), `existing_connections: not_controlled`.
+#[must_use]
+pub fn launch_uses_kill_on_close_job(managed_binding: bool, program_is_verified_ssh: bool) -> bool {
+    managed_binding && program_is_verified_ssh
+}
+
+/// The answer to a registration while the child is suspended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Registration {
+    /// Registered: the child may run.
+    Registered,
+    /// Refused by the runtime for the grant (`connection_registration_refused`).
+    Refused,
+    /// Any other failure (`connection_registration_failed`), including a runtime that
+    /// does not accept the request yet.
+    Failed,
+}
+
+/// Why a contained launch did not run its child to completion.
+#[derive(Debug)]
+pub enum ContainedFailure {
+    /// The launch itself (pre-flight, record, `CreateProcessW`), as
+    /// [`spawn_and_wait`]; the record is already written.
+    Launch(LaunchFailure),
+    /// The registration (or the resume after it) failed: the job was closed, so the
+    /// still-suspended child died without running. `launching` was written; the caller
+    /// writes `prelaunch_failed` with [`ContainedFailure::reason`] on the returned side
+    /// channel.
+    Registration {
+        /// The runtime refused the grant (else: any other failure).
+        refused: bool,
+        /// The side channel, for the `prelaunch_failed` record.
+        meta: Option<SideChannel>,
+    },
+}
+
+impl ContainedFailure {
+    /// The `LAUNCH_FAILED` reason of a registration failure (m03-plan §5 item 14).
+    #[must_use]
+    pub fn reason(&self) -> Option<&'static str> {
+        match self {
+            ContainedFailure::Launch(_) => None,
+            ContainedFailure::Registration { refused: true, .. } => {
+                Some(reason::CONNECTION_REGISTRATION_REFUSED)
+            }
+            ContainedFailure::Registration { refused: false, .. } => {
+                Some(reason::CONNECTION_REGISTRATION_FAILED)
+            }
+        }
+    }
+}
+
+/// The contained launch (ADR-0008 D8 item 2, Windows): as [`spawn_and_wait`], except
+/// that the child is created **suspended** in a kill-on-close job without breakaway
+/// (`heimdall_localenv::sys::JobObject::spawn_suspended`), `register` is called with its
+/// PID, creation time and image **while it is still suspended**, and it is resumed only
+/// after [`Registration::Registered`]. Any other answer, or a failed resume, closes the
+/// job (the child dies never having run) and returns [`ContainedFailure::Registration`].
+/// The job stays open until the child has exited, so the launcher's death ends the
+/// client (and any child it started) too.
+///
+/// # Errors
+/// [`ContainedFailure`].
+pub fn spawn_contained_and_wait(
+    program: &ResolvedProgram,
+    args: &[OsString],
+    delta: &EnvDelta,
+    mut meta: Option<SideChannel>,
+    register: &mut dyn FnMut(u32, heimdall_contract::Timestamp, &std::path::Path) -> Registration,
+) -> Result<u32, ContainedFailure> {
+    let executable = match preflight(program, args) {
+        Ok(executable) => executable,
+        Err(refusal) => {
+            if let Some(channel) = meta.as_mut() {
+                let _ = channel.write_launch_failed(refusal.exit_code(), refusal.reason());
+            }
+            return Err(ContainedFailure::Launch(LaunchFailure::Refused(refusal)));
+        }
+    };
+    let guard = console_guard();
+    let command = child_command(program, args, delta);
+    if let Some(channel) = meta.as_mut()
+        && channel
+            .write_launching(executable, &delta.overrides)
+            .is_err()
+    {
+        return Err(ContainedFailure::Launch(LaunchFailure::MetaUnavailable));
+    }
+    let suspended = match heimdall_localenv::sys::JobObject::spawn_suspended(command) {
+        Ok(s) => s,
+        Err(_) => {
+            if let Some(channel) = meta.as_mut() {
+                let _ = channel.write_launch_failed(EXEC_ERROR_EXIT, reason::EXEC_ERROR);
+            }
+            return Err(ContainedFailure::Launch(LaunchFailure::ExecError));
+        }
+    };
+    let answer = register(suspended.pid, suspended.created_at, &program.path);
+    if answer != Registration::Registered {
+        suspended.close();
+        return Err(ContainedFailure::Registration {
+            refused: answer == Registration::Refused,
+            meta,
+        });
+    }
+    let pid = suspended.pid;
+    let Ok(mut contained) = suspended.resume() else {
+        return Err(ContainedFailure::Registration {
+            refused: false,
+            meta,
+        });
+    };
+    if let Some(channel) = meta.as_mut() {
+        let _ = channel.write_spawned(pid);
+    }
+    let status = contained
+        .child
+        .wait()
+        .map_err(|_| ContainedFailure::Launch(LaunchFailure::ExecError))?;
+    drop(guard);
+    // The job closes only now, after the client has exited (anything it left behind
+    // in the job ends with it: the disclosed Q18 residual).
+    drop(contained);
     let code = exit_code(status);
     if let Some(channel) = meta.as_mut() {
         let _ = channel.write_exited(code);

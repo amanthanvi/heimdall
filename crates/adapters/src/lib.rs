@@ -31,6 +31,8 @@
 
 pub mod detect;
 pub mod integration;
+// ⟨M03⟩ m03-plan U6 (ADR-0008 D6, D7, D12): the managed credential adapter.
+pub mod managed;
 pub mod native_agent;
 pub mod onepassword;
 pub mod state;

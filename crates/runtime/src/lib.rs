@@ -14,6 +14,8 @@
 //! formats (contract/ipc), terminal rendering.
 
 pub mod config;
+// ⟨M03⟩ m03-plan U7 (ADR-0008 D8): owned masters, owned dedicated connections, policies.
+pub mod connections;
 pub mod dispatch;
 pub mod instance;
 pub mod launcher;
