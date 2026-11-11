@@ -14,9 +14,11 @@
 //!   whose minimums the existing mechanism cannot meet fails `projection_pending`.
 //!
 //! Managed pairs together with any other pair are `mixed_mechanisms` (unchanged,
-//! ADR-0008 Q5). In wave 0 the managed adapter is not registered: a request that
-//! resolves to `managed_certificate` is refused `CAPABILITY_UNAVAILABLE`,
-//! `driver_unavailable`, before any record is written ([`Operations::ensure_precheck`]).
+//! ADR-0008 Q5). ⟨wave 4⟩ Unless the runtime wired the managed effect driver (effects
+//! and issuer, `Operations::managed_driver_wired`) and configured the managed adapter,
+//! a request that resolves to `managed_certificate` is refused
+//! `CAPABILITY_UNAVAILABLE`, `driver_unavailable`, before any record is written
+//! ([`Operations::ensure_precheck`]).
 //!
 //! **`connection`** (§5 item 5): only `existing: strict` narrows; `graceful` in a request
 //! is `USAGE_ERROR` before anything is written. It enters the canonical hash only when
@@ -160,17 +162,25 @@ pub fn unattended_refusal(
 
 /// The refusal of a resolution that found no configured adapter (pin's
 /// `CAPABILITY_UNAVAILABLE`), with its M03 reason: `driver_unavailable` for
-/// `managed_certificate` (wave 0), `projection_pending` (`next: setup_apply`) while a
-/// pair's managed projection is pending, the D6 item 7 reason for `unattended`, and
-/// otherwise M01's refusal unchanged.
+/// `managed_certificate` while no managed adapter is configured (`managed: None`),
+/// `projection_pending` (`next: setup_apply`) while a pair's managed projection is
+/// pending, the D6 item 7 reason for `unattended`, and otherwise M01's refusal
+/// unchanged. ⟨wave 4⟩ With a configured managed adapter (`managed: Some(meets
+/// unattended)`, wired: `Operations::ensure_precheck` refused before admission
+/// otherwise) a managed resolution that met no adapter is M01's refusal with the D6
+/// item 7 reason.
 pub(super) fn no_mechanism(
     required: &RequiredCapabilities,
     resolution: PairsResolution,
     lock: LockBehavior,
+    managed: Option<bool>,
 ) -> OpError {
-    if resolution.mechanism == Some(MANAGED_CERTIFICATE) {
-        return managed_driver_unavailable();
-    }
+    let is_managed = resolution.mechanism == Some(MANAGED_CERTIFICATE);
+    let claim_verified = match (is_managed, managed) {
+        (true, None) => return managed_driver_unavailable(),
+        (true, Some(verified)) => verified,
+        (false, _) => false,
+    };
     let e = OpError::new(
         Code::CapabilityUnavailable,
         "no configured credential mechanism meets the requested minimums",
@@ -184,7 +194,7 @@ pub(super) fn no_mechanism(
             });
     }
     if required.unattended
-        && let Some(why) = unattended_refusal(false, false, lock, false)
+        && let Some(why) = unattended_refusal(is_managed, claim_verified, lock, false)
     {
         return e.with_reason(why);
     }
@@ -234,7 +244,8 @@ impl Operations {
     /// ⟨M03⟩ U0b row 9: the checks of an `ensure` that come before admission, so a
     /// refusal writes nothing: `connection.existing: graceful` is `USAGE_ERROR`, and a
     /// request whose pairs resolve to `managed_certificate` is `CAPABILITY_UNAVAILABLE`,
-    /// `driver_unavailable` (wave 0). Every other outcome of the per-pair resolution
+    /// `driver_unavailable` unless the managed driver is wired and its adapter
+    /// configured (wave 4). Every other outcome of the per-pair resolution
     /// (`pair_not_enrolled`, `mixed_mechanisms`, …) is left to resolution, as in M02.
     pub(super) async fn ensure_precheck(
         &self,
@@ -274,8 +285,17 @@ impl Operations {
                 resolve_pairs(tx, &pairs)
             })
             .await?;
+        // ⟨wave 4⟩ Open only with the managed wiring (effects and issuer) and the
+        // managed adapter configured; otherwise refused before any record.
+        let managed_available = self.managed_driver_wired()
+            && self
+                .adapter_infos()
+                .iter()
+                .any(|a| a.identity.mechanism == MANAGED_CERTIFICATE);
         match resolution {
-            Ok(r) if r.mechanism == Some(MANAGED_CERTIFICATE) => Err(managed_driver_unavailable()),
+            Ok(r) if r.mechanism == Some(MANAGED_CERTIFICATE) && !managed_available => {
+                Err(managed_driver_unavailable())
+            }
             Ok(r) => Ok(EnsurePrecheck {
                 pending_projection: r.pending_projection,
             }),

@@ -251,6 +251,14 @@ mod lock_connection_m03;
 mod managed_state_m03;
 mod pair_mechanism_m03;
 mod verification_m03;
+// ⟨M03⟩ wave 4 (U10 + U0b phase 2): the enrollment stage driver, the issuer request
+// handling, the managed effect driver's store side and re-issue pass, and the M03
+// decision kinds' completion (each a child of `operations`, sharing the journal's
+// private helpers).
+mod decisions_m03;
+mod enrollment_m03;
+mod issuer_m03;
+mod managed_driver_m03;
 pub use bind_connection_m03::{dedicated_at_bind, verified_client_image};
 pub use ca_issuance_m03::MANAGED_CERTIFICATE;
 pub use pair_mechanism_m03::unattended_refusal;
@@ -2632,6 +2640,27 @@ struct Round {
 struct RoundAnswers {
     answers: Vec<(GrantId, AdapterIdentity, bool)>,
     adapter_expiry: Option<Timestamp>,
+    /// ⟨M03⟩ wave 4 (U10-C; D7 item 2 step 5): the managed adapter's per-pair rows,
+    /// carried from its `RevokeOutcome` into the revoke result (one row per
+    /// destination and account: the latest `valid_before` wins).
+    remote_effects: Vec<heimdall_contract::managed::RemoteEffectReport>,
+}
+
+impl RoundAnswers {
+    /// ⟨M03⟩ wave 4 (U10-C): merge `rows` into [`RoundAnswers::remote_effects`].
+    fn merge_remote_effects(&mut self, rows: Vec<heimdall_contract::managed::RemoteEffectReport>) {
+        for r in rows {
+            match self
+                .remote_effects
+                .iter_mut()
+                .find(|x| x.destination == r.destination && x.account == r.account)
+            {
+                Some(x) if r.latest_valid_before > x.latest_valid_before => *x = r,
+                Some(_) => {}
+                None => self.remote_effects.push(r),
+            }
+        }
+    }
 }
 
 /// ⟨r2.10⟩ What `inspect grants` shows of one grant's pending remote part: its own
@@ -4240,6 +4269,8 @@ fn resolve_in(
         && (resolved_pairs.pending_projection
             || resolved_pairs.mechanism == Some(MANAGED_CERTIFICATE))
     {
+        // ⟨wave 4, U10-C⟩ `driver_unavailable` only while no managed adapter is
+        // configured (a configured one is wired: `ensure_precheck` refused otherwise).
         refuse!(pair_mechanism_m03::no_mechanism(
             &inp.spec.required,
             resolved_pairs,
@@ -4249,6 +4280,10 @@ fn resolve_in(
                     .as_ref()
                     .map_or_else(Default::default, |p| p.lock_behavior),
             ),
+            inp.adapters
+                .iter()
+                .find(|a| a.identity.mechanism == MANAGED_CERTIFICATE)
+                .map(|a| a.unattended),
         ));
     }
     let mut capabilities = base.capabilities.clone();
@@ -4353,6 +4388,8 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
         AuthorityDecision::Denied(d) => Err(OpError::from_denial(&d)),
         // ⟨M03⟩ U0b row 9 (O): with its M03 reason (`driver_unavailable`,
         // `projection_pending`, the `unattended` reason); otherwise M01's refusal.
+        // ⟨wave 4, U10-C⟩ `driver_unavailable` only while no managed adapter is
+        // configured (a configured one is wired: `ensure_precheck` refused otherwise).
         _ if r.adapter.is_none() => Err(pair_mechanism_m03::no_mechanism(
             &inp.spec.required,
             r.pairs,
@@ -4362,6 +4399,10 @@ fn pin(inp: &ResolveInput, r: Resolved) -> Result<Resolution, OpError> {
                     .as_ref()
                     .map_or_else(Default::default, |p| p.lock_behavior),
             ),
+            inp.adapters
+                .iter()
+                .find(|a| a.identity.mechanism == MANAGED_CERTIFICATE)
+                .map(|a| a.unattended),
         )),
         AuthorityDecision::Allowed(auth) => Ok(Resolution::Allowed(Box::new(ResolvedIntent {
             profile: r.profile.id.clone(),
@@ -5108,7 +5149,17 @@ fn identity_view(
 /// the `heimdall_contract::doctor::AliasDefinition` names); a managed destination also
 /// carries the fields P renders (`hostname`, `port`, `account`, `identity_id`).
 /// Catalog fields only: no file is read.
-fn destination_view(d: &heimdall_domain::catalog::DestinationRecord) -> serde_json::Value {
+///
+/// ⟨M03⟩ U8-Q6 (additive): a managed destination whose (destination, account) pair has
+/// a stored `pair_preferences` row also carries `"preference": {"mechanism":
+/// <PreferredMechanism>, "projection": <ProjectionStatus>}` (`{"state": "pending"}` or
+/// `{"state": "applied", "generation": N}`), so `connect` takes ADR-0008 D8 item 2's
+/// flow only for `managed_certificate` with `applied`. No row, or an observed
+/// destination: no `preference` key (M02's listing, unchanged).
+fn destination_view(
+    d: &heimdall_domain::catalog::DestinationRecord,
+    preference: Option<&heimdall_domain::enrollment::PairPreference>,
+) -> serde_json::Value {
     use heimdall_contract::doctor::AliasDefinition;
     let mut view = serde_json::json!({
         "destination_id": d.id,
@@ -5138,6 +5189,17 @@ fn destination_view(d: &heimdall_domain::catalog::DestinationRecord) -> serde_js
         map.insert("definition".to_owned(), serde_json::json!(definition));
         if let Some(serde_json::Value::Object(fields)) = rendered {
             map.extend(fields);
+        }
+        if definition == AliasDefinition::Managed
+            && let Some(p) = preference
+        {
+            map.insert(
+                "preference".to_owned(),
+                serde_json::json!({
+                    "mechanism": p.mechanism,
+                    "projection": p.projection,
+                }),
+            );
         }
     }
     view
@@ -7013,13 +7075,14 @@ impl Operations {
         // read here, in this step and before the bound, on the blocking pool. A
         // blocked store or a slow observation delays this step as any store wait
         // does, never the bounded call.
-        let sources = read_prepare_sources(&adapter, &named).await;
-        // ⟨M02⟩ U0b row 24: the bound covers `prepare_from` alone, inside the slot and
-        // the preparing marker; a timed-out call answers `OutcomeUnknown` and takes
-        // the `mark_uncertain` arm below, after both are released.
-        let result = bounded_adapter_call(
-            self.adapter_limit(),
-            adapter.prepare_from(
+        let mut sources = read_prepare_sources(&adapter, &named).await;
+        // ⟨M03⟩ U0b row 21, phase 2 (wave 4): for the managed adapter only, the effect
+        // driver runs here, outside the adapter bound (ADR-0008 D6 item 0), and its
+        // results go into the snapshot `prepare_from` computes from. A driver failure
+        // takes the same arms as a failed `prepare_from` below.
+        let driven = self
+            .run_effect_driver(
+                &adapter,
                 PrepareRequest {
                     grant: &grant,
                     scope: &grant.scope,
@@ -7029,10 +7092,33 @@ impl Operations {
                     now,
                     pairs: &named,
                 },
-                &sources,
-            ),
-        )
-        .await;
+                &mut sources,
+            )
+            .await;
+        // ⟨M02⟩ U0b row 24: the bound covers `prepare_from` alone, inside the slot and
+        // the preparing marker; a timed-out call answers `OutcomeUnknown` and takes
+        // the `mark_uncertain` arm below, after both are released.
+        let result = match driven {
+            Err(e) => Err(e),
+            Ok(()) => {
+                bounded_adapter_call(
+                    self.adapter_limit(),
+                    adapter.prepare_from(
+                        PrepareRequest {
+                            grant: &grant,
+                            scope: &grant.scope,
+                            required: &spec.required,
+                            interactive,
+                            effect_token: &token,
+                            now,
+                            pairs: &named,
+                        },
+                        &sources,
+                    ),
+                )
+                .await
+            }
+        };
         drop(slot);
         drop(preparing);
         let flow = match result {
@@ -8314,6 +8400,7 @@ impl Operations {
         let mut data = match req.subject {
             // ⟨M02⟩ U0b row 19, phase 2: the same set as
             // `heimdall_ipc::session::server_capabilities()`, `setup/1` included.
+            // ⟨M03⟩ U0b row 13, phase 2 (wave 4): and the four M03 capabilities.
             InspectSubject::Capabilities => serde_json::json!({
                 "capabilities": [
                     heimdall_contract::ipc::capability::OPERATIONS_V1,
@@ -8322,6 +8409,10 @@ impl Operations {
                     heimdall_contract::ipc::capability::SCHEMA_DISCOVERY_V1,
                     heimdall_contract::ipc::capability::SERVICE_CONTROL_V1,
                     heimdall_contract::ipc::capability::SETUP_V1,
+                    heimdall_contract::ipc::capability::ISSUER_V1,
+                    heimdall_contract::ipc::capability::ENROLLMENT_V1,
+                    heimdall_contract::ipc::capability::MANAGED_CREDENTIALS_V1,
+                    heimdall_contract::ipc::capability::CONNECTIONS_V1,
                 ],
                 "schemas": heimdall_contract::schema::public_schemas()
                     .iter()
@@ -8351,8 +8442,19 @@ impl Operations {
                     serde_json::json!({ "items": [] })
                 } else {
                     self.write(move |tx, _| {
-                        let items: Vec<serde_json::Value> =
-                            tx.destinations()?.iter().map(destination_view).collect();
+                        let mut items: Vec<serde_json::Value> = Vec::new();
+                        for d in tx.destinations()? {
+                            // ⟨M03⟩ U8-Q6: the managed definition's pair preference.
+                            let preference = match &d.definition {
+                                DestinationDefinition::Managed { account, .. } => tx
+                                    .pair_preference(&heimdall_domain::scope::AccessPair {
+                                        destination: d.id.clone(),
+                                        account: account.clone(),
+                                    })?,
+                                DestinationDefinition::Observed => None,
+                            };
+                            items.push(destination_view(&d, preference.as_ref()));
+                        }
                         Ok(serde_json::json!({ "items": items }))
                     })
                     .await?
@@ -8591,8 +8693,28 @@ impl Operations {
                     .await?
                 }
             }
-            // M03 wave 0 (A1): fail closed until U0b: the M03 subjects have no reader yet.
-            InspectSubject::Enrollments | InspectSubject::Issuer | InspectSubject::Connections => {
+            // ⟨M03⟩ wave 4 (U10): `inspect enrollments` (owner only, like decisions:
+            // the records name hosts and accounts) and `inspect issuer` (the
+            // `issuer.status` view). `inspect connections` has no reader yet (no store
+            // index lists every owned connection, U7-Q4): fail closed.
+            InspectSubject::Enrollments => {
+                if !ctx.is_owner() {
+                    serde_json::json!({ "enrollments": [] })
+                } else {
+                    let view = self
+                        .write(move |tx, _| enrollment_m03::enrollments_view_in(tx))
+                        .await?;
+                    serde_json::to_value(view).map_err(|_| {
+                        OpError::new(Code::InternalError, "enrollments could not be rendered")
+                    })?
+                }
+            }
+            InspectSubject::Issuer => {
+                self.issuer_request(caller, heimdall_contract::issuer::IssuerRequest::Status)
+                    .await?
+                    .data
+            }
+            InspectSubject::Connections => {
                 return Err(OpError::driver_unavailable(
                     "this inspect subject is not available in this build",
                 ));
@@ -9272,10 +9394,14 @@ impl Operations {
                 if op.state.is_quiescent() {
                     return Ok(Some(Ok((op, None))));
                 }
-                // ⟨M03⟩ wave-0 E10 (O): an open enrollment operation is not cancelled
-                // here; the refusal writes nothing (`enrollment_cancel_m03`).
+                // ⟨M03⟩ wave-0 E10 (O), ⟨wave 4⟩ U10: an open enrollment operation is
+                // cancelled by the enrollment driver's rule (`enrollment_cancel_m03::
+                // cancel_in`): refused, writing nothing, once a remote mutation's
+                // `Attempted` receipt exists or a step is outstanding; before that,
+                // cancelled (`planned → withdrawn`, `applying → failed_unwritten`, the
+                // pending decision withdrawn).
                 if op.kind.is_enrollment() {
-                    return enrollment_cancel_m03::refusal(tx, &op).map(|e| Some(Err(e)));
+                    return enrollment_cancel_m03::cancel_in(tx, emit, op, now, retention).map(Some);
                 }
                 // ⟨M02⟩ ADR-0007 §12.14 item 3 (E1), phase 2: a setup or catalog
                 // operation is cancelled only before its first commit point (§5.4);
@@ -9503,7 +9629,20 @@ impl Operations {
                 })))
             })
             .await?;
-        Ok(Completed::ok(Code::Ok, r?))
+        let value = r?;
+        // ⟨M03⟩ wave 4 (U10-C; ADR-0008 D7 item 7): the release of a managed grant's
+        // last reference destroys K_env, removes its files and closes its owned
+        // connections (masters; dedicated ones by the policy), after the commit and
+        // outside every gate. No tombstone, no cascade.
+        if value.get("grant_state").and_then(serde_json::Value::as_str) == Some("released")
+            && let Some(gid) = value
+                .get("grant_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|g| GrantId::parse(g).ok())
+        {
+            self.after_release_m03(&gid, now).await;
+        }
+        Ok(Completed::ok(Code::Ok, value))
     }
 
     /// `revoke` (tombstone before acknowledgment; cascade; residual from the
@@ -9700,6 +9839,17 @@ impl Operations {
                 None,
                 Some(&id3),
             )?;
+            // ⟨M03⟩ wave 4 (U10-C; D7 item 2 steps 5–6, F15): for a cascade with a
+            // managed grant, the adapter's per-pair residual rows, every owned
+            // connection of the cascade (`up`/`closing` → `closing`, `closed`,
+            // `unverified`: `report::owned_connection_reports`' mapping, reproduced
+            // here because `app` has no `adapters` edge) and the fixed note.
+            managed_driver_m03::fill_revoke_data(
+                tx,
+                &grants,
+                &mut data,
+                answers.remote_effects.clone(),
+            )?;
             // ⟨M03⟩ U0b row 27 (G): the stored originals; a replay renders this value.
             data.requested_at = Some(op.created_at);
             data.committed_at = match committed_here {
@@ -9742,7 +9892,9 @@ impl Operations {
                         if let Some(t) = o.latest_possible_credential_expiry {
                             out.adapter_expiry = Some(out.adapter_expiry.map_or(t, |e| e.max(t)));
                         }
-                        o.remote_pending.is_empty()
+                        let confirmed = o.remote_pending.is_empty();
+                        out.merge_remote_effects(o.remote_effects);
+                        confirmed
                     }
                     Err(_) => false,
                 };
@@ -10271,6 +10423,11 @@ impl Operations {
         let retention = self.retention();
         let did = req.decision_id.clone();
         let verdict = req.verdict;
+        // ⟨M03⟩ wave 4: an M03 driver's refusal after completion rolls the transaction
+        // back; its error travels out through this slot.
+        let m03_refused: Arc<Mutex<Option<OpError>>> = Arc::new(Mutex::new(None));
+        let m03_refused2 = Arc::clone(&m03_refused);
+        let m03_ctx = self.m03_decide_ctx();
         let r = self
             .write(move |tx, emit| {
                 let now = match deny_now {
@@ -10304,6 +10461,9 @@ impl Operations {
                     }
                     return Ok(Err(stale(&DecisionRefusal::Expired)));
                 }
+                // ⟨M03⟩ wave 4: what an M03 kind's precheck found (its waiting
+                // operation, if any); `None` for every M01/M02 kind.
+                let mut m03_waiting: Option<Option<OperationRecord>> = None;
                 let waiting = match &d.kind {
                     DecisionKind::ApproveAuthority { operation, .. } => {
                         match tx.operation(operation)? {
@@ -10351,18 +10511,26 @@ impl Operations {
                         }
                         Some(op)
                     }
-                    // M03 wave 0 (A1): fail closed until U0b: the M03 decision kinds are refused and
-                    // not consumed (m03-plan U0b row 14): nothing is written.
+                    // ⟨M03⟩ U0b row 14, phase 2 (wave 4): the kind's driver checks the
+                    // record first (`decisions_m03::precheck`); a refusal writes nothing,
+                    // so the record stays pending and is not consumed.
                     DecisionKind::RegisterIssuer { .. }
                     | DecisionKind::RetireIssuer { .. }
                     | DecisionKind::EnrollAccount { .. }
                     | DecisionKind::EnrollSystemForm { .. }
                     | DecisionKind::RemoveEnrollment { .. }
                     | DecisionKind::ApproveTargetChange { .. } => {
-                        return Ok(Err(OpError::driver_unavailable(
-                            "this decision kind is not available in this build",
-                        )
-                        .with_resource("decision", Some(did.to_string()))));
+                        match decisions_m03::precheck(tx, &m03_ctx, &d, verdict, now)? {
+                            Ok(w) => {
+                                m03_waiting = Some(w);
+                                None
+                            }
+                            Err(e) => {
+                                return Ok(Err(
+                                    e.with_resource("decision", Some(did.to_string()))
+                                ));
+                            }
+                        }
                     }
                 };
                 // The waiting grant (shared by every request that joined it).
@@ -10576,7 +10744,10 @@ impl Operations {
                         DecisionKind::WidenPolicy { .. } | DecisionKind::ConfirmTime { .. },
                         _,
                     ) => {}
-                    // M03 wave 0 (A1): fail closed until U0b (refused before completion above)
+                    // ⟨M03⟩ U0b row 14, phase 2 (wave 4): the kind's driver, in this
+                    // transaction. A refusal here rolls the whole transaction back
+                    // (nothing consumed): it is returned as a store-level conflict
+                    // carrying no data, then reported from `m03_refusal`.
                     (
                         DecisionKind::RegisterIssuer { .. }
                         | DecisionKind::RetireIssuer { .. }
@@ -10585,12 +10756,35 @@ impl Operations {
                         | DecisionKind::RemoveEnrollment { .. }
                         | DecisionKind::ApproveTargetChange { .. },
                         _,
-                    ) => {}
+                    ) => {
+                        let waiting_op = m03_waiting.take().flatten();
+                        match decisions_m03::apply(
+                            tx, &m03_ctx, emit, &record, verdict, waiting_op, now, retention,
+                        )? {
+                            Ok(more) => resume.extend(more),
+                            Err(e) => {
+                                *m03_refused2
+                                    .lock()
+                                    .unwrap_or_else(PoisonError::into_inner) = Some(e);
+                                return Err(conflict("m03 decision refused by its driver"));
+                            }
+                        }
+                    }
                 }
                 Ok(Ok((record, op_id, resume)))
             })
-            .await??;
-        let (record, op_id, resume) = r;
+            .await;
+        if let Some(e) = m03_refused
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
+            return Err(e.with_resource("decision", Some(req.decision_id.to_string())));
+        }
+        let (record, op_id, resume) = r??;
+        if record.kind.is_m03() {
+            self.m03_after_decision(&record, verdict).await;
+        }
         // Resume the waiting operations, all at once (the record's own operation
         // first), under ONE overall bound for this request (⟨r2.5⟩ ADR-0006 §13.8
         // item 2): when it is reached the durable decision result is returned and
@@ -12651,6 +12845,7 @@ mod tests {
         let confirmed = RoundAnswers {
             answers: vec![(g.clone(), ident(), true)],
             adapter_expiry: None,
+            ..RoundAnswers::default()
         };
         let env = EnvironmentId::from_random_bytes([26; 16]);
         // The publisher reads the store, so it is built outside the transaction.

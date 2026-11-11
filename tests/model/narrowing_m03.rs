@@ -730,12 +730,20 @@ async fn authorize_refuses_each_predicate() {
         w.ops.admit(&other).await.unwrap_err(),
         SignRefusal::KeyNotServed
     );
-    // Verification subjects are U5's (fail closed).
+    // ⟨M03 wave 4, INT-Q13⟩ A verification subject is admitted only through its own
+    // operation's open verification gate, on that operation's endpoint: a grant's
+    // endpoint, or an operation with no gate, does not serve the key (never ungated).
     let mut verification = facts(&g);
     verification.subject = SignatureSubject::Verification(OperationId::from_random_bytes([3; 16]));
     assert_eq!(
         w.ops.admit(&verification).await.unwrap_err(),
-        SignRefusal::Unavailable
+        SignRefusal::KeyNotServed
+    );
+    verification.endpoint = SignerEndpoint::Verification(OperationId::from_random_bytes([3; 16]));
+    assert_eq!(
+        w.ops.admit(&verification).await.unwrap_err(),
+        SignRefusal::KeyNotServed,
+        "no verification gate is open for the operation"
     );
     // The pending mark.
     let n = w.gates().begin_narrowing([g.grant_id.clone()]);

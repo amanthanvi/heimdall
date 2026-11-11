@@ -1,0 +1,857 @@
+//! ⟨M03⟩ wave 4 (U10): the store side of the managed effect driver (ADR-0008 D6 item
+//! 1; U0b row 21), the credential instances (U2-Q1), the signer's install view (U2-Q2;
+//! D2 item 6), the supervisor's `managed_reissue_pass` body (U0b row 8; D6 item 4), the
+//! cleanup after a narrowing's gates are released (D7 item 2 step 4; U0b row 20 (10)),
+//! and the degradation of the grants under a removed CA (ADR-0008 §17.3 item 3, R7).
+//!
+//! [`Operations::managed_prepared`] is called by the ensure pipeline after
+//! `read_sources` and **before** the bounded `prepare_from`, for the managed adapter
+//! only; its result becomes `IntegrationSnapshot.managed.prepared`. Every store
+//! transaction here is its own `Operations::write`, outside any adapter bound.
+//!
+//! **Credential instances (U2-Q1).** One row per K_env, written `pending` when the key
+//! is registered ([`Operations::managed_instance_created`]), `installed` when every
+//! pair's certificate is installed, `destroyed` when the key is destroyed. Its ID is
+//! derived from K_env's SHA-256 fingerprint ([`instance_id_for`]: the first 16 bytes of
+//! the digest), so the instances of a grant are found again from the subject
+//! fingerprints its issuance entries record, with no new store query. The creation of
+//! an instance **retains** the grant's signing gate (with the grant's ancestor chain);
+//! the release of an instance takes the gate **exclusively**
+//! (`SigningGates::release_exclusive`; §17.15 item 1, G-Q13). A `lost` instance (from
+//! before a restart) holds no gate in this process, so destroying it releases none.
+
+use std::collections::BTreeSet;
+use std::sync::Arc;
+
+use heimdall_contract::event::EventType;
+use heimdall_contract::ids::{CaFingerprint, CredentialInstanceId, GrantId, IssuanceId};
+use heimdall_contract::managed::CredentialLifecycleEvent;
+use heimdall_contract::{Code, GrantState, Timestamp};
+use heimdall_domain::grant::{DegradedReason, GrantSnapshot};
+use heimdall_domain::issuance::{
+    CredentialInstance, CredentialState, IssuanceEntry, IssuanceState,
+};
+use heimdall_domain::lifecycle::GrantEvent;
+use heimdall_domain::operation::{EffectReceipt, StageReceipt};
+use heimdall_domain::scope::AccessPair;
+use heimdall_domain::time::{self as dtime, Admission};
+use heimdall_store::Txn;
+
+use super::ca_issuance_m03::grant_is_managed;
+use super::{
+    Emit, MANAGED_CERTIFICATE, MAX_ANCESTRY, Operations, bound_of, conflict, grant_context,
+    grant_try, internal, narrowing, put_grant, resource, revalidate_chain,
+};
+use crate::error::OpError;
+use crate::managed::driver::instance_id_for;
+use crate::ports::{
+    AdapterError, CredentialAdapter, IntegrationSnapshot, KeyRegistration, ManagedPrepared,
+    PrepareRequest,
+};
+
+/// The install view's refusal codes (`InstallRefusal::View`; D2 item 6).
+pub mod install_refusal {
+    /// The store could not be read.
+    pub const STORE: &str = "store";
+    /// Time is not `Safe`.
+    pub const TIME_UNCERTAIN: &str = "time_uncertain";
+    /// The grant does not exist.
+    pub const NO_GRANT: &str = "no_grant";
+    /// The grant is not `preparing`, `active` or `degraded`.
+    pub const GRANT_NOT_USABLE: &str = "grant_not_usable";
+    /// A tombstone covers the grant or an ancestor.
+    pub const TOMBSTONED: &str = "tombstoned";
+    /// The deadline (or cutoff, or continuous budget) passed, or the certificate
+    /// outlives the grant's bound.
+    pub const DEADLINE_PASSED: &str = "deadline_passed";
+    /// The authority generation moved and the chain no longer re-validates.
+    pub const STALE_GENERATION: &str = "stale_generation";
+    /// The stored entry is not this published entry of this grant.
+    pub const ENTRY_MISMATCH: &str = "entry_mismatch";
+}
+
+/// The ancestor chain of `grant`, **root first, parent last** (the shape
+/// `SigningGates::retain` records).
+fn ancestors_root_first(
+    tx: &mut Txn<'_>,
+    grant: &GrantSnapshot,
+) -> heimdall_store::Result<Vec<GrantId>> {
+    let mut chain = Vec::new();
+    let mut next = grant.parent.clone();
+    while let Some(id) = next {
+        if chain.len() >= MAX_ANCESTRY {
+            return Err(heimdall_store::StoreError::Corrupt(
+                "grant ancestry is too deep".into(),
+            ));
+        }
+        next = tx.grant(&id)?.and_then(|g| g.parent);
+        chain.push(id);
+    }
+    chain.reverse();
+    Ok(chain)
+}
+
+/// The credential instances of `grant` this store records: those of every subject
+/// key its issuance entries name.
+fn instances_of(
+    tx: &mut Txn<'_>,
+    grant: &GrantId,
+) -> heimdall_store::Result<Vec<CredentialInstance>> {
+    let fingerprints: BTreeSet<String> = tx
+        .issuance_entries(grant)?
+        .into_iter()
+        .map(|e| e.bounds.subject_fingerprint)
+        .collect();
+    let mut out = Vec::new();
+    for fp in fingerprints {
+        if let Some(id) = instance_id_for(&fp)
+            && let Some(i) = tx.credential_instance(&id)?
+            && i.grant == *grant
+        {
+            out.push(i);
+        }
+    }
+    Ok(out)
+}
+
+fn lifecycle_event(
+    tx: &mut Txn<'_>,
+    emit: &mut Emit,
+    grant: &GrantId,
+    instance: &CredentialInstanceId,
+    event: CredentialLifecycleEvent,
+) -> heimdall_store::Result<()> {
+    emit.event(
+        tx,
+        EventType::CredentialLifecycle,
+        None,
+        Some(resource("grant", grant)),
+        serde_json::json!({
+            "grant_id": grant,
+            "credential_instance_id": instance,
+            "event": event,
+        }),
+    )
+}
+
+/// What the installation check of D2 item 6 found (in the read transaction).
+fn install_check_in(
+    tx: &mut Txn<'_>,
+    ops: &InstallCtx,
+    grant: &GrantId,
+    entry: &IssuanceEntry,
+) -> heimdall_store::Result<Result<(), &'static str>> {
+    let Some(safe) = ops.gate.assess_read_only(tx)?.2 else {
+        return Ok(Err(install_refusal::TIME_UNCERTAIN));
+    };
+    let Some(g) = tx.grant(grant)? else {
+        return Ok(Err(install_refusal::NO_GRANT));
+    };
+    if !g.state.permits_issuance() {
+        return Ok(Err(install_refusal::GRANT_NOT_USABLE));
+    }
+    if tx.denied_ancestor(grant)?.is_some() || tx.tombstone(grant)?.is_some() {
+        return Ok(Err(install_refusal::TOMBSTONED));
+    }
+    let ctx = grant_context(tx, &g)?;
+    let bound = bound_of(tx, &ops.env, &g, ctx.profile.as_ref())?;
+    let now = safe.wall();
+    if dtime::is_expired(now, bound)
+        || entry.bounds.valid_before > bound
+        || (g.state != GrantState::Preparing
+            && ops.gate.admission(tx, grant, &safe)? != Admission::Open)
+    {
+        return Ok(Err(install_refusal::DEADLINE_PASSED));
+    }
+    let Some(stored) = tx.issuance_entry(&entry.id)? else {
+        return Ok(Err(install_refusal::ENTRY_MISMATCH));
+    };
+    if stored.state != IssuanceState::Published
+        || stored.grant != *grant
+        || stored.pair != entry.pair
+        || stored.bounds != entry.bounds
+        || stored.generation != entry.generation
+    {
+        return Ok(Err(install_refusal::ENTRY_MISMATCH));
+    }
+    // The generation: a moved one re-validates the chain (ADR-0006 §13.5 ruling 2).
+    if tx.authority_generation()? != stored.generation
+        && revalidate_chain(tx, &ops.env, &ops.adapters, &g, now)?.is_err()
+    {
+        return Ok(Err(install_refusal::STALE_GENERATION));
+    }
+    Ok(Ok(()))
+}
+
+struct InstallCtx {
+    gate: crate::timegate::TxnGate,
+    env: heimdall_contract::ids::EnvironmentId,
+    adapters: Vec<super::AdapterInfo>,
+}
+
+impl Operations {
+    /// The effect driver's results for `adapter`'s preparation, or `None` when
+    /// `adapter` is not the managed adapter (the M01/M02 path is unchanged) or the
+    /// driver is not wired (the adapter's `prepare_from` then refuses without driver
+    /// results).
+    pub(super) async fn managed_prepared(
+        &self,
+        adapter: &Arc<dyn CredentialAdapter>,
+        req: PrepareRequest<'_>,
+    ) -> Option<Result<ManagedPrepared, AdapterError>> {
+        if adapter.descriptor().mechanism() != MANAGED_CERTIFICATE {
+            return None;
+        }
+        // Unwired (no effects or no issuer): no driver results. The managed adapter's
+        // `prepare_from` then refuses (`MANAGED_PREPARE_WITHOUT_DRIVER`, the same
+        // error arm), so nothing is activated; an `ensure` naming a managed preference
+        // was refused before admission already (`ensure_precheck`).
+        let wiring = self.managed_wiring()?;
+        let (Some(effects), Some(issuer)) = (wiring.effects.clone(), wiring.issuer.clone()) else {
+            return None;
+        };
+        Some(crate::managed::drive_preparation(self, effects.as_ref(), issuer.as_ref(), req).await)
+    }
+
+    /// The ensure pipeline's hook (U0b row 21): for the managed adapter, run the effect
+    /// driver ([`Self::managed_prepared`]) and put its results into `sources`
+    /// (`IntegrationSnapshot.managed.prepared`); a driver failure is returned and takes
+    /// the same arms as a failed `prepare_from`. For any other adapter nothing happens
+    /// (the existing-access contract is unchanged: `operations.rs` itself never names
+    /// the snapshot's managed field).
+    pub(super) async fn run_effect_driver(
+        &self,
+        adapter: &Arc<dyn CredentialAdapter>,
+        req: PrepareRequest<'_>,
+        sources: &mut IntegrationSnapshot,
+    ) -> Result<(), AdapterError> {
+        match self.managed_prepared(adapter, req).await {
+            None => Ok(()),
+            Some(Err(e)) => Err(e),
+            Some(Ok(prepared)) => {
+                sources
+                    .managed
+                    .get_or_insert_with(Default::default)
+                    .prepared = Some(prepared);
+                Ok(())
+            }
+        }
+    }
+
+    /// Whether the managed effect driver can run here: the wiring carries both the
+    /// effects and the issuer client. Without them every managed path fails closed.
+    #[must_use]
+    pub fn managed_driver_wired(&self) -> bool {
+        self.managed_wiring()
+            .is_some_and(|w| w.effects.is_some() && w.issuer.is_some())
+    }
+
+    /// The bound of one driver effect the port does not bound itself (the M02 adapter
+    /// call bound).
+    pub(crate) fn managed_effect_limit(&self) -> std::time::Duration {
+        self.adapter_limit()
+    }
+
+    /// ⟨U2-Q1⟩ Record K_env's credential instance `pending` for `grant` and retain the
+    /// grant's signing gate (the gate is created with the first instance and records
+    /// the grant's ancestor chain). Refused, with nothing written, for a grant that
+    /// cannot be issued for (missing, ended, or under a tombstone). Idempotent for the
+    /// same key: a second call finds the `pending` row and retains nothing more.
+    ///
+    /// # Errors
+    /// [`OpError`]: the refusal, or a store failure (the gate retained for it is
+    /// released again).
+    pub(crate) async fn managed_instance_created(
+        &self,
+        grant: &GrantId,
+        key: &KeyRegistration,
+    ) -> Result<CredentialInstanceId, OpError> {
+        let id = instance_id_for(&key.fingerprint)
+            .ok_or_else(|| internal("the key fingerprint has no SHA-256 form"))?;
+        let (gid, iid, handle) = (grant.clone(), id.clone(), key.slot.clone());
+        let gates = self.signing_gates().clone();
+        let retained = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = Arc::clone(&retained);
+        let r = self
+            .write(move |tx, _| {
+                let Some(g) = tx.grant(&gid)? else {
+                    return Ok(Err(
+                        OpError::new(Code::NotFound, "unknown grant").with_resource("grant", None)
+                    ));
+                };
+                if !g.state.permits_issuance() || tx.denied_ancestor(&gid)?.is_some() {
+                    return Ok(Err(OpError::new(
+                        Code::CredentialExpired,
+                        "the grant can no longer be issued for",
+                    )
+                    .with_resource("grant", Some(gid.to_string()))));
+                }
+                match tx.credential_instance(&iid)? {
+                    Some(i) if i.grant == gid && i.state == CredentialState::Pending => {
+                        return Ok(Ok(()));
+                    }
+                    Some(_) => return Err(conflict("credential instance already recorded")),
+                    None => {}
+                }
+                // The gate first (§17.15 item 1): a narrowing reading the set from now
+                // on sees it and takes the full protocol.
+                let ancestors = ancestors_root_first(tx, &g)?;
+                gates.retain(&gid, &ancestors);
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                tx.insert_credential_instance(&CredentialInstance {
+                    id: iid.clone(),
+                    grant: gid.clone(),
+                    key_handle_ref: handle,
+                    certificates: Vec::new(),
+                    state: CredentialState::Pending,
+                })?;
+                Ok(Ok(()))
+            })
+            .await;
+        match r {
+            Ok(Ok(())) => Ok(id),
+            Ok(Err(e)) => Err(e),
+            Err(e) => {
+                if retained.load(std::sync::atomic::Ordering::SeqCst) {
+                    self.signing_gates().release_exclusive(grant).await;
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// ⟨U2-Q1⟩ Every pair's certificate is installed: the instance becomes `installed`
+    /// with its entries, with its `credential_lifecycle` event.
+    ///
+    /// # Errors
+    /// A store failure, or an instance that is not `pending`/`installed`.
+    pub(crate) async fn managed_instance_installed(
+        &self,
+        instance: &CredentialInstanceId,
+        certificates: Vec<IssuanceId>,
+    ) -> Result<(), OpError> {
+        let iid = instance.clone();
+        self.write(move |tx, emit| {
+            let Some(mut i) = tx.credential_instance(&iid)? else {
+                return Err(conflict("credential instance missing"));
+            };
+            if !matches!(
+                i.state,
+                CredentialState::Pending | CredentialState::Installed
+            ) {
+                return Err(conflict("credential instance is not pending"));
+            }
+            let first = i.state == CredentialState::Pending;
+            i.state = CredentialState::Installed;
+            i.certificates = certificates;
+            tx.update_credential_instance(&i)?;
+            if first {
+                lifecycle_event(
+                    tx,
+                    emit,
+                    &i.grant,
+                    &iid,
+                    CredentialLifecycleEvent::Installed,
+                )?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// ⟨U2-Q1⟩ The instance's key is destroyed: the row becomes `destroyed` (absorbing)
+    /// with its event, and, when it was live in this process (`pending` or
+    /// `installed`), the grant's gate is released **exclusively** (§17.15 item 1).
+    /// Returns whether this call moved it. Never call it while holding the grant's
+    /// gate (a narrowing calls it after its gates are released).
+    ///
+    /// # Errors
+    /// A store failure.
+    pub(crate) async fn managed_instance_destroyed(
+        &self,
+        instance: &CredentialInstanceId,
+    ) -> Result<bool, OpError> {
+        let iid = instance.clone();
+        let moved = self
+            .write(move |tx, emit| {
+                let Some(mut i) = tx.credential_instance(&iid)? else {
+                    return Ok(None);
+                };
+                let live = matches!(
+                    i.state,
+                    CredentialState::Pending | CredentialState::Installed
+                );
+                if i.state == CredentialState::Destroyed {
+                    return Ok(None);
+                }
+                i.state = CredentialState::Destroyed;
+                tx.update_credential_instance(&i)?;
+                lifecycle_event(
+                    tx,
+                    emit,
+                    &i.grant,
+                    &iid,
+                    CredentialLifecycleEvent::Destroyed,
+                )?;
+                Ok(Some((i.grant, live)))
+            })
+            .await?;
+        let Some((grant, live)) = moved else {
+            return Ok(false);
+        };
+        if live {
+            self.signing_gates().release_exclusive(&grant).await;
+        }
+        Ok(true)
+    }
+
+    /// ⟨U0b row 21⟩ A stage receipt between two effects of the driver, on the open
+    /// operation whose preparation attempt carries `token` (its `Attempted` receipt).
+    /// Without such an operation (the re-issue pass) nothing is written.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub(crate) async fn managed_stage_receipt(
+        &self,
+        token: &str,
+        stage_name: &'static str,
+    ) -> Result<(), OpError> {
+        let token = token.to_owned();
+        let now = self.inner.config.clock.wall();
+        self.write(move |tx, _| {
+            for op in tx.open_operations()? {
+                let receipts = tx.stage_receipts(&op.id)?;
+                let adapter = receipts.iter().rev().find_map(|r| match &r.effect {
+                    EffectReceipt::Attempted {
+                        adapter,
+                        effect_token,
+                    } if *effect_token == token => Some(adapter.clone()),
+                    _ => None,
+                });
+                if let Some(adapter) = adapter {
+                    tx.append_stage_receipt(
+                        &op.id,
+                        &StageReceipt {
+                            stage: stage_name.to_owned(),
+                            recorded_at: now,
+                            effect: EffectReceipt::Attempted {
+                                adapter,
+                                effect_token: token.clone(),
+                            },
+                            local: None,
+                        },
+                    )?;
+                    break;
+                }
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// ⟨U2-Q2⟩ D2 item 6's read transaction for the signer's install check of the
+    /// published `entry` for `grant`: time `Safe` (the read-only assessment), the grant
+    /// `preparing`, `active` or `degraded`, no tombstone on it or an ancestor, its bound
+    /// (deadline, cutoff, ancestors) not passed and not earlier than the certificate's
+    /// `valid_before`, the continuous budget open (a grant past its first validation),
+    /// the stored entry exactly this published one, and, when the authority generation
+    /// moved since, the chain re-validated. Runtime wraps it as
+    /// `heimdall_credential::table::InstallView`.
+    ///
+    /// # Errors
+    /// The refusal's nonsecret code ([`install_refusal`]).
+    pub async fn managed_install_check(
+        &self,
+        grant: &GrantId,
+        entry: &IssuanceEntry,
+    ) -> Result<(), &'static str> {
+        let ctx = InstallCtx {
+            gate: self.inner.timegate.in_txn(),
+            env: self.inner.config.environment.clone(),
+            adapters: self.adapter_infos(),
+        };
+        let (gid, e) = (grant.clone(), entry.clone());
+        match self
+            .write(move |tx, _| install_check_in(tx, &ctx, &gid, &e))
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => Err(install_refusal::STORE),
+        }
+    }
+
+    /// The body of the supervisor's `managed_reissue_pass` (U0b row 8; ADR-0008 D6
+    /// item 4): re-issue each `managed_certificate` grant degraded
+    /// `credential_reissue_pending` whose stored grant is still eligible, through the
+    /// same stages (key, reserve, sign, publish, install) as an activation, as
+    /// continuing work (`new_activation: false`): same pairs, same deadline. Never for
+    /// an ended or tombstoned grant, past its bound or cutoff, on time that is not
+    /// `Safe` (it stays `credential_reissue_pending` until time is accepted), or for a
+    /// `revoke_on_lock` grant ([`Operations::lock_blocks_reissue`]). A no-op while the
+    /// driver is unwired. Returns the grants re-issued.
+    ///
+    /// # Errors
+    /// [`OpError`]: a store failure is reported (W3-R11), never an empty success.
+    pub async fn managed_reissue_pass(&self) -> Result<Vec<GrantId>, OpError> {
+        let Some(wiring) = self.managed_wiring() else {
+            return Ok(Vec::new());
+        };
+        let (Some(effects), Some(issuer)) = (wiring.effects.clone(), wiring.issuer.clone()) else {
+            return Ok(Vec::new());
+        };
+        let candidates = self.reissue_candidates().await?;
+        let mut done = Vec::new();
+        for gid in candidates {
+            if self.lock_blocks_reissue(&gid).await? {
+                continue;
+            }
+            let Some((grant, now)) = self.reissue_eligible(&gid).await? else {
+                continue;
+            };
+            let token =
+                crate::ids::new_effect_token().map_err(|_| internal("randomness unavailable"))?;
+            let driven = crate::managed::driver::run_stages(
+                self,
+                effects.as_ref(),
+                issuer.as_ref(),
+                &grant,
+                &token,
+                now,
+                false,
+            )
+            .await;
+            let Ok(prepared) = driven else {
+                // The grant stays `credential_reissue_pending`; the next pass retries.
+                continue;
+            };
+            if self.reissue_completed(&gid, &prepared.instance).await? {
+                done.push(gid);
+            }
+        }
+        Ok(done)
+    }
+
+    /// The managed grants degraded `credential_reissue_pending`.
+    async fn reissue_candidates(&self) -> Result<Vec<GrantId>, OpError> {
+        self.write(|tx, _| {
+            let mut out = Vec::new();
+            for g in tx.grants_due(Timestamp::MAX)? {
+                if g.state == GrantState::Degraded
+                    && tx.grant_degradation(&g.id)?
+                        == Some(DegradedReason::CredentialReissuePending)
+                    && grant_is_managed(tx, &g.id)?
+                {
+                    out.push(g.id);
+                }
+            }
+            Ok(out)
+        })
+        .await
+    }
+
+    /// The stored grant, bounded by its recorded bound, when it may re-issue now
+    /// (ADR-0005 §3.7 as D6 item 4 applies it): `degraded`, no tombstone, time
+    /// `Safe`, the bound not passed, the continuous budget not expired.
+    async fn reissue_eligible(
+        &self,
+        grant: &GrantId,
+    ) -> Result<Option<(GrantSnapshot, Timestamp)>, OpError> {
+        let gate = self.inner.timegate.in_txn();
+        let env = self.inner.config.environment.clone();
+        let gid = grant.clone();
+        self.write(move |tx, _| {
+            let Ok(safe) = gate.check(tx)? else {
+                return Ok(None);
+            };
+            let Some(mut g) = tx.grant(&gid)? else {
+                return Ok(None);
+            };
+            if g.state != GrantState::Degraded || tx.denied_ancestor(&gid)?.is_some() {
+                return Ok(None);
+            }
+            let ctx = grant_context(tx, &g)?;
+            let bound = bound_of(tx, &env, &g, ctx.profile.as_ref())?;
+            let now = safe.wall();
+            // A grant first validated in an earlier boot needs a new anchor, which the
+            // reserve transaction takes (its first validation in this boot); only an
+            // expired continuous budget refuses here.
+            if dtime::is_expired(now, bound)
+                || gate.admission(tx, &gid, &safe)? == Admission::Expired
+            {
+                return Ok(None);
+            }
+            g.deadline.effective = g.deadline.effective.min(bound);
+            Ok(Some((g, now)))
+        })
+        .await
+    }
+
+    /// After a re-issue: the grant's `lost` instances become `destroyed` (no gate in
+    /// this process), and the grant returns to `active` (`credential_reissue_pending`
+    /// repaired), with the `reissued` event. `false` when the grant moved meanwhile.
+    async fn reissue_completed(
+        &self,
+        grant: &GrantId,
+        instance: &CredentialInstanceId,
+    ) -> Result<bool, OpError> {
+        let (gid, iid) = (grant.clone(), instance.clone());
+        self.write(move |tx, emit| {
+            for mut i in instances_of(tx, &gid)? {
+                if i.state == CredentialState::Lost {
+                    i.state = CredentialState::Destroyed;
+                    tx.update_credential_instance(&i)?;
+                    lifecycle_event(tx, emit, &gid, &i.id, CredentialLifecycleEvent::Destroyed)?;
+                }
+            }
+            let Some(mut g) = tx.grant(&gid)? else {
+                return Ok(false);
+            };
+            if g.state != GrantState::Degraded
+                || tx.grant_degradation(&gid)? != Some(DegradedReason::CredentialReissuePending)
+                || !grant_try(&mut g, GrantEvent::Repaired)
+            {
+                return Ok(false);
+            }
+            put_grant(tx, emit, &g, None)?;
+            lifecycle_event(tx, emit, &gid, &iid, CredentialLifecycleEvent::Reissued)?;
+            Ok(true)
+        })
+        .await
+    }
+
+    /// ⟨wave 4, U10C-Q3⟩ D7 item 2 step 2 / U0b row 20 (10): while the narrowing
+    /// still holds the gates, zeroize and unlist K_env of every destroyed grant
+    /// (`ManagedEffects::destroy`: in-memory only; it takes no gate). Bounded by the
+    /// adapter call limit; a failure is retried after the release.
+    pub(super) async fn managed_destroy_under_gates(&self, grants: &[GrantId]) {
+        if grants.is_empty() {
+            return;
+        }
+        if let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone())
+            && tokio::time::timeout(self.adapter_limit(), effects.destroy(grants))
+                .await
+                .is_err()
+        {
+            tracing::warn!(
+                "managed keys not destroyed under the gates in time; retried after release"
+            );
+        }
+    }
+
+    /// ⟨U0b row 20 (10); D7 item 2 step 4⟩ The managed part of a narrowing's cleanup,
+    /// run after every gate is released: K_env of each grant in `grants` is destroyed
+    /// in the signer (idempotent; the in-memory destruction, through the wired
+    /// effects), and each of its live credential instances becomes `destroyed`,
+    /// releasing the gate exclusively. The slot and binding files and the owned
+    /// connections follow in the managed adapter's `revoke` of the same revocation
+    /// round (the runtime's cleanup), also outside every gate. A failure here is
+    /// logged and left to that round and the restart recovery (the denial holds from
+    /// the commit).
+    pub(super) async fn managed_after_narrowing(&self, grants: &[GrantId]) {
+        if grants.is_empty() {
+            return;
+        }
+        // Idempotent repeat of the under-gates destruction (a timed-out one is retried
+        // here, outside every gate).
+        if let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone()) {
+            let _ = tokio::time::timeout(self.adapter_limit(), effects.destroy(grants)).await;
+        }
+        for g in grants {
+            let gid = g.clone();
+            let live = self
+                .write(move |tx, _| {
+                    Ok(instances_of(tx, &gid)?
+                        .into_iter()
+                        .filter(|i| {
+                            matches!(
+                                i.state,
+                                CredentialState::Pending | CredentialState::Installed
+                            )
+                        })
+                        .map(|i| i.id)
+                        .collect::<Vec<_>>())
+                })
+                .await;
+            let Ok(live) = live else {
+                tracing::warn!("managed cleanup: the credential instances could not be read");
+                continue;
+            };
+            for i in live {
+                if self.managed_instance_destroyed(&i).await.is_err() {
+                    tracing::warn!("managed cleanup: a credential instance could not be updated");
+                }
+            }
+        }
+    }
+
+    /// ⟨ADR-0008 §17.3 item 3, reading R7; for U10-A's enrollment removal⟩ Degrade
+    /// every live `managed_certificate` grant that holds a `reserved` or `published`
+    /// certificate for `pair` under `ca` (the set `report::grants_under_ca` names),
+    /// through the narrowing protocol (U0b row 20: the set's gates exclusively before
+    /// the commit). An `active` grant becomes `degraded` (`pair_unenrolled`, which
+    /// still signs with the installed key for the other pairs; the server refuses the
+    /// unenrolled pair itself); a `degraded` one takes the reason. Nothing is
+    /// destroyed. Returns the grants degraded.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub async fn degrade_grants_under_ca(
+        &self,
+        ca: &CaFingerprint,
+        pair: &AccessPair,
+    ) -> Result<Vec<GrantId>, OpError> {
+        let requested_at = self.narrowing_now().await;
+        let (ca1, pair1) = (ca.clone(), pair.clone());
+        let reader: narrowing::SetReader =
+            Arc::new(move |tx: &mut Txn<'_>| grants_under_ca_in(tx, &ca1, &pair1));
+        let (ca2, pair2) = (ca.clone(), pair.clone());
+        let narrowed = self
+            .narrow(
+                narrowing::NarrowingKind::Enrollment,
+                requested_at,
+                reader,
+                move |tx, emit, _ctx| {
+                    let reason = DegradedReason::PairUnenrolled;
+                    let mut out = Vec::new();
+                    for gid in grants_under_ca_in(tx, &ca2, &pair2)? {
+                        let Some(mut g) = tx.grant(&gid)? else {
+                            continue;
+                        };
+                        match g.state {
+                            GrantState::Active => {
+                                if grant_try(&mut g, GrantEvent::Degrade) {
+                                    tx.update_grant_state(&g)?;
+                                    tx.set_grant_degradation(&g.id, reason)?;
+                                    emit.grant_degraded(tx, &g, reason, None)?;
+                                    out.push(gid);
+                                }
+                            }
+                            GrantState::Degraded
+                                if tx.grant_degradation(&gid)?
+                                    == Some(DegradedReason::CredentialReissuePending) => {}
+                            GrantState::Degraded => {
+                                tx.set_grant_degradation(&gid, reason)?;
+                                emit.grant_degraded(tx, &g, reason, None)?;
+                                out.push(gid);
+                            }
+                            _ => {}
+                        }
+                    }
+                    Ok(out)
+                },
+            )
+            .await?;
+        Ok(narrowed.value)
+    }
+}
+
+/// The live managed grants with a `reserved` or `published` entry for `pair` under
+/// `ca` (R7's set, read in `tx`).
+fn grants_under_ca_in(
+    tx: &mut Txn<'_>,
+    ca: &CaFingerprint,
+    pair: &AccessPair,
+) -> heimdall_store::Result<Vec<GrantId>> {
+    let mut out = Vec::new();
+    for g in tx.grants_due(Timestamp::MAX)? {
+        if !matches!(
+            g.state,
+            GrantState::Active | GrantState::Degraded | GrantState::Preparing
+        ) || !grant_is_managed(tx, &g.id)?
+        {
+            continue;
+        }
+        let under = tx.issuance_entries(&g.id)?.into_iter().any(|e| {
+            e.pair == *pair
+                && e.bounds.ca_fingerprint.as_ref() == Some(ca)
+                && matches!(e.state, IssuanceState::Reserved | IssuanceState::Published)
+        });
+        if under {
+            out.push(g.id);
+        }
+    }
+    Ok(out)
+}
+
+/// ⟨D7 item 2 steps 5–6; F15⟩ The managed part of a revoke result, in the settling
+/// transaction: when any grant of the cascade is `managed_certificate`, the
+/// adapter's per-pair rows (`remote_effects`, as the round carried them from its
+/// `RevokeOutcome`), every owned connection of the cascade as the store shows it now
+/// (after the cleanup's closes), and the fixed note `ordinary_connections_not_closed`.
+/// An M01/M02 cascade's result is unchanged.
+pub(super) fn fill_revoke_data(
+    tx: &mut Txn<'_>,
+    grants: &[GrantId],
+    data: &mut heimdall_contract::request::RevokeData,
+    remote_effects: Vec<heimdall_contract::managed::RemoteEffectReport>,
+) -> heimdall_store::Result<()> {
+    use heimdall_contract::managed::{
+        OwnedConnectionReport, OwnedConnectionReportState, RevokeNote,
+    };
+    use heimdall_domain::managed::OwnedConnectionState;
+    let mut managed = false;
+    for g in grants {
+        managed |= grant_is_managed(tx, g)?;
+    }
+    if !managed {
+        return Ok(());
+    }
+    data.remote_effects = remote_effects;
+    let mut rows = Vec::new();
+    for g in grants {
+        rows.extend(tx.owned_connections_for_grant(g)?);
+    }
+    data.owned_connections = rows
+        .iter()
+        .map(|c| OwnedConnectionReport {
+            id: c.id.clone(),
+            kind: c.kind,
+            state: match c.state {
+                OwnedConnectionState::Closed => OwnedConnectionReportState::Closed,
+                OwnedConnectionState::Unverified => OwnedConnectionReportState::Unverified,
+                _ => OwnedConnectionReportState::Closing,
+            },
+        })
+        .collect();
+    data.notes = vec![RevokeNote::OrdinaryConnectionsNotClosed];
+    Ok(())
+}
+
+impl Operations {
+    /// ⟨D7 item 7⟩ After the last reference of `grant` was released: when it is a
+    /// `managed_certificate` grant, its keys and live instances are destroyed (as a
+    /// narrowing's cleanup does) and its responsible adapter's `revoke` runs, bounded,
+    /// for the files and the owned connections (the runtime's cleanup applies the
+    /// release rule: masters closed, dedicated connections by the policy). A failure
+    /// is logged; the supervisor's passes close what is left.
+    pub(super) async fn after_release_m03(&self, grant: &GrantId, now: Timestamp) {
+        let gid = grant.clone();
+        let identity = self
+            .write(move |tx, _| {
+                if !grant_is_managed(tx, &gid)? {
+                    return Ok(None);
+                }
+                Ok(tx.grant_origin(&gid)?.and_then(|o| o.adapter))
+            })
+            .await;
+        let identity = match identity {
+            Ok(Some(i)) => i,
+            Ok(None) => return,
+            Err(_) => {
+                tracing::warn!("managed release cleanup: the grant could not be read");
+                return;
+            }
+        };
+        self.managed_after_narrowing(std::slice::from_ref(grant))
+            .await;
+        let Some(adapter) = self.adapter(Some(&identity)) else {
+            return;
+        };
+        if super::bounded_adapter_call(self.adapter_limit(), adapter.revoke(grant, now))
+            .await
+            .is_err()
+        {
+            tracing::warn!("managed release cleanup: the adapter's cleanup did not complete");
+        }
+    }
+}

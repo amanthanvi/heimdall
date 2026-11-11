@@ -253,7 +253,7 @@ pub struct KeySeed(Vec<u8>);
 impl KeySeed {
     /// The seed bytes.
     #[must_use]
-    #[allow(dead_code)] // read by U10's runtime wiring
+    #[allow(dead_code)] // read by the debug build's runtime wiring only
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
@@ -439,6 +439,7 @@ mod enabled {
     use std::time::Duration;
 
     use heimdall_app::ensure::EnsureStage;
+    use heimdall_app::ports::SessionLockSource;
     use heimdall_app::ports::{
         AdapterDescriptor, AdapterError, CredentialAdapter, IntegrationSnapshot,
         InteractionRequirement, LockContinuity, PrepareOutcome, PreparePair, PrepareRequest,
@@ -468,7 +469,8 @@ mod enabled {
     use heimdall_localenv::paths::SshPaths;
     use heimdall_localenv::projection::ProjectionConfig;
     use heimdall_runtime::Paths;
-    use heimdall_runtime::service::{ProjectionWiring, ServiceOptions};
+    use heimdall_runtime::service::{ProjectionWiring, ServiceOptions, SessionLockWiring};
+    use heimdall_testkit::session_lock::FakeSessionLockSource;
     use heimdall_testkit::{
         CANARY_PREFIX, FakeCredentialAdapter, FakeStep, ScriptedStageHook, ScriptedTimeSync,
     };
@@ -719,8 +721,20 @@ mod enabled {
         if let Some(msg) = super::home_refusal(true, home_explicit) {
             return Err(msg.into());
         }
-        // ⟨M03⟩ Validate the M03 variables now; U10 wires what they select.
-        super::m03_config(env)?;
+        // ⟨M03⟩ wave 4 (m03-plan U0b row 16; U10): the M03 variables, validated, wired
+        // into the managed runtime (a runtime without the managed wiring ignores them):
+        // the key seed (`KeyVault::with_test_seed`), the fake session-lock source over
+        // its state file, the verifier's script pause directory. `scratch` secret store:
+        // the issuer child (`internal issuer`, which inherits this environment) selects
+        // testkit's `ScratchSecretStore` itself (`m03_cmd::issuer_store`).
+        let m03 = super::m03_config(env)?;
+        if let Some(managed) = options.managed.as_mut() {
+            managed.test_key_seed = m03.key_seed.as_ref().map(|k| k.as_bytes().to_vec());
+            if let Some(path) = &m03.session_lock {
+                managed.session_lock = SessionLockWiring::Source(fake_session_lock(path));
+            }
+            managed.script_pause_dir = m03.script_pause_dir.clone();
+        }
         // Count starts before the instance lock (single-child launcher test).
         record_start(paths).map_err(|e| format!("cannot record the start: {}", e.kind()))?;
 
@@ -774,6 +788,25 @@ mod enabled {
         options.endpoint_prefix = TEST_PIPE_PREFIX.to_owned();
         Ok(Some(TestSetup { _private: () }))
     }
+
+    /// ⟨M03⟩ `HEIMDALL_TEST_SESSION_LOCK`: testkit's `FakeSessionLockSource` over the
+    /// state file, re-read every [`SESSION_LOCK_POLL`] by a task that ends with the
+    /// source (the test writes the file to lock and unlock).
+    fn fake_session_lock(path: &std::path::Path) -> Arc<dyn SessionLockSource> {
+        let source = Arc::new(FakeSessionLockSource::from_state_file(path));
+        let weak = Arc::downgrade(&source);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(SESSION_LOCK_POLL).await;
+                let Some(s) = weak.upgrade() else { break };
+                s.refresh_from_file();
+            }
+        });
+        source
+    }
+
+    /// How often the fake session-lock source re-reads its state file.
+    const SESSION_LOCK_POLL: Duration = Duration::from_millis(100);
 
     /// ⟨M02⟩ W4 integration: a runtime started while any test variable is set
     /// (the [`ALL_ENV`](super::ALL_ENV) set, or one of

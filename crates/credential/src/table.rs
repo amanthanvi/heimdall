@@ -25,10 +25,11 @@
 //! [`SignerTable::register`] returns (`pending`, `subject_registered`), and its state
 //! moves through [`instance_transition`], whose table is the D2 one (signer side).
 //!
-//! **D2 item 6's read transaction** (generation, tombstones, safe deadline) needs a
-//! store read that no `Operations` method offers (question U2-Q2). It is the
-//! [`InstallView`] the runtime supplies; without one every install is refused
-//! ([`InstallRefusal::StoreViewUnavailable`]; switch [`INSTALL_STORE_VIEW_WIRED`]).
+//! **D2 item 6's read transaction** (generation, tombstones, safe deadline) is the
+//! [`InstallView`] the runtime supplies (U2-Q2, ⟨wave 4⟩
+//! `heimdall_runtime::managed_store::OpsInstallView` over
+//! `Operations::managed_install_check`); a table without one still refuses every
+//! install ([`InstallRefusal::StoreViewUnavailable`]; [`INSTALL_STORE_VIEW_WIRED`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, RwLock};
@@ -47,6 +48,11 @@ use crate::cert::{CertRefusal, validate_installed};
 use crate::purpose::{GrantCertificateError, GrantCertificates};
 use crate::vault::{KeyVault, PublicKeyInfo, VaultError, VaultSlot};
 
+/// ⟨INT-Q13⟩ The plan's CA and pair a verification key is bound to (ADR-0008 §17.19
+/// item 5): `app::managed::VerificationScope`, which also names the verification
+/// signing gate's scope.
+pub use heimdall_app::managed::VerificationScope;
+
 /// The most identities any endpoint lists (`ipc::signing::MAX_IDENTITIES`).
 pub const MAX_LISTED: usize = heimdall_ipc::signing::MAX_IDENTITIES;
 
@@ -60,11 +66,12 @@ pub const GRANT_SHORT_CHARS: usize = 12;
 /// installed certificate it is asked to sign for (D2 item 5).
 pub use heimdall_domain::issuance::EXTENSION_AGENT_FORWARDING;
 
-/// ⟨U2-Q2⟩ Whether a production [`InstallView`] exists. `false` in wave 2: no
-/// `Operations` method offers D2 item 6's read, so an installation without a view is
-/// refused ([`InstallRefusal::StoreViewUnavailable`]). U10 (or the integrator) wires
-/// one and flips this.
-pub const INSTALL_STORE_VIEW_WIRED: bool = false;
+/// ⟨U2-Q2⟩ Whether a production [`InstallView`] exists. ⟨wave 4⟩ `true`: the runtime
+/// wires `heimdall_runtime::managed_store::OpsInstallView` (D2 item 6's read is
+/// `Operations::managed_install_check`). A table with no view set still refuses every
+/// installation ([`InstallRefusal::StoreViewUnavailable`]): the switch records that
+/// the production view exists, it never admits an install without one.
+pub const INSTALL_STORE_VIEW_WIRED: bool = true;
 
 /// How many certificates one verification endpoint accepts (ADR-0008 D5 §6.5: the
 /// positive, then the negative, each installed just before its attempt).
@@ -270,6 +277,9 @@ struct VerificationKey {
     slot: VaultSlot,
     public: PublicKeyInfo,
     comment: String,
+    /// ⟨INT-Q13, §17.19 item 5⟩ The plan's CA and pair: every installed certificate
+    /// is signed by the CA, and the positive one names the pair.
+    scope: VerificationScope,
     /// The positive certificate's pair (when installed), in a set of its own.
     certs: GrantCertificates,
     /// Installed blobs, in install order (at most two).
@@ -806,13 +816,15 @@ impl SignerTable {
 
     // --- verification keys (D5 §6.5) --------------------------------------------
 
-    /// Generate `op`'s K_verify and register it for its verification endpoint.
+    /// Generate `op`'s K_verify and register it for its verification endpoint, bound
+    /// to the plan's CA and pair (`scope`; ADR-0008 §17.19 item 5).
     ///
     /// # Errors
     /// [`RegisterRefusal`].
     pub fn register_verification(
         &self,
         op: &OperationId,
+        scope: &VerificationScope,
     ) -> Result<PublicKeyInfo, RegisterRefusal> {
         let (slot, info) = self
             .inner
@@ -839,6 +851,7 @@ impl SignerTable {
                 slot,
                 public: info.clone(),
                 comment: verification_comment(op),
+                scope: scope.clone(),
                 certs,
                 installed: Vec::new(),
             },
@@ -850,9 +863,11 @@ impl SignerTable {
     /// check of ADR-0008 D2 item 6 for a verification: D5 §6.5 item 2's shape). The
     /// session accepts [`VERIFICATION_CERTIFICATES_PER_SESSION`] certificates, the
     /// positive then the negative, each just before its attempt; the latest is the
-    /// one listed. Checked: a user certificate signed by its own signature key; the
-    /// subject is K_verify; exactly one principal, `hm:<destination>:<account>` or
-    /// `hm:verify-negative:<32 hex>`; no critical option and no extension; a validity
+    /// one listed. Checked: a user certificate signed by its own signature key, which
+    /// is ⟨§17.19 item 5⟩ the plan's CA (`wrong_ca`); the subject is K_verify; exactly
+    /// one principal, `hm:<destination>:<account>` naming ⟨§17.19 item 5⟩ the plan's
+    /// pair (`wrong_principal`), or `hm:verify-negative:<32 hex>`; no critical option
+    /// and no extension; a validity
     /// of at most [`VERIFICATION_MAX_VALIDITY_SECS`]. Only a positive certificate can
     /// ever be signed for: the negative one is listed (so a server that wrongly
     /// accepts it shows up as a sign request) and every signature for it is refused.
@@ -874,6 +889,14 @@ impl SignerTable {
         }
         if cert.verify_signature().is_err() {
             return Err(InstallRefusal::Certificate(CertRefusal::BadSignature));
+        }
+        if cert
+            .signature_key()
+            .fingerprint(HashAlg::Sha256)
+            .to_string()
+            != key.scope.ca.as_str()
+        {
+            return Err(InstallRefusal::Certificate(CertRefusal::WrongCa));
         }
         if cert.public_key().fingerprint(HashAlg::Sha256).to_string() != key.public.fingerprint {
             return Err(InstallRefusal::Certificate(CertRefusal::WrongSubject));
@@ -901,6 +924,9 @@ impl SignerTable {
             return Err(InstallRefusal::AlreadyInstalled);
         }
         if let Some(pair) = positive_pair(principal) {
+            if pair != key.scope.pair {
+                return Err(InstallRefusal::Certificate(CertRefusal::WrongPrincipal));
+            }
             key.certs
                 .add(pair, cert)
                 .map_err(|_| InstallRefusal::Verification("second_positive"))?;

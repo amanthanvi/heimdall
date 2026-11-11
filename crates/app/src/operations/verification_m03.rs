@@ -11,13 +11,15 @@
 //! request:
 //! * *kind and authorization*: an `enrollment.verify` whose stored request names
 //!   this enrollment in mode `presence` or `absence` is authorized (it needs no
-//!   decision). A target-change verify needs `ApproveTargetChange` and an
-//!   `enrollment.apply` needs its `EnrollAccount` approval basis; neither decision
-//!   completes in wave 0 (U0b row 14), so both are unauthorized here and refused
-//!   `operation_not_verifying` (fail closed; U10 records the basis);
-//! * *the verification stage*: the operation is `running`, the enrollment is
-//!   `verifying` or `reverifying`, and an attempt has started (an
-//!   `enroll.verify.started` receipt);
+//!   decision); ⟨wave 4⟩ otherwise the enrollment driver's journal decides
+//!   (`enrollment_m03::verification_authority`): a target-change
+//!   verify needs its `ApproveTargetChange` approval and an `enrollment.apply` its
+//!   `EnrollAccount`/`EnrollSystemForm` approval, both recorded by the decision's
+//!   completion. The journal must name this enrollment;
+//! * *the verification stage*: the operation is `running` (or `outcome_unknown`, an
+//!   apply reconciled after an uncertain append), the enrollment is `verifying`,
+//!   `reverifying` or `removal_verifying` (the system form's absence check), and an
+//!   attempt has started (an `enroll.verify.started` receipt);
 //! * *the plan's pair and CA*: the enrollment record's;
 //! * *attempts*: the operation's `enroll.verify.started` receipts; *entries in the
 //!   attempt*: its entries reserved at or after the last of them.
@@ -84,6 +86,47 @@ struct OperationFacts {
     entries_in_attempt: u32,
 }
 
+/// The enrollment an operation's stored `enrollment.verify` request names, with its
+/// mode (the immutable recovery intent; wave 0's rule).
+fn stored_verify(
+    tx: &mut Txn<'_>,
+    operation: &OperationId,
+) -> heimdall_store::Result<Option<(EnrollmentId, VerifyMode)>> {
+    Ok(tx
+        .recovery_intent(operation)?
+        .and_then(|i| serde_json::from_value::<Request>(i.request).ok())
+        .and_then(|r| match r {
+            Request::Enrollment(EnrollmentRequest::Verify {
+                enrollment_id,
+                mode,
+                ..
+            }) => Some((enrollment_id, mode)),
+            _ => None,
+        }))
+}
+
+fn stored_verify_enrollment(
+    tx: &mut Txn<'_>,
+    operation: &OperationId,
+) -> heimdall_store::Result<Option<EnrollmentId>> {
+    Ok(stored_verify(tx, operation)?.map(|(e, _)| e))
+}
+
+/// Wave 0's rule: an `enrollment.verify` whose stored request names `enrollment` in
+/// mode `presence` or `absence` is authorized (it needs no decision).
+fn stored_verify_authorizes(
+    tx: &mut Txn<'_>,
+    op: &heimdall_domain::operation::OperationRecord,
+    enrollment: &EnrollmentId,
+) -> heimdall_store::Result<bool> {
+    if op.kind != OperationKind::EnrollmentVerify {
+        return Ok(false);
+    }
+    Ok(stored_verify(tx, &op.id)?.is_some_and(|(e, mode)| {
+        e == *enrollment && matches!(mode, VerifyMode::Presence | VerifyMode::Absence)
+    }))
+}
+
 /// Read the operation facts (module docs). `Err` refuses before the predicate runs:
 /// an unknown operation or enrollment is `OperationNotVerifying`. `counting_new`
 /// adds the entry being reserved to the attempt's count.
@@ -99,25 +142,16 @@ fn operation_facts(
     let Some(record) = tx.enrollment(enrollment)? else {
         return Ok(Err(VerificationRefusal::OperationNotVerifying));
     };
-    let stored = tx
-        .recovery_intent(operation)?
-        .and_then(|i| serde_json::from_value::<Request>(i.request).ok());
-    let authorized = match (op.kind, stored) {
-        (
-            OperationKind::EnrollmentVerify,
-            Some(Request::Enrollment(EnrollmentRequest::Verify {
-                enrollment_id,
-                mode,
-                ..
-            })),
-        ) => {
-            enrollment_id == *enrollment
-                && matches!(mode, VerifyMode::Presence | VerifyMode::Absence)
-        }
-        // `enrollment.apply` (its `EnrollAccount` basis) and a target change (its
-        // `ApproveTargetChange`) are U10's: unauthorized in wave 0.
-        _ => false,
-    };
+    // ⟨M03⟩ wave 4 (U10; A-Q2): the authorization is the enrollment driver's durable
+    // journal: an `enrollment.apply` with its `EnrollAccount`/`EnrollSystemForm`
+    // approval recorded, a target-change verify with its `ApproveTargetChange`
+    // approval, or a presence/absence verify (no decision needed). It must name
+    // this enrollment.
+    let authorized = stored_verify_authorizes(tx, &op, enrollment)?
+        || match super::enrollment_m03::verification_authority(tx, &op)? {
+            Some((e, auth)) => auth && e == *enrollment,
+            None => false,
+        };
     let receipts = tx.stage_receipts(operation)?;
     let starts: Vec<Timestamp> = receipts
         .iter()
@@ -125,12 +159,18 @@ fn operation_facts(
         .map(|r| r.recorded_at)
         .collect();
     let attempts = u32::try_from(starts.len()).unwrap_or(u32::MAX);
-    let at_verification_stage = op.state == OperationState::Running
-        && matches!(
-            record.state,
-            EnrollmentState::Verifying | EnrollmentState::Reverifying
-        )
-        && attempts > 0;
+    // ⟨wave 4⟩ An apply reconciled after an uncertain append verifies while
+    // `outcome_unknown` (M01's lifecycle has no `outcome_unknown → running`); the
+    // system form's absence check verifies a `removal_verifying` record (D5 §6.9).
+    let at_verification_stage = matches!(
+        op.state,
+        OperationState::Running | OperationState::OutcomeUnknown
+    ) && matches!(
+        record.state,
+        EnrollmentState::Verifying
+            | EnrollmentState::Reverifying
+            | EnrollmentState::RemovalVerifying
+    ) && attempts > 0;
     let entries_in_attempt = match starts.iter().max() {
         Some(last) => {
             let n = tx
@@ -203,15 +243,15 @@ pub(crate) fn verification_check_read_only(
     now: Timestamp,
     max_validity: std::time::Duration,
 ) -> heimdall_store::Result<Result<(), VerificationRefusal>> {
-    let enrollment = tx
-        .recovery_intent(&entry.operation)?
-        .and_then(|i| serde_json::from_value::<Request>(i.request).ok())
-        .and_then(|r| match r {
-            Request::Enrollment(EnrollmentRequest::Verify { enrollment_id, .. }) => {
-                Some(enrollment_id)
-            }
-            _ => None,
-        });
+    // The enrollment the operation's stored `enrollment.verify` request names, else
+    // (⟨wave 4⟩ A-Q2) the one the enrollment driver's journal names.
+    let enrollment = match stored_verify_enrollment(tx, &entry.operation)? {
+        Some(e) => Some(e),
+        None => match tx.operation(&entry.operation)? {
+            Some(op) => super::enrollment_m03::verification_authority(tx, &op)?.map(|(e, _)| e),
+            None => None,
+        },
+    };
     let Some(enrollment) = enrollment else {
         return Ok(Err(VerificationRefusal::OperationNotVerifying));
     };

@@ -161,12 +161,20 @@ fn issuer_child_status(ctx: &Ctx) -> i32 {
 /// ⟨M03-U3⟩ The issuer child's K_ca store (ADR-0008 D1): the platform's product
 /// store, scoped to `environment` (§17.18 item 1). `None` where there is none
 /// (headless Linux answers through the Secret Service's own availability; other
-/// platforms have no store), and for the scratch test store, which a test-configured
-/// build selects with `HEIMDALL_TEST_SECRET_STORE=scratch` but which this crate's
-/// production graph cannot name yet (questions file U3-Q4): fail closed, never a
-/// plaintext fallback. On Windows an explicit Heimdall home keeps the DPAPI blobs
-/// under `<state>/issuer/<environment>` (D1: a scratch `HEIMDALL_HOME` is the product
-/// kind at a scratch path); otherwise `%LOCALAPPDATA%\Heimdall\issuer\<environment>`.
+/// platforms have no store): fail closed, never a plaintext fallback. On Windows an
+/// explicit Heimdall home keeps the DPAPI blobs under `<state>/issuer/<environment>`
+/// (D1: a scratch `HEIMDALL_HOME` is the product kind at a scratch path); otherwise
+/// `%LOCALAPPDATA%\Heimdall\issuer\<environment>` (§17.18 item 1). Either way the
+/// directory is this environment's own: `WindowsDpapi::in_dir` reads and writes only
+/// the blobs in it, so a blob outside it (the pre-release shared path) is never read or
+/// adopted (§17.18 item 5).
+///
+/// ⟨M03 wave 4 (U3-Q4, §17.19 item 6)⟩ The scratch test store
+/// (`HEIMDALL_TEST_SECRET_STORE=scratch`) is `heimdall_testkit::scratch_store::
+/// ScratchSecretStore` under `<state>/scratch-secret-store`, in a **debug** build only:
+/// a release build refuses every `HEIMDALL_TEST_*` variable before this runs (U0b row
+/// 16), and its `scratch` flag is then never set; this branch is compiled out of it
+/// regardless. Its kind is the testkit's `scratch_test`, never a product kind (F23).
 pub(crate) fn issuer_store(
     ctx: &Ctx,
     paths: &heimdall_runtime::paths::Paths,
@@ -174,8 +182,18 @@ pub(crate) fn issuer_store(
     scratch: bool,
 ) -> Option<Box<dyn heimdall_issuer::store::SecretStore>> {
     if scratch {
-        let _ = paths.state_dir.join(SCRATCH_STORE_DIR);
-        return None;
+        #[cfg(debug_assertions)]
+        {
+            return Some(Box::new(
+                heimdall_testkit::scratch_store::ScratchSecretStore::new(
+                    paths.state_dir.join(SCRATCH_STORE_DIR),
+                ),
+            ));
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            return None;
+        }
     }
     let _ = (ctx, paths, environment);
     #[cfg(target_os = "macos")]

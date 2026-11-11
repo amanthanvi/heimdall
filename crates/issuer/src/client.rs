@@ -840,3 +840,23 @@ impl IssuerPort for ChildIssuer {
         }
     }
 }
+
+/// ⟨M03 wave 4 (U10)⟩ The issuer child's lifecycle port (`app::issuer::IssuerLifecycle`):
+/// the runtime's start and stop order, `issuer unlock` and the `RegisterIssuer`
+/// completion drive the child through it. Each method is the inherent one, so the
+/// §17.19 item 3 fencing holds unchanged: after [`ChildIssuer::stop`] nothing restarts
+/// until an explicit `start` or `reload`.
+#[async_trait]
+impl heimdall_app::issuer::IssuerLifecycle for ChildIssuer {
+    async fn start(&self) -> Result<(), IssuerError> {
+        ChildIssuer::start(self).await
+    }
+
+    async fn reload(&self) -> Result<(), IssuerError> {
+        ChildIssuer::reload(self).await
+    }
+
+    async fn stop(&self) {
+        ChildIssuer::stop(self).await;
+    }
+}

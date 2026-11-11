@@ -45,6 +45,23 @@
 //! (ADR-0007 §12.22 item 10). [`Service::supervisor`] carries the projection cleaner,
 //! so a test's `cleanup_pass` deletes what a rollback handed over exactly as the
 //! running supervisor does.
+//!
+//! **⟨M03⟩ M03 start and stop order** (m03-plan U10; wave 4), with
+//! [`ServiceOptions::managed`]: process hardening first (`harden_process`); then, after
+//! the store and the time gate, the key vault (seeded from `HEIMDALL_TEST_KEY_SEED` in
+//! debug builds only), the signer table, the managed effects and the managed adapter
+//! (registered with the other adapters); `Operations::start` (M01/M02 recovery, U0b row
+//! 8's `lost` marking); the `[session] lock_behavior` floor (every runtime) and the
+//! session-lock source (on the blocking pool; a `revoke` floor without a signal is
+//! reported, [`Service::lock_floor_refusal`]); the endpoint registry (authority = the
+//! operations, with the verification gates); the M03 ports
+//! (`Operations::set_managed_wiring`) and the enrollment host; the connection
+//! supervisor's restart pass **first** (the owned masters of ended grants are closed);
+//! the issuer child when a CA is registered; the environment endpoint (it serves M01's
+//! signing path, so exactly one signer answers there; M01's signing listener is not
+//! bound); `managed_reissue_pass`; then the control endpoint and `instance.json`
+//! ([`Service::start_steps`]). **Stop:** stop accepting; close the owned masters;
+//! zeroize the vault; shut the issuer down; remove the endpoints; clear the wiring.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -93,7 +110,26 @@ use tokio_util::sync::CancellationToken;
 use crate::config::{Config, Paths};
 use crate::dispatch::{EventRelay, OperationsDispatcher};
 use crate::instance::{INSTANCE_FILE, InstanceInfo, InstanceLock};
-use crate::supervisor::{Supervisor, SupervisorConfig};
+use crate::managed_store::StoreSources;
+use crate::session_lock::PlatformSessionLockSource;
+use crate::supervisor::{ManagedConnections, Supervisor, SupervisorConfig};
+use heimdall_adapters::managed::ManagedCertificateAdapter;
+use heimdall_adapters::managed::effects::ManagedEffectsImpl;
+use heimdall_adapters::managed::files::SlotRoot;
+use heimdall_app::lock::LockPassConfig;
+use heimdall_app::managed::ManagedWiring;
+use heimdall_app::ports::{ConnectionControl, SessionLockSource};
+use heimdall_contract::issuer::CaState;
+use heimdall_contract::managed::{PreferredMechanism, SessionLockState as LockState};
+use heimdall_credential::endpoints::{EndpointLayout, EndpointRegistry};
+use heimdall_credential::signer::SignerLimits;
+use heimdall_credential::table::SignerTable;
+use heimdall_credential::vault::KeyVault;
+use heimdall_enroll::trace::{ClientFamily, ClientVersion};
+use heimdall_enroll::verify::{Verifier, VerifierClient};
+use heimdall_issuer::client::{ChildCommand, ChildIssuer, ClientConfig};
+use heimdall_localenv::target::LocalTargetEvaluator;
+use std::path::PathBuf;
 
 /// File name of the state database inside `Paths::state_dir`.
 pub const STATE_DB_FILE: &str = "state.db";
@@ -182,6 +218,88 @@ pub struct ServiceOptions {
     /// ⟨M02⟩ U5: register the existing-access adapters (`native_agent`,
     /// `onepassword`) after [`Self::adapters`]. Production: `true`.
     pub existing_access: bool,
+    /// ⟨M03⟩ wave 4 (m03-plan U10): the managed-credential wiring (module docs, "M03
+    /// start and stop order"). Production: `Some(ManagedOptions::default())`;
+    /// [`ServiceOptions::with_clock`]: `None`, the M01/M02 runtime unchanged (M01's
+    /// signing endpoint with [`Self::signer`], no M03 port wired, so every M03 request
+    /// answers `driver_unavailable`). With it, [`Self::signer`] is not used: the
+    /// environment endpoint is the managed signer's.
+    pub managed: Option<ManagedOptions>,
+}
+
+/// ⟨M03⟩ wave 4: where the session-lock state comes from (ADR-0008 D9 item 3; U9).
+pub enum SessionLockWiring {
+    /// `PlatformSessionLockSource::start` (production), started on the blocking pool.
+    Platform,
+    /// An injected source (tests: testkit's `FakeSessionLockSource`).
+    Source(Arc<dyn SessionLockSource>),
+    /// No source: `revoke_on_lock` grants never sign (fail closed), and a configured
+    /// `revoke` floor is reported `lock_signal_unavailable`.
+    None,
+}
+
+impl std::fmt::Debug for SessionLockWiring {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            SessionLockWiring::Platform => "Platform",
+            SessionLockWiring::Source(_) => "Source",
+            SessionLockWiring::None => "None",
+        })
+    }
+}
+
+/// ⟨M03⟩ wave 4 (m03-plan U10): what the managed-credential wiring takes besides the
+/// paths and the configuration.
+pub struct ManagedOptions {
+    /// The session-lock source (production: [`SessionLockWiring::Platform`]).
+    pub session_lock: SessionLockWiring,
+    /// The lock passes' tunables (U9).
+    pub lock_passes: LockPassConfig,
+    /// The issuer child (`None`: `ChildCommand::internal_issuer()`, this executable's
+    /// `internal issuer`).
+    pub issuer_command: Option<ChildCommand>,
+    /// The issuer child's start-token reader (`None`:
+    /// [`crate::platform::process_start_time`]).
+    pub issuer_start_token: Option<heimdall_issuer::client::StartToken>,
+    /// **Test configuration only** (`HEIMDALL_TEST_SCRIPT_PAUSE_DIR`): the verifier's
+    /// pause directory (ADR-0008 D13 item 3).
+    pub script_pause_dir: Option<PathBuf>,
+    /// **Test configuration only** (`HEIMDALL_TEST_KEY_SEED`, debug builds; m03-plan
+    /// U0b row 16): the deterministic key seed of the vault
+    /// (`KeyVault::with_test_seed`). A release build has no such field.
+    #[cfg(debug_assertions)]
+    pub test_key_seed: Option<Vec<u8>>,
+    /// Arguments placed before `--` on every `ssh` the connection supervisor runs, and
+    /// the environment of those children (tests: the client isolation arguments and a
+    /// scratch `HOME`; production: none, the runtime's own).
+    pub connection_client_args: Vec<std::ffi::OsString>,
+    /// See [`Self::connection_client_args`].
+    pub connection_client_env: Option<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
+}
+
+impl Default for ManagedOptions {
+    fn default() -> Self {
+        Self {
+            session_lock: SessionLockWiring::Platform,
+            lock_passes: LockPassConfig::default(),
+            issuer_command: None,
+            issuer_start_token: None,
+            script_pause_dir: None,
+            #[cfg(debug_assertions)]
+            test_key_seed: None,
+            connection_client_args: Vec::new(),
+            connection_client_env: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for ManagedOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ManagedOptions")
+            .field("session_lock", &self.session_lock)
+            .field("issuer_command", &self.issuer_command.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl std::fmt::Debug for ServiceOptions {
@@ -202,6 +320,7 @@ impl ServiceOptions {
         Ok(Self {
             projection: ProjectionWiring::Account,
             existing_access: true,
+            managed: Some(ManagedOptions::default()),
             ..Self::with_clock(Arc::new(clock), Arc::new(crate::platform::SystemTimeSync))
         })
     }
@@ -223,6 +342,7 @@ impl ServiceOptions {
             endpoint_prefix: String::new(),
             projection: ProjectionWiring::Disabled,
             existing_access: false,
+            managed: None,
         }
     }
 }
@@ -298,7 +418,11 @@ impl Accept for heimdall_ipc::windows::Listener {
 pub struct Service {
     // Field order is drop order: endpoints close first, the lock is released last.
     control: ControlListener,
-    signing: ControlListener,
+    /// M01's signing listener; `None` with the managed wiring, whose environment
+    /// endpoint serves that path instead.
+    signing: Option<ControlListener>,
+    /// ⟨M03⟩ wave 4: the managed-credential runtime (`None`: not wired).
+    managed: Option<ManagedRuntime>,
     advertisement: Advertisement,
     endpoints: EndpointPaths,
     owner: ExpectedOwner,
@@ -350,6 +474,14 @@ impl Service {
         options: ServiceOptions,
         shutdown: CancellationToken,
     ) -> Result<Self, ServiceError> {
+        // ⟨M03⟩ m03-plan U10 (wave-1 hand-off): process hardening first, before any key
+        // exists (no core dumps; Linux: not dumpable).
+        if options.managed.is_some() {
+            let report = heimdall_credential::sys::harden_process();
+            if !report.mlock_ok {
+                tracing::warn!("memory locking is unavailable; key pages may be swapped");
+            }
+        }
         config.validate()?;
         paths.ensure()?;
         // 1. Single instance (kernel-released on crash).
@@ -395,13 +527,50 @@ impl Service {
             // ⟨M02⟩ ADR-0007 §12.22 item 10: `[setup] declaration_validity_days`.
             limits.declaration_validity = config.declaration_validity()?;
         }
+        // ⟨M03⟩ The endpoint layout and owner (the Windows instance token is shared by
+        // the control endpoint and the managed endpoints).
+        let token = endpoint_token(&options.endpoint_prefix, options.managed.is_some())?;
+        let owner = expected_owner()?;
+        // ⟨M03⟩ wave 4: what the managed adapter needs before `Operations::start`
+        // (module docs): the vault, the signer table, the late-bound endpoint registry,
+        // the effects and the store-backed sources.
+        let mut managed_parts = match &options.managed {
+            Some(m) => Some(ManagedParts::build(
+                m,
+                &paths,
+                &store,
+                &environment,
+                &token,
+                crate::session_lock::lock_floor(&config.session),
+            )?),
+            None => None,
+        };
         // ⟨M02⟩ U5: the projection writer, its cleaner and the adapters.
+        // ⟨M03⟩ U8-Q1: every runtime writer is `LocalProjection::writing`; with the
+        // managed wiring the preview reads the pair preferences (U8's
+        // `ManagedPairSource`, over the store and the environment endpoint).
+        let pair_source = managed_parts
+            .as_ref()
+            .map(|p| p.pair_source(&store, &paths));
+        let with_pairs = |mut c: ProjectionConfig| {
+            // The runtime's writer takes the original files' snapshots under this
+            // runtime's state directory when the configuration names none (an explicit
+            // test configuration); `LocalProjection::writing` refuses without one.
+            if c.state_dir.is_none() {
+                c.state_dir = Some(paths.state_dir.clone());
+            }
+            if c.managed.is_none()
+                && let Some(source) = &pair_source
+            {
+                c.managed = Some(Arc::clone(source));
+            }
+            c
+        };
+        let wire = |c: ProjectionConfig| wire_runtime_projection(store.clone(), with_pairs(c)).ok();
         let wired = match options.projection {
             ProjectionWiring::Disabled => None,
-            ProjectionWiring::Account => {
-                account_projection(&paths).map(|c| wire_projection(store.clone(), c))
-            }
-            ProjectionWiring::Config(c) => Some(wire_projection(store.clone(), *c)),
+            ProjectionWiring::Account => account_projection(&paths).and_then(wire),
+            ProjectionWiring::Config(c) => wire(*c),
         };
         let mut adapters = options.adapters;
         if options.existing_access {
@@ -411,6 +580,10 @@ impl Service {
                 wired.as_ref(),
                 &options.clock,
             ));
+        }
+        // ⟨M03⟩ U6's managed adapter, after M02's (their order is unchanged).
+        if let Some(parts) = &managed_parts {
+            adapters.push(parts.adapter());
         }
         let operations = Operations::start(OperationsConfig {
             store: store.clone(),
@@ -425,16 +598,49 @@ impl Service {
             projection: wired.as_ref().map(|w| Arc::clone(&w.writer)),
         })
         .await?;
+        // ⟨M03⟩ U9 (R3): the `[session] lock_behavior` floor, in every runtime.
+        let floor = crate::session_lock::lock_floor(&config.session);
+        operations.set_session_lock_floor(floor);
+        let background = StopOnDrop(shutdown.child_token());
+        let relay = EventRelay::spawn(&operations, background.0.clone());
+
+        // ⟨M03⟩ wave 4, m03-plan U10's start order after recovery: the session-lock
+        // source, the connection supervisor (its restart pass first: the owned masters
+        // of ended grants are closed), the issuer child when a CA is registered, the
+        // environment endpoint, the re-issue pass. Then (below) the control endpoint and
+        // `instance.json`.
+        let managed = match (managed_parts.take(), options.managed) {
+            (Some(parts), Some(m)) => Some(
+                parts
+                    .start(
+                        m,
+                        &operations,
+                        &store,
+                        &paths,
+                        wired.as_ref(),
+                        owner.clone(),
+                        floor,
+                        background.0.clone(),
+                        endpoint_string(
+                            &EndpointPaths::for_runtime(&paths.runtime_dir, &token).control,
+                        )?,
+                    )
+                    .await?,
+            ),
+            _ => None,
+        };
         let cleaner: Option<Arc<dyn ResourceCleaner>> = wired.map(|w| {
             let c: Arc<dyn ResourceCleaner> = w.cleaner;
             c
         });
-        let background = StopOnDrop(shutdown.child_token());
-        let relay = EventRelay::spawn(&operations, background.0.clone());
 
-        // 6. Endpoints (distinct paths, owner-only).
-        let (endpoints, control, signing, owner) =
-            bind_endpoints(&paths, &options.endpoint_prefix)?;
+        // 6. Endpoints (distinct paths, owner-only). With the managed wiring the
+        //    environment endpoint already serves the signing path.
+        let (endpoints, control, signing) = bind_endpoints(&paths, &token, managed.is_none())?;
+        let mut managed = managed;
+        if let Some(m) = managed.as_mut() {
+            m.steps.push(start_step::CONTROL_ENDPOINT);
+        }
 
         // 7. Advertisement, written only after both endpoints are bound.
         let started_at = InstanceInfo::current_started_at().ok_or_else(|| {
@@ -442,15 +648,22 @@ impl Service {
                 "process start time unavailable on this platform",
             ))
         })?;
+        let signing_endpoint = match &managed {
+            Some(m) => m.registry.environment().locator,
+            None => endpoint_string(&endpoints.signing)?,
+        };
         let info = InstanceInfo {
             pid: std::process::id(),
             started_at,
             version: env!("CARGO_PKG_VERSION").to_owned(),
             control_endpoint: endpoint_string(&endpoints.control)?,
-            signing_endpoint: endpoint_string(&endpoints.signing)?,
+            signing_endpoint,
         };
         info.write(&paths.runtime_dir)
             .map_err(ServiceError::Advertise)?;
+        if let Some(m) = managed.as_mut() {
+            m.steps.push(start_step::INSTANCE_FILE);
+        }
         let advertisement = Advertisement {
             runtime_dir: paths.runtime_dir.clone(),
             info,
@@ -460,6 +673,7 @@ impl Service {
         Ok(Self {
             control,
             signing,
+            managed,
             advertisement,
             endpoints,
             owner,
@@ -488,6 +702,7 @@ impl Service {
         let Self {
             control,
             signing,
+            managed,
             advertisement,
             endpoints: _,
             owner,
@@ -507,8 +722,11 @@ impl Service {
 
         // Owner `Shutdown` requests cancel the same token a signal does, so both
         // take the graceful drain below (ADR-0006 §13.6 item 8).
-        let dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone())
+        let mut dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone())
             .with_service_control(shutdown.clone());
+        if let Some(m) = &managed {
+            dispatcher = dispatcher.with_connections(Arc::clone(&m.connections));
+        }
         let environment = operations.environment().clone();
         let mut tasks = JoinSet::new();
         tasks.spawn(serve_control(
@@ -529,17 +747,25 @@ impl Service {
             },
             locator: advertisement.info.signing_endpoint.clone(),
         };
-        tasks.spawn(serve_signing(
-            signing,
-            signing_endpoint,
-            signer,
-            owner,
-            shutdown.clone(),
-        ));
-        let sup = with_cleaner(
+        if let Some(signing) = signing {
+            tasks.spawn(serve_signing(
+                signing,
+                signing_endpoint,
+                signer,
+                owner,
+                shutdown.clone(),
+            ));
+        }
+        let mut sup = with_cleaner(
             Supervisor::new(operations.clone(), supervisor).with_state(store, clock),
             cleaner,
         );
+        if let Some(m) = &managed {
+            sup = sup.with_connections(Arc::clone(&m.connections));
+            if let Some(source) = &m.lock_source {
+                sup = sup.with_session_lock(Arc::clone(source), m.lock_passes);
+            }
+        }
         tasks.spawn(sup.run(shutdown.clone()));
 
         shutdown.cancelled().await;
@@ -561,6 +787,11 @@ impl Service {
                 running = operations.running_operations(),
                 "shutdown with operations still running; restart recovery resumes them"
             );
+        }
+        // ⟨M03⟩ m03-plan U10's stop order (accepting already stopped above): close the
+        // owned masters, zeroize the vault, shut the issuer down, remove the endpoints.
+        if let Some(m) = managed {
+            m.stop(&operations).await;
         }
         drop(advertisement);
         drop(operations);
@@ -599,11 +830,62 @@ impl Service {
     /// own).
     #[must_use]
     pub fn supervisor(&self) -> Supervisor {
-        with_cleaner(
+        let sup = with_cleaner(
             Supervisor::new(self.operations.clone(), self.supervisor)
                 .with_state(self.store.clone(), self.clock.clone()),
             self.cleaner.clone(),
-        )
+        );
+        match &self.managed {
+            Some(m) => sup.with_connections(Arc::clone(&m.connections)),
+            None => sup,
+        }
+    }
+
+    /// ⟨M03⟩ The key vault of the managed wiring (tests: zeroization at stop).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn vault(&self) -> Option<Arc<KeyVault>> {
+        self.managed.as_ref().map(|m| Arc::clone(&m.vault))
+    }
+
+    /// ⟨M03⟩ The issuer child's client of the managed wiring (tests).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn issuer(&self) -> Option<ChildIssuer> {
+        self.managed.as_ref().and_then(|m| m.issuer.clone())
+    }
+
+    /// ⟨M03⟩ The connection control of the managed wiring (tests).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn connections(&self) -> Option<Arc<ManagedConnections>> {
+        self.managed.as_ref().map(|m| Arc::clone(&m.connections))
+    }
+
+    /// ⟨M03⟩ The managed endpoint registry (tests).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn endpoint_registry(&self) -> Option<EndpointRegistry> {
+        self.managed.as_ref().map(|m| m.registry.clone())
+    }
+
+    /// ⟨M03⟩ U9: the start-up refusal of a configured `revoke` floor whose source is
+    /// `unavailable` (`lock_signal_unavailable`; ADR-0008 D9 item 3: reported, never
+    /// accepted silently). Grants stay fail closed meanwhile.
+    #[must_use]
+    pub fn lock_floor_refusal(&self) -> Option<&heimdall_app::OpError> {
+        self.managed.as_ref().and_then(|m| m.floor_refusal.as_ref())
+    }
+
+    /// ⟨M03⟩ The start-up sequence of the managed wiring, in order (tests:
+    /// `runtime_start_order_issuer_before_listen`): fixed step names.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn start_steps(&self) -> Vec<&'static str> {
+        self.managed
+            .as_ref()
+            .map(|m| m.steps.clone())
+            .unwrap_or_default()
     }
 
     /// The state store (tests inspect durable state through it).
@@ -650,41 +932,14 @@ fn endpoint_string(path: &std::path::Path) -> Result<String, ServiceError> {
     })
 }
 
-#[cfg(unix)]
-fn bind_endpoints(
-    paths: &Paths,
-    _prefix: &str,
-) -> Result<
-    (
-        EndpointPaths,
-        ControlListener,
-        ControlListener,
-        ExpectedOwner,
-    ),
-    ServiceError,
-> {
-    let endpoints = EndpointPaths::for_runtime(&paths.runtime_dir, "");
-    let control = ControlListener::bind(&endpoints.control, EndpointKind::Control)
-        .map_err(ServiceError::Bind)?;
-    let signing = ControlListener::bind(&endpoints.signing, EndpointKind::Signing)
-        .map_err(ServiceError::Bind)?;
-    let owner = ExpectedOwner::Uid(heimdall_ipc::unix::current_uid());
-    Ok((endpoints, control, signing, owner))
-}
-
-#[cfg(windows)]
-fn bind_endpoints(
-    paths: &Paths,
-    prefix: &str,
-) -> Result<
-    (
-        EndpointPaths,
-        ControlListener,
-        ControlListener,
-        ExpectedOwner,
-    ),
-    ServiceError,
-> {
+/// The Windows instance token of this start (empty on Unix): CSPRNG hex, no labels
+/// (g03 §3.1 N2); a test prefix only makes test pipes recognizable. With the managed
+/// wiring the token names the managed endpoints too (`EndpointLayout::windows`), which
+/// take ASCII alphanumerics only, so the prefix's `-` are left out.
+fn endpoint_token(prefix: &str, managed: bool) -> Result<String, ServiceError> {
+    if cfg!(not(windows)) {
+        return Ok(String::new());
+    }
     use std::fmt::Write as _;
     if prefix.len() > 24
         || !prefix
@@ -696,15 +951,64 @@ fn bind_endpoints(
             "invalid endpoint prefix",
         )));
     }
-    // Unpredictable instance token: CSPRNG hex, no labels (g03 §3.1 N2); a test
-    // prefix only makes test pipes recognizable.
     let mut token = String::with_capacity(32 + prefix.len());
-    token.push_str(prefix);
+    if managed {
+        token.extend(prefix.chars().filter(char::is_ascii_alphanumeric));
+    } else {
+        token.push_str(prefix);
+    }
     for _ in 0..2 {
         let v = heimdall_app::ids::random_u64().map_err(heimdall_app::OpError::from)?;
         let _ = write!(token, "{v:016x}");
     }
-    let endpoints = EndpointPaths::for_runtime(&paths.runtime_dir, &token);
+    Ok(token)
+}
+
+/// The principal every endpoint accepts: this user.
+#[cfg(unix)]
+fn expected_owner() -> Result<ExpectedOwner, ServiceError> {
+    Ok(ExpectedOwner::Uid(heimdall_ipc::unix::current_uid()))
+}
+
+/// The principal every endpoint accepts: this user.
+#[cfg(windows)]
+fn expected_owner() -> Result<ExpectedOwner, ServiceError> {
+    heimdall_ipc::windows::current_user_sid()
+        .map(ExpectedOwner::Sid)
+        .map_err(ServiceError::Bind)
+}
+
+/// Bind the control endpoint and, unless the managed environment endpoint serves the
+/// signing path (`bind_signing == false`), M01's signing endpoint.
+#[cfg(unix)]
+fn bind_endpoints(
+    paths: &Paths,
+    token: &str,
+    bind_signing: bool,
+) -> Result<(EndpointPaths, ControlListener, Option<ControlListener>), ServiceError> {
+    let endpoints = EndpointPaths::for_runtime(&paths.runtime_dir, token);
+    let control = ControlListener::bind(&endpoints.control, EndpointKind::Control)
+        .map_err(ServiceError::Bind)?;
+    let signing = if bind_signing {
+        Some(
+            ControlListener::bind(&endpoints.signing, EndpointKind::Signing)
+                .map_err(ServiceError::Bind)?,
+        )
+    } else {
+        None
+    };
+    Ok((endpoints, control, signing))
+}
+
+/// Bind the control endpoint and, unless the managed environment endpoint serves the
+/// signing path (`bind_signing == false`), M01's signing endpoint.
+#[cfg(windows)]
+fn bind_endpoints(
+    paths: &Paths,
+    token: &str,
+    bind_signing: bool,
+) -> Result<(EndpointPaths, ControlListener, Option<ControlListener>), ServiceError> {
+    let endpoints = EndpointPaths::for_runtime(&paths.runtime_dir, token);
     let sid = heimdall_ipc::windows::current_user_sid().map_err(ServiceError::Bind)?;
     let control = ControlListener::bind(
         &endpoint_string(&endpoints.control)?,
@@ -712,13 +1016,19 @@ fn bind_endpoints(
         &sid,
     )
     .map_err(ServiceError::Bind)?;
-    let signing = ControlListener::bind(
-        &endpoint_string(&endpoints.signing)?,
-        EndpointKind::Signing,
-        &sid,
-    )
-    .map_err(ServiceError::Bind)?;
-    Ok((endpoints, control, signing, ExpectedOwner::Sid(sid)))
+    let signing = if bind_signing {
+        Some(
+            ControlListener::bind(
+                &endpoint_string(&endpoints.signing)?,
+                EndpointKind::Signing,
+                &sid,
+            )
+            .map_err(ServiceError::Bind)?,
+        )
+    } else {
+        None
+    };
+    Ok((endpoints, control, signing))
 }
 
 /// Accept loop for the control endpoint. Each accepted, verified connection gets
@@ -885,10 +1195,38 @@ pub fn wire_projection(store: Arc<Store>, mut config: ProjectionConfig) -> Wired
         });
         config.keys = Some(keys);
     }
-    let writer: Arc<dyn ProjectionWriter> = Arc::new(CatalogProjection {
-        inner: LocalProjection::new(config.clone()),
-        store,
-    });
+    let inner = LocalProjection::new(config.clone());
+    wired_over(store, inner, config)
+}
+
+/// ⟨M03⟩ U8-Q1 (ADR-0007 §12.34 item 6): [`wire_projection`] through
+/// `LocalProjection::writing`, which refuses a configuration without a state directory
+/// (so no edit of the owner's files can run without the original's snapshot). Every
+/// writer [`Service::start_with`] wires is built here; [`wire_projection`] keeps M02's
+/// constructor for its direct callers (the M02 suites).
+///
+/// # Errors
+/// `StateDirMissing` when `config.state_dir` is `None`.
+pub fn wire_runtime_projection(
+    store: Arc<Store>,
+    mut config: ProjectionConfig,
+) -> Result<WiredProjection, heimdall_localenv::projection::StateDirMissing> {
+    if config.keys.is_none() {
+        let keys: Arc<dyn PublicKeySource> = Arc::new(CatalogKeys {
+            store: Arc::clone(&store),
+        });
+        config.keys = Some(keys);
+    }
+    let inner = LocalProjection::writing(config.clone())?;
+    Ok(wired_over(store, inner, config))
+}
+
+fn wired_over(
+    store: Arc<Store>,
+    inner: LocalProjection,
+    config: ProjectionConfig,
+) -> WiredProjection {
+    let writer: Arc<dyn ProjectionWriter> = Arc::new(CatalogProjection { inner, store });
     WiredProjection {
         writer,
         cleaner: Arc::new(ProjectionCleaner::new(config.clone())),
@@ -1183,4 +1521,987 @@ fn existing_access_adapters(
             .with_clock(Arc::clone(clock)),
     );
     vec![native, onepassword]
+}
+
+// --- ⟨M03⟩ wave 4 (m03-plan U10): the managed-credential wiring --------------------------
+
+/// The fixed names of [`Service::start_steps`], in the binding order.
+pub mod start_step {
+    /// The endpoint registry exists (no endpoint is bound yet).
+    pub const REGISTRY: &str = "registry";
+    /// The session-lock floor and source are set.
+    pub const SESSION_LOCK: &str = "session_lock";
+    /// `Operations::set_managed_wiring` ran.
+    pub const WIRING: &str = "wiring";
+    /// The connection supervisor's restart pass ran (the owned masters of ended grants
+    /// closed).
+    pub const CONNECTION_RESTART_PASS: &str = "connection_restart_pass";
+    /// The issuer child was started (a CA is registered).
+    pub const ISSUER_START: &str = "issuer_start";
+    /// No CA is registered: the issuer child was not started.
+    pub const ISSUER_NOT_NEEDED: &str = "issuer_not_needed";
+    /// The environment endpoint is bound and serves.
+    pub const ENVIRONMENT_ENDPOINT: &str = "environment_endpoint";
+    /// `managed_reissue_pass` ran.
+    pub const MANAGED_REISSUE_PASS: &str = "managed_reissue_pass";
+    /// The control endpoint is bound.
+    pub const CONTROL_ENDPOINT: &str = "control_endpoint";
+    /// `instance.json` is written.
+    pub const INSTANCE_FILE: &str = "instance_json";
+}
+
+/// The binding endpoints, bound late: the registry needs the `Operations` (its signature
+/// authority and signing gates), which need the managed adapter, whose effects need the
+/// binding endpoints. Until the registry is set (and after the stop clears it) it knows
+/// no endpoint, so nothing is materialized and no master starts (fail closed). Clearing
+/// it at stop also breaks the `Operations` → adapter → registry → `Operations` cycle.
+#[derive(Default)]
+struct LateRegistry(std::sync::RwLock<Option<EndpointRegistry>>);
+
+impl LateRegistry {
+    fn set(&self, registry: EndpointRegistry) {
+        *self
+            .0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(registry);
+    }
+
+    fn clear(&self) {
+        *self
+            .0
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
+    fn get(&self) -> Option<EndpointRegistry> {
+        self.0
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+}
+
+impl heimdall_adapters::managed::effects::BindingEndpoints for LateRegistry {
+    fn binding_endpoint(&self, binding: &heimdall_contract::ids::BindingId) -> Option<EndpointRef> {
+        self.get()
+            .and_then(|r| r.binding_endpoint(binding))
+            .map(|(e, _)| e)
+    }
+}
+
+impl crate::connections::BindingEndpoints for LateRegistry {
+    fn endpoint(&self, binding: &heimdall_contract::ids::BindingId) -> Option<EndpointRef> {
+        self.get()
+            .and_then(|r| r.binding_endpoint(binding))
+            .map(|(e, _)| e)
+    }
+}
+
+/// ⟨M03⟩ U8's `ManagedPairSource` over the store (U8-Q1/Q6 hand-off): a pair whose
+/// stored preference is `managed_certificate` renders its managed section with the
+/// environment endpoint and the slot paths of the one path function
+/// (`content::managed_slot_paths(<state_dir>, destination)`), `ControlPath none` (the mux
+/// path is rendered only once owned masters are enabled and applied, which this source
+/// does not establish: fail closed to no multiplexing). A store failure refuses the
+/// preview, never rendering existing access instead.
+struct StorePairSource {
+    store: Arc<Store>,
+    environment_endpoint: EndpointRef,
+    state_dir: PathBuf,
+}
+
+impl heimdall_localenv::projection::ManagedPairSource for StorePairSource {
+    fn managed_section(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<Option<heimdall_localenv::projection::ManagedSectionSpec>, String> {
+        let pair = heimdall_domain::scope::AccessPair {
+            destination: alias.destination.clone(),
+            account: alias.account.clone(),
+        };
+        let preference = self
+            .store
+            .transaction(|tx| tx.pair_preference(&pair))
+            .map_err(|_| "the pair preference could not be read".to_owned())?;
+        match preference {
+            Some(p) if p.mechanism == PreferredMechanism::ManagedCertificate => {
+                let slot = heimdall_localenv::projection::content::managed_slot_paths(
+                    &self.state_dir,
+                    &alias.destination,
+                )
+                .map_err(|e| e.to_string())?;
+                Ok(Some(heimdall_localenv::projection::ManagedSectionSpec {
+                    environment_endpoint: self.environment_endpoint.clone(),
+                    key_pub: slot.key_pub,
+                    cert_pub: slot.cert_pub,
+                    control_path: None,
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
+/// What the managed adapter needs before `Operations::start`.
+struct ManagedParts {
+    vault: Arc<KeyVault>,
+    table: SignerTable,
+    layout: EndpointLayout,
+    late: Arc<LateRegistry>,
+    effects: ManagedEffectsImpl,
+    sources: StoreSources,
+    install_view: Arc<sources::LateInstallView>,
+    cleanup: Arc<sources::LateCleanup>,
+}
+
+/// The store-backed sources of the managed adapter (`crate::managed_store`, U10-C):
+/// `StoreSources` itself for the reads, the grant scopes and the slot table; the install
+/// view and the end-of-grant cleanup are bound late (they need the `Operations` and the
+/// connection supervisor, which need the adapter), refusing until set and after stop.
+mod sources {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{Arc, PoisonError, RwLock};
+
+    use heimdall_adapters::managed::EndCleanup;
+    use heimdall_adapters::managed::effects::{GrantScopes, SlotStore};
+    use heimdall_adapters::managed::prepare::ManagedSourceRead;
+    use heimdall_app::ports::AdapterError;
+    use heimdall_contract::ids::GrantId;
+    use heimdall_credential::table::{InstallRefusal, InstallView};
+    use heimdall_domain::issuance::IssuanceEntry;
+
+    use crate::managed_store::{OpsInstallView, StoreCleanup, StoreSources};
+    use crate::supervisor::ManagedConnections;
+
+    pub(super) fn read(s: &StoreSources) -> Arc<dyn ManagedSourceRead> {
+        Arc::new(s.clone())
+    }
+
+    pub(super) fn scopes(s: &StoreSources) -> Arc<dyn GrantScopes> {
+        Arc::new(s.clone())
+    }
+
+    pub(super) fn slots(s: &StoreSources) -> Arc<dyn SlotStore> {
+        Arc::new(s.clone())
+    }
+
+    type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+    /// U2-Q2's install view, bound after `Operations::start` (`OpsInstallView`); until
+    /// then and after stop every install is refused `store_view_unavailable`.
+    #[derive(Default)]
+    pub(super) struct LateInstallView(RwLock<Option<OpsInstallView>>);
+
+    impl LateInstallView {
+        pub(super) fn set(&self, view: Option<OpsInstallView>) {
+            *self.0.write().unwrap_or_else(PoisonError::into_inner) = view;
+        }
+    }
+
+    // `InstallView` is `#[async_trait]`; the desugared form.
+    impl InstallView for LateInstallView {
+        fn check<'life0, 'life1, 'life2, 'async_trait>(
+            &'life0 self,
+            grant: &'life1 GrantId,
+            entry: &'life2 IssuanceEntry,
+        ) -> BoxFuture<'async_trait, Result<(), InstallRefusal>>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            'life2: 'async_trait,
+            Self: 'async_trait,
+        {
+            let view = self
+                .0
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            Box::pin(async move {
+                match view {
+                    Some(v) => v.check(grant, entry).await,
+                    None => Err(InstallRefusal::StoreViewUnavailable),
+                }
+            })
+        }
+    }
+
+    /// The end-of-grant cleanup (U10-C's `StoreCleanup`), bound once the connection
+    /// supervisor exists. It first closes the grants' owned connections through the
+    /// event-emitting connection control (each closed row reported once, with the
+    /// reason its grant's state gives), then runs `StoreCleanup` (slots by generation,
+    /// binding files, slot paths; its own connection pass then finds those rows
+    /// closed). Unset (or after stop): `Unavailable`, so the caller keeps its cleanup
+    /// intent and retries (D7 item 2).
+    #[derive(Default)]
+    pub(super) struct LateCleanup(RwLock<Option<(StoreCleanup, Arc<ManagedConnections>)>>);
+
+    impl LateCleanup {
+        pub(super) fn set(&self, v: Option<(StoreCleanup, Arc<ManagedConnections>)>) {
+            *self.0.write().unwrap_or_else(PoisonError::into_inner) = v;
+        }
+
+        fn get(&self) -> Option<(StoreCleanup, Arc<ManagedConnections>)> {
+            self.0
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        }
+    }
+
+    impl EndCleanup for LateCleanup {
+        fn after_end<'a>(
+            &'a self,
+            grants: &'a [GrantId],
+        ) -> BoxFuture<'a, Result<(), AdapterError>> {
+            Box::pin(async move {
+                let Some((cleanup, connections)) = self.get() else {
+                    return Err(AdapterError::Unavailable(
+                        "managed_cleanup_unavailable".to_owned(),
+                    ));
+                };
+                let closed = connections.close_ended(grants).await;
+                let cleaned = cleanup.after_end(grants).await;
+                match (closed, cleaned) {
+                    (true, Ok(())) => Ok(()),
+                    (_, Err(e)) => Err(e),
+                    (false, Ok(())) => Err(AdapterError::Unavailable(
+                        "managed_cleanup_incomplete".to_owned(),
+                    )),
+                }
+            })
+        }
+    }
+}
+
+impl ManagedParts {
+    fn build(
+        m: &ManagedOptions,
+        paths: &Paths,
+        store: &Arc<Store>,
+        environment: &EnvironmentId,
+        token: &str,
+        floor: heimdall_contract::managed::LockBehavior,
+    ) -> Result<Self, ServiceError> {
+        #[cfg(debug_assertions)]
+        let vault = match &m.test_key_seed {
+            Some(seed) => KeyVault::with_test_seed(seed).map_err(|_| {
+                ServiceError::App(heimdall_app::OpError::new(
+                    Code::UsageError,
+                    "the test key seed must be 1 to 64 bytes",
+                ))
+            })?,
+            None => KeyVault::new(),
+        };
+        #[cfg(not(debug_assertions))]
+        let vault = {
+            let _ = m;
+            KeyVault::new()
+        };
+        let vault = Arc::new(vault);
+        let sources = StoreSources::new(Arc::clone(store), environment.clone());
+        sources.set_lock_floor(floor);
+        let table = SignerTable::new(Arc::clone(&vault));
+        let install_view = Arc::new(sources::LateInstallView::default());
+        let view: Arc<dyn heimdall_credential::table::InstallView> = install_view.clone();
+        table.set_install_view(view);
+        let layout = if cfg!(windows) {
+            EndpointLayout::windows(token)
+        } else {
+            let _ = token;
+            EndpointLayout::unix(&paths.runtime_dir)
+        }
+        .ok_or_else(|| {
+            ServiceError::Bind(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "the managed endpoint layout is unavailable",
+            ))
+        })?;
+        let late = Arc::new(LateRegistry::default());
+        let endpoints: Arc<dyn heimdall_adapters::managed::effects::BindingEndpoints> =
+            late.clone();
+        let effects = ManagedEffectsImpl::new(
+            table.clone(),
+            endpoints,
+            sources::scopes(&sources),
+            paths.runtime_dir.clone(),
+            SlotRoot {
+                data_dir: paths.state_dir.clone(),
+                environment: environment.clone(),
+            },
+        )
+        .with_slot_store(sources::slots(&sources));
+        Ok(Self {
+            vault,
+            table,
+            layout,
+            late,
+            effects,
+            sources,
+            install_view,
+            cleanup: Arc::new(sources::LateCleanup::default()),
+        })
+    }
+
+    fn adapter(&self) -> Arc<dyn CredentialAdapter> {
+        let cleanup: Arc<dyn heimdall_adapters::managed::EndCleanup> = self.cleanup.clone();
+        Arc::new(
+            ManagedCertificateAdapter::new(
+                "default",
+                sources::read(&self.sources),
+                Some(self.effects.clone()),
+                Some(self.layout.clone()),
+            )
+            .with_cleanup(cleanup),
+        )
+    }
+
+    fn pair_source(
+        &self,
+        store: &Arc<Store>,
+        paths: &Paths,
+    ) -> Arc<dyn heimdall_localenv::projection::ManagedPairSource> {
+        Arc::new(StorePairSource {
+            store: Arc::clone(store),
+            environment_endpoint: self.layout.environment(),
+            state_dir: paths.state_dir.clone(),
+        })
+    }
+
+    /// m03-plan U10's start order after recovery (module docs).
+    #[allow(clippy::too_many_arguments)]
+    async fn start(
+        self,
+        m: ManagedOptions,
+        ops: &Operations,
+        store: &Arc<Store>,
+        paths: &Paths,
+        wired: Option<&WiredProjection>,
+        owner: ExpectedOwner,
+        floor: heimdall_contract::managed::LockBehavior,
+        stop: CancellationToken,
+        control_locator: String,
+    ) -> Result<ManagedRuntime, ServiceError> {
+        let mut steps = Vec::new();
+        let authority: Arc<dyn heimdall_app::ports::SignatureAuthority> = Arc::new(ops.clone());
+        let registry = EndpointRegistry::new(
+            self.layout.clone(),
+            owner,
+            self.table.clone(),
+            authority,
+            SignerLimits::default(),
+            stop,
+        )
+        .with_verification_gates(ops.signing_gates().clone());
+        self.late.set(registry.clone());
+        // U2-Q2: the install view reads through the operations.
+        self.install_view
+            .set(Some(crate::managed_store::OpsInstallView::new(ops.clone())));
+        steps.push(start_step::REGISTRY);
+
+        // The session-lock source (U9), on the blocking pool (its start waits for the
+        // first reading).
+        let (lock_source, platform_lock): (
+            Option<Arc<dyn SessionLockSource>>,
+            Option<Arc<PlatformSessionLockSource>>,
+        ) = match m.session_lock {
+            SessionLockWiring::Platform => {
+                let p = blocking(PlatformSessionLockSource::start).await?;
+                let s: Arc<dyn SessionLockSource> = p.clone();
+                (Some(s), Some(p))
+            }
+            SessionLockWiring::Source(s) => (Some(s), None),
+            SessionLockWiring::None => (None, None),
+        };
+        if let Some(s) = &lock_source {
+            ops.set_session_lock_source(Arc::clone(s));
+        }
+        let state = lock_source
+            .as_ref()
+            .map_or(LockState::Unavailable, |s| s.state());
+        let floor_refusal = heimdall_app::lock::floor_refusal(floor, state);
+        if let Some(e) = &floor_refusal {
+            tracing::warn!(
+                code = %e.code,
+                reason = heimdall_contract::envelope::reason::LOCK_SIGNAL_UNAVAILABLE,
+                "the configured lock behaviour needs a session-lock signal; revoke-on-lock grants do not sign"
+            );
+        }
+        steps.push(start_step::SESSION_LOCK);
+
+        // One connection supervisor (U7).
+        let clients = wired.map(|w| &w.config.clients);
+        let ssh = clients.and_then(|c| c.selected(ClientKind::Ssh));
+        let late_endpoints: Arc<dyn crate::connections::BindingEndpoints> = self.late.clone();
+        let mut conn = crate::connections::ConnectionConfig::new(
+            paths.runtime_dir.clone(),
+            ssh.map(|c| c.path.clone()).unwrap_or_default(),
+            late_endpoints,
+            Arc::new(crate::supervisor::RandomJitter),
+        );
+        conn.client_args = m.connection_client_args;
+        conn.client_env = m.connection_client_env;
+        let supervisor = Arc::new(crate::connections::ConnectionSupervisor::new(
+            Arc::clone(store),
+            Some(ops.clone()),
+            conn,
+        ));
+        let connections = Arc::new(ManagedConnections::new(
+            Arc::clone(&supervisor),
+            Arc::clone(store),
+            ops.clone(),
+        ));
+        // U10-C: the managed adapter's end-of-grant cleanup, now that the connection
+        // supervisor exists.
+        self.cleanup.set(Some((
+            crate::managed_store::StoreCleanup::new(
+                self.sources.clone(),
+                self.effects.clone(),
+                Some(supervisor),
+            ),
+            Arc::clone(&connections),
+        )));
+
+        // The issuer child (U3), its lifecycle, the verifier (U5), the target evaluator.
+        let command = match m.issuer_command {
+            Some(c) => Some(c),
+            None => ChildCommand::internal_issuer().ok(),
+        };
+        let start_token: heimdall_issuer::client::StartToken = m
+            .issuer_start_token
+            .unwrap_or_else(|| Arc::new(crate::platform::process_start_time));
+        let issuer = command.map(|c| ChildIssuer::new(ClientConfig::new(c, start_token)));
+        if let Some(i) = &issuer {
+            self.sources.set_issuer(Arc::new(i.clone()));
+        }
+        let verifier = match (ssh, ssh.and_then(|c| c.version)) {
+            (Some(c), Some(v)) => {
+                let client = VerifierClient {
+                    path: c.path.clone(),
+                    version: ClientVersion {
+                        family: if Platform::current().is_windows() {
+                            ClientFamily::Win32
+                        } else {
+                            ClientFamily::Portable
+                        },
+                        major: v.major,
+                        minor: v.minor,
+                        portable: v.portable,
+                    },
+                };
+                let v = Verifier::with_client(client, paths.runtime_dir.clone());
+                match m.script_pause_dir {
+                    Some(dir) => v.with_test_pause_dir(dir),
+                    None => v,
+                }
+            }
+            // No verified client: every verification is refused, inconclusive.
+            _ => Verifier::new(),
+        };
+        let target = wired.map(|w| {
+            let c = &w.config;
+            let t = LocalTargetEvaluator::new(c.paths.clone(), c.env.clone(), c.platform)
+                .with_managed_file(c.managed_ssh_path());
+            let t = match ssh.and_then(|s| s.version) {
+                Some(v) => t.with_client_version(v),
+                None => t,
+            };
+            let t: Arc<dyn heimdall_app::ports::TargetEvaluator> = Arc::new(t);
+            t
+        });
+        // U10-A's enrollment host (the runtime's files, client and endpoints); without a
+        // wired projection there is no client inventory, so no host (fail closed).
+        if let Some(w) = wired {
+            let c = &w.config;
+            let mut t = LocalTargetEvaluator::new(c.paths.clone(), c.env.clone(), c.platform)
+                .with_managed_file(c.managed_ssh_path());
+            if let Some(v) = ssh.and_then(|s| s.version) {
+                t = t.with_client_version(v);
+            }
+            let host: Arc<dyn heimdall_app::enrollment::EnrollmentHost> =
+                Arc::new(RuntimeEnrollmentHost {
+                    runtime_dir: paths.runtime_dir.clone(),
+                    client: ssh.map(|s| (s.path.clone(), s.version)),
+                    target: t,
+                    endpoints: vec![control_locator.clone(), registry.environment().locator],
+                    windows: c.platform.is_windows(),
+                });
+            ops.set_enrollment_host(host);
+        }
+        let effects: Arc<dyn heimdall_app::ports::ManagedEffects> = Arc::new(self.effects.clone());
+        let verification: Arc<dyn heimdall_app::ports::VerificationEndpoints> =
+            Arc::new(registry.clone());
+        let control: Arc<dyn ConnectionControl> = connections.clone();
+        ops.set_managed_wiring(ManagedWiring {
+            effects: Some(effects),
+            // U10-B (B3): the same client is the port and the lifecycle.
+            issuer: issuer.clone().map(|i| {
+                let p: Arc<dyn heimdall_app::ports::IssuerPort> = Arc::new(i);
+                p
+            }),
+            issuer_lifecycle: issuer.clone().map(|i| {
+                let l: Arc<dyn heimdall_app::issuer::IssuerLifecycle> = Arc::new(i);
+                l
+            }),
+            verification_endpoints: Some(verification),
+            verification_runner: Some(Arc::new(verifier)),
+            target,
+            connections: Some(control),
+        });
+        steps.push(start_step::WIRING);
+
+        // U7: the restart pass first (§17.20 item 4); a discovery failure is retried by
+        // the supervisor's sweep (D7 item 2).
+        if let Err(f) = connections.restart_pass().await {
+            tracing::warn!(
+                word = f.word(),
+                "connection restart pass could not enumerate"
+            );
+        }
+        steps.push(start_step::CONNECTION_RESTART_PASS);
+
+        // U3: the issuer child, when a CA is registered (`active` or `pending`). A
+        // failed start is the supervision's restart cycle's (signing with installed
+        // keys is unaffected; re-issue waits for it).
+        let registered = {
+            let s = Arc::clone(store);
+            blocking(move || s.transaction(|tx| tx.issuers()))
+                .await?
+                .map_err(ServiceError::Store)?
+                .iter()
+                .any(|r| matches!(r.state, CaState::Active | CaState::Pending))
+        };
+        match (&issuer, registered) {
+            (Some(i), true) => {
+                if let Err(e) = i.start().await {
+                    tracing::warn!(error = %e, "the issuer child did not start; it is restarted");
+                }
+                steps.push(start_step::ISSUER_START);
+            }
+            _ => steps.push(start_step::ISSUER_NOT_NEEDED),
+        }
+
+        // U2: the environment endpoint (it serves M01's signing path; one signer).
+        registry.start_environment().map_err(|e| {
+            ServiceError::Bind(std::io::Error::other(format!("environment endpoint: {e}")))
+        })?;
+        steps.push(start_step::ENVIRONMENT_ENDPOINT);
+
+        // U10-C: re-issue the credentials of `lost` instances.
+        if let Err(e) = ops.managed_reissue_pass().await {
+            tracing::warn!(code = %e.code, "managed re-issue pass failed at start");
+        }
+        steps.push(start_step::MANAGED_REISSUE_PASS);
+
+        Ok(ManagedRuntime {
+            vault: self.vault,
+            registry,
+            late: self.late,
+            install_view: self.install_view,
+            cleanup: self.cleanup,
+            issuer,
+            connections,
+            lock_source,
+            platform_lock,
+            lock_passes: m.lock_passes,
+            floor_refusal,
+            steps,
+        })
+    }
+}
+
+/// The running managed wiring (module docs).
+struct ManagedRuntime {
+    vault: Arc<KeyVault>,
+    registry: EndpointRegistry,
+    late: Arc<LateRegistry>,
+    install_view: Arc<sources::LateInstallView>,
+    cleanup: Arc<sources::LateCleanup>,
+    issuer: Option<ChildIssuer>,
+    connections: Arc<ManagedConnections>,
+    lock_source: Option<Arc<dyn SessionLockSource>>,
+    platform_lock: Option<Arc<PlatformSessionLockSource>>,
+    lock_passes: LockPassConfig,
+    floor_refusal: Option<heimdall_app::OpError>,
+    steps: Vec<&'static str>,
+}
+
+impl ManagedRuntime {
+    /// m03-plan U10's stop order, after accepting stopped: close the owned masters,
+    /// zeroize the vault, shut the issuer down, remove the endpoints; then the M03
+    /// wiring is cleared (breaking the reference cycles).
+    async fn stop(self, ops: &Operations) {
+        let report = self.connections.shutdown().await;
+        if !report.unverified.is_empty() || !report.failed.is_empty() {
+            tracing::warn!(
+                unverified = report.unverified.len(),
+                failed = report.failed.len(),
+                "some owned masters were not closed at stop"
+            );
+        }
+        self.vault.destroy_all();
+        if let Some(i) = &self.issuer {
+            i.stop().await;
+        }
+        self.registry.stop_all();
+        if let Some(p) = &self.platform_lock {
+            p.shutdown();
+        }
+        ops.set_managed_wiring(ManagedWiring::default());
+        self.late.clear();
+        self.install_view.set(None);
+        self.cleanup.set(None);
+        tracing::info!("managed credentials stopped: vault zeroized, issuer stopped");
+    }
+}
+
+impl Drop for ManagedRuntime {
+    /// A service dropped without `run` (or a failed start) still zeroizes its keys and
+    /// stops its endpoints; the issuer child ends with its client (`kill_on_drop`).
+    fn drop(&mut self) {
+        self.vault.destroy_all();
+        self.registry.stop_all();
+        if let Some(p) = &self.platform_lock {
+            p.shutdown();
+        }
+        self.late.clear();
+        self.install_view.set(None);
+        self.cleanup.set(None);
+    }
+}
+
+// --- ⟨M03⟩ wave 4: the enrollment host (U10-A's `EnrollmentHost`, runtime side) ---------
+
+/// The bound of the `ssh -G` effective-configuration check.
+const EFFECTIVE_CONFIG_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The most `ssh -G` output read.
+const EFFECTIVE_CONFIG_MAX_BYTES: u64 = 1 << 20;
+
+/// `heimdall_app::enrollment::EnrollmentHost` over this runtime (U10-A's port; ADR-0008
+/// D5 §6.3): the verified client of the client inventory, the generated host-trust files
+/// under `<runtime_dir>/e/<tag>/` (directories 0700, files 0600, no symlink followed,
+/// contents read back and compared), the Q24 `IdentityAgent` reading and the endpoint
+/// re-validation through the passive `LocalTargetEvaluator`, Heimdall's own endpoints,
+/// and the bounded `ssh -G` check (it parses configuration and connects to nothing).
+/// Without a verified client every call that needs one fails (fail closed).
+struct RuntimeEnrollmentHost {
+    runtime_dir: PathBuf,
+    client: Option<(PathBuf, Option<heimdall_sshconf::eval::OpenSshVersion>)>,
+    target: LocalTargetEvaluator,
+    endpoints: Vec<String>,
+    windows: bool,
+}
+
+/// A path as the enrollment port names it: absolute, `/` separators.
+fn slash_path(p: &std::path::Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
+/// `dir` exists as a real directory (not a symlink) owned by this user and owner-only,
+/// created 0700 if absent (Unix; on Windows the runtime directory's DACL applies).
+fn owner_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) if m.file_type().is_symlink() || !m.is_dir() => {
+            return Err(std::io::Error::other("not a real directory"));
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt as _;
+                std::fs::DirBuilder::new().mode(0o700).create(dir)?;
+            }
+            #[cfg(not(unix))]
+            std::fs::create_dir(dir)?;
+        }
+        Err(e) => return Err(e),
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        let m = std::fs::symlink_metadata(dir)?;
+        if m.uid() != heimdall_ipc::unix::current_uid() {
+            return Err(std::io::Error::other("directory owned by another user"));
+        }
+        if m.permissions().mode() & 0o077 != 0 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    Ok(())
+}
+
+/// Replace `path` with exactly `bytes` (owner-only), never following a symlink, then
+/// read it back and compare.
+fn write_owner_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => return Err(std::io::Error::other("a directory is in the way")),
+        Ok(_) => std::fs::remove_file(path)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut f = options.open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    drop(f);
+    if std::fs::read(path)? != bytes {
+        return Err(std::io::Error::other("the written file differs"));
+    }
+    Ok(())
+}
+
+impl RuntimeEnrollmentHost {
+    fn tag_ok(tag: &str) -> bool {
+        tag.len() == 16 && tag.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    }
+
+    fn dir(&self, tag: &str) -> Option<PathBuf> {
+        Self::tag_ok(tag).then(|| self.runtime_dir.join("e").join(tag))
+    }
+}
+
+impl heimdall_app::enrollment::EnrollmentHost for RuntimeEnrollmentHost {
+    fn client(&self) -> Option<String> {
+        self.client.as_ref().map(|(p, _)| slash_path(p))
+    }
+
+    fn client_version(&self) -> Option<String> {
+        let (_, v) = self.client.as_ref()?;
+        let v = v.as_ref()?;
+        let text = heimdall_localenv::local_query::version_text(v);
+        Some(if self.windows {
+            format!("OpenSSH_for_Windows_{text}")
+        } else {
+            format!("OpenSSH_{text}")
+        })
+    }
+
+    fn paths(&self, tag: &str) -> Option<heimdall_app::enrollment::GeneratedPaths> {
+        let dir = self.dir(tag)?;
+        Some(heimdall_app::enrollment::GeneratedPaths {
+            trust: heimdall_app::enrollment::TrustPaths {
+                tag: tag.to_owned(),
+                user_known_hosts: slash_path(&dir.join("known_hosts")),
+                global_known_hosts: slash_path(&dir.join("global_known_hosts")),
+            },
+            identity_file: slash_path(&dir.join("identity.pub")),
+        })
+    }
+
+    fn write_files(
+        &self,
+        tag: &str,
+        known_hosts_line: &str,
+        identity_public: Option<&str>,
+    ) -> Result<heimdall_app::enrollment::GeneratedPaths, heimdall_app::enrollment::HostError> {
+        let fail = |what: &str| heimdall_app::enrollment::HostError(what.to_owned());
+        let dir = self.dir(tag).ok_or_else(|| fail("invalid tag"))?;
+        let paths = self.paths(tag).ok_or_else(|| fail("invalid tag"))?;
+        if known_hosts_line.contains(['\n', '\r']) {
+            return Err(fail("the known-hosts line is not one line"));
+        }
+        owner_dir(&self.runtime_dir.join("e")).map_err(|_| fail("enrollment directory unsafe"))?;
+        owner_dir(&dir).map_err(|_| fail("enrollment directory unsafe"))?;
+        write_owner_file(
+            &dir.join("known_hosts"),
+            format!("{known_hosts_line}\n").as_bytes(),
+        )
+        .map_err(|_| fail("known-hosts file not written"))?;
+        write_owner_file(&dir.join("global_known_hosts"), b"")
+            .map_err(|_| fail("global known-hosts file not written"))?;
+        if let Some(public) = identity_public {
+            if public.contains(['\n', '\r']) {
+                return Err(fail("the public key is not one line"));
+            }
+            write_owner_file(&dir.join("identity.pub"), format!("{public}\n").as_bytes())
+                .map_err(|_| fail("identity file not written"))?;
+        }
+        Ok(paths)
+    }
+
+    fn identity_agent(&self, alias: &str) -> heimdall_app::enrollment::AgentReading {
+        use heimdall_app::enrollment::AgentReading;
+        use heimdall_localenv::target::IdentityAgentEvaluation;
+        match self.target.evaluate_identity_agent(alias, true) {
+            IdentityAgentEvaluation::Determined(e) => AgentReading::Determined(e.locator),
+            IdentityAgentEvaluation::Unset => AgentReading::Unset,
+            _ => AgentReading::Undetermined,
+        }
+    }
+
+    fn endpoint_valid(&self, endpoint: &str) -> bool {
+        let reference = EndpointRef {
+            kind: if self.windows {
+                AgentEndpointKind::NamedPipe
+            } else {
+                AgentEndpointKind::UnixSocket
+            },
+            locator: endpoint.to_owned(),
+        };
+        let check = self.target.check_endpoint(&reference);
+        // A pipe cannot be checked passively: never valid (fail closed).
+        if check.presence != heimdall_localenv::agents::Presence::Present {
+            return false;
+        }
+        let Some(resolved) = check.resolved else {
+            return false;
+        };
+        let resolved = resolved.replace('\\', "/");
+        let runtime = std::fs::canonicalize(&self.runtime_dir)
+            .map_or_else(|_| slash_path(&self.runtime_dir), |p| slash_path(&p));
+        let ours = |e: &String| {
+            let e = e.replace('\\', "/");
+            resolved == e || endpoint.replace('\\', "/") == e
+        };
+        !(resolved.starts_with(&format!("{runtime}/")) || self.endpoints.iter().any(ours))
+    }
+
+    fn heimdall_endpoints(&self) -> Vec<String> {
+        let mut out = self.endpoints.clone();
+        out.push(slash_path(&self.runtime_dir));
+        out
+    }
+
+    fn effective_config(
+        &self,
+        step: &heimdall_contract::enrollment::RemoteStep,
+    ) -> Result<String, heimdall_app::enrollment::HostError> {
+        use std::io::Read as _;
+        let fail = |what: &str| heimdall_app::enrollment::HostError(what.to_owned());
+        let (client, _) = self
+            .client
+            .as_ref()
+            .ok_or_else(|| fail("no verified client"))?;
+        let mut child = std::process::Command::new(client)
+            .args(heimdall_app::enrollment::effective_config_args(step))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|_| fail("the client could not run"))?;
+        let mut stdout = child.stdout.take().ok_or_else(|| fail("no output"))?;
+        let reader = std::thread::spawn(move || {
+            let mut out = Vec::new();
+            let _ = (&mut stdout)
+                .take(EFFECTIVE_CONFIG_MAX_BYTES)
+                .read_to_end(&mut out);
+            out
+        });
+        let deadline = std::time::Instant::now() + EFFECTIVE_CONFIG_TIMEOUT;
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(s)) => break Some(s),
+                Ok(None) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                _ => break None,
+            }
+        };
+        let Some(status) = status else {
+            // Our own child, by its handle.
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(fail("the effective-configuration check timed out"));
+        };
+        let out = reader.join().map_err(|_| fail("no output"))?;
+        if !status.success() {
+            return Err(fail("the effective-configuration check failed"));
+        }
+        String::from_utf8(out).map_err(|_| fail("the output is not UTF-8"))
+    }
+}
+
+#[cfg(all(test, unix))]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod enrollment_host_tests {
+    use super::*;
+    use heimdall_app::enrollment::EnrollmentHost as _;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    fn host(runtime_dir: &std::path::Path) -> RuntimeEnrollmentHost {
+        let home = runtime_dir.join("home");
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        let paths = SshPaths::with_test_override(home.clone(), home.join("etc-ssh"));
+        RuntimeEnrollmentHost {
+            runtime_dir: runtime_dir.to_path_buf(),
+            client: None,
+            target: LocalTargetEvaluator::new(paths, Env::default(), Platform::current()),
+            endpoints: vec![slash_path(&runtime_dir.join("signing.sock"))],
+            windows: false,
+        }
+    }
+
+    /// U10-A's host, runtime side: the generated files are written owner-only under
+    /// `<runtime_dir>/e/<tag>/` with exactly the given bytes, a bad tag or a multi-line
+    /// value is refused before any write, a symlinked tag directory is refused, and no
+    /// client means no effective-configuration check (fail closed).
+    #[test]
+    fn enrollment_host_writes_owner_only_trust_files_and_refuses_unsafe_input() {
+        let tmp = tempfile::tempdir().unwrap();
+        let run = tmp.path().join("run");
+        std::fs::create_dir(&run).unwrap();
+        std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let h = host(&run);
+        let tag = "0123456789abcdef";
+        let p = h
+            .write_files(
+                tag,
+                "hm-target-0123456789abcdef ssh-ed25519 AAAA",
+                Some("ssh-ed25519 BBBB"),
+            )
+            .unwrap();
+        let dir = run.join("e").join(tag);
+        assert_eq!(
+            p.trust.user_known_hosts,
+            slash_path(&dir.join("known_hosts"))
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("known_hosts")).unwrap(),
+            "hm-target-0123456789abcdef ssh-ed25519 AAAA\n"
+        );
+        assert_eq!(std::fs::read(dir.join("global_known_hosts")).unwrap(), b"");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("identity.pub")).unwrap(),
+            "ssh-ed25519 BBBB\n"
+        );
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&run.join("e")), 0o700);
+        assert_eq!(mode(&dir), 0o700);
+        assert_eq!(mode(&dir.join("known_hosts")), 0o600);
+        // A rewrite replaces the bytes exactly.
+        h.write_files(tag, "hm-target-0123456789abcdef ssh-ed25519 CCCC", None)
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("known_hosts")).unwrap(),
+            "hm-target-0123456789abcdef ssh-ed25519 CCCC\n"
+        );
+        // Refused before any write.
+        assert!(h.write_files("../escape", "x", None).is_err());
+        assert!(h.write_files("0123456789ABCDEF", "x", None).is_err());
+        assert!(h.paths("short").is_none());
+        let other = "fedcba9876543210";
+        assert!(h.write_files(other, "a\nb", None).is_err());
+        assert!(!run.join("e").join(other).exists());
+        // A planted symlink as the tag directory is never followed.
+        let elsewhere = tmp.path().join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, run.join("e").join(other)).unwrap();
+        assert!(h.write_files(other, "line", None).is_err());
+        assert!(!elsewhere.join("known_hosts").exists());
+        // No verified client: no `ssh -G`, no version.
+        assert!(h.client().is_none() && h.client_version().is_none());
+        // Heimdall's endpoints and runtime directory are listed; one under the runtime
+        // directory is never a valid existing-access endpoint.
+        assert!(h.heimdall_endpoints().contains(&slash_path(&run)));
+        assert!(!h.endpoint_valid(&slash_path(&run.join("signing.sock"))));
+        assert!(!h.endpoint_valid("/nonexistent/agent.sock"));
+    }
 }

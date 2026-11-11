@@ -2872,15 +2872,22 @@ fn verify_unrecorded_client_trace_is_inconclusive() {
             reason: InconclusiveReason::UnrecordedClientFamily
         }
     );
-    // The domain classification (wave 0) never passes either.
-    assert!(
+    // The domain classification over the port's outcome (§17.17 item 14) agrees.
+    assert!(r.outcome.unrecorded);
+    assert_eq!(
         heimdall_domain::verification::classify(
             &r.outcome.positive,
             &r.outcome.negative,
             heimdall_domain::verification::VerificationPhase::Initial,
             heimdall_contract::enrollment::EnrollmentForm::Account,
-        )
-        .is_inconclusive()
+            &heimdall_domain::verification::ClassifyContext {
+                unrecorded: r.outcome.unrecorded,
+                ..heimdall_domain::verification::ClassifyContext::recorded()
+            },
+        ),
+        VerificationVerdict::Inconclusive {
+            reason: InconclusiveReason::UnrecordedClientFamily
+        }
     );
 }
 

@@ -47,7 +47,9 @@ ratatui = { workspace = true }
 # release build never references the crate (so nothing of it is linked) and
 # refuses the variables. Default features off (M02 wave-1 integrator finding B):
 # the U7 process fixtures (`fixtures`) stay out of the production build graph.
-heimdall-testkit = { workspace = true, default-features = false, features = ["app"] }
+# ⟨M03⟩ wave 4 (U3-Q4, ADR-0008 §17.19 item 6): `managed` so the debug-build
+# `internal issuer` can select `ScratchSecretStore` under `cfg(debug_assertions)`.
+heimdall-testkit = { workspace = true, default-features = false, features = ["app", "managed"] }
 
 [target.'cfg(unix)'.dependencies]
 # ⟨M02⟩ U10 `tui` (Unix): the terminal is read with `poll`/`read` and sized with
@@ -62,7 +64,7 @@ tempfile = { workspace = true }
 proptest = { workspace = true }
 # M02-U8 `e2e_run_m02` (tests only): the U7 process fixtures (scratch home, fake agent).
 # Test builds only; the production graph keeps default features off (finding B).
-heimdall-testkit = { workspace = true, default-features = false, features = ["app", "fixtures"] }
+heimdall-testkit = { workspace = true, default-features = false, features = ["app", "fixtures", "managed"] }
 # The A11 cases seed a standing policy into the in-process runtime's store.
 heimdall-store = { workspace = true }
 
@@ -117,3 +119,13 @@ path = "../../tests/e2e/consumer_m03.rs"
 [[test]]
 name = "e2e_deadline_m03"
 path = "../../tests/e2e/deadline_m03.rs"
+
+# ⟨M03⟩ wave 4 (U10): the managed-credential and enrollment end-to-end flows
+# (m03-plan U10 "Tests").
+[[test]]
+name = "e2e_managed_m03"
+path = "../../tests/e2e/managed_m03.rs"
+
+[[test]]
+name = "e2e_enroll_m03"
+path = "../../tests/e2e/enroll_m03.rs"

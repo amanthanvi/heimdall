@@ -945,6 +945,10 @@ pub struct VerificationOutcome {
     /// The verified client that ran them (path and version, for evidence), when it
     /// started.
     pub client: Option<String>,
+    /// ⟨M03 wave 4, ADR-0008 §17.17 item 14 (U5IO-Q4)⟩ The client's trace family or
+    /// version is unrecorded, so no attempt ran: the classification is inconclusive
+    /// (`unrecorded_client_family`) and the doctor names the client.
+    pub unrecorded: bool,
 }
 
 /// Runs the production verification's fresh logins (ADR-0008 D5 §6.5; U5).
@@ -971,13 +975,19 @@ pub trait VerificationRunner: Send + Sync {
 #[async_trait]
 pub trait VerificationEndpoints: Send + Sync {
     /// Create `operation`'s verification endpoint with a fresh K_verify, whose public
-    /// key is registered at creation.
+    /// key is registered at creation. ⟨M03 wave 4, ADR-0008 §17.19 item 5 (INT-Q13)⟩
+    /// The factory receives the `plan`: every certificate the session installs must be
+    /// signed by the plan's CA, and the positive one must name the plan's pair. The
+    /// implementation also opens `operation`'s verification signing gate
+    /// (`app::managed::SigningGates::open_verification`), which closes when the
+    /// session is dropped.
     ///
     /// # Errors
     /// [`AdapterError`].
     async fn create(
         &self,
         operation: &OperationId,
+        plan: &EnrollmentPlan,
     ) -> Result<Box<dyn VerificationSession>, AdapterError>;
 }
 

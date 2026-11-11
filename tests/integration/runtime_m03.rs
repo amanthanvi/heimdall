@@ -520,6 +520,32 @@ fn assert_driver_unavailable(env: &Envelope<serde_json::Value>, what: &str) {
     );
 }
 
+/// ⟨wave 4⟩ U0b phase 2 on an **unwired** runtime: the request is refused (an error
+/// envelope), with no operation ID and effect `none`. Which refusal is the driver's:
+/// `driver_unavailable` where the missing port is the first thing it meets, or the
+/// refusal it reaches first without writing (an unknown record, the owner role, a
+/// stale decision). The callers also check that nothing was written.
+fn assert_fail_closed(env: &Envelope<serde_json::Value>, what: &str) {
+    assert!(
+        env.data.get("error").is_some(),
+        "{what}: refused, got {:?} {:?}",
+        env.code,
+        env.data
+    );
+    assert!(
+        !matches!(env.code, Code::Ok | Code::AccessReady | Code::Accepted),
+        "{what}: {:?}",
+        env.code
+    );
+    assert_eq!(env.operation_id, None, "{what}: no operation");
+    assert_eq!(
+        env.data["error"]["effect_status"],
+        serde_json::json!(EffectStatus::None),
+        "{what}: {:?}",
+        env.data
+    );
+}
+
 // --- seeded records -----------------------------------------------------------------
 
 fn seed_operation(w: &World, n: u8, kind: OperationKind, state: OperationState) -> OperationId {
@@ -687,12 +713,15 @@ fn decision_state(w: &World, d: &DecisionId) -> DecisionState {
 // Row 13: dispatch arms
 // =================================================================================
 
-/// U0b row 13, phase 1: every `Request::{Issuer, Enrollment, Connections}` reaching
-/// the real dispatcher from the owner on an attended session answers
-/// `CAPABILITY_UNAVAILABLE`, reason `driver_unavailable`, effect `none`, with no
-/// operation ID, and nothing in the store changes (row counts, every raw document
-/// table, operations, decisions, events). Unattended, `Issuer::Unlock` is refused
-/// `INTERACTION_REQUIRED` first (attended-only), also writing nothing.
+/// U0b row 13, phase 2 (wave 4), on an **unwired** runtime (no M03 port set, no
+/// connection control: what every M01/M02 runtime is): every `Request::{Issuer,
+/// Enrollment, Connections}` reaching the real dispatcher from the owner on an attended
+/// session still answers `CAPABILITY_UNAVAILABLE`, reason `driver_unavailable`, effect
+/// `none`, with no operation ID, and nothing in the store changes (row counts, every raw
+/// document table, operations, decisions, events). Unattended, `Issuer::Unlock` is
+/// refused `INTERACTION_REQUIRED` first (attended-only), also writing nothing. (Phase 1
+/// asserted the same of the fail-closed arms; phase 2 routes to U10's drivers, which
+/// fail closed before any write without their ports.)
 #[tokio::test]
 async fn w0_m03_requests_fail_closed_before_any_record() {
     let w = World::new().await;
@@ -706,23 +735,31 @@ async fn w0_m03_requests_fail_closed_before_any_record() {
         );
         let env = d.handle_as(&attended(ClientRole::Owner), r.clone()).await;
         assert_no_canary(&serde_json::to_string(&env).unwrap());
-        assert_driver_unavailable(&env, &what);
+        assert_fail_closed(&env, &what);
         let env = d.handle_as(&unattended(ClientRole::Owner), r.clone()).await;
         if r.requires_attended_session() {
             assert_eq!(env.code, Code::InteractionRequired, "{what}");
         } else {
-            assert_driver_unavailable(&env, &what);
+            assert_fail_closed(&env, &what);
         }
+    }
+    // Connection control is the runtime's: unwired, exactly `driver_unavailable`.
+    for r in m03_requests()
+        .into_iter()
+        .filter(|r| matches!(r, Request::Connections(_)))
+    {
+        let env = d.handle_as(&attended(ClientRole::Owner), r.clone()).await;
+        assert_driver_unavailable(&env, r.kind());
     }
     assert_eq!(w.snapshot(), before, "nothing was written");
 }
 
-/// U0b row 13 (F20): `Enrollment::{Step, StepResult, Reconcile}` and
-/// `Connections::{Close, Register}` are refused for any role but owner, with
-/// `CAPABILITY_UNAVAILABLE` and **no** `driver_unavailable` reason (the role
+/// U0b row 13 (F20), phase 2 on an unwired runtime: `Enrollment::{Step, StepResult,
+/// Reconcile}` and `Connections::{Close, Register}` are refused for any role but owner,
+/// with `CAPABILITY_UNAVAILABLE` and **no** `driver_unavailable` reason (the role
 /// refusal comes first: authorization before capability, so a non-owner learns
-/// nothing about this build's drivers); the other M03 requests answer
-/// `driver_unavailable` to a non-owner as to the owner. Nothing is written.
+/// nothing about this build's drivers); the other M03 requests are refused to a
+/// non-owner too (the driver's fail-closed answer). Nothing is written.
 #[tokio::test]
 async fn step_and_reconcile_refused_for_non_owner_role() {
     let w = World::new().await;
@@ -750,11 +787,11 @@ async fn step_and_reconcile_refused_for_non_owner_role() {
                 "{what}: {:?}",
                 env.data
             );
-            // The owner gets the driver answer for the same request.
+            // The owner gets the driver's (fail-closed) answer for the same request.
             let env = d.handle_as(&attended(ClientRole::Owner), r.clone()).await;
-            assert_driver_unavailable(&env, &what);
+            assert_fail_closed(&env, &what);
         } else {
-            assert_driver_unavailable(&env, &what);
+            assert_fail_closed(&env, &what);
         }
     }
     assert_eq!(
@@ -764,19 +801,20 @@ async fn step_and_reconcile_refused_for_non_owner_role() {
     assert_eq!(w.snapshot(), before, "nothing was written");
 }
 
-/// U0b row 13 / §5 item 15: the four M03 capabilities are declared and **not
-/// offered**: not in the server's offer, not in `inspect capabilities`, a hello
-/// requiring one is refused, and on a negotiated session an M03 request is refused
-/// `SCHEMA_UNSUPPORTED` by the session gate before dispatch.
+/// `capabilities_offered_after_activation` (U0b row 13, phase 2; retires
+/// `w0_m03_capabilities_not_offered`; §5 item 15): the four M03 capabilities are
+/// offered by the server and listed by `inspect capabilities` (the two lists agree), a
+/// hello requiring each is accepted, and on a session that negotiated them an M03
+/// request is dispatched (an unwired runtime answers `driver_unavailable`, writing
+/// nothing), while a session that did not negotiate them is still refused
+/// `SCHEMA_UNSUPPORTED` by the gate before dispatch.
 #[tokio::test]
-async fn w0_m03_capabilities_not_offered() {
+async fn capabilities_offered_after_activation() {
     use heimdall_contract::ipc::{PeerInfo, PrincipalInfo};
-    use heimdall_ipc::session::{
-        ConnectionLimits, ControlClient, ControlConnection, server_capabilities,
-    };
+    use heimdall_ipc::session::{ConnectionLimits, ControlConnection, server_capabilities};
     let offered = server_capabilities();
     for c in capability::M03_DECLARED {
-        assert!(!offered.contains(c), "{c} offered");
+        assert!(offered.contains(c), "{c} not offered");
     }
     let w = World::new().await;
     let inspect = w
@@ -790,14 +828,14 @@ async fn w0_m03_capabilities_not_offered() {
         )
         .await
         .unwrap();
-    let text = serde_json::to_string(&inspect.data).unwrap();
-    for c in capability::M03_DECLARED {
-        assert!(
-            !text.contains(c),
-            "{c} listed by inspect capabilities: {text}"
-        );
-    }
-    let open = |required: BTreeSet<String>| {
+    let listed: BTreeSet<String> = inspect.data["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c.as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(listed, offered, "inspect capabilities lists the offer");
+    let open = |required: BTreeSet<String>, offer: BTreeSet<String>| {
         let ops = w.ops.clone();
         let clock = w.clock.clone();
         async move {
@@ -820,28 +858,44 @@ async fn w0_m03_capabilities_not_offered() {
                     )
                     .await;
             });
-            let client = ControlClient::handshake(
-                stream,
-                PeerInfo {
-                    name: "w0-m03".into(),
-                    version: "0".into(),
-                },
-                required,
-                InteractionMode::NonInteractive,
-            )
-            .await;
+            let client = RawClient::handshake(stream, offer, required).await;
             (client, served)
         }
     };
-    for c in capability::M03_DECLARED {
-        let (client, _served) = open([c.to_owned()].into_iter().collect()).await;
-        assert!(client.is_err(), "a hello requiring {c} is refused");
-    }
     let before = w.snapshot();
-    let (client, _served) = open(BTreeSet::new()).await;
+    // A hello requiring each M03 capability is accepted.
+    for c in capability::M03_DECLARED {
+        let required: BTreeSet<String> = [c.to_owned()].into_iter().collect();
+        let (client, _served) = open(required.clone(), required).await;
+        let client = client.unwrap();
+        assert!(client.negotiated.contains(c), "{c} negotiated");
+    }
+    // Negotiated: dispatched, and an unwired runtime answers `driver_unavailable`.
+    let all: BTreeSet<String> = capability::M03_DECLARED
+        .iter()
+        .map(|c| (*c).to_owned())
+        .collect();
+    let (client, _served) = open(BTreeSet::new(), all).await;
     let mut client = client.unwrap();
     for r in m03_requests() {
-        let env = client.request(r.clone()).await.unwrap();
+        let env = client.request(r.clone()).await;
+        assert_ne!(
+            env.code,
+            Code::SchemaUnsupported,
+            "{}: dispatched",
+            r.kind()
+        );
+        if r.requires_attended_session() {
+            assert_eq!(env.code, Code::InteractionRequired, "{}", r.kind());
+        } else {
+            assert_fail_closed(&env, r.kind());
+        }
+    }
+    // Not negotiated: refused by the gate before dispatch.
+    let (client, _served) = open(BTreeSet::new(), BTreeSet::new()).await;
+    let mut client = client.unwrap();
+    for r in m03_requests() {
+        let env = client.request(r.clone()).await;
         assert_eq!(
             env.code,
             Code::SchemaUnsupported,
@@ -853,14 +907,110 @@ async fn w0_m03_capabilities_not_offered() {
     assert_eq!(w.snapshot(), before, "nothing was written");
 }
 
+/// A control client that offers exactly the capabilities it is given (the production
+/// `ControlClient` offers every capability the server serves). Frames are the
+/// production codec's (`heimdall_ipc::frame`).
+struct RawClient {
+    stream: tokio::io::DuplexStream,
+    buf: Vec<u8>,
+    seq: u64,
+    /// The capabilities the server's hello negotiated.
+    negotiated: BTreeSet<String>,
+}
+
+impl RawClient {
+    /// Send a hello offering `capabilities` and requiring `required`; `Err` is the
+    /// server's rejection.
+    async fn handshake(
+        mut stream: tokio::io::DuplexStream,
+        capabilities: BTreeSet<String>,
+        required: BTreeSet<String>,
+    ) -> Result<Self, Box<Envelope<heimdall_contract::envelope::ErrorData>>> {
+        use heimdall_contract::ipc::{ClientHello, ClientMessage, PeerInfo, ServerMessage};
+        use heimdall_ipc::frame::{CONTROL_LIMIT, encode_frame};
+        use tokio::io::AsyncWriteExt;
+        let hello = ClientMessage::Hello(ClientHello {
+            protocol: heimdall_contract::PROTOCOL_VERSION,
+            schema_version: heimdall_contract::SchemaVersion::current(),
+            client: PeerInfo {
+                name: "w4-m03".into(),
+                version: "0".into(),
+            },
+            capabilities,
+            required,
+            interaction: InteractionMode::NonInteractive,
+        });
+        stream
+            .write_all(&encode_frame(&hello, CONTROL_LIMIT).unwrap())
+            .await
+            .unwrap();
+        let mut me = Self {
+            stream,
+            buf: Vec::new(),
+            seq: 0,
+            negotiated: BTreeSet::new(),
+        };
+        match me.next().await {
+            ServerMessage::Hello(h) => {
+                me.negotiated = h.capabilities;
+                Ok(me)
+            }
+            ServerMessage::Reject(env) => Err(Box::new(env)),
+            _ => panic!("unexpected first server frame"),
+        }
+    }
+
+    async fn next(&mut self) -> heimdall_contract::ipc::ServerMessage {
+        use heimdall_ipc::frame::{CONTROL_LIMIT, decode_frame};
+        use tokio::io::AsyncReadExt;
+        loop {
+            if let Some((msg, used)) =
+                decode_frame::<heimdall_contract::ipc::ServerMessage>(&self.buf, CONTROL_LIMIT)
+                    .unwrap()
+            {
+                self.buf.drain(..used);
+                return msg;
+            }
+            let mut chunk = [0u8; 8192];
+            let n = self.stream.read(&mut chunk).await.unwrap();
+            assert!(n > 0, "the server closed the connection");
+            self.buf.extend_from_slice(&chunk[..n]);
+        }
+    }
+
+    /// Send `request` and return its response.
+    async fn request(&mut self, request: Request) -> Envelope<serde_json::Value> {
+        use heimdall_contract::ipc::{ClientMessage, ServerMessage};
+        use heimdall_ipc::frame::{CONTROL_LIMIT, encode_frame};
+        use tokio::io::AsyncWriteExt;
+        self.seq += 1;
+        let seq = self.seq;
+        let frame = encode_frame(&ClientMessage::Request { seq, request }, CONTROL_LIMIT).unwrap();
+        self.stream.write_all(&frame).await.unwrap();
+        loop {
+            if let ServerMessage::Response {
+                in_reply_to,
+                envelope,
+            } = self.next().await
+                && in_reply_to == seq
+            {
+                return envelope;
+            }
+        }
+    }
+}
+
 // =================================================================================
 // Row 14: decision kinds
 // =================================================================================
 
-/// U0b row 14, phase 1: a pending decision record of each M03 kind, decided
-/// (approve and deny) through the real dispatcher on an attended owner session, is
-/// refused `CAPABILITY_UNAVAILABLE` (`driver_unavailable`) and stays `pending`: not
-/// consumed, no decision event, no operation touched.
+/// U0b row 14, phase 2 (wave 4) on an unwired runtime: a pending decision record of
+/// each M03 kind, decided (approve and deny) through the real dispatcher on an attended
+/// owner session, is refused (the kind's fail-closed answer: `driver_unavailable` where
+/// its completion needs a missing M03 port, or the refusal its precheck reaches first,
+/// such as `DECISION_STALE` for a registration whose key this runtime does not hold) and
+/// stays `pending`: not consumed, no decision event, no operation touched. (Completion
+/// with the ports wired is U10-A's and U10-B's.)
 #[tokio::test]
 async fn w0_new_decision_kinds_refused_not_consumed() {
     let w = World::new().await;
@@ -880,36 +1030,61 @@ async fn w0_new_decision_kinds_refused_not_consumed() {
             .filter(|e| e.event_type == EventType::Decision)
             .count()
     };
-    let events_before = decision_events(&w);
-    let counts_before = w.store.transaction(|tx| tx.table_counts()).unwrap();
+    let counts = |w: &World| {
+        let c = w.store.transaction(|tx| tx.table_counts()).unwrap();
+        (
+            c.operations,
+            c.grants,
+            c.identities,
+            c.destinations,
+            c.idempotency,
+        )
+    };
+    let counts_before = counts(&w);
+    let owner = attended(ClientRole::Owner);
+    let decide = |id: &DecisionId, verdict| {
+        d.handle_as(
+            &owner,
+            Request::Decide(DecideRequest {
+                decision_id: id.clone(),
+                verdict,
+            }),
+        )
+    };
+    let mut denied = 0;
     for id in &ids {
-        for verdict in [Verdict::Approve, Verdict::Deny] {
-            let env = d
-                .handle_as(
-                    &attended(ClientRole::Owner),
-                    Request::Decide(DecideRequest {
-                        decision_id: id.clone(),
-                        verdict,
-                    }),
-                )
-                .await;
-            assert_driver_unavailable(&env, &format!("{id} {verdict:?}"));
-            assert_eq!(decision_state(&w, id), DecisionState::Pending, "{id}");
+        // Approve: the completion needs the kind's M03 port (or its precheck refuses
+        // first): refused, not consumed, no decision event.
+        let events = decision_events(&w);
+        let env = decide(id, Verdict::Approve).await;
+        assert_fail_closed(&env, &format!("{id} approve"));
+        assert_eq!(decision_state(&w, id), DecisionState::Pending, "{id}");
+        assert_eq!(decision_events(&w), events, "{id}: no decision event");
+        // Deny: either refused the same way, or (phase 2) completed `denied` exactly
+        // once with its decision event and nothing else written: no operation, grant
+        // or catalog record is touched.
+        let env = decide(id, Verdict::Deny).await;
+        match decision_state(&w, id) {
+            DecisionState::Pending => {
+                assert_fail_closed(&env, &format!("{id} deny"));
+                assert_eq!(decision_events(&w), events, "{id}");
+            }
+            DecisionState::Denied => {
+                assert_eq!(env.code, Code::Ok, "{id}: {:?}", env.data);
+                assert_eq!(env.data["operation_id"], serde_json::Value::Null);
+                assert_eq!(decision_events(&w), events + 1, "{id}: one decision event");
+                denied += 1;
+            }
+            other => panic!("{id}: {other:?}"),
         }
+        assert_eq!(counts(&w), counts_before, "{id}: nothing else written");
     }
-    assert_eq!(decision_events(&w), events_before);
-    assert_eq!(
-        w.store.transaction(|tx| tx.table_counts()).unwrap(),
-        counts_before
-    );
-    let pending: BTreeSet<DecisionId> = w
+    let pending = w
         .store
         .transaction(|tx| tx.pending_decisions())
         .unwrap()
-        .into_iter()
-        .map(|d| d.id)
-        .collect();
-    assert!(ids.iter().all(|id| pending.contains(id)));
+        .len();
+    assert_eq!(pending + denied, ids.len());
 }
 
 // =================================================================================
@@ -2433,7 +2608,8 @@ async fn w0_no_reachable_todo() {
                 assert_eq!(env.code, Code::CapabilityUnavailable, "{what}");
                 assert_eq!(reason_of(&env), None, "{what}");
             } else {
-                assert_driver_unavailable(&env, &what);
+                // ⟨wave 4⟩ Phase 2, unwired: the driver's fail-closed answer.
+                assert_fail_closed(&env, &what);
             }
         }
     }
@@ -2672,4 +2848,757 @@ mod umask_anchors {
         );
         assert_eq!(mode(&paths.state_dir), 0o775, "never repaired by open_root");
     }
+}
+
+// =================================================================================
+// ⟨M03⟩ Wave 4 (U10-D): the runtime start and stop order, dispatch of
+// `Connections`, the `Connection` events, the post-tick sweep
+// =================================================================================
+
+/// m03-plan U10 "Runtime" tests over a real `Service` with the managed wiring: a
+/// scratch home, the virtual clock, testkit's `FakeSessionLockSource`, and an issuer
+/// child that is this test binary re-executed through `/bin/sh` into
+/// `w4_issuer_child_entry` (`heimdall_issuer::child::run` over testkit's
+/// `ScratchSecretStore` holding a per-run K_ca; its protocol output on descriptor 3).
+/// Every process the tests start is this binary or `/bin/sleep`, stopped by its own
+/// handle or by the client's exact identity; the issuer child is stopped by the stop
+/// order under test (or by its client's `kill_on_drop`).
+#[cfg(unix)]
+mod wave4 {
+    use super::*;
+
+    use std::path::{Path, PathBuf};
+
+    use heimdall_contract::ids::{BindingId, ConnectionId, WorkId};
+    use heimdall_contract::managed::{CloseReason, ConnectionsRequest, SessionLockState};
+    use heimdall_credential::cert::SecretCaKey;
+    use heimdall_domain::binding::{BindingRecord, BindingState};
+    use heimdall_domain::grant::{AuthorizationSource, GrantOrigin, GrantSnapshot};
+    use heimdall_domain::managed::{ConnectionKind, OwnedConnection, OwnedConnectionState};
+    use heimdall_domain::policy::AuthorityGeneration;
+    use heimdall_domain::time::Deadline;
+    use heimdall_issuer::client::ChildCommand;
+    use heimdall_issuer::store::SecretStore;
+    use heimdall_runtime::connections::{ConnectionConfig, ConnectionSupervisor};
+    use heimdall_runtime::platform::process_start_time;
+    use heimdall_runtime::service::{
+        ManagedOptions, STATE_DB_FILE, ServiceOptions, SessionLockWiring, start_step,
+    };
+    use heimdall_runtime::supervisor::ManagedConnections;
+    use heimdall_runtime::{Config, Paths, Service};
+    use heimdall_store::IssuerRecord;
+    use heimdall_testkit::scratch_store::ScratchSecretStore;
+    use heimdall_testkit::session_lock::FakeSessionLockSource;
+
+    const CHILD_DB_ENV: &str = "HM_W4D_CHILD_DB";
+    const CHILD_STORE_ENV: &str = "HM_W4D_CHILD_STORE";
+    const CHILD_WALL_ENV: &str = "HM_W4D_CHILD_WALL";
+
+    /// The issuer child (a no-op unless re-executed by [`Rig::child_command`]).
+    #[test]
+    fn w4_issuer_child_entry() {
+        let (Some(db), Some(store), Some(wall)) = (
+            std::env::var_os(CHILD_DB_ENV),
+            std::env::var_os(CHILD_STORE_ENV),
+            std::env::var_os(CHILD_WALL_ENV),
+        ) else {
+            return;
+        };
+        let clock = VirtualClock::at(wall.to_str().unwrap().parse().unwrap());
+        let out = std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/fd/3")
+            .unwrap();
+        let store = Box::new(ScratchSecretStore::new(PathBuf::from(store)));
+        let status =
+            heimdall_issuer::child::run(std::io::stdin(), out, store, Path::new(&db), clock);
+        std::process::exit(status);
+    }
+
+    /// A scratch home whose store has this file's environment and, with `ca`, one
+    /// registered `active` CA whose K_ca is in the scratch secret store.
+    struct Rig {
+        _tmp: tempfile::TempDir,
+        home: PathBuf,
+        secret_store: PathBuf,
+        clock: Arc<VirtualClock>,
+        sync: Arc<ScriptedTimeSync>,
+    }
+
+    impl Rig {
+        fn new(ca: bool) -> Self {
+            let tmp = tempfile::tempdir().unwrap();
+            let home = tmp.path().join("hh");
+            let paths = Paths::under(&home);
+            paths.ensure().unwrap();
+            let secret_store = tmp.path().join("store");
+            std::fs::create_dir(&secret_store).unwrap();
+            let store = Store::open(
+                &paths.state_dir.join(STATE_DB_FILE),
+                Arc::new(heimdall_store::NoFaults),
+            )
+            .unwrap();
+            seed(&store);
+            if ca {
+                let k_ca = SecretCaKey::generate().unwrap();
+                let fp = k_ca.fingerprint().unwrap();
+                let public = k_ca.public_openssh().unwrap();
+                ScratchSecretStore::new(secret_store.clone())
+                    .put(&fp, &k_ca)
+                    .unwrap();
+                drop(k_ca);
+                store
+                    .transaction(|tx| {
+                        tx.insert_issuer(&IssuerRecord {
+                            ca_fingerprint: fp.clone(),
+                            public_key: public.clone(),
+                            state: CaState::Active,
+                            store_kind: StoreKind::LinuxSecretService,
+                            backup_sha256: "ab".repeat(32),
+                            backup_created_at: t0(),
+                            restored_without_log: false,
+                            created_at: t0(),
+                            retired_at: None,
+                        })
+                    })
+                    .unwrap();
+            }
+            drop(store);
+            Self {
+                _tmp: tmp,
+                home,
+                secret_store,
+                clock: VirtualClock::at(t0()),
+                sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+            }
+        }
+
+        fn paths(&self) -> Paths {
+            Paths::under(&self.home)
+        }
+
+        fn child_command(&self) -> ChildCommand {
+            let exe = std::env::current_exe().unwrap();
+            ChildCommand {
+                program: PathBuf::from("/bin/sh"),
+                args: vec![
+                    "-c".into(),
+                    "exec 3>&1 1>/dev/null 2>/dev/null; exec \"$0\" --exact wave4::w4_issuer_child_entry --nocapture --test-threads=1 -q".into(),
+                    exe.into_os_string(),
+                ],
+                env: vec![
+                    (
+                        CHILD_DB_ENV.into(),
+                        self.paths().state_dir.join(STATE_DB_FILE).into_os_string(),
+                    ),
+                    (CHILD_STORE_ENV.into(), self.secret_store.clone().into_os_string()),
+                    (CHILD_WALL_ENV.into(), t0().to_string().into()),
+                ],
+            }
+        }
+
+        /// Managed options: the fake lock source (unlocked), the test child, and a start
+        /// token that also records, at each spawn, which runtime files already exist.
+        fn options(&self, spawned: Arc<Mutex<Vec<(bool, bool, bool)>>>) -> ServiceOptions {
+            let mut o = ServiceOptions::with_clock(self.clock.clone(), self.sync.clone());
+            o.endpoint_prefix = "hmtest-".to_owned();
+            let run = self.paths().runtime_dir;
+            o.managed = Some(ManagedOptions {
+                session_lock: SessionLockWiring::Source(Arc::new(FakeSessionLockSource::new(
+                    SessionLockState::Unlocked,
+                ))),
+                issuer_command: Some(self.child_command()),
+                issuer_start_token: Some(Arc::new(move |pid| {
+                    spawned.lock().unwrap().push((
+                        run.join("control.sock").exists(),
+                        run.join("signing.sock").exists(),
+                        run.join("instance.json").exists(),
+                    ));
+                    process_start_time(pid)
+                })),
+                ..ManagedOptions::default()
+            });
+            o
+        }
+
+        async fn start(&self, spawned: Arc<Mutex<Vec<(bool, bool, bool)>>>) -> Service {
+            Service::start_with(
+                self.paths(),
+                Config::default(),
+                self.options(spawned),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap()
+        }
+    }
+
+    fn position(steps: &[&str], step: &str) -> usize {
+        steps
+            .iter()
+            .position(|s| *s == step)
+            .unwrap_or_else(|| panic!("{step} not in {steps:?}"))
+    }
+
+    /// m03-plan U10 `runtime_start_order_issuer_before_listen`: with a CA registered,
+    /// the issuer child is started (and `ready`) before the environment endpoint, the
+    /// control endpoint and `instance.json` exist; the binding order of the start is
+    /// recovery, the session lock, the connection restart pass, the issuer, the
+    /// environment endpoint, the re-issue pass, then the control endpoint and
+    /// `instance.json`. Exactly one signer serves the environment path: the advertised
+    /// signing endpoint is the managed registry's environment endpoint.
+    #[tokio::test]
+    async fn runtime_start_order_issuer_before_listen() {
+        let rig = Rig::new(true);
+        let spawned = Arc::new(Mutex::new(Vec::new()));
+        let svc = rig.start(spawned.clone()).await;
+        let steps = svc.start_steps();
+        let order = [
+            start_step::REGISTRY,
+            start_step::SESSION_LOCK,
+            start_step::WIRING,
+            start_step::CONNECTION_RESTART_PASS,
+            start_step::ISSUER_START,
+            start_step::ENVIRONMENT_ENDPOINT,
+            start_step::MANAGED_REISSUE_PASS,
+            start_step::CONTROL_ENDPOINT,
+            start_step::INSTANCE_FILE,
+        ];
+        for pair in order.windows(2) {
+            assert!(
+                position(&steps, pair[0]) < position(&steps, pair[1]),
+                "{} before {}: {steps:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+        // Observed from the child's spawn: nothing listened yet.
+        let seen = spawned.lock().unwrap().clone();
+        assert_eq!(
+            seen.first(),
+            Some(&(false, false, false)),
+            "at the issuer's spawn no control endpoint, environment endpoint or advertisement existed: {seen:?}"
+        );
+        let issuer = svc.issuer().unwrap();
+        assert_eq!(issuer.state(), IssuerState::Ready, "ready before listening");
+        assert_eq!(
+            svc.instance().signing_endpoint,
+            svc.endpoint_registry().unwrap().environment().locator,
+            "one signer at the environment endpoint"
+        );
+        assert!(Path::new(&svc.instance().signing_endpoint).exists());
+        let child = issuer.identity().unwrap();
+        drop(svc);
+        issuer.stop().await;
+        let _ = child;
+    }
+
+    /// The same start without a registered CA starts no issuer child.
+    #[tokio::test]
+    async fn runtime_start_without_ca_starts_no_issuer() {
+        let rig = Rig::new(false);
+        let spawned = Arc::new(Mutex::new(Vec::new()));
+        let svc = rig.start(spawned.clone()).await;
+        let steps = svc.start_steps();
+        assert!(steps.contains(&start_step::ISSUER_NOT_NEEDED), "{steps:?}");
+        assert!(!steps.contains(&start_step::ISSUER_START), "{steps:?}");
+        assert!(spawned.lock().unwrap().is_empty(), "no child spawned");
+        assert!(svc.issuer().unwrap().identity().is_none());
+    }
+
+    /// Wait (bounded) until the exact process `pid` with start token `token` is gone.
+    async fn gone(pid: u32, token: &str) -> bool {
+        for _ in 0..200 {
+            if process_start_time(pid).as_deref() != Some(token) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        false
+    }
+
+    /// m03-plan U10 `shutdown_zeroizes_vault_and_stops_issuer`: the stop order (stop
+    /// accepting, close owned masters, zeroize the vault, shut the issuer down, remove
+    /// the endpoints): after `run` returns, the vault holds no key, the issuer child
+    /// (exact PID and start token) is gone and its client reports it stopped, and the
+    /// environment endpoint and `instance.json` are removed.
+    #[tokio::test]
+    async fn shutdown_zeroizes_vault_and_stops_issuer() {
+        let rig = Rig::new(true);
+        let token = CancellationToken::new();
+        let svc = Service::start_with(
+            rig.paths(),
+            Config::default(),
+            rig.options(Arc::new(Mutex::new(Vec::new()))),
+            token.clone(),
+        )
+        .await
+        .unwrap();
+        let vault = svc.vault().unwrap();
+        vault.generate_ed25519().unwrap();
+        vault.generate_ed25519().unwrap();
+        assert_eq!(vault.len(), 2);
+        let issuer = svc.issuer().unwrap();
+        let child = issuer.identity().unwrap();
+        let child_token = child.start_token.clone().unwrap();
+        let signing = PathBuf::from(&svc.instance().signing_endpoint);
+        let runtime_dir = rig.paths().runtime_dir;
+        let running = tokio::spawn(svc.run());
+        token.cancel();
+        running.await.unwrap().unwrap();
+        assert!(vault.is_empty(), "the vault was zeroized");
+        assert_eq!(issuer.state(), IssuerState::Unavailable, "issuer stopped");
+        assert!(
+            gone(child.pid, &child_token).await,
+            "the issuer child exited"
+        );
+        assert!(!signing.exists(), "the environment endpoint was removed");
+        assert!(!runtime_dir.join("instance.json").exists());
+    }
+
+    /// m03-plan U10 `service_stop_via_signal_fallback_still_zeroizes` (ADR-0006 §13.7
+    /// item 8): the control endpoint is made unusable (its socket replaced by a listener
+    /// that never answers a hello) while the advertisement stays valid, so the stop
+    /// cannot come over the control endpoint; the runtime is then stopped by SIGTERM,
+    /// delivered by exact PID (this process, the runtime's) to a handler that cancels the
+    /// service token, which is what `heimdall service run`'s signal handler does
+    /// (`service_cmd::stop_on_signal`; the CLI's fallback to that signal is M01's
+    /// `service_stop_falls_back_to_a_signal_when_the_control_endpoint_is_unusable`). The
+    /// vault is still zeroized and the issuer stopped.
+    #[tokio::test]
+    async fn service_stop_via_signal_fallback_still_zeroizes() {
+        use tokio::signal::unix::{SignalKind, signal};
+        let rig = Rig::new(true);
+        let token = CancellationToken::new();
+        let svc = Service::start_with(
+            rig.paths(),
+            Config::default(),
+            rig.options(Arc::new(Mutex::new(Vec::new()))),
+            token.clone(),
+        )
+        .await
+        .unwrap();
+        let vault = svc.vault().unwrap();
+        vault.generate_ed25519().unwrap();
+        let issuer = svc.issuer().unwrap();
+        let child = issuer.identity().unwrap();
+        let control = svc.endpoints().control.clone();
+        let running = tokio::spawn(svc.run());
+        // The control endpoint becomes unusable; the advertisement stays.
+        std::fs::remove_file(&control).unwrap();
+        let dead = std::os::unix::net::UnixListener::bind(&control).unwrap();
+        assert!(rig.paths().runtime_dir.join("instance.json").exists());
+        let probe = tokio::time::timeout(
+            Duration::from_millis(500),
+            tokio::net::UnixStream::connect(&control),
+        )
+        .await;
+        assert!(
+            probe.is_ok(),
+            "the replaced endpoint accepts but never answers"
+        );
+        // The signal handler `service run` installs: SIGTERM cancels the service token.
+        let mut term = signal(SignalKind::terminate()).unwrap();
+        let stop = token.clone();
+        let handler = tokio::spawn(async move {
+            term.recv().await;
+            stop.cancel();
+        });
+        let status = std::process::Command::new("kill")
+            .args(["-TERM", &std::process::id().to_string()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        tokio::time::timeout(Duration::from_secs(30), handler)
+            .await
+            .unwrap()
+            .unwrap();
+        running.await.unwrap().unwrap();
+        assert!(vault.is_empty(), "zeroized after the signal stop");
+        assert_eq!(issuer.state(), IssuerState::Unavailable);
+        assert!(gone(child.pid, child.start_token.as_deref().unwrap()).await);
+        assert!(!rig.paths().runtime_dir.join("instance.json").exists());
+        drop(dead);
+    }
+
+    // --- Connections dispatch and events ------------------------------------------------
+
+    /// A grant in `state` with a launch binding held by a process, and a dedicated owned
+    /// connection row for a live `/bin/sleep` child of this test (its exact identity).
+    struct Row {
+        grant: GrantId,
+        connection: OwnedConnection,
+        child: std::process::Child,
+    }
+
+    fn seed_row(w: &World, n: u8, state: GrantState) -> Row {
+        let caller = ctx(ClientRole::Owner);
+        let scope = Scope {
+            pairs: [pair("h1", "deploy")].into_iter().collect(),
+            capabilities: ssh_only(),
+        };
+        let g = GrantSnapshot {
+            id: GrantId::from_random_bytes([n; 16]),
+            environment: env_id(),
+            scope: scope.clone(),
+            starts_at: t0(),
+            deadline: Deadline {
+                intent: heimdall_contract::request::DeadlineIntent::Duration("1h".into()),
+                resolved_at: t0(),
+                effective: shift(t0(), 3600),
+            },
+            parent: None,
+            source: AuthorizationSource::StandingPolicy {
+                revision: PolicyRevision(1),
+            },
+            generation: AuthorityGeneration(0),
+            state,
+            enforcement: EnforcementEvidence::unknown(),
+        };
+        let b = BindingRecord {
+            id: BindingId::from_random_bytes([n; 16]),
+            environment: env_id(),
+            grant: g.id.clone(),
+            work_id: WorkId::parse(&format!("w4-{n}")).unwrap(),
+            owner: caller.clone(),
+            profile: ProfileId::parse("dev").unwrap(),
+            profile_revision: 1,
+            scope,
+            mechanism: "managed_certificate".into(),
+            parent: None,
+            created_at: t0(),
+            released_at: None,
+            state: BindingState::Active,
+        };
+        let origin = GrantOrigin {
+            profile: ProfileId::parse("dev").unwrap(),
+            profile_revision: 1,
+            policy_revision: None,
+            caller,
+            mechanism: "managed_certificate".into(),
+            covered: None,
+            adapter: None,
+            lock_behavior: None,
+            connection: None,
+        };
+        let child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let mut token = None;
+        for _ in 0..100 {
+            token = process_start_time(pid);
+            if token.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let c = OwnedConnection {
+            id: ConnectionId::from_random_bytes([n; 16]),
+            kind: ConnectionKind::Dedicated,
+            binding: b.id.clone(),
+            grant: g.id.clone(),
+            pid,
+            start_token: token.unwrap(),
+            image: "/bin/sleep".into(),
+            control_path: None,
+            generation: 0,
+            state: OwnedConnectionState::Up,
+            started_at: t0(),
+        };
+        w.store
+            .transaction(|tx| {
+                tx.insert_grant(&g)?;
+                tx.set_grant_origin(&g.id, &origin)?;
+                tx.insert_binding(&b)?;
+                tx.set_binding_holder(
+                    &b.id,
+                    &heimdall_domain::holder::ProcessHolder {
+                        pid: c.pid,
+                        started_at: c.start_token.clone(),
+                    },
+                )?;
+                tx.insert_owned_connection(&c)
+            })
+            .unwrap();
+        Row {
+            grant: g.id,
+            connection: c,
+            child,
+        }
+    }
+
+    impl Drop for Row {
+        fn drop(&mut self) {
+            // Our own child, by its handle.
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    fn connections(w: &World, runtime_dir: &Path) -> Arc<ManagedConnections> {
+        struct NoEndpoints;
+        impl heimdall_runtime::connections::BindingEndpoints for NoEndpoints {
+            fn endpoint(&self, _: &BindingId) -> Option<heimdall_contract::provider::EndpointRef> {
+                None
+            }
+        }
+        let mut config = ConnectionConfig::new(
+            runtime_dir.to_path_buf(),
+            PathBuf::from("/bin/sleep"),
+            Arc::new(NoEndpoints),
+            Arc::new(FixedJitter(1.0)),
+        );
+        config.close_grace = Duration::from_millis(500);
+        let sup = Arc::new(ConnectionSupervisor::new(
+            w.store.clone(),
+            Some(w.ops.clone()),
+            config,
+        ));
+        Arc::new(ManagedConnections::new(sup, w.store.clone(), w.ops.clone()))
+    }
+
+    /// The `Connection` events, as `(connection, event, reason)`.
+    fn connection_events(w: &World) -> Vec<(String, String, Option<String>)> {
+        w.events()
+            .into_iter()
+            .filter(|e| e.event_type == EventType::Connection)
+            .map(|e| {
+                (
+                    e.payload["connection_id"].as_str().unwrap().to_owned(),
+                    e.payload["event"].as_str().unwrap().to_owned(),
+                    e.payload["reason"].as_str().map(str::to_owned),
+                )
+            })
+            .collect()
+    }
+
+    fn exited(child: &mut std::process::Child) -> bool {
+        for _ in 0..200 {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    /// U0b row 13 phase 2 (F20; m03-plan §5 item 4a), wired: `Connections::Close` from
+    /// the owner reaches U7's supervisor through the dispatcher, closes the verified
+    /// process, moves the row to `closed` and emits exactly one `Connection` event
+    /// `{closed, reason: owner_request}`; a second close answers `closed` again and
+    /// emits nothing. A non-owner is refused first (no reason, nothing closed, no
+    /// event); an unknown connection is `NOT_FOUND`; `Register` on Unix is
+    /// `driver_unavailable` (Windows only); an unwired dispatcher answers
+    /// `driver_unavailable` for both.
+    #[tokio::test]
+    async fn connections_close_routed_for_owner_only_with_event() {
+        let w = World::new().await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut row = seed_row(&w, 0x91, GrantState::Active);
+        let c = connections(&w, dir.path());
+        let d = w.dispatcher().with_connections(c);
+        let close = Request::Connections(ConnectionsRequest::Close {
+            connection_id: row.connection.id.clone(),
+        });
+        // Non-owner: refused before anything.
+        let before = w.snapshot();
+        let env = d
+            .handle_as(&attended(ClientRole::LimitedConsumer), close.clone())
+            .await;
+        assert_eq!(env.code, Code::CapabilityUnavailable);
+        assert_eq!(reason_of(&env), None, "{:?}", env.data);
+        assert_eq!(w.snapshot(), before, "nothing written for a non-owner");
+        assert!(matches!(row.child.try_wait(), Ok(None)), "not signalled");
+        // Unwired: driver_unavailable.
+        let env = w
+            .dispatcher()
+            .handle_as(&attended(ClientRole::Owner), close.clone())
+            .await;
+        assert_driver_unavailable(&env, "unwired close");
+        assert_eq!(w.snapshot(), before);
+        // Owner, wired: closed, with its event.
+        let env = d
+            .handle_as(&attended(ClientRole::Owner), close.clone())
+            .await;
+        assert_eq!(env.code, Code::Ok, "{:?}", env.data);
+        assert_eq!(env.data["state"], "closed", "{:?}", env.data);
+        assert_eq!(env.data["kind"], "dedicated");
+        assert!(exited(&mut row.child), "the verified process was closed");
+        let state = w
+            .store
+            .transaction(|tx| tx.owned_connection(&row.connection.id))
+            .unwrap()
+            .unwrap()
+            .state;
+        assert_eq!(state, OwnedConnectionState::Closed);
+        let id = row.connection.id.to_string();
+        assert_eq!(
+            connection_events(&w),
+            vec![(
+                id.clone(),
+                "closed".to_owned(),
+                Some("owner_request".to_owned())
+            )]
+        );
+        // Idempotent: closed again, no second event.
+        let env = d.handle_as(&attended(ClientRole::Owner), close).await;
+        assert_eq!(env.data["state"], "closed");
+        assert_eq!(connection_events(&w).len(), 1);
+        // Unknown connection.
+        let env = d
+            .handle_as(
+                &attended(ClientRole::Owner),
+                Request::Connections(ConnectionsRequest::Close {
+                    connection_id: ConnectionId::from_random_bytes([0x99; 16]),
+                }),
+            )
+            .await;
+        assert_eq!(env.code, Code::NotFound, "{:?}", env.data);
+        // Register: Windows only.
+        let register = Request::Connections(ConnectionsRequest::Register {
+            binding_id: row.connection.binding.clone(),
+            pid: 4242,
+            created_at: t0(),
+            image: "/usr/bin/ssh".into(),
+        });
+        let env = d
+            .handle_as(&attended(ClientRole::LimitedConsumer), register.clone())
+            .await;
+        assert_eq!(env.code, Code::CapabilityUnavailable);
+        assert_eq!(reason_of(&env), None, "the role refusal first");
+        let env = d.handle_as(&attended(ClientRole::Owner), register).await;
+        assert_driver_unavailable(&env, "register on unix");
+        assert_eq!(connection_events(&w).len(), 1);
+    }
+
+    /// ADR-0008 D7 item 2 (U7-Q3; §17.20 item 13): the supervisor's post-tick sweep
+    /// closes the owned connections of an ended grant by the reason its stored state
+    /// gives (here `revoked` → `revocation_close`, which closes dedicated connections
+    /// under both policies), emits one `Connection` event `{closed, revocation}` per row
+    /// it closed, and does not pass the grant again; a live grant's row is untouched.
+    #[tokio::test]
+    async fn sweep_closes_ended_grants_connections_with_reason_once() {
+        let w = World::new().await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut revoked = seed_row(&w, 0x92, GrantState::Revoked);
+        let mut live = seed_row(&w, 0x93, GrantState::Active);
+        let sup = w.supervisor().with_connections(connections(&w, dir.path()));
+        let sweep = sup.connection_end_sweep().await;
+        assert_eq!(
+            sweep.handled,
+            vec![(revoked.grant.clone(), CloseReason::Revocation)],
+            "{sweep:?}"
+        );
+        assert!(exited(&mut revoked.child));
+        assert!(
+            matches!(live.child.try_wait(), Ok(None)),
+            "the live grant's row is kept"
+        );
+        let id = revoked.connection.id.to_string();
+        assert_eq!(
+            connection_events(&w),
+            vec![(id, "closed".to_owned(), Some("revocation".to_owned()))]
+        );
+        let again = sup.connection_end_sweep().await;
+        assert!(
+            again.handled.is_empty() && again.retry.is_empty(),
+            "{again:?}"
+        );
+        assert_eq!(connection_events(&w).len(), 1, "never reported twice");
+    }
+}
+
+/// U8-Q6 (ADR-0008 D8 item 2; additive): `inspect destinations` carries, for a managed
+/// destination whose (destination, account) pair has a stored preference, `"preference":
+/// {"mechanism", "projection"}` in the shape `connect` reads
+/// (`connect_cmd::managed_pair_of`: `managed_certificate` with `{"state": "applied",
+/// "generation": N}` takes the managed flow); a pair without a row, and an observed
+/// destination, carry no `preference` key (M02's listing).
+#[tokio::test]
+async fn inspect_destinations_carries_pair_preference() {
+    use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+    use heimdall_domain::enrollment::{PairPreference, ProjectionStatus};
+    let w = World::new().await;
+    let identity = heimdall_contract::ids::IdentityId::from_random_bytes([0x41; 16]);
+    let managed = |id: &str| DestinationRecord {
+        id: DestinationId::parse(id).unwrap(),
+        alias: id.into(),
+        revision: 1,
+        definition: DestinationDefinition::Managed {
+            hostname: format!("{id}.example.invalid"),
+            port: None,
+            account: AccountName::parse("deploy").unwrap(),
+            identity: identity.clone(),
+        },
+        label: None,
+        updated_at: t0(),
+    };
+    w.store
+        .transaction(|tx| {
+            tx.upsert_destination(&managed("lab"))?;
+            tx.upsert_destination(&managed("plain"))?;
+            tx.upsert_destination(&managed("pend"))?;
+            tx.upsert_destination(&DestinationRecord {
+                id: DestinationId::parse("obs").unwrap(),
+                alias: "obs".into(),
+                revision: 1,
+                definition: DestinationDefinition::Observed,
+                label: None,
+                updated_at: t0(),
+            })?;
+            for (d, projection) in [
+                ("lab", ProjectionStatus::Applied { generation: 3 }),
+                ("pend", ProjectionStatus::Pending),
+            ] {
+                tx.set_pair_preference(
+                    &PairPreference {
+                        destination: DestinationId::parse(d).unwrap(),
+                        account: AccountName::parse("deploy").unwrap(),
+                        mechanism:
+                            heimdall_contract::managed::PreferredMechanism::ManagedCertificate,
+                        projection,
+                        issuing_cas: BTreeSet::new(),
+                    },
+                    t0(),
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    let r = w
+        .ops
+        .inspect(
+            &unattended(ClientRole::Owner),
+            heimdall_contract::request::InspectRequest {
+                subject: heimdall_contract::request::InspectSubject::Destinations,
+                preview: None,
+            },
+        )
+        .await
+        .unwrap();
+    let items = r.data["items"].as_array().unwrap();
+    let item = |id: &str| {
+        items
+            .iter()
+            .find(|i| i["destination_id"] == id)
+            .unwrap_or_else(|| panic!("{id} listed: {items:?}"))
+    };
+    assert_eq!(
+        item("lab")["preference"],
+        serde_json::json!({
+            "mechanism": "managed_certificate",
+            "projection": {"state": "applied", "generation": 3},
+        })
+    );
+    assert_eq!(
+        item("pend")["preference"],
+        serde_json::json!({"mechanism": "managed_certificate", "projection": {"state": "pending"}})
+    );
+    assert!(item("plain").get("preference").is_none(), "no row, no key");
+    assert!(item("obs").get("preference").is_none(), "observed: no key");
+    // The M02 fields are unchanged.
+    assert_eq!(item("lab")["definition"], "managed");
+    assert_eq!(item("lab")["account"], "deploy");
 }

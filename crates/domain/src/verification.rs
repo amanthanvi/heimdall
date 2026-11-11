@@ -5,8 +5,7 @@
 //! Verification certificates have no grant, so they live in their own issuance
 //! table with their own predicate, [`check`], applied identically at reserve and at
 //! publish (as `issuance::check` is). [`classify`] is the D5 §6.5 classification
-//! table; its body is U5's, and until then it returns an inconclusive verdict,
-//! never a pass.
+//! table (ADR-0008 §17.17 item 14, U5IO-Q4: U5's body, moved here in wave 4).
 
 use std::time::Duration;
 
@@ -249,6 +248,10 @@ pub struct TraceEvents {
     pub not_accepted: bool,
     /// The run ended with a public-key authentication failure.
     pub publickey_failure_final: bool,
+    /// ⟨M03 wave 4, §17.17 item 14 (U5IO-Q4)⟩ The trace showed a host-key verification
+    /// failure (`HOST_TRUST_CHANGED`; never a refusal, never rolled back).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_key_failure: bool,
 }
 
 /// One verification attempt's observable result.
@@ -351,21 +354,145 @@ impl VerificationVerdict {
     }
 }
 
-/// ADR-0008 D5 §6.5 classification: the positive and negative attempts' results to
-/// a verdict, per phase and form. **Signature only in wave 0**: U5 writes the
-/// table. Until then every input is `inconclusive` (`unclassified`), never a pass,
-/// so nothing can be recorded `verified` through it.
+/// A known offset of the destination clock (ADR-0008 D5 §6.5 "The skew rule"): the
+/// remote clock minus local time, with its uncertainty (1 s plus the round trip).
+/// The initial verification takes it from the operation's E2 `inspect` reading, a
+/// re-verification from the enrollment's last fresh `ClockMeasurement`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct KnownOffset {
+    /// Remote minus local, in milliseconds (negative: the destination lags).
+    pub remote_minus_local_ms: i64,
+    /// The uncertainty, in milliseconds.
+    pub uncertainty_ms: u64,
+}
+
+impl KnownOffset {
+    /// Whether the interval reaches a lag of `lag_ms` or a lead of `lead_ms` (the
+    /// `verification_skew_lag` and `verification_skew_lead`: 60 s and 300 s).
+    #[must_use]
+    pub fn beyond(&self, lag_ms: u64, lead_ms: u64) -> bool {
+        let o = i128::from(self.remote_minus_local_ms);
+        let u = i128::from(self.uncertainty_ms);
+        u - o >= i128::from(lag_ms) || o + u >= i128::from(lead_ms)
+    }
+}
+
+/// What [`classify`] needs beside the two attempts (ADR-0008 §17.17 item 14).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ClassifyContext {
+    /// The client's trace family or version is unrecorded: no attempt ran
+    /// (`VerificationOutcome::unrecorded`).
+    pub unrecorded: bool,
+    /// The known clock offset, if any.
+    pub offset: Option<KnownOffset>,
+    /// `verification_skew_lag` in milliseconds (60 000).
+    pub skew_lag_ms: u64,
+    /// `verification_skew_lead` in milliseconds (300 000).
+    pub skew_lead_ms: u64,
+}
+
+impl ClassifyContext {
+    /// No offset known, the recorded client, the default allowances (60 s, 300 s).
+    #[must_use]
+    pub fn recorded() -> Self {
+        Self {
+            unrecorded: false,
+            offset: None,
+            skew_lag_ms: 60_000,
+            skew_lead_ms: 300_000,
+        }
+    }
+}
+
+fn positive_passed(a: &AttemptResult) -> bool {
+    let t = &a.trace;
+    a.exit_status == Some(0)
+        && t.server_version.is_some()
+        && t.host_key_matched
+        && t.offered_certificate
+        && t.accepted
+        && a.signatures == 1
+        && a.remote_now.is_some()
+}
+
+fn refused(a: &AttemptResult) -> bool {
+    let t = &a.trace;
+    a.exit_status.is_some_and(|c| c != 0)
+        && t.server_version.is_some()
+        && t.host_key_matched
+        && t.offered_certificate
+        && t.not_accepted
+        && !t.accepted
+        && t.publickey_failure_final
+        && a.signatures == 0
+}
+
+fn accepted_or_signed(a: &AttemptResult) -> bool {
+    a.exit_status == Some(0) || a.trace.accepted || a.signatures > 0
+}
+
+/// ADR-0008 D5 §6.5 classification (§17.17 item 14, U5IO-Q4: the body proposed as
+/// `heimdall_enroll::verify::classify_evidence`), in order:
+///
+/// 1. an unrecorded client: inconclusive, `unrecorded_client_family`;
+/// 2. a host-key failure in either attempt: `host_key_mismatch`;
+/// 3. positive passed (exit 0, server version, host key matched, certificate offered
+///    and accepted, **exactly one** signature, the `HM1 now=` reading) and the negative
+///    refused (exit ≠ 0, server version, host key matched, offered, not accepted, a
+///    final public-key failure, **zero** signatures): `passed`; positive passed and the
+///    negative accepted or signed: `principals_not_enforced`; positive passed
+///    otherwise: inconclusive (`transport`: a transport failure is never a refusal);
+/// 4. positive refused with full refusal evidence: inconclusive
+///    `destination_clock_skew` when the known offset is beyond the allowance, else
+///    `positive_refused`;
+/// 5. anything else: inconclusive (`transport`).
+///
+/// The verdict does not depend on the phase or the form; the state each verdict leads
+/// to does (`crate::enrollment::transition`).
 #[must_use]
 pub fn classify(
     positive: &AttemptResult,
     negative: &AttemptResult,
     phase: VerificationPhase,
     form: EnrollmentForm,
+    context: &ClassifyContext,
 ) -> VerificationVerdict {
-    let _ = (positive, negative, phase, form);
-    VerificationVerdict::Inconclusive {
-        reason: InconclusiveReason::Unclassified,
+    let _ = (phase, form);
+    let inconclusive = |reason| VerificationVerdict::Inconclusive { reason };
+    if context.unrecorded {
+        return inconclusive(InconclusiveReason::UnrecordedClientFamily);
     }
+    if positive.trace.host_key_failure || negative.trace.host_key_failure {
+        return VerificationVerdict::HostKeyMismatch;
+    }
+    if positive_passed(positive) {
+        if refused(negative) {
+            return VerificationVerdict::Passed;
+        }
+        if accepted_or_signed(negative) {
+            return VerificationVerdict::PrincipalsNotEnforced;
+        }
+        return inconclusive(InconclusiveReason::Transport);
+    }
+    if refused(positive) {
+        if context
+            .offset
+            .is_some_and(|o| o.beyond(context.skew_lag_ms, context.skew_lead_ms))
+        {
+            return inconclusive(InconclusiveReason::DestinationClockSkew);
+        }
+        return VerificationVerdict::PositiveRefused;
+    }
+    inconclusive(InconclusiveReason::Transport)
+}
+
+/// ADR-0008 D5 §6.9 the system form's **absence** check: the positive certificate
+/// must be **refused** with the full refusal evidence. `Passed` means the absence is
+/// verified; anything else is not (an accepted positive, a host-key failure, or any
+/// inconclusive result returns the record to `manual_removal_pending`).
+#[must_use]
+pub fn absence_verified(positive: &AttemptResult, context: &ClassifyContext) -> bool {
+    !context.unrecorded && !positive.trace.host_key_failure && refused(positive)
 }
 
 #[cfg(test)]
@@ -472,9 +599,8 @@ mod tests {
         assert_eq!(check(&c), Ok(()));
     }
 
-    #[test]
-    fn wave0_classify_never_passes() {
-        let pass = AttemptResult {
+    fn passed_positive() -> AttemptResult {
+        AttemptResult {
             exit_status: Some(0),
             signatures: 1,
             trace: TraceEvents {
@@ -484,14 +610,114 @@ mod tests {
                 accepted: true,
                 ..TraceEvents::default()
             },
-            remote_now: Some(1),
-        };
-        let v = classify(
-            &pass,
-            &AttemptResult::default(),
-            VerificationPhase::Initial,
-            EnrollmentForm::Account,
+            remote_now: Some(1_800_000_000),
+        }
+    }
+
+    fn refused_attempt() -> AttemptResult {
+        AttemptResult {
+            exit_status: Some(255),
+            signatures: 0,
+            trace: TraceEvents {
+                server_version: Some("OpenSSH_10.0".into()),
+                host_key_matched: true,
+                offered_certificate: true,
+                not_accepted: true,
+                publickey_failure_final: true,
+                ..TraceEvents::default()
+            },
+            remote_now: None,
+        }
+    }
+
+    fn go(p: &AttemptResult, n: &AttemptResult, c: &ClassifyContext) -> VerificationVerdict {
+        classify(p, n, VerificationPhase::Initial, EnrollmentForm::Account, c)
+    }
+
+    /// ADR-0008 §17.17 item 14: the D5 §6.5 table (U5IO-Q4's body).
+    #[test]
+    fn classify_follows_the_d5_table() {
+        use InconclusiveReason as I;
+        use VerificationVerdict as V;
+        let c = ClassifyContext::recorded();
+        let (p, n) = (passed_positive(), refused_attempt());
+        assert_eq!(go(&p, &n, &c), V::Passed);
+        // A positive with two signatures, or without the clock reading, never passes.
+        let mut two = p.clone();
+        two.signatures = 2;
+        assert_eq!(
+            go(&two, &n, &c),
+            V::Inconclusive {
+                reason: I::Transport
+            }
         );
-        assert!(v.is_inconclusive());
+        let mut no_now = p.clone();
+        no_now.remote_now = None;
+        assert_eq!(
+            go(&no_now, &n, &c),
+            V::Inconclusive {
+                reason: I::Transport
+            }
+        );
+        // The negative accepted or signed: principals not enforced.
+        let mut signed = n.clone();
+        signed.signatures = 1;
+        assert_eq!(go(&p, &signed, &c), V::PrincipalsNotEnforced);
+        assert_eq!(go(&p, &p, &c), V::PrincipalsNotEnforced);
+        // A transport failure of the negative is never a refusal.
+        assert_eq!(
+            go(&p, &AttemptResult::default(), &c),
+            V::Inconclusive {
+                reason: I::Transport
+            }
+        );
+        // The positive refused.
+        assert_eq!(go(&n, &n, &c), V::PositiveRefused);
+        // ... while the destination's clock is skewed beyond the allowance.
+        let skewed = ClassifyContext {
+            offset: Some(KnownOffset {
+                remote_minus_local_ms: -120_000,
+                uncertainty_ms: 1_000,
+            }),
+            ..c
+        };
+        assert_eq!(
+            go(&n, &n, &skewed),
+            V::Inconclusive {
+                reason: I::DestinationClockSkew
+            }
+        );
+        // A host-key failure in either attempt.
+        let mut hk = n.clone();
+        hk.trace.host_key_failure = true;
+        assert_eq!(go(&p, &hk, &c), V::HostKeyMismatch);
+        // An unrecorded client.
+        let unrecorded = ClassifyContext {
+            unrecorded: true,
+            ..c
+        };
+        assert_eq!(
+            go(&p, &n, &unrecorded),
+            V::Inconclusive {
+                reason: I::UnrecordedClientFamily
+            }
+        );
+        // Absence: only a full refusal.
+        assert!(absence_verified(&n, &c));
+        assert!(!absence_verified(&p, &c));
+        assert!(!absence_verified(&AttemptResult::default(), &c));
+        assert!(!absence_verified(&hk, &c));
+    }
+
+    #[test]
+    fn known_offset_beyond_the_allowance() {
+        let o = |m: i64, u: u64| KnownOffset {
+            remote_minus_local_ms: m,
+            uncertainty_ms: u,
+        };
+        assert!(!o(0, 1_000).beyond(60_000, 300_000));
+        assert!(o(-59_500, 1_000).beyond(60_000, 300_000));
+        assert!(o(299_500, 1_000).beyond(60_000, 300_000));
+        assert!(!o(298_000, 1_000).beyond(60_000, 300_000));
     }
 }

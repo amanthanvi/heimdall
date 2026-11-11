@@ -75,7 +75,7 @@ use heimdall_credential::signer::{
 };
 use heimdall_credential::table::{
     InstallRefusal, InstallView, InstanceEvent, MAX_LISTED, MaterializeRefusal, SignerTable,
-    grant_comment, instance_transition,
+    VerificationScope, grant_comment, instance_transition,
 };
 use heimdall_credential::vault::{KeyVault, PublicKeyInfo, SystemRng};
 use heimdall_domain::environment::{EnvironmentKind, EnvironmentPermissions, EnvironmentRecord};
@@ -2733,7 +2733,7 @@ async fn unix_endpoint_dirs_0700_sockets_0600() {
         .create_binding(g.binding(), ResourceGeneration(1))
         .unwrap();
     let op = OperationId::from_random_bytes(random());
-    let v = reg.create_verification(&op).unwrap();
+    let v = reg.create_verification(&op, &vscope(&w.ca, &h1())).unwrap();
     let ev = v.locator().clone();
     let uid = heimdall_ipc::unix::current_uid();
     let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
@@ -2798,7 +2798,7 @@ async fn windows_pipe_dacl_owner_only_for_each_endpoint_kind() {
         .create_binding(g.binding(), ResourceGeneration(1))
         .unwrap();
     let op = OperationId::from_random_bytes(random());
-    let v = reg.create_verification(&op).unwrap();
+    let v = reg.create_verification(&op, &vscope(&w.ca, &h1())).unwrap();
     let ev = v.locator().clone();
     for e in [&env, &eb, &ev] {
         assert!(
@@ -2877,6 +2877,65 @@ impl SignatureAuthority for VerifyAuthority {
     }
 }
 
+/// ⟨INT-Q13⟩ The plan's CA (`ca`) and pair `p` as a verification scope.
+fn vscope(ca: &SecretCaKey, p: &AccessPair) -> VerificationScope {
+    VerificationScope {
+        ca: ca.fingerprint().unwrap(),
+        pair: p.clone(),
+    }
+}
+
+/// ⟨INT-Q13⟩ A plan whose only fields the verification factory reads are its CA and
+/// pair (`ca_fingerprint`, `destination_id`, `account`).
+fn vplan(ca: &SecretCaKey, p: &AccessPair) -> heimdall_contract::enrollment::EnrollmentPlan {
+    use heimdall_contract::enrollment::{
+        ApprovedHostKey, ApprovedTarget, DisclosureKind, EndpointSource, EnrollmentForm,
+        EnrollmentPlan, ExistingAccessPlan, NoProxy, RegistryRef, RegistryResolvedBy, RollbackPlan,
+        VerificationPlan,
+    };
+    EnrollmentPlan {
+        plan_digest: heimdall_contract::setup::PlanDigest::parse(&"0".repeat(64)).unwrap(),
+        destination_id: p.destination.clone(),
+        alias: "u2-verify".into(),
+        account: p.account.clone(),
+        form: EnrollmentForm::Account,
+        registry: RegistryRef {
+            path_display: "scratch".into(),
+            resolved_by: RegistryResolvedBy::Explicit,
+        },
+        line: String::new(),
+        line_sha256: "0".repeat(64),
+        ca_fingerprint: ca.fingerprint().unwrap(),
+        existing_access: ExistingAccessPlan {
+            identity_id: heimdall_contract::ids::IdentityId::from_random_bytes(random()),
+            mechanism: "native_agent".into(),
+            endpoint: "/unused".into(),
+            endpoint_source: EndpointSource::CatalogRecord,
+            invocation: Vec::new(),
+        },
+        host_trust: Vec::new(),
+        approved_target: ApprovedTarget {
+            hostname: "h1.example.invalid".into(),
+            port: 22,
+            user: p.account.clone(),
+            proxy: NoProxy::None,
+            host_key: ApprovedHostKey {
+                algorithm: "ssh-ed25519".into(),
+                key: "AAAAC3NzaC1lZDI1NTE5AAAAIhostfixture".into(),
+                fingerprint: "SHA256:hostfixture".into(),
+            },
+        },
+        bootstrap: None,
+        verification: VerificationPlan {
+            positive_principal: principal_for(p),
+            negative: true,
+            max_validity_seconds: 300,
+        },
+        rollback: RollbackPlan::CompareThenRenameByMarker,
+        disclosures: vec![DisclosureKind::CaTrustBlastRadius],
+    }
+}
+
 /// A verification certificate (D5 §6.5 item 2's shape: one principal, no extension,
 /// at most 300 s ahead) for `key`.
 fn verification_cert(ca: &SecretCaKey, key: &ssh_key::PublicKey, principal: &str) -> Certificate {
@@ -2912,7 +2971,9 @@ async fn verification_endpoint_lists_k_verify_and_installs_two_certificates() {
     let reg = registry(&w, &dir, VerifyAuthority::new());
     let op = OperationId::from_random_bytes(random());
     let session: Box<dyn VerificationSession> =
-        VerificationEndpoints::create(&reg, &op).await.unwrap();
+        VerificationEndpoints::create(&reg, &op, &vplan(&w.ca, &h1()))
+            .await
+            .unwrap();
     let kv = ssh_key::PublicKey::from_openssh(session.public_key()).unwrap();
     let fp = kv.fingerprint(ssh_key::HashAlg::Sha256).to_string();
     let plain = kv.to_bytes().unwrap();
@@ -2994,8 +3055,10 @@ async fn verification_endpoint_lists_k_verify_and_installs_two_certificates() {
 }
 
 /// Reading R3 (INT-Q13), fail closed: with the production `Operations` as the
-/// authority, every verification signature is refused (`authority_unavailable`); the
-/// request is still counted, and nothing is sent without a permit.
+/// authority and a registry built without the signing gates, no verification gate is
+/// open for the operation, so the signature is refused (`key_not_served`, ADR-0008
+/// §17.19 item 5: a verification signature is admitted only through its operation's
+/// gate); the request is still counted, and nothing is sent without a permit.
 #[tokio::test]
 async fn verification_signature_refused_by_production_operations() {
     let w = world().await;
@@ -3003,7 +3066,7 @@ async fn verification_signature_refused_by_production_operations() {
     let dir = scratch.subdir("r").unwrap();
     let reg = registry(&w, &dir, w.authority());
     let op = OperationId::from_random_bytes(random());
-    let v = reg.create_verification(&op).unwrap();
+    let v = reg.create_verification(&op, &vscope(&w.ca, &h1())).unwrap();
     let kv = ssh_key::PublicKey::from_openssh(v.public_key()).unwrap();
     let pos = verification_cert(&w.ca, &kv, &principal_for(&h1()));
     v.install(&pos.to_openssh().unwrap()).unwrap();
@@ -3020,10 +3083,93 @@ async fn verification_signature_refused_by_production_operations() {
         .unwrap();
     assert!(is_failure(&read_frame(&mut s).await.unwrap()));
     assert_eq!(v.signatures(v.key_fingerprint()), 1);
-    assert_eq!(
-        v.signer().unwrap().refusals(),
-        vec!["authority_unavailable"]
+    assert_eq!(v.signer().unwrap().refusals(), vec!["key_not_served"]);
+}
+
+/// ⟨INT-Q13, ADR-0008 §17.19 item 5⟩ The verification factory receives the plan, and
+/// `install` checks each certificate against the plan's CA and, for the positive one,
+/// the plan's pair: a certificate under another CA (positive or negative) and a
+/// positive one for another pair are refused and discarded; the plan's own install.
+#[tokio::test]
+async fn verification_install_refuses_another_ca_or_another_pair() {
+    let w = world().await;
+    let scratch = Scratch::new().unwrap();
+    let dir = scratch.subdir("r").unwrap();
+    let reg = registry(&w, &dir, VerifyAuthority::new());
+    let op = OperationId::from_random_bytes(random());
+    let session = VerificationEndpoints::create(&reg, &op, &vplan(&w.ca, &h1()))
+        .await
+        .unwrap();
+    let kv = ssh_key::PublicKey::from_openssh(session.public_key()).unwrap();
+    let other_ca = SecretCaKey::generate().unwrap();
+    let nonce: String = random::<16>().iter().map(|b| format!("{b:02x}")).collect();
+    let negative = format!("hm:verify-negative:{nonce}");
+    let refused = |line: String| {
+        let e = session.install(&line).unwrap_err();
+        format!("{e}")
+    };
+    let under_other = verification_cert(&other_ca, &kv, &principal_for(&h1()));
+    assert!(
+        refused(under_other.to_openssh().unwrap()).contains("wrong_ca"),
+        "a positive certificate under another CA"
     );
+    let neg_other = verification_cert(&other_ca, &kv, &negative);
+    assert!(
+        refused(neg_other.to_openssh().unwrap()).contains("wrong_ca"),
+        "a negative certificate under another CA"
+    );
+    let other_pair = verification_cert(&w.ca, &kv, &principal_for(&h2()));
+    assert!(
+        refused(other_pair.to_openssh().unwrap()).contains("wrong_principal"),
+        "a positive certificate for another pair"
+    );
+    assert_eq!(
+        identities_at(session.locator()).await.unwrap().len(),
+        1,
+        "nothing refused is listed"
+    );
+    let pos = verification_cert(&w.ca, &kv, &principal_for(&h1()));
+    session.install(&pos.to_openssh().unwrap()).unwrap();
+    let neg = verification_cert(&w.ca, &kv, &negative);
+    session.install(&neg.to_openssh().unwrap()).unwrap();
+    drop(session);
+    reg.stop_all();
+}
+
+/// ⟨INT-Q13⟩ A registry built with the signing gates opens the operation's verification
+/// gate with the plan's CA and pair when the session is created, refuses a second live
+/// session of the same operation (`GateOpen`, nothing left behind), and closes the gate
+/// when the session is dropped.
+#[tokio::test]
+async fn verification_session_opens_and_closes_its_operation_gate() {
+    let w = world().await;
+    let scratch = Scratch::new().unwrap();
+    let dir = scratch.subdir("r").unwrap();
+    let gates = w.ops.signing_gates().clone();
+    let reg = registry(&w, &dir, w.authority()).with_verification_gates(gates.clone());
+    let op = OperationId::from_random_bytes(random());
+    assert!(!gates.is_verification_open(&op));
+    let v = reg.create_verification(&op, &vscope(&w.ca, &h1())).unwrap();
+    assert!(gates.is_verification_open(&op));
+    assert_eq!(gates.verification_scope(&op), Some(vscope(&w.ca, &h1())));
+    assert_eq!(
+        reg.create_verification(&op, &vscope(&w.ca, &h1()))
+            .unwrap_err(),
+        endpoints::EndpointError::GateOpen
+    );
+    assert!(
+        w.table.verification_key(&op).is_some(),
+        "the first session's key stays"
+    );
+    drop(v);
+    assert!(!gates.is_verification_open(&op));
+    assert!(w.table.verification_key(&op).is_none());
+    // A new session reopens it.
+    let again = reg.create_verification(&op, &vscope(&w.ca, &h1())).unwrap();
+    assert!(gates.is_verification_open(&op));
+    drop(again);
+    assert!(!gates.is_verification_open(&op));
+    reg.stop_all();
 }
 
 // =================================================================================

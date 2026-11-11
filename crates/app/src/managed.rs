@@ -48,6 +48,18 @@
 //! (a set of sequence numbers per grant), so overlapping narrowings never clear each
 //! other's; a narrowing clears only its own, when it ends or is dropped.
 //!
+//! **Verification gates** (⟨M03 wave 4⟩ ADR-0008 §17.19 item 5, INT-Q13 option (a)).
+//! A verification signature (K_verify, D5 §6.5) has no grant, so it is admitted
+//! through a **per-operation** gate instead: [`SigningGates::open_verification`]
+//! opens it, with the plan's CA and pair, when the operation's verification endpoint is
+//! created (`heimdall_credential::endpoints::EndpointRegistry::create_verification`
+//! holds the returned [`VerificationGate`] in the session), and dropping the
+//! [`VerificationGate`] closes it (the session's drop, on every exit path). A signer
+//! takes the gate shared ([`SigningGates::admit_verification`]); the permit built over
+//! it ([`SigningGates::permit_verification`]) refuses its release once the gate is
+//! closed ([`ReleaseRefusal::VerificationClosed`]). There is no ungated path:
+//! `heimdall_credential::signer::VERIFICATION_UNGATED_SIGNING` stays `false`.
+//!
 //! Nothing here touches the store or awaits anything but a gate or an earlier
 //! narrowing's end. The state mutex is never held across an await.
 
@@ -56,13 +68,18 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use heimdall_contract::Timestamp;
-use heimdall_contract::ids::GrantId;
+use heimdall_contract::ids::{CaFingerprint, GrantId, OperationId};
+use heimdall_domain::scope::AccessPair;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, watch};
 use tokio::time::Instant;
 
 use crate::ports::{
-    AdapterError, IntegrationSnapshot, IssuerPort, ManagedEffects, ManagedPrepared, PrepareRequest,
+    AdapterError, ConnectionControl, IntegrationSnapshot, IssuerPort, ManagedEffects,
+    ManagedPrepared, PrepareRequest, TargetEvaluator, VerificationEndpoints, VerificationRunner,
 };
+
+// ⟨M03⟩ wave 4 (U10): the managed effect driver's body (ADR-0008 D6 item 1).
+pub mod driver;
 
 /// A grant's place in the global lock order (ADR-0008 D2 item 3a "Lock order"):
 /// ancestors first (by delegation depth), then by grant ID.
@@ -92,6 +109,10 @@ pub enum GateError {
     /// lock order violated); nothing was acquired.
     #[error("gate requested out of global lock order")]
     OutOfOrder,
+    /// ⟨INT-Q13⟩ The operation already has an open verification gate (one
+    /// verification endpoint per operation at a time).
+    #[error("verification gate already open for the operation")]
+    AlreadyOpen,
 }
 
 struct Gate {
@@ -104,9 +125,26 @@ struct Gate {
     holders: usize,
 }
 
+/// ⟨INT-Q13⟩ One operation's verification gate.
+struct VerificationEntry {
+    lock: Arc<RwLock<()>>,
+    /// Which opening this is (a reopened gate after a close is a new one).
+    token: u64,
+    /// The plan's CA and pair (ADR-0008 §17.19 item 5).
+    scope: VerificationScope,
+    /// `false` once its [`VerificationGate`] was dropped; the entry stays while a
+    /// holder does.
+    open: bool,
+    /// Outstanding holders and waiters.
+    holders: usize,
+}
+
 #[derive(Default)]
 struct State {
     gates: HashMap<GrantId, Gate>,
+    /// ⟨INT-Q13⟩ Operation → its verification gate.
+    verifications: HashMap<OperationId, VerificationEntry>,
+    next_verification: u64,
     /// Grant → the sequence numbers of the running narrowings that mark it.
     marks: HashMap<GrantId, BTreeSet<u64>>,
     /// Running narrowings by sequence number; `true` is sent when one ends.
@@ -517,7 +555,283 @@ impl SigningGates {
     /// consults; it must not block.
     #[must_use]
     pub fn permit(gate: SharedGate, expiry: PermitExpiry, time: Arc<dyn SafeTime>) -> SignPermit {
-        SignPermit { gate, expiry, time }
+        SignPermit {
+            gate: PermitGate::Grant(gate),
+            expiry,
+            time,
+        }
+    }
+
+    // --- verification gates (INT-Q13) ---------------------------------------------
+
+    /// ⟨INT-Q13⟩ Open `operation`'s verification gate with the plan's `scope` (its CA
+    /// and pair; ADR-0008 §17.19 item 5). Called when the operation's verification
+    /// endpoint is created; the gate closes when the returned [`VerificationGate`] is
+    /// dropped (or [`VerificationGate::close`]d). Until then a verification signature
+    /// for `operation` may be admitted through [`Self::admit_verification`], and never
+    /// after.
+    ///
+    /// # Errors
+    /// [`GateError::AlreadyOpen`] when `operation` already has an open gate.
+    pub fn open_verification(
+        &self,
+        operation: &OperationId,
+        scope: VerificationScope,
+    ) -> Result<VerificationGate, GateError> {
+        let mut s = self.lock();
+        if s.verifications.get(operation).is_some_and(|v| v.open) {
+            return Err(GateError::AlreadyOpen);
+        }
+        let token = s.next_verification;
+        s.next_verification = s.next_verification.saturating_add(1);
+        // A closed entry still held by an old permit keeps its own lock: the new
+        // opening gets a fresh one, and the old holders' releases find a new token.
+        let holders = s.verifications.get(operation).map_or(0, |v| v.holders);
+        s.verifications.insert(
+            operation.clone(),
+            VerificationEntry {
+                lock: Arc::new(RwLock::new(())),
+                token,
+                scope,
+                open: true,
+                holders,
+            },
+        );
+        Ok(VerificationGate {
+            gates: self.clone(),
+            operation: operation.clone(),
+            token,
+        })
+    }
+
+    /// ⟨INT-Q13⟩ Whether `operation`'s verification gate is open.
+    #[must_use]
+    pub fn is_verification_open(&self, operation: &OperationId) -> bool {
+        self.lock()
+            .verifications
+            .get(operation)
+            .is_some_and(|v| v.open)
+    }
+
+    /// ⟨INT-Q13⟩ The plan's CA and pair of `operation`'s open verification gate.
+    #[must_use]
+    pub fn verification_scope(&self, operation: &OperationId) -> Option<VerificationScope> {
+        self.lock()
+            .verifications
+            .get(operation)
+            .filter(|v| v.open)
+            .map(|v| v.scope.clone())
+    }
+
+    /// ⟨INT-Q13⟩ Take `operation`'s verification gate **shared**, waiting at most
+    /// `wait`, and check it is still open after the awaited acquisition.
+    ///
+    /// # Errors
+    /// [`GateError::NoGate`] when no gate is open for `operation` (never opened, or
+    /// closed before or during the wait); [`GateError::Timeout`].
+    pub async fn admit_verification(
+        &self,
+        operation: &OperationId,
+        wait: Duration,
+    ) -> Result<VerificationShared, GateError> {
+        let (lock, token, scope) = {
+            let mut s = self.lock();
+            let v = s
+                .verifications
+                .get_mut(operation)
+                .filter(|v| v.open)
+                .ok_or(GateError::NoGate)?;
+            v.holders = v.holders.saturating_add(1);
+            (Arc::clone(&v.lock), v.token, v.scope.clone())
+        };
+        let hold = VerificationHold {
+            gates: self.clone(),
+            operation: operation.clone(),
+        };
+        let guard = tokio::time::timeout(wait, lock.read_owned())
+            .await
+            .map_err(|_| GateError::Timeout)?;
+        let shared = VerificationShared {
+            gates: self.clone(),
+            operation: operation.clone(),
+            token,
+            scope,
+            _guard: guard,
+            _hold: hold,
+        };
+        if !shared.is_open() {
+            return Err(GateError::NoGate);
+        }
+        Ok(shared)
+    }
+
+    /// ⟨INT-Q13⟩ Build the permit of an admitted verification signature from its
+    /// shared verification gate (the same shape as a grant's: ADR-0008 D2 item 3a
+    /// step 4). Its release check also refuses once the gate is closed.
+    #[must_use]
+    pub fn permit_verification(
+        gate: VerificationShared,
+        expiry: PermitExpiry,
+        time: Arc<dyn SafeTime>,
+    ) -> SignPermit {
+        SignPermit {
+            gate: PermitGate::Verification(gate),
+            expiry,
+            time,
+        }
+    }
+
+    /// Outstanding holders and waiters of `operation`'s verification gate (open or
+    /// closed), for inspection.
+    #[must_use]
+    pub fn verification_holders(&self, operation: &OperationId) -> usize {
+        self.lock()
+            .verifications
+            .get(operation)
+            .map_or(0, |v| v.holders)
+    }
+
+    /// Mark `operation`'s gate of opening `token` closed and drop the entry when
+    /// nothing holds it.
+    fn close_verification(&self, operation: &OperationId, token: u64) {
+        let mut s = self.lock();
+        let Some(v) = s.verifications.get_mut(operation) else {
+            return;
+        };
+        if v.token != token {
+            return;
+        }
+        v.open = false;
+        if v.holders == 0 {
+            s.verifications.remove(operation);
+        }
+    }
+}
+
+/// ⟨INT-Q13⟩ The plan's CA and pair a verification gate admits for (ADR-0008 §17.19
+/// item 5): the admission's store read requires the published positive entry to be
+/// for exactly these.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VerificationScope {
+    /// The plan's CA.
+    pub ca: CaFingerprint,
+    /// The plan's pair.
+    pub pair: AccessPair,
+}
+
+/// ⟨INT-Q13⟩ An open verification gate (RAII). Dropping it closes the gate: no new
+/// verification signature for the operation is admitted, and the permits already
+/// admitted refuse their release ([`ReleaseRefusal::VerificationClosed`]).
+pub struct VerificationGate {
+    gates: SigningGates,
+    operation: OperationId,
+    token: u64,
+}
+
+impl std::fmt::Debug for VerificationGate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerificationGate")
+            .field("operation", &self.operation)
+            .finish_non_exhaustive()
+    }
+}
+
+impl VerificationGate {
+    /// The operation.
+    #[must_use]
+    pub fn operation(&self) -> &OperationId {
+        &self.operation
+    }
+
+    /// Close the gate now (as dropping it does).
+    pub fn close(self) {
+        drop(self);
+    }
+
+    /// Close the gate after the signatures already admitted have finished: takes the
+    /// gate exclusively (waiting for every shared holder; each is bounded by its
+    /// permit's expiry), then closes it. Dropping the future closes it at once.
+    pub async fn close_after_holders(self) {
+        let lock = self
+            .gates
+            .lock()
+            .verifications
+            .get(&self.operation)
+            .filter(|v| v.token == self.token)
+            .map(|v| Arc::clone(&v.lock));
+        if let Some(lock) = lock {
+            let guard = lock.write_owned().await;
+            self.gates.close_verification(&self.operation, self.token);
+            drop(guard);
+        }
+    }
+}
+
+impl Drop for VerificationGate {
+    fn drop(&mut self) {
+        self.gates.close_verification(&self.operation, self.token);
+    }
+}
+
+/// One hold on a verification gate entry: while any exists, a closed entry is kept.
+struct VerificationHold {
+    gates: SigningGates,
+    operation: OperationId,
+}
+
+impl Drop for VerificationHold {
+    fn drop(&mut self) {
+        let mut s = self.gates.lock();
+        let Some(v) = s.verifications.get_mut(&self.operation) else {
+            return;
+        };
+        v.holders = v.holders.saturating_sub(1);
+        if !v.open && v.holders == 0 {
+            s.verifications.remove(&self.operation);
+        }
+    }
+}
+
+/// ⟨INT-Q13⟩ A verification gate held shared by one signer. Dropping it releases it.
+pub struct VerificationShared {
+    gates: SigningGates,
+    operation: OperationId,
+    token: u64,
+    scope: VerificationScope,
+    // Field order: the guard is released before the hold lets the entry go.
+    _guard: OwnedRwLockReadGuard<()>,
+    _hold: VerificationHold,
+}
+
+impl std::fmt::Debug for VerificationShared {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerificationShared")
+            .field("operation", &self.operation)
+            .finish_non_exhaustive()
+    }
+}
+
+impl VerificationShared {
+    /// The operation.
+    #[must_use]
+    pub fn operation(&self) -> &OperationId {
+        &self.operation
+    }
+
+    /// The plan's CA and pair the gate was opened with.
+    #[must_use]
+    pub fn scope(&self) -> &VerificationScope {
+        &self.scope
+    }
+
+    /// Whether the gate this holder took is still open (the same opening).
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        self.gates
+            .lock()
+            .verifications
+            .get(&self.operation)
+            .is_some_and(|v| v.open && v.token == self.token)
     }
 }
 
@@ -912,6 +1226,17 @@ pub enum ReleaseRefusal {
     /// The grant or an ancestor is marked `narrowing_pending`.
     #[error("narrowing pending")]
     NarrowingPending,
+    /// ⟨INT-Q13⟩ The verification gate the permit was admitted under is closed (the
+    /// verification session ended).
+    #[error("verification gate closed")]
+    VerificationClosed,
+}
+
+/// The gate a permit holds shared: a grant's, or ⟨INT-Q13⟩ an operation's
+/// verification gate.
+enum PermitGate {
+    Grant(SharedGate),
+    Verification(VerificationShared),
 }
 
 /// ⟨r2⟩ An admitted signature's permit (ADR-0008 D2 item 3a): the grant's gate held
@@ -920,25 +1245,39 @@ pub enum ReleaseRefusal {
 /// `ipc::signing::PermitGuard`: [`Self::may_release`] and [`Self::expires_at`] match
 /// `ipc::signing::ReleaseCheck`.
 pub struct SignPermit {
-    gate: SharedGate,
+    gate: PermitGate,
     expiry: PermitExpiry,
     time: Arc<dyn SafeTime>,
 }
 
 impl std::fmt::Debug for SignPermit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SignPermit")
-            .field("grant", self.gate.grant())
-            .field("expiry", &self.expiry)
-            .finish_non_exhaustive()
+        let mut d = f.debug_struct("SignPermit");
+        match &self.gate {
+            PermitGate::Grant(g) => d.field("grant", g.grant()),
+            PermitGate::Verification(v) => d.field("verification", v.operation()),
+        };
+        d.field("expiry", &self.expiry).finish_non_exhaustive()
     }
 }
 
 impl SignPermit {
-    /// The grant.
+    /// The grant, for a grant's permit (`None` for a verification permit).
     #[must_use]
-    pub fn grant(&self) -> &GrantId {
-        self.gate.grant()
+    pub fn grant(&self) -> Option<&GrantId> {
+        match &self.gate {
+            PermitGate::Grant(g) => Some(g.grant()),
+            PermitGate::Verification(_) => None,
+        }
+    }
+
+    /// ⟨INT-Q13⟩ The verifying operation, for a verification permit.
+    #[must_use]
+    pub fn verification(&self) -> Option<&OperationId> {
+        match &self.gate {
+            PermitGate::Grant(_) => None,
+            PermitGate::Verification(v) => Some(v.operation()),
+        }
     }
 
     /// The absolute expiry.
@@ -979,10 +1318,11 @@ impl SignPermit {
         if wall >= self.expiry.wall {
             return Some(ReleaseRefusal::ExpiredWall);
         }
-        if self.gate.is_pending() {
-            return Some(ReleaseRefusal::NarrowingPending);
+        match &self.gate {
+            PermitGate::Grant(g) if g.is_pending() => Some(ReleaseRefusal::NarrowingPending),
+            PermitGate::Verification(v) if !v.is_open() => Some(ReleaseRefusal::VerificationClosed),
+            _ => None,
         }
-        None
     }
 
     /// [`Self::release_refusal_at`] as a predicate.
@@ -1016,19 +1356,58 @@ pub const MANAGED_DRIVER_NOT_WIRED: &str = "managed effect driver not wired (dri
 /// outside any adapter bound, with a stage receipt between effects. Its result goes
 /// into `IntegrationSnapshot.managed.prepared`.
 ///
-/// **Wave 0 (phase 1):** the body is U10's, so it fails closed with
-/// `AdapterError::Protocol(`[`MANAGED_DRIVER_NOT_WIRED`]`)` before any effect or
-/// store write.
+/// **Wave 4:** the body is [`driver::drive`] (U10). A path it does not run fails
+/// closed with `AdapterError::Protocol(`[`MANAGED_DRIVER_NOT_WIRED`]`)` before any
+/// effect or store write.
 ///
 /// # Errors
 /// [`AdapterError`].
 pub async fn drive_preparation(
-    _ops: &crate::Operations,
-    _effects: &dyn ManagedEffects,
-    _issuer: &dyn IssuerPort,
-    _req: PrepareRequest<'_>,
+    ops: &crate::Operations,
+    effects: &dyn ManagedEffects,
+    issuer: &dyn IssuerPort,
+    req: PrepareRequest<'_>,
 ) -> Result<ManagedPrepared, AdapterError> {
-    Err(AdapterError::Protocol(MANAGED_DRIVER_NOT_WIRED.to_owned()))
+    driver::drive(ops, effects, issuer, req).await
+}
+
+/// ⟨M03⟩ wave 4 (U10): the M03 ports the runtime wires into [`crate::Operations`]
+/// (`Operations::set_managed_wiring`). Every field is optional: a path whose port is
+/// absent fails closed (`CAPABILITY_UNAVAILABLE`, reason `driver_unavailable`, or
+/// [`MANAGED_DRIVER_NOT_WIRED`]) before any record is written.
+#[derive(Clone, Default)]
+pub struct ManagedWiring {
+    /// The managed adapter's effects (U6's `ManagedEffectsImpl`).
+    pub effects: Option<Arc<dyn ManagedEffects>>,
+    /// The issuer child's client (U3's `ChildIssuer`).
+    pub issuer: Option<Arc<dyn IssuerPort>>,
+    /// The issuer child's lifecycle (start, reload, stop).
+    pub issuer_lifecycle: Option<Arc<dyn crate::issuer::IssuerLifecycle>>,
+    /// The verification endpoint factory (U2's `EndpointRegistry`).
+    pub verification_endpoints: Option<Arc<dyn VerificationEndpoints>>,
+    /// The production verification's fresh logins (U5's `Verifier`).
+    pub verification_runner: Option<Arc<dyn VerificationRunner>>,
+    /// The passive target evaluation of a managed alias (`heimdall-localenv`).
+    pub target: Option<Arc<dyn TargetEvaluator>>,
+    /// Owned masters and owned dedicated connections (U7's `ConnectionSupervisor`).
+    pub connections: Option<Arc<dyn ConnectionControl>>,
+}
+
+impl std::fmt::Debug for ManagedWiring {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ManagedWiring")
+            .field("effects", &self.effects.is_some())
+            .field("issuer", &self.issuer.is_some())
+            .field("issuer_lifecycle", &self.issuer_lifecycle.is_some())
+            .field(
+                "verification_endpoints",
+                &self.verification_endpoints.is_some(),
+            )
+            .field("verification_runner", &self.verification_runner.is_some())
+            .field("target", &self.target.is_some())
+            .field("connections", &self.connections.is_some())
+            .finish()
+    }
 }
 
 /// The managed adapter's `prepare_from` precondition (ADR-0008 D6 item 0): the

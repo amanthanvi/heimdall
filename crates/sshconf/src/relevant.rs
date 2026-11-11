@@ -729,7 +729,45 @@ pub fn identity_selection_with_spans(
     adopted: &Path,
     source: &dyn ConfigSource,
 ) -> (IdentitySelectionReport, Vec<Option<Span>>) {
+    selection_with_spans(evaluation, adopted, None, source)
+}
+
+/// ⟨M03⟩ ADR-0008 D10 item 6 (§17.19 item 4): the identity selection of a **managed
+/// certificate** alias. `identity_file` is the slot file P names as `IdentityFile` in
+/// the selected `ManagedIdentityForm` (the slot certificate, or the slot key for the
+/// form as written), and `certificate_file` the slot certificate P names as
+/// `CertificateFile` when the form has one.
+///
+/// The rules are [`identity_selection_with_spans`]'s, with one addition: a
+/// `CertificateFile` entry naming `certificate_file` is the slot's own entry, like an
+/// `IdentityFile` entry naming `identity_file`. So the selection is `exclusive` only when
+/// the list is exactly the slot's entries of that form, every entry determined, and
+/// `IdentitiesOnly` a determined `yes`. An inherited `IdentityFile` or
+/// `CertificateFile` (`IdentitiesOnly yes` does not remove either, §17.19 item 4), a
+/// default identity, or a `CertificateFile` while the form has none makes it
+/// `not_exclusive`; anything that cannot be determined statically makes it
+/// `undetermined`.
+#[must_use]
+pub fn managed_identity_selection(
+    evaluation: &Evaluation,
+    identity_file: &Path,
+    certificate_file: Option<&Path>,
+    source: &dyn ConfigSource,
+) -> IdentitySelectionReport {
+    selection_with_spans(evaluation, identity_file, certificate_file, source).0
+}
+
+/// [`identity_selection_with_spans`] with an optional adopted `CertificateFile`
+/// ([`managed_identity_selection`]); `None` is M02's rule (every certificate entry is an
+/// alternative).
+fn selection_with_spans(
+    evaluation: &Evaluation,
+    adopted: &Path,
+    adopted_certificate: Option<&Path>,
+    source: &dyn ConfigSource,
+) -> (IdentitySelectionReport, Vec<Option<Span>>) {
     let adopted_norm = norm(adopted);
+    let adopted_cert_norm = adopted_certificate.map(norm);
     let mut entries = Vec::new();
     let mut spans = Vec::new();
     // Whether each entry is the adopted key, by its expanded path (parallel to
@@ -809,7 +847,16 @@ pub fn identity_selection_with_spans(
             backing: IdentityBacking::Unknown,
             cleared: None,
         });
-        adopted_flags.push(false);
+        // ⟨M03⟩ Only a managed alias's own slot certificate is adopted
+        // ([`managed_identity_selection`]); M02 adopts no certificate entry.
+        let own = adopted_cert_norm.as_deref().is_some_and(|want| {
+            c.value
+                .args
+                .first()
+                .and_then(|a| expand_identity_path(a, source))
+                .is_some_and(|p| norm(&p) == want)
+        });
+        adopted_flags.push(own);
         spans.push(Some(c.value.span));
     }
     let identities_only = identities_only_of(evaluation);

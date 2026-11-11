@@ -35,17 +35,20 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use heimdall_app::managed::{SigningGates, VerificationGate, VerificationScope};
 use heimdall_app::ports::{
     AdapterError, ResourceCleaner, SignatureAuthority, SignerEndpoint, VerificationEndpoints,
     VerificationSession,
 };
 use heimdall_contract::Timestamp;
+use heimdall_contract::enrollment::EnrollmentPlan;
 use heimdall_contract::ids::{BindingId, OperationId, ResourceId};
 use heimdall_contract::ipc::MAX_SIGNING_CONNECTIONS;
 use heimdall_contract::provider::{EndpointKind as TransportKind, EndpointRef};
 use heimdall_domain::resource::{
     ManagedResource, OwnerRef, ResourceGeneration, ResourceKind, ResourceState,
 };
+use heimdall_domain::scope::AccessPair;
 use heimdall_ipc::endpoint::{ExpectedOwner, PeerIdentity, verify_peer};
 use heimdall_ipc::signing::{ServeLimits, Signer};
 use tokio::task::JoinSet;
@@ -343,6 +346,10 @@ pub enum EndpointError {
     /// K_verify could not be generated or registered.
     #[error("verification key unavailable")]
     Key,
+    /// ⟨INT-Q13⟩ The operation's verification signing gate is already open (another
+    /// session of the same operation is alive).
+    #[error("verification gate already open")]
+    GateOpen,
 }
 
 impl From<EndpointError> for AdapterError {
@@ -522,6 +529,9 @@ struct RegistryInner {
     limits: SignerLimits,
     shutdown: CancellationToken,
     hook: Option<Arc<dyn SignHook>>,
+    /// ⟨INT-Q13⟩ The runtime's signing gates (`Operations::signing_gates`): each
+    /// verification session opens its operation's verification gate here.
+    gates: Option<SigningGates>,
     state: Mutex<RegistryState>,
 }
 
@@ -615,6 +625,7 @@ impl EndpointRegistry {
                 limits,
                 shutdown,
                 hook: None,
+                gates: None,
                 state: Mutex::new(RegistryState::default()),
             }),
         }
@@ -634,6 +645,33 @@ impl EndpointRegistry {
                 limits: inner.limits,
                 shutdown: inner.shutdown.clone(),
                 hook: Some(hook),
+                gates: inner.gates.clone(),
+                state: Mutex::new(RegistryState::default()),
+            }),
+        }
+    }
+
+    /// ⟨INT-Q13; ADR-0008 §17.19 item 5⟩ The same registry, opening each verification
+    /// session's **verification signing gate** in `gates` (the runtime passes
+    /// `Operations::signing_gates()`). The gate opens in [`Self::create_verification`]
+    /// with the plan's CA and pair and closes when the session is dropped; the
+    /// production `SignatureAuthority` admits a verification signature only through
+    /// it. Without gates (a registry built for a fixture authority) no gate is opened,
+    /// so the production authority refuses every verification signature (fail
+    /// closed). Call before creating any endpoint.
+    #[must_use]
+    pub fn with_verification_gates(self, gates: SigningGates) -> EndpointRegistry {
+        let inner = &self.inner;
+        EndpointRegistry {
+            inner: Arc::new(RegistryInner {
+                layout: inner.layout.clone(),
+                owner: inner.owner.clone(),
+                table: inner.table.clone(),
+                authority: Arc::clone(&inner.authority),
+                limits: inner.limits,
+                shutdown: inner.shutdown.clone(),
+                hook: inner.hook.clone(),
+                gates: Some(gates),
                 state: Mutex::new(RegistryState::default()),
             }),
         }
@@ -795,18 +833,29 @@ impl EndpointRegistry {
     }
 
     /// Create `operation`'s verification endpoint with a fresh K_verify (ADR-0008 D5
-    /// §6.5 item 1; the `VerificationEndpoints` port). The key and the endpoint end
-    /// when the returned session is dropped.
+    /// §6.5 item 1; the `VerificationEndpoints` port), bound to the plan's CA and pair
+    /// (`scope`; §17.19 item 5: every certificate it installs must be signed by that
+    /// CA, and the positive one must name that pair). With [`Self::with_verification_gates`]
+    /// it also opens the operation's verification signing gate. The key, the gate and
+    /// the endpoint end when the returned session is dropped.
     ///
     /// # Errors
-    /// [`EndpointError`]; no key and no endpoint are left behind.
+    /// [`EndpointError`]; no key, no gate and no endpoint are left behind.
     pub fn create_verification(
         &self,
         operation: &OperationId,
+        scope: &VerificationScope,
     ) -> Result<VerificationEndpoint, EndpointError> {
         let table = &self.inner.table;
+        let gate = match &self.inner.gates {
+            Some(g) => Some(
+                g.open_verification(operation, scope.clone())
+                    .map_err(|_| EndpointError::GateOpen)?,
+            ),
+            None => None,
+        };
         let info = table
-            .register_verification(operation)
+            .register_verification(operation, scope)
             .map_err(|_| EndpointError::Key)?;
         let started = (|| {
             let tag = EndpointTag::generate().map_err(|_| EndpointError::RandomnessUnavailable)?;
@@ -835,8 +884,21 @@ impl EndpointRegistry {
             fingerprint: info.fingerprint,
             endpoint: running.endpoint.clone(),
             counters,
+            gate: Mutex::new(gate),
             running: Mutex::new(Some(running)),
         })
+    }
+}
+
+/// ⟨INT-Q13⟩ The plan's CA and pair (`ca_fingerprint`, `destination_id`/`account`).
+#[must_use]
+pub fn verification_scope(plan: &EnrollmentPlan) -> VerificationScope {
+    VerificationScope {
+        ca: plan.ca_fingerprint.clone(),
+        pair: AccessPair {
+            destination: plan.destination_id.clone(),
+            account: plan.account.clone(),
+        },
     }
 }
 
@@ -845,8 +907,12 @@ impl VerificationEndpoints for EndpointRegistry {
     async fn create(
         &self,
         operation: &OperationId,
+        plan: &EnrollmentPlan,
     ) -> Result<Box<dyn VerificationSession>, AdapterError> {
-        Ok(Box::new(self.create_verification(operation)?))
+        Ok(Box::new(self.create_verification(
+            operation,
+            &verification_scope(plan),
+        )?))
     }
 }
 
@@ -866,6 +932,8 @@ pub struct VerificationEndpoint {
     fingerprint: String,
     endpoint: EndpointRef,
     counters: Arc<VerificationCounters>,
+    /// ⟨INT-Q13⟩ The operation's open verification gate (closed first on drop).
+    gate: Mutex<Option<VerificationGate>>,
     running: Mutex<Option<Running>>,
 }
 
@@ -934,6 +1002,13 @@ impl VerificationSession for VerificationEndpoint {
 
 impl Drop for VerificationEndpoint {
     fn drop(&mut self) {
+        // ⟨INT-Q13⟩ The gate first: no signature is admitted or released from here.
+        drop(
+            self.gate
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take(),
+        );
         self.table.destroy_verification(&self.operation);
         let running = self
             .running

@@ -1161,3 +1161,143 @@ impl Ordinary {
         );
     }
 }
+
+// --- ⟨M03⟩ wave 4 (U10-D): the managed alias's identity selection (D10 item 6) ---------
+
+/// ADR-0008 D10 item 6 (§17.19 item 4, last bullets), U0b phase 2: a managed-certificate
+/// alias whose only identity entry is P's slot certificate, in the selected form under
+/// `IdentitiesOnly yes`, is `exclusive`, so the no-interaction path needs no fallback
+/// clearance. An inherited `IdentityFile` from the user's own configuration (`IdentitiesOnly
+/// yes` does not remove it) makes it `not_exclusive`, and M02's fallback clearance over
+/// that report clears nothing (the inherited key is not a declared catalog identity), so
+/// the no-interaction path refuses. An inherited `CertificateFile` does the same.
+#[test]
+fn inherited_identityfile_makes_selection_not_exclusive_and_noninteractive_refused() {
+    use heimdall_contract::provider::{IdentitiesOnly, IdentityEntrySource};
+    let fx = Fx::new();
+    let spec = fx.alias("work", "work.example.invalid", None, "deploy");
+    let endpoint = fx.environment_endpoint("t");
+    fx.prefer_managed(&spec, endpoint.clone());
+    let writer = fx.writer(true);
+    let plan = writer
+        .preview(&fx.spec(vec![spec]), &apply_intent())
+        .unwrap();
+    let sink = Sink::default();
+    writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
+    let record = sink.0.lock().unwrap().last().unwrap().record.clone();
+    let observe = || {
+        writer
+            .observe(&record, &["work".to_owned()])
+            .into_iter()
+            .next()
+            .expect("an observation")
+            .identity_selection
+            .expect("the managed alias's selection is classified")
+    };
+    let clearance = |r: &heimdall_contract::provider::IdentitySelectionReport| {
+        let slot = r
+            .entries
+            .iter()
+            .find(|e| e.source == IdentityEntrySource::Managed)
+            .and_then(|e| e.fingerprint.clone())
+            .unwrap_or_default();
+        heimdall_domain::catalog::fallback_clearance(
+            r,
+            &[],
+            &|_| unreachable!("no catalog identity to judge"),
+            &endpoint,
+            &slot,
+        )
+    };
+
+    // Only the slot certificate: exclusive.
+    let exclusive = observe();
+    assert_eq!(
+        exclusive.selection,
+        IdentitySelection::Exclusive,
+        "{exclusive:?}"
+    );
+    assert_eq!(exclusive.identities_only, IdentitiesOnly::DeterminedYes);
+    assert_eq!(exclusive.entries.len(), 1, "{exclusive:?}");
+    assert_eq!(exclusive.entries[0].source, IdentityEntrySource::Managed);
+
+    // An inherited IdentityFile in the user's configuration: not exclusive, not cleared.
+    let user = std::fs::read_to_string(&fx.home.user_config).unwrap();
+    let inherited = fx.home.ssh_dir.join("id_inherited");
+    std::fs::write(&inherited, b"not a key; never read\n").unwrap();
+    std::fs::write(
+        &fx.home.user_config,
+        format!(
+            "{user}\nHost work\n    IdentityFile \"{}\"\n",
+            inherited.display()
+        ),
+    )
+    .unwrap();
+    let not_exclusive = observe();
+    assert_eq!(
+        not_exclusive.selection,
+        IdentitySelection::NotExclusive,
+        "{not_exclusive:?}"
+    );
+    assert!(
+        not_exclusive
+            .entries
+            .iter()
+            .any(|e| e.source == IdentityEntrySource::User),
+        "{not_exclusive:?}"
+    );
+    let c = clearance(&not_exclusive);
+    assert!(!c.cleared, "the inherited file-backed key is never cleared");
+    assert!(!c.uncleared.is_empty());
+
+    // An inherited CertificateFile alone does the same.
+    std::fs::write(
+        &fx.home.user_config,
+        format!(
+            "{user}\nHost work\n    CertificateFile \"{}\"\n",
+            fx.home.ssh_dir.join("other-cert.pub").display()
+        ),
+    )
+    .unwrap();
+    let cert = observe();
+    assert_eq!(cert.selection, IdentitySelection::NotExclusive, "{cert:?}");
+    assert!(!clearance(&cert).cleared);
+
+    // Restored: exclusive again.
+    std::fs::write(&fx.home.user_config, &user).unwrap();
+    assert_eq!(observe().selection, IdentitySelection::Exclusive);
+}
+
+/// ADR-0008 D10 item 6 with each `ManagedIdentityForm` (the test override renders P and
+/// classifies with the same form): the slot's own entries of that form, and only those,
+/// make the managed alias `exclusive`; a slot `CertificateFile` the form names is the
+/// alias's own entry, not an inherited one.
+#[test]
+fn managed_selection_follows_identity_form() {
+    for form in ManagedIdentityForm::ALL {
+        let fx = Fx::new();
+        let spec = fx.alias("work", "work.example.invalid", None, "deploy");
+        fx.prefer_managed(&spec, fx.environment_endpoint("t"));
+        let mut config = fx.config(true);
+        config.test.managed_identity_form = Some(form);
+        let writer = LocalProjection::writing(config).unwrap();
+        let plan = writer
+            .preview(&fx.spec(vec![spec]), &apply_intent())
+            .unwrap();
+        let sink = Sink::default();
+        writer.apply(&plan.intent(), &mut sink.clone()).unwrap();
+        let record = sink.0.lock().unwrap().last().unwrap().record.clone();
+        let report = writer
+            .observe(&record, &["work".to_owned()])
+            .into_iter()
+            .next()
+            .and_then(|o| o.identity_selection)
+            .expect("classified");
+        assert_eq!(
+            report.selection,
+            IdentitySelection::Exclusive,
+            "{}: {report:?}",
+            form.as_str()
+        );
+    }
+}

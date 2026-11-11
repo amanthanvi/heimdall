@@ -1788,8 +1788,9 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
         )),
         "the golden's consumer is exactly the binding endpoint {locator}"
     );
-    // Today the selection is not classified (U6-Q3): `unknown`, never the claim.
-    const { assert!(!report::MANAGED_SELECTION_CLASSIFIED) };
+    // ⟨wave 4⟩ The selection is classified (U6-Q3, U0b phase 2); an `Undetermined`
+    // selection still reports `unknown`, never the claim.
+    const { assert!(report::MANAGED_SELECTION_CLASSIFIED) };
     let undetermined = ReportContext {
         selection: SelectionClass::Undetermined,
         ..ctx

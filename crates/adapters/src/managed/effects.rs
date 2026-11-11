@@ -3,8 +3,8 @@
 //! signer table and key vault, `materialize` and `clear` over [`super::files`].
 //!
 //! The stage sequence, the store transactions and the receipts are
-//! `app::managed::drive_preparation`'s (U10, wave 4; reading R5): this type performs
-//! an effect only when asked.
+//! `app::managed::drive_preparation`'s (⟨wave 4⟩ `app::managed::driver`): this type
+//! performs an effect only when asked.
 //!
 //! **Bounded; drop contract** (`app::ports::CredentialAdapter`). `generate_key` and
 //! `destroy` are in-memory work (vault and table), with no await. `install` awaits
@@ -15,8 +15,9 @@
 //! the blocking pool.
 //!
 //! **`install` needs a store view** (U2-Q2): `SignerTable::install` refuses without an
-//! `InstallView` (`table::INSTALL_STORE_VIEW_WIRED = false`) and this type does not
-//! set one; U10 wires the production view, tests set a fixture view on the table.
+//! `InstallView`, and this type does not set one; ⟨wave 4⟩ the runtime sets the
+//! production view (`heimdall_runtime::managed_store::OpsInstallView`, over
+//! `Operations::managed_install_check`), tests set a fixture view on the table.
 //!
 //! **One slot at a time (ADR-0008 §17.20 items 1–2; W3-R01, W3-R02, W3-S05).** A
 //! slot's claim, its materialization and its clear are serialized by a per-slot lock

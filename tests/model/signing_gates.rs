@@ -586,7 +586,8 @@ async fn permit_release_check_refuses_on_expiry_unsafe_time_or_pending() {
 
     let gate = gates.admit_shared(&g(5), LONG).await.unwrap();
     let permit = SigningGates::permit(gate, expiry, Arc::new(move || Some(wall)));
-    assert_eq!(permit.grant(), &g(5));
+    assert_eq!(permit.grant(), Some(&g(5)));
+    assert_eq!(permit.verification(), None);
     assert_eq!(permit.expires_at(), now + Duration::from_secs(5));
     assert_eq!(
         permit.expires_wall(),
@@ -739,4 +740,148 @@ async fn existing_access_prepare_contract_unchanged() {
     assert_eq!(fake.read_sources(&[]).managed, None);
     let revoked = fake.revoke(&g(1), t0()).await.unwrap();
     assert!(revoked.remote_effects.is_empty());
+}
+
+// --- ⟨M03 wave 4⟩ verification gates (ADR-0008 §17.19 item 5, INT-Q13 option (a)) ---
+
+fn op(n: u8) -> heimdall_contract::ids::OperationId {
+    heimdall_contract::ids::OperationId::from_random_bytes([n; 16])
+}
+
+fn vscope(ca: u8, dest: &str) -> heimdall_app::managed::VerificationScope {
+    use heimdall_contract::ids::{AccountName, CaFingerprint, DestinationId};
+    heimdall_app::managed::VerificationScope {
+        ca: CaFingerprint::parse(&format!(
+            "SHA256:{}",
+            char::from(b'A' + ca).to_string().repeat(43)
+        ))
+        .unwrap(),
+        pair: heimdall_domain::scope::AccessPair {
+            destination: DestinationId::parse(dest).unwrap(),
+            account: AccountName::parse("deploy").unwrap(),
+        },
+    }
+}
+
+/// A verification signature is admitted only through its own operation's open gate:
+/// refused before the gate is opened, admitted while open (with the opening's scope),
+/// refused for another operation, and refused again once the gate is closed. A second
+/// opening while one is open is refused.
+#[tokio::test]
+async fn verification_gate_admits_only_while_open() {
+    let gates = SigningGates::new();
+    assert_eq!(
+        gates.admit_verification(&op(1), LONG).await.unwrap_err(),
+        GateError::NoGate,
+        "before the session's create"
+    );
+    let gate = gates.open_verification(&op(1), vscope(1, "h1")).unwrap();
+    assert_eq!(
+        gates
+            .open_verification(&op(1), vscope(1, "h1"))
+            .unwrap_err(),
+        GateError::AlreadyOpen
+    );
+    assert!(gates.is_verification_open(&op(1)));
+    assert_eq!(gates.verification_scope(&op(1)), Some(vscope(1, "h1")));
+    let shared = gates.admit_verification(&op(1), LONG).await.unwrap();
+    assert_eq!(shared.scope(), &vscope(1, "h1"));
+    assert!(shared.is_open());
+    assert_eq!(
+        gates.admit_verification(&op(2), LONG).await.unwrap_err(),
+        GateError::NoGate,
+        "another operation's gate is not this one"
+    );
+    drop(shared);
+    drop(gate);
+    assert!(!gates.is_verification_open(&op(1)));
+    assert_eq!(gates.verification_scope(&op(1)), None);
+    assert_eq!(
+        gates.admit_verification(&op(1), LONG).await.unwrap_err(),
+        GateError::NoGate,
+        "after the session's drop"
+    );
+    assert_eq!(gates.verification_holders(&op(1)), 0, "the entry is gone");
+}
+
+/// A verification permit is built over the operation's gate (never a grant's): its
+/// release check refuses once the gate closes (`VerificationClosed`), also when the
+/// operation's gate was reopened since (another opening is not the permit's).
+#[tokio::test]
+async fn verification_permit_release_refused_after_gate_closed() {
+    let gates = SigningGates::new();
+    let now = Instant::now();
+    let wall = t0();
+    let expiry = PermitExpiry::new(wall + jiff::SignedDuration::from_secs(60), now + LONG);
+    let gate = gates.open_verification(&op(3), vscope(1, "h1")).unwrap();
+    let shared = gates.admit_verification(&op(3), LONG).await.unwrap();
+    let permit = SigningGates::permit_verification(shared, expiry, Arc::new(move || Some(wall)));
+    assert_eq!(permit.grant(), None);
+    assert_eq!(permit.verification(), Some(&op(3)));
+    assert!(permit.may_release_at(Some(wall), now));
+    // The holder keeps the closed entry until it drops.
+    drop(gate);
+    assert_eq!(
+        permit.release_refusal_at(Some(wall), now),
+        Some(ReleaseRefusal::VerificationClosed)
+    );
+    assert_eq!(gates.verification_holders(&op(3)), 1);
+    let reopened = gates.open_verification(&op(3), vscope(1, "h1")).unwrap();
+    assert_eq!(
+        permit.release_refusal_at(Some(wall), now),
+        Some(ReleaseRefusal::VerificationClosed),
+        "a later opening never revives an earlier permit"
+    );
+    // The expiry and time checks still apply first.
+    assert_eq!(
+        permit.release_refusal_at(None, now),
+        Some(ReleaseRefusal::TimeNotSafe)
+    );
+    drop(permit);
+    assert!(gates.is_verification_open(&op(3)));
+    drop(reopened);
+    assert_eq!(gates.verification_holders(&op(3)), 0);
+    assert!(!gates.is_verification_open(&op(3)));
+}
+
+/// The gate closes for a holder that waited: an admission queued behind an exclusive
+/// close (`close_after_holders`) finds the gate closed after its acquisition, and the
+/// close waits for the admitted holder first.
+#[tokio::test]
+async fn verification_gate_close_after_holders_waits_and_fences_waiters() {
+    let gates = SigningGates::new();
+    let gate = gates.open_verification(&op(4), vscope(1, "h1")).unwrap();
+    let holder = gates.admit_verification(&op(4), LONG).await.unwrap();
+    let mut close = Box::pin(gate.close_after_holders());
+    assert!(
+        poll_once(close.as_mut()).await.is_pending(),
+        "waits for the holder"
+    );
+    assert!(gates.is_verification_open(&op(4)));
+    let ops4: &'static _ = Box::leak(Box::new(op(4)));
+    let mut waiter = Box::pin(gates.admit_verification(ops4, LONG));
+    assert!(
+        poll_once(waiter.as_mut()).await.is_pending(),
+        "queued behind the close"
+    );
+    drop(holder);
+    close.await;
+    assert!(!gates.is_verification_open(&op(4)));
+    assert_eq!(waiter.await.unwrap_err(), GateError::NoGate);
+    assert_eq!(gates.verification_holders(&op(4)), 0);
+}
+
+/// Grant gates and verification gates are separate: an operation's verification gate
+/// never admits a grant, and a narrowing's marks never touch a verification gate.
+#[tokio::test]
+async fn verification_gates_are_not_grant_gates() {
+    let gates = forest();
+    let _gate = gates.open_verification(&op(5), vscope(1, "h1")).unwrap();
+    let _narrowing = gates.begin_narrowing([g(1)]);
+    let shared = gates.admit_verification(&op(5), TINY).await.unwrap();
+    assert!(shared.is_open());
+    assert_eq!(
+        gates.admit_shared(&g(1), TINY).await.unwrap_err(),
+        GateError::Pending
+    );
 }
