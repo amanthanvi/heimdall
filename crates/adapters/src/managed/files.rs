@@ -18,24 +18,37 @@
 //! line and `\n`; it is written (D6 step 6, the slot table) but nothing names it as an
 //! identity.
 //!
-//! **Atomic and generation-bound.** Every file is written to a fresh temporary name in
-//! its own directory and renamed over its target (Windows: the M02 replace primitive
-//! `heimdall_localenv::sys::replace_file` when the target exists, `rename` when it does
-//! not). Each directory carries a marker, [`GENERATION_FILE`], `<generation>
-//! <binding-id>\n`, written **first** (a write claims the directory for its
-//! generation) and removed **last** (a clear that stops half way is completed by the
-//! next clear of the same generation). A clear of generation `g` removes nothing when
-//! the marker names another generation, so a clear of `g` never touches `g + 1`.
-//! Every write and clear in this process is serialized by one lock, so a clear cannot
-//! interleave with the write of the next generation.
+//! **Anchored (ADR-0008 §17.20 item 7; W3-S04).** Every write, clear and enumeration
+//! goes through `heimdall_localenv::sys::ManagedDir` handles: the anchor (`data_dir`
+//! or `runtime_dir`) is opened without following its last component, and each level
+//! below it (`managed/<component>`, `b/<tag>`) relative to its verified parent. A
+//! symlink or reparse point at any level is refused, never followed; an existing
+//! directory that is not owner-only is refused with [`FilesError::Unsafe`]
+//! (`managed_dir_unsafe`) and never repaired; nothing is removed through a directory
+//! that was not verified. A missing level is created owner-only. The files stay public
+//! (mode 0644, D10 item 2).
+//!
+//! **Atomic and generation-bound (§17.20 item 1; W3-R01, W3-S05).** Every file is
+//! written to a fresh exclusive temporary name in its own directory and renamed over
+//! its target (Windows: the M02 replace primitive when the target exists, a no-replace
+//! move when it does not). Each directory carries a marker, [`GENERATION_FILE`],
+//! `<generation> <binding-id>\n`, written **first** (a write claims the directory for
+//! its generation) and removed **last** (a clear that stops half way is completed by
+//! the next clear of the same generation). **A write is fenced by the marker**: a
+//! generation older than the marker, or another holder at the same generation, is
+//! refused before anything is written ([`FilesError::StaleGeneration`],
+//! [`FilesError::OtherHolder`]). A clear of generation `g` removes nothing when the
+//! marker names another generation, so a clear of `g` never touches `g + 1`. Every
+//! marker read and the write or clear it decides are serialized by one lock in this
+//! process. The renames are atomic one by one; the protocol is the marker fence plus
+//! the slot's serialization and store re-validation in
+//! [`super::effects::ManagedEffectsImpl`].
 //!
 //! Synchronous file work only: callers run it on the blocking pool
 //! (`ManagedEffects::materialize`/`clear`).
 
-use std::fs;
-use std::io::{self, Write as _};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::io;
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 use heimdall_contract::ids::{BindingId, DestinationId, EnvironmentId};
@@ -44,6 +57,8 @@ use heimdall_credential::endpoints::{self, EndpointTag};
 use heimdall_domain::scope::AccessPair;
 pub use heimdall_localenv::projection::content::SlotPathRefused;
 use heimdall_localenv::projection::content::{SlotPaths, managed_slot_paths, slot_component};
+pub use heimdall_localenv::sys::MANAGED_DIR_UNSAFE;
+use heimdall_localenv::sys::{ManagedDir, ManagedDirError, SysError};
 
 /// The binding's K_env public-key file name (D6 item 1 step 6).
 pub const BINDING_KEY_FILE: &str = "key.pub";
@@ -53,7 +68,18 @@ pub const BINDING_KEY_FILE: &str = "key.pub";
 pub const GENERATION_FILE: &str = ".generation";
 
 /// The longest file this module reads back (a marker): anything larger is not ours.
-const MARKER_MAX: u64 = 256;
+const MARKER_MAX: usize = 256;
+
+/// The slot directories' level under `data_dir`, as
+/// `heimdall_localenv::projection::content::managed_slot_paths` names it (R1).
+const SLOT_DIR: &str = "managed";
+
+/// The `AdapterError::Protocol` text of a write refused by the marker fence: a newer
+/// generation holds the directory (§17.20 item 1).
+pub const STALE_GENERATION: &str = "stale_generation";
+/// The `AdapterError::Protocol` text of a write refused by the marker fence: another
+/// holder holds the same generation (§17.20 item 1).
+pub const GENERATION_HOLDER_MISMATCH: &str = "generation_holder_mismatch";
 
 /// `cert-<slot_component(dest)>.pub`: one binding certificate file's name.
 ///
@@ -172,6 +198,17 @@ pub enum FilesError {
     Environment,
     /// An I/O failure.
     Io(io::Error),
+    /// ⟨§17.20 item 7⟩ A directory (or a file name) is not safe to use: a symlink or
+    /// reparse point, not a directory, or an existing directory that is not owner-only
+    /// (`managed_dir_unsafe`). Nothing was followed or repaired.
+    Unsafe(&'static str),
+    /// ⟨§17.20 item 7⟩ A platform call on a verified directory failed.
+    Sys(SysError),
+    /// ⟨§17.20 item 1⟩ The directory's marker names this newer generation: an older
+    /// write never replaces it.
+    StaleGeneration(u64),
+    /// ⟨§17.20 item 1⟩ Another holder's marker names the same generation.
+    OtherHolder,
 }
 
 impl std::fmt::Display for FilesError {
@@ -189,6 +226,12 @@ impl std::fmt::Display for FilesError {
             ),
             FilesError::Environment => f.write_str("the slot belongs to another environment"),
             FilesError::Io(e) => write!(f, "managed file I/O: {:?}", e.kind()),
+            FilesError::Unsafe(why) => write!(f, "{MANAGED_DIR_UNSAFE}: {why}"),
+            FilesError::Sys(e) => write!(f, "managed file I/O: {e}"),
+            FilesError::StaleGeneration(g) => {
+                write!(f, "{STALE_GENERATION}: generation {g} holds the directory")
+            }
+            FilesError::OtherHolder => f.write_str(GENERATION_HOLDER_MISMATCH),
         }
     }
 }
@@ -263,27 +306,110 @@ fn certificate_line(text: &str) -> Result<&str, FilesError> {
 
 // --- the primitives -----------------------------------------------------------------
 
-/// Serializes every write and clear of this module in this process.
+/// Serializes every write and clear of this module in this process (a marker read
+/// and the write it fences are one step).
 static FILES_LOCK: Mutex<()> = Mutex::new(());
-
-static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn marker_text(generation: u64, binding: &BindingId) -> String {
     format!("{generation} {}\n", binding.as_str())
 }
 
-/// The marker of `dir`: `Some((generation, binding text))`, `None` when absent.
-fn read_marker(dir: &Path) -> Result<Option<(u64, String)>, FilesError> {
-    let path = dir.join(GENERATION_FILE);
-    let meta = match fs::symlink_metadata(&path) {
-        Ok(m) => m,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
-    if !meta.file_type().is_file() || meta.len() > MARKER_MAX {
-        return Err(FilesError::Content("marker"));
+fn from_dir(e: ManagedDirError) -> FilesError {
+    match e {
+        ManagedDirError::Unsafe(why) => FilesError::Unsafe(why),
+        ManagedDirError::Sys(s) => FilesError::Sys(s),
     }
-    let text = fs::read_to_string(&path)?;
+}
+
+/// The levels of `dir` below `root` (each one plain name), or a refusal.
+fn levels_below(root: &Path, dir: &Path) -> Result<Vec<String>, FilesError> {
+    let refused = || FilesError::Directory(dir.to_path_buf());
+    let rel = dir.strip_prefix(root).map_err(|_| refused())?;
+    let levels = rel
+        .components()
+        .map(|c| match c {
+            Component::Normal(n) => n.to_str().map(str::to_owned).ok_or_else(refused),
+            _ => Err(refused()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if levels.is_empty() {
+        return Err(refused());
+    }
+    Ok(levels)
+}
+
+/// Open the anchor `root` and then each of `levels`, each verified relative to its
+/// parent (`heimdall_localenv::sys::ManagedDir`; ADR-0008 §17.20 item 7). With
+/// `create`, missing levels are created owner-only and the anchor must exist;
+/// without, `Ok(None)` when the anchor or a level is absent.
+fn open_levels(
+    root: &Path,
+    levels: &[String],
+    create: bool,
+) -> Result<Option<ManagedDir>, FilesError> {
+    let Some(mut dir) = ManagedDir::open_root(root).map_err(from_dir)? else {
+        return if create {
+            Err(FilesError::Directory(root.to_path_buf()))
+        } else {
+            Ok(None)
+        };
+    };
+    for level in levels {
+        match dir.child(level, create).map_err(from_dir)? {
+            Some(d) => dir = d,
+            None => return Ok(None),
+        }
+    }
+    Ok(Some(dir))
+}
+
+/// The anchor and levels of a binding directory `<runtime_dir>/b/<16 hex>`.
+fn binding_anchor(directory: &Path) -> Result<(PathBuf, Vec<String>), FilesError> {
+    let refused = || FilesError::Directory(directory.to_path_buf());
+    let tag = directory
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|t| tag_of(t).is_some())
+        .ok_or_else(refused)?;
+    let b = directory.parent().ok_or_else(refused)?;
+    if b.file_name().and_then(|n| n.to_str()) != Some(endpoints::BINDING_DIR) {
+        return Err(refused());
+    }
+    let root = b.parent().ok_or_else(refused)?;
+    Ok((
+        root.to_path_buf(),
+        vec![endpoints::BINDING_DIR.to_owned(), tag.to_owned()],
+    ))
+}
+
+/// The anchor and levels of a slot directory `<data_dir>/managed/<component>`.
+fn slot_anchor(directory: &Path) -> Result<(PathBuf, Vec<String>), FilesError> {
+    let refused = || FilesError::Directory(directory.to_path_buf());
+    let component = directory
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(refused)?;
+    let managed = directory.parent().ok_or_else(refused)?;
+    if managed.file_name().and_then(|n| n.to_str()) != Some(SLOT_DIR) {
+        return Err(refused());
+    }
+    let root = managed.parent().ok_or_else(refused)?;
+    Ok((
+        root.to_path_buf(),
+        vec![SLOT_DIR.to_owned(), component.to_owned()],
+    ))
+}
+
+/// The marker of `dir`: `Some((generation, binding text))`, `None` when absent;
+/// `FilesError::Content` when it is not a marker (a symlink, another file, garbage).
+fn read_marker(dir: &ManagedDir) -> Result<Option<(u64, String)>, FilesError> {
+    let bytes = match dir.read(GENERATION_FILE, MARKER_MAX) {
+        Ok(Some(b)) => b,
+        Ok(None) => return Ok(None),
+        Err(ManagedDirError::Unsafe(_)) => return Err(FilesError::Content("marker")),
+        Err(e) => return Err(from_dir(e)),
+    };
+    let text = String::from_utf8(bytes).map_err(|_| FilesError::Content("marker"))?;
     let line = text.strip_suffix('\n').unwrap_or(&text);
     let (generation, binding) = line.split_once(' ').ok_or(FilesError::Content("marker"))?;
     let generation = generation
@@ -292,131 +418,48 @@ fn read_marker(dir: &Path) -> Result<Option<(u64, String)>, FilesError> {
     Ok(Some((generation, binding.to_owned())))
 }
 
-/// Create `dir` (and parents) when absent; refuse anything but a plain directory.
-fn ensure_dir(dir: &Path) -> Result<(), FilesError> {
-    match fs::symlink_metadata(dir) {
-        Ok(m) if m.file_type().is_dir() => return Ok(()),
-        Ok(_) => return Err(FilesError::Directory(dir.to_path_buf())),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
-    }
-    let mut builder = fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt;
-        builder.mode(0o700);
-    }
-    builder.create(dir)?;
-    match fs::symlink_metadata(dir) {
-        Ok(m) if m.file_type().is_dir() => Ok(()),
-        _ => Err(FilesError::Directory(dir.to_path_buf())),
-    }
-}
-
-fn temp_name(target: &str) -> String {
-    let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!(".{target}.tmp-{}-{n}", std::process::id())
-}
-
-/// Write `content` to `dir/name` atomically: a fresh temporary name in `dir`, synced,
-/// then renamed over the target (Windows: `ReplaceFileW` when the target exists).
-fn write_atomic(dir: &Path, name: &str, content: &[u8]) -> Result<PathBuf, FilesError> {
-    let target = dir.join(name);
-    let temp = temp_name(name);
-    let temp_path = dir.join(&temp);
-    let written = (|| -> io::Result<()> {
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o644);
-        }
-        let mut f = options.open(&temp_path)?;
-        f.write_all(content)?;
-        f.sync_all()
-    })();
-    if let Err(e) = written {
-        let _ = fs::remove_file(&temp_path);
-        return Err(e.into());
-    }
-    if let Err(e) = replace(dir, name, &temp) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(e);
-    }
-    Ok(target)
-}
-
-#[cfg(not(windows))]
-fn replace(dir: &Path, name: &str, temp: &str) -> Result<(), FilesError> {
-    fs::rename(dir.join(temp), dir.join(name))?;
-    Ok(())
-}
-
-#[cfg(windows)]
-fn replace(dir: &Path, name: &str, temp: &str) -> Result<(), FilesError> {
-    match fs::symlink_metadata(dir.join(name)) {
-        Ok(_) => {
-            // The M02 replace primitive (ReplaceFileW with a backup name), as the
-            // projection uses it (m03-plan §0.4 M4); the backup is removed after.
-            let backup = temp_name(&format!("{name}.old"));
-            heimdall_localenv::sys::replace_file(dir, name, temp, &backup)
-                .map_err(|e| FilesError::Io(io::Error::other(e.to_string())))?;
-            let _ = fs::remove_file(dir.join(backup));
-            Ok(())
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            fs::rename(dir.join(temp), dir.join(name))?;
-            Ok(())
-        }
-        Err(e) => Err(e.into()),
-    }
-}
-
-fn remove_if_present(path: &Path) -> Result<(), FilesError> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e.into()),
-    }
-}
-
-fn exists(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok()
-}
-
 /// Write the marker, then each `(name, content)`: the generation-bound write of one
-/// directory. Returns the files written (marker excluded).
+/// directory (`path` is its path, for the returned names). **Fenced** (ADR-0008
+/// §17.20 item 1): a generation older than the directory's marker, or another holder
+/// at the same generation, is refused and nothing is written; so is a marker that is
+/// not one. Returns the files written (marker excluded).
 fn write_generation(
-    dir: &Path,
+    dir: &ManagedDir,
+    path: &Path,
     generation: u64,
     binding: &BindingId,
     files: &[(String, String)],
 ) -> Result<Vec<PathBuf>, FilesError> {
-    ensure_dir(dir)?;
-    write_atomic(
-        dir,
-        GENERATION_FILE,
-        marker_text(generation, binding).as_bytes(),
-    )?;
+    match read_marker(dir)? {
+        Some((g, _)) if g > generation => return Err(FilesError::StaleGeneration(g)),
+        Some((g, b)) if g == generation && b != binding.as_str() => {
+            return Err(FilesError::OtherHolder);
+        }
+        _ => {}
+    }
+    dir.write_replace(GENERATION_FILE, marker_text(generation, binding).as_bytes())
+        .map_err(from_dir)?;
     files
         .iter()
-        .map(|(name, content)| write_atomic(dir, name, content.as_bytes()))
+        .map(|(name, content)| {
+            dir.write_replace(name, content.as_bytes())
+                .map_err(from_dir)
+                .map(|()| path.join(name))
+        })
         .collect()
 }
 
 /// Remove `names` and then the marker of `dir`, only if the marker names
-/// `generation` (and `binding`, when given).
+/// `generation` (and `binding`, when given). Only through the verified handle.
 fn clear_generation(
-    dir: &Path,
+    dir: Option<&ManagedDir>,
     generation: u64,
     binding: Option<&BindingId>,
     names: &[String],
 ) -> Result<ClearOutcome, FilesError> {
-    if !exists(dir) {
+    let Some(dir) = dir else {
         return Ok(ClearOutcome::Absent);
-    }
+    };
     let marker = match read_marker(dir) {
         Ok(m) => m,
         Err(FilesError::Content(_)) => return Ok(ClearOutcome::Unmarked),
@@ -424,17 +467,18 @@ fn clear_generation(
     };
     match marker {
         None => {
-            if names.iter().any(|n| exists(&dir.join(n))) {
-                Ok(ClearOutcome::Unmarked)
-            } else {
-                Ok(ClearOutcome::Absent)
+            for n in names {
+                if dir.contains(n).map_err(from_dir)? {
+                    return Ok(ClearOutcome::Unmarked);
+                }
             }
+            Ok(ClearOutcome::Absent)
         }
         Some((g, b)) if g == generation && binding.is_none_or(|x| x.as_str() == b) => {
             for n in names {
-                remove_if_present(&dir.join(n))?;
+                dir.remove(n).map_err(from_dir)?;
             }
-            remove_if_present(&dir.join(GENERATION_FILE))?;
+            dir.remove(GENERATION_FILE).map_err(from_dir)?;
             Ok(ClearOutcome::Removed)
         }
         Some((g, _)) => Ok(ClearOutcome::OtherGeneration(g)),
@@ -471,8 +515,11 @@ pub fn write_binding_files(
         }
         contents.push((binding_cert_name(dest)?, format!("{line}\n")));
     }
+    let (root, levels) = binding_anchor(&files.directory)?;
     let _guard = lock();
-    write_generation(&files.directory, generation, binding, &contents)
+    let dir = open_levels(&root, &levels, true)?
+        .ok_or_else(|| FilesError::Directory(files.directory.clone()))?;
+    write_generation(&dir, &files.directory, generation, binding, &contents)
 }
 
 /// Remove a binding's files of `generation` only (a newer generation's are left).
@@ -484,6 +531,11 @@ pub fn clear_binding_files(
     binding: &BindingId,
     generation: u64,
 ) -> Result<ClearOutcome, FilesError> {
+    let (root, levels) = binding_anchor(&files.directory)?;
+    let _guard = lock();
+    let Some(dir) = open_levels(&root, &levels, false)? else {
+        return Ok(ClearOutcome::Absent);
+    };
     let mut names = vec![BINDING_KEY_FILE.to_owned()];
     names.extend(
         files
@@ -493,43 +545,46 @@ pub fn clear_binding_files(
     );
     // Certificate files of destinations the caller no longer lists are ours too
     // when the marker names this generation.
-    if let Ok(entries) = fs::read_dir(&files.directory) {
-        for e in entries.flatten() {
-            if let Some(n) = e.file_name().to_str()
-                && n.starts_with("cert-")
-                && n.ends_with(".pub")
-                && !names.iter().any(|x| x == n)
-            {
-                names.push(n.to_owned());
-            }
+    for n in dir.names().map_err(from_dir)? {
+        if n.starts_with("cert-") && n.ends_with(".pub") && !names.contains(&n) {
+            names.push(n);
         }
     }
-    let _guard = lock();
-    clear_generation(&files.directory, generation, Some(binding), &names)
+    clear_generation(Some(&dir), generation, Some(binding), &names)
 }
 
 /// Every binding directory under `<runtime_dir>/b/` whose marker names `(generation,
-/// binding)`: how a clear finds a binding's files after its endpoint is gone.
-#[must_use]
-pub fn binding_directories_of(runtime_dir: &Path, binding: &BindingId) -> Vec<(PathBuf, u64)> {
+/// binding)`: how a clear finds a binding's files after its endpoint is gone. The
+/// enumeration is anchored (§17.20 item 7): an entry that is not a directory (a
+/// symlink planted at a tag's name, a file) is never followed and never listed.
+///
+/// # Errors
+/// [`FilesError::Unsafe`] (`managed_dir_unsafe`) when `<runtime_dir>/b` or one of its
+/// directories is a symlink or not owner-only; [`FilesError`] for I/O.
+pub fn binding_directories_of(
+    runtime_dir: &Path,
+    binding: &BindingId,
+) -> Result<Vec<(PathBuf, u64)>, FilesError> {
     let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(runtime_dir.join(endpoints::BINDING_DIR)) else {
-        return out;
+    let _guard = lock();
+    let Some(b) = open_levels(runtime_dir, &[endpoints::BINDING_DIR.to_owned()], false)? else {
+        return Ok(out);
     };
-    for e in entries.flatten() {
-        let dir = e.path();
-        let is_tag = e.file_name().to_str().and_then(tag_of).is_some();
-        if !is_tag {
+    for name in b.names().map_err(from_dir)? {
+        if tag_of(&name).is_none() || !b.is_directory(&name).map_err(from_dir)? {
             continue;
         }
-        if let Ok(Some((g, b))) = read_marker(&dir)
-            && b == binding.as_str()
+        let Some(dir) = b.child(&name, false).map_err(from_dir)? else {
+            continue;
+        };
+        if let Ok(Some((g, holder))) = read_marker(&dir)
+            && holder == binding.as_str()
         {
-            out.push((dir, g));
+            out.push((runtime_dir.join(endpoints::BINDING_DIR).join(&name), g));
         }
     }
     out.sort();
-    out
+    Ok(out)
 }
 
 // --- slots ----------------------------------------------------------------------------
@@ -563,6 +618,9 @@ pub struct SlotRoot {
 /// Write `pair`'s slot at `generation` for `binding` (D10 item 2: `free(g) → held(b,
 /// g + 1)`: the files are written, **then** the endpoint lists the key): the marker,
 /// `key.pub` and `cert.pub` (the certificate the alias names as its identity, R3).
+/// Fenced by the marker (§17.20 item 1): an older generation, or another holder at
+/// the same generation, is refused ([`FilesError::StaleGeneration`],
+/// [`FilesError::OtherHolder`]).
 ///
 /// # Errors
 /// [`FilesError`]; [`FilesError::Environment`] for another environment's slot.
@@ -589,8 +647,11 @@ pub fn write_slot(
         (key_name.clone(), format!("{key}\n")),
         (cert_name.clone(), format!("{cert}\n")),
     ];
+    let levels = levels_below(&root.data_dir, &paths.dir)?;
     let _guard = lock();
-    write_generation(&paths.dir, generation, binding, &contents)
+    let dir = open_levels(&root.data_dir, &levels, true)?
+        .ok_or_else(|| FilesError::Directory(paths.dir.clone()))?;
+    write_generation(&dir, &paths.dir, generation, binding, &contents)
 }
 
 /// Remove `pair`'s slot files of `generation` only (`clearing(g) → free(g)`); a slot
@@ -609,32 +670,46 @@ pub fn clear_slot(
     }
     let paths = slot_paths(&root.data_dir, pair)?;
     let names = slot_names(&paths);
+    let levels = levels_below(&root.data_dir, &paths.dir)?;
     let _guard = lock();
-    clear_generation(&paths.dir, generation, None, &names)
+    let dir = open_levels(&root.data_dir, &levels, false)?;
+    clear_generation(dir.as_ref(), generation, None, &names)
 }
 
 /// The slot directories under `<data_dir>/managed/` whose marker names `binding`,
-/// with their generation: how `clear(binding, g)` finds the slots a binding wrote.
-#[must_use]
-pub fn slots_written_by(data_dir: &Path, binding: &BindingId) -> Vec<(PathBuf, u64)> {
+/// with their generation (restart enumeration). Anchored as
+/// [`binding_directories_of`]: an entry that is not a directory is never followed.
+///
+/// # Errors
+/// As [`binding_directories_of`].
+pub fn slots_written_by(
+    data_dir: &Path,
+    binding: &BindingId,
+) -> Result<Vec<(PathBuf, u64)>, FilesError> {
     let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(data_dir.join("managed")) else {
-        return out;
+    let _guard = lock();
+    let Some(managed) = open_levels(data_dir, &[SLOT_DIR.to_owned()], false)? else {
+        return Ok(out);
     };
-    for e in entries.flatten() {
-        let dir = e.path();
-        if let Ok(Some((g, b))) = read_marker(&dir)
-            && b == binding.as_str()
+    for name in managed.names().map_err(from_dir)? {
+        if !managed.is_directory(&name).map_err(from_dir)? {
+            continue;
+        }
+        let Some(dir) = managed.child(&name, false).map_err(from_dir)? else {
+            continue;
+        };
+        if let Ok(Some((g, holder))) = read_marker(&dir)
+            && holder == binding.as_str()
         {
-            out.push((dir, g));
+            out.push((data_dir.join(SLOT_DIR).join(&name), g));
         }
     }
     out.sort();
-    out
+    Ok(out)
 }
 
 /// Remove the slot files in `dir` of `(generation, binding)` (a directory
-/// [`slots_written_by`] returned).
+/// [`slots_written_by`] returned), through its verified handle.
 ///
 /// # Errors
 /// [`FilesError`].
@@ -643,9 +718,11 @@ pub fn clear_slot_dir(
     binding: &BindingId,
     generation: u64,
 ) -> Result<ClearOutcome, FilesError> {
+    let (root, levels) = slot_anchor(dir)?;
     let names = vec!["key.pub".to_owned(), "cert.pub".to_owned()];
     let _guard = lock();
-    clear_generation(dir, generation, Some(binding), &names)
+    let handle = open_levels(&root, &levels, false)?;
+    clear_generation(handle.as_ref(), generation, Some(binding), &names)
 }
 
 /// The generation the slot files of `pair` carry, `None` when the slot has no marker
@@ -655,10 +732,12 @@ pub fn clear_slot_dir(
 /// [`FilesError`].
 pub fn slot_generation(root: &SlotRoot, pair: &AccessPair) -> Result<Option<u64>, FilesError> {
     let paths = slot_paths(&root.data_dir, pair)?;
-    if !exists(&paths.dir) {
-        return Ok(None);
+    let levels = levels_below(&root.data_dir, &paths.dir)?;
+    let _guard = lock();
+    match open_levels(&root.data_dir, &levels, false)? {
+        Some(dir) => Ok(read_marker(&dir)?.map(|(g, _)| g)),
+        None => Ok(None),
     }
-    Ok(read_marker(&paths.dir)?.map(|(g, _)| g))
 }
 
 #[cfg(test)]
@@ -675,6 +754,40 @@ mod tests {
         assert_eq!(binding_cert_name(&dest("dst-w")).unwrap(), "cert-dst-w.pub");
         assert!(binding_cert_name(&dest("a:b")).is_err());
         assert!(binding_cert_name(&dest("Upper")).is_err());
+    }
+
+    #[test]
+    fn slot_dir_level_is_the_projections() {
+        let p = managed_slot_paths(Path::new("/d"), &dest("dst-w")).unwrap();
+        assert_eq!(p.dir, Path::new("/d").join(SLOT_DIR).join("dst-w"));
+        assert_eq!(
+            levels_below(Path::new("/d"), &p.dir).unwrap(),
+            vec![SLOT_DIR.to_owned(), "dst-w".to_owned()]
+        );
+        assert_eq!(
+            slot_anchor(&p.dir).unwrap(),
+            (
+                PathBuf::from("/d"),
+                vec![SLOT_DIR.to_owned(), "dst-w".to_owned()]
+            )
+        );
+        assert!(slot_anchor(Path::new("/d/other/dst-w")).is_err());
+        let b = endpoints::binding_dir(
+            Path::new("/r"),
+            &EndpointTag::parse("0123456789abcdef").unwrap(),
+        );
+        assert_eq!(
+            binding_anchor(&b).unwrap(),
+            (
+                PathBuf::from("/r"),
+                vec![
+                    endpoints::BINDING_DIR.to_owned(),
+                    "0123456789abcdef".to_owned()
+                ]
+            )
+        );
+        assert!(binding_anchor(Path::new("/r/v/0123456789abcdef")).is_err());
+        assert!(binding_anchor(Path::new("/r/b/xyz")).is_err());
     }
 
     #[test]

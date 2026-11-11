@@ -1619,6 +1619,7 @@ async fn narrowing_wait_bounded_by_rounds_plus_one_times_gate_max_wait() {
 async fn pending_mark_refuses_new_signers_and_delegations() {
     let w = world().await;
     let g = w.root("a").await;
+    hold_launch(&w, &g.binding_id);
     w.gate(&g, &[]);
     let p = w.admit(&g).await.unwrap();
     let rv = w.spawn_revoke(&g, "rv");
@@ -2369,6 +2370,7 @@ async fn register_refused_for_ended_or_tombstoned_grant() {
         .unwrap_err();
     assert_eq!(refused(e), "binding_unknown");
     let g = w.root("a").await;
+    hold_launch(&w, &g.binding_id);
     w.revoke(&g, "rv").await;
     let e = w
         .ops
@@ -2377,6 +2379,7 @@ async fn register_refused_for_ended_or_tombstoned_grant() {
         .unwrap_err();
     assert_eq!(refused(e), "tombstoned");
     let h = w.root("b").await;
+    hold_launch(&w, &h.binding_id);
     tokio::time::advance(2 * HOUR + Duration::from_secs(1)).await;
     let e = w
         .ops
@@ -2401,6 +2404,44 @@ async fn register_refused_for_ended_or_tombstoned_grant() {
     }
 }
 
+/// ⟨M03 wave 3⟩ §17.20 item 14 (U7-Q4): a registration needs a launch binding its
+/// launcher holds; the fixture records the launcher as the binding's holder.
+fn hold_launch(w: &W, binding: &BindingId) {
+    w.store
+        .transaction(|tx| {
+            tx.set_binding_holder(
+                binding,
+                &heimdall_domain::holder::ProcessHolder {
+                    pid: 4000,
+                    started_at: "launcher-start".into(),
+                },
+            )
+        })
+        .unwrap();
+}
+
+/// A binding no launcher holds is refused `binding_unknown` before any gate, and no
+/// row is written (§17.20 item 14, U7-Q4).
+#[tokio::test(start_paused = true)]
+async fn registration_refused_for_a_binding_no_launcher_holds() {
+    let w = world().await;
+    let g = w.root("a").await;
+    w.gate(&g, &[]);
+    assert_eq!(
+        w.ops
+            .register_owned_connection(&g.binding_id, 4242, t0(), "/usr/bin/ssh")
+            .await
+            .unwrap_err(),
+        ConnError::RegistrationRefused("binding_unknown".into())
+    );
+    assert!(
+        w.store
+            .transaction(|tx| tx.owned_connections_for_grant(&g.grant_id))
+            .unwrap()
+            .is_empty()
+    );
+}
+
 /// Registration and revocation are ordered by the gate: a registration before the
 /// narrowing's mark writes its row, which the revocation then finds; one while it
 /// waits is refused; one after its commit is refused by the re-check. Pausing a
@@ -2410,6 +2451,7 @@ async fn register_refused_for_ended_or_tombstoned_grant() {
 async fn register_ordered_with_revocation_by_gate() {
     let w = world().await;
     let g = w.root("a").await;
+    hold_launch(&w, &g.binding_id);
     w.gate(&g, &[]);
     let row = w
         .ops
@@ -2453,6 +2495,8 @@ async fn registration_refused_while_pending() {
     let w = world().await;
     let g = w.root("a").await;
     let c = w.child(&g, "c").await;
+    hold_launch(&w, &g.binding_id);
+    hold_launch(&w, &c.binding_id);
     w.gate(&g, &[]);
     let n = w.gates().begin_narrowing([g.grant_id.clone()]);
     for b in [&g, &c] {

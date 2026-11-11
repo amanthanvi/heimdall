@@ -25,6 +25,7 @@
 //! | [`JobObject`] | Windows | `CreateJobObjectW`, `SetInformationJobObject(JobObjectExtendedLimitInformation, KILL_ON_JOB_CLOSE)`, `OpenProcess(PROCESS_SET_QUOTA \| PROCESS_TERMINATE)`, `AssignProcessToJobObject`, `CloseHandle` (through `OwnedHandle`) | no breakaway flag is ever set; the job handle is owned by one `OwnedHandle` and closed exactly once, on drop, which kills every process still in the job; a process handle opened for assignment is closed exactly once |
 //! | ⟨M03⟩ [`JobObject::contains_pid`] | Windows | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`, `IsProcessInJob` | the process handle is owned by an `OwnedHandle` and closed exactly once; a process that cannot be opened is an error, never "not in the job" (U7) |
 //! | ⟨M03⟩ [`JobObject::spawn_suspended`], [`SuspendedChild`] | Windows | `CreateProcessW` through std with `CREATE_SUSPENDED` as the only creation flag, the [`JobObject`] calls, `GetProcessTimes` + `GetExitCodeProcess` on the child's handle; `resume`: `CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)`, `Thread32First`/`Thread32Next`, `OpenThread(THREAD_SUSPEND_RESUME)`, `ResumeThread` | the child is assigned to the kill-on-close job (no breakaway) before it runs any code; a failed assignment or time read terminates and reaps the still-suspended child; `resume` resumes exactly one thread from a suspend count of 1, else closes the job (the child dies never having run); every snapshot, thread and job handle is owned by one `OwnedHandle` and closed exactly once; the child's PID cannot be reused while `std::process::Child` holds its handle (ADR-0008 D8 item 2; §17.4 item 8; U7) |
+//! | ⟨M03⟩ [`current_job_process_ids`] | Windows | `IsProcessInJob(GetCurrentProcess(), NULL)`, `QueryInformationJobObject(NULL, JobObjectBasicProcessIdList)` | the pseudo-handle of `GetCurrentProcess` is never closed; a null job handle names the calling process's immediate job; the list is written into a `usize`-aligned buffer of 4 096 + 2 slots whose byte length is passed, the header read only after success, and the IDs read as a safe slice bounded by both the reported count and the buffer (§17.20 item 12; U7's no-job test) |
 //! | ⟨M03⟩ [`ProcessPin`], [`VerifiedProcess`] | Linux | `pidfd_open`, `pidfd_send_signal` (rustix, safe), `readlink(/proc/<pid>/exe)` (std) | the pidfd is opened **before** the caller compares the start token and before the image is read, so a matching start time proves the pidfd names that process, and every signal goes through the pidfd (no PID-reuse race); never PID 0, 1 or this process (ADR-0008 D8 item 2 "Closing"; U7) |
 //! | ⟨M03⟩ [`ProcessPin`], [`VerifiedProcess`] | macOS | `kill(pid, 0)` and `kill(pid, SIGTERM \| SIGKILL)` (rustix, safe), `proc_pidpath` | `proc_pidpath` writes at most the buffer's `PROC_PIDPATHINFO_MAXSIZE` bytes and its returned length is checked before any read; a signal is sent only after the caller's start-token match and the image match; the small reuse window between that check and `kill` is disclosed (D8 item 2); never PID 0, 1 or this process (U7) |
 //! | ⟨M03⟩ [`ProcessPin`], [`VerifiedProcess`] | Windows | `OpenProcess(PROCESS_TERMINATE \| PROCESS_QUERY_LIMITED_INFORMATION)`, `GetProcessTimes`, `GetExitCodeProcess`, `QueryFullProcessImageNameW(PROCESS_NAME_WIN32)`, `TerminateProcess` | the creation time and image are read on the same handle `TerminateProcess` uses, which pins the process; the handle is owned by one `OwnedHandle` and closed exactly once; the image buffer is 32 768 units and the returned length is checked before use (U7) |
@@ -39,6 +40,7 @@
 //! | [`adopt_inherited_fd`] | Unix | `fcntl(F_GETFD)`, `fstat`, `fcntl(F_GETFL)`, `fcntl(F_DUPFD_CLOEXEC)`, `OwnedFd::from_raw_fd` on the duplicate, `fcntl(F_SETFD, FD_CLOEXEC)`, `fcntl(F_SETFL, flags & !O_NONBLOCK)` | `run --meta-fd`: the descriptor is above 2, open, a pipe, socket or regular file opened for writing; the returned `OwnedFd` owns a fresh duplicate, never the inherited number, so no descriptor ever has two owners (X01, §12.18 item 1); at most one adoption per process; close-on-exec and blocking after adoption (ADR-0007 §8, §12.15 item 8 E1; U8) |
 //! | [`create_owner_only_exclusive`] | Unix | `open(O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_CLOEXEC, 0600)` through `std::fs::OpenOptions` (no `unsafe` needed) | never follows or replaces an existing entry (a symlink at the name is `EEXIST`); the mode can only be narrowed by the umask |
 //! | [`create_owner_only_exclusive`] | Windows | `OpenProcessToken`, `GetTokenInformation(TokenUser)`, `ConvertSidToStringSidW`, `ConvertStringSecurityDescriptorToSecurityDescriptorW` (`O:<user>D:P(A;;FA;;;<user>)`), `CreateFileW(CREATE_NEW, FILE_FLAG_OPEN_REPARSE_POINT)` with that `SECURITY_ATTRIBUTES`, `LocalFree` | every `LocalAlloc`ed buffer freed exactly once after its last use; the descriptor outlives `CreateFileW`, which copies it; a reparse point at the name is the existing entry, never followed; the handle is not inheritable (ADR-0007 §12.15 item 8 E4) |
+//! | ⟨M03⟩ [`ManagedDir`] | all | none of its own: Unix rustix `openat(O_DIRECTORY \| O_NOFOLLOW)`, `fstat`, `mkdirat`, `fchmod`, `renameat`, `fdopendir` relative to a verified directory descriptor (safe), every removal through [`QuarantineDir::remove_verified`]; Windows the `quarantine::fsentry` pin (`FILE_FLAG_OPEN_REPARSE_POINT`, no delete sharing), owner SID and owner-only DACL checks, `CreateDirectoryW` with the owner-only DACL, `ReplaceFileW`, no-replace `MoveFileExW` (their rows above) | every level below the anchor is opened relative to its verified parent, a symlink or reparse point is refused, an existing directory that is not owner-only is refused (`managed_dir_unsafe`) and never repaired; files are written to an exclusive temporary name and renamed over the target relative to the same handle; a directory is never removed (ADR-0008 §17.20 item 7; W3-S04) |
 #![allow(unsafe_code)]
 
 use std::path::PathBuf;
@@ -79,6 +81,11 @@ impl SysError {
 // (owned by W2-U4a), re-exported so every public path stays `sys::…`.
 mod quarantine;
 pub use quarantine::*;
+
+// ⟨M03⟩ ADR-0008 §17.20 item 7 (W3-S04): the managed directories' anchored file work
+// (no `unsafe` of its own; it composes `quarantine::fsentry`).
+mod managed_dir;
+pub use managed_dir::*;
 
 /// The account's home directory from the account database (ADR-0007 F19): Unix
 /// `getpwuid_r(getuid())`, Windows the profile folder of the process token. Never
@@ -385,6 +392,21 @@ impl SuspendedChild {
         let _ = child.kill();
         let _ = child.wait();
     }
+}
+
+/// ⟨M03⟩ The job this process is directly in, if any (ADR-0008 §17.20 item 12): `None`
+/// when `IsProcessInJob(GetCurrentProcess(), NULL)` is false; otherwise the IDs of the
+/// processes in the calling process's **immediate** job (for nested jobs, the
+/// innermost), from `QueryInformationJobObject(NULL, JobObjectBasicProcessIdList)`.
+/// U7's `windows_non_ssh_run_has_no_job_object_by_default` reads it inside the child
+/// `run` launched: a job of the child's own would not contain the launcher.
+///
+/// # Errors
+/// [`SysError`] (either call; more than 4 096 processes in the job is
+/// `ERROR_MORE_DATA`).
+#[cfg(windows)]
+pub fn current_job_process_ids() -> Result<Option<Vec<u32>>, SysError> {
+    windows::current_job_process_ids()
 }
 
 // --- ⟨M03⟩ owned-connection identity and signalling (ADR-0008 D8 item 2 "Closing";
@@ -886,8 +908,9 @@ mod windows {
     };
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JobObjectExtendedLimitInformation, SetInformationJobObject,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_BASIC_PROCESS_ID_LIST,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicProcessIdList,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
     };
     use windows_sys::Win32::System::Threading::{
         CREATE_SUSPENDED, GetCurrentProcess, GetExitCodeProcess, GetProcessTimes, OpenProcess,
@@ -1163,6 +1186,61 @@ mod windows {
             return Err(SysError::last_os("IsProcessInJob"));
         }
         Ok(inside != 0)
+    }
+
+    /// See [`super::current_job_process_ids`].
+    pub(super) fn current_job_process_ids() -> Result<Option<Vec<u32>>, SysError> {
+        let mut inside: windows_sys::core::BOOL = 0;
+        // SAFETY: `GetCurrentProcess` returns a pseudo-handle that needs no closing; a
+        // null job handle asks about any job; `inside` is a valid out-pointer.
+        let ok = unsafe { IsProcessInJob(GetCurrentProcess(), ptr::null_mut(), &raw mut inside) };
+        if ok == 0 {
+            return Err(SysError::last_os("IsProcessInJob"));
+        }
+        if inside == 0 {
+            return Ok(None);
+        }
+        const SLOTS: usize = 4096;
+        let first = std::mem::offset_of!(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList);
+        if first % size_of::<usize>() != 0
+            || std::mem::align_of::<JOBOBJECT_BASIC_PROCESS_ID_LIST>() > align_of::<usize>()
+        {
+            return Err(SysError::new(
+                "QueryInformationJobObject",
+                "unexpected list layout",
+            ));
+        }
+        let first = first / size_of::<usize>();
+        let mut buf = vec![0usize; first + SLOTS];
+        let bytes = u32::try_from(buf.len() * size_of::<usize>())
+            .map_err(|_| SysError::new("QueryInformationJobObject", "buffer too large"))?;
+        // SAFETY: a null job handle names the calling process's immediate job; `buf` is
+        // writable for `bytes` bytes and aligned for the structure (checked above); the
+        // returned-length pointer may be null.
+        let ok = unsafe {
+            QueryInformationJobObject(
+                ptr::null_mut(),
+                JobObjectBasicProcessIdList,
+                buf.as_mut_ptr().cast::<c_void>(),
+                bytes,
+                ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(SysError::last_os("QueryInformationJobObject"));
+        }
+        // SAFETY: the call succeeded, so the header at the start of `buf` (aligned and
+        // inside it) is initialized.
+        let listed = unsafe {
+            (*buf.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>()).NumberOfProcessIdsInList
+        };
+        let n = usize::try_from(listed).unwrap_or(SLOTS).min(SLOTS);
+        Ok(Some(
+            buf[first..first + n]
+                .iter()
+                .filter_map(|&id| u32::try_from(id).ok())
+                .collect(),
+        ))
     }
 
     /// The creation time of a **live** process, read on `handle` (`GetProcessTimes`;

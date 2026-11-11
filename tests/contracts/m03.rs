@@ -340,6 +340,20 @@ fn ensure_data_managed_example_matches_plan() {
         v["conditions"],
         json!(["signer_running", "time_confirmation_after_reboot"])
     );
+    // ADR-0008 §17.20 items 14 and 15 (U6-Q6, W3-R2-Q1): the consumer integration of a
+    // managed binding names the **binding** endpoint (D10 item 4) as the locator the
+    // product emits and `connect` parses, `\\.\pipe\heimdall-<token>-b<tag>` with a
+    // 16-hex tag, never the environment endpoint (`…-signing`) or P's rendered spelling.
+    let endpoint = v["consumer"]["signing_endpoint"]
+        .as_str()
+        .expect("signing endpoint");
+    let (token, tag) = endpoint
+        .strip_prefix(r"\\.\pipe\heimdall-")
+        .and_then(|rest| rest.rsplit_once("-b"))
+        .expect("the binding endpoint form");
+    assert!(!token.is_empty() && token.bytes().all(|b| b.is_ascii_alphanumeric()));
+    assert!(tag.len() == 16 && tag.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
+    assert!(!endpoint.ends_with("-signing"));
 }
 
 /// m03-plan section 5 item 15: the four capability names, declared (offered only in

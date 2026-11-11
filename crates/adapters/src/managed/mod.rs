@@ -48,7 +48,7 @@ use heimdall_app::operations::MANAGED_CERTIFICATE;
 use heimdall_app::ports::{
     AdapterDescriptor, AdapterError, CredentialAdapter, IntegrationSnapshot,
     InteractionRequirement, LockContinuity, ManagedEffects, PrepareOutcome, PreparePair,
-    PrepareRequest, ReconcileOutcome, RevokeOutcome,
+    PrepareRequest, PreparedCertificate, ReconcileOutcome, RevokeOutcome,
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{DestinationId, GrantId};
@@ -210,8 +210,19 @@ impl ManagedCertificateAdapter {
         self.effects.as_ref()
     }
 
-    fn terms(&self, grant: &GrantId) -> GrantTerms {
+    fn terms(&self, grant: &GrantId) -> Option<GrantTerms> {
         self.sources.terms(grant)
+    }
+
+    /// `valid_after` of the installed entry behind `c` (§17.20 item 8): the effects'
+    /// record of the install, only when it is this certificate's entry; `None`
+    /// otherwise (no signer in this process, or another entry), which refuses.
+    fn valid_after_of(&self, grant: &GrantId, c: &PreparedCertificate) -> Option<Timestamp> {
+        self.effects
+            .as_ref()?
+            .installed_validity(grant, &c.pair)
+            .filter(|v| v.issuance == c.issuance && v.valid_before == c.valid_before)
+            .map(|v| v.valid_after)
     }
 
     /// D6 item 4's re-issue outcome: refused unless [`reissue::eligible`] holds for
@@ -239,13 +250,15 @@ impl ManagedCertificateAdapter {
         )
         .map_err(reissue_error)?;
         let plan = reissue::same_grant(input.stored, req.grant).map_err(reissue_error)?;
+        let terms = self.terms(&plan.grant);
         let (outcome, _) = prepare::outcome(
             &req,
             sources,
-            &self.terms(&plan.grant),
+            terms.as_ref(),
             self.layout.as_ref(),
             self.platform,
             &self.descriptor.capabilities,
+            &|c| self.valid_after_of(&plan.grant, c),
         )?;
         let pairs: BTreeSet<(DestinationId, String)> = outcome
             .integration
@@ -359,13 +372,15 @@ impl CredentialAdapter for ManagedCertificateAdapter {
         sources: &IntegrationSnapshot,
     ) -> Result<PrepareOutcome, AdapterError> {
         let terms = self.terms(&req.grant.id);
+        let grant = req.grant.id.clone();
         prepare::outcome(
             &req,
             sources,
-            &terms,
+            terms.as_ref(),
             self.layout.as_ref(),
             self.platform,
             &self.descriptor.capabilities,
+            &|c| self.valid_after_of(&grant, c),
         )
         .map(|(o, _)| o)
     }

@@ -1083,6 +1083,16 @@ impl Txn<'_> {
         if connection.state != OwnedConnectionState::Up {
             return Err(codec::doc_error("an owned connection is inserted up"));
         }
+        // ⟨M03 wave 3⟩ U7-Q4 (ADR-0008 §17.20 item 14): a dedicated row only for a launch
+        // binding with a recorded holder; the connection passes enumerate dedicated rows
+        // through the holders, so a row without one would never be closed.
+        if connection.kind == heimdall_domain::managed::ConnectionKind::Dedicated
+            && self.binding_holder(&connection.binding)?.is_none()
+        {
+            return Err(codec::doc_error(
+                "a dedicated owned connection needs its binding's holder",
+            ));
+        }
         let n = self.tx.execute(
             "INSERT INTO owned_connections (id, binding_id, grant_id, kind, pid, start_token,
                  image, control_path, generation, state, started_at, record_json)

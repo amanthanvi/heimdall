@@ -25,7 +25,7 @@ use crate::ports::ConnError;
 pub(super) mod refused {
     /// The grant or an ancestor is marked `narrowing_pending`.
     pub const NARROWING_PENDING: &str = "narrowing_pending";
-    /// The binding is unknown, released, or of another environment.
+    /// The binding is unknown, released, of another environment, or held by no launcher.
     pub const BINDING_UNKNOWN: &str = "binding_unknown";
     /// The grant has ended (or is not usable).
     pub const GRANT_ENDED: &str = "grant_ended";
@@ -80,6 +80,12 @@ impl Operations {
                     return Ok(None);
                 };
                 if rec.environment != env || rec.released_at.is_some() {
+                    return Ok(None);
+                }
+                // ⟨M03 wave 3⟩ ADR-0008 §17.20 item 14 (U7-Q4); m03-plan §5 item 4a: only a
+                // launch binding its launcher holds registers a dedicated connection (the
+                // store refuses the row otherwise).
+                if tx.binding_holder(&b)?.is_none() {
                     return Ok(None);
                 }
                 let chain: Vec<GrantId> = match tx.grant(&rec.grant)? {

@@ -18,6 +18,19 @@
 //! `InstallView` (`table::INSTALL_STORE_VIEW_WIRED = false`) and this type does not
 //! set one; U10 wires the production view, tests set a fixture view on the table.
 //!
+//! **One slot at a time (ADR-0008 §17.20 items 1–2; W3-R01, W3-R02, W3-S05).** A
+//! slot's claim, its materialization and its clear are serialized by a per-slot lock
+//! (one per pair of this effects' environment). Before a slot's files are published,
+//! the write re-reads the store's slot through [`SlotStore`] (the
+//! [`ManagedSlotTable`]'s, or [`ManagedEffectsImpl::with_slot_store`]'s; the default
+//! knows none, so a slot write fails closed) and proceeds only while the binding holds
+//! the slot at that generation; the files are then fenced by their marker
+//! (`files::write_slot`). The signer's environment listing is recorded per binding,
+//! pair and generation, and a clear withdraws only its own pair and generation: a clear
+//! for an older generation is a no-op in the signer and on disk. [`ManagedEffects::clear`]
+//! removes the binding's files of its resource generation only; each slot is cleared by
+//! its own store generation ([`ManagedEffectsImpl::clear_slot`]; U6-Q4).
+//!
 //! **K_env's pairs** (U6-Q2): `ManagedEffects::generate_key(grant, token)` names no
 //! pairs, while `SignerTable::generate` registers the key for its pairs. The pairs come
 //! from a [`GrantScopes`] source (U10: the grant's stored scope; default: none, so the
@@ -32,12 +45,15 @@ use async_trait::async_trait;
 use heimdall_app::ports::{
     AdapterError, KeyRegistration, ManagedEffects, MaterializeSpec, MaterializedFiles,
 };
-use heimdall_contract::ids::{BindingId, DestinationId, GrantId};
+use heimdall_contract::Timestamp;
+use heimdall_contract::ids::{BindingId, DestinationId, GrantId, IssuanceId};
 use heimdall_contract::provider::EndpointRef;
 use heimdall_credential::endpoints::EndpointRegistry;
 use heimdall_credential::table::{InstallRefusal, SignerTable};
 use heimdall_domain::issuance::IssuanceEntry;
 use heimdall_domain::scope::AccessPair;
+
+use heimdall_domain::managed::SlotState;
 
 use super::files::{self, BindingFiles, ClearOutcome, FilesError, SlotRoot};
 
@@ -78,6 +94,22 @@ pub const GRANT_SCOPE_UNAVAILABLE: &str = "grant_scope_unavailable";
 pub const BINDING_ENDPOINT_UNAVAILABLE: &str = "binding_endpoint_unavailable";
 /// The `AdapterError::Unavailable` text when the table has no store view (U2-Q2).
 pub const INSTALL_VIEW_UNAVAILABLE: &str = "store_view_unavailable";
+/// The `AdapterError::Protocol` text when the store no longer shows the binding
+/// holding the slot at the generation being written (§17.20 item 1): nothing is
+/// published.
+pub const SLOT_HOLDER_CHANGED: &str = "slot_holder_changed";
+
+/// The validity of an installed certificate, from the issuance entry it was installed
+/// against (D2 item 6 checked the certificate against those bounds).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledValidity {
+    /// The entry.
+    pub issuance: IssuanceId,
+    /// `valid_after`.
+    pub valid_after: Timestamp,
+    /// `valid_before`.
+    pub valid_before: Timestamp,
+}
 
 #[derive(Debug, Clone)]
 struct Generated {
@@ -92,9 +124,15 @@ struct State {
     /// The installed certificate lines (public), per grant and pair: what the files
     /// and the slots carry.
     certificates: HashMap<GrantId, Vec<(AccessPair, String)>>,
+    /// The validity of each installed certificate, per grant and pair (§17.20 item 8:
+    /// `check_prepared` refuses one that is not valid now).
+    validity: HashMap<(GrantId, AccessPair), InstalledValidity>,
     /// The files each binding's last materialization wrote.
     bindings: HashMap<BindingId, BindingFiles>,
 }
+
+/// One lock per slot (pair) of the environment (§17.20 item 1).
+type SlotLocks = Arc<Mutex<HashMap<AccessPair, Arc<Mutex<()>>>>>;
 
 /// The managed effects (module docs). Cloning shares it.
 #[derive(Clone)]
@@ -106,6 +144,8 @@ pub struct ManagedEffectsImpl {
     slots: SlotRoot,
     call_timeout: Duration,
     state: Arc<Mutex<State>>,
+    slot_locks: SlotLocks,
+    slot_store: Arc<dyn SlotStore>,
 }
 
 impl std::fmt::Debug for ManagedEffectsImpl {
@@ -118,10 +158,17 @@ impl std::fmt::Debug for ManagedEffectsImpl {
 
 fn adapter_from_files(e: &FilesError) -> AdapterError {
     match e {
-        FilesError::Content(_) | FilesError::Path(_) | FilesError::Environment => {
-            AdapterError::Protocol(e.to_string())
+        FilesError::Unsafe(_) => AdapterError::Unavailable(files::MANAGED_DIR_UNSAFE.to_owned()),
+        FilesError::StaleGeneration(_) => {
+            AdapterError::Protocol(files::STALE_GENERATION.to_owned())
         }
-        FilesError::Directory(_) | FilesError::Io(_) => AdapterError::Unavailable(e.to_string()),
+        FilesError::OtherHolder => {
+            AdapterError::Protocol(files::GENERATION_HOLDER_MISMATCH.to_owned())
+        }
+        FilesError::Directory(_) | FilesError::Io(_) | FilesError::Sys(_) => {
+            AdapterError::Unavailable(e.to_string())
+        }
+        _ => AdapterError::Protocol(e.to_string()),
     }
 }
 
@@ -153,7 +200,42 @@ impl ManagedEffectsImpl {
             slots,
             call_timeout: DEFAULT_CALL_TIMEOUT,
             state: Arc::new(Mutex::new(State::default())),
+            slot_locks: Arc::default(),
+            slot_store: Arc::new(NoSlotStore),
         }
+    }
+
+    /// With the store side of the slot table that a slot write re-validates against
+    /// (U10's; the default [`NoSlotStore`] knows no slot, so every slot write through
+    /// [`Self::materialize_slot`] or `materialize` with `environment_slots` refuses).
+    #[must_use]
+    pub fn with_slot_store(mut self, store: Arc<dyn SlotStore>) -> Self {
+        self.slot_store = store;
+        self
+    }
+
+    /// The lock of `pair`'s slot (shared by every clone).
+    fn slot_lock(&self, pair: &AccessPair) -> Arc<Mutex<()>> {
+        self.slot_locks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(pair.clone())
+            .or_default()
+            .clone()
+    }
+
+    /// The validity of `grant`'s installed certificate for `pair`, if installed
+    /// through this instance.
+    #[must_use]
+    pub fn installed_validity(
+        &self,
+        grant: &GrantId,
+        pair: &AccessPair,
+    ) -> Option<InstalledValidity> {
+        self.lock()
+            .validity
+            .get(&(grant.clone(), pair.clone()))
+            .cloned()
     }
 
     /// With another bound for `install`.
@@ -227,17 +309,41 @@ impl ManagedEffectsImpl {
 
     /// Write `pair`'s environment slot for `binding` at the slot's `generation` (D10
     /// item 2: the files first, **then** the environment endpoint lists the key), from
-    /// the binding's grant's key and installed certificate. Used by [`Self::materialize`]
-    /// and the slot claim ([`ManagedSlotTable`]).
+    /// the binding's grant's key and installed certificate, under the slot's lock and
+    /// only while the effects' [`SlotStore`] shows `binding` holding the slot at
+    /// `generation` (§17.20 item 1). Used by `materialize`; the slot claim
+    /// ([`ManagedSlotTable`]) writes the same way through its own store.
     ///
     /// # Errors
-    /// [`AdapterError`]; on a listing refusal the files just written are cleared.
+    /// [`AdapterError`]: `Protocol(SLOT_HOLDER_CHANGED)` when the store shows another
+    /// holder or generation; on a listing refusal the files just written are cleared.
     pub fn materialize_slot(
         &self,
         binding: &BindingId,
         pair: &AccessPair,
         generation: u64,
     ) -> Result<Vec<PathBuf>, AdapterError> {
+        let lock = self.slot_lock(pair);
+        let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        self.write_slot_locked(binding, pair, generation, self.slot_store.as_ref())
+    }
+
+    /// The slot write, with the slot's lock held: re-validate the store's holder and
+    /// generation, then write the fenced files, then list the key at `generation`.
+    fn write_slot_locked(
+        &self,
+        binding: &BindingId,
+        pair: &AccessPair,
+        generation: u64,
+        store: &dyn SlotStore,
+    ) -> Result<Vec<PathBuf>, AdapterError> {
+        match store.slot(&self.slots.environment, pair)? {
+            SlotState::Held {
+                binding: holder,
+                generation: g,
+            } if &holder == binding && g == generation => {}
+            _ => return Err(AdapterError::Protocol(SLOT_HOLDER_CHANGED.to_owned())),
+        }
         let grant = self
             .table
             .binding_grant(binding)
@@ -259,7 +365,10 @@ impl ManagedEffectsImpl {
             &cert,
         )
         .map_err(|e| adapter_from_files(&e))?;
-        if let Err(e) = self.table.materialize(binding, std::slice::from_ref(pair)) {
+        if let Err(e) = self
+            .table
+            .materialize_at(binding, std::slice::from_ref(pair), generation)
+        {
             let _ = files::clear_slot(&self.slots, &self.slots.environment, pair, generation);
             return Err(AdapterError::Protocol(format!("materialize refused: {e}")));
         }
@@ -267,7 +376,10 @@ impl ManagedEffectsImpl {
     }
 
     /// Clear `pair`'s slot of `generation` (D10 item 2: `held → clearing`, the key
-    /// unlisted at once, then the files of `generation` removed).
+    /// unlisted at once, then the files of `generation` removed), under the slot's
+    /// lock. Only `binding`'s listing of this pair **at `generation`** is withdrawn
+    /// (§17.20 item 2): a clear for an older generation, or of another pair, leaves the
+    /// current listing and files as they are.
     ///
     /// # Errors
     /// [`AdapterError`].
@@ -277,7 +389,9 @@ impl ManagedEffectsImpl {
         pair: &AccessPair,
         generation: u64,
     ) -> Result<ClearOutcome, AdapterError> {
-        self.table.unmaterialize(binding);
+        let lock = self.slot_lock(pair);
+        let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        self.table.unmaterialize_pair(binding, pair, generation);
         files::clear_slot(&self.slots, &self.slots.environment, pair, generation)
             .map_err(|e| adapter_from_files(&e))
     }
@@ -350,6 +464,14 @@ impl ManagedEffects for ManagedEffectsImpl {
         let certs = s.certificates.entry(grant.clone()).or_default();
         certs.retain(|(p, _)| p != &entry.pair);
         certs.push((entry.pair.clone(), line.to_owned()));
+        s.validity.insert(
+            (grant.clone(), entry.pair.clone()),
+            InstalledValidity {
+                issuance: entry.id.clone(),
+                valid_after: entry.bounds.valid_after,
+                valid_before: entry.bounds.valid_before,
+            },
+        );
         Ok(())
     }
 
@@ -358,6 +480,7 @@ impl ManagedEffects for ManagedEffectsImpl {
             self.table.destroy_grant(g);
             let mut s = self.lock();
             s.certificates.remove(g);
+            s.validity.retain(|(grant, _), _| grant != g);
             // The token record stays, so a replay of the same token never regenerates.
         }
         Ok(())
@@ -402,8 +525,24 @@ impl ManagedEffects for ManagedEffectsImpl {
                 .map_err(|e| adapter_from_files(&e))?;
         self.lock().bindings.insert(binding.clone(), files.clone());
         if spec.environment_slots {
+            // Each slot at **its own** store generation (U6-Q4), re-validated under the
+            // slot's lock (§17.20 item 1).
             for c in &spec.certificates {
-                written.extend(self.materialize_slot(binding, &c.pair, spec.generation)?);
+                let lock = self.slot_lock(&c.pair);
+                let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
+                let generation = match self.slot_store.slot(&self.slots.environment, &c.pair)? {
+                    SlotState::Held {
+                        binding: holder,
+                        generation,
+                    } if &holder == binding => generation,
+                    _ => return Err(AdapterError::Protocol(SLOT_HOLDER_CHANGED.to_owned())),
+                };
+                written.extend(self.write_slot_locked(
+                    binding,
+                    &c.pair,
+                    generation,
+                    self.slot_store.as_ref(),
+                )?);
             }
         }
         Ok(MaterializedFiles {
@@ -414,11 +553,15 @@ impl ManagedEffects for ManagedEffectsImpl {
     }
 
     fn clear(&self, binding: &BindingId, generation: u64) -> Result<(), AdapterError> {
-        // The key is unlisted from the environment endpoint at once (D10 item 2).
-        self.table.unmaterialize(binding);
+        // The binding's files of `generation` only (the port's contract). The
+        // environment listing and the slots are each cleared by their own store
+        // generation through `clear_slot` (U6-Q4; §17.20 item 2): a clear of an older
+        // resource generation never unlists the binding's current slots.
         let remembered = self.lock().bindings.get(binding).cloned();
         let mut dirs: Vec<BindingFiles> = remembered.into_iter().collect();
-        for (dir, g) in files::binding_directories_of(&self.runtime_dir, binding) {
+        for (dir, g) in files::binding_directories_of(&self.runtime_dir, binding)
+            .map_err(|e| adapter_from_files(&e))?
+        {
             if g == generation && !dirs.iter().any(|f| f.directory == dir) {
                 dirs.push(BindingFiles {
                     key_pub: dir.join(files::BINDING_KEY_FILE),
@@ -430,12 +573,6 @@ impl ManagedEffects for ManagedEffectsImpl {
         for f in &dirs {
             files::clear_binding_files(f, binding, generation)
                 .map_err(|e| adapter_from_files(&e))?;
-        }
-        for (dir, g) in files::slots_written_by(&self.slots.data_dir, binding) {
-            if g == generation {
-                files::clear_slot_dir(&dir, binding, generation)
-                    .map_err(|e| adapter_from_files(&e))?;
-            }
         }
         Ok(())
     }
@@ -538,8 +675,12 @@ impl<S: SlotStore> ManagedSlotTable<S> {
         binding: &BindingId,
         pair: &AccessPair,
     ) -> Result<heimdall_domain::managed::SlotState, SlotClaimError> {
-        use heimdall_domain::managed::{SlotEvent, SlotState, slot_transition};
+        use heimdall_domain::managed::{SlotEvent, slot_transition};
         let env = self.effects.slot_root().environment.clone();
+        // The claim, its materialization and a clear of this slot are one at a time
+        // (§17.20 item 1).
+        let lock = self.effects.slot_lock(pair);
+        let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let current = self
             .store
             .slot(&env, pair)
@@ -562,7 +703,7 @@ impl<S: SlotStore> ManagedSlotTable<S> {
             )));
         };
         self.effects
-            .materialize_slot(binding, pair, *generation)
+            .write_slot_locked(binding, pair, *generation, &self.store)
             .map_err(SlotClaimError::Failed)?;
         Ok(held)
     }

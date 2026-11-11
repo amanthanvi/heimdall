@@ -64,6 +64,6 @@
     "wording": "New connections stop at the deadline; existing sessions may stay connected."
   },
   "consumer": {
-    "signing_endpoint": "//./pipe/heimdall-0011223344556677-signing"
+    "signing_endpoint": "\\\\.\\pipe\\heimdall-0011223344556677-b0123456789abcdef"
   }
 }

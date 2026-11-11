@@ -247,7 +247,7 @@ issuer (new)         → contract, domain, store, app, credential
 enroll (new)         → contract, domain, registry, app
 localenv   → (unchanged)          implements app::ports::TargetEvaluator
 adapters   → …, + credential      implements app::ports::ManagedEffects
-runtime    → …, + credential, + issuer, + enroll
+runtime    → …, + credential, + issuer, + enroll, + sshconf   (⟨wave 3⟩ ADR-0008 §17.20 item 14, U7-Q1)
 heimdall   → …, + issuer, + enroll
 testkit    → …, + [credential], + [issuer]   (optional feature `managed`)
 ```
@@ -257,6 +257,9 @@ testkit    → …, + [credential], + [issuer]   (optional feature `managed`)
 * The `check.sh` step `crate-graph` (U0, `tools/validation/crate_graph.py`) enforces this, and fails
   on any production cycle.
 * Dev-dependency cycles through `testkit` are allowed, as for `ipc` today.
+* ⟨wave 3⟩ **`runtime → sshconf`** (ADR-0008 §17.20 item 14; U7-Q1): the owned master's command line
+  uses `heimdall_sshconf::render::{OWNED_LAUNCH_PINS, managed_identity_options}`, never retyped. sshconf
+  was already in runtime's graph through localenv, so the edge adds no package and no cycle.
 * ⟨r3⟩ **Revision 3** (ADR-0008 §18; §17.4 item 9; A R2-09, B R2-02):
   * `ipc → contract` stays the only `ipc` edge. The signing permit crosses into `ipc` as the opaque
     `ipc::signing::PermitGuard` (a boxed `ReleaseCheck`), which `heimdall-credential` fills from

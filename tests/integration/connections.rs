@@ -35,10 +35,12 @@ mod unix {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command, Stdio};
-    use std::sync::{Arc, Mutex};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex, PoisonError};
     use std::time::{Duration, Instant};
 
-    use heimdall_app::ports::ConnectionControl;
+    use heimdall_app::TimeGate;
+    use heimdall_app::ports::{ConnError, ConnectionControl};
     use heimdall_contract::ids::{
         AccountName, BindingId, DestinationId, EnvironmentId, GrantId, ProfileId, WorkId,
     };
@@ -53,18 +55,22 @@ mod unix {
     };
     use heimdall_domain::evidence::EnforcementEvidence;
     use heimdall_domain::grant::{AuthorizationSource, GrantOrigin, GrantSnapshot};
-    use heimdall_domain::managed::{ConnectionKind, OwnedConnection, OwnedConnectionState};
+    use heimdall_domain::managed::{
+        ConnectionKind, OwnedConnection, OwnedConnectionState, SlotState,
+    };
     use heimdall_domain::policy::{AuthorityGeneration, PolicyRevision};
     use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
     use heimdall_domain::scope::{AccessPair, Scope};
-    use heimdall_domain::time::Deadline;
+    use heimdall_domain::time::{Deadline, SyncStatus, TimePolicy};
     use heimdall_runtime::connections::{
-        BindingEndpoints, CloseOutcome, ConnectionConfig, ConnectionSupervisor, master_argv,
-        remove_socket_if_same_inode, socket_inode,
+        BindingEndpoints, CloseOutcome, ConnectionConfig, ConnectionSupervisor, DiscoveryFailed,
+        master_argv, owned_row_invariant, parse_check_pid, remove_socket_if_same_inode,
+        socket_inode,
     };
     use heimdall_runtime::platform::process_start_time;
     use heimdall_runtime::supervisor::FixedJitter;
-    use heimdall_store::{NoFaults, Store};
+    use heimdall_store::{FaultAction, FaultHook, FaultPoint, Store};
+    use heimdall_testkit::ScriptedTimeSync;
     use heimdall_testkit::agent::FixtureKey;
     use heimdall_testkit::ca::{TestCa, UserCertSpec, unix_now};
     use heimdall_testkit::home::{ClientKind, ScratchHome, find_program, ssh_config_quote};
@@ -96,6 +102,20 @@ mod unix {
     impl BindingEndpoints for Endpoints {
         fn endpoint(&self, binding: &BindingId) -> Option<EndpointRef> {
             self.0.lock().unwrap().get(binding).cloned()
+        }
+    }
+
+    /// A store fault hook that fails every transaction while armed (§17.20 item 13).
+    #[derive(Default)]
+    struct Arm(AtomicBool);
+
+    impl FaultHook for Arm {
+        fn at(&self, point: FaultPoint) -> FaultAction {
+            if point == FaultPoint::BeforeTransaction && self.0.load(Ordering::SeqCst) {
+                FaultAction::Fail
+            } else {
+                FaultAction::Continue
+            }
         }
     }
 
@@ -170,6 +190,10 @@ mod unix {
         account: String,
         runtime_dir: PathBuf,
         store: Arc<Store>,
+        /// The store's fault hook (disarmed unless a test arms it).
+        faults: Arc<Arm>,
+        /// The time gate over the store (system clock, synchronized time).
+        gate: Arc<TimeGate>,
         endpoints: Arc<Endpoints>,
         ssh: PathBuf,
         agent: Agent,
@@ -178,15 +202,71 @@ mod unix {
         pairs: Vec<Pair>,
         /// Children the test itself started (stopped by exact PID on drop).
         children: Mutex<Vec<Child>>,
+        /// Every binding this world created: on drop, the masters the supervisors under
+        /// test recorded for them are stopped by exact identity (a panicking test leaks
+        /// none).
+        bindings: Mutex<Vec<BindingId>>,
         next: Mutex<u8>,
     }
 
     impl Drop for World {
         fn drop(&mut self) {
-            for mut c in self.children.lock().unwrap().drain(..) {
+            // The masters the supervisors under test started and recorded (also on a
+            // panic, before the fixture sshd goes): each by its exact PID, start token
+            // and image, never by name. A master a supervisor never recorded was already
+            // killed by its own start guard.
+            let bindings = self
+                .bindings
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            let store = self.store.clone();
+            let rows = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                store.transaction(|tx| {
+                    let mut out = Vec::new();
+                    for b in &bindings {
+                        out.extend(tx.owned_connections_for_binding(b)?);
+                    }
+                    Ok(out)
+                })
+            }))
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+            for c in rows.iter().filter(|c| c.kind == ConnectionKind::Master) {
+                stop_exact(c.pid, &c.start_token, Path::new(&c.image));
+            }
+            // The test's own children, by their handles.
+            for mut c in self
+                .children
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .drain(..)
+            {
                 let _ = c.kill();
                 let _ = c.wait();
             }
+        }
+    }
+
+    /// Stop `pid` only if it still is the process `token` names, running `image`: the
+    /// start token compared before and after the pin, then the image, through
+    /// `ProcessPin::verify` (the product's own verification path). Bounded wait.
+    fn stop_exact(pid: u32, token: &str, image: &Path) {
+        if process_start_time(pid).as_deref() != Some(token) {
+            return;
+        }
+        let Ok(Some(pin)) = heimdall_localenv::sys::ProcessPin::open(pid) else {
+            return;
+        };
+        let same = process_start_time(pid).as_deref() == Some(token);
+        let Some(verified) = pin.verify(same, image) else {
+            return;
+        };
+        let _ = verified.signal(heimdall_localenv::sys::ProcessSignal::Kill);
+        let end = Instant::now() + Duration::from_secs(5);
+        while process_start_time(pid).as_deref() == Some(token) && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -249,7 +329,14 @@ mod unix {
         let agent = Agent::start(&agent_dir.join("agent.sock"), &home.git_home);
         agent.add(&files.identity, &home.git_home);
 
-        let store = Arc::new(Store::open_in_memory(Arc::new(NoFaults)).unwrap());
+        let faults = Arc::new(Arm::default());
+        let store = Arc::new(Store::open_in_memory(faults.clone()).unwrap());
+        let gate = Arc::new(TimeGate::new(
+            store.clone(),
+            Arc::new(heimdall_runtime::platform::SystemClock::new()),
+            ScriptedTimeSync::new(SyncStatus::Synchronized),
+            TimePolicy::default(),
+        ));
         let mut pairs = Vec::new();
         let mut config = String::new();
         for d in o.dests {
@@ -298,6 +385,8 @@ mod unix {
             account,
             runtime_dir,
             store,
+            faults,
+            gate,
             endpoints: Arc::new(Endpoints::default()),
             ssh: find_program("ssh").expect("ssh"),
             agent,
@@ -305,6 +394,7 @@ mod unix {
             cert_line,
             pairs,
             children: Mutex::new(Vec::new()),
+            bindings: Mutex::new(Vec::new()),
             next: Mutex::new(1),
         }
     }
@@ -332,6 +422,7 @@ mod unix {
                 ),
             ]);
             c.close_grace = Duration::from_secs(5);
+            c.time_gate = Some(self.gate.clone());
             c
         }
 
@@ -343,6 +434,20 @@ mod unix {
         /// certificate) are in `<runtime_dir>/b/<tag>/`. `endpoint: false` gives the
         /// binding an endpoint path where no agent listens.
         fn grant(&self, policy: ConnectionPolicy, endpoint: bool) -> (GrantId, BindingId) {
+            let deadline = Timestamp::now()
+                .checked_add(jiff::SignedDuration::from_hours(2))
+                .unwrap();
+            self.grant_until(policy, endpoint, deadline)
+        }
+
+        /// As [`World::grant`], with the grant's absolute deadline `deadline`; the grant
+        /// is anchored by the time gate with that bound (as its first validation does).
+        fn grant_until(
+            &self,
+            policy: ConnectionPolicy,
+            endpoint: bool,
+            deadline: Timestamp,
+        ) -> (GrantId, BindingId) {
             let n = self.n();
             let g = GrantSnapshot {
                 id: GrantId::from_random_bytes([n; 16]),
@@ -362,9 +467,7 @@ mod unix {
                 deadline: Deadline {
                     intent: DeadlineIntent::Duration("2h".into()),
                     resolved_at: Timestamp::now(),
-                    effective: Timestamp::now()
-                        .checked_add(jiff::SignedDuration::from_hours(2))
-                        .unwrap(),
+                    effective: deadline,
                 },
                 parent: None,
                 source: AuthorizationSource::StandingPolicy {
@@ -405,12 +508,20 @@ mod unix {
                 connection: (!policy.is_default()).then_some(policy),
             };
             let (gid, bid) = (g.id.clone(), b.id.clone());
+            self.bindings
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(bid.clone());
             self.store
                 .transaction(|tx| {
                     tx.insert_grant(&g)?;
                     tx.set_grant_origin(&g.id, &origin)?;
                     tx.insert_binding(&b)
                 })
+                .unwrap();
+            let rt = rt();
+            let safe = rt.block_on(self.gate.check()).unwrap();
+            rt.block_on(self.gate.anchor_grant(&gid, &safe, deadline))
                 .unwrap();
             let tag = format!("{n:016x}");
             let dir = self.runtime_dir.join("b").join(&tag);
@@ -435,6 +546,90 @@ mod unix {
                 },
             );
             (gid, bid)
+        }
+
+        /// Make `b` the holder of pair `i`'s environment slot (D10 item 2): a slot held
+        /// by another binding is released and its files removed first (a transfer).
+        fn hold(&self, b: &BindingId, i: usize) {
+            let pair = self.pair(i);
+            self.store
+                .transaction(|tx| {
+                    let now = Timestamp::now();
+                    if let SlotState::Held {
+                        binding,
+                        generation,
+                    } = tx.slot(&env_id(), &pair)?
+                    {
+                        if binding == *b {
+                            return Ok(());
+                        }
+                        tx.release_slot(&env_id(), &pair, &binding, generation, now)?
+                            .unwrap();
+                        tx.slot_files_removed(&env_id(), &pair, generation, now)?
+                            .unwrap();
+                    }
+                    tx.claim_slot(&env_id(), &pair, b, now)?.unwrap();
+                    Ok(())
+                })
+                .unwrap();
+        }
+
+        /// `b` holds pair `i`'s slot, then its master starts.
+        fn start(
+            &self,
+            sup: &ConnectionSupervisor,
+            rt: &tokio::runtime::Runtime,
+            b: &BindingId,
+            i: usize,
+        ) -> OwnedConnection {
+            self.hold(b, i);
+            rt.block_on(sup.start_master(b, &self.pair(i))).unwrap()
+        }
+
+        /// The binding directory of `b` (its endpoint, `key.pub`, `cert-<dest>.pub`).
+        fn binding_dir(&self, b: &BindingId) -> PathBuf {
+            let endpoint = self.endpoints.0.lock().unwrap().get(b).cloned().unwrap();
+            PathBuf::from(endpoint.locator)
+                .parent()
+                .unwrap()
+                .to_path_buf()
+        }
+
+        /// A master **this test** starts at pair `i`'s stable path with `b`'s identity,
+        /// outside the supervisor's ownership records (the probes' foreign master).
+        /// Returns its exact PID once its control socket answers.
+        fn foreign_master(&self, b: &BindingId, i: usize) -> u32 {
+            let dir = self.binding_dir(b);
+            let endpoint = self.endpoints.0.lock().unwrap().get(b).cloned().unwrap();
+            let p = &self.pairs[i];
+            let argv = master_argv(
+                &p.mux,
+                &p.alias,
+                &endpoint,
+                &dir.join("key.pub"),
+                &dir.join(format!("cert-{}.pub", p.dest.as_str())),
+                &self.home.isolation_args(),
+            )
+            .unwrap();
+            let child = Command::new(&self.ssh)
+                .args(&argv)
+                .env_clear()
+                .env("PATH", CHILD_PATH)
+                .env("HOME", &self.home.git_home)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let pid = child.id();
+            self.children.lock().unwrap().push(child);
+            assert!(
+                wait_until(Duration::from_secs(20), || self
+                    .master_pid(&p.alias, &p.mux)
+                    == Some(pid)),
+                "the probe's own master answers at the stable path"
+            );
+            pid
         }
 
         fn pair(&self, i: usize) -> AccessPair {
@@ -543,7 +738,12 @@ mod unix {
                 started_at: Timestamp::now(),
             };
             self.store
-                .transaction(|tx| tx.insert_owned_connection(&c))
+                .transaction(|tx| {
+                    // U0b row 19: the launch binding's holder is the row's own process,
+                    // recorded before the row (U7-Q4: a dedicated row needs it).
+                    tx.set_binding_holder(b, &holder_of(&c))?;
+                    tx.insert_owned_connection(&c)
+                })
                 .unwrap();
             c
         }
@@ -560,6 +760,27 @@ mod unix {
             let pid = child.id();
             self.children.lock().unwrap().push(child);
             pid
+        }
+
+        /// `ssh -O check` through `mux`: the PID of the master answering there.
+        fn master_pid(&self, alias: &str, mux: &Path) -> Option<u32> {
+            let mut fresh = Command::new(&self.ssh);
+            fresh
+                .args(self.home.isolation_args())
+                .arg("-O")
+                .arg("check")
+                .arg("-o")
+                .arg(format!("ControlPath={}", mux.display()))
+                .arg(alias)
+                .env_clear()
+                .env("PATH", CHILD_PATH)
+                .env("HOME", &self.home.git_home)
+                .stdin(Stdio::null());
+            let out = fresh.output().ok()?;
+            if !out.status.success() {
+                return None;
+            }
+            parse_check_pid(&String::from_utf8_lossy(&out.stderr))
         }
 
         /// `ssh -O check` through `mux`: whether a master answers there.
@@ -605,6 +826,15 @@ mod unix {
         }
     }
 
+    /// The launch binding's holder as U0b row 19 records it for a dedicated row: the
+    /// row's own exact process (PID and start token).
+    fn holder_of(c: &OwnedConnection) -> heimdall_domain::holder::ProcessHolder {
+        heimdall_domain::holder::ProcessHolder {
+            pid: c.pid,
+            started_at: c.start_token.clone(),
+        }
+    }
+
     fn alive(pid: u32, token: &str) -> bool {
         process_start_time(pid).as_deref() == Some(token)
     }
@@ -644,7 +874,7 @@ mod unix {
         let sup = w.supervisor();
         let rt = rt();
         let before = w.auths();
-        let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b, 0);
         assert_eq!(m.kind, ConnectionKind::Master);
         assert_eq!(w.auths(), before + 1, "the master authenticated once");
         for _ in 0..3 {
@@ -672,7 +902,9 @@ mod unix {
         std::thread::sleep(Duration::from_secs(9));
         w.end_grant(&g, GrantState::Expired);
         let sup = w.supervisor();
-        let r = rt().block_on(sup.connection_deadline_pass(std::slice::from_ref(&g)));
+        let r = rt()
+            .block_on(sup.connection_deadline_pass(std::slice::from_ref(&g)))
+            .unwrap();
         assert_eq!(r.kept, vec![c.id.clone()]);
         assert!(alive(c.pid, &c.start_token), "graceful keeps the session");
         assert_eq!(w.row(&c.id).state, OwnedConnectionState::Up);
@@ -688,10 +920,12 @@ mod unix {
         let (g, b) = w.grant(policy(ExistingConnectionsMode::Strict, false), true);
         let c = w.dedicated(&g, &b, &format!("{}-direct", w.pairs[0].alias));
         w.end_grant(&g, GrantState::Expired);
-        let r = rt().block_on(
-            w.supervisor()
-                .connection_deadline_pass(std::slice::from_ref(&g)),
-        );
+        let r = rt()
+            .block_on(
+                w.supervisor()
+                    .connection_deadline_pass(std::slice::from_ref(&g)),
+            )
+            .unwrap();
         assert_eq!(r.closed, vec![c.id.clone()]);
         assert!(wait_until(Duration::from_secs(5), || w
             .reap(c.pid)
@@ -713,7 +947,9 @@ mod unix {
             let (g, b) = w.grant(policy(mode, false), true);
             let c = w.dedicated(&g, &b, &format!("{}-direct", w.pairs[0].alias));
             w.end_grant(&g, GrantState::Revoked);
-            let r = rt.block_on(sup.revocation_close(std::slice::from_ref(&g)));
+            let r = rt
+                .block_on(sup.revocation_close(std::slice::from_ref(&g)))
+                .unwrap();
             assert_eq!(r.closed, vec![c.id.clone()], "{mode:?}");
             assert!(wait_until(Duration::from_secs(5), || w
                 .reap(c.pid)
@@ -734,7 +970,7 @@ mod unix {
         let a0 = w.auths();
         assert!(w.ordinary(&alias, &["true"]).status.success());
         assert_eq!(w.auths(), a0 + 1, "no master: direct");
-        let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b, 0);
         let a1 = w.auths();
         assert!(w.ordinary(&alias, &["true"]).status.success());
         assert_eq!(w.auths(), a1, "master present: multiplexed");
@@ -754,16 +990,20 @@ mod unix {
         let rt = rt();
         let (_g1, b1) = w.grant(graceful_masters(), true);
         let (_g2, b2) = w.grant(graceful_masters(), true);
-        let m1 = rt.block_on(sup.start_master(&b1, &w.pair(0))).unwrap();
+        let m1 = w.start(&sup, &rt, &b1, 0);
         let path = w.pairs[0].mux.clone();
         assert_eq!(m1.control_path.as_deref(), Some(path.to_str().unwrap()));
-        let ino1 = socket_inode(&path).unwrap();
-        let m2 = rt.block_on(sup.start_master(&b2, &w.pair(0))).unwrap();
+        let m2 = w.start(&sup, &rt, &b2, 0);
         assert_eq!(m2.control_path, m1.control_path, "one stable path");
         assert!(m2.generation > m1.generation, "a new generation");
         assert_eq!(w.row(&m1.id).state, OwnedConnectionState::Closed);
         assert!(!alive(m1.pid, &m1.start_token), "the old master is gone");
-        assert_ne!(socket_inode(&path), Some(ino1), "the new master's socket");
+        // The protocol, never inode numbers (W3-N01): the listener at the path is m2.
+        assert_eq!(
+            w.master_pid(&w.pairs[0].alias, &path),
+            Some(m2.pid),
+            "the new holder's master answers at the stable path"
+        );
         let a = w.auths();
         assert!(w.ordinary(&w.pairs[0].alias, &["true"]).status.success());
         assert_eq!(w.auths(), a, "ordinary ssh used the new holder's master");
@@ -835,7 +1075,7 @@ mod unix {
         assert!(on.contains("ControlPath \"/r/mux/d1\""), "{on}");
         // With the widening recorded in the origin: started.
         let (_g2, b2) = w.grant(graceful_masters(), true);
-        let m = rt.block_on(sup.start_master(&b2, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b2, 0);
         assert_eq!(m.kind, ConnectionKind::Master);
         rt.block_on(sup.shutdown());
     }
@@ -872,7 +1112,9 @@ mod unix {
             pin.verify(true, Path::new("/bin/sh")).is_none(),
             "another image"
         );
-        let r = rt().block_on(w.supervisor().revocation_close(std::slice::from_ref(&g)));
+        let r = rt()
+            .block_on(w.supervisor().revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
         assert_eq!(r.closed, vec![c.id]);
     }
 
@@ -955,7 +1197,9 @@ mod unix {
         w.end_grant(&g, GrantState::Revoked);
         let sup = w.supervisor();
         let rt = rt();
-        let r = rt.block_on(sup.revocation_close(std::slice::from_ref(&g)));
+        let r = rt
+            .block_on(sup.revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
         assert_eq!(r.pending, vec![c.id.clone()], "not signalled before exec");
         assert!(alive(pid, &c.start_token));
         let before = w.auths();
@@ -964,7 +1208,9 @@ mod unix {
             wait_until(Duration::from_secs(20), || w.auths() > before),
             "the exec'd client authenticated"
         );
-        let r = rt.block_on(sup.revocation_close(std::slice::from_ref(&g)));
+        let r = rt
+            .block_on(sup.revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
         assert_eq!(r.closed, vec![c.id.clone()], "closed after exec");
         assert!(wait_until(Duration::from_secs(5), || w.reap(pid).is_some()));
         assert_eq!(w.row(&c.id).state, OwnedConnectionState::Closed);
@@ -1027,7 +1273,7 @@ mod unix {
         let (_g, b) = w.grant(graceful_masters(), true);
         let sup = w.supervisor();
         let rt = rt();
-        let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b, 0);
         assert_eq!(rt.block_on(sup.live_master_pids()), vec![m.pid]);
         assert!(alive(m.pid, &m.start_token));
         rt.block_on(sup.shutdown());
@@ -1043,11 +1289,13 @@ mod unix {
         let (g, b) = w.grant(graceful_masters(), true);
         let sup = w.supervisor();
         let rt = rt();
-        let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b, 0);
         let mux = w.pairs[0].mux.clone();
         assert!(w.master_answers(&w.pairs[0].alias, &mux));
         w.end_grant(&g, GrantState::Expired);
-        let r = rt.block_on(sup.connection_deadline_pass(std::slice::from_ref(&g)));
+        let r = rt
+            .block_on(sup.connection_deadline_pass(std::slice::from_ref(&g)))
+            .unwrap();
         assert_eq!(r.closed, vec![m.id.clone()]);
         assert!(!alive(m.pid, &m.start_token));
         assert!(!mux.exists(), "socket removed (same inode)");
@@ -1063,7 +1311,7 @@ mod unix {
         let (g, b) = w.grant(graceful_masters(), true);
         let sup = w.supervisor();
         let rt = rt();
-        let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b, 0);
         let a = w.auths();
         let session = w.spawn_ordinary(&w.pairs[0].alias, &["sleep", "120"]);
         std::thread::sleep(Duration::from_millis(800));
@@ -1072,7 +1320,8 @@ mod unix {
             "the session runs through the master"
         );
         assert_eq!(w.auths(), a, "multiplexed");
-        rt.block_on(sup.revocation_close(std::slice::from_ref(&g)));
+        rt.block_on(sup.revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
         assert!(
             wait_until(Duration::from_secs(10), || w.reap(session).is_some()),
             "the pre-accepted session ended with the master"
@@ -1125,9 +1374,11 @@ mod unix {
         let (g, _b) = w.grant(graceful_masters(), true);
         let sup = w.supervisor();
         let rt = rt();
-        let r1 = rt.block_on(sup.time_uncertain_close());
-        let r2 = rt.block_on(sup.revocation_close(std::slice::from_ref(&g)));
-        let r3 = rt.block_on(sup.connection_restart_pass());
+        let r1 = rt.block_on(sup.time_uncertain_close()).unwrap();
+        let r2 = rt
+            .block_on(sup.revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
+        let r3 = rt.block_on(sup.connection_restart_pass()).unwrap();
         for r in [&r1, &r2, &r3] {
             assert!(r.closed.is_empty() && r.unverified.is_empty() && r.kept.is_empty());
         }
@@ -1149,7 +1400,7 @@ mod unix {
         let (_g, b) = w.grant(graceful_masters(), true);
         let sup = w.supervisor();
         let rt = rt();
-        let _m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let _m = w.start(&sup, &rt, &b, 0);
         let port = heimdall_testkit::sshd::pick_loopback_port().unwrap();
         let mut cmd = w
             .home
@@ -1235,7 +1486,7 @@ mod unix {
         };
         // `-O stop`.
         let (_g1, b1) = w.grant(graceful_masters(), true);
-        let m = rt.block_on(sup.start_master(&b1, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b1, 0);
         let session = w.spawn_ordinary(&alias, &["sleep", "120"]);
         std::thread::sleep(Duration::from_millis(800));
         let stop = control("stop");
@@ -1265,7 +1516,7 @@ mod unix {
         );
         // `-O exit`.
         let (_g2, b2) = w.grant(graceful_masters(), true);
-        let m = rt.block_on(sup.start_master(&b2, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b2, 0);
         let session = w.spawn_ordinary(&alias, &["sleep", "120"]);
         std::thread::sleep(Duration::from_millis(800));
         let exit = control("exit");
@@ -1277,7 +1528,7 @@ mod unix {
             mux.exists()
         );
         assert!(gone && ended, "-O exit ends the master and its sessions");
-        let r = rt.block_on(sup.reap_pass());
+        let r = rt.block_on(sup.reap_pass()).unwrap();
         assert_eq!(r.closed, vec![m.id.clone()]);
         assert!(!mux.exists());
     }
@@ -1290,7 +1541,7 @@ mod unix {
         let (g, b) = w.grant(graceful_masters(), true);
         let sup = w.supervisor();
         let rt = rt();
-        let _m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let _m = w.start(&sup, &rt, &b, 0);
         let pidfile = w.home.root.join("remote.pid");
         // The loopback server runs as this account, so the "remote" process is a local
         // PID this test started and stops itself.
@@ -1305,7 +1556,8 @@ mod unix {
             .parse()
             .unwrap();
         let token = process_start_time(pid).unwrap();
-        rt.block_on(sup.revocation_close(std::slice::from_ref(&g)));
+        rt.block_on(sup.revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
         let survived = alive(pid, &token);
         let reported = heimdall_contract::managed::RemoteProcesses::NotTerminated;
         println!(
@@ -1343,7 +1595,9 @@ mod unix {
         // A shell the launcher would run, with an ssh child of its own.
         let shell_child =
             w.spawn_ordinary(&format!("{}-direct", w.pairs[0].alias), &["sleep", "60"]);
-        let r = rt().block_on(w.supervisor().revocation_close(std::slice::from_ref(&g)));
+        let r = rt()
+            .block_on(w.supervisor().revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
         assert!(r.closed.is_empty() && r.kept.is_empty(), "nothing owned");
         assert!(w.reap(shell_child).is_none(), "its ssh is not closed");
         let _ = b;
@@ -1369,15 +1623,15 @@ mod unix {
         let (_g2, b2) = w.grant(graceful_masters(), true);
         let (m1, m2) = {
             let before = w.supervisor();
-            let m1 = rt.block_on(before.start_master(&b1, &w.pair(0))).unwrap();
-            let m2 = rt.block_on(before.start_master(&b2, &w.pair(1))).unwrap();
+            let m1 = w.start(&before, &rt, &b1, 0);
+            let m2 = w.start(&before, &rt, &b2, 1);
             (m1, m2)
             // The runtime "stops" here: its masters keep running (no kill on drop).
         };
         assert!(alive(m1.pid, &m1.start_token) && alive(m2.pid, &m2.start_token));
         w.end_grant(&g1, GrantState::Expired);
         let after = w.supervisor();
-        let r = rt.block_on(after.connection_restart_pass());
+        let r = rt.block_on(after.connection_restart_pass()).unwrap();
         assert_eq!(r.closed, vec![m1.id.clone()]);
         assert_eq!(r.kept, vec![m2.id.clone()]);
         assert!(!alive(m1.pid, &m1.start_token));
@@ -1418,9 +1672,14 @@ mod unix {
             started_at: Timestamp::now(),
         };
         w.store
-            .transaction(|tx| tx.insert_owned_connection(&c2))
+            .transaction(|tx| {
+                tx.set_binding_holder(&b, &holder_of(&c2))?;
+                tx.insert_owned_connection(&c2)
+            })
             .unwrap();
-        let r = rt().block_on(w.supervisor().revocation_close(std::slice::from_ref(&g)));
+        let r = rt()
+            .block_on(w.supervisor().revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
         assert_eq!(r.unverified, vec![c2.id.clone()], "{r:?}");
         assert!(w.reap(pid).is_none(), "never signalled");
         assert_eq!(w.row(&c2.id).state, OwnedConnectionState::Unverified);
@@ -1434,6 +1693,7 @@ mod unix {
         // The binding's endpoint has no agent: every master attempt fails to
         // authenticate (BatchMode), while P's agent serves ordinary clients.
         let (_g, b) = w.grant(graceful_masters(), false);
+        w.hold(&b, 0);
         let mut config = w.config();
         config.start_backoff = heimdall_app::reconcile::Backoff {
             base: Duration::from_millis(200),
@@ -1467,9 +1727,9 @@ mod unix {
         let (g, b) = w.grant(graceful_masters(), true);
         let sup = w.supervisor();
         let rt = rt();
-        let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b, 0);
         let d = w.dedicated(&g, &b, &format!("{}-direct", w.pairs[0].alias));
-        let r = rt.block_on(sup.time_uncertain_close());
+        let r = rt.block_on(sup.time_uncertain_close()).unwrap();
         assert_eq!(r.closed, vec![m.id.clone()]);
         assert_eq!(r.kept, vec![d.id.clone()]);
         assert!(!alive(m.pid, &m.start_token));
@@ -1493,7 +1753,9 @@ mod unix {
             let c = w.row_for(&g, &b, pid, ConnectionKind::Dedicated, "/bin/sleep");
             std::thread::sleep(Duration::from_millis(delay_ms));
             w.end_grant(&g, GrantState::Expired);
-            let r = rt.block_on(sup.connection_deadline_pass(std::slice::from_ref(&g)));
+            let r = rt
+                .block_on(sup.connection_deadline_pass(std::slice::from_ref(&g)))
+                .unwrap();
             assert_eq!(r.closed, vec![c.id.clone()], "delay {delay_ms}: {r:?}");
             assert_eq!(w.row(&c.id).state, OwnedConnectionState::Closed);
             assert!(wait_until(Duration::from_secs(3), || w.reap(pid).is_some()));
@@ -1502,42 +1764,516 @@ mod unix {
 
     // --- cleanup -------------------------------------------------------------------------
 
-    /// D8 item 3: the socket is removed only while it is still the closed generation's
-    /// inode; a replacement at the same path is never removed by the old cleanup.
+    /// §17.20 items 3 and 6 (W3-N01): the protocol, never inode numbers. (1) An inode
+    /// identity alone removes only a socket that is still that inode, and a fabricated
+    /// or absent identity removes nothing. (2) A stale close of generation N, whose
+    /// recorded inode **equals** the socket generation N+1 now has at the path (the
+    /// devbox's ext4 reused the number at once; simulated here by recording N+1's
+    /// number in N's locator), neither controls nor removes N+1: no newer generation's
+    /// socket is removed while it is open. (3) An unproven listener at the stable path
+    /// is never trusted or left to serve: its path entry is removed before Heimdall's
+    /// own master starts, reported `mux_path_foreign_listener_removed`.
     #[test]
     fn master_socket_removed_only_if_same_inode() {
         let w = world();
+        // (1)
         let path = w.runtime_dir.join("s");
-        let l1 = std::os::unix::net::UnixListener::bind(&path).unwrap();
-        let old = socket_inode(&path).unwrap();
-        drop(l1);
-        fs::remove_file(&path).unwrap();
-        let _l2 = std::os::unix::net::UnixListener::bind(&path).unwrap();
-        let new = socket_inode(&path).unwrap();
-        assert_ne!(old, new);
-        assert!(
-            !remove_socket_if_same_inode(&path, Some(old)),
-            "N+1's socket kept"
-        );
-        assert!(path.exists());
+        let _l = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        assert!(!remove_socket_if_same_inode(&path, Some((0, 0))));
         assert!(!remove_socket_if_same_inode(&path, None));
-        assert!(remove_socket_if_same_inode(&path, Some(new)));
+        assert!(path.exists());
+        assert!(remove_socket_if_same_inode(&path, socket_inode(&path)));
         assert!(!path.exists());
-        // A socket at the slot path nobody verifiably owns refuses the start.
-        let (_g, b) = w.grant(graceful_masters(), true);
-        fs::create_dir_all(w.pairs[0].mux.parent().unwrap()).unwrap();
-        let _squat = std::os::unix::net::UnixListener::bind(&w.pairs[0].mux).unwrap();
-        let e = rt()
-            .block_on(w.supervisor().start_master(&b, &w.pair(0)))
-            .unwrap_err();
+        // (2)
+        let sup = w.supervisor();
+        let rt = rt();
+        let mux = w.pairs[0].mux.clone();
+        let alias = w.pairs[0].alias.clone();
+        let (_g1, b1) = w.grant(graceful_masters(), true);
+        let (_g2, b2) = w.grant(graceful_masters(), true);
+        let m1 = w.start(&sup, &rt, &b1, 0);
+        let m2 = w.start(&sup, &rt, &b2, 0);
+        assert!(m2.generation > m1.generation);
+        let now = socket_inode(&mux).unwrap();
+        let resource = heimdall_contract::ids::ResourceId::parse(&format!(
+            "res_{}",
+            m1.id.as_str().split_once('_').unwrap().1
+        ))
+        .unwrap();
+        w.store
+            .transaction(|tx| {
+                let mut r = tx.resource(&resource)?.unwrap();
+                let mut l: serde_json::Value = serde_json::from_str(&r.locator).unwrap();
+                l["inode"] = serde_json::json!([now.0, now.1]);
+                r.locator = l.to_string();
+                let expected = r.generation;
+                tx.upsert_resource(&r, Some(expected))
+            })
+            .unwrap();
+        for stale in [&sup, &w.supervisor()] {
+            assert_eq!(rt.block_on(stale.close_one(&m1)), CloseOutcome::Closed);
+            assert!(mux.exists(), "generation N+1's socket kept");
+            assert_eq!(w.master_pid(&alias, &mux), Some(m2.pid), "N+1 still serves");
+        }
+        rt.block_on(sup.shutdown());
+        assert!(!mux.exists());
+        // (3) A socket nobody proves to be the holder's master, at the stable path.
+        let (_g3, b3) = w.grant(graceful_masters(), true);
+        let squat = std::os::unix::net::UnixListener::bind(&mux).unwrap();
+        let sup = w.supervisor();
+        let m3 = w.start(&sup, &rt, &b3, 0);
+        assert_eq!(sup.foreign_listeners_removed(), vec![mux.clone()]);
         assert_eq!(
-            e,
-            heimdall_app::ports::ConnError::Unavailable("mux_path_occupied".into())
+            w.master_pid(&alias, &mux),
+            Some(m3.pid),
+            "Heimdall's own master"
+        );
+        drop(squat);
+        rt.block_on(sup.shutdown());
+    }
+
+    /// §17.20 item 3 (W3-R03): two concurrent starts of one slot are serialized by the
+    /// slot's lock and each reserves its own generation inside it: the first master is
+    /// replaced by the second, never both recorded open with one generation.
+    #[test]
+    fn concurrent_starts_of_one_slot_are_serialized() {
+        let w = world();
+        let (_g, b) = w.grant(graceful_masters(), true);
+        w.hold(&b, 0);
+        let sup = w.supervisor();
+        let rt = rt();
+        let pair = w.pair(0);
+        let (a, c) = rt.block_on(async {
+            tokio::join!(sup.start_master(&b, &pair), sup.start_master(&b, &pair))
+        });
+        let (a, c) = (a.unwrap(), c.unwrap());
+        assert_ne!(
+            a.generation, c.generation,
+            "each start reserved its own generation"
+        );
+        let open: Vec<OwnedConnection> = w
+            .store
+            .transaction(|tx| tx.owned_connections_for_binding(&b))
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.state == OwnedConnectionState::Up)
+            .collect();
+        assert_eq!(open.len(), 1, "one open master: {open:?}");
+        let newer = if a.generation > c.generation { &a } else { &c };
+        assert_eq!(open[0].id, newer.id);
+        assert_eq!(
+            w.master_pid(&w.pairs[0].alias, &w.pairs[0].mux),
+            Some(newer.pid)
+        );
+        rt.block_on(sup.shutdown());
+    }
+
+    /// W3-S03's probe (§17.20 item 3): a stale close never sends a control command to a
+    /// listener it has not proven. An owned master is told `-O stop` (it removes its
+    /// socket and keeps running with its session); an unrelated master the probe starts
+    /// itself binds the same path; closing the old row ends the old master by its
+    /// verified PID only, and the unrelated master is not killed.
+    #[test]
+    fn stale_close_never_controls_a_replacement_listener() {
+        let w = world();
+        let (_g, b) = w.grant(graceful_masters(), true);
+        let sup = w.supervisor();
+        let rt = rt();
+        let alias = w.pairs[0].alias.clone();
+        let mux = w.pairs[0].mux.clone();
+        let m = w.start(&sup, &rt, &b, 0);
+        let session = w.spawn_ordinary(&alias, &["sleep", "120"]);
+        std::thread::sleep(Duration::from_millis(800));
+        assert!(w.reap(session).is_none(), "a session through the master");
+        let stop = Command::new(&w.ssh)
+            .args(w.home.isolation_args())
+            .arg("-O")
+            .arg("stop")
+            .arg("-o")
+            .arg(format!("ControlPath={}", mux.display()))
+            .arg(&alias)
+            .env_clear()
+            .env("PATH", CHILD_PATH)
+            .env("HOME", &w.home.git_home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(stop.success());
+        assert!(wait_until(Duration::from_secs(5), || !mux.exists()));
+        assert!(
+            alive(m.pid, &m.start_token),
+            "-O stop left the master running"
+        );
+        let replacement = w.foreign_master(&b, 0);
+        assert_eq!(rt.block_on(sup.close_one(&m)), CloseOutcome::Closed);
+        assert!(
+            !alive(m.pid, &m.start_token),
+            "the old master, by its verified PID"
+        );
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            w.reap(replacement).is_none(),
+            "the unrelated replacement master was not killed"
+        );
+        assert_eq!(w.row(&m.id).state, OwnedConnectionState::Closed);
+    }
+
+    /// W3-S02's probe (§17.20 item 6): a foreign master at the slot's stable path (the
+    /// probe's own, outside the ownership records) is never trusted: `start_master`
+    /// removes its path entry (`mux_path_foreign_listener_removed`) and starts
+    /// Heimdall's own master; after the grant is revoked and its close pass ran, an
+    /// ordinary `ssh <alias>` makes no session through the foreign master (it needs a
+    /// new authentication). The foreign master is never signalled (the residual: its
+    /// already open sessions are `not_controlled`). A listener planted after the close is
+    /// removed when the slot is cleared.
+    #[test]
+    fn foreign_master_at_stable_path_never_serves_after_revocation() {
+        let w = world();
+        let (g, b) = w.grant(graceful_masters(), true);
+        let sup = w.supervisor();
+        let rt = rt();
+        let alias = w.pairs[0].alias.clone();
+        let mux = w.pairs[0].mux.clone();
+        w.hold(&b, 0);
+        // The stable path's directory as the runtime creates it (0700).
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new()
+                .mode(0o700)
+                .create(mux.parent().unwrap())
+                .unwrap();
+        }
+        let foreign = w.foreign_master(&b, 0);
+        let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        assert_eq!(sup.foreign_listeners_removed(), vec![mux.clone()]);
+        assert_eq!(w.master_pid(&alias, &mux), Some(m.pid));
+        w.end_grant(&g, GrantState::Revoked);
+        let r = rt
+            .block_on(sup.revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
+        assert_eq!(r.closed, vec![m.id.clone()]);
+        assert_eq!(
+            w.master_pid(&alias, &mux),
+            None,
+            "no master at the stable path"
+        );
+        let before = w.auths();
+        let out = w.ordinary(&alias, &["true"]);
+        println!(
+            "m03 observation: foreign_master_after_revocation ordinary_exit={:?} new_auth={}",
+            out.status.code(),
+            w.auths() > before
         );
         assert!(
-            w.pairs[0].mux.exists(),
-            "a socket it does not own is left alone"
+            w.auths() > before,
+            "the ordinary client made no session through the foreign master"
         );
+        assert!(
+            w.reap(foreign).is_none(),
+            "the foreign master is never signalled"
+        );
+        // A listener planted at the path after the close: removed when the slot clears.
+        let planted = std::os::unix::net::UnixListener::bind(&mux).unwrap();
+        assert!(rt.block_on(sup.clear_slot_path(&w.pairs[0].dest)).unwrap());
+        assert!(!mux.exists());
+        drop(planted);
+    }
+
+    /// §17.20 item 6: the mux directory is owner-only and re-verified; an existing one
+    /// that is not (0755 here, or a symlink) refuses the start, `mux_dir_unsafe`, and
+    /// nothing is repaired.
+    #[test]
+    fn unsafe_mux_directory_refuses_the_start_unrepaired() {
+        use std::os::unix::fs::PermissionsExt;
+        let w = world();
+        let (_g, b) = w.grant(graceful_masters(), true);
+        w.hold(&b, 0);
+        let rt = rt();
+        let dir = w.pairs[0].mux.parent().unwrap().to_path_buf();
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        let sup = w.supervisor();
+        assert_eq!(
+            rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap_err(),
+            ConnError::Unavailable("mux_dir_unsafe".into())
+        );
+        assert_eq!(
+            fs::symlink_metadata(&dir).unwrap().permissions().mode() & 0o777,
+            0o755,
+            "not repaired"
+        );
+        assert_eq!(sup.master_start_attempts(), 0);
+        fs::remove_dir(&dir).unwrap();
+        let elsewhere = w.home.root.join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        fs::set_permissions(&elsewhere, fs::Permissions::from_mode(0o700)).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &dir).unwrap();
+        assert_eq!(
+            rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap_err(),
+            ConnError::Unavailable("mux_dir_unsafe".into())
+        );
+        assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
+    }
+
+    /// §17.20 item 5: only the slot holder's master serves the stable path. A binding
+    /// that does not hold the pair's slot is refused before anything starts, and so is a
+    /// pair outside the binding's scope; the holder's master is untouched.
+    #[test]
+    fn start_master_refused_for_non_holder() {
+        let w = world();
+        let (_g1, holder) = w.grant(graceful_masters(), true);
+        let (_g2, other) = w.grant(graceful_masters(), true);
+        let sup = w.supervisor();
+        let rt = rt();
+        let m = w.start(&sup, &rt, &holder, 0);
+        let attempts = sup.master_start_attempts();
+        assert_eq!(
+            rt.block_on(sup.start_master(&other, &w.pair(0)))
+                .unwrap_err(),
+            ConnError::Unavailable("managed_slot_not_held".into())
+        );
+        let outside = AccessPair {
+            destination: w.pairs[0].dest.clone(),
+            account: AccountName::parse("someone-else").unwrap(),
+        };
+        assert_eq!(
+            rt.block_on(sup.start_master(&holder, &outside))
+                .unwrap_err(),
+            ConnError::Unavailable("pair_not_in_scope".into())
+        );
+        assert_eq!(sup.master_start_attempts(), attempts, "nothing was spawned");
+        assert!(
+            alive(m.pid, &m.start_token),
+            "the holder's master is untouched"
+        );
+        assert_eq!(w.row(&m.id).state, OwnedConnectionState::Up);
+        assert_eq!(
+            w.master_pid(&w.pairs[0].alias, &w.pairs[0].mux),
+            Some(m.pid)
+        );
+        rt.block_on(sup.shutdown());
+    }
+
+    /// §17.20 item 5: the holder, the slot generation and the policy are read again
+    /// after the spawn's awaited work. A slot transfer while the master starts (after
+    /// its readiness is proven, before it is recorded) leaves no recorded master: the new
+    /// child is closed and nothing is written.
+    #[test]
+    fn slot_transfer_during_spawn_leaves_no_recorded_master() {
+        let w = Arc::new(world());
+        let (_g1, b1) = w.grant(graceful_masters(), true);
+        let (_g2, b2) = w.grant(graceful_masters(), true);
+        w.hold(&b1, 0);
+        let mut config = w.config();
+        let (w2, to) = (Arc::clone(&w), b2.clone());
+        config.after_master_ready = Some(Arc::new(move || w2.hold(&to, 0)));
+        let sup = ConnectionSupervisor::new(w.store.clone(), None, config);
+        let rt = rt();
+        assert_eq!(
+            rt.block_on(sup.start_master(&b1, &w.pair(0))).unwrap_err(),
+            ConnError::Unavailable("managed_slot_not_held".into())
+        );
+        assert!(rt.block_on(sup.live_master_pids()).is_empty());
+        let rows = w
+            .store
+            .transaction(|tx| tx.owned_connections_for_binding(&b1))
+            .unwrap();
+        assert!(rows.is_empty(), "nothing recorded: {rows:?}");
+        assert_eq!(w.master_pid(&w.pairs[0].alias, &w.pairs[0].mux), None);
+        assert!(!w.pairs[0].mux.exists(), "the new child's socket is gone");
+    }
+
+    /// §17.20 item 4 (W3-S01's probe): the deadline passes while the runtime is absent
+    /// and the stored state is still `Active`. The restart pass judges the recovered
+    /// master by fresh admission facts and closes it; no session is admitted after the
+    /// deadline (no master answers, and the server refuses the expired certificate).
+    #[test]
+    fn restart_closes_master_whose_deadline_passed_while_absent() {
+        let w = world_with(Opts {
+            valid_for: 6,
+            ..Opts::default()
+        });
+        let rt = rt();
+        let issued = Instant::now();
+        let deadline = Timestamp::now()
+            .checked_add(jiff::SignedDuration::from_secs(2))
+            .unwrap();
+        let (g, b) = w.grant_until(graceful_masters(), true, deadline);
+        let m = {
+            let before = w.supervisor();
+            w.start(&before, &rt, &b, 0)
+            // The runtime stops here: its master keeps running (no kill on drop).
+        };
+        assert!(alive(m.pid, &m.start_token));
+        // Past the deadline and the certificate's validity, with nobody running.
+        let wait = Duration::from_secs(7).saturating_sub(issued.elapsed());
+        std::thread::sleep(wait);
+        assert!(Timestamp::now() > deadline);
+        assert_eq!(
+            w.store
+                .transaction(|tx| tx.grant(&g))
+                .unwrap()
+                .unwrap()
+                .state,
+            GrantState::Active,
+            "the stored state is still active"
+        );
+        let after = w.supervisor();
+        let r = rt.block_on(after.connection_restart_pass()).unwrap();
+        assert_eq!(r.closed, vec![m.id.clone()], "{r:?}");
+        assert!(r.kept.is_empty());
+        assert!(!alive(m.pid, &m.start_token));
+        assert_eq!(w.master_pid(&w.pairs[0].alias, &w.pairs[0].mux), None);
+        let out = w.ordinary(&w.pairs[0].alias, &["true"]);
+        assert!(!out.status.success(), "no session after the deadline");
+    }
+
+    /// §17.20 item 4: without accepted time (no time gate here), the restart pass closes
+    /// every recovered master, as `time_uncertain_close` does.
+    #[test]
+    fn restart_without_accepted_time_closes_masters() {
+        let w = world();
+        let rt = rt();
+        let (_g, b) = w.grant(graceful_masters(), true);
+        let m = w.start(&w.supervisor(), &rt, &b, 0);
+        let mut config = w.config();
+        config.time_gate = None;
+        let after = ConnectionSupervisor::new(w.store.clone(), None, config);
+        let r = rt.block_on(after.connection_restart_pass()).unwrap();
+        assert_eq!(r.closed, vec![m.id.clone()]);
+        assert!(!alive(m.pid, &m.start_token));
+    }
+
+    /// §17.20 item 11 (D8 item 2): before the second signal the identity and image are
+    /// read again on every Unix. A process that survives SIGTERM by exec'ing another
+    /// image during the grace (same PID and start time) is not SIGKILLed: `pending`.
+    #[test]
+    fn process_that_execs_another_image_during_grace_is_not_killed() {
+        let w = world();
+        let (g, b) = w.grant(policy(ExistingConnectionsMode::Strict, false), true);
+        let marker = w.home.root.join("trap-set");
+        let script = format!(
+            "trap 'exec /bin/sleep 30' TERM; : > {}; while :; do /bin/sleep 0.05; done",
+            heimdall_testkit::home::sh_quote(marker.as_os_str())
+        );
+        let pid = w.spawn("/bin/sh", &["-c", &script]);
+        assert!(wait_until(Duration::from_secs(5), || marker.exists()));
+        let image = heimdall_localenv::sys::ProcessPin::open(pid)
+            .unwrap()
+            .unwrap()
+            .image()
+            .unwrap();
+        let c = w.row_for(
+            &g,
+            &b,
+            pid,
+            ConnectionKind::Dedicated,
+            &image.to_string_lossy(),
+        );
+        let mut config = w.config();
+        config.close_grace = Duration::from_millis(1500);
+        let sup = ConnectionSupervisor::new(w.store.clone(), None, config);
+        let outcome = rt().block_on(sup.close_one(&c));
+        assert_eq!(outcome, CloseOutcome::Pending, "never SIGKILLed");
+        assert!(alive(pid, &c.start_token), "the exec'd process runs");
+        let now = heimdall_localenv::sys::ProcessPin::open(pid)
+            .unwrap()
+            .unwrap()
+            .image()
+            .unwrap();
+        assert_ne!(now, image, "it exec'd another image");
+        assert_eq!(w.row(&c.id).state, OwnedConnectionState::Closing);
+    }
+
+    /// §17.20 item 13: a store failure while a pass enumerates its rows is an explicit
+    /// failure, never an empty report; nothing was signalled.
+    #[test]
+    fn pass_discovery_failures_are_explicit() {
+        let w = world();
+        let (g, b) = w.grant(policy(ExistingConnectionsMode::Strict, false), true);
+        let pid = w.spawn("/bin/sleep", &["30"]);
+        assert!(wait_until(Duration::from_secs(2), || process_start_time(
+            pid
+        )
+        .is_some()));
+        let c = w.row_for(&g, &b, pid, ConnectionKind::Dedicated, "/bin/sleep");
+        w.end_grant(&g, GrantState::Revoked);
+        let sup = w.supervisor();
+        let rt = rt();
+        w.faults.0.store(true, Ordering::SeqCst);
+        let revocation = rt.block_on(sup.revocation_close(std::slice::from_ref(&g)));
+        let deadline = rt.block_on(sup.connection_deadline_pass(std::slice::from_ref(&g)));
+        let uncertain = rt.block_on(sup.time_uncertain_close());
+        let restart = rt.block_on(sup.connection_restart_pass());
+        w.faults.0.store(false, Ordering::SeqCst);
+        for r in [&revocation, &deadline] {
+            assert_eq!(
+                r,
+                &Err(DiscoveryFailed {
+                    report: Default::default(),
+                    grants: vec![g.clone()],
+                })
+            );
+        }
+        for r in [&uncertain, &restart] {
+            let e = r.as_ref().unwrap_err();
+            assert!(
+                e.grants.is_empty() && e.report == Default::default(),
+                "{e:?}"
+            );
+            assert_eq!(e.word(), "connection_discovery_failed");
+        }
+        assert!(alive(pid, &c.start_token), "nothing was signalled");
+        let r = rt
+            .block_on(sup.revocation_close(std::slice::from_ref(&g)))
+            .unwrap();
+        assert_eq!(r.closed, vec![c.id.clone()], "the retry closes it");
+    }
+
+    /// U7-Q4 (§17.20 item 14): the invariant the enumeration relies on, checked where
+    /// rows are inserted: a dedicated row only for a launch binding with a holder, a
+    /// master only with its process resource (the supervisor's own insertion checks it
+    /// in the inserting transaction).
+    #[test]
+    fn owned_row_invariant_checked_at_insertion() {
+        let w = world();
+        let (g, b) = w.grant(graceful_masters(), true);
+        let sup = w.supervisor();
+        let rt = rt();
+        let m = w.start(&sup, &rt, &b, 0);
+        let mut dedicated = m.clone();
+        dedicated.kind = ConnectionKind::Dedicated;
+        dedicated.control_path = None;
+        let mut orphan = m.clone();
+        orphan.id = heimdall_contract::ids::ConnectionId::from_random_bytes([0xee; 16]);
+        let (ok, without_holder, without_resource, with_holder) = w
+            .store
+            .transaction(|tx| {
+                let ok = owned_row_invariant(tx, &m)?;
+                let without_holder = owned_row_invariant(tx, &dedicated)?;
+                let without_resource = owned_row_invariant(tx, &orphan)?;
+                tx.set_binding_holder(
+                    &b,
+                    &heimdall_domain::holder::ProcessHolder {
+                        pid: 4242,
+                        started_at: "1730419200.5".into(),
+                    },
+                )?;
+                let with_holder = owned_row_invariant(tx, &dedicated)?;
+                Ok((ok, without_holder, without_resource, with_holder))
+            })
+            .unwrap();
+        assert!(ok, "the supervisor's master has its resource");
+        assert!(
+            !without_holder,
+            "a dedicated row needs a launch binding's holder"
+        );
+        assert!(!without_resource, "a master needs its resource");
+        assert!(with_holder);
+        let _ = g;
+        rt.block_on(sup.shutdown());
     }
 
     /// Every process the test (and the supervisor in it) started is gone after the
@@ -1550,13 +2286,14 @@ mod unix {
         let mut started: Vec<(u32, String)> = Vec::new();
         let (g1, b1) = w.grant(graceful_masters(), true);
         let (_g2, b2) = w.grant(graceful_masters(), true);
-        let m1 = rt.block_on(sup.start_master(&b1, &w.pair(0))).unwrap();
+        let m1 = w.start(&sup, &rt, &b1, 0);
         started.push((m1.pid, m1.start_token.clone()));
-        let m2 = rt.block_on(sup.start_master(&b2, &w.pair(0))).unwrap();
+        let m2 = w.start(&sup, &rt, &b2, 0);
         started.push((m2.pid, m2.start_token.clone()));
         let d = w.dedicated(&g1, &b1, &format!("{}-direct", w.pairs[0].alias));
         started.push((d.pid, d.start_token.clone()));
-        rt.block_on(sup.revocation_close(std::slice::from_ref(&g1)));
+        rt.block_on(sup.revocation_close(std::slice::from_ref(&g1)))
+            .unwrap();
         rt.block_on(sup.shutdown());
         assert!(wait_until(Duration::from_secs(5), || w
             .reap(d.pid)
@@ -1579,7 +2316,7 @@ mod unix {
         let (_g, b) = w.grant(graceful_masters(), true);
         let sup = w.supervisor();
         let rt = rt();
-        let m = rt.block_on(sup.start_master(&b, &w.pair(0))).unwrap();
+        let m = w.start(&sup, &rt, &b, 0);
         // The master exits by itself (an ordinary `ssh -O exit`, not the supervisor).
         let mut cmd = w
             .home
@@ -1605,7 +2342,7 @@ mod unix {
             m.pid,
             &m.start_token
         )));
-        let r = rt.block_on(sup.reap_pass());
+        let r = rt.block_on(sup.reap_pass()).unwrap();
         assert_eq!(r.closed, vec![m.id.clone()]);
         assert_eq!(w.row(&m.id).state, OwnedConnectionState::Closed);
         assert!(!w.pairs[0].mux.exists());

@@ -15,7 +15,7 @@ use heimdall_app::operations::MANAGED_CERTIFICATE;
 use heimdall_app::operations::unattended_refusal;
 use heimdall_app::ports::{
     AdapterError, IntegrationSnapshot, IssuerStatusSnapshot, ManagedPrepared, ManagedSlot,
-    ManagedSources, PrepareOutcome, PreparePair, PrepareRequest,
+    ManagedSources, PrepareOutcome, PreparePair, PrepareRequest, PreparedCertificate,
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::envelope::reason;
@@ -92,11 +92,13 @@ pub trait ManagedSourceRead: Send + Sync {
     }
 
     /// The grant's terms. **In-memory** (it is read inside the bound, U6-Q5): U10
-    /// records them when the activation transaction commits. Default: `continue` and
-    /// the default policy.
-    fn terms(&self, grant: &GrantId) -> GrantTerms {
+    /// records them when the activation transaction commits. Default: none, and
+    /// missing terms refuse the computation with [`GRANT_TERMS_UNAVAILABLE`] (ADR-0008
+    /// §17.20 item 14, U6-Q5 amended: never a default `continue`, which could report a
+    /// `revoke_on_lock` grant's lock continuity as `verified`).
+    fn terms(&self, grant: &GrantId) -> Option<GrantTerms> {
         let _ = grant;
-        GrantTerms::default()
+        None
     }
 
     /// The grant and every descendant its revocation cascades to (D7 item 6).
@@ -184,6 +186,16 @@ pub const OFFLINE_UNTIL_BEYOND_BOUND: &str = "offline_until_beyond_bound";
 /// The refusal of a minimum the managed report does not meet (destination scope,
 /// capabilities).
 pub const MINIMUM_NOT_MET: &str = "minimum_not_met";
+/// ⟨§17.20 item 14, U6-Q5⟩ The `AdapterError::Unavailable` text when the grant's terms
+/// were not recorded: the report is not computed.
+pub const GRANT_TERMS_UNAVAILABLE: &str = "grant_terms_unavailable";
+/// ⟨§17.20 item 8⟩ The `AdapterError::Protocol` text of a prepared certificate whose
+/// `valid_before` is not after the observation time.
+pub const PREPARED_CERTIFICATE_EXPIRED: &str = "prepared_certificate_expired";
+/// ⟨§17.20 item 8⟩ The `AdapterError::Protocol` text of a prepared certificate whose
+/// `valid_after` is after the observation time, or whose validity start is not known
+/// for the installed entry (fail closed).
+pub const PREPARED_CERTIFICATE_NOT_YET_VALID: &str = "prepared_certificate_not_yet_valid";
 
 /// A pair has a `verified` enrollment and a non-empty issuing-CA set.
 #[must_use]
@@ -224,20 +236,37 @@ pub fn issuer_ready(managed: &ManagedSources) -> bool {
 }
 
 /// The driver's results cover exactly `pairs`, one certificate each, none valid past
-/// the grant's effective deadline (D6 item 3; ADR-0005 §3.4: `valid_before` ≤ D).
+/// the grant's effective deadline (D6 item 3; ADR-0005 §3.4: `valid_before` ≤ D), and
+/// each valid **now** (§17.20 item 8; W3-R06): `valid_after ≤ now < valid_before`.
+/// `valid_after` is the installed entry's ([`super::effects::InstalledValidity`],
+/// through `valid_after_of`; `None` when the installed entry is not this certificate's
+/// or is unknown, which refuses).
 ///
 /// # Errors
-/// `AdapterError::Protocol` when they do not.
+/// `AdapterError::Protocol` when they do not: `prepared_results_mismatch`,
+/// [`PREPARED_CERTIFICATE_EXPIRED`], [`PREPARED_CERTIFICATE_NOT_YET_VALID`].
 pub fn check_prepared(
     prepared: &ManagedPrepared,
     pairs: &[AccessPair],
     deadline: Timestamp,
+    now: Timestamp,
+    valid_after_of: &dyn Fn(&PreparedCertificate) -> Option<Timestamp>,
 ) -> Result<(), AdapterError> {
     let mismatch = || AdapterError::Protocol("prepared_results_mismatch".to_owned());
     let mut seen = BTreeSet::new();
     for c in &prepared.certificates {
         if !pairs.contains(&c.pair) || !seen.insert(c.pair.clone()) || c.valid_before > deadline {
             return Err(mismatch());
+        }
+        if c.valid_before <= now {
+            return Err(AdapterError::Protocol(
+                PREPARED_CERTIFICATE_EXPIRED.to_owned(),
+            ));
+        }
+        if valid_after_of(c).is_none_or(|after| after > now) {
+            return Err(AdapterError::Protocol(
+                PREPARED_CERTIFICATE_NOT_YET_VALID.to_owned(),
+            ));
         }
     }
     if seen.len() != pairs.len() {
@@ -362,15 +391,18 @@ pub fn pair_evidence<'a>(
 ///
 /// # Errors
 /// `AdapterError::Protocol(MANAGED_PREPARE_WITHOUT_DRIVER)` without driver results;
+/// `Unavailable(GRANT_TERMS_UNAVAILABLE)` without the grant's terms (U6-Q5 amended);
 /// `CapabilityUnavailable` for a refusal ([`ManagedRefusal`]); `Protocol` for driver
-/// results that do not match the request.
+/// results that do not match the request or a certificate not valid now
+/// ([`check_prepared`]).
 pub fn outcome(
     req: &PrepareRequest<'_>,
     sources: &IntegrationSnapshot,
-    terms: &GrantTerms,
+    terms: Option<&GrantTerms>,
     layout: Option<&EndpointLayout>,
     platform: Platform,
     capabilities: &BTreeSet<heimdall_contract::request::Capability>,
+    valid_after_of: &dyn Fn(&PreparedCertificate) -> Option<Timestamp>,
 ) -> Result<(PrepareOutcome, ManagedReport), AdapterError> {
     let prepared = driver_results(sources)?;
     let Some(managed) = sources.managed.as_ref() else {
@@ -380,7 +412,19 @@ pub fn outcome(
     };
     let pairs: Vec<AccessPair> = req.scope.pairs.iter().cloned().collect();
     check_enrolled(managed, &pairs).map_err(ManagedRefusal::into_adapter_error)?;
-    check_prepared(prepared, &pairs, req.grant.deadline.effective)?;
+    check_prepared(
+        prepared,
+        &pairs,
+        req.grant.deadline.effective,
+        req.now,
+        valid_after_of,
+    )?;
+    // No report without the grant's recorded terms (U6-Q5 amended).
+    let Some(terms) = terms else {
+        return Err(AdapterError::Unavailable(
+            GRANT_TERMS_UNAVAILABLE.to_owned(),
+        ));
+    };
     let evidence = pair_evidence(managed, &pairs);
     let ctx = ReportContext {
         platform,

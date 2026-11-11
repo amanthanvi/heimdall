@@ -229,6 +229,10 @@ pub enum MaterializeRefusal {
     /// Another binding already holds a pair (D10 item 2: at most one binding per pair).
     #[error("another binding holds a pair")]
     PairHeld(AccessPair),
+    /// ⟨M03 wave 3, §17.20 item 2⟩ This binding already lists the pair at a newer
+    /// generation: an older materialization never replaces it.
+    #[error("the pair is listed at a newer generation")]
+    StaleGeneration(AccessPair),
 }
 
 /// D2 item 6's read transaction: the signer's own view of the generation, the
@@ -277,8 +281,10 @@ struct TableState {
     grants: HashMap<GrantId, GrantKey>,
     /// Binding endpoint → its grant.
     bindings: HashMap<BindingId, GrantId>,
-    /// The environment listing: pair → the binding that holds it.
-    materialized: BTreeMap<AccessPair, BindingId>,
+    /// The environment listing: pair → the binding that holds it and the slot
+    /// generation it was listed at (ADR-0008 §17.20 item 2: withdrawn per binding, pair
+    /// and generation).
+    materialized: BTreeMap<AccessPair, (BindingId, u64)>,
     verifications: HashMap<OperationId, VerificationKey>,
 }
 
@@ -619,7 +625,7 @@ impl SignerTable {
     pub fn detach_binding(&self, binding: &BindingId) {
         let mut s = self.lock();
         s.bindings.remove(binding);
-        s.materialized.retain(|_, b| b != binding);
+        s.materialized.retain(|_, (b, _)| b != binding);
     }
 
     /// The grant a binding is attached to.
@@ -631,7 +637,8 @@ impl SignerTable {
     /// Materialize `binding` for `pairs` into the environment listing (ADR-0008 D10
     /// items 2–3): the environment endpoint then lists exactly its certificates for
     /// those pairs. At most one binding per pair; a pair this binding already holds
-    /// is kept.
+    /// is kept at its generation (a pair listed here first is at generation 0). The
+    /// generation-aware form is [`Self::materialize_at`].
     ///
     /// # Errors
     /// [`MaterializeRefusal`]; nothing changes.
@@ -639,6 +646,32 @@ impl SignerTable {
         &self,
         binding: &BindingId,
         pairs: &[AccessPair],
+    ) -> Result<(), MaterializeRefusal> {
+        self.materialize_with(binding, pairs, None)
+    }
+
+    /// ⟨M03 wave 3, §17.20 item 2⟩ [`Self::materialize`] at the slot `generation`: the
+    /// listing records `(binding, generation)` per pair, so a later withdrawal of an
+    /// older generation ([`Self::unmaterialize_pair`], [`Self::unmaterialize_generation`])
+    /// never unlists it. A pair this binding lists at a newer generation is refused
+    /// ([`MaterializeRefusal::StaleGeneration`]).
+    ///
+    /// # Errors
+    /// [`MaterializeRefusal`]; nothing changes.
+    pub fn materialize_at(
+        &self,
+        binding: &BindingId,
+        pairs: &[AccessPair],
+        generation: u64,
+    ) -> Result<(), MaterializeRefusal> {
+        self.materialize_with(binding, pairs, Some(generation))
+    }
+
+    fn materialize_with(
+        &self,
+        binding: &BindingId,
+        pairs: &[AccessPair],
+        generation: Option<u64>,
     ) -> Result<(), MaterializeRefusal> {
         let mut s = self.lock();
         let grant = s
@@ -654,22 +687,69 @@ impl SignerTable {
             if !key.installed.contains_key(p) {
                 return Err(MaterializeRefusal::NotInstalled(p.clone()));
             }
-            if let Some(holder) = s.materialized.get(p)
-                && holder != binding
-            {
-                return Err(MaterializeRefusal::PairHeld(p.clone()));
+            match s.materialized.get(p) {
+                Some((holder, _)) if holder != binding => {
+                    return Err(MaterializeRefusal::PairHeld(p.clone()));
+                }
+                Some((_, listed)) if generation.is_some_and(|g| *listed > g) => {
+                    return Err(MaterializeRefusal::StaleGeneration(p.clone()));
+                }
+                _ => {}
             }
         }
         for p in pairs {
-            s.materialized.insert(p.clone(), binding.clone());
+            let g = generation
+                .or_else(|| s.materialized.get(p).map(|(_, g)| *g))
+                .unwrap_or(0);
+            s.materialized.insert(p.clone(), (binding.clone(), g));
         }
         Ok(())
     }
 
-    /// Remove `binding` from the environment listing (D10 item 2: the key is unlisted
-    /// at once; the files go later, by generation).
+    /// Remove `binding` from the environment listing for every pair and generation
+    /// (D10 item 2: the key is unlisted at once; the files go later, by generation).
+    /// A cleanup of one generation uses [`Self::unmaterialize_pair`] or
+    /// [`Self::unmaterialize_generation`] instead (§17.20 item 2).
     pub fn unmaterialize(&self, binding: &BindingId) {
-        self.lock().materialized.retain(|_, b| b != binding);
+        self.lock().materialized.retain(|_, (b, _)| b != binding);
+    }
+
+    /// ⟨M03 wave 3, §17.20 item 2⟩ Unlist `pair` only if `binding` lists it at exactly
+    /// `generation`; a newer generation, another pair or another binding is untouched.
+    /// Returns whether the pair was unlisted.
+    pub fn unmaterialize_pair(
+        &self,
+        binding: &BindingId,
+        pair: &AccessPair,
+        generation: u64,
+    ) -> bool {
+        let mut s = self.lock();
+        if s.materialized.get(pair) == Some(&(binding.clone(), generation)) {
+            s.materialized.remove(pair);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// ⟨M03 wave 3, §17.20 item 2⟩ Unlist every pair `binding` lists at exactly
+    /// `generation` (other generations and pairs stay). Returns the pairs unlisted.
+    pub fn unmaterialize_generation(
+        &self,
+        binding: &BindingId,
+        generation: u64,
+    ) -> Vec<AccessPair> {
+        let mut s = self.lock();
+        let gone: Vec<AccessPair> = s
+            .materialized
+            .iter()
+            .filter(|(_, (b, g))| b == binding && *g == generation)
+            .map(|(p, _)| p.clone())
+            .collect();
+        for p in &gone {
+            s.materialized.remove(p);
+        }
+        gone
     }
 
     /// The pairs `binding` holds in the environment listing.
@@ -678,9 +758,19 @@ impl SignerTable {
         self.lock()
             .materialized
             .iter()
-            .filter(|(_, b)| *b == binding)
+            .filter(|(_, (b, _))| b == binding)
             .map(|(p, _)| p.clone())
             .collect()
+    }
+
+    /// ⟨M03 wave 3⟩ The generation `binding` lists `pair` at, if it lists it.
+    #[must_use]
+    pub fn materialized_generation(&self, binding: &BindingId, pair: &AccessPair) -> Option<u64> {
+        self.lock()
+            .materialized
+            .get(pair)
+            .filter(|(b, _)| b == binding)
+            .map(|(_, g)| *g)
     }
 
     // --- destruction (D2 item 7) ------------------------------------------------
@@ -700,7 +790,7 @@ impl SignerTable {
                 .filter(|(_, g)| *g == grant)
                 .map(|(b, _)| b.clone())
                 .collect();
-            s.materialized.retain(|_, b| !bindings.contains(b));
+            s.materialized.retain(|_, (b, _)| !bindings.contains(b));
             s.bindings.retain(|_, g| g != grant);
             removed
         };
@@ -850,7 +940,7 @@ impl SignerTable {
         let mut out: Vec<(Vec<u8>, String)> = Vec::new();
         match endpoint {
             SignerEndpoint::Environment => {
-                for (pair, binding) in &s.materialized {
+                for (pair, (binding, _)) in &s.materialized {
                     let Some(key) = s.bindings.get(binding).and_then(|g| s.grants.get(g)) else {
                         continue;
                     };
@@ -901,11 +991,13 @@ impl SignerTable {
             plain_requested: false,
         };
         match endpoint {
-            SignerEndpoint::Environment => s.materialized.iter().find_map(|(pair, binding)| {
-                let grant = s.bindings.get(binding)?;
-                let key = s.grants.get(grant)?;
-                (key.installed.get(pair)?.blob == key_blob).then(|| grant_target(grant, key))
-            }),
+            SignerEndpoint::Environment => {
+                s.materialized.iter().find_map(|(pair, (binding, _))| {
+                    let grant = s.bindings.get(binding)?;
+                    let key = s.grants.get(grant)?;
+                    (key.installed.get(pair)?.blob == key_blob).then(|| grant_target(grant, key))
+                })
+            }
             SignerEndpoint::Binding(b) => {
                 let grant = s.bindings.get(b)?;
                 let key = s.grants.get(grant)?;

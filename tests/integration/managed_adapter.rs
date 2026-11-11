@@ -335,6 +335,18 @@ fn identity_record() -> IdentityRecord {
     }
 }
 
+/// Set a directory's permission bits (Unix; Windows has none, so it is a no-op there:
+/// the Windows refusals are the DACL's, `managed_dir_windows_*`).
+fn set_mode(path: &Path, mode: u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
+}
+
 fn prepare_pairs(pairs: &[AccessPair]) -> Vec<PreparePair> {
     pairs
         .iter()
@@ -427,13 +439,8 @@ impl ManagedSourceRead for StoreSources {
     fn prepared(&self, _pairs: &[AccessPair]) -> Option<ManagedPrepared> {
         self.prepared.lock().unwrap().clone()
     }
-    fn terms(&self, grant: &GrantId) -> GrantTerms {
-        self.terms
-            .lock()
-            .unwrap()
-            .get(grant)
-            .copied()
-            .unwrap_or_default()
+    fn terms(&self, grant: &GrantId) -> Option<GrantTerms> {
+        self.terms.lock().unwrap().get(grant).copied()
     }
     fn cascade(&self, grant: &GrantId) -> Vec<GrantId> {
         let children = self.children.lock().unwrap();
@@ -842,7 +849,8 @@ impl World {
                 data_dir: dir.path().join("state"),
                 environment: env_id(),
             },
-        );
+        )
+        .with_slot_store(Arc::new(StoreSlots(store.clone())));
         let adapter = Arc::new(ManagedCertificateAdapter::new(
             "fixture-1",
             sources.clone(),
@@ -1065,6 +1073,14 @@ impl World {
         let gid = &data.grant_id;
         let grant = self.grant(gid);
         let mut d = Driven::default();
+        // 0. the grant's terms, as U10 records them at activation (U6-Q5; a test that
+        // set them first keeps its own).
+        self.sources
+            .terms
+            .lock()
+            .unwrap()
+            .entry(gid.clone())
+            .or_default();
         // 1. key
         let key = self.effects.generate_key(gid, token).await.unwrap();
         self.ops.signing_gates().retain(gid, ancestors);
@@ -1276,6 +1292,10 @@ fn binding_files_for_endpoint_agrees_with_connect_cmd() {
 #[test]
 fn slot_and_binding_files_are_generation_bound() {
     let dir = tempfile::tempdir().unwrap();
+    // The anchors exist (the state and runtime directories); every level below them is
+    // created owner-only (§17.20 item 7).
+    std::fs::create_dir(dir.path().join("state")).unwrap();
+    std::fs::create_dir(dir.path().join("run")).unwrap();
     let root = SlotRoot {
         data_dir: dir.path().join("state"),
         environment: env_id(),
@@ -1362,7 +1382,7 @@ fn slot_and_binding_files_are_generation_bound() {
         format!("{cert}\n")
     );
     assert_eq!(
-        files::binding_directories_of(&rd, &b1),
+        files::binding_directories_of(&rd, &b1).unwrap(),
         vec![(bf.directory.clone(), 4)]
     );
     assert_eq!(
@@ -1578,8 +1598,7 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
         ExistingConnectionsMode::Graceful
     );
     assert_eq!(r.connection_policy.multiplexing, MultiplexingMode::Disabled);
-    // The frozen golden carries exactly these values (every report field but
-    // `consumer`, U6-Q6).
+    // The golden carries exactly these values (every report field; `consumer` below).
     for fragment in [
         "\"usable_until\": \"2026-11-10T22:00:00Z\"",
         "\"offline_until\": \"2026-11-10T22:00:00Z\"",
@@ -1617,6 +1636,158 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
         assert!(golden.contains(fragment), "golden lacks {fragment}");
     }
     assert!(golden.contains(&format!("\"wording\": \"{}\"", r.connection_policy.wording)));
+    // §17.20 item 9 (W3-R07): the wording is U8's `deadline_wording` for the selection
+    // and the policy, never retyped; D8 item 3's disclosure follows when owned masters
+    // are applied (never on Windows, where they are unavailable).
+    use heimdall_contract::provider::IdentitySelection;
+    use heimdall_localenv::projection::plan::deadline_wording;
+    assert_eq!(
+        r.connection_policy.wording,
+        deadline_wording(
+            IdentitySelection::Exclusive,
+            ExistingConnectionsMode::Graceful
+        )
+    );
+    let masters = ConnectionPolicy {
+        existing: ExistingConnectionsMode::Graceful,
+        multiplexing: MultiplexingMode::OwnedMasters,
+    };
+    let strict = ConnectionPolicy {
+        existing: ExistingConnectionsMode::Strict,
+        multiplexing: MultiplexingMode::Disabled,
+    };
+    let mac = Platform {
+        os: "macos",
+        arch: "aarch64",
+    };
+    for (selection, policy, platform, expected) in [
+        (
+            SelectionClass::Undetermined,
+            ConnectionPolicy::default(),
+            windows,
+            deadline_wording(
+                IdentitySelection::Undetermined,
+                ExistingConnectionsMode::Graceful,
+            )
+            .to_owned(),
+        ),
+        (
+            SelectionClass::NotExclusive,
+            strict,
+            windows,
+            deadline_wording(
+                IdentitySelection::NotExclusive,
+                ExistingConnectionsMode::Strict,
+            )
+            .to_owned(),
+        ),
+        (
+            SelectionClass::Undetermined,
+            masters,
+            mac,
+            format!(
+                "{} {}",
+                deadline_wording(
+                    IdentitySelection::Undetermined,
+                    ExistingConnectionsMode::Graceful
+                ),
+                report::OWNED_MASTERS_DISCLOSURE
+            ),
+        ),
+        (
+            SelectionClass::Exclusive,
+            masters,
+            windows,
+            deadline_wording(
+                IdentitySelection::Exclusive,
+                ExistingConnectionsMode::Graceful,
+            )
+            .to_owned(),
+        ),
+    ] {
+        let c = ReportContext {
+            selection,
+            policy,
+            platform,
+            ..ctx
+        };
+        assert_eq!(
+            report::compute(&g, &prepared, &[], &c, &ev)
+                .connection_policy
+                .wording,
+            expected
+        );
+    }
+    // `undetermined` (today's selection) gets the qualified D8 item 6 text.
+    assert_ne!(
+        report::connection_wording(
+            SelectionClass::Undetermined,
+            &ConnectionPolicy::default(),
+            &windows
+        ),
+        r.connection_policy.wording
+    );
+    // `consumer` (§17.20 item 14, U6-Q6): the **binding** endpoint of the materialized
+    // files, as `prepare_from` fills it, for the golden's Windows token and tag. The
+    // golden carries the locator the product emits, `\\.\pipe\…`, which `connect`
+    // derives the files from (§17.20 item 15, W3-R2-Q1), JSON-escaped.
+    let layout = EndpointLayout::windows("0011223344556677").unwrap();
+    let with_files = ManagedPrepared {
+        materialized: Some(heimdall_app::ports::MaterializedFiles {
+            directory: w.runtime_dir().join("b").join("0123456789abcdef"),
+            files: Vec::new(),
+            generation: 1,
+        }),
+        ..prepared.clone()
+    };
+    let issuer = ready_issuer();
+    let mut enrolled = enrollment(0x61, &w.ca_fp, &dest_lab, None);
+    enrolled.evidence = Some(evidence.clone());
+    let snap = IntegrationSnapshot {
+        managed: Some(heimdall_app::ports::ManagedSources {
+            enrollments: vec![enrolled],
+            issuing_cas: [(dest_lab.clone(), [w.ca_fp.clone()].into_iter().collect())]
+                .into_iter()
+                .collect(),
+            slots: Vec::new(),
+            claims: Vec::new(),
+            issuer: Some(issuer),
+            prepared: Some(with_files),
+        }),
+        ..IntegrationSnapshot::default()
+    };
+    let pp = prepare_pairs(std::slice::from_ref(&dest_lab));
+    let required = RequiredCapabilities::default();
+    let (outcome, _) = prepare::outcome(
+        &PrepareRequest {
+            grant: &g,
+            scope: &g.scope,
+            required: &required,
+            interactive: false,
+            effect_token: "tok",
+            now: measured_at,
+            pairs: &pp,
+        },
+        &snap,
+        Some(&GrantTerms::default()),
+        Some(&layout),
+        windows,
+        &heimdall_adapters::managed::managed_capabilities(),
+        &|_| Some(measured_at),
+    )
+    .unwrap();
+    let locator = outcome.integration.signing_endpoint.clone().unwrap();
+    assert_eq!(
+        locator,
+        r"\\.\pipe\heimdall-0011223344556677-b0123456789abcdef"
+    );
+    let escaped = locator.replace('\\', "\\\\");
+    assert!(
+        golden.contains(&format!(
+            "\"consumer\": {{\n    \"signing_endpoint\": \"{escaped}\"\n  }}"
+        )),
+        "the golden's consumer is exactly the binding endpoint {locator}"
+    );
     // Today the selection is not classified (U6-Q3): `unknown`, never the claim.
     const { assert!(!report::MANAGED_SELECTION_CLASSIFIED) };
     let undetermined = ReportContext {
@@ -2478,14 +2649,18 @@ async fn renew_never_extends_deadline_or_pairs() {
                     } else {
                         d
                     };
+                    let installed = p.certificates.clone();
                     p.certificates = requested
                         .scope
                         .pairs
                         .iter()
                         .map(|pr| PreparedCertificate {
                             pair: pr.clone(),
-                            issuance: heimdall_contract::ids::IssuanceId::from_random_bytes(
-                                [7; 16],
+                            // The installed entry for a pair the driver prepared (its
+                            // validity is checked, §17.20 item 8); a forged one else.
+                            issuance: installed.iter().find(|c| &c.pair == pr).map_or_else(
+                                || heimdall_contract::ids::IssuanceId::from_random_bytes([7; 16]),
+                                |c| c.issuance.clone(),
                             ),
                             ca: w.ca_fp.clone(),
                             valid_before: vb,
@@ -2719,11 +2894,30 @@ async fn reissue_never_from_process_files() {
         adapter.reconcile(&gid, "tok").await.unwrap(),
         ReconcileOutcome::Applied(_)
     ));
-    // The planted directory has no marker: no binding owns it, no clear touches it.
+    // The planted directory is not owner-only (§17.20 item 7): the restart enumeration
+    // refuses it with `managed_dir_unsafe`, never repairs it, and no clear touches it.
     let fake = BindingId::from_random_bytes([0xff; 16]);
-    assert!(files::binding_directories_of(&w.runtime_dir(), &fake).is_empty());
-    effects.clear(&fake, 1).unwrap();
+    assert!(matches!(
+        files::binding_directories_of(&w.runtime_dir(), &fake),
+        Err(files::FilesError::Unsafe(_))
+    ));
+    assert_eq!(
+        effects.clear(&fake, 1).unwrap_err(),
+        AdapterError::Unavailable(files::MANAGED_DIR_UNSAFE.to_owned())
+    );
     assert!(planted.join("key.pub").exists());
+    // Owner-only (Unix: mode 0700; Windows keeps the inherited DACL, refused above), it
+    // holds no marker: no binding owns it, no clear touches it.
+    if cfg!(unix) {
+        set_mode(&planted, 0o700);
+        assert!(
+            files::binding_directories_of(&w.runtime_dir(), &fake)
+                .unwrap()
+                .is_empty()
+        );
+        effects.clear(&fake, 1).unwrap();
+        assert!(planted.join("key.pub").exists());
+    }
     w.finish(&[gid]).await;
 }
 
@@ -2994,7 +3188,11 @@ async fn rotation_keeps_ensure_working_per_account() {
     let required = RequiredCapabilities::default();
     // Before: both accounts under K_ca.
     let a = w.ensure("rot-a", &[h1(), h2()]).await;
-    w.drive(&a, "tok-a", Stage::Materialize).await;
+    let prepared_a = w
+        .drive(&a, "tok-a", Stage::Materialize)
+        .await
+        .prepared
+        .unwrap();
     assert_eq!(w.ca_of(&a.grant_id, &h1()), w.ca_fp);
     assert_eq!(w.ca_of(&a.grant_id, &h2()), w.ca_fp);
     w.prepare_from(&w.grant(&a.grant_id), &[h1(), h2()], &required)
@@ -3028,7 +3226,9 @@ async fn rotation_keeps_ensure_working_per_account() {
     w.prepare_from(&w.grant(&c.grant_id), &[h1(), h2()], &required)
         .await
         .unwrap();
-    // The earlier grants keep working (their certificates are still valid).
+    // The earlier grants keep working (their certificates are still valid), each with
+    // its own driver results (the installed entries' validity is checked: §17.20 item 8).
+    *w.sources.prepared.lock().unwrap() = Some(prepared_a.clone());
     w.prepare_from(&w.grant(&a.grant_id), &[h1(), h2()], &required)
         .await
         .unwrap();
@@ -3424,6 +3624,15 @@ async fn revoke_result_lists_owned_connections_and_ordinary_note() {
     );
     w.store
         .transaction(|tx| {
+            // A dedicated row belongs to a launch binding with a recorded holder (U7-Q4,
+            // §17.20 item 14: the store refuses it otherwise).
+            tx.set_binding_holder(
+                &data.binding_id,
+                &heimdall_domain::holder::ProcessHolder {
+                    pid: 4200,
+                    started_at: "1730419200.5".into(),
+                },
+            )?;
             tx.insert_owned_connection(&a)?;
             tx.insert_owned_connection(&b)?;
             tx.insert_owned_connection(&c)?;
@@ -3908,4 +4117,681 @@ async fn projection_pending_refused_only_for_managed_only_minimums() {
         e.reason.as_deref(),
         Some(heimdall_contract::envelope::reason::PROJECTION_PENDING)
     );
+}
+
+// =================================================================================
+// Wave 3 round 2 (ADR-0008 §17.20): the review fixes' regressions
+// =================================================================================
+
+/// The fixture certificate line every file-level case writes (public format only).
+const FIX_KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIkey heimdall:x";
+
+fn fix_cert(n: u8) -> String {
+    format!("ssh-ed25519-cert-v01@openssh.com AAAAIGNlcnQ{n}= heimdall:x")
+}
+
+/// A scratch state and runtime directory (the anchors exist, as in production).
+fn anchors() -> (tempfile::TempDir, SlotRoot, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("state")).unwrap();
+    std::fs::create_dir(dir.path().join("run")).unwrap();
+    let root = SlotRoot {
+        data_dir: dir.path().join("state"),
+        environment: env_id(),
+    };
+    let rd = dir.path().join("run");
+    (dir, root, rd)
+}
+
+fn free_slot(w: &World, binding: &BindingId, pair: &AccessPair, generation: u64) {
+    w.store
+        .transaction(|tx| tx.release_slot(&env_id(), pair, binding, generation, t0()))
+        .unwrap()
+        .unwrap();
+    w.store
+        .transaction(|tx| tx.slot_files_removed(&env_id(), pair, generation, t0()))
+        .unwrap()
+        .unwrap();
+}
+
+/// §17.20 item 1 (W3-R01 = W3-S05; the security review's `LATE_WRITE` probe, ported):
+/// a generation-1 write delayed past a release and a generation-2 claim leaves
+/// generation 2's marker and bytes unchanged; a write the store no longer backs
+/// publishes nothing.
+#[tokio::test]
+async fn stale_generation_write_never_rolls_back_the_slot() {
+    // The probe: generation 2 written, then the delayed generation-1 write.
+    let (_dir, root, _rd) = anchors();
+    let (b1, b2) = (
+        BindingId::from_random_bytes([1; 16]),
+        BindingId::from_random_bytes([2; 16]),
+    );
+    let paths = files::slot_paths(&root.data_dir, &h1()).unwrap();
+    files::write_slot(&root, &env_id(), &h1(), &b2, 2, FIX_KEY, &fix_cert(2)).unwrap();
+    let late = files::write_slot(&root, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1));
+    assert!(
+        matches!(late, Err(files::FilesError::StaleGeneration(2))),
+        "{late:?}"
+    );
+    assert_eq!(files::slot_generation(&root, &h1()).unwrap(), Some(2));
+    let marker = std::fs::read_to_string(paths.dir.join(files::GENERATION_FILE)).unwrap();
+    assert_eq!(marker, format!("2 {}\n", b2.as_str()));
+    assert_eq!(
+        std::fs::read_to_string(&paths.cert_pub).unwrap(),
+        format!("{}\n", fix_cert(2))
+    );
+    // Another holder at the same generation is refused too.
+    assert!(matches!(
+        files::write_slot(&root, &env_id(), &h1(), &b1, 2, FIX_KEY, &fix_cert(1)),
+        Err(files::FilesError::OtherHolder)
+    ));
+    assert_eq!(
+        std::fs::read_to_string(&paths.cert_pub).unwrap(),
+        format!("{}\n", fix_cert(2))
+    );
+    // A clear of generation 2 still finds generation 2 (never `OtherGeneration(1)`).
+    assert_eq!(
+        files::clear_slot(&root, &env_id(), &h1(), 2).unwrap(),
+        ClearOutcome::Removed
+    );
+
+    // Through the effects: the store's holder and generation are re-validated first.
+    let w = World::new().await;
+    let a = w.ensure("late-a", &[h1()]).await;
+    w.drive(&a, "tok-a", Stage::Materialize).await;
+    let b = w.ensure("late-b", &[h1()]).await;
+    w.drive(&b, "tok-b", Stage::Materialize).await;
+    let slots = ManagedSlotTable::new(StoreSlots(w.store.clone()), w.effects.clone());
+    slots.claim(&a.binding_id, &h1()).unwrap();
+    // A's generation 1 is released and cleared; the store frees it.
+    w.store
+        .transaction(|tx| tx.release_slot(&env_id(), &h1(), &a.binding_id, 1, t0()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        w.effects.clear_slot(&a.binding_id, &h1(), 1).unwrap(),
+        ClearOutcome::Removed
+    );
+    w.store
+        .transaction(|tx| tx.slot_files_removed(&env_id(), &h1(), 1, t0()))
+        .unwrap()
+        .unwrap();
+    let wpaths = files::slot_paths(&w.data_dir(), &h1()).unwrap();
+    // A delayed generation-1 write after the clear (no marker left to fence it): the
+    // store shows the slot free, so nothing is published.
+    assert_eq!(
+        w.effects
+            .materialize_slot(&a.binding_id, &h1(), 1)
+            .unwrap_err(),
+        AdapterError::Protocol(heimdall_adapters::managed::effects::SLOT_HOLDER_CHANGED.into())
+    );
+    assert!(!wpaths.cert_pub.exists() && !wpaths.key_pub.exists());
+    assert!(w.table().materialized_pairs(&a.binding_id).is_empty());
+    // B claims generation 2; A's delayed generation-1 write then changes nothing.
+    slots.claim(&b.binding_id, &h1()).unwrap();
+    let marker2 = std::fs::read_to_string(wpaths.dir.join(files::GENERATION_FILE)).unwrap();
+    let cert2 = std::fs::read_to_string(&wpaths.cert_pub).unwrap();
+    assert_eq!(marker2, format!("2 {}\n", b.binding_id.as_str()));
+    assert!(w.effects.materialize_slot(&a.binding_id, &h1(), 1).is_err());
+    assert_eq!(
+        std::fs::read_to_string(wpaths.dir.join(files::GENERATION_FILE)).unwrap(),
+        marker2
+    );
+    assert_eq!(std::fs::read_to_string(&wpaths.cert_pub).unwrap(), cert2);
+    assert_eq!(
+        w.table().materialized_generation(&b.binding_id, &h1()),
+        Some(2)
+    );
+    w.finish(&[a.grant_id, b.grant_id]).await;
+}
+
+/// A [`SlotStore`] whose `claim` stops until released (the serialization regression).
+struct GatedSlots {
+    inner: StoreSlots,
+    entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+}
+
+impl SlotStore for GatedSlots {
+    fn slot(
+        &self,
+        environment: &EnvironmentId,
+        pair: &AccessPair,
+    ) -> Result<SlotState, AdapterError> {
+        self.inner.slot(environment, pair)
+    }
+    fn claim(
+        &self,
+        environment: &EnvironmentId,
+        pair: &AccessPair,
+        binding: &BindingId,
+    ) -> Result<Result<SlotState, SlotRefusal>, AdapterError> {
+        let r = self.inner.claim(environment, pair, binding);
+        if let Some(tx) = self.entered.lock().unwrap().take() {
+            tx.send(()).unwrap();
+        }
+        if let Some(rx) = self.release.lock().unwrap().take() {
+            rx.recv().unwrap();
+        }
+        r
+    }
+}
+
+/// §17.20 item 1: a slot's claim, its materialization and a clear of it are
+/// serialized. A clear issued while the claim is between its store CAS and its files
+/// waits for the claim's publication, so it can never run before the write it clears.
+#[tokio::test]
+async fn slot_claim_and_clear_are_serialized() {
+    let w = World::new().await;
+    let a = w.ensure("serial", &[h1()]).await;
+    w.drive(&a, "tok", Stage::Materialize).await;
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let slots = ManagedSlotTable::new(
+        GatedSlots {
+            inner: StoreSlots(w.store.clone()),
+            entered: Mutex::new(Some(entered_tx)),
+            release: Mutex::new(Some(release_rx)),
+        },
+        w.effects.clone(),
+    );
+    let order = Mutex::new(Vec::new());
+    let cleared = AtomicBool::new(false);
+    let raced = std::thread::scope(|s| {
+        s.spawn(|| {
+            slots.claim(&a.binding_id, &h1()).unwrap();
+            order.lock().unwrap().push("claim");
+        });
+        entered_rx.recv().unwrap();
+        s.spawn(|| {
+            let _ = w.effects.clear_slot(&a.binding_id, &h1(), 1);
+            cleared.store(true, Ordering::SeqCst);
+            order.lock().unwrap().push("clear");
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        let raced = cleared.load(Ordering::SeqCst);
+        // Released before any assertion, so a failure never leaves the claim waiting.
+        release_tx.send(()).unwrap();
+        raced
+    });
+    assert!(
+        !raced,
+        "the clear ran while the claim was between its CAS and its files"
+    );
+    assert_eq!(*order.lock().unwrap(), vec!["claim", "clear"]);
+    // The clear came after the claim's files: generation 1 is gone, not resurrected.
+    let paths = files::slot_paths(&w.data_dir(), &h1()).unwrap();
+    assert!(!paths.cert_pub.exists());
+    w.finish(&[a.grant_id]).await;
+}
+
+/// §17.20 item 2 (W3-R02): a binding re-materialized at generation N+1 keeps its
+/// listing after a clear for N (in the signer and on disk).
+#[tokio::test]
+async fn stale_clear_never_unlists_the_current_binding() {
+    let w = World::new().await;
+    let a = w.ensure("relist", &[h1()]).await;
+    let d = w.drive(&a, "tok", Stage::Materialize).await;
+    let slots = ManagedSlotTable::new(StoreSlots(w.store.clone()), w.effects.clone());
+    slots.claim(&a.binding_id, &h1()).unwrap();
+    // Generation 1 ends; its first clear ran; the store frees it; the same binding
+    // claims again: generation 2.
+    w.store
+        .transaction(|tx| tx.release_slot(&env_id(), &h1(), &a.binding_id, 1, t0()))
+        .unwrap()
+        .unwrap();
+    w.effects.clear_slot(&a.binding_id, &h1(), 1).unwrap();
+    w.store
+        .transaction(|tx| tx.slot_files_removed(&env_id(), &h1(), 1, t0()))
+        .unwrap()
+        .unwrap();
+    slots.claim(&a.binding_id, &h1()).unwrap();
+    // The binding files are re-materialized at resource generation 2 (a re-issue).
+    let key = d.key.clone().unwrap();
+    let bfiles = w
+        .effects
+        .materialize(
+            &a.binding_id,
+            &MaterializeSpec {
+                generation: 2,
+                public_key: key.public_key.clone(),
+                certificates: d
+                    .certs
+                    .iter()
+                    .map(|(p, c)| MaterializedCertificate {
+                        pair: p.clone(),
+                        certificate: c.clone(),
+                    })
+                    .collect(),
+                environment_slots: false,
+            },
+        )
+        .unwrap();
+    let env = heimdall_app::ports::SignerEndpoint::Environment;
+    assert_eq!(w.table().list(&env).len(), 1);
+    // The stale clears of generation 1, of the slot and of the binding.
+    assert_eq!(
+        w.effects.clear_slot(&a.binding_id, &h1(), 1).unwrap(),
+        ClearOutcome::OtherGeneration(2)
+    );
+    w.effects.clear(&a.binding_id, 1).unwrap();
+    assert_eq!(
+        w.table().materialized_generation(&a.binding_id, &h1()),
+        Some(2),
+        "the current listing survives a clear for an older generation"
+    );
+    assert_eq!(w.table().list(&env).len(), 1);
+    let paths = files::slot_paths(&w.data_dir(), &h1()).unwrap();
+    assert!(paths.cert_pub.exists());
+    assert!(bfiles.files.iter().all(|f| f.exists()));
+    // The current generation's clear withdraws it.
+    assert_eq!(
+        w.effects.clear_slot(&a.binding_id, &h1(), 2).unwrap(),
+        ClearOutcome::Removed
+    );
+    assert!(w.table().list(&env).is_empty());
+    w.finish(&[a.grant_id]).await;
+}
+
+/// §17.20 item 2 (W3-R02): clearing one pair withdraws only that pair; a second pair
+/// keeps its listing and files.
+#[tokio::test]
+async fn clearing_one_pair_keeps_the_other_pairs_listing() {
+    let w = World::new().await;
+    let a = w.ensure("twopairs", &[h1(), h2()]).await;
+    w.drive(&a, "tok", Stage::Materialize).await;
+    let slots = ManagedSlotTable::new(StoreSlots(w.store.clone()), w.effects.clone());
+    slots.claim(&a.binding_id, &h1()).unwrap();
+    slots.claim(&a.binding_id, &h2()).unwrap();
+    let env = heimdall_app::ports::SignerEndpoint::Environment;
+    assert_eq!(w.table().list(&env).len(), 2);
+    free_slot(&w, &a.binding_id, &h1(), 1);
+    assert_eq!(
+        w.effects.clear_slot(&a.binding_id, &h1(), 1).unwrap(),
+        ClearOutcome::Removed
+    );
+    assert_eq!(w.table().materialized_pairs(&a.binding_id), vec![h2()]);
+    assert_eq!(w.table().list(&env).len(), 1);
+    let p2 = files::slot_paths(&w.data_dir(), &h2()).unwrap();
+    assert!(p2.cert_pub.exists() && p2.key_pub.exists());
+    w.finish(&[a.grant_id]).await;
+}
+
+/// §17.20 item 7 (W3-S04; the security review's three probe cases, ported, plus the
+/// restart enumeration over a planted entry): managed files never follow a planted
+/// directory, an open directory is refused and never repaired, nothing is removed
+/// through an unverified directory.
+#[cfg(unix)]
+#[test]
+fn managed_files_never_follow_a_planted_directory() {
+    use std::os::unix::fs::{PermissionsExt as _, symlink};
+    let mode = |p: &Path| std::fs::symlink_metadata(p).unwrap().permissions().mode() & 0o7777;
+    let unsafe_dir = |r: Result<Vec<PathBuf>, files::FilesError>| {
+        assert!(matches!(r, Err(files::FilesError::Unsafe(_))), "{r:?}");
+    };
+    let b1 = BindingId::from_random_bytes([1; 16]);
+
+    // 1. A parent symlink: `<state_dir>/managed` → an unrelated directory.
+    let (dir, root, _rd) = anchors();
+    let victim = dir.path().join("victim");
+    std::fs::create_dir(&victim).unwrap();
+    symlink(&victim, root.data_dir.join("managed")).unwrap();
+    unsafe_dir(files::write_slot(
+        &root,
+        &env_id(),
+        &h1(),
+        &b1,
+        1,
+        FIX_KEY,
+        &fix_cert(1),
+    ));
+    assert_eq!(
+        std::fs::read_dir(&victim).unwrap().count(),
+        0,
+        "nothing written there"
+    );
+    assert!(matches!(
+        files::slots_written_by(&root.data_dir, &b1),
+        Err(files::FilesError::Unsafe(_))
+    ));
+
+    // 2. A leaf symlink on clear: `<state_dir>/managed/h1` → a directory holding a
+    // matching plaintext marker and the slot's file names.
+    let (dir, root, rd) = anchors();
+    let victim = dir.path().join("victim");
+    std::fs::create_dir(&victim).unwrap();
+    for (n, c) in [
+        (files::GENERATION_FILE, format!("1 {}\n", b1.as_str())),
+        ("key.pub", "unrelated\n".to_owned()),
+        ("cert.pub", "unrelated\n".to_owned()),
+    ] {
+        std::fs::write(victim.join(n), c).unwrap();
+    }
+    let managed = root.data_dir.join("managed");
+    std::fs::create_dir(&managed).unwrap();
+    set_mode(&managed, 0o700);
+    symlink(&victim, managed.join("h1")).unwrap();
+    assert!(matches!(
+        files::clear_slot(&root, &env_id(), &h1(), 1),
+        Err(files::FilesError::Unsafe(_))
+    ));
+    assert!(matches!(
+        files::slot_generation(&root, &h1()),
+        Err(files::FilesError::Unsafe(_))
+    ));
+    assert!(matches!(
+        files::clear_slot_dir(&managed.join("h1"), &b1, 1),
+        Err(files::FilesError::Unsafe(_))
+    ));
+    // Restart enumeration over the planted entry: never followed, never listed.
+    assert!(
+        files::slots_written_by(&root.data_dir, &b1)
+            .unwrap()
+            .is_empty()
+    );
+    // The same at a binding directory `<runtime_dir>/b/<tag>`.
+    let tag = EndpointTag::parse("00112233aabbccdd").unwrap();
+    std::fs::create_dir(rd.join("b")).unwrap();
+    set_mode(&rd.join("b"), 0o700);
+    symlink(&victim, rd.join("b").join(tag.as_str())).unwrap();
+    let bf = files::binding_files(&rd, &tag, &[h1().destination]).unwrap();
+    assert!(matches!(
+        files::clear_binding_files(&bf, &b1, 1),
+        Err(files::FilesError::Unsafe(_))
+    ));
+    unsafe_dir(files::write_binding_files(&bf, &b1, 1, FIX_KEY, &[]));
+    assert!(files::binding_directories_of(&rd, &b1).unwrap().is_empty());
+    for n in [files::GENERATION_FILE, "key.pub", "cert.pub"] {
+        assert!(
+            victim.join(n).exists(),
+            "{n} deleted through a planted link"
+        );
+    }
+    // A planted `b` itself: refused.
+    let (_d3, _root3, rd3) = anchors();
+    symlink(&victim, rd3.join("b")).unwrap();
+    assert!(matches!(
+        files::binding_directories_of(&rd3, &b1),
+        Err(files::FilesError::Unsafe(_))
+    ));
+
+    // 3. A pre-existing 0777 directory: refused, `managed_dir_unsafe`, never repaired.
+    let (_d4, root, _rd) = anchors();
+    let leaf = files::slot_paths(&root.data_dir, &h1()).unwrap().dir;
+    std::fs::create_dir_all(&leaf).unwrap();
+    set_mode(&root.data_dir.join("managed"), 0o700);
+    set_mode(&leaf, 0o777);
+    unsafe_dir(files::write_slot(
+        &root,
+        &env_id(),
+        &h1(),
+        &b1,
+        1,
+        FIX_KEY,
+        &fix_cert(1),
+    ));
+    assert_eq!(mode(&leaf), 0o777, "never repaired silently");
+    assert_eq!(std::fs::read_dir(&leaf).unwrap().count(), 0);
+    let e = files::write_slot(&root, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1)).unwrap_err();
+    assert!(e.to_string().starts_with(files::MANAGED_DIR_UNSAFE), "{e}");
+    set_mode(&root.data_dir.join("managed"), 0o777);
+    set_mode(&leaf, 0o700);
+    unsafe_dir(files::write_slot(
+        &root,
+        &env_id(),
+        &h1(),
+        &b1,
+        1,
+        FIX_KEY,
+        &fix_cert(1),
+    ));
+
+    // A symlink planted at a file's name inside a verified slot directory: the clear
+    // refuses it and removes nothing (every removal is the quarantine's verified one).
+    let (d6, root, _rd) = anchors();
+    files::write_slot(&root, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1)).unwrap();
+    let leaf = files::slot_paths(&root.data_dir, &h1()).unwrap().dir;
+    let outside = d6.path().join("outside.pub");
+    std::fs::write(&outside, "unrelated\n").unwrap();
+    std::fs::remove_file(leaf.join("key.pub")).unwrap();
+    symlink(&outside, leaf.join("key.pub")).unwrap();
+    assert!(matches!(
+        files::clear_slot(&root, &env_id(), &h1(), 1),
+        Err(files::FilesError::Unsafe(_))
+    ));
+    assert!(outside.exists() && leaf.join("key.pub").symlink_metadata().is_ok());
+    assert_eq!(files::slot_generation(&root, &h1()).unwrap(), Some(1));
+    // Without the planted entry the clear removes the generation and leaves no
+    // quarantine behind.
+    std::fs::remove_file(leaf.join("key.pub")).unwrap();
+    assert_eq!(
+        files::clear_slot(&root, &env_id(), &h1(), 1).unwrap(),
+        ClearOutcome::Removed
+    );
+    assert_eq!(std::fs::read_dir(&leaf).unwrap().count(), 0);
+
+    // The positive case: levels created 0700, the files public 0644.
+    let (_d5, root, _rd) = anchors();
+    let written =
+        files::write_slot(&root, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1)).unwrap();
+    let leaf = files::slot_paths(&root.data_dir, &h1()).unwrap().dir;
+    assert_eq!(mode(&root.data_dir.join("managed")), 0o700);
+    assert_eq!(mode(&leaf), 0o700);
+    assert!(written.iter().all(|f| mode(f) == 0o644));
+    assert_eq!(
+        files::slots_written_by(&root.data_dir, &b1).unwrap(),
+        vec![(leaf, 1)]
+    );
+}
+
+/// §17.20 item 7 on Windows (needs the Windows-native run): an existing managed
+/// directory without Heimdall's owner-only DACL (here, one with the inherited DACL of
+/// a scratch directory) and a junction at a level are refused, `managed_dir_unsafe`,
+/// and nothing is written through them.
+#[cfg(windows)]
+#[test]
+fn managed_dir_windows_refuses_inherited_dacl_and_junction() {
+    let b1 = BindingId::from_random_bytes([1; 16]);
+    let (dir, root, _rd) = anchors();
+    std::fs::create_dir(root.data_dir.join("managed")).unwrap();
+    let r = files::write_slot(&root, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1));
+    assert!(matches!(r, Err(files::FilesError::Unsafe(_))), "{r:?}");
+    // A junction (no privilege needed) at `managed`.
+    let (dir2, root2, _rd2) = anchors();
+    let victim = dir2.path().join("victim");
+    std::fs::create_dir(&victim).unwrap();
+    let status = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(root2.data_dir.join("managed"))
+        .arg(&victim)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success(), "mklink /J failed");
+    let r = files::write_slot(&root2, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1));
+    assert!(matches!(r, Err(files::FilesError::Unsafe(_))), "{r:?}");
+    assert_eq!(std::fs::read_dir(&victim).unwrap().count(), 0);
+    // The positive case: created levels pass their own check.
+    let (_d3, root3, _rd3) = anchors();
+    files::write_slot(&root3, &env_id(), &h1(), &b1, 1, FIX_KEY, &fix_cert(1)).unwrap();
+    assert_eq!(files::slot_generation(&root3, &h1()).unwrap(), Some(1));
+    drop(dir);
+}
+
+/// §17.20 item 8 (W3-R06): coverage never exceeds the shortest certificate; an
+/// expired or not-yet-valid certificate is refused; an offline minimum beyond the
+/// shortest certificate is `capability_unavailable`.
+#[tokio::test]
+async fn coverage_never_exceeds_the_shortest_certificate() {
+    let w = World::new().await;
+    let data = w.ensure("short", &[h1(), h2()]).await;
+    let mut grant = w.grant(&data.grant_id);
+    let now: Timestamp = "2026-11-10T10:00:00Z".parse().unwrap();
+    let deadline = shift(now, 12 * 3600);
+    let short = shift(now, 15 * 60);
+    grant.deadline.effective = deadline;
+    grant.scope.pairs = [h1(), h2()].into_iter().collect();
+    let cert = |p: AccessPair, vb: Timestamp, n: u8| PreparedCertificate {
+        pair: p,
+        issuance: heimdall_contract::ids::IssuanceId::from_random_bytes([n; 16]),
+        ca: w.ca_fp.clone(),
+        valid_before: vb,
+    };
+    let prepared = ManagedPrepared {
+        instance: CredentialInstanceId::from_random_bytes([3; 16]),
+        key: KeyRegistration {
+            public_key: "ssh-ed25519 AAAA".into(),
+            fingerprint: "SHA256:x".into(),
+            slot: "00".into(),
+        },
+        certificates: vec![cert(h1(), deadline, 1), cert(h2(), short, 2)],
+        materialized: None,
+    };
+    let ctx = ReportContext {
+        platform: current_platform(),
+        lock_behavior: LockBehavior::Continue,
+        policy: ConnectionPolicy::default(),
+        issuer_ready: true,
+        reissue_pending: false,
+        now,
+        selection: SelectionClass::Undetermined,
+    };
+    let r = report::compute(&grant, &prepared, &[], &ctx, &[]);
+    assert_eq!((r.usable_until, r.offline_until), (short, short));
+    assert_eq!(r.availability, CredentialAvailability::RefreshDependent);
+    // An offline minimum beyond the shortest certificate: capability_unavailable.
+    let pp = prepare_pairs(&[h1(), h2()]);
+    let required = RequiredCapabilities {
+        offline_until: Some(shift(short, 1)),
+        ..RequiredCapabilities::default()
+    };
+    let req = PrepareRequest {
+        grant: &grant,
+        scope: &grant.scope,
+        required: &required,
+        interactive: false,
+        effect_token: "tok",
+        now,
+        pairs: &pp,
+    };
+    let refusal = prepare::check_minimums(
+        &req,
+        &r,
+        &GrantTerms::default(),
+        &heimdall_adapters::managed::managed_capabilities(),
+    )
+    .unwrap_err();
+    assert_eq!(refusal.reason, prepare::OFFLINE_UNTIL_BEYOND_BOUND);
+    assert_eq!(
+        refusal.into_adapter_error(),
+        AdapterError::CapabilityUnavailable
+    );
+    // check_prepared: valid now passes; expired, not yet valid, unknown refuse.
+    let pairs = [h1(), h2()];
+    let started = |_: &PreparedCertificate| Some(shift(now, -60));
+    prepare::check_prepared(&prepared, &pairs, deadline, now, &started).unwrap();
+    assert_eq!(
+        prepare::check_prepared(&prepared, &pairs, deadline, short, &started).unwrap_err(),
+        AdapterError::Protocol(prepare::PREPARED_CERTIFICATE_EXPIRED.into())
+    );
+    assert_eq!(
+        prepare::check_prepared(&prepared, &pairs, deadline, now, &|_| Some(shift(now, 1)))
+            .unwrap_err(),
+        AdapterError::Protocol(prepare::PREPARED_CERTIFICATE_NOT_YET_VALID.into())
+    );
+    assert_eq!(
+        prepare::check_prepared(&prepared, &pairs, deadline, now, &|_| None).unwrap_err(),
+        AdapterError::Protocol(prepare::PREPARED_CERTIFICATE_NOT_YET_VALID.into())
+    );
+}
+
+/// §17.20 item 10 (W3-R08; the review's counterexample): the aggregate clock is the
+/// pair with the largest completion allowance at the report's observation time; an
+/// unknown measurement or an overflow is the weakest.
+#[test]
+fn aggregate_clock_is_the_weakest_now() {
+    let now: Timestamp = "2026-11-10T12:00:00Z".parse().unwrap();
+    let a = ClockMeasurement {
+        behind_upper_ms: 1362,
+        rtt_ms: 38,
+        measured_at: now,
+    };
+    // 1000 ms measured 10 000 s ago: + 1000 ms of drift = 2000 ms now.
+    let b = ClockMeasurement {
+        behind_upper_ms: 962,
+        rtt_ms: 38,
+        measured_at: shift(now, -10_000),
+    };
+    assert_eq!(report::completion_allowance_ms(&a, now), Some(1400));
+    assert_eq!(report::completion_allowance_ms(&b, now), Some(2000));
+    for clocks in [[Some(a), Some(b)], [Some(b), Some(a)]] {
+        assert_eq!(
+            report::weakest_clock(&clocks, now),
+            DestinationClock::Measured(b)
+        );
+    }
+    // At B's measurement time, A (measured "later") adds no drift and B none: A wins.
+    assert_eq!(
+        report::weakest_clock(&[Some(a), Some(b)], shift(now, -10_000)),
+        DestinationClock::Measured(a)
+    );
+    let overflow = ClockMeasurement {
+        behind_upper_ms: u64::MAX,
+        rtt_ms: 1,
+        measured_at: now,
+    };
+    assert_eq!(report::completion_allowance_ms(&overflow, now), None);
+    assert_eq!(
+        report::weakest_clock(&[Some(b), Some(overflow)], now),
+        DestinationClock::Measured(overflow)
+    );
+    assert_eq!(
+        report::weakest_clock(&[Some(b), None], now),
+        DestinationClock::Unmeasured
+    );
+}
+
+/// §17.20 item 14 (U6-Q5 amended): a `revoke_on_lock` grant whose terms are absent
+/// never reports `verified`, even with a matching lock-continuity claim: the report is
+/// not computed (`grant_terms_unavailable`).
+#[tokio::test]
+async fn revoke_on_lock_grant_without_terms_never_reports_verified() {
+    let w = World::new().await;
+    let data = w.ensure("noterms", &[h1()]).await;
+    let gid = data.grant_id.clone();
+    w.drive(&data, "tok", Stage::Materialize).await;
+    *w.sources.claims.lock().unwrap() = fixture_claims(current_platform());
+    let g = w.grant(&gid);
+    let unattended = RequiredCapabilities {
+        unattended: true,
+        ..RequiredCapabilities::default()
+    };
+    // The terms (revoke_on_lock) were never recorded.
+    w.sources.terms.lock().unwrap().remove(&gid);
+    for required in [RequiredCapabilities::default(), unattended.clone()] {
+        assert_eq!(
+            w.prepare_from(&g, &[h1()], &required).await.unwrap_err(),
+            AdapterError::Unavailable(prepare::GRANT_TERMS_UNAVAILABLE.into())
+        );
+    }
+    // Recorded as revoke_on_lock: refused for the unattended minimum (lock revokes).
+    w.sources.terms.lock().unwrap().insert(
+        gid.clone(),
+        GrantTerms {
+            lock_behavior: LockBehavior::RevokeOnLock,
+            policy: ConnectionPolicy::default(),
+        },
+    );
+    assert_eq!(
+        w.prepare_from(&g, &[h1()], &unattended).await.unwrap_err(),
+        AdapterError::CapabilityUnavailable
+    );
+    // The control: recorded as `continue`, the claim makes the unattended minimum pass.
+    w.sources
+        .terms
+        .lock()
+        .unwrap()
+        .insert(gid.clone(), GrantTerms::default());
+    w.prepare_from(&g, &[h1()], &unattended).await.unwrap();
+    w.finish(&[gid]).await;
 }

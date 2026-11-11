@@ -20,6 +20,13 @@
 //!
 //! On every host: `registration_failure_reasons_are_launch_failed_127` (the record and
 //! exit status the contained path's refusals map to).
+//!
+//! ⟨§17.20 item 12⟩ `windows_register_while_suspended_under_gate` registers the grant's
+//! signing gate in the real `Operations`' `SigningGates` (`retain`, as a credential
+//! instance's registration does) and contends on it with an exclusive holder;
+//! `windows_non_ssh_run_has_no_job_object_by_default` launches through the real
+//! `heimdall run` binary (`HEIMDALL_E2E_BIN`, else `CARGO_BIN_EXE_heimdall`, with the
+//! debug build's test configuration as `e2e_run_m02` uses it).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
 
@@ -48,6 +55,7 @@ mod windows {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
+    use heimdall_app::managed::Acquired;
     use heimdall_app::ports::{
         AdapterDescriptor, ConnectionControl, CredentialAdapter, InteractionRequirement,
         LockContinuity, PrepareOutcome,
@@ -60,9 +68,10 @@ mod windows {
     };
     use heimdall_contract::managed::{ConnectionPolicy, ExistingConnectionsMode};
     use heimdall_contract::request::{
-        DestinationScopeEnforcement, Enforcement, EnsureData, EnsureRequest,
-        ExistingConnectionsPolicy, InteractionMode, NewAuthenticationExpiry, RefreshDependency,
-        RequiredCapabilities, RevocationStatus, RevokeRequest, WaitMode, WorkloadIsolation,
+        BindForm, BindRequest, DestinationScopeEnforcement, Enforcement, EnsureData, EnsureRequest,
+        ExistingConnectionsPolicy, InteractionMode, LaunchBinding, NewAuthenticationExpiry,
+        ProcessHolder, RefreshDependency, RequiredCapabilities, RevocationStatus, RevokeRequest,
+        WaitMode, WorkloadIsolation,
     };
     use heimdall_domain::environment::{
         EnvironmentKind, EnvironmentPermissions, EnvironmentRecord,
@@ -78,8 +87,7 @@ mod windows {
     use heimdall_launch::env::EnvDelta;
     use heimdall_launch::resolve::{ProgramKind, ResolvedProgram, Via};
     use heimdall_launch::windows::{
-        ContainedFailure, Registration, launch_uses_kill_on_close_job, spawn_and_wait,
-        spawn_contained_and_wait,
+        ContainedFailure, Registration, launch_uses_kill_on_close_job, spawn_contained_and_wait,
     };
     use heimdall_localenv::env::Platform;
     use heimdall_localenv::sys::JobObject;
@@ -311,6 +319,28 @@ mod windows {
             .unwrap_or_else(|e| panic!("ensure: {} {}", e.code, e.message))
             .data;
         let ssh = find_program("ssh").expect("the in-box ssh.exe");
+        // A launch binding held by its launcher (U0b row 4), as `run` binds it: here the
+        // launcher is this test process, which calls `spawn_contained_and_wait` itself
+        // (§17.20 item 14: only such a binding registers a dedicated connection).
+        let me = std::process::id();
+        rt.block_on(
+            ops.bind(
+                &owner(),
+                BindRequest {
+                    binding_id: data.binding_id.clone(),
+                    form: BindForm::Launch(LaunchBinding {
+                        executable: ssh.to_string_lossy().into_owned(),
+                        holder: Some(ProcessHolder {
+                            pid: me,
+                            started_at: heimdall_runtime::platform::process_start_time(me)
+                                .expect("this process's start token"),
+                        }),
+                    }),
+                    request_id: RequestId::parse("r-u7-bind").unwrap(),
+                },
+            ),
+        )
+        .unwrap_or_else(|e| panic!("bind: {} {}", e.code, e.message));
         let mut config = ConnectionConfig::new(
             home.root.join("r"),
             ssh.clone(),
@@ -421,18 +451,66 @@ mod windows {
         }
     }
 
-    /// §17.4 item 8: the child is registered while still suspended (it has not reached
-    /// the server), under the grant's gate (U0b row 26's transaction), and runs only
-    /// after the successful reply.
+    /// §17.4 item 8, §17.20 item 12: the child is registered while still suspended (it
+    /// has not reached the server), under the grant's **registered signing gate**
+    /// (U0b row 26 takes it shared within `signing_gate_wait`), and runs only after the
+    /// successful reply. The gate is registered in the real `Operations`' gates and
+    /// contended: held exclusively past the wait, the registration is refused
+    /// (`gate_timeout`) and the child dies suspended; held and released while the
+    /// registration waits, the registration completes only after the release.
     #[test]
     fn windows_register_while_suspended_under_gate() {
         let w = world(ExistingConnectionsMode::Graceful);
+        let grant = w.data.grant_id.clone();
+        let gates = w.ops.signing_gates().clone();
+        assert!(gates.retain(&grant, &[]), "the grant's gate is registered");
+        let wait = w.ops.limits().signing_gate_wait;
+        let rt = rt();
+        // 1. Held exclusively for longer than the wait.
+        let mut holder = gates.begin_narrowing(std::iter::empty());
+        assert_eq!(rt.block_on(holder.acquire(&grant)).unwrap(), Acquired::Held);
         let before = w.auths();
         let seen = Mutex::new(None);
         let mut registrar = |pid: u32, created: Timestamp, image: &Path| {
             assert_eq!(w.auths(), before, "suspended: nothing reached the server");
+            let t = Instant::now();
             let r = w.register(pid, created, image);
-            *seen.lock().unwrap() = Some((pid, created));
+            *seen.lock().unwrap() = Some((pid, created, t.elapsed()));
+            r
+        };
+        let e = spawn_contained_and_wait(
+            &w.program(),
+            &w.args(&["exit", "0"]),
+            &EnvDelta::default(),
+            None,
+            &mut registrar,
+        )
+        .unwrap_err();
+        assert_eq!(e.reason(), Some(reason::CONNECTION_REGISTRATION_REFUSED));
+        let (pid, created, waited) = seen.lock().unwrap().take().unwrap();
+        assert!(
+            waited >= wait,
+            "the registration waited on the gate: {waited:?}"
+        );
+        assert!(!alive(pid, &created), "the suspended child died");
+        assert_eq!(w.auths(), before, "never resumed");
+        assert!(w.rows().is_empty());
+        // 2. Held, and released while the registration waits for it.
+        let hold = wait / 3;
+        let held = Mutex::new(Some(holder));
+        let seen = Mutex::new(None);
+        let mut registrar = |pid: u32, created: Timestamp, image: &Path| {
+            assert_eq!(w.auths(), before, "suspended: nothing reached the server");
+            let holder = held.lock().unwrap().take();
+            let release = std::thread::spawn(move || {
+                std::thread::sleep(hold);
+                drop(holder);
+            });
+            let t = Instant::now();
+            let r = w.register(pid, created, image);
+            let waited = t.elapsed();
+            release.join().unwrap();
+            *seen.lock().unwrap() = Some((pid, created, waited));
             r
         };
         let code = spawn_contained_and_wait(
@@ -445,7 +523,11 @@ mod windows {
         .unwrap_or_else(|e| panic!("{e:?}"));
         assert_eq!(code, 0);
         assert_eq!(w.auths(), before + 1, "it ran after the reply");
-        let (pid, created) = seen.lock().unwrap().unwrap();
+        let (pid, created, waited) = seen.lock().unwrap().take().unwrap();
+        assert!(
+            waited >= hold / 2,
+            "the registration waited for the release: {waited:?}"
+        );
         let rows = w.rows();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].pid, pid);
@@ -492,10 +574,12 @@ mod windows {
             // The pause after the reply: the revocation commits, then its cleanup closes
             // the owned connections (D7 item 2 step 4).
             w.revoke();
-            let report = rt().block_on(
-                w.sup
-                    .revocation_close(std::slice::from_ref(&w.data.grant_id)),
-            );
+            let report = rt()
+                .block_on(
+                    w.sup
+                        .revocation_close(std::slice::from_ref(&w.data.grant_id)),
+                )
+                .unwrap();
             assert_eq!(report.closed.len(), 1, "{report:?}");
             *seen.lock().unwrap() = Some((pid, created));
             r
@@ -570,10 +654,12 @@ mod windows {
         let w = Arc::new(world(ExistingConnectionsMode::Graceful));
         let (pid, created, launcher) = running(&w);
         w.revoke();
-        let report = rt().block_on(
-            w.sup
-                .revocation_close(std::slice::from_ref(&w.data.grant_id)),
-        );
+        let report = rt()
+            .block_on(
+                w.sup
+                    .revocation_close(std::slice::from_ref(&w.data.grant_id)),
+            )
+            .unwrap();
         assert_eq!(report.closed.len(), 1, "{report:?}");
         assert!(wait_until(Duration::from_secs(10), || !alive(
             pid, &created
@@ -590,10 +676,12 @@ mod windows {
     fn windows_strict_deadline_closes_exact_ssh_exe() {
         let w = Arc::new(world(ExistingConnectionsMode::Strict));
         let (pid, created, launcher) = running(&w);
-        let report = rt().block_on(
-            w.sup
-                .connection_deadline_pass(std::slice::from_ref(&w.data.grant_id)),
-        );
+        let report = rt()
+            .block_on(
+                w.sup
+                    .connection_deadline_pass(std::slice::from_ref(&w.data.grant_id)),
+            )
+            .unwrap();
         assert_eq!(report.closed.len(), 1, "{report:?}");
         assert!(wait_until(Duration::from_secs(10), || !alive(
             pid, &created
@@ -766,27 +854,193 @@ mod windows {
         );
     }
 
-    /// §17.3 item 1 (Q18): only a managed launch of the verified ssh gets the job; `run`
-    /// of anything else keeps M02's spawn (no job: a fresh job does not contain it).
+    /// The `heimdall` binary under test (as `e2e_run_m02` finds it).
+    fn heimdall_bin() -> PathBuf {
+        std::env::var_os("HEIMDALL_E2E_BIN")
+            .filter(|p| !p.is_empty())
+            .map_or_else(
+                || PathBuf::from(env!("CARGO_BIN_EXE_heimdall")),
+                PathBuf::from,
+            )
+    }
+
+    /// `heimdall` in a scratch `HEIMDALL_HOME` with the debug build's test
+    /// configuration (the fake adapter and the fixture profile `ops`) and a cleared
+    /// environment, as `e2e_run_m02` runs it; the runtime it starts is stopped on drop
+    /// through `heimdall service stop` on the same home.
+    struct RunRig {
+        root: PathBuf,
+    }
+
+    impl RunRig {
+        fn new(root: PathBuf) -> RunRig {
+            for d in ["u", "w", "h"] {
+                std::fs::create_dir_all(root.join(d)).unwrap();
+            }
+            std::fs::write(root.join("u").join(".gitconfig"), b"").unwrap();
+            RunRig { root }
+        }
+
+        fn command(&self, args: &[&std::ffi::OsStr]) -> Command {
+            let user = self.root.join("u");
+            let system_root =
+                std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+            let mut path = PathBuf::from(&system_root)
+                .join("System32")
+                .into_os_string();
+            path.push(";");
+            path.push(&system_root);
+            let mut cmd = Command::new(heimdall_bin());
+            cmd.args(args)
+                .env_clear()
+                .current_dir(self.root.join("w"))
+                .env("HOME", &user)
+                .env("USERPROFILE", &user)
+                .env("HEIMDALL_HOME", self.root.join("h"))
+                .env("HEIMDALL_TEST_ADAPTER", "prepare")
+                .env("HEIMDALL_TEST_TIME_SYNC", "synchronized")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", user.join(".gitconfig"))
+                .env("PATH", path)
+                .env("SystemRoot", &system_root);
+            for k in ["TEMP", "TMP", "SystemDrive"] {
+                if let Some(v) = std::env::var_os(k) {
+                    cmd.env(k, v);
+                }
+            }
+            cmd
+        }
+    }
+
+    impl Drop for RunRig {
+        fn drop(&mut self) {
+            let _ = self
+                .command(&["service".as_ref(), "stop".as_ref()])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    }
+
+    /// The fixture child of `windows_non_ssh_run_has_no_job_object_by_default`: run only
+    /// under `heimdall run` by that test (`HM_U7_JOB_PROBE` set). It records the job it
+    /// is directly in (if any) with that job's process IDs, starts a grandchild
+    /// (`ping`, no creation flags) and exits normally.
+    #[test]
+    #[ignore = "a fixture process of windows_non_ssh_run_has_no_job_object_by_default"]
+    fn windows_job_probe_child() {
+        let Some(out) = std::env::var_os("HM_U7_JOB_PROBE") else {
+            return;
+        };
+        let job = heimdall_localenv::sys::current_job_process_ids().unwrap();
+        let system_root = std::env::var_os("SystemRoot").unwrap();
+        let grandchild = Command::new(Path::new(&system_root).join("System32").join("PING.EXE"))
+            .args(["-n", "120", "127.0.0.1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = grandchild.id();
+        let created = heimdall_localenv::sys::ProcessPin::open(pid)
+            .unwrap()
+            .unwrap()
+            .created_at()
+            .unwrap();
+        // Dropping a std `Child` neither waits for nor ends it.
+        drop(grandchild);
+        let job = job.map_or_else(
+            || "none".to_owned(),
+            |ids| ids.iter().map(u32::to_string).collect::<Vec<_>>().join(","),
+        );
+        std::fs::write(&out, format!("{job}\n{pid} {created}\n")).unwrap();
+    }
+
+    /// §17.3 item 1 (Q18), §17.20 item 12: only a managed launch of the verified ssh gets
+    /// the job; `run` of anything else keeps M02's spawn. Launched through `run`'s
+    /// launch path (the real `heimdall run` of a non-ssh program, here a copy of this
+    /// test binary as the fixture child): the child is in **no job of Heimdall's** —
+    /// `IsProcessInJob` is false for it, or, when the test itself already runs inside a
+    /// job (cargo's, or the remote session's), the child's immediate job is that
+    /// enclosing one, which also holds the launcher (a job made for the child would not)
+    /// — and a deliberately surviving grandchild outlives the launcher's normal exit (a
+    /// kill-on-close job held by the launcher would end it).
     #[test]
     fn windows_non_ssh_run_has_no_job_object_by_default() {
         assert!(launch_uses_kill_on_close_job(true, true));
         assert!(!launch_uses_kill_on_close_job(true, false));
         assert!(!launch_uses_kill_on_close_job(false, true));
         assert!(!launch_uses_kill_on_close_job(false, false));
-        let system_root = std::env::var_os("SystemRoot").unwrap();
-        let cmd = ResolvedProgram {
-            path: Path::new(&system_root).join("System32").join("cmd.exe"),
-            kind: ProgramKind::Native,
-            via: Via::Explicit,
+        let home = ScratchHome::new();
+        let rig = RunRig::new(home.root.join("rig"));
+        let probe = rig.root.join("job-probe.txt");
+        let exe = std::env::current_exe().unwrap();
+        let args: Vec<OsString> = ["--json", "run", "--profile", "ops", "--"]
+            .iter()
+            .map(OsString::from)
+            .chain([
+                exe.into_os_string(),
+                "--ignored".into(),
+                "--exact".into(),
+                "windows::windows_job_probe_child".into(),
+                "--nocapture".into(),
+            ])
+            .collect();
+        let refs: Vec<&std::ffi::OsStr> = args.iter().map(OsString::as_os_str).collect();
+        let mut launcher = rig
+            .command(&refs)
+            .env("HM_U7_JOB_PROBE", &probe)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let launcher_pid = launcher.id();
+        let end = Instant::now() + Duration::from_secs(120);
+        let status = loop {
+            if let Some(status) = launcher.try_wait().unwrap() {
+                break status;
+            }
+            if Instant::now() >= end {
+                // Our own child, by its handle.
+                let _ = launcher.kill();
+                let _ = launcher.wait();
+                panic!("heimdall run did not finish within 120 s");
+            }
+            std::thread::sleep(Duration::from_millis(50));
         };
-        let code = spawn_and_wait(
-            &cmd,
-            &["/d".into(), "/c".into(), "exit 3".into()],
-            &EnvDelta::default(),
-            None,
-        )
-        .unwrap();
-        assert_eq!(code, 3);
+        assert!(status.success(), "the launcher exited normally: {status:?}");
+        let text = std::fs::read_to_string(&probe).expect("the fixture child ran under run");
+        let mut lines = text.lines();
+        let job = lines.next().unwrap();
+        let (gpid, created) = lines.next().unwrap().split_once(' ').unwrap();
+        let (gpid, created): (u32, Timestamp) = (gpid.parse().unwrap(), created.parse().unwrap());
+        let ambient = heimdall_localenv::sys::current_job_process_ids().unwrap();
+        println!(
+            "m03 observation: windows_non_ssh_run child_job={} test_in_job={}",
+            if job == "none" { "none" } else { "enclosing" },
+            ambient.is_some()
+        );
+        if job != "none" {
+            let ids: Vec<u32> = job.split(',').map(|i| i.parse().unwrap()).collect();
+            assert!(
+                ids.contains(&launcher_pid),
+                "the child's immediate job also holds the launcher: no job of Heimdall's"
+            );
+        }
+        let survived = alive(gpid, &created);
+        // Stop the grandchild by its exact PID and creation time (the test caused it).
+        if let Ok(Some(pin)) = heimdall_localenv::sys::ProcessPin::open(gpid)
+            && pin.created_at().as_ref() == Some(&created)
+            && let Some(image) = pin.image()
+            && let Some(v) = pin.verify(true, &image)
+        {
+            let _ = v.signal(heimdall_localenv::sys::ProcessSignal::Kill);
+        }
+        assert!(
+            survived,
+            "a grandchild outlives the launcher's normal exit (no kill-on-close job)"
+        );
     }
 }

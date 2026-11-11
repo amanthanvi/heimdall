@@ -154,6 +154,20 @@ pub const FIELD_REVOCATION_REMOTE: &str = "revocation.remote";
 /// measurement.
 pub const DRIFT_PPM: u64 = 100;
 
+/// The completion allowance of one measurement at `now` (D7 item 3; §17.20 item
+/// 10): `behind_upper + rtt + 100 ppm × (now − measured_at)`, in milliseconds. `None`
+/// on overflow (no allowance is claimed).
+#[must_use]
+pub fn completion_allowance_ms(clock: &ClockMeasurement, now: Timestamp) -> Option<u64> {
+    // A measurement "in the future" (a negative span) adds no drift.
+    let elapsed_ms = u64::try_from(now.duration_since(clock.measured_at).as_millis()).unwrap_or(0);
+    let drift_ms = elapsed_ms.checked_mul(DRIFT_PPM)? / 1_000_000;
+    clock
+        .behind_upper_ms
+        .checked_add(clock.rtt_ms)?
+        .checked_add(drift_ms)
+}
+
 /// The completion bound of a measured residual (D7 item 3):
 /// `latest_valid_before + behind_upper + rtt + 100 ppm × (now − measured_at)`.
 /// `None` on overflow (no bound is claimed).
@@ -163,13 +177,7 @@ pub fn completion_bound(
     clock: &ClockMeasurement,
     now: Timestamp,
 ) -> Option<Timestamp> {
-    // A measurement "in the future" (a negative span) adds no drift.
-    let elapsed_ms = u64::try_from(now.duration_since(clock.measured_at).as_millis()).unwrap_or(0);
-    let drift_ms = elapsed_ms.checked_mul(DRIFT_PPM)? / 1_000_000;
-    let total = clock
-        .behind_upper_ms
-        .checked_add(clock.rtt_ms)?
-        .checked_add(drift_ms)?;
+    let total = completion_allowance_ms(clock, now)?;
     latest_valid_before
         .checked_add(std::time::Duration::from_millis(total))
         .ok()
@@ -380,37 +388,79 @@ pub struct ManagedReport {
     pub connection_policy: ConnectionPolicyReport,
 }
 
-/// The exact D8 disclosure sentence for `existing` (D8 item 6; the plan §5 item 7
-/// golden's wording for `graceful`).
+/// ⟨§17.20 item 9⟩ D8 item 3's disclosure, added to the wording when owned masters
+/// are applied: sessions through Heimdall's master end at the deadline under every
+/// policy (ADR-0008 D8 item 3, quoted).
+pub const OWNED_MASTERS_DISCLOSURE: &str =
+    "Sessions shared through a Heimdall connection end at the deadline.";
+
+/// The contract's identity selection of a [`SelectionClass`].
 #[must_use]
-pub fn connection_wording(existing: ExistingConnectionsMode) -> &'static str {
-    match existing {
-        ExistingConnectionsMode::Strict => {
-            "New connections stop at the deadline; connections Heimdall owns are closed at the deadline."
-        }
-        _ => "New connections stop at the deadline; existing sessions may stay connected.",
+pub fn identity_selection(
+    selection: SelectionClass,
+) -> heimdall_contract::provider::IdentitySelection {
+    use heimdall_contract::provider::IdentitySelection;
+    match selection {
+        SelectionClass::Exclusive => IdentitySelection::Exclusive,
+        SelectionClass::NotExclusive => IdentitySelection::NotExclusive,
+        SelectionClass::Undetermined => IdentitySelection::Undetermined,
     }
 }
 
-/// The weakest clock of `clocks` (§5 item 7: "per pair the weakest is shown"):
-/// `unmeasured` if any pair is unmeasured, else the measurement with the largest lag.
+/// Whether owned masters are applied for `policy` on `platform` (D8 item 3: never on
+/// Windows, where `owned_masters` is unavailable).
 #[must_use]
-pub fn weakest_clock(clocks: &[Option<ClockMeasurement>]) -> DestinationClock {
+pub fn owned_masters_applied(policy: &ConnectionPolicy, platform: &Platform) -> bool {
+    policy.multiplexing == MultiplexingMode::OwnedMasters && platform.os != "windows"
+}
+
+/// The deadline wording of a managed grant (ADR-0008 D8 items 3 and 6; §17.20 item
+/// 9): U8's `heimdall_localenv::projection::plan::deadline_wording` for the identity
+/// selection and the effective `existing` mode (no retyped text; `undetermined` gets
+/// D8 item 6's qualified wording), followed by [`OWNED_MASTERS_DISCLOSURE`] when owned
+/// masters are applied.
+#[must_use]
+pub fn connection_wording(
+    selection: SelectionClass,
+    policy: &ConnectionPolicy,
+    platform: &Platform,
+) -> String {
+    let base = heimdall_localenv::projection::plan::deadline_wording(
+        identity_selection(selection),
+        policy.existing,
+    );
+    if owned_masters_applied(policy, platform) {
+        format!("{base} {OWNED_MASTERS_DISCLOSURE}")
+    } else {
+        base.to_owned()
+    }
+}
+
+/// The weakest clock of `clocks` at the observation time `now` (§5 item 7: "per pair
+/// the weakest is shown"; §17.20 item 10): `unmeasured` if any pair is unmeasured,
+/// else the measurement with the largest completion allowance at `now`
+/// ([`completion_allowance_ms`]: `behind_upper + rtt + drift × age`). A measurement
+/// whose allowance overflows is the weakest.
+#[must_use]
+pub fn weakest_clock(clocks: &[Option<ClockMeasurement>], now: Timestamp) -> DestinationClock {
     if clocks.is_empty() || clocks.iter().any(Option::is_none) {
         return DestinationClock::Unmeasured;
     }
     clocks
         .iter()
         .flatten()
-        .max_by_key(|m| (m.behind_upper_ms.saturating_add(m.rtt_ms), m.measured_at))
+        // `None` (overflow) maps to `u64::MAX`: the largest allowance.
+        .max_by_key(|m| completion_allowance_ms(m, now).unwrap_or(u64::MAX))
         .copied()
         .map_or(DestinationClock::Unmeasured, DestinationClock::Measured)
 }
 
 /// The managed report of `grant` (D6 item 6, D12; §5 items 7–8).
 ///
-/// * `usable_until = offline_until = min(D, cutoff, parent deadline)` (the grant's
-///   effective deadline) with the issuer `ready` at activation, `through_deadline`;
+/// * `usable_until = offline_until = min(D, cutoff, parent deadline, the shortest
+///   prepared certificate's valid_before)` (§17.20 item 8: coverage never exceeds the
+///   shortest certificate) with the issuer `ready` at activation: `through_deadline`
+///   when that is the deadline, `refresh_dependent` when a certificate ends earlier;
 ///   while re-issue is pending, `refresh_dependent` and `usable_until = now`.
 /// * `destination_scope: verified_server_principals` only when **every** pair has its
 ///   own fresh evidence (`fresh_until > now`), else `unknown`; one evidence entry per
@@ -429,12 +479,20 @@ pub fn compute(
     let platform = ctx.platform;
     let has = |field: &str, value: &str| claimed(claims, &platform, field, value);
     let deadline = grant.deadline.effective;
+    let covered = prepared
+        .certificates
+        .iter()
+        .map(|c| c.valid_before)
+        .min()
+        .map_or(deadline, |shortest| shortest.min(deadline));
     let usable = !ctx.reissue_pending && ctx.issuer_ready;
-    let (usable_until, availability) = if usable {
+    let (usable_until, availability) = if usable && covered == deadline {
         (deadline, CredentialAvailability::ThroughDeadline)
+    } else if usable {
+        (covered, CredentialAvailability::RefreshDependent)
     } else {
         (
-            ctx.now.min(deadline),
+            ctx.now.min(covered),
             CredentialAvailability::RefreshDependent,
         )
     };
@@ -574,7 +632,7 @@ pub fn compute(
             .iter()
             .map(|c| c.valid_before)
             .max(),
-        destination_clock: weakest_clock(&clocks),
+        destination_clock: weakest_clock(&clocks, ctx.now),
     };
 
     ManagedReport {
@@ -595,7 +653,7 @@ pub fn compute(
         connection_policy: ConnectionPolicyReport {
             existing: ctx.policy.existing,
             multiplexing: ctx.policy.multiplexing,
-            wording: connection_wording(ctx.policy.existing).to_owned(),
+            wording: connection_wording(ctx.selection, &ctx.policy, &platform),
         },
     }
 }
