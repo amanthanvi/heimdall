@@ -20,7 +20,8 @@
 //!
 //! The time seam (integrator reading; questions file G-Q3): [`AuthorizationTime::Peek`]
 //! evaluates the gate's rules over the authorization's own transaction, persisting
-//! nothing; [`AuthorizationTime::ReadOnly`] is `TimeGate::assess_read_only` (U3). The
+//! nothing; [`AuthorizationTime::ReadOnly`] is `TimeGate::assess_read_only` (U3), the
+//! default since wave 2 (ADR-0008 §17.15 item 8). The
 //! release check's in-memory assessment is relative to the admitted observation: the
 //! same boot, a continuous clock that did not go back, and wall progress within the
 //! skew tolerance of continuous progress (G-Q4).
@@ -32,6 +33,7 @@ use async_trait::async_trait;
 use heimdall_contract::ids::GrantId;
 use heimdall_contract::managed::LockBehavior;
 use heimdall_contract::{GrantState, Timestamp};
+use heimdall_domain::managed::SlotState;
 use heimdall_domain::time::{self as dtime, Admission, Clock, GateInput, TimeAnchor, TimeStatus};
 use heimdall_store::Txn;
 use tokio::time::Instant;
@@ -121,7 +123,7 @@ impl Operations {
     }
 
     /// ⟨M03⟩ U0b row 5: where `admit` takes its time assessment ([`AuthorizationTime`];
-    /// default `Peek`). U3 switches it once `TimeGate::assess_read_only` has its body.
+    /// default `ReadOnly` since wave 2, ADR-0008 §17.15 item 8).
     pub fn set_authorization_time(&self, mode: AuthorizationTime) {
         *self
             .inner
@@ -158,25 +160,6 @@ impl Operations {
         let clock = Arc::clone(&self.inner.config.clock);
         let sync = Arc::clone(&self.inner.config.time_sync);
         let policy = self.inner.config.time_policy;
-        let pre: Option<SafeNow> = match mode {
-            AuthorizationTime::ReadOnly => {
-                let me = self.clone();
-                let status = tokio::task::spawn_blocking(move || {
-                    me.inner.timegate.assess_read_only(&me.inner.config.store)
-                })
-                .await
-                .map_err(|_| SignRefusal::Unavailable)?;
-                if status != TimeStatus::Safe {
-                    return Err(SignRefusal::TimeUncertain);
-                }
-                Some(SafeNow {
-                    anchor: clock.observe(),
-                    sync: sync.status(),
-                    tolerance_used: Duration::ZERO,
-                })
-            }
-            _ => None,
-        };
         let env = self.environment().clone();
         let adapters = self.adapter_infos();
         let gate = self.inner.timegate.in_txn();
@@ -184,14 +167,18 @@ impl Operations {
         // ⟨U9⟩ R3: the configured floor joins the effective behaviour.
         let floor = self.session_lock_floor();
         let endpoint = facts.endpoint.clone();
+        let pair = facts.pair.clone();
         let gid = grant.clone();
         self.write(move |tx, _| {
-            let safe = match pre {
-                Some(s) => s,
-                None => match assess_in(tx, clock.as_ref(), sync.as_ref(), &policy)? {
-                    Some(s) => s,
-                    None => return Ok(Err(SignRefusal::TimeUncertain)),
-                },
+            // ⟨§17.19 item 1, W2-R01⟩ The time verdict and the observation it judged are
+            // one: both seams assess inside this transaction, and `safe` is built from
+            // the assessed observation itself, never from a later `observe()`.
+            let assessed = match mode {
+                AuthorizationTime::ReadOnly => gate.assess_read_only(tx)?.2,
+                _ => assess_in(tx, clock.as_ref(), sync.as_ref(), &policy)?,
+            };
+            let Some(safe) = assessed else {
+                return Ok(Err(SignRefusal::TimeUncertain));
             };
             let Some(g) = tx.grant(&gid)? else {
                 return Ok(Err(SignRefusal::KeyNotServed));
@@ -200,13 +187,25 @@ impl Operations {
                 SignerEndpoint::Binding(b) => tx.binding(b)?.is_some_and(|rec| {
                     rec.grant == gid && rec.environment == env && rec.released_at.is_none()
                 }),
+                // ⟨integrator, wave-2 review⟩ D10 items 2–3: the environment endpoint
+                // serves a pair only while one of the grant's unreleased bindings
+                // **holds** that pair's slot here (a `clearing` slot is unlisted at
+                // once). The fresh read checks it, not only the in-memory listing.
                 SignerEndpoint::Environment => {
                     let mut served = false;
                     for r in tx.grant_references(&gid)? {
                         if let Some(b) = tx.binding(&r.binding)?
                             && b.grant == gid
                             && b.environment == env
-                            && !tx.slots_for_binding(&b.id)?.is_empty()
+                            && b.released_at.is_none()
+                            && tx.slots_for_binding(&b.id)?.iter().any(|slot| {
+                                slot.environment == env
+                                    && slot.pair == pair
+                                    && matches!(
+                                        &slot.state,
+                                        SlotState::Held { binding, .. } if *binding == b.id
+                                    )
+                            })
                         {
                             served = true;
                             break;

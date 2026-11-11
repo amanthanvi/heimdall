@@ -188,6 +188,50 @@ fn run_check(
     })
 }
 
+/// ⟨M03⟩ U3 (ADR-0008 D3 item 4 step 2): the verification predicate over the stored
+/// `entry`, read-only, for the issuer child: the same [`operation_facts`] and
+/// [`run_check`] as [`Operations::publish_verification`]. The enrollment is the one
+/// the operation's stored request names; an operation whose stored request names
+/// none (anything but an `enrollment.verify`, which is also the only kind
+/// `operation_facts` authorizes in this wave) is refused `operation_not_verifying`.
+/// Reads only.
+pub(crate) fn verification_check_read_only(
+    tx: &mut Txn<'_>,
+    entry: &VerificationEntry,
+    subject_registered: bool,
+    time: TimeStatus,
+    now: Timestamp,
+    max_validity: std::time::Duration,
+) -> heimdall_store::Result<Result<(), VerificationRefusal>> {
+    let enrollment = tx
+        .recovery_intent(&entry.operation)?
+        .and_then(|i| serde_json::from_value::<Request>(i.request).ok())
+        .and_then(|r| match r {
+            Request::Enrollment(EnrollmentRequest::Verify { enrollment_id, .. }) => {
+                Some(enrollment_id)
+            }
+            _ => None,
+        });
+    let Some(enrollment) = enrollment else {
+        return Ok(Err(VerificationRefusal::OperationNotVerifying));
+    };
+    Ok(
+        match operation_facts(tx, &entry.operation, &enrollment, false)? {
+            Ok(facts) => run_check(
+                &facts,
+                &entry.pair,
+                entry.purpose,
+                &entry.bounds,
+                subject_registered,
+                time,
+                now,
+                max_validity,
+            ),
+            Err(refused) => Err(refused),
+        },
+    )
+}
+
 fn not_reserved_here() -> OpError {
     OpError::new(
         Code::CredentialExpired,

@@ -22,6 +22,11 @@ heimdall-credential = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# M03 wave 2 (U3): the async client of the child (`client::ChildIssuer`: tokio
+# process, pipes, timeouts, the restart backoff) implementing the async
+# `IssuerPort` port. Both already pinned (the workspace tokio has process/io-util/time).
+tokio = { workspace = true }
+async-trait = { workspace = true }
 # ADR-0008 §18 (dependencies.md §5): K_ca generation, certificates, the D5 backup
 # (`encryption`: bcrypt-pbkdf + aes256-ctr).
 ssh-key = { workspace = true }
@@ -57,9 +62,31 @@ windows-sys = { workspace = true }     # CryptProtectData/CryptUnprotectData (Wi
 heimdall-testkit = { workspace = true, default-features = false, features = ["managed", "fixtures"] }
 # M03 wave 1 (m03-plan U4 "Tests"): scratch directories.
 tempfile = { workspace = true }
+# M03 wave 2 (U3): the issuer client's async tests on virtual time (a feature of the pinned
+# crate; no package enters the lock).
+tokio = { workspace = true, features = ["test-util"] }
+# M03 wave 2 (U3): reservations seeded through the production store and `Operations`.
+heimdall-store = { workspace = true }
+# M03 wave 2 (U3): `issuance_ro_assess_matches_reserve_predicate` (fixed seed, 256 cases).
+proptest = { workspace = true }
+
+# M03 wave 2 (U3): `issuer_refuses_tty_stdin` opens a disposable pty (rustix's safe
+# `openpt`/`grantpt`/`unlockpt`/`ptsname`; a feature of the pinned crate).
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { workspace = true, features = ["pty"] }
 
 # Test targets (m01-plan §0 convention). M03-U4: the K_ca stores, the D5 backup,
 # retirement, the uninstall store plan and the recovery bundle.
 [[test]]
 name = "integration_issuer_store"
 path = "../../tests/integration/issuer_store.rs"
+
+# M03 wave 2 (U3): the issuer child, its protocol and the client (m03-plan U3 "Tests").
+[[test]]
+name = "integration_issuer_child"
+path = "../../tests/integration/issuer_child.rs"
+
+# M03 wave 2 (U3): the linearization model (ADR-0005 §9.3 R2/R12; m03-plan U3).
+[[test]]
+name = "model_issuer_linearization"
+path = "../../tests/model/issuer_linearization.rs"

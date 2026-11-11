@@ -1020,6 +1020,7 @@ fn issuance(n: u8, grant: &GrantId, p: &AccessPair, valid_before: Timestamp) -> 
         reserved_at: t0(),
         settled_at: None,
         void_reason: None,
+        continuing: false,
     }
 }
 

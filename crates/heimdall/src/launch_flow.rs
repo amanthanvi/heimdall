@@ -619,6 +619,110 @@ pub(crate) fn report_overrides(ctx: &Ctx, overrides: &[ConsumerOverride]) {
     }
 }
 
+// --- ⟨M03⟩ managed launches (ADR-0008 D8 item 2, D10 items 4-5) --------------------------
+
+/// The mechanism name of a managed pair (`PairIntegration.mechanism`).
+pub(crate) const MANAGED_CERTIFICATE: &str = "managed_certificate";
+
+/// Whether a binding's integration names a managed pair. Such a launch is **owned**
+/// when its program is the verified `ssh` client (ADR-0008 D8 item 2).
+pub(crate) fn is_managed(pairs: &[heimdall_contract::request::PairIntegration]) -> bool {
+    pairs.iter().any(|p| p.mechanism == MANAGED_CERTIFICATE)
+}
+
+/// Whether `program` is the verified `ssh` client of the client inventory (D8 item 2:
+/// only a launch of that client is an owned connection). Paths are compared after
+/// canonicalization; a path that cannot be canonicalized compares as written.
+pub(crate) fn is_verified_ssh(program: &ResolvedProgram, env: &Env) -> bool {
+    use heimdall_localenv::clients::{ClientKind, ClientsConfig, selected_path};
+    let Some(verified) = selected_path(env, &ClientsConfig::default(), ClientKind::Ssh) else {
+        return false;
+    };
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    canonical(&program.path) == canonical(&verified)
+}
+
+/// D8 item 2: an argument that would move an owned connection out of the launched
+/// process, refused before launch: `CONFIG_CONFLICT`, reason
+/// `owned_connection_option_conflict`, `prelaunch_failed`. The argument is named by
+/// index only.
+pub(crate) fn owned_option_conflict(
+    conflict: &heimdall_sshconf::render::OwnedOptionConflict,
+) -> Failure {
+    Failure::new(
+        Code::ConfigConflict,
+        &format!(
+            "{conflict}; Heimdall keeps the connections it owns in the launched process, so nothing was launched"
+        ),
+        Some(heimdall_contract::envelope::reason::OWNED_CONNECTION_OPTION_CONFLICT),
+    )
+}
+
+/// The arguments of an owned `ssh` launch: the foreground pins right after the program
+/// name, then `args` (D8 item 2), or the refusal of a conflicting argument.
+pub(crate) fn owned_ssh_args(args: &[OsString]) -> Result<Vec<OsString>, Failure> {
+    heimdall_sshconf::render::owned_ssh_arguments(args).map_err(|c| owned_option_conflict(&c))
+}
+
+/// D10 item 5: another binding holds a managed pair's slot: `CONFIG_CONFLICT`, reason
+/// `managed_slot_held`, next `release_binding`, `prelaunch_failed`.
+pub(crate) fn managed_slot_held(binding: &BindingId) -> Failure {
+    let e = heimdall_app::OpError::new(
+        Code::ConfigConflict,
+        "another binding holds this pair's managed slot; release it, or use `heimdall connect`, which needs no slot; nothing was launched",
+    )
+    .with_effect(EffectStatus::None)
+    .with_reason(heimdall_contract::envelope::reason::MANAGED_SLOT_HELD)
+    .with_resource("binding", Some(binding.to_string()))
+    .with_next(NextAction {
+        action: "release_binding".to_owned(),
+        ..NextAction::default()
+    });
+    Failure::of(output::error_value(e.into_envelope()))
+}
+
+/// What a later wave supplies and this build does not have yet: refused
+/// `CAPABILITY_UNAVAILABLE`, `driver_unavailable`, before launch (fail closed). The text
+/// names the missing part; it is never the retired wave-0 envelope text, which no M02
+/// command answers (`cli::tests`).
+pub(crate) fn managed_unavailable(what: &str) -> Failure {
+    Failure::of(output::error_value(
+        heimdall_app::OpError::driver_unavailable(&format!(
+            "the managed launch needs {what}, which this runtime does not provide yet; nothing was launched"
+        ))
+        .into_envelope(),
+    ))
+}
+
+/// ⟨M03⟩ D8 item 6: the deadline notice of a managed launch on stderr (human output
+/// only), worded by the pairs' identity selection: the unqualified text only when every
+/// managed pair's selection is `exclusive`.
+pub(crate) fn report_deadline(ctx: &Ctx, data: &heimdall_contract::request::EnsureData) {
+    use heimdall_contract::managed::ExistingConnectionsMode;
+    if ctx.json || !is_managed(&data.consumer.pairs) {
+        return;
+    }
+    let selection = if data
+        .consumer
+        .pairs
+        .iter()
+        .filter(|p| p.mechanism == MANAGED_CERTIFICATE)
+        .all(|p| p.identity_selection == IdentitySelection::Exclusive)
+    {
+        IdentitySelection::Exclusive
+    } else {
+        IdentitySelection::NotExclusive
+    };
+    let existing = data
+        .connection_policy
+        .as_ref()
+        .map_or(ExistingConnectionsMode::Graceful, |p| p.existing);
+    output::diagnostic(&format!(
+        "heimdall: {}",
+        heimdall_localenv::projection::plan::deadline_wording(selection, existing)
+    ));
+}
+
 /// Everything a launch needs once every check passed.
 pub(crate) struct Launch {
     /// The program.

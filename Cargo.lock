@@ -1134,11 +1134,14 @@ dependencies = [
 name = "heimdall-credential"
 version = "0.1.0-m01"
 dependencies = [
+ "async-trait",
  "getrandom 0.4.3",
  "heimdall-app",
  "heimdall-contract",
  "heimdall-domain",
  "heimdall-ipc",
+ "heimdall-sshconf",
+ "heimdall-store",
  "heimdall-testkit",
  "libc",
  "proptest",
@@ -1150,6 +1153,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-util",
  "windows-sys",
  "zeroize",
 ]
@@ -1215,6 +1219,7 @@ dependencies = [
 name = "heimdall-issuer"
 version = "0.1.0-m01"
 dependencies = [
+ "async-trait",
  "core-foundation",
  "heimdall-app",
  "heimdall-contract",
@@ -1222,6 +1227,7 @@ dependencies = [
  "heimdall-domain",
  "heimdall-store",
  "heimdall-testkit",
+ "proptest",
  "rustix",
  "secret-service",
  "security-framework",

@@ -751,15 +751,22 @@ async fn authorize_refuses_each_predicate() {
     assert_eq!(w.admit(&g).await.unwrap_err(), SignRefusal::GateTimeout);
     assert_eq!(before.elapsed(), w.limits.signing_gate_wait);
     drop(n);
-    // Time: the read-only assessment (U3) fails closed in wave 0; a wall clock pulled
-    // back beyond the rollback tolerance is uncertain under `Peek`.
+    // Time: under both seams, a wall clock pulled back beyond the rollback tolerance is
+    // uncertain. ⟨wave 2⟩ `ReadOnly` (U3's `assess_read_only`, the default since
+    // §17.15 item 8) admits on this world's runtime anchor; `Peek` stays selectable.
+    for mode in [AuthorizationTime::ReadOnly, AuthorizationTime::Peek] {
+        w.ops.set_authorization_time(mode);
+        assert!(w.admit(&g).await.is_ok(), "{mode:?}");
+        *w.clock.wall_back.lock().unwrap() = Duration::from_secs(3600);
+        assert_eq!(
+            w.admit(&g).await.unwrap_err(),
+            SignRefusal::TimeUncertain,
+            "{mode:?}"
+        );
+        *w.clock.wall_back.lock().unwrap() = Duration::ZERO;
+        assert!(w.admit(&g).await.is_ok(), "{mode:?}");
+    }
     w.ops.set_authorization_time(AuthorizationTime::ReadOnly);
-    assert_eq!(w.admit(&g).await.unwrap_err(), SignRefusal::TimeUncertain);
-    w.ops.set_authorization_time(AuthorizationTime::Peek);
-    *w.clock.wall_back.lock().unwrap() = Duration::from_secs(3600);
-    assert_eq!(w.admit(&g).await.unwrap_err(), SignRefusal::TimeUncertain);
-    *w.clock.wall_back.lock().unwrap() = Duration::ZERO;
-    assert!(w.admit(&g).await.is_ok());
     // The session lock: `revoke_on_lock` needs `unlocked` (no source = unknown).
     w.store
         .transaction(|tx| tx.upsert_policy(&policy_rev(LockBehavior::RevokeOnLock, 2), true))
@@ -822,6 +829,13 @@ async fn authorize_refuses_each_predicate() {
 
 /// ADR-0006 §13.5 ruling 2: an unrelated generation move (another grant revoked)
 /// re-validates automatically and admits; the new validation is recorded.
+/// ⟨wave 2, integrator⟩ ADR-0008 §17.15 item 8: the authorization's time assessment is
+/// `TimeGate::assess_read_only` by default, not the wave-0 `Peek` seam.
+#[test]
+fn authorization_time_defaults_to_read_only_assessment() {
+    assert_eq!(AuthorizationTime::default(), AuthorizationTime::ReadOnly);
+}
+
 #[tokio::test(start_paused = true)]
 async fn authorize_revalidates_after_unrelated_generation_move() {
     let w = world().await;

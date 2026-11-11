@@ -1471,7 +1471,9 @@ impl Txn<'_> {
         Ok(())
     }
 
-    fn issuance_entry(&mut self, id: &IssuanceId) -> Result<Option<IssuanceEntry>> {
+    /// ⟨M03 wave 2, integrator; U3-Q1⟩ One grant issuance entry by ID, in any state (the
+    /// issuer child's D3 item 4 step 1 lookup over its read-only store). Read-only.
+    pub fn issuance_entry(&mut self, id: &IssuanceId) -> Result<Option<IssuanceEntry>> {
         self.one_doc(
             "SELECT record_json FROM issuance_log WHERE id = ?1",
             [id.as_str()],

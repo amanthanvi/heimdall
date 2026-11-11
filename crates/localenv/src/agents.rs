@@ -25,8 +25,10 @@ use std::path::{Path, PathBuf};
 
 use heimdall_contract::doctor::ConfigProvenance;
 use heimdall_contract::provider::ProviderKind;
+use heimdall_sshconf::client;
 use heimdall_sshconf::directive::{Keyword, KnownKeyword};
-use heimdall_sshconf::include::{self, ConfigSet, IncludeVisitor, Roots, Visit};
+use heimdall_sshconf::eval::OpenSshVersion;
+use heimdall_sshconf::include::{self, ConfigSet, Expansion, IncludeVisitor, Roots, Visit};
 use heimdall_sshconf::limits::Limits;
 use heimdall_sshconf::parse::Line;
 
@@ -111,9 +113,34 @@ pub struct AgentEndpoint {
     pub source: EndpointSource,
 }
 
-/// Detect agent endpoints passively.
+/// Detect agent endpoints passively, for a client whose `Include` behaviour is not
+/// known: every `Include` is read the expanding way, as in M02 (an extra candidate is
+/// possible, never a hidden one). [`detect_agents_for_client`] follows the selected
+/// client.
 #[must_use]
 pub fn detect_agents(env: &Env, paths: &SshPaths, platform: Platform) -> Vec<AgentEndpoint> {
+    detect_with(env, paths, platform, IncludeReading::Expanding)
+}
+
+/// ⟨M03⟩ ADR-0007 §12.34 item 3 (deferred to M03, §13): [`detect_agents`] for the
+/// selected `ssh` client of `client` (`None`: unknown), whose `Include` arguments are
+/// read as that client reads them ([`identity_agent_references_for_client`]).
+#[must_use]
+pub fn detect_agents_for_client(
+    env: &Env,
+    paths: &SshPaths,
+    platform: Platform,
+    client: Option<OpenSshVersion>,
+) -> Vec<AgentEndpoint> {
+    detect_with(env, paths, platform, IncludeReading::of(client))
+}
+
+fn detect_with(
+    env: &Env,
+    paths: &SshPaths,
+    platform: Platform,
+    reading: IncludeReading,
+) -> Vec<AgentEndpoint> {
     let pipes = if platform.is_windows() {
         list_pipes()
     } else {
@@ -141,7 +168,7 @@ pub fn detect_agents(env: &Env, paths: &SshPaths, platform: Platform) -> Vec<Age
     {
         push(locator, EndpointSource::SshAuthSock);
     }
-    for (locator, provenance) in identity_agent_references(env, paths, platform) {
+    for (locator, provenance) in references_with(env, paths, platform, reading) {
         push(locator, EndpointSource::IdentityAgent(provenance));
     }
     if platform.is_windows()
@@ -240,11 +267,54 @@ fn list_pipes() -> Option<Vec<String>> {
     None
 }
 
+/// ⟨M03⟩ How the walk reads an `Include` argument's `${VAR}` and `%` tokens
+/// (ADR-0007 §12.34 item 3; `heimdall_sshconf::client`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IncludeReading {
+    /// Every expansion the pinned manual describes (M02's reading).
+    Expanding,
+    /// Exactly the expansions the selected client was observed to apply.
+    Client(Expansion),
+    /// The client's behaviour is not settled: both readings, so a candidate is never
+    /// hidden (an extra one is possible, and grants nothing).
+    Both,
+}
+
+impl IncludeReading {
+    /// The reading for the selected client of `version` (`None`: unknown).
+    fn of(version: Option<OpenSshVersion>) -> IncludeReading {
+        let Some(v) = version else {
+            return IncludeReading::Both;
+        };
+        let env_known = !client::behaviour_unknown(KnownKeyword::Include, ["${X}"], v);
+        let tokens_known = !client::behaviour_unknown(KnownKeyword::Include, ["%d"], v);
+        if env_known && tokens_known {
+            IncludeReading::Client(client::include_expansion(v))
+        } else {
+            IncludeReading::Both
+        }
+    }
+
+    /// The walks this reading takes.
+    fn expansions(self) -> Vec<Expansion> {
+        match self {
+            IncludeReading::Expanding => vec![Expansion::FULL],
+            IncludeReading::Client(e) => vec![e],
+            IncludeReading::Both => vec![Expansion::FULL, Expansion::LITERAL],
+        }
+    }
+}
+
 struct AgentRefs {
     found: Vec<(String, PathBuf, u32)>,
+    expansion: Expansion,
 }
 
 impl IncludeVisitor for AgentRefs {
+    fn include_expansion(&self) -> Expansion {
+        self.expansion
+    }
+
     fn line(&mut self, visit: &Visit, line: &Line) {
         if let Line::Directive(d) = line
             && d.keyword == Keyword::Known(KnownKeyword::IdentityAgent)
@@ -272,20 +342,60 @@ pub fn roots_for(paths: &SshPaths, read_system: bool) -> Roots {
 }
 
 /// Every `IdentityAgent` value in the user and system trees that names an endpoint
-/// statically, with where it was written.
+/// statically, with where it was written. Every `Include` is read the expanding way
+/// (M02; a client whose behaviour is not known):
+/// [`identity_agent_references_for_client`] follows the selected client.
 #[must_use]
 pub fn identity_agent_references(
     env: &Env,
     paths: &SshPaths,
     platform: Platform,
 ) -> Vec<(EndpointLocator, ConfigProvenance)> {
+    references_with(env, paths, platform, IncludeReading::Expanding)
+}
+
+/// ⟨M03⟩ ADR-0007 §12.34 item 3: [`identity_agent_references`] with each `Include`
+/// argument read as the selected client of `client` reads it
+/// (`heimdall_sshconf::client::include_expansion`): an `Include` the client would not
+/// expand (OpenSSH 9.6p1 takes `${VAR}` and `%` tokens in `Include` literally) adds no
+/// candidate from the expanded file. For a client whose behaviour is not settled
+/// (`None`, an unobserved version, or a row that does not record the fact) both readings
+/// are walked, so a candidate is never hidden: an extra one is possible, and the list
+/// grants nothing (the doctor's candidates only).
+#[must_use]
+pub fn identity_agent_references_for_client(
+    env: &Env,
+    paths: &SshPaths,
+    platform: Platform,
+    client: Option<OpenSshVersion>,
+) -> Vec<(EndpointLocator, ConfigProvenance)> {
+    references_with(env, paths, platform, IncludeReading::of(client))
+}
+
+fn references_with(
+    env: &Env,
+    paths: &SshPaths,
+    platform: Platform,
+    reading: IncludeReading,
+) -> Vec<(EndpointLocator, ConfigProvenance)> {
     let source = BoundedSource::new(paths.clone(), env.clone(), Limits::default());
     let roots = roots_for(paths, true);
-    let mut set = ConfigSet::new();
-    let mut refs = AgentRefs { found: Vec::new() };
-    include::walk(&mut set, &source, &roots, &Limits::default(), &mut refs);
+    let mut found: Vec<(String, PathBuf, u32)> = Vec::new();
+    for expansion in reading.expansions() {
+        let mut set = ConfigSet::new();
+        let mut refs = AgentRefs {
+            found: Vec::new(),
+            expansion,
+        };
+        include::walk(&mut set, &source, &roots, &Limits::default(), &mut refs);
+        for r in refs.found {
+            if !found.contains(&r) {
+                found.push(r);
+            }
+        }
+    }
     let mut out = Vec::new();
-    for (value, file, line) in refs.found {
+    for (value, file, line) in found {
         let Some(expanded) = expand_agent_value(&value, &source, env) else {
             continue;
         };

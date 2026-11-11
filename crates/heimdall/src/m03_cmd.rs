@@ -84,15 +84,158 @@ pub(crate) fn internal_issuer_envelope(stdin_tty: bool) -> Envelope<serde_json::
     }
 }
 
-/// The hidden `internal` commands. `issuer` refuses a terminal on stdin first; the
-/// session-lock state is read-only. Both answer the wave-0 envelope otherwise.
+/// The hidden `internal` commands. `issuer` refuses a terminal on stdin first (the
+/// envelope); on a pipe it **is** the issuer child (M03-U3, [`internal_issuer`]),
+/// which writes nothing on stdout but protocol frames. The session-lock state answers
+/// the wave-0 envelope.
 pub(crate) fn internal(ctx: &Ctx, command: InternalCommand) -> ExitCode {
     let env = match command {
-        InternalCommand::Issuer => internal_issuer_envelope(ctx.stdin_tty),
+        InternalCommand::Issuer if !ctx.stdin_tty => return internal_issuer(ctx),
+        InternalCommand::Issuer => internal_issuer_envelope(true),
         InternalCommand::SessionLockState => not_available_envelope(),
     };
     output::emit(&env, ctx.json);
     output::exit_code_for(env.code, false)
+}
+
+/// ⟨M03-U3⟩ The directory of the scratch test store under the state directory (D1
+/// "Test K_ca": under the scratch state directory). U10's runtime wiring and U12's
+/// ceremony select the same directory.
+pub(crate) const SCRATCH_STORE_DIR: &str = "scratch-secret-store";
+
+/// ⟨M03-U3⟩ `heimdall internal issuer` on a pipe (ADR-0008 D3 item 1): the child the
+/// runtime spawns. Its stdout is the `heimdall-issuer/1` channel, so it never prints
+/// an envelope; the status is the child's ([`heimdall_issuer::child::run`]): 0 →
+/// success, a refused configuration → usage (2), anything else → unavailable (5),
+/// which the supervisor reads as `crashed`.
+fn internal_issuer(ctx: &Ctx) -> ExitCode {
+    match issuer_child_status(ctx) {
+        0 => ExitCode::Success,
+        heimdall_issuer::child::EXIT_USAGE => ExitCode::Usage,
+        _ => ExitCode::Unavailable,
+    }
+}
+
+/// The issuer child's status (see [`internal_issuer`]).
+fn issuer_child_status(ctx: &Ctx) -> i32 {
+    use heimdall_issuer::child::{EXIT_UNAVAILABLE, EXIT_USAGE};
+    let env = |name: &str| std::env::var_os(name);
+    // A release build refuses every test variable before anything is read (U0b's
+    // `release_build_refuses_m03_test_gates`); the M03 values are validated here.
+    if crate::testcfg::refusal(
+        crate::testcfg::AVAILABLE,
+        crate::testcfg::requested_by(&env),
+    )
+    .is_some()
+    {
+        return EXIT_USAGE;
+    }
+    let Ok(m03) = crate::testcfg::m03_config(&env) else {
+        return EXIT_USAGE;
+    };
+    let Ok(paths) = ctx.paths() else {
+        return EXIT_UNAVAILABLE;
+    };
+    let db = paths
+        .state_dir
+        .join(heimdall_runtime::service::STATE_DB_FILE);
+    // The installation's environment, which scopes the product store's items.
+    let environment =
+        heimdall_store::Store::open_read_only(&db, std::sync::Arc::new(heimdall_store::NoFaults))
+            .and_then(|s| s.transaction(|tx| tx.self_environment()));
+    let Ok(Some(environment)) = environment else {
+        return EXIT_UNAVAILABLE;
+    };
+    let Some(store) = issuer_store(ctx, &paths, &environment, m03.scratch_secret_store) else {
+        return EXIT_UNAVAILABLE;
+    };
+    heimdall_issuer::child::run(
+        std::io::stdin(),
+        std::io::stdout(),
+        store,
+        &db,
+        issuer_clock(&env),
+    )
+}
+
+/// ⟨M03-U3⟩ The issuer child's K_ca store (ADR-0008 D1): the platform's product
+/// store, scoped to `environment` (§17.18 item 1). `None` where there is none
+/// (headless Linux answers through the Secret Service's own availability; other
+/// platforms have no store), and for the scratch test store, which a test-configured
+/// build selects with `HEIMDALL_TEST_SECRET_STORE=scratch` but which this crate's
+/// production graph cannot name yet (questions file U3-Q4): fail closed, never a
+/// plaintext fallback. On Windows an explicit Heimdall home keeps the DPAPI blobs
+/// under `<state>/issuer/<environment>` (D1: a scratch `HEIMDALL_HOME` is the product
+/// kind at a scratch path); otherwise `%LOCALAPPDATA%\Heimdall\issuer\<environment>`.
+pub(crate) fn issuer_store(
+    ctx: &Ctx,
+    paths: &heimdall_runtime::paths::Paths,
+    environment: &heimdall_contract::ids::EnvironmentId,
+    scratch: bool,
+) -> Option<Box<dyn heimdall_issuer::store::SecretStore>> {
+    if scratch {
+        let _ = paths.state_dir.join(SCRATCH_STORE_DIR);
+        return None;
+    }
+    let _ = (ctx, paths, environment);
+    #[cfg(target_os = "macos")]
+    {
+        let home = heimdall_localenv::sys::account_home().ok()?;
+        Some(Box::new(heimdall_issuer::store::MacosLoginKeychain::login(
+            &home,
+            environment,
+        )))
+    }
+    #[cfg(windows)]
+    {
+        let dir = if ctx.home.is_some() {
+            paths.state_dir.join("issuer").join(environment.as_str())
+        } else {
+            heimdall_issuer::store::WindowsDpapi::default_dir(environment).ok()?
+        };
+        Some(Box::new(heimdall_issuer::store::WindowsDpapi::in_dir(
+            dir,
+            environment,
+        )))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Some(Box::new(heimdall_issuer::store::LinuxSecretService::new(
+            environment,
+        )))
+    }
+    #[cfg(not(any(target_os = "macos", windows, target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// ⟨M03-U3⟩ The issuer child's clock: the system clock, shifted like the runtime's
+/// by `HEIMDALL_TEST_CLOCK_OFFSET_S` in a test-configured build, so the child's
+/// read-only time gate sees the wall time the runtime anchored.
+fn issuer_clock(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+) -> std::sync::Arc<dyn heimdall_domain::time::Clock> {
+    use heimdall_domain::time::Clock;
+    struct Shifted(crate::testcfg::ClockOffset);
+    impl Clock for Shifted {
+        fn wall(&self) -> heimdall_contract::Timestamp {
+            self.0.shift(heimdall_runtime::platform::SystemClock.wall())
+        }
+        fn continuous(&self) -> std::time::Duration {
+            heimdall_runtime::platform::SystemClock.continuous()
+        }
+        fn boot_id(&self) -> heimdall_domain::time::BootId {
+            heimdall_runtime::platform::SystemClock.boot_id()
+        }
+    }
+    match env(crate::testcfg::CLOCK_OFFSET_ENV)
+        .filter(|_| crate::testcfg::AVAILABLE)
+        .and_then(|v| crate::testcfg::ClockOffset::parse(&v).ok())
+    {
+        Some(offset) => std::sync::Arc::new(Shifted(offset)),
+        None => std::sync::Arc::new(heimdall_runtime::platform::SystemClock),
+    }
 }
 
 #[cfg(test)]
@@ -383,7 +526,17 @@ mod tests {
                 .collect();
             let cli = crate::cli::Cli::try_parse_from(&argv)
                 .unwrap_or_else(|e| panic!("{line:?} must parse: {:?}", e.kind()));
-            assert_eq!(crate::cli::dispatch(cli), ExitCode::Usage, "{line:?}");
+            // ⟨M03-U3⟩ `internal issuer` on a pipe is the issuer child: with no state
+            // database in the home it cannot open one read-only and exits unavailable
+            // (a terminal stdin is still the usage refusal). Neither touches the home.
+            let expected = if *line == ["internal", "issuer"]
+                && !std::io::IsTerminal::is_terminal(&std::io::stdin())
+            {
+                ExitCode::Unavailable
+            } else {
+                ExitCode::Usage
+            };
+            assert_eq!(crate::cli::dispatch(cli), expected, "{line:?}");
             assert!(!home.exists(), "{line:?} touched the home");
         }
     }

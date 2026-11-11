@@ -38,20 +38,49 @@
 //! `connect` binds nothing (its records name no operation or binding), so the
 //! binding re-check `run` does before `launching` (§12.24 item 2) has nothing to
 //! confirm here.
+//!
+//! **⟨M03⟩ A managed pair** (ADR-0008 D8 item 2, D10 item 4; m03-plan U8). When the
+//! listing names the alias's pair preference `managed_certificate` with its projection
+//! `applied` (`"preference": {"mechanism", "projection": {"state"}}`; a listing without
+//! it reads as existing access, so the M02 flow above is unchanged):
+//! 1. the pair is resolved from the listing (`destination_id`, `account`);
+//! 2. `ensure` for that single pair under the one profile of the environment whose scope
+//!    contains it; none (or more than one: no default can be chosen, U8-Q5) is
+//!    `CAPABILITY_UNAVAILABLE`, `no_profile_covers_destination`. The request ID is
+//!    fresh (random), so it is never a replay;
+//! 3. `bind` with `Launch { executable, holder }`, this process holding the reference
+//!    (as `run`; on Unix the exec makes the client the holder);
+//! 4. under `--non-interactive`, `run`'s pre-launch check over the bound pairs;
+//! 5. the launch of the verified client, in the foreground: the pins right after the
+//!    program name, then the **binding's** endpoint and files on the command line
+//!    (`-o IdentityAgent=…`, `-o IdentitiesOnly=yes` and the identity options of the
+//!    one form selector, `heimdall_sshconf::render::managed_identity_options`), then the
+//!    alias. The binding endpoint is the bind result's `consumer.signing_endpoint`, and
+//!    its files are `key.pub` and `cert-<destination-id>.pub` in the binding's
+//!    directory `<runtime_dir>/b/<16 hex>/` (ADR-0008 D6 item 1 step 6; reading R6).
+//!
+//! On Windows the launch needs U7's contained spawn, so it is refused there (fail
+//! closed). Today `ensure` refuses a managed pair `driver_unavailable` until the managed
+//! adapter is registered, so step 3 is never reached.
 
+use heimdall_contract::ids::{ProfileId, WorkId};
 use heimdall_contract::provider::IdentityEntrySource;
-use heimdall_contract::request::{InspectRequest, InspectSubject, Request};
+use heimdall_contract::request::{
+    AccessPairRef, BindForm, BindRequest, EnsureData, EnsureRequest, InspectRequest,
+    InspectSubject, LaunchBinding, ProcessHolder, Request, WaitMode,
+};
 use heimdall_contract::setup::ProjectionItem;
 use heimdall_contract::{Code, ExitCode};
 use heimdall_launch::eligibility::{
-    BoundPair, IdentitiesView, IdentityView, PrelaunchReason, PrelaunchRefusal, check_pairs,
+    BoundPair, IdentitiesView, IdentityView, PrelaunchReason, PrelaunchRefusal,
+    check_noninteractive, check_pairs,
 };
 use heimdall_launch::env::EnvDelta;
 use heimdall_launch::resolve::resolve_program;
 use heimdall_localenv::clients::{ClientKind, ClientsConfig, selected_path, sha256_file};
 use heimdall_localenv::env::{Env, Platform};
 
-use crate::cli::ConnectArgs;
+use crate::cli::{ConnectArgs, TerminalPrompt, ensure_flow, fresh_request_id};
 use crate::client::{Client, Ctx, connect_as};
 use crate::launch_flow::{self, Failure, Launch};
 use crate::output;
@@ -59,6 +88,9 @@ use crate::testcfg;
 
 /// The longest alias `connect` passes to `ssh`.
 const MAX_ALIAS_BYTES: usize = 255;
+
+/// The bounded wait for a managed pair's `ensure` (as `run`'s).
+const ENSURE_TIMEOUT_MS: u64 = 30_000;
 
 /// Handle `connect`.
 pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
@@ -111,22 +143,40 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
         let mut client = connect_as(ctx, true, &[], interaction)
             .await
             .map_err(|e| Failure::of(output::error_value(*e)))?;
-        let Some(definition) = known_destination(&mut client, &alias).await? else {
+        let Some(known) = known_destination(&mut client, &alias).await? else {
             return Err(Failure::new(
                 Code::NotFound,
                 "unknown destination: the alias is not a managed or observed destination",
                 None,
             ));
         };
-        if check {
-            eligible(ctx, &mut client, &alias, definition, &hooks).await?;
+        if let Some(pair) = known.managed.clone() {
+            let flow = ManagedConnect {
+                alias: &alias,
+                pair,
+                program: &program,
+                interaction,
+                check,
+            };
+            return flow.run(ctx, &mut client, &hooks).await.map(Some);
         }
-        Ok(())
+        if check {
+            eligible(ctx, &mut client, &alias, known.definition, &hooks).await?;
+        }
+        Ok(None)
     });
     rt.shutdown_background();
-    if let Err(f) = checked {
-        return launch_flow::fail(ctx, &mut meta, f);
-    }
+    let managed = match checked {
+        Ok(m) => m,
+        Err(f) => return launch_flow::fail(ctx, &mut meta, f),
+    };
+    let (args, meta) = match managed {
+        None => (vec![std::ffi::OsString::from(&alias)], meta),
+        Some(m) => (
+            m.args,
+            launch_flow::with_ids(meta, m.operation, Some(m.binding)),
+        ),
+    };
     if !ctx.json {
         let digest = sha256_file(&program.path).unwrap_or_else(|| "unknown".to_owned());
         output::diagnostic(&format!(
@@ -138,12 +188,304 @@ pub(crate) fn run(ctx: &Ctx, args: ConnectArgs) -> ExitCode {
         ctx,
         Launch {
             program,
-            args: vec![std::ffi::OsString::from(&alias)],
+            args,
             delta: EnvDelta::default(),
             meta,
             hooks,
         },
     )
+}
+
+/// A known destination: its definition and, for a managed pair whose projection is
+/// applied, the pair (module docs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Known {
+    definition: Definition,
+    managed: Option<AccessPairRef>,
+}
+
+/// The pair of a listed destination whose preference is `managed_certificate` with its
+/// projection `applied` (module docs), `None` otherwise: no `preference`, another
+/// mechanism, a pending projection, or a pair that cannot be read (all M02's flow).
+fn managed_pair_of(item: &serde_json::Value) -> Option<AccessPairRef> {
+    let preference = item.get("preference")?;
+    if preference.get("mechanism").and_then(|m| m.as_str())
+        != Some(launch_flow::MANAGED_CERTIFICATE)
+    {
+        return None;
+    }
+    let projection = preference.get("projection")?;
+    let state = projection
+        .as_str()
+        .or_else(|| projection.get("state").and_then(|s| s.as_str()));
+    if state != Some("applied") {
+        return None;
+    }
+    Some(AccessPairRef {
+        destination: serde_json::from_value(item.get("destination_id")?.clone()).ok()?,
+        account: serde_json::from_value(item.get("account")?.clone()).ok()?,
+    })
+}
+
+/// What the managed flow hands to the launch.
+struct ManagedLaunch {
+    args: Vec<std::ffi::OsString>,
+    operation: Option<heimdall_contract::ids::OperationId>,
+    binding: heimdall_contract::ids::BindingId,
+}
+
+/// ⟨M03⟩ `connect` for a managed pair (module docs; ADR-0008 D8 item 2).
+struct ManagedConnect<'a> {
+    alias: &'a str,
+    pair: AccessPairRef,
+    program: &'a heimdall_launch::resolve::ResolvedProgram,
+    interaction: heimdall_contract::request::InteractionMode,
+    check: bool,
+}
+
+impl ManagedConnect<'_> {
+    async fn run(
+        self,
+        ctx: &Ctx,
+        client: &mut Client,
+        hooks: &testcfg::LaunchHooks,
+    ) -> Result<ManagedLaunch, Failure> {
+        // 2. The covering profile, then `ensure` for the single pair.
+        let profile = covering_profile(client, &self.pair).await?;
+        let request_id = fresh_request_id().map_err(|d| Failure::of(d.env))?;
+        let work_id =
+            WorkId::parse(request_id.as_str()).map_err(|_| Failure::usage("invalid work ID"))?;
+        let request = EnsureRequest {
+            profile,
+            profile_revision: None,
+            scope: std::iter::once(self.pair.clone()).collect(),
+            environment: None,
+            work_id,
+            until: None,
+            required_capabilities: Default::default(),
+            request_id: request_id.clone(),
+            interaction: self.interaction,
+            wait: WaitMode::Sync {
+                timeout_ms: ENSURE_TIMEOUT_MS,
+            },
+            connection: None,
+        };
+        let ensured = ensure_flow(client, &mut TerminalPrompt, ctx, request, false).await;
+        if ensured.env.code != Code::AccessReady {
+            return Err(Failure::of(ensured.env));
+        }
+        let data: EnsureData = serde_json::from_value(ensured.env.data.clone()).map_err(|_| {
+            Failure::new(
+                Code::InternalError,
+                "the ensure result cannot be read",
+                None,
+            )
+        })?;
+        // 3. bind(launch), this process holding the reference.
+        let executable = self
+            .program
+            .path
+            .to_str()
+            .ok_or_else(|| {
+                Failure::refused(heimdall_launch::resolve::LaunchRefusal::PathNotUnicode)
+            })?
+            .to_owned();
+        let holder =
+            heimdall_runtime::platform::process_start_time(std::process::id()).map(|started_at| {
+                ProcessHolder {
+                    pid: std::process::id(),
+                    started_at,
+                }
+            });
+        let bound = client
+            .request(Request::Bind(BindRequest {
+                binding_id: data.binding_id.clone(),
+                form: BindForm::Launch(LaunchBinding { executable, holder }),
+                request_id,
+            }))
+            .await;
+        let operation = bound.operation_id.clone();
+        if bound.code != Code::AccessReady {
+            return Err(Failure::of(bound));
+        }
+        let bound_data: EnsureData = serde_json::from_value(bound.data.clone()).map_err(|_| {
+            Failure::new(Code::InternalError, "the bind result cannot be read", None)
+        })?;
+        // 4. The pre-launch check over the bound pairs, on fresh views.
+        if self.check {
+            let fresh = launch_flow::fresh_identities(client).await?;
+            let record = launch_flow::projection_record(client).await?;
+            let config = launch_flow::static_config(ctx, hooks)?;
+            let pairs = &bound_data.consumer.pairs;
+            let selections: Vec<_> = pairs
+                .iter()
+                .map(|p| launch_flow::fresh_selection(&config, &record, p.alias.as_deref()))
+                .collect();
+            if let Err(refusal) = check_noninteractive(pairs, &fresh, &selections, hooks.now()) {
+                let (provider, kind) = launch_flow::refusal_provider(None, &fresh, None);
+                return Err(Failure::ineligible(&refusal, provider, kind));
+            }
+        }
+        launch_flow::confirm_binding_active(client, &data.binding_id).await?;
+        // 5. The binding's endpoint and files on the command line, in the foreground.
+        let args = managed_connect_args(ctx, self.alias, &self.pair, &bound_data)?;
+        launch_flow::report_deadline(ctx, &bound_data);
+        Ok(ManagedLaunch {
+            args,
+            operation,
+            binding: data.binding_id,
+        })
+    }
+}
+
+/// The one profile of the environment whose scope contains `pair` (module docs).
+async fn covering_profile(client: &mut Client, pair: &AccessPairRef) -> Result<ProfileId, Failure> {
+    let listed = client
+        .request(Request::Inspect(InspectRequest {
+            subject: InspectSubject::Profiles,
+            preview: None,
+        }))
+        .await;
+    if !listed.code.is_success() {
+        return Err(Failure::of(listed));
+    }
+    choose_covering(&listed_items(&listed.data), pair)
+}
+
+/// The one profile among `profiles` (an `inspect profiles` listing) whose scope pairs
+/// contain `pair`: none, or more than one (no default can be chosen, U8-Q5), is
+/// `CAPABILITY_UNAVAILABLE`, `no_profile_covers_destination` (ADR-0008 D8 item 2).
+fn choose_covering(
+    profiles: &[serde_json::Value],
+    pair: &AccessPairRef,
+) -> Result<ProfileId, Failure> {
+    let covering: Vec<ProfileId> = profiles
+        .iter()
+        .filter(|p| {
+            p.get("pairs")
+                .and_then(|v| serde_json::from_value::<Vec<AccessPairRef>>(v.clone()).ok())
+                .is_some_and(|pairs| pairs.contains(pair))
+        })
+        .filter_map(|p| serde_json::from_value(p.get("profile_id")?.clone()).ok())
+        .collect();
+    match covering.as_slice() {
+        [one] => Ok(one.clone()),
+        _ => Err(Failure::new(
+            Code::CapabilityUnavailable,
+            if covering.is_empty() {
+                "no profile of this environment covers the destination; add it to a profile, or use `heimdall run --profile`"
+            } else {
+                "more than one profile covers the destination, so connect cannot choose one; use `heimdall run --profile`"
+            },
+            Some(heimdall_contract::envelope::reason::NO_PROFILE_COVERS_DESTINATION),
+        )),
+    }
+}
+
+/// The arguments of a managed `connect` (module docs, step 5): the foreground pins, the
+/// binding's identity options, then the alias.
+fn managed_connect_args(
+    ctx: &Ctx,
+    alias: &str,
+    pair: &AccessPairRef,
+    bound: &EnsureData,
+) -> Result<Vec<std::ffi::OsString>, Failure> {
+    if !launch_flow::is_managed(&bound.consumer.pairs) {
+        // Resolution changed since the listing (a pending projection, ADR-0008 D5
+        // §6.6): the existing mechanism's binding, launched as M02 launches an alias.
+        return Ok(vec![std::ffi::OsString::from(alias)]);
+    }
+    if cfg!(windows) {
+        return Err(launch_flow::managed_unavailable(
+            "the contained launch of the verified ssh client (Windows)",
+        ));
+    }
+    let runtime_dir = ctx
+        .paths()
+        .map_err(|e| Failure::of(output::error_value(*e)))?
+        .runtime_dir;
+    let files = bound
+        .consumer
+        .signing_endpoint
+        .as_deref()
+        .and_then(|e| binding_files(e, &runtime_dir, &pair.destination, Platform::current()));
+    let Some(files) = files else {
+        return Err(launch_flow::managed_unavailable(
+            "the binding endpoint of this managed binding",
+        ));
+    };
+    let options = heimdall_sshconf::render::managed_identity_options(
+        &files.endpoint,
+        &files.key_pub,
+        &files.cert,
+        files.style,
+        heimdall_sshconf::render::ManagedIdentityForm::select(None),
+    )
+    .map_err(|_| {
+        launch_flow::managed_unavailable("a binding endpoint Heimdall can name on the command line")
+    })?;
+    let mut args: Vec<std::ffi::OsString> = heimdall_sshconf::render::OWNED_LAUNCH_PINS
+        .iter()
+        .map(std::ffi::OsString::from)
+        .collect();
+    args.extend(options.into_iter().map(std::ffi::OsString::from));
+    args.push(std::ffi::OsString::from(alias));
+    Ok(args)
+}
+
+/// A binding's endpoint and files, as the command line names them.
+struct BindingFiles {
+    endpoint: heimdall_sshconf::render::RenderPath,
+    key_pub: heimdall_sshconf::render::RenderPath,
+    cert: heimdall_sshconf::render::RenderPath,
+    style: heimdall_sshconf::render::PathStyle,
+}
+
+/// The binding's files beside its endpoint (ADR-0008 D6 item 1 step 6; reading R6):
+/// Unix `<runtime_dir>/b/<16 hex>/agent.sock` gives `<runtime_dir>/b/<16 hex>/key.pub`
+/// and `cert-<destination-id>.pub`; Windows `\\.\pipe\heimdall-<token>-b<16 hex>`
+/// gives the same directory under the runtime directory. Anything else is `None` (the
+/// endpoint is not a binding endpoint of this runtime: fail closed).
+fn binding_files(
+    endpoint: &str,
+    runtime_dir: &std::path::Path,
+    destination: &heimdall_contract::ids::DestinationId,
+    platform: Platform,
+) -> Option<BindingFiles> {
+    use heimdall_sshconf::render::{PathStyle, RenderPath};
+    let hex16 =
+        |s: &str| s.len() == 16 && s.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'));
+    let component = heimdall_localenv::projection::content::slot_component(destination).ok()?;
+    let cert_name = format!("cert-{component}.pub");
+    if platform.is_windows() {
+        let name = endpoint.strip_prefix(r"\\.\pipe\")?;
+        let (_, hex) = name.strip_prefix("heimdall-")?.rsplit_once("-b")?;
+        if !hex16(hex) {
+            return None;
+        }
+        let dir = runtime_dir.join("b").join(hex);
+        return Some(BindingFiles {
+            endpoint: RenderPath::pipe(endpoint).ok()?,
+            key_pub: RenderPath::windows(&dir.join("key.pub")).ok()?,
+            cert: RenderPath::windows(&dir.join(cert_name)).ok()?,
+            style: PathStyle::Windows,
+        });
+    }
+    let socket = std::path::Path::new(endpoint);
+    if socket.file_name()? != "agent.sock" {
+        return None;
+    }
+    let dir = socket.parent()?;
+    let hex = dir.file_name()?.to_str()?;
+    if !hex16(hex) || dir.parent()? != runtime_dir.join("b") {
+        return None;
+    }
+    Some(BindingFiles {
+        endpoint: RenderPath::unix(socket).ok()?,
+        key_pub: RenderPath::unix(&dir.join("key.pub")).ok()?,
+        cert: RenderPath::unix(&dir.join(cert_name)).ok()?,
+        style: PathStyle::Unix,
+    })
 }
 
 /// How the catalog defines a known destination (module docs).
@@ -184,10 +526,7 @@ fn listed_items(data: &serde_json::Value) -> Vec<serde_json::Value> {
 
 /// `alias`'s definition when it is a known destination, `None` otherwise (module
 /// docs).
-async fn known_destination(
-    client: &mut Client,
-    alias: &str,
-) -> Result<Option<Definition>, Failure> {
+async fn known_destination(client: &mut Client, alias: &str) -> Result<Option<Known>, Failure> {
     let listed = client
         .request(Request::Inspect(InspectRequest {
             subject: InspectSubject::Destinations,
@@ -201,14 +540,20 @@ async fn known_destination(
         .iter()
         .find(|d| d.get("alias").and_then(|a| a.as_str()) == Some(alias))
     {
-        return Ok(Some(definition_of(item)));
+        return Ok(Some(Known {
+            definition: definition_of(item),
+            managed: managed_pair_of(item),
+        }));
     }
     let record = launch_flow::projection_record(client).await?;
     Ok(record
         .items
         .get(&ProjectionItem::Ssh)
         .is_some_and(|r| r.aliases.iter().any(|a| a == alias))
-        .then_some(Definition::Managed))
+        .then_some(Known {
+            definition: Definition::Managed,
+            managed: None,
+        }))
 }
 
 /// The adopted identity the launch relies on (module docs): for a managed alias the
@@ -330,6 +675,151 @@ mod tests {
         );
         assert_eq!(listed_items(&v(r#"{"items":[{"alias":"a"}]}"#)).len(), 1);
         assert!(listed_items(&v(r#"{"profiles":[]}"#)).is_empty());
+    }
+
+    /// ⟨M03⟩ Only a listed pair whose preference is `managed_certificate` with its
+    /// projection `applied` takes the managed flow; anything else is M02's.
+    #[test]
+    fn only_an_applied_managed_preference_takes_the_managed_flow() {
+        let v = |j: &str| serde_json::from_str::<serde_json::Value>(j).unwrap();
+        let item = |pref: &str| {
+            v(&format!(
+                r#"{{"alias":"w","destination_id":"dst-w","account":"deploy","definition":"managed"{pref}}}"#
+            ))
+        };
+        let pair = managed_pair_of(&item(
+            r#","preference":{"mechanism":"managed_certificate","projection":{"state":"applied","generation":3}}"#,
+        ))
+        .unwrap();
+        assert_eq!(pair.destination.as_str(), "dst-w");
+        assert_eq!(pair.account.as_str(), "deploy");
+        assert!(
+            managed_pair_of(&item(
+                r#","preference":{"mechanism":"managed_certificate","projection":"applied"}"#
+            ))
+            .is_some()
+        );
+        for other in [
+            "",
+            r#","preference":{"mechanism":"existing","projection":{"state":"applied"}}"#,
+            r#","preference":{"mechanism":"managed_certificate","projection":{"state":"pending"}}"#,
+            r#","preference":{"mechanism":"managed_certificate"}"#,
+        ] {
+            assert_eq!(managed_pair_of(&item(other)), None, "{other}");
+        }
+    }
+
+    /// ⟨M03⟩ ADR-0008 D8 item 2: `connect` for a managed pair uses the one profile
+    /// covering it; none (or several) is `no_profile_covers_destination`.
+    #[test]
+    fn connect_managed_pair_covering_profile_is_the_one_listed_or_refused() {
+        let v = |j: &str| serde_json::from_str::<serde_json::Value>(j).unwrap();
+        let pair = AccessPairRef {
+            destination: heimdall_contract::ids::DestinationId::parse("dst-w").unwrap(),
+            account: heimdall_contract::ids::AccountName::parse("deploy").unwrap(),
+        };
+        let covers =
+            v(r#"{"profile_id":"ops","pairs":[{"destination":"dst-w","account":"deploy"}]}"#);
+        let other =
+            v(r#"{"profile_id":"web","pairs":[{"destination":"dst-x","account":"deploy"}]}"#);
+        let also =
+            v(r#"{"profile_id":"dev","pairs":[{"destination":"dst-w","account":"deploy"}]}"#);
+        assert_eq!(
+            choose_covering(&[other.clone(), covers.clone()], &pair)
+                .ok()
+                .map(|p| p.as_str().to_owned()),
+            Some("ops".to_owned())
+        );
+        for refused in [vec![other.clone()], vec![], vec![covers, also]] {
+            let Err(f) = choose_covering(&refused, &pair) else {
+                panic!("refused: {refused:?}");
+            };
+            assert_eq!(f.env.code, Code::CapabilityUnavailable);
+            assert_eq!(
+                f.env.data["error"]["reason"],
+                "no_profile_covers_destination"
+            );
+        }
+    }
+
+    /// ⟨M03⟩ The binding's files sit beside its endpoint, under `<runtime_dir>/b/<16
+    /// hex>/`; an endpoint of any other shape names no files (fail closed).
+    #[test]
+    fn binding_files_follow_the_binding_endpoint_or_refuse() {
+        let rd = std::path::Path::new("/run/user/1000/heimdall");
+        let dest = heimdall_contract::ids::DestinationId::parse("dst-w").unwrap();
+        let unix = binding_files(
+            "/run/user/1000/heimdall/b/0123456789abcdef/agent.sock",
+            rd,
+            &dest,
+            Platform::Linux,
+        );
+        // ⟨wave-2 Windows native run⟩ The Unix layout is only ever read on a Unix host:
+        // on Windows, `Path::join` writes `\` into the Unix path, which `RenderPath::unix`
+        // refuses (fail closed), as the Windows half's positive case is Windows-only.
+        if cfg!(unix) {
+            let unix = unix.unwrap();
+            assert_eq!(
+                unix.key_pub.as_str(),
+                "/run/user/1000/heimdall/b/0123456789abcdef/key.pub"
+            );
+            assert_eq!(
+                unix.cert.as_str(),
+                "/run/user/1000/heimdall/b/0123456789abcdef/cert-dst-w.pub"
+            );
+        } else {
+            assert!(unix.is_none(), "never a Unix path built on Windows");
+        }
+        for bad in [
+            "/run/user/1000/heimdall/signing.sock",
+            "/run/user/1000/heimdall/b/0123456789ABCDEF/agent.sock",
+            "/elsewhere/b/0123456789abcdef/agent.sock",
+            "/run/user/1000/heimdall/b/0123456789abcdef/other.sock",
+            "/run/user/1000/heimdall/v/0123456789abcdef/agent.sock",
+        ] {
+            assert!(
+                binding_files(bad, rd, &dest, Platform::Linux).is_none(),
+                "{bad}"
+            );
+        }
+        let unsafe_dest = heimdall_contract::ids::DestinationId::parse("a:b").unwrap();
+        assert!(
+            binding_files(
+                "/run/user/1000/heimdall/b/0123456789abcdef/agent.sock",
+                rd,
+                &unsafe_dest,
+                Platform::Linux
+            )
+            .is_none()
+        );
+        let wrd = std::path::Path::new(r"C:\Users\fx\AppData\Local\heimdall\run");
+        let windows = binding_files(
+            r"\\.\pipe\heimdall-tok-b0123456789abcdef",
+            wrd,
+            &dest,
+            Platform::Windows,
+        );
+        if cfg!(windows) {
+            let w = windows.unwrap();
+            assert_eq!(
+                w.endpoint.as_str(),
+                "//./pipe/heimdall-tok-b0123456789abcdef"
+            );
+            assert!(
+                w.cert
+                    .as_str()
+                    .ends_with("/run/b/0123456789abcdef/cert-dst-w.pub")
+            );
+        }
+        assert!(
+            binding_files(
+                r"\\.\pipe\heimdall-tok-signing",
+                wrd,
+                &dest,
+                Platform::Windows
+            )
+            .is_none()
+        );
     }
 
     fn entry(source: IdentityEntrySource, fp: &str) -> IdentityEntry {

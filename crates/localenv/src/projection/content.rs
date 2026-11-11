@@ -287,3 +287,115 @@ fn is_holder_line(bytes: &[u8]) -> bool {
     };
     is_lock_holder_line(bytes, n)
 }
+
+// --- ⟨M03⟩ managed slot paths (ADR-0008 D10 items 1-2, D8 item 3; reading R7) -----------
+
+/// A managed pair slot's public files (ADR-0008 D10 item 2): written atomically by
+/// generation (U6's `ManagedEffects::materialize`), absent while the slot is free.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SlotPaths {
+    /// `<data_dir>/managed/<destination-id>`.
+    pub dir: std::path::PathBuf,
+    /// `<dir>/key.pub`: the holder's K_env public key.
+    pub key_pub: std::path::PathBuf,
+    /// `<dir>/cert.pub`: the holder's certificate for this pair.
+    pub cert_pub: std::path::PathBuf,
+}
+
+/// A destination ID that cannot name a slot's directory (U8-Q3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, thiserror::Error)]
+#[error("the destination ID cannot name a managed slot directory")]
+pub struct SlotPathRefused;
+
+/// The Windows device names a path component must never be (with or without an
+/// extension), on every platform, so a slot directory means the same everywhere.
+const DEVICE_NAMES: [&str; 22] = [
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+
+/// The destination ID as one path component of a slot path (U8-Q3, fail closed). The
+/// contract's token rule allows `.`, `:` and upper case, which a path cannot take as is:
+/// `.` and `..` traverse, `:` names an NTFS stream, a trailing `.` is dropped by Win32,
+/// a device name is not a file, and two IDs that differ only in case share one directory
+/// on a case-insensitive file system (APFS and NTFS by default). So the component must
+/// be lower case `[a-z0-9._-]`, start with `[a-z0-9_-]`, not end with `.`, and not be a
+/// device name; anything else is refused, never rewritten.
+///
+/// # Errors
+/// [`SlotPathRefused`].
+pub fn slot_component(
+    destination: &heimdall_contract::ids::DestinationId,
+) -> Result<&str, SlotPathRefused> {
+    let id = destination.as_str();
+    let b = id.as_bytes();
+    let ok = !b.is_empty()
+        && b.iter().all(|c| {
+            c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'_' | b'-')
+        })
+        && b[0] != b'.'
+        && b[b.len() - 1] != b'.'
+        && !DEVICE_NAMES.contains(&id.split('.').next().unwrap_or(id));
+    if ok { Ok(id) } else { Err(SlotPathRefused) }
+}
+
+/// **The one function for a slot's file paths** (reading R7): `<data_dir>/managed/
+/// <destination-id>/key.pub` and `cert.pub`. P renders them (m03-plan U8) and U6's
+/// `ManagedEffects::materialize` writes them, from this function alone.
+///
+/// `data_dir` is the caller's: M01's `Paths` has no `data_dir`, and which directory it
+/// is stays with the integrator (U8-Q2; provisional reading: `Paths.state_dir`).
+///
+/// # Errors
+/// [`SlotPathRefused`]: the destination ID is not a safe path component
+/// ([`slot_component`]).
+pub fn managed_slot_paths(
+    data_dir: &std::path::Path,
+    destination: &heimdall_contract::ids::DestinationId,
+) -> Result<SlotPaths, SlotPathRefused> {
+    let dir = data_dir.join("managed").join(slot_component(destination)?);
+    Ok(SlotPaths {
+        key_pub: dir.join("key.pub"),
+        cert_pub: dir.join("cert.pub"),
+        dir,
+    })
+}
+
+/// The slot's **stable** multiplex path, `<runtime_dir>/mux/<destination-id>` (ADR-0008
+/// D8 item 3): fixed for the slot's life, rendered in P once owned masters are enabled
+/// and applied.
+///
+/// # Errors
+/// [`SlotPathRefused`], as [`managed_slot_paths`].
+pub fn managed_mux_path(
+    runtime_dir: &std::path::Path,
+    destination: &heimdall_contract::ids::DestinationId,
+) -> Result<std::path::PathBuf, SlotPathRefused> {
+    Ok(runtime_dir.join("mux").join(slot_component(destination)?))
+}
+
+/// The longest Unix socket path, in bytes without the terminating NUL (`sun_path` is
+/// 104 bytes on macOS and 108 on Linux, NUL included; the M02 `SUN_LEN` lesson).
+#[cfg(target_os = "macos")]
+pub const SOCKET_PATH_MAX: usize = 103;
+/// The longest Unix socket path, in bytes without the terminating NUL (`sun_path` is
+/// 104 bytes on macOS and 108 on Linux, NUL included; the M02 `SUN_LEN` lesson).
+#[cfg(not(target_os = "macos"))]
+pub const SOCKET_PATH_MAX: usize = 107;
+
+/// [`managed_mux_path`], refused with `mux_path_too_long` (ADR-0008 D8 item 3) when it
+/// would not fit the platform's socket-path limit, so `owned_masters` is refused there.
+///
+/// # Errors
+/// `heimdall_contract::envelope::reason::MUX_PATH_TOO_LONG`, or [`SlotPathRefused`]'s
+/// text for an unsafe destination ID.
+pub fn checked_mux_path(
+    runtime_dir: &std::path::Path,
+    destination: &heimdall_contract::ids::DestinationId,
+) -> Result<std::path::PathBuf, &'static str> {
+    let path = managed_mux_path(runtime_dir, destination).map_err(|_| "slot_path_refused")?;
+    if path.as_os_str().as_encoded_bytes().len() > SOCKET_PATH_MAX {
+        return Err(heimdall_contract::envelope::reason::MUX_PATH_TOO_LONG);
+    }
+    Ok(path)
+}

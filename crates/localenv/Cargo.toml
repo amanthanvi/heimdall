@@ -96,3 +96,9 @@ path = "../../tests/integration/projection_git.rs"
 [[test]]
 name = "integration_projection_state_dir_guard"
 path = "../../tests/integration/projection_state_dir_guard.rs"
+
+# M03 wave 2 (U8): managed sections in P, the preference, the `state_dir` refusal and the
+# client-aware `Include` expansion (m03-plan U8 "Tests").
+[[test]]
+name = "integration_projection_managed"
+path = "../../tests/integration/projection_managed.rs"

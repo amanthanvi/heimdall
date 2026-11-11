@@ -101,6 +101,43 @@ pub trait PublicKeySource: Send + Sync {
     fn public_key(&self, identity: &IdentityId) -> Option<String>;
 }
 
+/// ⟨M03⟩ What P renders for a pair whose preference is `managed_certificate` (ADR-0008
+/// D10 item 1; m03-plan U8): the **environment** endpoint and the slot's files, plus
+/// the slot's stable mux path once owned masters are enabled and applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedSectionSpec {
+    /// The environment endpoint: a Unix socket path (`<runtime_dir>/signing.sock`), or
+    /// the stable Windows pipe `\\.\pipe\heimdall-<installation token>-signing`
+    /// (reading R6), which P writes `//./pipe/…`.
+    pub environment_endpoint: heimdall_contract::provider::EndpointRef,
+    /// The slot's public key file ([`content::managed_slot_paths`]).
+    pub key_pub: PathBuf,
+    /// The slot's certificate file ([`content::managed_slot_paths`]).
+    pub cert_pub: PathBuf,
+    /// `None`: `ControlPath none`. `Some`: the slot's stable mux path
+    /// ([`content::managed_mux_path`]), only once owned masters are enabled and applied
+    /// (ADR-0008 D8 item 3).
+    pub control_path: Option<PathBuf>,
+}
+
+/// ⟨M03⟩ Which pairs prefer `managed_certificate`, and what their sections render
+/// (preview only, like [`PublicKeySource`]). The runtime implements it over the store's
+/// `pair_preferences` and the endpoint names (U10's wiring); without a source every
+/// alias is existing access, exactly as in M02.
+pub trait ManagedPairSource: Send + Sync {
+    /// The managed section of `alias`'s pair when its preference is
+    /// `managed_certificate` (whatever its projection status: the apply is what renders
+    /// it), `Ok(None)` for existing access.
+    ///
+    /// # Errors
+    /// The preference or the endpoint cannot be read: the preview is refused
+    /// (`PreviewError::Unavailable`), never rendered as existing access.
+    fn managed_section(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<Option<ManagedSectionSpec>, String>;
+}
+
 /// Test-only switches of the writer (the defaults in production).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ProjectionTestConfig {
@@ -112,6 +149,10 @@ pub struct ProjectionTestConfig {
     /// production; `WithoutBirth` is m02-plan U4's test-only source (Unix identities
     /// without a birth time, ADR-0007 F25, QR15).
     pub identity: IdentitySource,
+    /// ⟨M03⟩ The managed sections' identity form, overriding
+    /// `heimdall_sshconf::render::ManagedIdentityForm::select` (`None` in production;
+    /// the INT-Q10 observation tests render each form).
+    pub managed_identity_form: Option<heimdall_sshconf::render::ManagedIdentityForm>,
 }
 
 /// The writer's configuration: its only state.
@@ -146,6 +187,9 @@ pub struct ProjectionConfig {
     pub queries: LocalQueries,
     /// Public keys of adopted identities (preview only).
     pub keys: Option<Arc<dyn PublicKeySource>>,
+    /// ⟨M03⟩ The pairs that prefer `managed_certificate` and their sections (preview
+    /// only; `None`: every alias is existing access, as in M02).
+    pub managed: Option<Arc<dyn ManagedPairSource>>,
     /// Test-only switches.
     pub test: ProjectionTestConfig,
 }
@@ -165,6 +209,7 @@ impl ProjectionConfig {
             clients: ClientInventory::default(),
             queries: LocalQueries::Disabled,
             keys: None,
+            managed: None,
             test: ProjectionTestConfig::default(),
         }
     }
@@ -211,6 +256,7 @@ impl std::fmt::Debug for ProjectionConfig {
             .field("snapshots", &self.state_dir.is_some())
             .field("hook", &self.hook.is_some())
             .field("keys", &self.keys.is_some())
+            .field("managed", &self.managed.is_some())
             .field("queries", &self.queries)
             .field("test", &self.test)
             .finish_non_exhaustive()
@@ -223,11 +269,35 @@ pub struct LocalProjection {
     config: ProjectionConfig,
 }
 
+/// ⟨M03⟩ ADR-0007 §12.34 item 6 (deferred to M03 hardening, §13; m02-exit §7): a
+/// writer of the owner's files built without a state directory, which could not copy an
+/// original user file before its first edit (§5.5, §12.32 item 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("a writing projection configuration needs a state directory (the original's snapshot)")]
+pub struct StateDirMissing;
+
 impl LocalProjection {
-    /// A writer over `config`.
+    /// A writer over `config`, as M02 builds it. A configuration without `state_dir`
+    /// takes no snapshot: that is the file transaction's own tests' configuration, which
+    /// the M02 suites keep using unchanged. **Every writer a runtime wires is built with
+    /// [`LocalProjection::writing`]** (U8-Q1).
     #[must_use]
     pub fn new(config: ProjectionConfig) -> Self {
         Self { config }
+    }
+
+    /// ⟨M03⟩ The writer a runtime wires (ADR-0007 §12.34 item 6): refused without a
+    /// state directory, so no edit of the owner's files can ever run without the
+    /// original's snapshot. The source guard (`integration_projection_state_dir_guard`)
+    /// keeps checking the constructors; this is the refusal behind it.
+    ///
+    /// # Errors
+    /// [`StateDirMissing`] when `config.state_dir` is `None`.
+    pub fn writing(config: ProjectionConfig) -> Result<Self, StateDirMissing> {
+        if config.state_dir.is_none() {
+            return Err(StateDirMissing);
+        }
+        Ok(Self { config })
     }
 
     /// Its configuration.
