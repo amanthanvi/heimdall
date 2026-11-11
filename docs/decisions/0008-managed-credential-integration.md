@@ -3773,7 +3773,9 @@ Decided now, implemented in later waves:
 - **The code review** (Codex, independent): `tests/evidence/artifacts/review-m03-code/wave2.md`. Verdict: fix first, with W2-R01 to W2-R03.
 - **The security review** (Codex, independent; plan §6.7): `wave2-security.md`. Verdict: fix first, with W2-S01. That is W2-R01, reproduced by a probe.
 - **The integrator's escalations:** `wave2-notes/m03-wave2-questions.md`.
-- **The native development checks:** at `0478f6cd`, on the devbox (OpenSSH 9.6p1) and on Windows (in-box OpenSSH_for_Windows_9.5p2).
+- **The native development checks:** at `0478f6cd` and again at `5adb67da`, after the fixes, on the devbox (OpenSSH 9.6p1) and on Windows (in-box OpenSSH_for_Windows_9.5p2).
+  - At `5adb67da`, the devbox passed all 18 binaries it ran and Windows passed all 78 (2183 passed, 0 failed, 5 ignored; canary count 0).
+  - Windows' first run at `5adb67da` never reached the fixture sshd. WSL's localhost forwarding did not answer from Windows. The repeated run reached it with the harness unchanged, so this is recorded as transient.
 
 1. **W2-R01 and W2-S01: authorization uses the observation the time gate assessed.**
    - **The defect:** the `ReadOnly` default kept only the verdict of `assess_read_only`, then built `SafeNow` from a second, unassessed `clock.observe()`. A wall-clock step between the two was never judged. The security review reproduced a release after a one-hour rollback, where the `Peek` control refused.
@@ -3794,7 +3796,10 @@ Decided now, implemented in later waves:
    - **What was observed:** D10's identity lines (`IdentityFile <key.pub>` with `CertificateFile <cert.pub>`) fail on every client tested: ssh exits 255 and never asks the agent. `IdentitiesOnly yes` with `IdentityFile <cert.pub>` (`CertificateAsIdentityFile`) signs once, through the certificate:
      - on macOS 10.5p1, at both reviews;
      - natively on the devbox's 9.6p1 (`managed_identity_form … form=certificate_as_identity_file`, and the rendered-P row);
-     - on Windows' in-box 9.5p2: **pending**. The observation test failed on a Windows fixture refusal at `0478f6cd`, before it reached the client. The row is recorded from the next native run.
+     - natively on Windows' in-box `OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2` at `5adb67da`: `form=certificate_as_identity_file exit=Some(0) signed=cert sign_requests=1 accepted_cert_logins=1`, and the rendered-P row likewise.
+       - `d10_as_written` exited 255 with no sign request, as on the other clients. The client refused `key.pub` as an unprotected private key file.
+       - At `0478f6cd`, the test had failed on a Windows fixture refusal before it reached the client.
+   - **No tested client needs `client_unsupported`:** 10.5p1, 9.6p1 and 9.5p2 all complete the managed alias through the certificate alone.
    - **The ruling:** D10 items 1 and 4 are amended to that form. F17 and D2 item 4 are unchanged: the signer never lists or signs the plain K_env key.
    - **A client where the form fails** reports the managed alias as `capability_unavailable` with `client_unsupported`, per client.
    - **`IdentitiesOnly yes` does not remove inherited `IdentityFile` or `CertificateFile` entries**, so D10 item 6's `not_exclusive` and `undetermined` classification still applies.
