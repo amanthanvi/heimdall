@@ -7,3 +7,5 @@ They are working notes, not rulings. Fixture-driver results stand in for U10's `
 **Round 2 (review fixes, 2026-11-11).** The `m03-wave3-r2-*.md` files are the working notes of the fixes to ADR-0008 §17.20 (the wave-3 code and security reviews, `wave3.md` and `wave3-security.md`), made by two fix agents, F6 (adapter side) and F7 (connection side), and the integrator: the round-2 brief, the new questions (W3-R2-Q1 to Q3), and the worklog with every regression's revert proof. Redacted as above; the recreated helper `.m03-wave3-xcheck-windows.sh` was removed again.
 
 **Round 3 (2026-11-11).** `m03-wave3-r3-worklog.md` is the worklog of the third round: the devbox's umask-002 anchor failure (item 1, integrator), and the re-check's W3-C01 (F7) and W3-C02 (F6), with their revert proofs and the disposable-container pre-check. Redacted as above.
+
+**Round 4 (2026-11-11).** `m03-wave3-r4-worklog.md` is the worklog of the fourth round: re-check 3's W3-C03 (the connection fixture's server-command lifecycle, F7), with the two stall regressions' revert proofs. Redacted as above.

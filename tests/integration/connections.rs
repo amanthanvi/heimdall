@@ -211,9 +211,23 @@ mod unix {
         /// loopback server's commands ([`World::remote_sleep`]). Cleanup uses them even
         /// when the store cannot be read; the drop audit checks them all.
         receipts: Mutex<Vec<Receipt>>,
-        /// Pidfiles of remote commands not yet read into a receipt.
+        /// Pidfiles of remote commands not yet read into a receipt. Never dropped
+        /// silently: teardown cancels every command and stops the fixture sshd's whole
+        /// subtree by exact identity, then audits it empty.
         remote_pending: Mutex<Vec<PathBuf>>,
+        /// Test hook (W3-C03 regressions): the next [`World::remote_command`] stalls its
+        /// shell (`kill -STOP $$`) on this side of the pidfile.
+        remote_stall: Mutex<Option<Stall>>,
         next: Mutex<u8>,
+    }
+
+    /// Where a remote command's shell stops itself (test hook).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Stall {
+        /// Before the fixture pidfile (its PID goes only to the test's probe file).
+        BeforePidfile,
+        /// After the fixture pidfile, before the `exec`.
+        AfterPidfile,
     }
 
     /// What a receipt names.
@@ -225,15 +239,100 @@ mod unix {
         Master,
         /// A loopback-server command (`exec /bin/sleep`), stopped by exact identity.
         Remote,
+        /// A descendant of the fixture sshd (its sessions and their commands), found by
+        /// an exact parent walk from the sshd's PID; stopped by exact identity.
+        Server,
     }
 
-    /// One process's exact identity, read when the fixture started or recorded it.
+    /// One process's exact identity, read when the fixture started or recorded it: its
+    /// PID and start token, and the images it may run under that identity: the image
+    /// **read** when the receipt was taken, plus, for a server command, `/bin/sleep`,
+    /// the image its own `exec` gives the same process (same PID and start token).
     #[derive(Debug, Clone)]
     struct Receipt {
         role: Role,
         pid: u32,
         token: String,
-        image: PathBuf,
+        images: Vec<PathBuf>,
+    }
+
+    /// The images a server command may run: the one read now, then `/bin/sleep`.
+    fn command_images(read: Option<PathBuf>) -> Vec<PathBuf> {
+        let mut images: Vec<PathBuf> = read.into_iter().collect();
+        if let Ok(sleep) = fs::canonicalize("/bin/sleep")
+            && !images.contains(&sleep)
+        {
+            images.push(sleep);
+        }
+        images
+    }
+
+    /// The image of `pid`, read on a pin.
+    fn image_of(pid: u32) -> Option<PathBuf> {
+        heimdall_localenv::sys::ProcessPin::open(pid)
+            .ok()
+            .flatten()
+            .and_then(|p| p.image())
+    }
+
+    /// `ps -o ppid= -p <pid>` (sanitized: one number).
+    fn parent_of(pid: u32) -> Option<u32> {
+        let out = Command::new("/bin/ps")
+            .args(["-o", "ppid=", "-p", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    }
+
+    /// The live descendants of `root` (a process this fixture owns and has not reaped,
+    /// so its PID cannot be reused): an exact parent walk over `ps -A -o pid=,ppid=`
+    /// (numbers only). Each descendant's start token and image are read, and **then** its
+    /// parent is confirmed again to be the walked (live, already identified) parent, so a
+    /// PID reused meanwhile is never taken for a descendant. Zombies have no start token
+    /// and are skipped.
+    fn descendants(root: u32) -> Vec<Receipt> {
+        let Ok(out) = Command::new("/bin/ps")
+            .args(["-A", "-o", "pid=,ppid="])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+        else {
+            return Vec::new();
+        };
+        let pairs: Vec<(u32, u32)> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| {
+                let mut it = l.split_whitespace();
+                Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+            })
+            .collect();
+        let mut found = Vec::new();
+        let mut frontier = vec![root];
+        while let Some(parent) = frontier.pop() {
+            for &(pid, _) in pairs.iter().filter(|(p, pp)| *pp == parent && *p != root) {
+                let (Some(token), image) = (process_start_time(pid), image_of(pid)) else {
+                    continue;
+                };
+                if parent_of(pid) != Some(parent) {
+                    continue;
+                }
+                found.push(Receipt {
+                    role: Role::Server,
+                    pid,
+                    token,
+                    images: command_images(image),
+                });
+                frontier.push(pid);
+            }
+        }
+        found
+    }
+
+    /// Whether `r`'s exact identity is still a live process.
+    fn receipt_alive(r: &Receipt) -> bool {
+        process_start_time(r.pid).as_deref() == Some(r.token.as_str())
     }
 
     /// The bound of every fixture remote command (self-terminating even if cleanup
@@ -242,12 +341,19 @@ mod unix {
 
     impl Drop for World {
         fn drop(&mut self) {
+            // Every remote command is cancelled first: one that has not reached its
+            // `exec` exits instead (`[ -e <cancel> ] && exit 0`).
+            let _ = fs::write(self.remote_cancel(), b"");
             // Remote commands whose pidfile appeared but was not read yet.
             self.collect_remote(Duration::ZERO);
+            // The fixture sshd's whole subtree (sessions and their commands, including a
+            // command that never wrote its pidfile), walked while the clients still hold
+            // their sessions open.
+            let server = self.sshd.pid().map(descendants).unwrap_or_default();
             // The masters the supervisors under test started and recorded: the fixture's
             // own receipts, and the store's rows when it can be read (a failure never
-            // drops a receipt). Then the server's commands. Each by its exact PID, start
-            // token and image (`stop_exact`), never by name; before the fixture sshd goes.
+            // drops a receipt). Each by its exact PID, start token and image
+            // (`stop_exact`), never by name; before the fixture sshd goes.
             let bindings = self
                 .bindings
                 .lock()
@@ -280,12 +386,20 @@ mod unix {
                         role: Role::Master,
                         pid: c.pid,
                         token: c.start_token.clone(),
-                        image: PathBuf::from(&c.image),
+                        images: vec![PathBuf::from(&c.image)],
                     });
                 }
             }
+            for r in server {
+                if !receipts
+                    .iter()
+                    .any(|k| k.pid == r.pid && k.token == r.token)
+                {
+                    receipts.push(r);
+                }
+            }
             for r in receipts.iter().filter(|r| r.role != Role::Child) {
-                stop_exact(r.pid, &r.token, &r.image);
+                stop_exact(r.pid, &r.token, &r.images);
             }
             // The test's own children, by their handles.
             for mut c in self
@@ -298,21 +412,33 @@ mod unix {
                 let _ = c.wait();
             }
             record_receipts(&receipts);
-            // The audit (§W3-C01): none of the exact identities this world started or
-            // recorded survives it. Skipped while unwinding (the panic is the report).
+            // The audit (W3-C01, W3-C03): none of the exact identities this world started
+            // or recorded survives it, and the fixture sshd has no live descendant left
+            // (a command that never wrote its pidfile included). Skipped while unwinding
+            // (the panic is the report; cleanup above ran all the same).
             if !std::thread::panicking() {
-                let survivors: Vec<u32> = receipts
-                    .iter()
-                    .filter(|r| {
-                        !wait_until(Duration::from_secs(5), || {
-                            process_start_time(r.pid).as_deref() != Some(r.token.as_str())
-                        })
-                    })
-                    .map(|r| r.pid)
-                    .collect();
+                let root = self.sshd.pid();
+                let mut survivors: Vec<u32> = Vec::new();
+                for r in &receipts {
+                    if !wait_until(Duration::from_secs(5), || !receipt_alive(r)) {
+                        survivors.push(r.pid);
+                    }
+                }
+                if let Some(root) = root {
+                    let clean = wait_until(Duration::from_secs(5), || descendants(root).is_empty());
+                    if !clean {
+                        survivors.extend(descendants(root).iter().map(|r| r.pid));
+                    }
+                }
+                let pending = self
+                    .remote_pending
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .len();
                 assert!(
                     survivors.is_empty(),
-                    "processes this test started or recorded survived it: {survivors:?}"
+                    "processes this test started or recorded survived it: {survivors:?} \
+                     ({pending} remote commands never wrote their pidfile)"
                 );
             }
         }
@@ -334,18 +460,24 @@ mod unix {
         }
     }
 
-    /// Stop `pid` only if it still is the process `token` names, running `image`: the
-    /// start token compared before and after the pin, then the image, through
-    /// `ProcessPin::verify` (the product's own verification path). Bounded wait.
-    fn stop_exact(pid: u32, token: &str, image: &Path) {
-        if process_start_time(pid).as_deref() != Some(token) {
-            return;
-        }
-        let Ok(Some(pin)) = heimdall_localenv::sys::ProcessPin::open(pid) else {
-            return;
-        };
-        let same = process_start_time(pid).as_deref() == Some(token);
-        let Some(verified) = pin.verify(same, image) else {
+    /// Stop `pid` only if it still is the process `token` names, running one of
+    /// `images`: for each image in turn, a fresh pin, the start token compared before
+    /// and after it, then the image, through `ProcessPin::verify` (the product's own
+    /// verification path); the first verified one is signalled. So a command caught in
+    /// its shell→`/bin/sleep` transition is verified under whichever image it runs now.
+    /// Bounded wait.
+    fn stop_exact(pid: u32, token: &str, images: &[PathBuf]) {
+        let verified = images.iter().find_map(|image| {
+            if process_start_time(pid).as_deref() != Some(token) {
+                return None;
+            }
+            let pin = heimdall_localenv::sys::ProcessPin::open(pid)
+                .ok()
+                .flatten()?;
+            let same = process_start_time(pid).as_deref() == Some(token);
+            pin.verify(same, image)
+        });
+        let Some(verified) = verified else {
             return;
         };
         let _ = verified.signal(heimdall_localenv::sys::ProcessSignal::Kill);
@@ -482,6 +614,7 @@ mod unix {
             bindings: Mutex::new(Vec::new()),
             receipts: Mutex::new(Vec::new()),
             remote_pending: Mutex::new(Vec::new()),
+            remote_stall: Mutex::new(None),
             next: Mutex::new(1),
         }
     }
@@ -495,6 +628,10 @@ mod unix {
 
         /// Keep a receipt of `pid` (read now) in `role` with `image`.
         fn receipt(&self, role: Role, pid: u32, image: &Path) {
+            self.receipt_images(role, pid, vec![image.to_path_buf()]);
+        }
+
+        fn receipt_images(&self, role: Role, pid: u32, images: Vec<PathBuf>) {
             if let Some(token) = process_start_time(pid) {
                 self.receipts
                     .lock()
@@ -503,7 +640,7 @@ mod unix {
                         role,
                         pid,
                         token,
-                        image: image.to_path_buf(),
+                        images,
                     });
             }
         }
@@ -517,35 +654,68 @@ mod unix {
                     role: Role::Master,
                     pid: m.pid,
                     token: m.start_token.clone(),
-                    image: PathBuf::from(&m.image),
+                    images: vec![PathBuf::from(&m.image)],
                 });
         }
 
-        /// A self-terminating remote command for the loopback server: it writes its
-        /// own PID to a fixture pidfile, then `exec`s `/bin/sleep <REMOTE_SECS>` (same
-        /// PID). [`World::collect_remote`] turns the pidfile into an exact receipt.
+        /// The marker teardown writes: a remote command that has not reached its `exec`
+        /// exits instead of sleeping.
+        fn remote_cancel(&self) -> PathBuf {
+            self.home.root.join("remote.cancel")
+        }
+
+        /// A self-terminating remote command for the loopback server: unless cancelled,
+        /// it writes its own PID to a fixture pidfile, then (unless cancelled meanwhile)
+        /// `exec`s `/bin/sleep <REMOTE_SECS>` (same PID and start token).
+        /// [`World::collect_remote`] turns the pidfile into an exact receipt.
         fn remote_sleep(&self) -> String {
+            self.remote_command().0
+        }
+
+        /// [`World::remote_sleep`] with its fixture pidfile and the test's probe file
+        /// (written only by a [`Stall::BeforePidfile`] hook).
+        fn remote_command(&self) -> (String, PathBuf, PathBuf) {
             let n = self.n();
+            let q = |p: &Path| heimdall_testkit::home::sh_quote(p.as_os_str());
             let pidfile = self.home.root.join(format!("remote-{n}.pid"));
+            let probe = self.home.root.join(format!("remote-{n}.probe"));
             self.remote_pending
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(pidfile.clone());
-            format!(
-                "echo $$ > {}; exec /bin/sleep {REMOTE_SECS}",
-                heimdall_testkit::home::sh_quote(pidfile.as_os_str())
-            )
+            let cancelled = format!("[ -e {} ] && exit 0", q(&self.remote_cancel()));
+            let stall = *self
+                .remote_stall
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let before = match stall {
+                Some(Stall::BeforePidfile) => format!("echo $$ > {}; kill -STOP $$; ", q(&probe)),
+                _ => String::new(),
+            };
+            let after = match stall {
+                Some(Stall::AfterPidfile) => "kill -STOP $$; ",
+                _ => "",
+            };
+            let command = format!(
+                "{cancelled}; {before}echo $$ > {}; {after}{cancelled}; exec /bin/sleep {REMOTE_SECS}",
+                q(&pidfile)
+            );
+            (command, pidfile, probe)
         }
 
         /// Read the pending remote pidfiles into receipts, waiting up to `bound` for
-        /// each to appear (the command runs only once its session is admitted).
-        fn collect_remote(&self, bound: Duration) {
+        /// each to appear (the command runs only once its session is admitted). The
+        /// receipt keeps the image **read** now (the shell, before its `exec`) and
+        /// `/bin/sleep`. A pidfile not there yet stays pending (never dropped); returns
+        /// whether every pending pidfile was read.
+        fn collect_remote(&self, bound: Duration) -> bool {
             let pending: Vec<PathBuf> = self
                 .remote_pending
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .drain(..)
                 .collect();
+            let mut all = true;
             for f in pending {
                 let mut pid = None;
                 wait_until(bound, || {
@@ -556,27 +726,18 @@ mod unix {
                 });
                 match pid {
                     Some(pid) => {
-                        // The pidfile is written just before the `exec`: wait (bounded)
-                        // until the process runs the image the receipt names, so exact
-                        // cleanup never meets the shell in its place.
-                        let sleep = fs::canonicalize("/bin/sleep").ok();
-                        wait_until(Duration::from_secs(5), || {
-                            heimdall_localenv::sys::ProcessPin::open(pid)
-                                .ok()
-                                .flatten()
-                                .and_then(|p| p.image())
-                                == sleep
-                        });
-                        self.receipt(Role::Remote, pid, Path::new("/bin/sleep"));
+                        self.receipt_images(Role::Remote, pid, command_images(image_of(pid)));
                     }
-                    None if bound.is_zero() => {}
-                    None => self
-                        .remote_pending
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .push(f),
+                    None => {
+                        all = false;
+                        self.remote_pending
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(f);
+                    }
                 }
             }
+            all
         }
 
         /// A long-running ordinary client the test owns whose remote command is a
@@ -585,7 +746,10 @@ mod unix {
         fn spawn_remote_sleep(&self, alias: &str) -> u32 {
             let command = self.remote_sleep();
             let pid = self.spawn_ordinary(alias, &[&command]);
-            self.collect_remote(Duration::from_secs(20));
+            assert!(
+                self.collect_remote(Duration::from_secs(20)),
+                "the remote command wrote no pidfile within 20 s"
+            );
             pid
         }
 
@@ -1399,7 +1563,10 @@ mod unix {
             wait_until(Duration::from_secs(20), || w.auths() > before),
             "the exec'd client authenticated"
         );
-        w.collect_remote(Duration::from_secs(20));
+        assert!(
+            w.collect_remote(Duration::from_secs(20)),
+            "the remote command wrote its pidfile"
+        );
         let r = rt
             .block_on(sup.revocation_close(std::slice::from_ref(&g)))
             .unwrap();
@@ -2469,6 +2636,70 @@ mod unix {
         assert!(with_holder);
         let _ = g;
         rt.block_on(sup.shutdown());
+    }
+
+    /// W3-C03: one stalled remote command, through a **normal** drop (its own audit
+    /// must pass) and afterwards: its exact identity must not survive. The shell stops
+    /// itself (`kill -STOP $$`) on the `stall` side of the fixture pidfile; the test
+    /// reads its identity from the pidfile (after) or its probe file (before). If it
+    /// survives, the test stops it by that exact identity and actual image before failing.
+    fn stalled_remote_command_leaves_no_process(stall: Stall) {
+        let w = world();
+        *w.remote_stall.lock().unwrap() = Some(stall);
+        let (command, pidfile, probe) = w.remote_command();
+        *w.remote_stall.lock().unwrap() = None;
+        let alias = format!("{}-direct", w.pairs[0].alias);
+        let _client = w.spawn_ordinary(&alias, &[&command]);
+        let identity_file = match stall {
+            Stall::BeforePidfile => &probe,
+            Stall::AfterPidfile => &pidfile,
+        };
+        let mut pid = None;
+        assert!(
+            wait_until(Duration::from_secs(20), || {
+                pid = fs::read_to_string(identity_file)
+                    .ok()
+                    .and_then(|t| t.trim().parse::<u32>().ok());
+                pid.is_some()
+            }),
+            "the remote shell ran"
+        );
+        let pid = pid.unwrap();
+        let token = process_start_time(pid).unwrap();
+        let image = image_of(pid).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(alive(pid, &token), "the shell is stalled, not gone");
+        assert_ne!(
+            Some(image.clone()),
+            fs::canonicalize("/bin/sleep").ok(),
+            "stalled before its exec"
+        );
+        if stall == Stall::BeforePidfile {
+            assert!(!pidfile.exists(), "no fixture pidfile yet");
+        }
+        println!("m03 observation: stalled_remote_command stall={stall:?} pid={pid} token={token}");
+        let audit = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(w)));
+        let survived = !wait_until(Duration::from_secs(5), || !alive(pid, &token));
+        if survived {
+            stop_exact(pid, &token, &[image]);
+        }
+        assert!(
+            !survived,
+            "the stalled shell survived the fixture's teardown"
+        );
+        assert!(audit.is_ok(), "the normal drop's own audit passed");
+    }
+
+    /// W3-C03 probe 1: a remote command stalled after its pidfile, before its `exec`.
+    #[test]
+    fn remote_command_stalled_after_its_pidfile_leaves_no_process() {
+        stalled_remote_command_leaves_no_process(Stall::AfterPidfile);
+    }
+
+    /// W3-C03 probe 2: a remote command stalled before its pidfile exists.
+    #[test]
+    fn remote_command_stalled_before_its_pidfile_leaves_no_process() {
+        stalled_remote_command_leaves_no_process(Stall::BeforePidfile);
     }
 
     /// W3-C01 (b): a test that panics while the store cannot be read leaks nothing. A
