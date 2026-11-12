@@ -9,13 +9,16 @@
 //! existing identity: D11 item 3, spec §15.2).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
+use heimdall_app::enrollment::EnrollmentHost;
 use heimdall_app::managed::driver_results;
 use heimdall_app::operations::MANAGED_CERTIFICATE;
 use heimdall_app::operations::unattended_refusal;
 use heimdall_app::ports::{
     AdapterError, IntegrationSnapshot, IssuerStatusSnapshot, ManagedPrepared, ManagedSlot,
     ManagedSources, PrepareOutcome, PreparePair, PrepareRequest, PreparedCertificate,
+    TargetEvaluator,
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::doctor::AliasObservation;
@@ -29,7 +32,7 @@ use heimdall_contract::provider::{
 use heimdall_contract::request::{ConsumerIntegration, PairIntegration};
 use heimdall_credential::endpoints::{EndpointLayout, EndpointTag};
 use heimdall_domain::claims::{CLAIMS, Claim, Platform};
-use heimdall_domain::enrollment::{EnrollmentRecord, EnrollmentState};
+use heimdall_domain::enrollment::{EnrollmentRecord, EnrollmentState, TargetEvaluation};
 use heimdall_domain::evidence::EnforcementEvidence;
 use heimdall_domain::issuance::IssuanceEntry;
 use heimdall_domain::managed::OwnedConnection;
@@ -143,6 +146,143 @@ pub trait ManagedSourceRead: Send + Sync {
         let _ = aliases;
         Vec::new()
     }
+
+    /// ⟨§17.22 item 7⟩ The current static evaluation of a managed alias (the runtime's
+    /// `TargetEvaluator`), for the evidence comparison [`snapshot`] runs. Default:
+    /// none, so no evidence holds (every pair's `destination_scope` is `unknown`).
+    fn evaluate_target(&self, alias: &str) -> Option<TargetEvaluation> {
+        let _ = alias;
+        None
+    }
+
+    /// ⟨§17.22 item 7⟩ The current verifying client's version line (the enrollment
+    /// host's `client_version`, `OpenSSH_10.5p1, …`). Default: none, so no evidence
+    /// holds.
+    fn client_version(&self) -> Option<String> {
+        None
+    }
+}
+
+/// ⟨§17.22 item 7⟩ The inputs of the evidence comparison: the runtime's target
+/// evaluator and its verifying client's version line, read when the sources are read.
+pub trait EvidenceFeed: Send + Sync {
+    /// The current evaluation of `alias` (`None`: not evaluable).
+    fn evaluate_target(&self, alias: &str) -> Option<TargetEvaluation>;
+    /// The current verifying client's version line.
+    fn client_version(&self) -> Option<String>;
+}
+
+/// ⟨§17.22 item 7⟩ An [`EvidenceFeed`] over a target evaluator and an enrollment host
+/// (the runtime's own: the same evaluator and host the enrollment driver uses).
+pub struct TargetAndClient {
+    /// The target evaluator.
+    pub target: Arc<dyn TargetEvaluator>,
+    /// The enrollment host (its `client_version`).
+    pub host: Arc<dyn EnrollmentHost>,
+}
+
+impl EvidenceFeed for TargetAndClient {
+    fn evaluate_target(&self, alias: &str) -> Option<TargetEvaluation> {
+        Some(self.target.evaluate(alias))
+    }
+
+    fn client_version(&self) -> Option<String> {
+        self.host.client_version()
+    }
+}
+
+/// ⟨§17.22 item 7⟩ `inner` with the evidence comparison's inputs from `feed`; every
+/// other read is `inner`'s.
+pub struct WithEvidenceFeed {
+    /// The sources.
+    pub inner: Arc<dyn ManagedSourceRead>,
+    /// The comparison's inputs.
+    pub feed: Arc<dyn EvidenceFeed>,
+}
+
+impl ManagedSourceRead for WithEvidenceFeed {
+    fn enrollments(&self, pairs: &[AccessPair]) -> Vec<EnrollmentRecord> {
+        self.inner.enrollments(pairs)
+    }
+    fn issuing_cas(&self, pairs: &[AccessPair]) -> BTreeMap<AccessPair, BTreeSet<CaFingerprint>> {
+        self.inner.issuing_cas(pairs)
+    }
+    fn slots(&self, pairs: &[AccessPair]) -> Vec<ManagedSlot> {
+        self.inner.slots(pairs)
+    }
+    fn claims(&self) -> Vec<Claim> {
+        self.inner.claims()
+    }
+    fn issuer(&self) -> Option<IssuerStatusSnapshot> {
+        self.inner.issuer()
+    }
+    fn prepared(&self, pairs: &[AccessPair]) -> Option<ManagedPrepared> {
+        self.inner.prepared(pairs)
+    }
+    fn terms(&self, grant: &GrantId) -> Option<GrantTerms> {
+        self.inner.terms(grant)
+    }
+    fn cascade(&self, grant: &GrantId) -> Vec<GrantId> {
+        self.inner.cascade(grant)
+    }
+    fn issuance_entries(&self, grants: &[GrantId]) -> Vec<IssuanceEntry> {
+        self.inner.issuance_entries(grants)
+    }
+    fn key_only_restore(&self) -> bool {
+        self.inner.key_only_restore()
+    }
+    fn recorded_outcome(&self, grant: &GrantId, effect_token: &str) -> Option<PrepareOutcome> {
+        self.inner.recorded_outcome(grant, effect_token)
+    }
+    fn owned_connections(&self, grants: &[GrantId]) -> Vec<OwnedConnection> {
+        self.inner.owned_connections(grants)
+    }
+    fn observations(&self, aliases: &[String]) -> Vec<AliasObservation> {
+        self.inner.observations(aliases)
+    }
+    fn evaluate_target(&self, alias: &str) -> Option<TargetEvaluation> {
+        self.feed.evaluate_target(alias)
+    }
+    fn client_version(&self) -> Option<String> {
+        self.feed.client_version()
+    }
+}
+
+/// ⟨§17.22 item 7⟩ The comparison at `read_sources` time (D5 §6.5: "the
+/// `TargetEvaluator` comparison, run when `inspect` or `ensure` touches the pair"):
+/// each enrollment of `pairs` keeps its evidence in the snapshot only when it still
+/// holds (`heimdall_app::enrollment::evidence_holds`: the pair's alias evaluates to
+/// exactly the approved target, and the evidence names the current client); otherwise
+/// the snapshot's copy carries **no evidence**, so the report's `destination_scope` is
+/// `unknown` and a minimum that needs it fails, whatever the record's state and
+/// whatever a later network attempt finds. A pair without an alias has no
+/// evaluation. Nothing is written: the record's own state and evidence are the
+/// enrollment driver's.
+pub fn invalidate_evidence(
+    sources: &dyn ManagedSourceRead,
+    pairs: &[PreparePair],
+    enrollments: &mut [EnrollmentRecord],
+) {
+    if enrollments.iter().all(|e| e.evidence.is_none()) {
+        return;
+    }
+    let client = sources.client_version();
+    let mut evaluations: BTreeMap<(String, String), Option<TargetEvaluation>> = BTreeMap::new();
+    for e in enrollments.iter_mut().filter(|e| e.evidence.is_some()) {
+        let alias = pairs
+            .iter()
+            .find(|p| p.destination == e.destination && p.account == e.account)
+            .and_then(|p| p.alias.clone());
+        let eval = alias.and_then(|a| {
+            evaluations
+                .entry((e.destination.as_str().to_owned(), a.clone()))
+                .or_insert_with(|| sources.evaluate_target(&a))
+                .clone()
+        });
+        if !heimdall_app::enrollment::evidence_holds(e, eval.as_ref(), client.as_deref()) {
+            e.evidence = None;
+        }
+    }
 }
 
 /// ⟨§17.21 item 11⟩ D10 item 6's classification of the request's pairs, as the report
@@ -189,6 +329,7 @@ impl ManagedSourceRead for NoManagedSources {}
 /// through `sources` (U0b row 21).
 #[must_use]
 pub fn snapshot(sources: &dyn ManagedSourceRead, pairs: &[PreparePair]) -> IntegrationSnapshot {
+    let request_pairs = pairs;
     // ⟨§17.21 item 11⟩ The request's managed aliases' static observation (D10 item 6).
     let aliases: Vec<String> = pairs.iter().filter_map(|p| p.alias.clone()).collect();
     let observations = if aliases.is_empty() {
@@ -203,9 +344,11 @@ pub fn snapshot(sources: &dyn ManagedSourceRead, pairs: &[PreparePair]) -> Integ
             account: p.account.clone(),
         })
         .collect();
+    let mut enrollments = sources.enrollments(&pairs);
+    invalidate_evidence(sources, request_pairs, &mut enrollments);
     IntegrationSnapshot {
         managed: Some(ManagedSources {
-            enrollments: sources.enrollments(&pairs),
+            enrollments,
             issuing_cas: sources.issuing_cas(&pairs),
             slots: sources.slots(&pairs),
             claims: sources.claims(),
@@ -369,13 +512,19 @@ pub fn check_minimums(
 
 /// The binding endpoint of the driver's materialized files (D10 item 4, wave-2
 /// request: `consumer.signing_endpoint` names the **binding** endpoint), from the
-/// directory's tag and the runtime's endpoint layout.
+/// directory's tag and the runtime's endpoint layout. ⟨§17.23 item 6⟩ The endpoint the
+/// materialization reports it created comes first; the layout's form of the
+/// directory's tag is only for a materialization that reused a running endpoint.
 #[must_use]
 pub fn binding_endpoint(
     prepared: &ManagedPrepared,
     layout: Option<&EndpointLayout>,
 ) -> Option<EndpointRef> {
-    let dir = &prepared.materialized.as_ref()?.directory;
+    let materialized = prepared.materialized.as_ref()?;
+    if let Some(created) = &materialized.endpoint {
+        return Some(created.clone());
+    }
+    let dir = &materialized.directory;
     let tag = EndpointTag::parse(dir.file_name()?.to_str()?)?;
     Some(layout?.binding(&tag))
 }
@@ -430,15 +579,21 @@ pub fn pair_integrations(
         .collect()
 }
 
-/// The evidence of each pair's enrollment (the newest verified one).
+/// The evidence of each pair's enrollment: the newest of its `verified` enrollments
+/// **under the CA of the certificate being prepared** for the pair (⟨§17.22 item 7⟩:
+/// another CA's evidence says nothing about this certificate's principals; a pair with
+/// no prepared certificate has none). Evidence the comparison invalidated is already
+/// gone from the snapshot ([`invalidate_evidence`]).
 #[must_use]
 pub fn pair_evidence<'a>(
     managed: &'a ManagedSources,
     pairs: &'a [AccessPair],
+    prepared: &ManagedPrepared,
 ) -> Vec<PairEvidence<'a>> {
     pairs
         .iter()
         .filter_map(|p| {
+            let ca = &prepared.certificates.iter().find(|c| &c.pair == p)?.ca;
             managed
                 .enrollments
                 .iter()
@@ -446,6 +601,7 @@ pub fn pair_evidence<'a>(
                     e.destination == p.destination
                         && e.account == p.account
                         && e.state == EnrollmentState::Verified
+                        && &e.ca_fingerprint == ca
                 })
                 .filter_map(|e| e.evidence.as_ref())
                 .max_by_key(|e| e.verified_at)
@@ -493,7 +649,7 @@ pub fn outcome(
             GRANT_TERMS_UNAVAILABLE.to_owned(),
         ));
     };
-    let evidence = pair_evidence(managed, &pairs);
+    let evidence = pair_evidence(managed, &pairs, prepared);
     let ctx = ReportContext {
         platform,
         lock_behavior: terms.lock_behavior,

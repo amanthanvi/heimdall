@@ -204,6 +204,7 @@ fn ca_status(fp: &CaFingerprint, state: CaState) -> CaStatus {
         backup_created_at: t0(),
         restored_without_log: false,
         enrollments: EnrollmentCounts::default(),
+        store_locator: None,
     }
 }
 
@@ -239,6 +240,21 @@ impl OwnerSession for FakeSession {
 
     fn register(&mut self, request: &RegisterRequest) -> Result<RegisterDecision, SessionError> {
         self.log.borrow_mut().registered.push(request.clone());
+        // ⟨§17.22 item 12⟩ As the runtime: the same registration with its store-item
+        // report joins the pending decision, which records the locator once.
+        let bare = |r: &RegisterRequest| RegisterRequest {
+            store_locator: None,
+            ..r.clone()
+        };
+        if let Some((d, pending)) = self.pending.iter_mut().find(|(_, r)| {
+            bare(r) == bare(request)
+                && (r.store_locator.is_none() || r.store_locator == request.store_locator)
+        }) {
+            if request.store_locator.is_some() {
+                pending.store_locator.clone_from(&request.store_locator);
+            }
+            return Ok(d.clone());
+        }
         let mut disclosures = vec![
             DisclosureKind::SameUserIssuerBoundary,
             DisclosureKind::CaTrustBlastRadius,
@@ -270,6 +286,23 @@ impl OwnerSession for FakeSession {
             });
         };
         let (d, request) = self.pending.remove(at);
+        // ⟨§17.22 item 12⟩ A known CA: the restore's compare-and-swap.
+        if let Some(ca) = self
+            .status
+            .cas
+            .iter_mut()
+            .find(|c| c.fingerprint == d.ca_fingerprint)
+        {
+            if ca.store_locator != request.expected_store_locator {
+                return Err(SessionError::Refused {
+                    code: Code::ConfigConflict,
+                    reason: None,
+                });
+            }
+            ca.store_locator.clone_from(&request.store_locator);
+            self.log.borrow_mut().approved.push(decision.clone());
+            return Ok(());
+        }
         let state = if request.rotation_of.is_some() {
             CaState::Pending
         } else {
@@ -279,6 +312,7 @@ impl OwnerSession for FakeSession {
         ca.backup_sha256 = request.backup_sha256.clone();
         ca.backup_created_at = request.backup_created_at;
         ca.restored_without_log = request.restored_without_log;
+        ca.store_locator.clone_from(&request.store_locator);
         self.status.cas.push(ca);
         self.status.state = IssuerState::Ready;
         self.log.borrow_mut().approved.push(decision.clone());
@@ -623,8 +657,23 @@ fn registered_digest_is_the_written_backup() {
     let done = ceremony::init(&mut tty, &mut session, &rig.store, &options(&out)).unwrap();
     let file = std::fs::read(&out).unwrap();
     let log = log.borrow();
-    assert_eq!(log.registered.len(), 1);
+    // ⟨§17.22 item 12⟩ Step 3, then the store-item report after the put: the same
+    // registration with the put's exact locator (it joined the same decision).
+    assert_eq!(log.registered.len(), 2);
     let request = &log.registered[0];
+    assert_eq!(request.store_locator, None);
+    assert_eq!(
+        log.registered[1],
+        RegisterRequest {
+            store_locator: Some(done.item.locator.clone()),
+            ..request.clone()
+        }
+    );
+    assert_eq!(
+        session.status.cas[0].store_locator.as_deref(),
+        Some(done.item.locator.as_str()),
+        "recorded with the approval"
+    );
     assert_eq!(request.backup_sha256, sha256_hex(&file));
     assert_eq!(done.backup.as_ref().unwrap().sha256, sha256_hex(&file));
     assert_eq!(log.approved, vec![done.decision.clone()]);
@@ -676,7 +725,7 @@ fn rotate_begin_creates_pending_ca_with_its_backup() {
     let mut tty = ScriptedTty::answering(YES_WRITTEN);
     let new = ceremony::rotate_begin(&mut tty, &mut session, &rig.store, &options(&out)).unwrap();
     assert_ne!(new.fingerprint, old.fingerprint);
-    let request = log.borrow().registered[1].clone();
+    let request = log.borrow().registered[2].clone();
     assert_eq!(request.rotation_of.as_ref(), Some(&old.fingerprint));
     assert!(!request.restored_without_log);
     assert_eq!(
@@ -849,7 +898,9 @@ fn key_only_restore_reports_unbounded_unknown() {
     )
     .unwrap();
     assert!(matches!(again, Restored::StoreItemRewritten { .. }));
-    assert_eq!(log.borrow().registered.len(), 1);
+    // The registration and its store-item report; the rewritten item has the
+    // recorded locator, so nothing is registered again.
+    assert_eq!(log.borrow().registered.len(), 2);
     assert_eq!(log.borrow().unlocks, 1);
     assert!(rig.store.get(&fp).unwrap().same_key(&key));
 }
@@ -1261,28 +1312,14 @@ fn retire_deletes_store_item_and_issuer_zeroizes() {
             Some(RetireError::NoStep(s))
         );
     }
-    // The restart-recovery port over the same store: it refuses a store kind it is
-    // not (the scratch store has no product kind, S3), deleting nothing, even with
-    // the item's exact locator; the superseded locator-less shape always refuses.
-    let deletion = retire::StoreItemDeletion::new(&store);
+    // ⟨§17.22 item 12⟩ The owner-present CLI's deletion over the same store: it
+    // refuses a store kind it is not (the scratch store has no product kind, S3),
+    // deleting nothing, even with the item's exact locator.
     let other_fp = other.fingerprint().unwrap();
     let other_locator = store.list().unwrap()[0].locator.clone();
-    assert!(
-        heimdall_app::operations::CaStoreItemDeletion::delete_recorded(
-            &deletion,
-            &other_fp,
-            StoreKind::WindowsDpapi,
-            &other_locator,
-        )
-        .is_err()
-    );
-    assert!(
-        heimdall_app::operations::CaStoreItemDeletion::delete_confirmed_absent(
-            &deletion,
-            &other_fp,
-            StoreKind::WindowsDpapi
-        )
-        .is_err()
+    assert_eq!(
+        retire::delete_awaiting(&store, &other_fp, StoreKind::WindowsDpapi, &other_locator),
+        Err(RetireError::LocatorMismatch)
     );
     assert!(store.get(&other_fp).is_ok());
 }
@@ -1346,7 +1383,8 @@ struct Installation<'a> {
     shared: &'a SharedOsStore,
     environment: &'static str,
     /// ⟨§17.21 item 3⟩ Report this product kind (a stand-in for a platform store, to
-    /// drive `StoreItemDeletion`'s product-kind path; no platform store is touched).
+    /// drive `retire::delete_awaiting`'s product-kind path; no platform store is
+    /// touched).
     product: Option<StoreKind>,
 }
 
@@ -1416,7 +1454,7 @@ impl SecretStore for Installation<'_> {
 /// same (restored) CA in one OS store. Retiring it in installation A deletes exactly
 /// the item A recorded at `put`; B's item, which `list()` also reports under the same
 /// fingerprint, survives and still reads. Without a recorded item the deletion is
-/// refused and deletes nothing, through the step and through the restart port.
+/// refused and deletes nothing, through the step and through the CLI deletion.
 #[test]
 fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_same_ca() {
     let shared = SharedOsStore::default();
@@ -1451,15 +1489,9 @@ fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_sam
         Err(RetireError::LocatorNotRecorded)
     );
     let none = retire::NoRecordedItems;
-    let port = retire::StoreItemDeletion::new(&a);
-    assert!(
-        heimdall_app::operations::CaStoreItemDeletion::delete_recorded(
-            &port,
-            &fp,
-            StoreKind::LinuxSecretService,
-            &a_item.locator,
-        )
-        .is_err(),
+    assert_eq!(
+        retire::delete_awaiting(&a, &fp, StoreKind::LinuxSecretService, &a_item.locator),
+        Err(RetireError::LocatorMismatch),
         "a test store is never a product store (S3)"
     );
     let mut effects = StoreEffects::new(&a, &none, |_ca: &CaFingerprint| Ok(()));
@@ -1493,17 +1525,16 @@ fn retirement_deletes_only_the_recorded_item_when_two_installations_hold_the_sam
     assert_eq!(b.list().unwrap(), vec![b_item]);
 }
 
-/// ⟨ADR-0008 §17.21 item 3; §17.17 item 3⟩ The retirement port
-/// (`retire::StoreItemDeletion`, what `Operations::resume_ca_retirements` calls with
-/// the locator the runtime recorded) deletes **exactly that locator**: over a store of
-/// the record's product kind, A's recorded item goes, while B's item for the same CA
-/// (another locator) and another CA's item in A survive. A store of another kind, or
-/// another installation's locator, deletes nothing. Absent counts as deleted. (A
-/// product-kinded in-memory stand-in; no platform store is touched, so this closes no
-/// native store claim.)
+/// ⟨ADR-0008 §17.22 item 12; §17.17 item 3⟩ The owner-present CLI's deletion
+/// (`retire::delete_awaiting`, run with the locator `issuer.status` names) deletes
+/// **exactly that locator**: over a store of the record's product kind, A's recorded
+/// item goes, while B's item for the same CA (another locator) and another CA's item
+/// in A survive. A store of another kind, another installation's locator, and a
+/// locator the store lists for **another CA** delete nothing. Absent counts as
+/// deleted. (A product-kinded in-memory stand-in; no platform store is touched, so
+/// this closes no native store claim.)
 #[test]
-fn store_item_deletion_port_deletes_exactly_the_recorded_locator() {
-    use heimdall_app::operations::CaStoreItemDeletion;
+fn cli_store_item_deletion_deletes_exactly_the_named_locator() {
     let shared = SharedOsStore::default();
     let a = Installation {
         shared: &shared,
@@ -1522,20 +1553,29 @@ fn store_item_deletion_port_deletes_exactly_the_recorded_locator() {
     let other = SecretCaKey::generate().unwrap();
     let other_fp = other.fingerprint().unwrap();
     let other_item = a.put(&other_fp, &other).unwrap();
-    let port = retire::StoreItemDeletion::new(&a);
+    let delete =
+        |ca: &CaFingerprint, kind, locator: &str| retire::delete_awaiting(&a, ca, kind, locator);
 
     // The record names another store kind: refused, nothing deleted.
-    assert!(
-        port.delete_recorded(&fp, StoreKind::WindowsDpapi, &a_item.locator)
-            .is_err()
+    assert_eq!(
+        delete(&fp, StoreKind::WindowsDpapi, &a_item.locator),
+        Err(RetireError::LocatorMismatch)
+    );
+    // A locator the store lists for another CA: refused, nothing deleted.
+    assert_eq!(
+        delete(&fp, StoreKind::LinuxSecretService, &other_item.locator),
+        Err(RetireError::LocatorMismatch)
+    );
+    assert_eq!(
+        delete(&fp, StoreKind::LinuxSecretService, ""),
+        Err(RetireError::LocatorMismatch)
     );
     // Another installation's locator: B's item is not A's to delete.
-    let _ = port.delete_recorded(&fp, StoreKind::LinuxSecretService, &b_item.locator);
+    assert!(delete(&fp, StoreKind::LinuxSecretService, &b_item.locator).is_err());
     assert_eq!(a.list().unwrap().len(), 3, "nothing was deleted");
 
-    // The recorded locator: exactly that item goes.
-    port.delete_recorded(&fp, StoreKind::LinuxSecretService, &a_item.locator)
-        .unwrap();
+    // The named locator: exactly that item goes.
+    delete(&fp, StoreKind::LinuxSecretService, &a_item.locator).unwrap();
     let left: Vec<StoreItemRef> = a.list().unwrap();
     assert!(!left.contains(&a_item));
     assert!(left.contains(&b_item), "B's item for the same CA survives");
@@ -1543,8 +1583,7 @@ fn store_item_deletion_port_deletes_exactly_the_recorded_locator() {
     assert!(b.get(&fp).unwrap().same_key(&key));
     assert!(a.get(&other_fp).unwrap().same_key(&other));
     // Idempotent: already absent counts as deleted; still nothing else touched.
-    port.delete_recorded(&fp, StoreKind::LinuxSecretService, &a_item.locator)
-        .unwrap();
+    delete(&fp, StoreKind::LinuxSecretService, &a_item.locator).unwrap();
     assert_eq!(a.list().unwrap().len(), 2);
 }
 
@@ -1562,10 +1601,10 @@ fn two_installations_restore_and_retire(a: &dyn SecretStore, b: &dyn SecretStore
     let pass = Passphrase::generate().unwrap();
     let out = dir.path().join("ca.key");
     backup::write_exact(&out, &backup::prepare(&key, &pass).unwrap()).unwrap();
-    let (mut session, _log) = FakeSession::new();
+    let (mut session, log) = FakeSession::new();
     session.status.cas.push(ca_status(&fp, CaState::Active));
     let restore_in_b = |session: &mut FakeSession| {
-        let mut tty = ScriptedTty::default().with_hidden(pass.expose());
+        let mut tty = ScriptedTty::answering(&["yes"]).with_hidden(pass.expose());
         match ceremony::restore(
             &mut tty,
             session,
@@ -1584,6 +1623,20 @@ fn two_installations_restore_and_retire(a: &dyn SecretStore, b: &dyn SecretStore
     };
     let b_item = restore_in_b(&mut session);
     assert_ne!(b_item.locator, a_item.locator, "B has an item of its own");
+    // ⟨§17.22 item 12⟩ A new item for the registered CA: re-registered with a
+    // compare-and-swap against the recorded locator (none here), then recorded.
+    let rereg = log.borrow().registered.clone();
+    assert_eq!(rereg.len(), 1);
+    assert_eq!(
+        rereg[0].store_locator.as_deref(),
+        Some(b_item.locator.as_str())
+    );
+    assert_eq!(rereg[0].expected_store_locator, None);
+    assert!(rereg[0].rotation_of.is_none() && !rereg[0].restored_without_log);
+    assert_eq!(
+        session.status.cas[0].store_locator.as_deref(),
+        Some(b_item.locator.as_str())
+    );
     assert_eq!(
         a.list().unwrap(),
         vec![a_item.clone()],
@@ -1599,8 +1652,10 @@ fn two_installations_restore_and_retire(a: &dyn SecretStore, b: &dyn SecretStore
         b.get(&fp).unwrap().same_key(&key),
         "never Corrupt because another installation holds the CA"
     );
-    // B restores again: its own existing item is adopted (A's was created first).
+    // B restores again: its own existing item is adopted (A's was created first),
+    // already recorded: nothing is registered again.
     assert_eq!(restore_in_b(&mut session), b_item, "B adopts its own item");
+    assert_eq!(log.borrow().registered.len(), 1);
     // Retiring B deletes B's recorded item only.
     let recorded_b = vec![b_item.clone()];
     let mut effects = StoreEffects::new(b, &recorded_b, |_ca: &CaFingerprint| Ok(()));

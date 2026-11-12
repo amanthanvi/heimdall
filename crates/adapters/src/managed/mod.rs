@@ -120,6 +120,23 @@ pub fn baseline_enforcement() -> Enforcement {
     }
 }
 
+/// ⟨M03 wave 4, ADR-0008 §17.23 item 1 (R3A-Q2)⟩ What the mechanism's descriptor
+/// advertises it **can** deliver: the [`baseline_enforcement`] with
+/// `destination_scope: verified_server_principals`, which a managed grant achieves for
+/// a pair whose enrollment evidence holds (§17.22 item 7). Resolution compares a
+/// caller's `destination_scope_at_least` with this; each pair's evidence comparison in
+/// `prepare_from` then decides whether the request gets it (invalid or absent evidence
+/// reports `unknown`, and a minimum that needs the scope is refused there,
+/// `minimum_not_met`). Only the managed descriptor advertises it; no M01/M02 adapter's
+/// descriptor changes.
+#[must_use]
+pub fn advertised_enforcement() -> Enforcement {
+    Enforcement {
+        destination_scope: DestinationScopeEnforcement::VerifiedServerPrincipals,
+        ..baseline_enforcement()
+    }
+}
+
 /// What [`ManagedCertificateAdapter::reissue_from`] needs beside the request: the
 /// grant as the store holds it and the time assessment, read in one store
 /// transaction by the supervisor's `managed_reissue_pass` (U10).
@@ -214,7 +231,7 @@ impl ManagedCertificateAdapter {
             external_side_effects: true,
             interaction: InteractionRequirement::None,
             enforcement: EnforcementEvidence {
-                report: baseline_enforcement(),
+                report: advertised_enforcement(),
                 evidence: Vec::new(),
             },
             lock_continuity: lock_continuity_from(&claims, &platform),

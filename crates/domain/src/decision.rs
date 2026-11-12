@@ -114,6 +114,16 @@ pub enum DecisionKind {
         /// `backup_created_at`). Additive, as `ca_public_key`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         backup_created_at: Option<Timestamp>,
+        /// ⟨ADR-0008 §17.22 item 12⟩ The K_ca store item the ceremony reported
+        /// (`issuer.register`'s `store_locator`, after the put); the approval records
+        /// it with the CA. Additive: absent before the report, and in a record written
+        /// before the field (the approval then records the CA without a locator).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        store_locator: Option<String>,
+        /// ⟨ADR-0008 §17.22 item 12⟩ A restore's compare-and-swap: the locator the
+        /// request expects recorded (absent: none). Additive, as `store_locator`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_store_locator: Option<String>,
     },
     /// ⟨M03⟩ Retire a CA (ADR-0008 D4 item 3): every enrollment under it is final or
     /// abandoned.

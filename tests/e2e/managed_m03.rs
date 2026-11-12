@@ -36,9 +36,9 @@ use heimdall_app::operations::{Limits, MANAGED_CERTIFICATE};
 use heimdall_app::ports::{
     AdapterDescriptor, AdapterError, CredentialAdapter, IntegrationSnapshot,
     InteractionRequirement, IssuanceRef, IssuerError, IssuerPort, IssuerStatusSnapshot,
-    KeyRegistration, LockContinuity, ManagedEffects, ManagedSources, MaterializeSpec,
-    MaterializedFiles, PrepareOutcome, PreparePair, PrepareRequest, ReconcileOutcome,
-    RevokeOutcome,
+    KeyRegistration, LockContinuity, ManagedEffects, ManagedSources, MaterializeSource,
+    MaterializeSpec, MaterializedFiles, PrepareOutcome, PreparePair, PrepareRequest,
+    ReconcileOutcome, RevokeOutcome,
 };
 use heimdall_app::{Caller, Operations, OperationsConfig};
 use heimdall_contract::ids::{
@@ -324,6 +324,7 @@ impl ManagedEffects for FixtureEffects {
             files: vec![directory.join("key.pub")],
             directory,
             generation: files.generation,
+            endpoint: None,
         })
     }
 
@@ -1427,8 +1428,15 @@ async fn managed_binding_minted_at_resolve_materialized_then_committed_under_it(
         .1
         .public_key
         .clone();
-    assert_eq!(spec.public_key, key);
-    let pairs: BTreeSet<AccessPair> = spec.certificates.iter().map(|c| c.pair.clone()).collect();
+    let MaterializeSource::Fresh {
+        public_key,
+        certificates,
+    } = &spec.source
+    else {
+        panic!("a new activation materializes fresh key material: {spec:?}");
+    };
+    assert_eq!(public_key, &key);
+    let pairs: BTreeSet<AccessPair> = certificates.iter().map(|c| c.pair.clone()).collect();
     assert_eq!(pairs, [h1(), h2()].into_iter().collect());
     let stored = w
         .store

@@ -1217,16 +1217,29 @@ impl Supervisor {
     }
 
     /// ⟨M03⟩ wave 4, round 2 (ADR-0008 §17.21 item 11; exposed for tests): slot
-    /// cleanup when a grant ends. Every grant of this environment that has ended
-    /// (terminal, or `revoking`) while a binding of it still holds (or is clearing) a
-    /// managed slot (`Txn::held_slots_of_ended_grants`) gets the managed adapter's
-    /// end-of-grant cleanup (`StoreCleanup`: each slot cleared by its own store
-    /// generation, the binding files removed by generation, the owned connections
-    /// closed). It runs after every scheduler `tick` (an expiry ends grants there, and
-    /// M01's expiry calls no adapter `revoke`) and in every M03 pass, so a failed or
-    /// missed cleanup is retried (the slot rows are the cleanup intent). Returns the
-    /// grants whose cleanup succeeded, in grant order. Without M03 wiring, an end
-    /// cleanup or state, nothing.
+    /// cleanup when a grant ends; ⟨round 3, §17.22 items 4, 9, 10⟩ the ended-grant and
+    /// ended-binding cleanup pass, discovered from durable rows only, never from held
+    /// slots alone:
+    ///
+    /// * every grant of this environment that has ended (terminal, or `revoking`)
+    ///   while a binding of it still holds (or is clearing) a managed slot
+    ///   (`Txn::held_slots_of_ended_grants`);
+    /// * every terminal grant with a credential instance not yet `destroyed`, and
+    ///   every grant (live ones included) with a slot held or clearing for a released
+    ///   binding (`Txn::managed_cleanup_owed`).
+    ///
+    /// For each: an ended managed grant's K_env is destroyed in memory
+    /// (`Operations::managed_end_destroy_keys`); the managed adapter's end cleanup
+    /// runs (`StoreCleanup`: each slot cleared by its own store generation, the binding
+    /// endpoints and files removed by generation, the mux paths, the slots freed last,
+    /// the owned connections closed; for a live grant only its released bindings); and
+    /// only when that completed do the ended grant's instances become `destroyed`
+    /// (`Operations::managed_end_instances_destroyed`, the gate released). It runs
+    /// after every scheduler `tick` and in every M03 pass, so a failed, missed or
+    /// crashed cleanup is retried (the `clearing` slot row and the undestroyed
+    /// instance row are the cleanup intent). Returns the grants whose cleanup
+    /// succeeded, in grant order. Without M03 wiring, an end cleanup or state,
+    /// nothing.
     ///
     /// # Errors
     /// The store read failed (nothing was cleaned; the next pass retries).
@@ -1238,8 +1251,16 @@ impl Supervisor {
             return Ok(Vec::new());
         };
         let environment = self.operations.environment().clone();
-        let held = match read_store(store, move |tx| tx.held_slots_of_ended_grants(&environment))
-            .await
+        let owed = match read_store(store, move |tx| {
+            let mut owed: std::collections::BTreeSet<GrantId> = tx
+                .held_slots_of_ended_grants(&environment)?
+                .into_iter()
+                .map(|(g, _)| g)
+                .collect();
+            owed.extend(tx.managed_cleanup_owed(&environment)?);
+            Ok(owed)
+        })
+        .await
         {
             Ok(v) => v,
             Err(e) => {
@@ -1247,16 +1268,33 @@ impl Supervisor {
                 return Err(e);
             }
         };
-        let grants: std::collections::BTreeSet<GrantId> =
-            held.into_iter().map(|(g, _)| g).collect();
         let mut cleaned = Vec::new();
-        for grant in grants {
-            match cleanup.after_end(std::slice::from_ref(&grant)).await {
-                Ok(()) => cleaned.push(grant),
-                Err(_) => {
-                    tracing::warn!("an ended grant's slot cleanup is incomplete; retrying");
+        for grant in owed {
+            let ended = match self.operations.managed_end_destroy_keys(&grant).await {
+                Ok(ended) => ended,
+                Err(e) => {
+                    tracing::warn!(code = %e.code, "an ended grant could not be read; retrying");
+                    continue;
                 }
+            };
+            if cleanup
+                .after_end(std::slice::from_ref(&grant))
+                .await
+                .is_err()
+            {
+                tracing::warn!("an ended grant's slot cleanup is incomplete; retrying");
+                continue;
             }
+            if ended
+                && let Err(e) = self
+                    .operations
+                    .managed_end_instances_destroyed(&grant)
+                    .await
+            {
+                tracing::warn!(code = %e.code, "an ended grant's instances could not be updated; retrying");
+                continue;
+            }
+            cleaned.push(grant);
         }
         Ok(cleaned)
     }

@@ -17,9 +17,10 @@
 //! * **Row 23** ([`Operations::resume_ca_retirements`]): a CA in `retiring`,
 //!   `unloaded` or `deleted` resumes its retirement at its next step (ADR-0008 D4
 //!   item 3), each step persisted before the next and only after its external
-//!   effect was confirmed. Without an issuer child or a store-deletion step (wave
-//!   0 production) it goes no further than the store alone can take it: `retiring`
-//!   and `unloaded` stay, and `deleted` is never recorded without the deletion.
+//!   effect was confirmed. Without an issuer child it goes no further than the store
+//!   alone can take it (`retiring` stays). `unloaded` always stays: the store item's
+//!   deletion is the owner-present CLI's, confirmed on `issuer.retire` (ADR-0008
+//!   §17.22 item 12; D3), and `deleted` is never recorded without that confirmation.
 //! * **Row 6** ([`Operations::settle_bounded_obligations`]): the supervisor's
 //!   revocation pass moves `bounded_by_expiry` obligations through
 //!   [`residual_step`] on safe time only, with no adapter call and no attempt
@@ -35,7 +36,7 @@ use heimdall_contract::GrantState;
 use heimdall_contract::Timestamp;
 use heimdall_contract::event::EventType;
 use heimdall_contract::ids::{CaFingerprint, GrantId};
-use heimdall_contract::issuer::{CaState, StoreKind};
+use heimdall_contract::issuer::CaState;
 use heimdall_contract::managed::{CredentialLifecycleEvent, ResidualStatus};
 use heimdall_domain::grant::DegradedReason;
 use heimdall_domain::issuance::{CaEvent, CredentialInstance};
@@ -131,52 +132,13 @@ fn lifecycle_event(
 // Row 23: CA retirement at restart
 // -----------------------------------------------------------------------------
 
-/// The store-item step of a CA retirement (ADR-0008 D4 item 3: `unloaded →
-/// deleted`). Implemented over the issuer crate's secret store (U3/U4:
-/// `heimdall_issuer::retire::StoreItemDeletion`); production without one passes
-/// `None`.
-///
-/// ⟨ADR-0008 §17.21 item 3; §17.17 item 3⟩ The step deletes **exactly the locator
-/// this installation recorded** for the CA (`Txn::issuer_store_locator`), which
-/// [`Operations::resume_ca_retirements`] reads and passes in: never an item found
-/// by listing. Both methods default to a refusal (nothing deleted).
-pub trait CaStoreItemDeletion: Send + Sync {
-    /// Delete exactly the store item at `locator` (the recorded `StoreItemRef`
-    /// locator of `ca`'s key in a store of kind `store`), then read the store again.
-    /// `Ok` only when the re-read no longer finds that locator (an item already
-    /// absent counts as deleted). Items of the same CA under other locators are
-    /// never touched. Synchronous and bounded, like the issuer's `SecretStore`.
-    ///
-    /// # Errors
-    /// The store is not of kind `store`, the locator does not name `ca`, the
-    /// deletion or the re-read failed, or the item is still present (nonsecret
-    /// reason). The default refuses, deleting nothing.
-    fn delete_recorded(
-        &self,
-        ca: &CaFingerprint,
-        store: StoreKind,
-        locator: &str,
-    ) -> Result<(), IssuerError> {
-        let _ = (ca, store, locator);
-        Err(IssuerError::Unavailable(NO_STORE_STEP.to_owned()))
-    }
-
-    /// ⟨superseded by [`CaStoreItemDeletion::delete_recorded`], §17.21 item 3⟩ The
-    /// wave-0 shape, without the recorded locator. **Never called**: kept, defaulted
-    /// to a refusal, only so implementations written before the ruling still compile
-    /// (to be removed once none implements it).
-    ///
-    /// # Errors
-    /// Always refuses by default (nothing deleted).
-    fn delete_confirmed_absent(
-        &self,
-        ca: &CaFingerprint,
-        store: StoreKind,
-    ) -> Result<(), IssuerError> {
-        let _ = (ca, store);
-        Err(IssuerError::Unavailable(NO_STORE_STEP.to_owned()))
-    }
-}
+// ⟨ADR-0008 §17.22 item 12; D3⟩ **No store-deletion seam.** Neither the runtime nor
+// the issuer child ever writes or deletes the platform store (the child only reads
+// it): the `unloaded → deleted` step is the owner-present CLI's. It deletes exactly
+// the recorded locator and confirms on `issuer.retire` (`deleted_locator`), which
+// moves the record `unloaded → deleted → retired` in one transaction
+// (`issuer_m03`). This module takes no deletion port, so the runtime has nothing it
+// could delete through.
 
 /// What [`Operations::resume_ca_retirements`] did (U0b row 23).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -194,10 +156,12 @@ pub struct RetirementResume {
 
 /// Reason recorded when no issuer child is available to confirm an unload.
 const NO_ISSUER: &str = "issuer_unavailable";
-/// Reason recorded when no store-deletion step is available.
-const NO_STORE_STEP: &str = "issuer_store_unavailable";
+/// ⟨§17.22 item 12⟩ Reason recorded while an `unloaded` CA waits for the
+/// owner-present CLI to delete its recorded store item and confirm it (a report
+/// value, not a wire reason).
+pub const AWAITING_OWNER_DELETION: &str = "store_item_awaiting_owner_deletion";
 /// ⟨§17.21 item 3⟩ Reason recorded when the CA has no recorded store locator (a
-/// record written before it, or none reported): nothing is deleted.
+/// record written before it, or none reported): nothing can be confirmed deleted.
 const NO_LOCATOR: &str = heimdall_contract::envelope::reason::ISSUER_STORE_LOCATOR_UNRECORDED;
 
 // -----------------------------------------------------------------------------
@@ -348,24 +312,24 @@ impl Operations {
     ///
     /// * `retiring → unloaded`: `issuer.unload(ca)` answered `Ok` (bounded by
     ///   `Limits::adapter_call_timeout` on top of the issuer's own bound);
-    /// * `unloaded → deleted`: `store_items.delete_recorded` answered `Ok` for the
-    ///   CA's **recorded** store locator (ADR-0008 §17.21 item 3); a CA without one
-    ///   stays `unloaded`, stalled `issuer_store_locator_unrecorded`, nothing deleted;
+    /// * `unloaded → deleted`: **never here** (ADR-0008 §17.22 item 12; D3). The
+    ///   owner-present CLI deletes the CA's recorded store item and confirms it on
+    ///   `issuer.retire`; until then the CA stays `unloaded`, stalled
+    ///   [`AWAITING_OWNER_DELETION`] (or `issuer_store_locator_unrecorded` when no
+    ///   locator was recorded: nothing can be confirmed);
     /// * `deleted → retired`: the store alone (nothing external is left).
     ///
-    /// A missing port, a refusal or a timeout leaves the CA where it is (listed in
+    /// A missing issuer, a refusal or a timeout leaves the CA where it is (listed in
     /// `stalled`); it is never moved past a step whose effect is unconfirmed. A CA
     /// another writer moved meanwhile is skipped. Restart recovery calls this with
-    /// `None, None` (wave 0 has no issuer child); every CA that is not `pending` or
-    /// `active` is in `do_not_load`. Idempotent: a second call finds nothing more
-    /// to do.
+    /// `None` (no issuer child yet); every CA that is not `pending` or `active` is in
+    /// `do_not_load`. Idempotent: a second call finds nothing more to do.
     ///
     /// # Errors
     /// The store cannot be read or written.
     pub async fn resume_ca_retirements(
         &self,
         issuer: Option<&dyn IssuerPort>,
-        store_items: Option<&dyn CaStoreItemDeletion>,
     ) -> Result<RetirementResume, OpError> {
         let mut report = RetirementResume::default();
         let cas = self.write(|tx, _| tx.issuers()).await?;
@@ -391,29 +355,20 @@ impl Operations {
                         (CaEvent::UnloadConfirmed, confirmed)
                     }
                     CaState::Unloaded => {
-                        // ⟨§17.21 item 3; §17.17 item 3⟩ Exactly the locator this
-                        // installation recorded; without one nothing is deleted and
-                        // nothing is guessed (never an item found by listing).
+                        // ⟨§17.22 item 12; D3⟩ The owner-present CLI deletes the
+                        // recorded item and confirms it on `issuer.retire`; nothing
+                        // here deletes or marks it deleted.
                         let id = fp.clone();
-                        let Some(locator) = self
+                        let recorded = self
                             .write(move |tx, _| tx.issuer_store_locator(&id))
-                            .await?
-                        else {
-                            report
-                                .stalled
-                                .push((fp.clone(), state, NO_LOCATOR.to_owned()));
-                            break;
+                            .await?;
+                        let why = if recorded.is_some() {
+                            AWAITING_OWNER_DELETION
+                        } else {
+                            NO_LOCATOR
                         };
-                        let Some(items) = store_items else {
-                            report
-                                .stalled
-                                .push((fp.clone(), state, NO_STORE_STEP.to_owned()));
-                            break;
-                        };
-                        let confirmed = items
-                            .delete_recorded(&fp, ca.store_kind, &locator)
-                            .map_err(|e| issuer_reason(&e));
-                        (CaEvent::StoreItemDeleted, confirmed)
+                        report.stalled.push((fp.clone(), state, why.to_owned()));
+                        break;
                     }
                     CaState::Deleted => (CaEvent::RetirementRecorded, Ok(())),
                     // `pending`, `active`, `retired` (and any later state): nothing

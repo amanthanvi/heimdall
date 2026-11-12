@@ -12,7 +12,7 @@ use super::super::Operations;
 use super::steps::{load_ctx, mark_uncertain};
 use super::{journal_of, put_journal};
 use crate::context::Caller;
-use crate::enrollment::StepPurpose;
+use crate::enrollment::{StepPurpose, host_key_changed, version_token};
 use crate::error::OpError;
 
 impl Operations {
@@ -116,14 +116,16 @@ impl Operations {
     /// one (a prompt re-verification, §17.4 item 11), gets a non-interactive
     /// `enrollment.verify` (presence) that changes nothing remotely.
     ///
-    /// ⟨round 2⟩ **A host-key change** (the `TargetEvaluator` now finds another key for
-    /// the approved `HostName`, `Port` and `User`; D5 §6.5 freshness) invalidates the
-    /// evidence at once: with [`HOST_KEY_CHANGE_PROMPT_REVERIFY`] the pass runs the
-    /// presence re-verification promptly (at most once per `reverify_prompt_delay`),
-    /// **with the approved target's pins**, so the server's other key ends it `held`
-    /// (`host_key_changed`) and the pair's evidence stops counting. The new key is
-    /// never accepted automatically: only an approved `ApproveTargetChange` does that,
-    /// and the pass never touches a `held` record.
+    /// ⟨round 3⟩ **A host-key change** (the `TargetEvaluator` now finds another key for
+    /// the approved `HostName`, `Port` and `User`; D5 §6.5, ADR-0008 §17.22 item 7)
+    /// already invalidated the evidence at the comparison (`ensure`'s managed report
+    /// reads `destination_scope: unknown`). It **never triggers a login**: the pass
+    /// opens the record's `enrollment.verify` at once, and that operation records the
+    /// host-key mismatch from the evaluation alone, before any session or certificate
+    /// exists (`verify_operation`), so the record is `held` (`host_key_changed`, not
+    /// evidence-based) and the pair's grants under its CA are degraded. Only an
+    /// attended, approved `ApproveTargetChange` verification can accept the new key;
+    /// the pass never touches a `held` record.
     pub(super) async fn reverify_due(&self) -> Result<Vec<EnrollmentId>, OpError> {
         let Ok(ports) = self.verification_ports() else {
             return Ok(Vec::new());
@@ -131,7 +133,6 @@ impl Operations {
         let client = ports.host.client_version();
         let now = self.clock().wall();
         let after = self.limits().reverify_after;
-        let prompt = self.limits().reverify_prompt_delay;
         let candidates = self
             .write(move |tx, _| {
                 let mut out = Vec::new();
@@ -149,23 +150,20 @@ impl Operations {
             .await?;
         let mut due = Vec::new();
         for (r, alias) in candidates {
-            let key_changed = HOST_KEY_CHANGE_PROMPT_REVERIFY
-                && match (&alias, ports.wiring.target.as_ref()) {
-                    (Some(a), Some(t)) => host_key_changed(&r.target, &t.evaluate(a)),
-                    _ => false,
-                };
+            let key_changed = match (&alias, ports.wiring.target.as_ref()) {
+                (Some(a), Some(t)) => host_key_changed(&r.target, &t.evaluate(a)),
+                _ => false,
+            };
             let Some(e) = &r.evidence else {
                 due.push(r.id.clone());
                 continue;
             };
             let old = super::super::plus(e.verified_at, after) <= now;
+            // A known current client the evidence does not name (§17.4 item 11).
             let changed = client
                 .as_deref()
-                .map(version_token)
-                .is_some_and(|v| !v.is_empty() && !e.client.split_whitespace().any(|t| t == v));
-            // A host-key change re-verifies at most once per `reverify_prompt_delay`
-            // (the approved key may still be the server's: a pass then renews it).
-            let key_changed = key_changed && super::super::plus(e.verified_at, prompt) <= now;
+                .is_some_and(|c| !version_token(c).is_empty())
+                && !crate::enrollment::evidence_client_current(&e.client, client.as_deref());
             if old || changed || key_changed {
                 due.push(r.id.clone());
             }
@@ -200,48 +198,18 @@ impl Operations {
     }
 }
 
-/// ⟨round 2⟩ The fail-closed reading of D5 §6.5's host-key invalidation (questions
-/// file R2-A-Q1): a verified pair whose approved host key the evaluator no longer
-/// finds is re-verified at once with the approved pins (ending `held`,
-/// `host_key_changed`), instead of keeping its evidence until it ages out.
-pub(super) const HOST_KEY_CHANGE_PROMPT_REVERIFY: bool = true;
-
-/// Whether `eval` finds the approved `HostName`, `Port` and `User`, directly and
-/// determined, but not exactly the approved host key (a host-key change; a route
-/// change is not one).
-fn host_key_changed(
-    approved: &heimdall_contract::enrollment::ApprovedTarget,
-    eval: &heimdall_domain::enrollment::TargetEvaluation,
-) -> bool {
-    use heimdall_domain::enrollment::{Determinism, ProxyRoute};
-    eval.determinism == Determinism::Determined
-        && eval.proxy == ProxyRoute::None
-        && eval.hostname == approved.hostname
-        && eval.port == approved.port
-        && eval.user == approved.user.as_str()
-        && !crate::enrollment::route_matches(approved, eval)
-}
-
-/// The version token of a client version line: `OpenSSH_10.5p1, LibreSSL …` →
-/// `10.5p1` (the Verifier's evidence names the client as `<path> <family> <version>`).
-fn version_token(line: &str) -> &str {
-    let first = line.split([',', ' ']).next().unwrap_or("");
-    first.rsplit_once('_').map_or(first, |(_, v)| v).trim()
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    use crate::enrollment::version_token;
+
     #[test]
     fn version_token_of_client_lines() {
+        assert_eq!(version_token("OpenSSH_10.5p1, LibreSSL 3.3.6"), "10.5p1");
         assert_eq!(
-            super::version_token("OpenSSH_10.5p1, LibreSSL 3.3.6"),
-            "10.5p1"
-        );
-        assert_eq!(
-            super::version_token("OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2"),
+            version_token("OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2"),
             "9.5p2"
         );
-        assert_eq!(super::version_token("10.5p1"), "10.5p1");
+        assert_eq!(version_token("10.5p1"), "10.5p1");
     }
 }

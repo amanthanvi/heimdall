@@ -272,13 +272,19 @@ fn parsed(i: &InspectFact) -> Option<Inspection> {
 }
 
 /// The stored fact of a full `inspect` reading: the registry's digest and the
-/// reading minimized to `marker`'s lines (§17.21 item 4).
-fn inspect_fact(reading: &Inspection, marker: &str, r: &Recording<'_>) -> InspectFact {
+/// reading minimized to Heimdall's exact canonical `line` plus parsed facts of every
+/// other marker-bearing line (§17.21 item 4, §17.22 item 2).
+fn inspect_fact(
+    reading: &Inspection,
+    marker: &str,
+    line: Option<&str>,
+    r: &Recording<'_>,
+) -> InspectFact {
     InspectFact {
         registry: reading
             .preimage_digest()
             .map(|d| crate::enrollment::RegistryDigest::from(&d)),
-        reading: crate::enrollment::StoredReading::of(reading, marker),
+        reading: crate::enrollment::StoredReading::of(reading, marker, line),
         exit_status: r.exit_status,
         read_continuous_ms: r.c_read,
         read_wall: r.now,
@@ -1235,7 +1241,8 @@ fn record_result(
                     let offset = i64::try_from(remote_ms - local_ms).unwrap_or(i64::MIN);
                     let rtt = r.c_read.saturating_sub(r.issued.issued_continuous_ms);
                     ctx.journal.remote_offset = Some((offset, rtt.saturating_add(1000)));
-                    ctx.journal.inspection = Some(inspect_fact(&reading, &marker, r));
+                    ctx.journal.inspection =
+                        Some(inspect_fact(&reading, &marker, line_of(ctx).as_deref(), r));
                     put_journal(tx, &ctx.op.id, &ctx.journal, now)?;
                     Ok(false)
                 }
@@ -1725,7 +1732,8 @@ fn record_reconcile(
                 })
                 .flatten();
             if let Some(reading) = &reading {
-                ctx.journal.inspection = Some(inspect_fact(reading, &marker, r));
+                ctx.journal.inspection =
+                    Some(inspect_fact(reading, &marker, line_of(ctx).as_deref(), r));
             }
         }
         RemoteStage::Fence => {

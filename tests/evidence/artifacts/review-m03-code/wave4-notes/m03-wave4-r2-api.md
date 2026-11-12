@@ -217,4 +217,3 @@ pub fn materialized_bindings(&self, &GrantId) -> Vec<BindingId>;
 - R2-B → integrator: the m03-plan §5 item 14 reason table does not list
   `issuer_store_locator_unrecorded` (golden "source" says it transcribes that table); registered under
   §17.21 item 3's authorization. Plan text is not mine to edit.
-

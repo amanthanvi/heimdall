@@ -14,6 +14,8 @@
 //! 4. **write** B exactly to `--backup-out` ([`crate::backup::write_exact`]);
 //! 5. **show the passphrase once** on the terminal, wait for `written`, clear it;
 //! 6. **store** K_ca ([`SecretStore::put`]), read it back by identity and compare;
+//!    then ⟨ADR-0008 §17.22 item 12⟩ **report** the item: the same registration again
+//!    with `store_locator` (the put's exact locator), which joins the same decision;
 //! 7. **approve**: [`OwnerSession::approve`] (`Decide approve`; the runtime records
 //!    the CA and the environment permissions in one transaction);
 //! 8. K_ca, B and the passphrase are zeroized on drop.
@@ -284,6 +286,13 @@ pub struct RegisterRequest {
     pub rotation_of: Option<CaFingerprint>,
     /// A key-only restore (D4 item 4).
     pub restored_without_log: bool,
+    /// ⟨ADR-0008 §17.22 item 12⟩ The store item's exact locator, once written (the
+    /// report after step 6; absent at step 3).
+    pub store_locator: Option<String>,
+    /// ⟨ADR-0008 §17.22 item 12⟩ A log-intact restore that wrote a new store item:
+    /// the locator `issuer.status` names for the CA now (absent: none), compared and
+    /// swapped by the runtime.
+    pub expected_store_locator: Option<String>,
 }
 
 impl RegisterRequest {
@@ -304,8 +313,35 @@ impl RegisterRequest {
             backup_created_at: self.backup_created_at,
             rotation_of: self.rotation_of.clone(),
             restored_without_log: self.restored_without_log,
+            store_locator: self.store_locator.clone(),
+            expected_store_locator: self.expected_store_locator.clone(),
         })
     }
+
+    /// ⟨ADR-0008 §17.22 item 12⟩ This registration with the store item's report.
+    #[must_use]
+    pub fn with_store_item(&self, item: &StoreItemRef) -> Self {
+        Self {
+            store_locator: Some(item.locator.clone()),
+            ..self.clone()
+        }
+    }
+}
+
+/// ⟨ADR-0008 §17.22 item 12⟩ Report `item` on the pending registration `decision`
+/// (`issuer.register` again, with its locator): the runtime must answer with the same
+/// decision, else nothing more is sent.
+fn report_store_item(
+    client: &mut dyn OwnerSession,
+    request: &RegisterRequest,
+    decision: &RegisterDecision,
+    item: &StoreItemRef,
+) -> Result<(), CeremonyError> {
+    let reported = client.register(&request.with_store_item(item))?;
+    if reported.decision_id != decision.decision_id {
+        return Err(CeremonyError::DecisionMismatch);
+    }
+    Ok(())
 }
 
 /// The runtime's answer to a registration: `APPROVAL_REQUIRED` with the
@@ -791,6 +827,8 @@ fn create_ca(
         backup_created_at: prepared_at,
         rotation_of,
         restored_without_log: false,
+        store_locator: None,
+        expected_store_locator: None,
     };
     client.attend()?;
     let decision = client.register(&request)?;
@@ -812,6 +850,8 @@ fn create_ca(
     // 6. Store, read back, compare.
     let item = store_and_check(store, &fingerprint, &key, false)?;
     probe.at(CrashPoint::Stored)?;
+    // 6b. Report the store item on the same decision (§17.22 item 12).
+    report_store_item(client, &request, &decision, &item)?;
     // 7. Register.
     client.approve(&decision.decision_id)?;
     write(tty, &format!("CA {fingerprint} registered.\n"))?;
@@ -948,6 +988,32 @@ pub fn restore(
         }
         let item = store_and_check(store, &fingerprint, &key, true)?;
         client.attend()?;
+        // ⟨§17.22 item 12⟩ A new store item (another locator than the recorded one):
+        // registered again, compare-and-swap against the recorded locator; the
+        // displaced item is listed as an orphan until its deletion is confirmed.
+        if ca.store_locator.as_deref() != Some(item.locator.as_str()) {
+            let request = RegisterRequest {
+                ca_public_key: key
+                    .public_openssh()
+                    .map_err(|_| CeremonyError::Generation)?,
+                store: store.kind(),
+                backup_sha256: file.sha256.clone(),
+                backup_created_at: modified_at(options.backup),
+                rotation_of: None,
+                restored_without_log: false,
+                store_locator: Some(item.locator.clone()),
+                expected_store_locator: ca.store_locator.clone(),
+            };
+            let decision = client.register(&request)?;
+            if decision.ca_fingerprint != fingerprint || decision.backup_sha256 != file.sha256 {
+                return Err(CeremonyError::DecisionMismatch);
+            }
+            show_decision(tty, &decision, None)?;
+            if !confirm(tty, "Type 'yes' to record the restored store item: ", "yes")? {
+                return Err(CeremonyError::NotConfirmed);
+            }
+            client.approve(&decision.decision_id)?;
+        }
         client.unlock()?;
         write(
             tty,
@@ -965,6 +1031,8 @@ pub fn restore(
         backup_created_at: modified_at(options.backup),
         rotation_of: None,
         restored_without_log: true,
+        store_locator: None,
+        expected_store_locator: None,
     };
     client.attend()?;
     let decision = client.register(&request)?;
@@ -983,6 +1051,7 @@ pub fn restore(
         return Err(CeremonyError::NotConfirmed);
     }
     let item = store_and_check(store, &fingerprint, &key, true)?;
+    report_store_item(client, &request, &decision, &item)?;
     client.approve(&decision.decision_id)?;
     write(
         tty,

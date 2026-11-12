@@ -71,6 +71,23 @@ impl Operations {
             _ => return Ok(()),
         };
         let absence = ctx.record.state == EnrollmentState::RemovalVerifying;
+        // ⟨round 3⟩ ADR-0008 §17.22 item 7 (D5 §6.5): a re-verification of the
+        // approved target (no proposed target: not an `ApproveTargetChange`) whose
+        // alias now evaluates to another host key for the same route is recorded as
+        // the host-key mismatch it is, from the evaluation alone: no session, no
+        // certificate, no login.
+        if phase == VerificationPhase::Reverify
+            && ctx.journal.proposed_target.is_none()
+            && self.evaluated_host_key_changed(&ctx)
+        {
+            let observed = Observed {
+                outcome: host_key_mismatch_outcome(),
+                clock: None,
+            };
+            return self
+                .record_verification(&ctx, phase, absence, &observed)
+                .await;
+        }
         let observed = self.run_verification(&ctx, absence).await;
         let observed = match observed {
             Ok(o) => o,
@@ -82,6 +99,19 @@ impl Operations {
         };
         self.record_verification(&ctx, phase, absence, &observed)
             .await
+    }
+
+    /// ⟨round 3⟩ Whether the runtime's target evaluator finds a host-key change of
+    /// `ctx`'s approved target for its alias (the same route, another key; no
+    /// evaluator or no alias: `false`, and the verification runs as before).
+    fn evaluated_host_key_changed(&self, ctx: &Ctx) -> bool {
+        let Ok(ports) = self.verification_ports() else {
+            return false;
+        };
+        ports.wiring.target.as_ref().is_some_and(|t| {
+            !ctx.alias.is_empty()
+                && crate::enrollment::host_key_changed(&ctx.record.target, &t.evaluate(&ctx.alias))
+        })
     }
 
     /// E4 (module docs). The session exists only in this function's scope, so it is
@@ -468,6 +498,25 @@ impl Operations {
                 .await?;
         }
         Ok(())
+    }
+}
+
+/// ⟨round 3⟩ The outcome of a re-verification that never ran because the evaluation
+/// already shows a host-key change: a host-key failure, no client, no signature
+/// (`classify` reads it as `HostKeyMismatch`).
+fn host_key_mismatch_outcome() -> VerificationOutcome {
+    let attempt = heimdall_domain::verification::AttemptResult {
+        trace: heimdall_domain::verification::TraceEvents {
+            host_key_failure: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    VerificationOutcome {
+        positive: attempt.clone(),
+        negative: attempt,
+        client: None,
+        unrecorded: false,
     }
 }
 

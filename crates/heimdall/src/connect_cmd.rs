@@ -59,9 +59,12 @@
 //!    its files are `key.pub` and `cert-<destination-id>.pub` in the binding's
 //!    directory `<runtime_dir>/b/<16 hex>/` (ADR-0008 D6 item 1 step 6; reading R6).
 //!
-//! On Windows the launch needs U7's contained spawn, so it is refused there (fail
-//! closed). Today `ensure` refuses a managed pair `driver_unavailable` until the managed
-//! adapter is registered, so step 3 is never reached.
+//! ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 13; R2C-Q2)⟩ The runtime names the binding
+//! endpoint in the `bind` result from its endpoint registry, for that exact live binding
+//! (`OperationsDispatcher::with_binding_endpoints`); a result that names none (the
+//! endpoint is not live) refuses before launch, `driver_unavailable`
+//! ([`managed_launch_args`]). On Windows the launch needs U7's contained spawn, so it is
+//! refused there (fail closed).
 
 use heimdall_contract::ids::{ProfileId, WorkId};
 use heimdall_contract::provider::IdentityEntrySource;
@@ -390,6 +393,31 @@ fn managed_connect_args(
     pair: &AccessPairRef,
     bound: &EnsureData,
 ) -> Result<Vec<std::ffi::OsString>, Failure> {
+    managed_launch_args(
+        || {
+            ctx.paths()
+                .map(|p| p.runtime_dir)
+                .map_err(|e| Failure::of(output::error_value(*e)))
+        },
+        alias,
+        pair,
+        bound,
+    )
+}
+
+/// [`managed_connect_args`] over the runtime directory `runtime_dir` yields. ⟨ADR-0008
+/// §17.22 item 13 (R2C-Q2)⟩ The binding endpoint is only ever the bind result's
+/// `consumer.signing_endpoint`, which the runtime reads from its registry for that exact
+/// live binding: a managed result that names none (the endpoint is not live), or names
+/// one that is not a binding endpoint of this runtime, refuses here, before launch
+/// (`CAPABILITY_UNAVAILABLE`, `driver_unavailable`), never falling back to the alias or
+/// the environment endpoint.
+fn managed_launch_args(
+    runtime_dir: impl FnOnce() -> Result<std::path::PathBuf, Failure>,
+    alias: &str,
+    pair: &AccessPairRef,
+    bound: &EnsureData,
+) -> Result<Vec<std::ffi::OsString>, Failure> {
     if !launch_flow::is_managed(&bound.consumer.pairs) {
         // Resolution changed since the listing (a pending projection, ADR-0008 D5
         // §6.6): the existing mechanism's binding, launched as M02 launches an alias.
@@ -400,10 +428,7 @@ fn managed_connect_args(
             "the contained launch of the verified ssh client (Windows)",
         ));
     }
-    let runtime_dir = ctx
-        .paths()
-        .map_err(|e| Failure::of(output::error_value(*e)))?
-        .runtime_dir;
+    let runtime_dir = runtime_dir()?;
     let files = bound
         .consumer
         .signing_endpoint
@@ -820,6 +845,110 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    /// ⟨§17.22 item 13 (R2C-Q2)⟩ A managed bind result: the launch names the binding
+    /// endpoint the result carries (and its files), and a result naming none refuses
+    /// before launch (`driver_unavailable`), never `ssh <alias>`; an existing-access
+    /// result keeps M02's `ssh <alias>`.
+    #[cfg(unix)]
+    #[test]
+    fn managed_connect_refuses_without_a_live_binding_endpoint() {
+        use heimdall_contract::provider::{
+            EvidenceBasis, IdentitySelection, InteractionKind, NoninteractiveEligibility,
+        };
+        let now = heimdall_contract::Timestamp::now();
+        let pair_ref = AccessPairRef {
+            destination: heimdall_contract::ids::DestinationId::parse("dst-w").unwrap(),
+            account: heimdall_contract::ids::AccountName::parse("deploy").unwrap(),
+        };
+        let integration = |mechanism: &str| heimdall_contract::request::PairIntegration {
+            destination: pair_ref.destination.clone(),
+            account: pair_ref.account.clone(),
+            identity: IdentityId::from_random_bytes([3; 16]),
+            mechanism: mechanism.to_owned(),
+            endpoint: None,
+            alias: Some("w".to_owned()),
+            interaction: InteractionKind::None,
+            interaction_basis: EvidenceBasis::Observed,
+            declared_at: None,
+            identity_selection: IdentitySelection::Exclusive,
+            selection_observed_at: now,
+            declaration: None,
+            noninteractive: NoninteractiveEligibility {
+                eligible: true,
+                reason: None,
+            },
+            eligibility_checked_at: now,
+            identity_selection_report: None,
+        };
+        let bound = |mechanism: &str, endpoint: Option<&str>| -> EnsureData {
+            let mut d: EnsureData = serde_json::from_value(serde_json::json!({
+                "binding_id": heimdall_contract::ids::BindingId::from_random_bytes([1; 16]),
+                "environment_id": "env_07070707070707070707070707070707",
+                "profile_revision": 1,
+                "grant_id": heimdall_contract::ids::GrantId::from_random_bytes([2; 16]),
+                "expires_at": "2026-11-02T11:00:00Z",
+                "usable_until": "2026-11-02T11:00:00Z",
+                "offline_until": "2026-11-02T11:00:00Z",
+                "refresh_dependency": "none",
+                "credential_mechanism": mechanism,
+                "enforcement": {
+                    "destination_scope": "unknown",
+                    "new_authentication_expiry": "unknown",
+                    "workload_isolation": "shared_os_user",
+                    "existing_connections": "unknown",
+                    "revocation": "unknown"
+                },
+                "consumer": {},
+                "credential_availability": "unknown"
+            }))
+            .unwrap();
+            d.consumer.pairs = vec![integration(mechanism)];
+            d.consumer.signing_endpoint = endpoint.map(str::to_owned);
+            d
+        };
+        let rd = std::path::PathBuf::from("/run/user/1000/heimdall");
+        let dir = || Ok(rd.clone());
+        let live = "/run/user/1000/heimdall/b/0123456789abcdef/agent.sock";
+        // A live binding endpoint: the binding's endpoint and files, then the alias.
+        let Ok(args) = managed_launch_args(
+            dir,
+            "w",
+            &pair_ref,
+            &bound(launch_flow::MANAGED_CERTIFICATE, Some(live)),
+        ) else {
+            panic!("a live binding endpoint launches");
+        };
+        let text: Vec<String> = args
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(text.last().map(String::as_str), Some("w"));
+        assert!(
+            text.iter().any(|a| a.contains(live)),
+            "the binding endpoint is on the command line: {text:?}"
+        );
+        // None named (not live in the registry), or one that is not a binding
+        // endpoint: refused before launch.
+        for endpoint in [None, Some("/run/user/1000/heimdall/signing.sock")] {
+            let Err(f) = managed_launch_args(
+                dir,
+                "w",
+                &pair_ref,
+                &bound(launch_flow::MANAGED_CERTIFICATE, endpoint),
+            ) else {
+                panic!("refused before launch: {endpoint:?}");
+            };
+            assert_eq!(f.env.code, Code::CapabilityUnavailable, "{endpoint:?}");
+            assert_eq!(f.env.data["error"]["reason"], "driver_unavailable");
+        }
+        // Existing access: M02's launch, `ssh <alias>`.
+        let Ok(existing) = managed_launch_args(dir, "w", &pair_ref, &bound("native_agent", None))
+        else {
+            panic!("existing access launches");
+        };
+        assert_eq!(existing, vec![std::ffi::OsString::from("w")]);
     }
 
     fn entry(source: IdentityEntrySource, fp: &str) -> IdentityEntry {

@@ -57,9 +57,9 @@ use heimdall_app::operations::{
 };
 use heimdall_app::ports::{
     AdapterDescriptor, AdapterError, CredentialAdapter, IntegrationSnapshot, IssuerStatusSnapshot,
-    KeyRegistration, ManagedEffects, ManagedPrepared, ManagedSlot, MaterializeSpec,
-    MaterializedCertificate, PrepareOutcome, PreparePair, PrepareRequest, PreparedCertificate,
-    ReconcileOutcome, RevokeOutcome,
+    KeyRegistration, ManagedEffects, ManagedPrepared, ManagedSlot, MaterializeSource,
+    MaterializeSpec, MaterializedCertificate, PrepareOutcome, PreparePair, PrepareRequest,
+    PreparedCertificate, ReconcileOutcome, RevokeOutcome,
 };
 use heimdall_app::{Caller, Operations, OperationsConfig};
 use heimdall_contract::ids::{
@@ -92,9 +92,10 @@ use heimdall_domain::catalog::{
 };
 use heimdall_domain::claims::{BuildProfile, Claim, Platform, VersionRange};
 use heimdall_domain::enrollment::{
-    ApprovedHostKey, ApprovedTarget, EnrollmentEvidence, EnrollmentForm, EnrollmentRecord,
-    EnrollmentState, ExistingAccessRecord, NoProxy, PairPreference, ProjectionStatus,
-    RegistryCanonical, RegistryRef, RegistryResolvedBy, marker_for,
+    ApprovedHostKey, ApprovedTarget, Determinism, EnrollmentEvidence, EnrollmentForm,
+    EnrollmentRecord, EnrollmentState, ExistingAccessRecord, NoProxy, PairPreference,
+    ProjectionStatus, ProxyRoute, RawHostKey, RegistryCanonical, RegistryRef, RegistryResolvedBy,
+    TargetEvaluation, marker_for,
 };
 use heimdall_domain::environment::{EnvironmentKind, EnvironmentPermissions, EnvironmentRecord};
 use heimdall_domain::evidence::EnforcementEvidence;
@@ -375,6 +376,30 @@ struct StoreSources {
     children: Mutex<HashMap<GrantId, Vec<GrantId>>>,
     recorded: Mutex<HashMap<(GrantId, String), PrepareOutcome>>,
     key_only: AtomicBool,
+    /// ⟨§17.22 item 7⟩ The evidence comparison's evaluation per alias (by default the
+    /// fixture enrollment's approved target, so the evidence holds).
+    targets: Mutex<HashMap<String, TargetEvaluation>>,
+    /// ⟨§17.22 item 7⟩ The current verifying client's version line (by default the
+    /// fixture evidence's client).
+    client: Mutex<Option<String>>,
+}
+
+/// The evaluation that is exactly [`enrollment`]'s approved target for `p`.
+fn approved_eval(p: &AccessPair) -> TargetEvaluation {
+    TargetEvaluation {
+        hostname: format!("{}.example.invalid", p.destination.as_str()),
+        port: 22,
+        user: p.account.as_str().to_owned(),
+        proxy: ProxyRoute::None,
+        determinism: Determinism::Determined,
+        host_keys: vec![RawHostKey {
+            key_type: "ssh-ed25519".into(),
+            key_b64: "AAAAC3NzaC1lZDI1NTE5AAAAIhostfixture".into(),
+            fingerprint: "SHA256:hostfixture".into(),
+            origin_display: "fixture".into(),
+            revoked: false,
+        }],
+    }
 }
 
 impl StoreSources {
@@ -388,6 +413,13 @@ impl StoreSources {
             children: Mutex::new(HashMap::new()),
             recorded: Mutex::new(HashMap::new()),
             key_only: AtomicBool::new(false),
+            targets: Mutex::new(
+                [h1(), h2()]
+                    .iter()
+                    .map(|p| (p.destination.as_str().to_owned(), approved_eval(p)))
+                    .collect(),
+            ),
+            client: Mutex::new(Some("OpenSSH_10.5p1, LibreSSL 3.3.6".to_owned())),
         })
     }
 }
@@ -467,6 +499,12 @@ impl ManagedSourceRead for StoreSources {
     }
     fn key_only_restore(&self) -> bool {
         self.key_only.load(Ordering::SeqCst)
+    }
+    fn evaluate_target(&self, alias: &str) -> Option<TargetEvaluation> {
+        self.targets.lock().unwrap().get(alias).cloned()
+    }
+    fn client_version(&self) -> Option<String> {
+        self.client.lock().unwrap().clone()
     }
     fn owned_connections(&self, grants: &[GrantId]) -> Vec<OwnedConnection> {
         self.store
@@ -1139,15 +1177,17 @@ impl World {
                 &data.binding_id,
                 &MaterializeSpec {
                     generation: 1,
-                    public_key: key.public_key.clone(),
-                    certificates: d
-                        .certs
-                        .iter()
-                        .map(|(p, c)| MaterializedCertificate {
-                            pair: p.clone(),
-                            certificate: c.clone(),
-                        })
-                        .collect(),
+                    source: MaterializeSource::Fresh {
+                        public_key: key.public_key.clone(),
+                        certificates: d
+                            .certs
+                            .iter()
+                            .map(|(p, c)| MaterializedCertificate {
+                                pair: p.clone(),
+                                certificate: c.clone(),
+                            })
+                            .collect(),
+                    },
                     environment_slots: false,
                 },
             )
@@ -1737,6 +1777,7 @@ async fn report_for_local_managed_binding_with_empty_claim_table() {
             directory: w.runtime_dir().join("b").join("0123456789abcdef"),
             files: Vec::new(),
             generation: 1,
+            endpoint: None,
         }),
         ..prepared.clone()
     };
@@ -2497,11 +2538,18 @@ async fn expired_grant_never_reissued() {
             .unwrap_err(),
         AdapterError::Protocol(RENEW_THROUGH_DRIVER.to_owned())
     );
+    // K_env's public key, read while the grant is live (⟨§17.22 item 4, W4-R01⟩ expiry
+    // destroys K_env, so it is gone afterwards).
+    let key = w.table().public_key(&gid).unwrap();
     // Past the deadline: the grant expires, and nothing re-issues for it.
     w.clock.advance(3 * HOUR);
     w.ops.tick().await.unwrap();
     let expired = w.grant(&gid);
     assert_eq!(expired.state, GrantState::Expired);
+    assert!(
+        w.table().public_key(&gid).is_none(),
+        "expiry destroyed K_env (§17.22 item 4)"
+    );
     let origin = w.origin(&gid);
     let read = w.store_read();
     assert_eq!(
@@ -2542,7 +2590,6 @@ async fn expired_grant_never_reissued() {
         AdapterError::CapabilityUnavailable
     );
     // The reserve transaction refuses a new certificate for it.
-    let key = w.table().public_key(&gid).unwrap();
     assert!(
         w.ops
             .reserve_issuance(w.request(&live, &h1(), &key.fingerprint, false))
@@ -4370,15 +4417,17 @@ async fn stale_clear_never_unlists_the_current_binding() {
             &a.binding_id,
             &MaterializeSpec {
                 generation: 2,
-                public_key: key.public_key.clone(),
-                certificates: d
-                    .certs
-                    .iter()
-                    .map(|(p, c)| MaterializedCertificate {
-                        pair: p.clone(),
-                        certificate: c.clone(),
-                    })
-                    .collect(),
+                source: MaterializeSource::Fresh {
+                    public_key: key.public_key.clone(),
+                    certificates: d
+                        .certs
+                        .iter()
+                        .map(|(p, c)| MaterializedCertificate {
+                            pair: p.clone(),
+                            certificate: c.clone(),
+                        })
+                        .collect(),
+                },
                 environment_slots: false,
             },
         )
@@ -4859,4 +4908,168 @@ async fn revoke_on_lock_grant_without_terms_never_reports_verified() {
         .insert(gid.clone(), GrantTerms::default());
     w.prepare_from(&g, &[h1()], &unattended).await.unwrap();
     w.finish(&[gid]).await;
+}
+
+// =================================================================================
+// Wave 4 round 3 (R3-A): ADR-0008 §17.22 item 7, evidence invalidated at the comparison
+// =================================================================================
+
+/// The minimum that needs the destination scope.
+fn scope_minimum() -> RequiredCapabilities {
+    RequiredCapabilities {
+        destination_scope_at_least: Some(DestinationScopeEnforcement::VerifiedServerPrincipals),
+        ..RequiredCapabilities::default()
+    }
+}
+
+/// ADR-0008 §17.22 item 7 (W4-R04, R2A-Q1; D5 §6.5): the evidence is invalid **at the
+/// comparison** the managed preparation's `read_sources` runs: when the evaluated host
+/// key, the route or the client differs from what the evidence was taken against (or
+/// is not known), the report's `destination_scope` is `unknown` and a minimum that
+/// needs it fails, before any re-verification pass, while the record is still
+/// `verified` with its evidence (nothing written); restoring the evaluation restores
+/// the claim (the record never changed).
+#[tokio::test]
+async fn evidence_invalidated_at_the_comparison_before_any_pass() {
+    let w = World::new().await;
+    let data = w.ensure("cmp", &[h1()]).await;
+    w.drive(&data, "tok-cmp", Stage::Materialize).await;
+    let g = w.grant(&data.grant_id);
+    let min = scope_minimum();
+    let scope_of = |o: &PrepareOutcome| o.enforcement.report.destination_scope;
+    let stored = || {
+        w.store
+            .transaction(|tx| tx.enrollments_for_pair(&h1()))
+            .unwrap()
+    };
+    let before = stored();
+    // Control: the approved target and the verifying client.
+    let ok = w.prepare_from(&g, &[h1()], &min).await.unwrap();
+    assert_eq!(
+        scope_of(&ok),
+        DestinationScopeEnforcement::VerifiedServerPrincipals
+    );
+    let alias = h1().destination.as_str().to_owned();
+    let approved = approved_eval(&h1());
+    let mut other_key = approved.clone();
+    other_key.host_keys[0].key_b64 = "AAAAC3NzaC1lZDI1NTE5AAAAIotherhost".into();
+    let mut moved = approved.clone();
+    moved.port = 2222;
+    let mut undetermined = approved.clone();
+    undetermined.determinism = Determinism::Undetermined {
+        reason: "match exec".into(),
+    };
+    type Change = Box<dyn Fn(&StoreSources)>;
+    let set_eval = |e: TargetEvaluation| -> Change {
+        let alias = alias.clone();
+        Box::new(move |s: &StoreSources| {
+            s.targets.lock().unwrap().insert(alias.clone(), e.clone());
+        })
+    };
+    let set_client = |c: Option<&'static str>| -> Change {
+        Box::new(move |s: &StoreSources| {
+            *s.client.lock().unwrap() = c.map(str::to_owned);
+        })
+    };
+    let cases: Vec<(&str, Change)> = vec![
+        ("host key changed", set_eval(other_key)),
+        ("route changed", set_eval(moved)),
+        ("route undetermined", set_eval(undetermined)),
+        ("no evaluation", {
+            let alias = alias.clone();
+            Box::new(move |s: &StoreSources| {
+                s.targets.lock().unwrap().remove(&alias);
+            })
+        }),
+        (
+            "client changed",
+            set_client(Some("OpenSSH_10.6p1, LibreSSL 3.3.6")),
+        ),
+        ("client unknown", set_client(None)),
+    ];
+    for (what, change) in &cases {
+        change(&w.sources);
+        let e = w.prepare_from(&g, &[h1()], &min).await.unwrap_err();
+        assert_eq!(e, AdapterError::CapabilityUnavailable, "{what}");
+        let plain = w
+            .prepare_from(&g, &[h1()], &RequiredCapabilities::default())
+            .await
+            .unwrap_or_else(|e| panic!("{what}: {e:?}"));
+        assert_eq!(
+            scope_of(&plain),
+            DestinationScopeEnforcement::Unknown,
+            "{what}"
+        );
+        assert!(
+            plain.enforcement.report.destination_scope
+                != DestinationScopeEnforcement::VerifiedServerPrincipals
+        );
+        assert_eq!(
+            stored(),
+            before,
+            "{what}: nothing written, the record still verified"
+        );
+        // Restore: the claim comes back (the record never changed).
+        set_eval(approved.clone())(&w.sources);
+        set_client(Some("OpenSSH_10.5p1, LibreSSL 3.3.6"))(&w.sources);
+        let again = w.prepare_from(&g, &[h1()], &min).await.unwrap();
+        assert_eq!(
+            scope_of(&again),
+            DestinationScopeEnforcement::VerifiedServerPrincipals,
+            "{what}"
+        );
+    }
+    assert_eq!(before[0].state, EnrollmentState::Verified);
+}
+
+/// ADR-0008 §17.22 item 7: `pair_evidence` selects the evidence for the CA of the
+/// certificate being prepared. After a rotation whose new CA's enrollment is
+/// `verified` without evidence of its own, the certificate is issued under the new
+/// CA, and the old CA's fresh evidence never makes its scope
+/// `verified_server_principals`: a minimum that needs it fails.
+#[tokio::test]
+async fn pair_evidence_is_for_the_prepared_certificates_ca() {
+    let w = World::new().await;
+    let k = Arc::new(SecretCaKey::generate().unwrap());
+    let ca2 = k.fingerprint().unwrap();
+    let public = k.public_openssh().unwrap();
+    w.store
+        .transaction(|tx| {
+            tx.insert_issuer(&issuer_record(&ca2, &public, shift(t0(), 60)))?;
+            let mut e = enrollment(0x51, &ca2, &h1(), Some(measured()));
+            e.evidence = None;
+            tx.seed_enrollment(&e)
+        })
+        .unwrap();
+    w.extra_cas.lock().unwrap().push((ca2.clone(), k));
+    let data = w.ensure("ca2", &[h1()]).await;
+    let driven = w.drive(&data, "tok-ca2", Stage::Materialize).await;
+    assert_eq!(
+        w.ca_of(&data.grant_id, &h1()),
+        ca2,
+        "issued under the new CA"
+    );
+    let g = w.grant(&data.grant_id);
+    let e = w
+        .prepare_from(&g, &[h1()], &scope_minimum())
+        .await
+        .unwrap_err();
+    assert_eq!(e, AdapterError::CapabilityUnavailable);
+    let plain = w
+        .prepare_from(&g, &[h1()], &RequiredCapabilities::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        plain.enforcement.report.destination_scope,
+        DestinationScopeEnforcement::Unknown
+    );
+    // `pair_evidence` itself: the old CA's evidence is not this certificate's.
+    let snap = w.adapter.read_sources(&prepare_pairs(&[h1()]));
+    let managed = snap.managed.as_ref().unwrap();
+    let prepared = driven.prepared.unwrap();
+    let pairs = [h1()];
+    assert!(prepare::pair_evidence(managed, &pairs, &prepared).is_empty());
+    let mut under_old = prepared.clone();
+    under_old.certificates[0].ca = w.ca_fp.clone();
+    assert_eq!(prepare::pair_evidence(managed, &pairs, &under_old).len(), 1);
 }

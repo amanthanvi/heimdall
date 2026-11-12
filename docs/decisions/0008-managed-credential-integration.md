@@ -4054,6 +4054,110 @@ No review has run yet. These rulings complete the wave before its reviews.
       - the host-key half of `evidence_invalidated_on_host_key_or_client_change`;
       - the abandon path of `foreign_removal_held_recovery_by_new_decision_or_abandon`.
 
+### 17.22 Orchestrator rulings on wave 4, round 2: the reviews, the native checks and the round-2 questions (2026-11-11)
+
+**Sources:**
+- **The code review** (Codex, independent): `tests/evidence/artifacts/review-m03-code/wave4.md`. Verdict: fix first, with W4-R01 to W4-R09.
+- **The security review** (Codex, independent; plan §6.7): `wave4-security.md`. Verdict: fix first, with W4-S01 to W4-S03, all three reproduced by probes.
+- **The integrator's round-2 questions:** `wave4-notes/m03-wave4-r2-questions.md`.
+- **The native development checks at `e566cc46`:**
+  - **devbox** (9.6p1): all 14 selected binaries passed (631 passed, 0 failed); canary count 0;
+  - **Windows** (in-box 9.5p2): all 84 binaries passed (2317 passed, 0 failed, 7 ignored); canary count 0. `windows_native_restart_p_still_names_live_pipe_ensure_not_projection_pending` and `reissue_after_runtime_process_restart_same_boot` passed natively.
+    - **But `e2e_enroll_m03` ran no tests on Windows.** The whole file is `#[cfg(unix)]`, and the live binding-endpoint tests are Unix-only too, so U10's acceptance on Windows (m03-plan U10) is not met.
+    - **The ruling (W4-N01):** port the enrollment e2e flows to Windows. They use the in-box `ssh.exe`, the harness's WSL fixture sshd (`HM_FIXTURE_SSHD_*`), and the binding endpoint's pipe form.
+    - A case that truly cannot run on Windows stays gated, with its reason named.
+
+**Findings:**
+1. **W4-S01: a held foreign removal executes only the descriptor that was approved.**
+   - Reusing a held record requires its descriptor to equal the new request's exactly: destination, account, CA, registry and line hash. A mismatch refuses (`descriptor_mismatch`).
+   - The decision's precheck re-checks that equality at approval.
+   - **The regression:** the reviewer's probe. Vary principal, CA and registry. Approving B must never remove A.
+2. **W4-S02: the journal stores no foreign bytes, even on marker-bearing lines.**
+   - Only Heimdall's exact canonical own entry is persisted, and only when it matches.
+   - Any other line that carries the marker is recorded as parsed facts: counts, a classification and a SHA-256. Never its bytes.
+   - **The regression:** a marker-bearing owner comment and an unrelated key whose comment carries the marker, run through the real inspect and `StepResult` path. No receipt holds their bytes in any encoding.
+3. **W4-S03: teardown without `stop` still stops the issuer.**
+   - Dropping a started service, or a failed start unwinding, fences and stops the issuer lifecycle and breaks the `Operations` ↔ endpoint ↔ authority cycles, whether or not `run` was entered.
+   - **The regression:** drop every public strong handle. The fixture child exits by itself, and the vault is not retained.
+4. **W4-R01: expiry destroys the managed key.**
+   - When a grant expires, whether found by the scheduler or at use, K_env is destroyed and its instance moves to `destroyed`. The gate is released, and the binding endpoints and files are removed. This holds with or without a held slot (D1 table, D2 table, D7 item 8).
+   - **The regression:** a real vault expires with and without a held slot. Afterwards the vault is empty, the instance destroyed, the gate released, and the endpoint and files gone.
+5. **W4-R02: a re-issue restores the consumers before it reports the repair.**
+   - After a re-issue, every live binding of the grant gets its endpoint attached, its files replaced at a new generation, and its environment listing and slot content restored from the stored bindings and slot generations. Only then does the grant return to `active` (D6 item 4; D10 item 2).
+   - **The regression:** restart in the same boot. After the re-issue pass, ordinary `ssh` through the slot and through the binding endpoint succeeds with the new key.
+6. **W4-R03: every committed binding is materialized.**
+   - A coalesced or decision-joined follower either has its own binding materialized against the existing grant and key, or is refused before success. It never returns `ACCESS_READY` for an unmaterialized binding.
+   - **The regression:** two distinct `request_id`s coalesce. Both bindings sign, or the follower is refused.
+7. **W4-R04 (with R2A-Q1): evidence is invalidated at the comparison.**
+   - When `inspect` or `ensure` finds that the evaluated host key, the client or the CA differs from the evidence, the evidence is invalid **at once**. The report gives `destination_scope: unknown`, and a minimum that needs it fails. This is independent of the enrollment's state and of any later network attempt.
+   - **A host-key change** never triggers an automatic login (D5 §6.5). The record is `held` until an attended `ApproveTargetChange` verification passes.
+   - **A client or CA change** prompts re-verification (§17.4 item 11). An inconclusive result keeps the evidence invalid; it never restores the old freshness.
+   - `pair_evidence` selects evidence for the CA of the certificate being prepared.
+   - **The regressions:**
+     - an `ensure` before the pass is refused for a scope-needing minimum;
+     - an inconclusive attempt after a client change leaves the scope `unknown`.
+8. **W4-R05 and W4-R06: a cleanup owner exists from the first effect.**
+   - A managed cleanup intent is recorded **before** the first external effect. That is the key generation, the endpoint and the files, not only after a successful `ManagedPrepared`.
+   - Recovery of an `Attempted` or uncertain preparation runs that cleanup.
+   - A failure inside the driver's own cleanup keeps the intent and is retried; it is never logged and forgotten.
+   - **The regressions:**
+     - a crash between `materialize` and the ensure confirmation, which is the interval the reviewer named;
+     - an injected failure inside the driver's cleanup, which is retried until clean.
+9. **W4-R07: an unfinished cleanup stays discoverable.**
+   - Freeing a slot never ends the cleanup obligation while binding files or a mux path remain. The obligation stays durable until all the generation-bound work is done.
+   - **The regression:** an error after the slot's files are removed is retried on the next pass.
+10. **W4-R08: releasing a binding releases its slots.**
+    - `held(b, g)` moves to `clearing` when `b` is released, even while the grant lives on through another reference (D10 item 2).
+    - K_env is destroyed only with the last reference.
+    - **The regression:** a parent binding holding the slot is released while a child keeps the grant live. Another binding can then claim the slot.
+11. **W4-R09: real byte identity.**
+    - Fixed goldens from the base commit `d6593a7c` cover an existing-access `ensure`: its result, its intent bytes and its request hash.
+    - The test compares the current run against them.
+
+**The round-2 questions:**
+
+12. **R2B-Q1 and R2B-Q2: the owner-present CLI deletes the CA's store item.**
+    - **The locator:** the ceremony reports the store item's identity in an additive `store_locator` on `issuer.register`, bound to the CA, the installation and the store. That contract change is authorized. The runtime records it with the approval.
+    - **Retirement:** after the child unloads, the runtime reports `unloaded`, awaiting deletion of that locator. The owner-present CLI (U12) deletes exactly that item, then confirms through an additive confirmation on `issuer.retire` (authorized). Only then does the record reach `retired`.
+    - **Who may write the store:** neither the runtime nor the child ever writes or deletes the platform store; the child only reads (D3).
+    - **A restore** that creates a new item records the new locator by compare-and-swap against the expected old one. The displaced item is listed in `orphan_store_items` until resolved.
+13. **R2C-Q2: the `bind` result names the binding's endpoint,** read from the runtime registry for that exact live binding. If it is absent, `connect` refuses. Managed `connect` then takes D8 item 2's flow.
+14. **R2D-Q1: option (a), documented as a pair-level rendering rule.** P renders the stable mux path only when every standing policy covering the pair has `owned_masters`. Having no applicable policy means disabled. Each master's own grant policy is still checked when it starts.
+15. **R2E-Q2: no grant-state change solely because the issuer is unavailable,** reviewer's option (b). The issuer's state is reported on its own. Installed keys keep signing (D3 item 7).
+16. **The R2F questions:**
+    - **Q1:** record `existing/applied` when its rendering commits. No rows are created for M02 pairs that have no preference.
+    - **Q2:** an approved apply with nothing to replace still commits the generation and the preference metadata, so a toggle back to an already-rendered configuration does not stay `pending`.
+    - **Q3:** removing a destination from the catalog returns its preference to `pending`, or removes it, in the same transaction.
+    - **Q4:** manual mode counts as applied for the journaled P rendering. The manual-include diagnostic and its disclosure stay.
+17. **`SetupIntent.managed_pairs` and `ProjectionPlan.managed_pairs` are ratified** as the durable record of what an approved rendering contains (D5 §6.6; U0b row 9). They are serde-default and omitted when empty.
+18. **The issuer at start (the security review's readiness caveat) is accepted as built.**
+    - The runtime listens after an issuer start *attempt*. A failed start is reported (`issuer_unavailable`), managed issuance and re-issue fail closed, and existing access is unaffected.
+    - The guarantee is that the issuer is started before listening, not that it is ready.
+
+### 17.23 Orchestrator rulings on wave 4, round 3: the round-3 questions (2026-11-11)
+
+**Source:** `wave4-notes/m03-wave4-r3-questions.md`. R3A-Q1 was closed by the integrator: `descriptor_mismatch` is registered, as §17.22 item 1 named it.
+
+1. **R3A-Q2: the managed descriptor advertises the server scope as achievable.**
+   - The mechanism's descriptor advertises `destination_scope: verified_server_principals` as what it *can* deliver.
+   - Each pair's evidence comparison (§17.22 item 7) decides whether the request gets it. Invalid or absent evidence still gives `unknown`, and a minimum that needs the scope is refused.
+   - Without this, A10's guarantee could never be offered.
+   - **The regression:** with fresh, valid evidence, a `verified_server_principals` minimum is met. With invalidated evidence it is refused.
+2. **R3B-Q1:** option (a) is accepted. `CaStatus.store_locator` and `OrphanStoreItem.locator` are additive read fields. A locator identifies a store item and is not a secret.
+3. **R3B-Q2:** option (a) is accepted.
+   - The second `issuer.register` must repeat the pending registration's facts exactly: the fingerprint, public key, store kind and backup digest.
+   - It only attaches the locator, and only once. A mismatch, or a second different locator, refuses.
+4. **R3B-Q3:** option (a) is accepted. A log-intact restore that changes the locator goes through an attended `RegisterIssuer` decision.
+5. **R3C1-Q1: the per-pair identity selection is fed from the classification.**
+   - `PairIntegration.identity_selection` is fed for each pair from D10 item 6's classification of the alias's observed configuration, as §17.21 item 11 required.
+   - A fixture whose managed alias classifies `exclusive` then delegates non-interactively. An `undetermined` alias is still refused.
+   - §17.22 item 10's regression uses a real child delegation.
+6. **R3C2-Q1 and R3C2-Q2: an explicit materialization source.**
+   - **No by-reference convention.** No convention may overload the meaning of `MaterializeSpec`.
+   - **The spec names its source explicitly:** fresh key material, or the existing installed key of a named grant. This is an additive, typed field in `app::ports`, authorized here.
+   - **The locator:** the materialization reports the endpoint locator it actually created, in an additive field of its result. A follower's `consumer.signing_endpoint` is that locator, never one derived by string substitution.
+   - **W4-N01's Windows port** covers the follower's and the re-issued binding's pipe forms.
+
 ## 18. Consequences
 
 * **New crates** (⟨r2⟩ four; §17.1 item 12):

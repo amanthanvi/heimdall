@@ -33,3 +33,35 @@ in P, selection feed, ended-grant slot pass, `inspect connections`), **R2-E** (t
 | `m03-wave4-r2-questions.md` | Round-2 escalations (integrator status at the top). |
 | `m03-wave4-r2-worklog.md` | The integrator's round-2 worklog (integration steps, checks, exit codes). |
 | `m03-wave4-r2-worklog-{A..F}.md` | Each worker's worklog with its revert proofs. R2-F was interrupted by a server restart after finishing its fixes; the integrator ran its final checks. |
+
+## Round 3 (ADR-0008 §17.22; the reviews `../wave4.md`, `../wave4-security.md`)
+
+Round 2 was checkpointed at `e566cc46`. Round 3 fixed W4-R01..R09 and W4-S01..S03 and applied the round-2
+question rulings, with workers **R3-A** (held foreign-removal descriptor binding, marker-bearing journal lines,
+evidence invalidation at the comparison), **R3-B** (the CA store locator on `issuer.register`, retirement awaiting
+the owner-present CLI's confirmation, restore compare-and-swap, orphans), **R3-C1** (expiry and release cleanup,
+the durable cleanup obligation), **R3-C2** (the cleanup owner before the first effect, re-issue restoring the
+consumers, coalesced followers' bindings) and **R3-D** (teardown stops the issuer, the base-commit goldens, the
+bind result's endpoint, the R2F rulings).
+
+| File | What it is |
+|---|---|
+| `m03-wave4-r3-api.md` | Round-3 ownership map, readings, landed interfaces, requests. |
+| `m03-wave4-r3-questions.md` | Round-3 escalations (integrator status at the top). |
+| `m03-wave4-r3-worklog.md` | The integrator's round-3 worklog. |
+| `m03-wave4-r3-worklog-{A,B,C1,C2,D}.md` | Each worker's worklog with its revert proofs. |
+
+## Round 3b (W4-N01 and ADR-0008 §17.23)
+
+Same round as round 3. Workers **X-M** (§17.23 items 1, 5, 6: the server scope advertised and decided per pair;
+per-pair selection, an `exclusive` alias delegating non-interactively, §17.22 item 10 with a real child
+delegation; the typed `MaterializeSource` and the created endpoint reported), **X-B** (item 3: the second
+`issuer.register` repeats every fact and attaches the locator once) and **W** (W4-N01: `e2e_enroll_m03` on
+Windows against the WSL harness sshd, and the binding, follower and re-issued pipe forms).
+
+| File | What it is |
+|---|---|
+| `m03-wave4-r3b-api.md` | Ownership, readings, landed interfaces, requests. |
+| `m03-wave4-r3b-questions.md` | R3BB-Q1, R3BW-Q1. |
+| `m03-wave4-r3b-worklog.md` | The integrator's worklog for this pass. |
+| `m03-wave4-r3b-worklog-{M,B,W}.md` | Each worker's worklog with revert proofs (W's has the per-test Windows table). |

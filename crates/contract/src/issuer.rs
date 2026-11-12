@@ -37,13 +37,38 @@ pub enum IssuerRequest {
         /// A key-only restore (ADR-0008 D4 item 4).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         restored_without_log: bool,
+        /// ⟨ADR-0008 §17.22 item 12⟩ The ceremony's report of the K_ca store item it
+        /// wrote: the exact `StoreItemRef` locator its `put` returned (D4 item 1 step
+        /// 6), bound to this CA, this installation and `store`. Sent again after the
+        /// put with the same registration: it joins the pending `RegisterIssuer`
+        /// decision, which records it, and the approval records it with the CA.
+        /// Absent before the put (step 3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        store_locator: Option<String>,
+        /// ⟨ADR-0008 §17.22 item 12⟩ A restore that wrote a new store item for a CA
+        /// whose record survives (D4 item 4, log intact; a re-registration of the
+        /// known CA): the locator it expects recorded now, compared and swapped for
+        /// `store_locator` on approval (absent: none recorded). A mismatch refuses and
+        /// changes nothing. The displaced item is listed in `orphan_store_items`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_store_locator: Option<String>,
     },
     /// Attended sessions only. kind `issuer.unlock`.
     Unlock,
-    /// Creates a `RetireIssuer` decision. kind `issuer.retire`.
+    /// Creates a `RetireIssuer` decision. kind `issuer.retire`. On a CA whose
+    /// retirement waits at `unloaded`, answers the issuer status, which names the
+    /// store item to delete ([`CaStatus::store_locator`]).
     Retire {
         /// The CA to retire.
         ca_fingerprint: CaFingerprint,
+        /// ⟨ADR-0008 §17.22 item 12⟩ The owner-present CLI's confirmation that it
+        /// deleted exactly this store item and a re-read found it absent (attended
+        /// sessions only): the CA's recorded locator while it is `unloaded` (the
+        /// record then reaches `retired`), or one of its displaced items listed in
+        /// `orphan_store_items` (it leaves the list). Anything else is refused and
+        /// changes nothing. The runtime never deletes a store item itself (D3).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deleted_locator: Option<String>,
     },
     /// Read-only; public metadata only. kind `issuer.bundle`; data
     /// [`RecoveryBundle`].
@@ -181,9 +206,18 @@ pub struct CaStatus {
     pub restored_without_log: bool,
     /// Enrollment counts.
     pub enrollments: EnrollmentCounts,
+    /// ⟨ADR-0008 §17.22 item 12⟩ The CA's K_ca store item as this installation
+    /// recorded it (the locator the ceremony reported). While `state` is `unloaded`
+    /// the retirement waits for the owner-present CLI to delete exactly this item and
+    /// confirm it (`issuer.retire` with `deleted_locator`). Absent when none was
+    /// recorded: that retirement stops at `unloaded`, `issuer_store_locator_unrecorded`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_locator: Option<String>,
 }
 
-/// A store item no registration names (ADR-0008 D4 item 1 crash points).
+/// A store item no registration names (ADR-0008 D4 item 1 crash points), or
+/// ⟨§17.22 item 12⟩ one a restore displaced: listed until the owner-present CLI
+/// deletes it and confirms (`issuer.retire` with `deleted_locator`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct OrphanStoreItem {
     /// Its key's fingerprint, when readable without unlocking.
@@ -191,6 +225,10 @@ pub struct OrphanStoreItem {
     pub fingerprint: Option<CaFingerprint>,
     /// Store kind.
     pub store: StoreKind,
+    /// ⟨§17.22 item 12⟩ Its exact locator, when known (a displaced item: the locator
+    /// recorded before the restore's compare-and-swap).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locator: Option<String>,
 }
 
 /// `issuer.status` data and `inspect issuer` (§5 item 2).
@@ -314,5 +352,56 @@ mod tests {
                 redact_hostnames: false
             }
         );
+    }
+
+    /// ⟨ADR-0008 §17.22 item 12⟩ The additive store-item fields: absent in the old
+    /// shapes (which decode and re-encode byte-identically), present when given.
+    #[test]
+    fn issuer_store_item_fields_are_additive() {
+        let fp = "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let old_retire = format!(r#"{{"action":"retire","ca_fingerprint":"{fp}"}}"#);
+        let r: IssuerRequest = serde_json::from_str(&old_retire).unwrap();
+        assert!(matches!(
+            &r,
+            IssuerRequest::Retire {
+                deleted_locator: None,
+                ..
+            }
+        ));
+        assert_eq!(serde_json::to_string(&r).unwrap(), old_retire);
+        let confirm = format!(
+            r#"{{"action":"retire","ca_fingerprint":"{fp}","deleted_locator":"/org/fixture/1"}}"#
+        );
+        let r: IssuerRequest = serde_json::from_str(&confirm).unwrap();
+        assert!(matches!(
+            &r,
+            IssuerRequest::Retire { deleted_locator: Some(l), .. } if l == "/org/fixture/1"
+        ));
+        assert_eq!(serde_json::to_string(&r).unwrap(), confirm);
+
+        let old_register = r#"{"action":"register","ca_public_key":"ssh-ed25519 AAAA","store":"windows_dpapi","backup_sha256":"11","backup_created_at":"2026-11-10T14:00:00Z"}"#;
+        let r: IssuerRequest = serde_json::from_str(old_register).unwrap();
+        assert!(matches!(
+            &r,
+            IssuerRequest::Register {
+                store_locator: None,
+                expected_store_locator: None,
+                ..
+            }
+        ));
+        assert_eq!(serde_json::to_string(&r).unwrap(), old_register);
+        let report = r#"{"action":"register","ca_public_key":"ssh-ed25519 AAAA","store":"windows_dpapi","backup_sha256":"11","backup_created_at":"2026-11-10T14:00:00Z","store_locator":"new","expected_store_locator":"old"}"#;
+        let r: IssuerRequest = serde_json::from_str(report).unwrap();
+        assert!(matches!(
+            &r,
+            IssuerRequest::Register { store_locator: Some(n), expected_store_locator: Some(o), .. }
+                if n == "new" && o == "old"
+        ));
+        assert_eq!(serde_json::to_string(&r).unwrap(), report);
+
+        let old_orphan = r#"{"store":"linux_secret_service"}"#;
+        let o: OrphanStoreItem = serde_json::from_str(old_orphan).unwrap();
+        assert_eq!(o.locator, None);
+        assert_eq!(serde_json::to_string(&o).unwrap(), old_orphan);
     }
 }

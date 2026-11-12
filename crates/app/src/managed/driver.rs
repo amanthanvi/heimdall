@@ -24,10 +24,21 @@
 //! [`BINDING_GENERATION`]: the effects create and attach the binding endpoint and
 //! write the binding's files. `prepare_from` then names that endpoint in
 //! `consumer.signing_endpoint`, and the commit creates the binding under the same ID.
-//! Without a minted ID (the re-issue pass: no operation) nothing is materialized. A
-//! failure after the materialization clears the binding (endpoint and files) with the
+//! A failure after the materialization clears the binding (endpoint and files) with the
 //! key; a failure after the driver returned is cleaned up by the operation's cleanup
 //! intent (`Operations::cleanup_uncommitted_managed`).
+//!
+//! ⟨§17.22 item 8 (W4-R05, W4-R06)⟩ **A cleanup owner from the first effect.** An
+//! activation's cleanup intent is recorded in the transaction of its `Attempted`
+//! receipt, before `generate_key`; it is retired only by the commit. A crash anywhere
+//! in between (materialization to confirmation included) leaves it for recovery, and a
+//! failure of the driver's own cleanup ([`abandon`] reports it) leaves it on record, to
+//! be retried until the cleanup completes.
+//!
+//! ⟨§17.22 item 5 (W4-R02)⟩ **A re-issue restores the consumers** (no operation, no
+//! minted ID): step 6 materializes every live binding of the grant at a new
+//! generation, restores its slots and listing, and removes the older generations
+//! ([`restore_consumers`]); only then does the pass report the repair.
 
 use base64ct::{Base64Unpadded, Encoding as _};
 use heimdall_contract::ids::{CredentialInstanceId, GrantId};
@@ -38,7 +49,8 @@ use heimdall_domain::issuance::{IssuanceEntry, extension_profile, principal_for}
 use crate::operations::{IssuanceFacts, IssuanceRequest, Operations, Publication};
 use crate::ports::{
     AdapterError, IssuanceRef, IssuanceTable, IssuerError, IssuerPort, ManagedEffects,
-    ManagedPrepared, MaterializeSpec, MaterializedCertificate, PrepareRequest, PreparedCertificate,
+    ManagedPrepared, MaterializeSource, MaterializeSpec, MaterializedCertificate, PrepareRequest,
+    PreparedCertificate,
 };
 use heimdall_contract::ids::BindingId;
 
@@ -153,7 +165,8 @@ pub(crate) async fn run_stages(
         return Err(AdapterError::CapabilityUnavailable);
     }
     // The binding minted at resolve (§17.21 item 1), from the operation's intent; a
-    // re-issue (continuing work, no operation) materializes nothing new.
+    // re-issue (continuing work, no operation) restores the grant's live bindings
+    // instead (§17.22 item 5).
     let binding = if new_activation {
         ops.managed_binding_of_token(token)
             .await
@@ -163,6 +176,8 @@ pub(crate) async fn run_stages(
     };
     let limit = ops.managed_effect_limit();
     // 1. key (an effect), then its instance `pending` and the gate (a transaction).
+    // ⟨§17.22 item 8⟩ For an activation the cleanup intent was recorded with the
+    // attempt, before this first effect (`Operations::stage_reconcile`).
     let key = match tokio::time::timeout(limit, effects.generate_key(&grant.id, token)).await {
         Ok(r) => r?,
         Err(_) => return Err(AdapterError::Unavailable(EFFECT_TIMED_OUT.to_owned())),
@@ -174,6 +189,7 @@ pub(crate) async fn run_stages(
             return Err(adapter_error_of(&e));
         }
     };
+    let mut materialized: Vec<(BindingId, u64)> = Vec::new();
     let staged = stages_after_key(
         ops,
         effects,
@@ -185,37 +201,45 @@ pub(crate) async fn run_stages(
         &key,
         &instance,
         binding.as_ref(),
+        &mut materialized,
     )
     .await;
     match staged {
         Ok(p) => Ok(p),
         Err(e) => {
-            abandon(ops, effects, &grant.id, &instance, binding.as_ref()).await;
+            if !abandon(ops, effects, &grant.id, &instance, &materialized).await {
+                // ⟨§17.22 item 8 (W4-R06)⟩ Not forgotten: an activation's cleanup intent
+                // (recorded with its attempt) stays on record until the operation's
+                // cleanup completes it; a re-issue's next attempt replaces the
+                // generation and clears the older ones.
+                tracing::warn!(
+                    "managed driver: the abandoned preparation was not fully cleared; its cleanup is retried"
+                );
+            }
             Err(e)
         }
     }
 }
 
 /// Zeroize K_env and destroy its instance (D6 item 1: a refusal at reserve or
-/// publish; D6 item 8 for a failed later step); ⟨§17.21 item 1⟩ a binding the driver
-/// materialized loses its endpoint and files first (idempotent: nothing to clear
-/// before step 6).
+/// publish; D6 item 8 for a failed later step); ⟨§17.21 item 1⟩ every binding the
+/// driver materialized in this run loses its endpoint and files of that generation
+/// first (nothing to clear before step 6). Returns whether everything was cleared;
+/// ⟨§17.22 item 8 (W4-R06)⟩ a failure is reported to the caller, never only logged.
 async fn abandon(
     ops: &Operations,
     effects: &dyn ManagedEffects,
     grant: &GrantId,
     instance: &CredentialInstanceId,
-    binding: Option<&BindingId>,
-) {
-    if let Some(b) = binding
-        && effects.clear(b, BINDING_GENERATION).is_err()
-    {
-        tracing::warn!("managed driver: the abandoned binding's files could not be cleared");
+    materialized: &[(BindingId, u64)],
+) -> bool {
+    let mut clean = true;
+    for (b, generation) in materialized {
+        clean &= effects.clear(b, *generation).is_ok();
     }
-    let _ = effects.destroy(std::slice::from_ref(grant)).await;
-    if ops.managed_instance_destroyed(instance).await.is_err() {
-        tracing::warn!("managed driver: the abandoned credential instance could not be updated");
-    }
+    clean &= effects.destroy(std::slice::from_ref(grant)).await.is_ok();
+    clean &= ops.managed_instance_destroyed(instance).await.is_ok();
+    clean
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -230,6 +254,7 @@ async fn stages_after_key(
     key: &crate::ports::KeyRegistration,
     instance: &CredentialInstanceId,
     binding: Option<&BindingId>,
+    materialized: &mut Vec<(BindingId, u64)>,
 ) -> Result<ManagedPrepared, AdapterError> {
     let receipt = |s: &'static str| async move {
         ops.managed_stage_receipt(token, s)
@@ -314,25 +339,36 @@ async fn stages_after_key(
     .await
     .map_err(|e| adapter_error_of(&e))?;
     // 6. materialize (§17.21 item 1): the binding's endpoint, attached, and its files
-    // (synchronous file work, outside every store transaction).
-    let materialized = match binding {
-        None => None,
-        Some(b) => {
+    // (synchronous file work, outside every store transaction). Each binding is noted
+    // before its call, so a partial failure is cleared too.
+    let certificates: Vec<MaterializedCertificate> = published
+        .iter()
+        .map(|(e, cert)| MaterializedCertificate {
+            pair: e.pair.clone(),
+            certificate: cert.clone(),
+        })
+        .collect();
+    let files = match binding {
+        Some(b) if new_activation => {
             let spec = MaterializeSpec {
                 generation: BINDING_GENERATION,
-                public_key: key.public_key.clone(),
-                certificates: published
-                    .iter()
-                    .map(|(e, cert)| MaterializedCertificate {
-                        pair: e.pair.clone(),
-                        certificate: cert.clone(),
-                    })
-                    .collect(),
+                source: MaterializeSource::Fresh {
+                    public_key: key.public_key.clone(),
+                    certificates,
+                },
                 environment_slots: false,
             };
+            materialized.push((b.clone(), BINDING_GENERATION));
             let files = effects.materialize(b, &spec)?;
             receipt(stage::MATERIALIZE).await?;
             Some(files)
+        }
+        _ if new_activation => None,
+        // ⟨§17.22 item 5 (W4-R02)⟩ A re-issue restores the grant's consumers before the
+        // repair is reported.
+        _ => {
+            restore_consumers(ops, effects, &grant.id, materialized).await?;
+            None
         }
     };
     // 7. prepared.
@@ -356,8 +392,59 @@ async fn stages_after_key(
         instance: instance.clone(),
         key: key.clone(),
         certificates,
-        materialized,
+        materialized: files,
     })
+}
+
+/// ⟨§17.22 item 5 (W4-R02); D6 item 4; D10 item 2⟩ Step 6 of a re-issue: every live
+/// binding of `grant` (from the store: [`Operations::reissue_consumers`]) gets its
+/// endpoint attached and its files written at a **new** resource generation (the
+/// grant's credential-instance count, durable and growing with every new K_env),
+/// from the grant's installed new key and certificates (⟨§17.23 item 6⟩
+/// [`MaterializeSource::InstalledKeyOf`]); a binding that holds its slots has them
+/// rewritten at their own store generations and listed again by the environment
+/// endpoint (the slots-only `materialize`, rebuilt from the signer and the stored
+/// scope); then the binding's older generations are removed. Each binding is noted
+/// in `materialized` before its first call, so a failure clears it with the key.
+///
+/// # Errors
+/// [`AdapterError`]; the grant stays `credential_reissue_pending` (the caller
+/// reports no repair).
+async fn restore_consumers(
+    ops: &Operations,
+    effects: &dyn ManagedEffects,
+    grant: &GrantId,
+    materialized: &mut Vec<(BindingId, u64)>,
+) -> Result<(), AdapterError> {
+    let plan = ops
+        .reissue_consumers(grant)
+        .await
+        .map_err(|e| adapter_error_of(&e))?;
+    // ⟨§17.23 item 6⟩ The typed source a follower uses too: the grant's installed
+    // (new) key, never a key line or fingerprint standing for it.
+    let spec = MaterializeSpec {
+        generation: plan.generation,
+        source: MaterializeSource::InstalledKeyOf {
+            grant: grant.clone(),
+        },
+        environment_slots: false,
+    };
+    let slots_only = MaterializeSpec {
+        generation: plan.generation,
+        source: MaterializeSource::SlotsOnly,
+        environment_slots: true,
+    };
+    for (binding, holds_slots) in &plan.bindings {
+        materialized.push((binding.clone(), plan.generation));
+        effects.materialize(binding, &spec)?;
+        if *holds_slots {
+            effects.materialize(binding, &slots_only)?;
+        }
+        for older in BINDING_GENERATION..plan.generation {
+            effects.clear(binding, older)?;
+        }
+    }
+    Ok(())
 }
 
 fn limit_of(ops: &Operations) -> std::time::Duration {

@@ -239,7 +239,7 @@ mod lock;
 pub mod narrowing;
 pub use lock::LockRevocation;
 pub use restart_m03::{
-    BoundedReport, CaStoreItemDeletion, IntentOutcome, OWNER_RECONCILE, RetirementResume,
+    AWAITING_OWNER_DELETION, BoundedReport, IntentOutcome, OWNER_RECONCILE, RetirementResume,
     only_bounded,
 };
 // ⟨M03⟩ U0b rows 2-4, 9-12, 19, E10 (O): CA issuance, verification issuance, per-pair
@@ -2343,16 +2343,23 @@ struct Ended {
     /// caller's [`Operations::complete_withdrawals`] takes the gates and re-runs
     /// [`end_in`] under them (the narrowing protocol).
     gated: Vec<(GrantId, Timestamp)>,
+    /// ⟨M03 wave 4, round 3; ADR-0008 §17.22 item 4 (W4-R01)⟩ Grants this
+    /// transaction moved to `expired` (an expiry found at use or by the scheduler's
+    /// re-validation): the caller's [`Operations::complete_withdrawals`] runs their
+    /// managed cleanup after the commit, outside every gate (K_env destroyed, the
+    /// binding endpoints and files removed, the instances `destroyed`).
+    expired: Vec<GrantId>,
 }
 
 impl Ended {
     fn is_empty(&self) -> bool {
-        self.withdrawn.is_empty() && self.gated.is_empty()
+        self.withdrawn.is_empty() && self.gated.is_empty() && self.expired.is_empty()
     }
 
     fn extend(&mut self, other: Self) {
         self.withdrawn.extend(other.withdrawn);
         self.gated.extend(other.gated);
+        self.expired.extend(other.expired);
     }
 }
 
@@ -2396,6 +2403,7 @@ fn end_in(
                         Some(resource("grant", &g.id)),
                         serde_json::json!({ "grant_id": g.id, "event": "expired" }),
                     )?;
+                    ended.expired.push(g.id.clone());
                 }
             }
             Some(GrantEnd::Withdrawn) => {
@@ -3618,17 +3626,29 @@ struct AdapterInfo {
 /// ⟨M02⟩ U0b rows 7 and 9: when the catalog's pairs name a mechanism, only an
 /// adapter of that mechanism is considered; `unattended` is met only by an adapter
 /// that can meet it (never in M02).
+///
+/// ⟨M03 wave 4, round 3b (X-M); ADR-0008 §17.23 item 1⟩ The managed descriptor
+/// advertises `verified_server_principals`, which a managed grant achieves only for a
+/// pair resolved to `managed_certificate` (its applied preference and verified
+/// enrollment; the per-pair evidence comparison then decides). For pairs resolved to no
+/// mechanism (the M01 selection) its scope counts as `unknown`, as before, so no
+/// M01/M02 resolution changes.
 fn select_adapter<'a>(
     adapters: &'a [AdapterInfo],
     required: &RequiredCapabilities,
     mechanism: Option<&str>,
 ) -> Option<&'a AdapterInfo> {
     adapters.iter().find(|a| {
+        let scope = if mechanism.is_none() && a.identity.mechanism == MANAGED_CERTIFICATE {
+            DestinationScopeEnforcement::Unknown
+        } else {
+            a.scope_enforcement
+        };
         mechanism.is_none_or(|m| a.identity.mechanism == m)
             && required.capabilities.is_subset(&a.capabilities)
             && required
                 .destination_scope_at_least
-                .is_none_or(|m| a.scope_enforcement >= m)
+                .is_none_or(|m| scope >= m)
             && (!required.unattended || a.unattended)
     })
 }
@@ -5030,7 +5050,23 @@ fn fresh_pair(
     // adapter's, and only the check time moves. Its identity selection stays the
     // adapter's per-pair D10 item 6 classification, which `fresh_fallback_refusal`
     // judges (a non-exclusive managed alias is refused non-interactively).
+    // ⟨M03 wave 4, round 3b (X-M); ADR-0008 §17.23 item 5⟩ The facts reach the commit
+    // through their history (`Facts::from_outcome` → `history_only`), which resets every
+    // fresh field to its fail-closed placeholder (`unknown`, not eligible), so the
+    // adapter's values are restored here, exactly as `prepare::pair_integrations` sets
+    // them for every managed pair (interaction `none`, inferred: the signer is
+    // in-process; eligible). Without this, every non-interactive managed request (a
+    // delegation is always one) was refused `interaction_unknown` before its selection
+    // was judged.
     if pair.mechanism == MANAGED_CERTIFICATE {
+        pair.interaction = InteractionKind::None;
+        pair.interaction_basis = EvidenceBasis::Inferred;
+        pair.declaration = None;
+        pair.declared_at = None;
+        pair.noninteractive = NoninteractiveEligibility {
+            eligible: true,
+            reason: None,
+        };
         pair.eligibility_checked_at = now;
         return Ok(());
     }
@@ -5692,10 +5728,11 @@ impl Operations {
             tracing::warn!(code = %e.code, "cleanup intents could not be read at startup");
         }
         // ⟨M03⟩ U0b row 23 (ADR-0008 D4 item 3): CA retirements resume at their next
-        // step. Wave 0 has no issuer child and no store-deletion step, so nothing
-        // external is confirmed: `retiring` and `unloaded` stay (fail closed), and
-        // only `deleted → retired` (a store step alone) can complete.
-        match self.resume_ca_retirements(None, None).await {
+        // step. No issuer child runs yet, and the store item's deletion is the
+        // owner-present CLI's (ADR-0008 §17.22 item 12): `retiring` and `unloaded`
+        // stay (fail closed), and only `deleted → retired` (a store step alone) can
+        // complete.
+        match self.resume_ca_retirements(None).await {
             Ok(r) if !r.stalled.is_empty() => {
                 tracing::info!(
                     count = r.stalled.len(),
@@ -6776,6 +6813,12 @@ impl Operations {
                 self.fail_running(&id, err, Some(GrantEvent::PreparationFailed))
                     .await
             }
+            // ⟨M03 wave 4, §17.22 item 8 (W4-R05)⟩ A managed preparation's uncertain
+            // effect is never left unresolved: its key lived in the process that drove
+            // it, so it fails, and its cleanup (key, instances, endpoint, files) runs.
+            Ok(ReconcileOutcome::Unknown) | Err(_) if identity.mechanism == MANAGED_CERTIFICATE => {
+                self.fail_unrecoverable_preparation(&id, &grant).await
+            }
             Ok(ReconcileOutcome::Unknown) | Err(_) => Ok(Flow::Stop),
         }
     }
@@ -6923,6 +6966,15 @@ impl Operations {
                     return self.confirm(&id, identity, o, &grant_id, local).await;
                 }
                 Ok(ReconcileOutcome::NotApplied) => {} // a fresh attempt is safe
+                // ⟨M03 wave 4, §17.22 item 8 (W4-R05)⟩ An `Attempted` or uncertain
+                // managed preparation that cannot be confirmed (a crash anywhere between
+                // the attempt and the confirmation, the materialization included): it
+                // fails, and its cleanup intent runs, never left `outcome_unknown`.
+                Ok(ReconcileOutcome::Unknown) | Err(_)
+                    if identity.mechanism == MANAGED_CERTIFICATE =>
+                {
+                    return self.fail_unrecoverable_preparation(&id, &grant_id).await;
+                }
                 Ok(ReconcileOutcome::Unknown) | Err(_) => {
                     return self
                         .mark_uncertain(&id, identity, effect_token.clone(), &grant_id)
@@ -7039,6 +7091,19 @@ impl Operations {
                                         },
                                     )?;
                                 }
+                                // ⟨M03 wave 4, §17.22 item 8 (W4-R05, W4-R06)⟩ A managed
+                                // preparation's cleanup owner exists from here, before
+                                // its first external effect.
+                                if managed {
+                                    managed_driver_m03::record_preparation_intent_in(
+                                        tx,
+                                        &gid,
+                                        &id2,
+                                        ident.clone(),
+                                        tok.clone(),
+                                        now,
+                                    )?;
+                                }
                                 tx.append_stage_receipt(
                                     &id2,
                                     &receipt(
@@ -7151,19 +7216,27 @@ impl Operations {
         };
         drop(slot);
         drop(preparing);
+        // ⟨M03 wave 4, §17.22 item 8⟩ A managed preparation is local work (its key lives
+        // in this process): it is never left `outcome_unknown`.
+        let managed = identity.mechanism == MANAGED_CERTIFICATE;
         let flow = match result {
             Ok(o) => self.confirm(&id, identity, o, &grant_id, local).await,
-            Err(AdapterError::OutcomeUnknown(_)) => {
+            Err(AdapterError::OutcomeUnknown(_)) if !managed => {
                 self.mark_uncertain(&id, identity, token, &grant_id).await
+            }
+            Err(AdapterError::OutcomeUnknown(_)) => {
+                self.fail_unrecoverable_preparation(&id, &grant_id).await
             }
             Err(e) => {
                 let error = self
                     .prepare_error(&e, &identity, &named, &sources, now)
                     .await;
-                // ⟨M03 wave 4, §17.21 item 1⟩ The effect driver ran (key, certificates,
-                // binding endpoint and files): the failure records the cleanup intent
-                // processed just below.
-                if managed_driver_m03::driver_ran(&sources) {
+                // ⟨M03 wave 4, §17.21 item 1; §17.22 item 8 (W4-R06)⟩ Any managed
+                // failure after the attempt (the driver's own, whose cleanup may not
+                // have completed, or `prepare_from`'s): the failure keeps the cleanup
+                // intent recorded with the attempt, processed just below and retried
+                // until the key, the binding endpoint and the files are gone.
+                if managed {
                     self.fail_managed_preparation(&id, error, &grant_id)
                         .await
                         .map(|_| Flow::Stop)
@@ -7435,7 +7508,21 @@ impl Operations {
     /// record for the next supervisor pass or restart (fail closed). No outcome
     /// leaves an applied effect with neither a live owning obligation nor a call
     /// made after it, or an intent that owes one.
+    ///
+    /// ⟨M03 wave 4, §17.22 items 6 and 8⟩ For a `managed_certificate` grant, first
+    /// (`managed_driver_m03::IntentDisposition`): the intent a managed preparation
+    /// recorded with its attempt is not processed while that preparation lives in this
+    /// process (whatever `origin`); a coalesced follower's intent clears only its own
+    /// uncommitted binding, never the shared grant's key.
     async fn process_cleanup_intent(&self, intent: CleanupIntent, origin: bool) {
+        match self.cleanup_intent_disposition(&intent).await {
+            managed_driver_m03::IntentDisposition::Live => return,
+            managed_driver_m03::IntentDisposition::Follower => {
+                self.cleanup_follower_binding(&intent).await;
+                return;
+            }
+            managed_driver_m03::IntentDisposition::Other => {}
+        }
         let in_flight = intent.in_flight && self.is_preparing(&intent.operation);
         if in_flight && !origin {
             return;
@@ -7794,6 +7881,24 @@ impl Operations {
             .as_ref()
             .and_then(|o| o.integration.signing_endpoint.clone())
             .filter(|_| !attached);
+        let managed = resolved
+            .adapter
+            .as_ref()
+            .is_some_and(|a| a.mechanism == MANAGED_CERTIFICATE);
+        // ⟨M03 wave 4, §17.22 item 6 (W4-R03)⟩ A coalesced or decision-joined follower of
+        // a managed grant gets its own binding materialized against the existing grant
+        // and key before its commit, or is refused at it: never `ACCESS_READY` for an
+        // unmaterialized binding.
+        let follower = if attached && managed {
+            Some(self.materialize_follower(&id, &gid, &binding_id).await)
+        } else {
+            None
+        };
+        let (follower_endpoint, follower_refusal) = match follower {
+            Some(Ok(endpoint)) => (Some(endpoint), None),
+            Some(Err(e)) => (None, Some(e)),
+            None => (None, None),
+        };
         let gate = self.inner.timegate.in_txn();
         let retention = self.retention();
         let parent_binding = st
@@ -7847,6 +7952,10 @@ impl Operations {
                     None => Facts::conservative(&g, tx.grant_prepared_facts(&gid)?.as_ref(), now),
                 }
                 .with_eligibility(tx, now)?;
+                // ⟨§17.22 item 6⟩ A follower whose own binding could not be
+                // materialized is refused here, on the attached refusal path (no grant
+                // event: the grant is not its own).
+                let follower_refused = follower_refusal.map(|e| Refusal::new(e, None));
                 let refusal = match activation_refusal(
                     tx, &env, &adapters, &resolved, &g, now, activation,
                 )? {
@@ -7892,6 +8001,7 @@ impl Operations {
                         }
                     }
                 };
+                let refusal = follower_refused.or(refusal);
                 if let Some(refusal) = refusal {
                     if !attached
                         && let Some(ev) = refusal.grant_event
@@ -7926,6 +8036,12 @@ impl Operations {
                         evidence: Vec::new(),
                     };
                     put_grant(tx, emit, &g, Some(&id))?;
+                }
+                // ⟨M03 wave 4, §17.22 items 6 and 8⟩ The commit retires the managed
+                // cleanup intent of this operation (its attempt's, or a follower's
+                // binding's): the grant's lifecycle owns the credential from here.
+                if managed {
+                    tx.clear_cleanup_intent(&gid, &id)?;
                 }
                 if for_others {
                     tx.append_stage_receipt(
@@ -7980,6 +8096,11 @@ impl Operations {
                 if signing_endpoint.is_some() {
                     data.consumer.signing_endpoint = signing_endpoint;
                 }
+                // ⟨§17.22 item 6; §17.23 item 6⟩ A follower's result names its own
+                // binding endpoint: the one its materialization created.
+                if let Some(endpoint) = &follower_endpoint {
+                    managed_driver_m03::name_follower_endpoint(&mut data.consumer, endpoint);
+                }
                 let value = serde_json::to_value(&data)?;
                 settle_succeeded(tx, emit, &mut op, Code::AccessReady, value, now, retention)?;
                 tx.append_stage_receipt(
@@ -7997,6 +8118,11 @@ impl Operations {
             Checked::Refused(gid, intent) => {
                 if let Some(intent) = intent {
                     self.process_cleanup_intent(intent, true).await;
+                }
+                // ⟨§17.22 item 6⟩ A refused follower's own binding (materialized or
+                // not) is cleared through its intent.
+                if attached && managed {
+                    self.process_cleanup_intent_of(&gid, &st.op.id).await;
                 }
                 // ⟨r2.5⟩ ADR-0006 §13.8 item 4 (as at `Recheck`).
                 self.end_if_invalid(&gid).await;
@@ -9823,10 +9949,13 @@ impl Operations {
                     && (binding.state != heimdall_domain::binding::BindingState::Active
                         || tx.binding_holder(&bid)?.as_ref() != Some(expected))
                 {
-                    return Ok(Ok(serde_json::json!({
-                        "binding_id": bid,
-                        "outcome": null,
-                    })));
+                    return Ok(Ok((
+                        serde_json::json!({
+                            "binding_id": bid,
+                            "outcome": null,
+                        }),
+                        false,
+                    )));
                 }
                 // ⟨M03⟩ U0b row 19 (O): the holder pass observed this exact holder
                 // exit (or its exec fail): its `dedicated` owned connection closes.
@@ -9835,6 +9964,11 @@ impl Operations {
                 }
                 let outcome = tx.release_binding(&bid, &ctx, now)?;
                 let mut grant_state = None;
+                // ⟨§17.22 item 10 (W4-R08); D10 item 2⟩ A managed binding released now:
+                // each slot it holds moves to `clearing` in this transaction, even while
+                // its grant lives on through another reference.
+                let slots_cleared = matches!(outcome, ReleaseOutcome::Released { .. })
+                    && managed_driver_m03::release_binding_slots_in(tx, &binding, now)?;
                 match outcome {
                     ReleaseOutcome::NotOwner => {
                         return Ok(Err(OpError::new(
@@ -9861,15 +9995,25 @@ impl Operations {
                         grant_state = tx.grant(&binding.grant)?.map(|g| g.state);
                     }
                 }
-                Ok(Ok(serde_json::json!({
-                    "binding_id": bid,
-                    "outcome": outcome,
-                    "grant_id": binding.grant,
-                    "grant_state": grant_state,
-                })))
+                Ok(Ok((
+                    serde_json::json!({
+                        "binding_id": bid,
+                        "outcome": outcome,
+                        "grant_id": binding.grant,
+                        "grant_state": grant_state,
+                    }),
+                    slots_cleared,
+                )))
             })
             .await?;
-        let value = r?;
+        let (value, managed_released) = r?;
+        // ⟨§17.22 item 10 (W4-R08)⟩ The released managed binding's endpoint, listing
+        // and files go now, after the commit; its slots' files follow in the
+        // supervisor's ended-binding pass (the `clearing` row is the obligation). K_env
+        // is destroyed only with the last reference (below).
+        if managed_released {
+            self.after_binding_release_m03(&req.binding_id).await;
+        }
         // ⟨M03⟩ wave 4 (U10-C; ADR-0008 D7 item 7): the release of a managed grant's
         // last reference destroys K_env, removes its files and closes its owned
         // connections (masters; dedicated ones by the policy), after the commit and
@@ -10166,12 +10310,19 @@ impl Operations {
             ended.extend(more);
         }
         ended.gated.clear();
-        if ended.is_empty() {
+        let expired = std::mem::take(&mut ended.expired);
+        if ended.is_empty() && expired.is_empty() {
             return;
         }
         for (root, grants) in ended.withdrawn {
             self.complete_withdrawal(root, grants, RevocationCause::AuthorityWithdrawn)
                 .await;
+        }
+        // ⟨§17.22 item 4 (W4-R01)⟩ An expiry found at use (or by the scheduler's
+        // re-validation): the managed cleanup, after the commit and every gate.
+        if !expired.is_empty() {
+            let now = self.narrowing_now().await;
+            self.after_end_m03(&expired, now).await;
         }
     }
 
@@ -11273,43 +11424,57 @@ impl Operations {
 
     /// The grant reached its admission deadline: `DeadlineReached`; an operation
     /// waiting for approval on it fails with `CREDENTIAL_EXPIRED` (§13.3).
+    ///
+    /// ⟨M03 wave 4, round 3; ADR-0008 §17.22 item 4 (W4-R01)⟩ After the commit, the
+    /// expired grant's managed cleanup runs (K_env destroyed, its binding endpoints
+    /// and files removed, its instances `destroyed` and the gate released), with or
+    /// without a held slot. Its durable obligation is the instance row
+    /// (`Txn::managed_cleanup_owed`): a crash or a failure before the end of the
+    /// cleanup leaves it for the supervisor's ended-grant pass.
     async fn expire_grant(&self, gid: &GrantId, now: Timestamp) -> Result<(), OpError> {
         let gid = gid.clone();
+        let ended = gid.clone();
         let retention = self.retention();
-        self.write(move |tx, emit| {
-            let Some(mut g) = tx.grant(&gid)? else {
-                return Ok(());
-            };
-            if grant_try(&mut g, GrantEvent::DeadlineReached) {
-                put_grant(tx, emit, &g, None)?;
-                emit.event(
-                    tx,
-                    EventType::CredentialLifecycle,
-                    None,
-                    Some(resource("grant", &gid)),
-                    serde_json::json!({ "grant_id": gid, "event": "expired" }),
-                )?;
-            }
-            for mut op in tx.open_operations()? {
-                if op.state != OperationState::AwaitingApproval {
-                    continue;
+        let expired = self
+            .write(move |tx, emit| {
+                let Some(mut g) = tx.grant(&gid)? else {
+                    return Ok(false);
+                };
+                let expired = grant_try(&mut g, GrantEvent::DeadlineReached);
+                if expired {
+                    put_grant(tx, emit, &g, None)?;
+                    emit.event(
+                        tx,
+                        EventType::CredentialLifecycle,
+                        None,
+                        Some(resource("grant", &gid)),
+                        serde_json::json!({ "grant_id": gid, "event": "expired" }),
+                    )?;
                 }
-                let pinned = tx
-                    .recovery_intent(&op.id)?
-                    .and_then(|i| i.resolved)
-                    .and_then(|r| r.grant);
-                if pinned.as_ref() == Some(&gid) {
-                    let err = OpError::new(
-                        Code::CredentialExpired,
-                        "the requested grant reached its deadline while awaiting approval",
-                    )
-                    .with_resource("grant", Some(gid.to_string()));
-                    settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                for mut op in tx.open_operations()? {
+                    if op.state != OperationState::AwaitingApproval {
+                        continue;
+                    }
+                    let pinned = tx
+                        .recovery_intent(&op.id)?
+                        .and_then(|i| i.resolved)
+                        .and_then(|r| r.grant);
+                    if pinned.as_ref() == Some(&gid) {
+                        let err = OpError::new(
+                            Code::CredentialExpired,
+                            "the requested grant reached its deadline while awaiting approval",
+                        )
+                        .with_resource("grant", Some(gid.to_string()));
+                        settle_failed(tx, emit, &mut op, &err, now, retention)?;
+                    }
                 }
-            }
-            Ok(())
-        })
-        .await
+                Ok(expired)
+            })
+            .await?;
+        if expired {
+            self.after_end_m03(std::slice::from_ref(&ended), now).await;
+        }
+        Ok(())
     }
 
     // -----------------------------------------------------------------------------

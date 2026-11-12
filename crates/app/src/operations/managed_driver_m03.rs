@@ -175,6 +175,15 @@ struct InstallCtx {
     adapters: Vec<super::AdapterInfo>,
 }
 
+/// ⟨§17.22 item 5⟩ What a re-issue restores ([`Operations::reissue_consumers`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReissueConsumers {
+    /// The new resource generation of every restored binding.
+    pub(crate) generation: u64,
+    /// Each live binding of the grant, with whether it holds its pairs' slots.
+    pub(crate) bindings: Vec<(heimdall_contract::ids::BindingId, bool)>,
+}
+
 impl Operations {
     /// The effect driver's results for `adapter`'s preparation, or `None` when
     /// `adapter` is not the managed adapter (the M01/M02 path is unchanged) or the
@@ -477,6 +486,12 @@ impl Operations {
     /// refuses (§17.21 item 6). A no-op while the driver is unwired. Returns the grants
     /// re-issued.
     ///
+    /// ⟨§17.22 item 5 (W4-R02); D6 item 4; D10 item 2⟩ The stages end by restoring the
+    /// grant's consumers (every live binding's endpoint, files at a new generation,
+    /// slots and environment listing; [`Self::reissue_consumers`]); only after that
+    /// does the grant return to `active`. A failed restoration leaves it
+    /// `credential_reissue_pending` for the next pass.
+    ///
     /// # Errors
     /// [`OpError`]: a store failure is reported (W3-R11), never an empty success.
     pub async fn managed_reissue_pass(&self) -> Result<Vec<GrantId>, OpError> {
@@ -600,9 +615,72 @@ impl Operations {
         .await
     }
 
+    /// ⟨§17.22 item 5 (W4-R02)⟩ What a re-issue of `grant` restores before the repair
+    /// (`managed::driver`'s step 6), read in one store transaction: every **live**
+    /// binding of the grant (an `active` `managed_certificate` binding of exactly this
+    /// grant that references it; a delegated child's reference on its parent names
+    /// the child's own binding and grant, so it is not one), each with whether it holds
+    /// its pairs' slots, and the new resource generation: the grant's
+    /// credential-instance count (every K_env adds one, so it only grows, and the new
+    /// instance is already counted: always above the preparation's
+    /// [`crate::managed::driver::BINDING_GENERATION`] and above any earlier re-issue's).
+    ///
+    /// # Errors
+    /// A store failure; `CONFIG_CONFLICT` when a binding holds some of its pairs'
+    /// slots but not all (a release or an end still clearing them: the repair waits
+    /// for the next pass rather than restore part of a binding).
+    pub(crate) async fn reissue_consumers(
+        &self,
+        grant: &GrantId,
+    ) -> Result<ReissueConsumers, OpError> {
+        let gid = grant.clone();
+        self.write(move |tx, _| {
+            let count = u64::try_from(instances_of(tx, &gid)?.len()).unwrap_or(u64::MAX);
+            let generation = count.max(crate::managed::driver::BINDING_GENERATION + 1);
+            let mut bindings = Vec::new();
+            for r in tx.grant_references(&gid)? {
+                let Some(b) = tx.binding(&r.binding)? else {
+                    continue;
+                };
+                if b.grant != gid
+                    || b.state != heimdall_domain::binding::BindingState::Active
+                    || b.mechanism != MANAGED_CERTIFICATE
+                    || bindings.iter().any(|(x, _)| *x == b.id)
+                {
+                    continue;
+                }
+                let held = tx
+                    .slots_for_binding(&b.id)?
+                    .iter()
+                    .filter(|s| {
+                        matches!(&s.state, heimdall_domain::managed::SlotState::Held { binding, .. }
+                            if *binding == b.id)
+                    })
+                    .count();
+                let holds = match held {
+                    0 => false,
+                    n if n == b.scope.pairs.len() => true,
+                    _ => {
+                        return Ok(Err(OpError::new(
+                            Code::ConfigConflict,
+                            "a binding of the grant holds only some of its slots; the re-issue waits",
+                        )));
+                    }
+                };
+                bindings.push((b.id, holds));
+            }
+            Ok(Ok(ReissueConsumers {
+                generation,
+                bindings,
+            }))
+        })
+        .await?
+    }
+
     /// After a re-issue: the grant's `lost` instances become `destroyed` (no gate in
     /// this process), and the grant returns to `active` (`credential_reissue_pending`
     /// repaired), with the `reissued` event. `false` when the grant moved meanwhile.
+    /// ⟨§17.22 item 5⟩ Called only after the driver restored every live binding.
     async fn reissue_completed(
         &self,
         grant: &GrantId,
@@ -832,55 +910,253 @@ pub(super) fn fill_revoke_data(
 }
 
 impl Operations {
-    /// ⟨D7 item 7⟩ After the last reference of `grant` was released: when it is a
-    /// `managed_certificate` grant, its keys and live instances are destroyed (as a
-    /// narrowing's cleanup does) and its responsible adapter's `revoke` runs, bounded,
-    /// for the files and the owned connections (the runtime's cleanup applies the
-    /// release rule: masters closed, dedicated connections by the policy). A failure
-    /// is logged; the supervisor's passes close what is left.
+    /// ⟨D7 item 7⟩ After the last reference of `grant` was released: the managed
+    /// cleanup of an ended grant ([`Self::after_end_m03`]; the runtime's cleanup applies
+    /// the release rule: masters closed, dedicated connections by the policy).
     pub(super) async fn after_release_m03(&self, grant: &GrantId, now: Timestamp) {
-        let gid = grant.clone();
-        let identity = self
-            .write(move |tx, _| {
-                if !grant_is_managed(tx, &gid)? {
-                    return Ok(None);
+        self.after_end_m03(std::slice::from_ref(grant), now).await;
+    }
+
+    /// ⟨M03 wave 4, round 3; ADR-0008 §17.22 items 4 and 9 (W4-R01, W4-R07); D1 key
+    /// lifetime, D2 table, D7 items 6–8⟩ The managed cleanup of each grant in `grants`
+    /// that ended without a narrowing (an expiry, found by the scheduler or at use; the
+    /// release of its last reference), after the commit and outside every gate. For a
+    /// `managed_certificate` grant in a terminal state, in this order:
+    ///
+    /// 1. K_env is destroyed in memory ([`ManagedEffects::destroy`], idempotent);
+    /// 2. its responsible adapter's `revoke` runs, bounded: the binding endpoints and
+    ///    files (every binding of the grant, a released one included), its slots by
+    ///    their own generation, the owned connections as the end requires (with or
+    ///    without a held slot);
+    /// 3. only when that completed, each credential instance not yet `destroyed`
+    ///    becomes `destroyed`, a live one releasing the gate exclusively (§17.15
+    ///    item 1).
+    ///
+    /// The instance row is the durable obligation (`Txn::managed_cleanup_owed`): a
+    /// crash or a failure before step 3 leaves it for the supervisor's ended-grant
+    /// pass, which repeats the same steps ([`Self::managed_end_destroy_keys`], the
+    /// runtime's cleanup, [`Self::managed_end_instances_destroyed`]). Any other grant
+    /// is left alone. Failures are logged.
+    pub(super) async fn after_end_m03(&self, grants: &[GrantId], now: Timestamp) {
+        for grant in grants {
+            let identity = match self.ended_managed_identity(grant).await {
+                Ok(Some(i)) => i,
+                Ok(None) => continue,
+                Err(_) => {
+                    tracing::warn!("managed end cleanup: the grant could not be read");
+                    continue;
                 }
-                Ok(tx.grant_origin(&gid)?.and_then(|o| o.adapter))
-            })
-            .await;
-        let identity = match identity {
-            Ok(Some(i)) => i,
-            Ok(None) => return,
-            Err(_) => {
-                tracing::warn!("managed release cleanup: the grant could not be read");
-                return;
+            };
+            self.destroy_keys_bounded(std::slice::from_ref(grant)).await;
+            let adapter = identity.and_then(|i| self.adapter(Some(&i)));
+            let files = match adapter {
+                Some(adapter) => {
+                    super::bounded_adapter_call(self.adapter_limit(), adapter.revoke(grant, now))
+                        .await
+                        .is_ok()
+                }
+                None => false,
+            };
+            if !files {
+                tracing::warn!(
+                    "managed end cleanup: the adapter's cleanup did not complete; the supervisor's pass retries"
+                );
+                continue;
             }
-        };
-        self.managed_after_narrowing(std::slice::from_ref(grant))
-            .await;
-        let Some(adapter) = self.adapter(Some(&identity)) else {
+            if self.managed_end_instances_destroyed(grant).await.is_err() {
+                tracing::warn!("managed end cleanup: a credential instance could not be updated");
+            }
+        }
+    }
+
+    /// `Some(the recorded adapter identity)` when `grant` is a `managed_certificate`
+    /// grant in a terminal state (`revoking` excluded: its revocation round owns it);
+    /// `None` otherwise.
+    async fn ended_managed_identity(
+        &self,
+        grant: &GrantId,
+    ) -> Result<Option<Option<heimdall_domain::operation::AdapterIdentity>>, OpError> {
+        let gid = grant.clone();
+        self.write(move |tx, _| {
+            let Some(g) = tx.grant(&gid)? else {
+                return Ok(None);
+            };
+            if !g.state.is_terminal() || !grant_is_managed(tx, &gid)? {
+                return Ok(None);
+            }
+            Ok(Some(tx.grant_origin(&gid)?.and_then(|o| o.adapter)))
+        })
+        .await
+    }
+
+    async fn destroy_keys_bounded(&self, grants: &[GrantId]) {
+        if let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone())
+            && !matches!(
+                tokio::time::timeout(self.adapter_limit(), effects.destroy(grants)).await,
+                Ok(Ok(()))
+            )
+        {
+            tracing::warn!("managed end cleanup: K_env not destroyed in time; retried");
+        }
+    }
+
+    /// ⟨§17.22 item 4; the supervisor's ended-grant pass⟩ When `grant` is a
+    /// `managed_certificate` grant in a terminal state (not `revoking`), destroy its
+    /// K_env in this process's signer (idempotent; nothing when no effects are wired:
+    /// no key of it lives here). Returns whether the grant is such a grant.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub async fn managed_end_destroy_keys(&self, grant: &GrantId) -> Result<bool, OpError> {
+        if self.ended_managed_identity(grant).await?.is_none() {
+            return Ok(false);
+        }
+        self.destroy_keys_bounded(std::slice::from_ref(grant)).await;
+        Ok(true)
+    }
+
+    /// ⟨§17.22 item 4; the supervisor's ended-grant pass, after the runtime's cleanup
+    /// completed⟩ When `grant` is a `managed_certificate` grant in a terminal state
+    /// (not `revoking`), each of its credential instances not yet `destroyed`
+    /// (`pending`, `installed`, or `lost` after a restart: D2's "the rule fails" row)
+    /// becomes `destroyed`, a live one releasing the gate exclusively. Returns how
+    /// many moved. Call it only after the grant's binding endpoints, files and slots
+    /// are clean: the instance row is their durable obligation.
+    ///
+    /// # Errors
+    /// A store failure.
+    pub async fn managed_end_instances_destroyed(&self, grant: &GrantId) -> Result<usize, OpError> {
+        if self.ended_managed_identity(grant).await?.is_none() {
+            return Ok(0);
+        }
+        let gid = grant.clone();
+        let owed = self
+            .write(move |tx, _| {
+                Ok(instances_of(tx, &gid)?
+                    .into_iter()
+                    .filter(|i| i.state != CredentialState::Destroyed)
+                    .map(|i| i.id)
+                    .collect::<Vec<_>>())
+            })
+            .await?;
+        let mut moved = 0;
+        for i in owed {
+            if self.managed_instance_destroyed(&i).await? {
+                moved += 1;
+            }
+        }
+        Ok(moved)
+    }
+}
+
+/// ⟨M03 wave 4, round 3; ADR-0008 §17.22 item 10 (W4-R08); D10 item 2⟩ In the release
+/// transaction of `binding` (just released): when it is a `managed_certificate`
+/// binding, each slot it holds moves `held(b, g)` → `clearing(g)` by its own store
+/// generation, whether or not its grant lives on through another reference. The
+/// `clearing` row is the durable obligation (`Txn::managed_cleanup_owed`): the
+/// runtime's ended-binding cleanup removes the slot files and the mux path, then frees
+/// it. Returns whether the binding is a managed one (its endpoint, listing and files
+/// are then cleared after the commit, [`Operations::after_binding_release_m03`]).
+pub(super) fn release_binding_slots_in(
+    tx: &mut Txn<'_>,
+    binding: &heimdall_domain::binding::BindingRecord,
+    now: Timestamp,
+) -> heimdall_store::Result<bool> {
+    if binding.mechanism != MANAGED_CERTIFICATE {
+        return Ok(false);
+    }
+    for slot in tx.slots_for_binding(&binding.id)? {
+        if let heimdall_domain::managed::SlotState::Held {
+            binding: holder,
+            generation,
+        } = &slot.state
+            && *holder == binding.id
+        {
+            // A refusal (the row moved meanwhile) leaves the row as it is.
+            let _ =
+                tx.release_slot(&slot.environment, &slot.pair, &binding.id, *generation, now)?;
+        }
+    }
+    Ok(true)
+}
+
+impl Operations {
+    /// ⟨§17.22 item 10 (W4-R08)⟩ After the commit of a managed binding's release: its
+    /// binding endpoint is removed and it is detached from the signer (so neither its
+    /// endpoint nor the environment endpoint lists it any more), and its files are
+    /// removed (`ManagedEffects::clear` at
+    /// [`crate::managed::driver::BINDING_GENERATION`]). K_env is not touched: it goes
+    /// only with the grant's last reference ([`Self::after_release_m03`]). Best effort:
+    /// the slot files, the mux path and any file left are completed by the runtime's
+    /// ended-binding cleanup, discovered from the `clearing` slot row and, at the
+    /// grant's end, from the grant's bindings.
+    pub(super) async fn after_binding_release_m03(
+        &self,
+        binding: &heimdall_contract::ids::BindingId,
+    ) {
+        let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone()) else {
             return;
         };
-        if super::bounded_adapter_call(self.adapter_limit(), adapter.revoke(grant, now))
-            .await
+        if effects
+            .clear(binding, crate::managed::driver::BINDING_GENERATION)
             .is_err()
         {
-            tracing::warn!("managed release cleanup: the adapter's cleanup did not complete");
+            tracing::warn!(
+                "managed binding release: its files were not all removed; the supervisor's pass retries"
+            );
         }
     }
 }
 
 // --- ⟨M03 wave 4, ADR-0008 §17.21 item 1⟩ the binding minted at resolve ---------------
 
-/// Whether the effect driver's results are in `sources` (the managed adapter's
-/// preparation ran its effects: key, certificates, binding endpoint and files), so a
-/// later failure needs the cleanup intent. Always `false` for an existing-access
-/// adapter, whose snapshot has no managed part (`operations.rs` never names it).
-pub(super) fn driver_ran(sources: &IntegrationSnapshot) -> bool {
-    sources
-        .managed
-        .as_ref()
-        .is_some_and(|m| m.prepared.is_some())
+/// ⟨§17.22 item 8 (W4-R05, W4-R06)⟩ In the transaction of a managed preparation's
+/// `Attempted` receipt, **before** its first external effect (K_env generation, the
+/// binding endpoint, the files): the operation's cleanup intent for that attempt
+/// (`in_flight`; the attempt's adapter and token). It owns the cleanup of whatever the
+/// attempt creates from then on: while the preparation lives in this process it is
+/// not processed ([`Operations::cleanup_intent_disposition`]); the commit retires it;
+/// every failure, a crash's recovery included, processes it, and a cleanup that does
+/// not complete keeps it for the next pass.
+///
+/// # Errors
+/// A store failure (the attempt is not recorded either).
+pub(super) fn record_preparation_intent_in(
+    tx: &mut Txn<'_>,
+    grant: &GrantId,
+    operation: &heimdall_contract::ids::OperationId,
+    adapter: heimdall_domain::operation::AdapterIdentity,
+    effect_token: String,
+    now: Timestamp,
+) -> heimdall_store::Result<()> {
+    tx.record_cleanup_intent(&heimdall_domain::revocation::CleanupIntent {
+        grant: grant.clone(),
+        operation: operation.clone(),
+        adapter: Some(adapter),
+        effect_token,
+        confirmed: false,
+        in_flight: true,
+        version: 0,
+        recorded_at: now,
+    })
+    .map(|_| ())
+}
+
+/// ⟨§17.22 items 6 and 8⟩ How [`Operations::process_cleanup_intent`] treats a cleanup
+/// intent of a `managed_certificate` grant ([`Operations::cleanup_intent_disposition`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum IntentDisposition {
+    /// The intent's operation is still open (queued, running, outcome unknown, or a
+    /// cancelled owner preparing for others) and its preparation lives in this process
+    /// (it is running here, or the grant holds a `pending`/`installed` instance: after
+    /// a restart every instance is `lost` or `destroyed`). Not processed now; it stays.
+    Live,
+    /// The intent of a coalesced or decision-joined follower's own binding (its
+    /// operation attached; it made no effect of its own): only that binding's endpoint
+    /// and files are cleared, never the shared grant's key.
+    Follower,
+    /// Every other intent: processed as before.
+    Other,
 }
 
 /// The binding ID of a `managed_certificate` resolution (§17.21 item 1): `binding` is
@@ -943,14 +1219,15 @@ impl Operations {
         .await
     }
 
-    /// ⟨§17.21 item 1⟩ A managed preparation that failed **after** the effect driver
-    /// ran (its `prepare_from` refused, or, after a restart, its effect could not be
+    /// ⟨§17.21 item 1; §17.22 item 8⟩ A managed preparation that failed after its
+    /// attempt was recorded (the effect driver failed, its `prepare_from` refused or
+    /// timed out, or, at recovery, its attempt or uncertain effect could not be
     /// reconciled): as `fail_running` (the grant `PreparationFailed`, the operation
     /// failed with `err`), and, in the same transaction, the cleanup decision for the
-    /// applied effect ([`super::settle_effect_in`]), so the key, the binding endpoint
-    /// and the binding files never outlive the failure, a crash included. Returns the
-    /// cleanup intent to process after the commit (the prepare step's return path
-    /// processes it in any case).
+    /// applied effect ([`super::settle_effect_in`], replacing the attempt's own
+    /// intent), so the key, the binding endpoint and the binding files never outlive
+    /// the failure, a crash included. Returns the cleanup intent to process after the
+    /// commit (the prepare step's return path processes it in any case).
     ///
     /// # Errors
     /// A store failure.
@@ -1003,6 +1280,11 @@ impl Operations {
     /// [`crate::managed::driver::BINDING_GENERATION`]; the files are found on disk by
     /// their marker, so this also holds after a restart). `false` when the clear failed
     /// (the intent is kept and retried); `true` otherwise, and for any other grant.
+    ///
+    /// ⟨§17.22 item 8 (W4-R06)⟩ Also `false` while any instance of the grant is still
+    /// live after the destruction (the instance update failed): nothing of the cleanup
+    /// is logged and forgotten. Once the binding is clear, an instance left `lost` by a
+    /// restart becomes `destroyed` too (no gate: it held none in this process).
     pub(super) async fn cleanup_uncommitted_managed(
         &self,
         intent: &heimdall_domain::revocation::CleanupIntent,
@@ -1031,17 +1313,259 @@ impl Operations {
         };
         self.managed_after_narrowing(std::slice::from_ref(&intent.grant))
             .await;
-        let Some(binding) = uncommitted else {
-            return true;
-        };
-        let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone()) else {
-            // No effects in this process: nothing of this process holds the binding;
-            // its files wait for a runtime with the effects (the intent is kept).
+        if let Some(binding) = uncommitted {
+            let Some(effects) = self.managed_wiring().and_then(|w| w.effects.clone()) else {
+                // No effects in this process: nothing of this process holds the binding;
+                // its files wait for a runtime with the effects (the intent is kept).
+                return false;
+            };
+            if effects
+                .clear(&binding, crate::managed::driver::BINDING_GENERATION)
+                .is_err()
+            {
+                return false;
+            }
+        }
+        self.instances_destroyed_after_cleanup(&intent.grant).await
+    }
+
+    /// ⟨§17.22 item 8⟩ Every instance of `grant` not yet `destroyed` becomes so (a live
+    /// one releasing the gate exclusively; a `lost` one holds none here). `true` when
+    /// none is left.
+    async fn instances_destroyed_after_cleanup(&self, grant: &GrantId) -> bool {
+        let gid = grant.clone();
+        let owed = self
+            .write(move |tx, _| {
+                Ok(instances_of(tx, &gid)?
+                    .into_iter()
+                    .filter(|i| i.state != CredentialState::Destroyed)
+                    .map(|i| i.id)
+                    .collect::<Vec<_>>())
+            })
+            .await;
+        let Ok(owed) = owed else {
             return false;
         };
-        effects
-            .clear(&binding, crate::managed::driver::BINDING_GENERATION)
-            .is_ok()
+        let mut clean = true;
+        for i in owed {
+            clean &= self.managed_instance_destroyed(&i).await.is_ok();
+        }
+        clean
+    }
+
+    /// ⟨§17.22 items 6 and 8⟩ How a cleanup intent is processed ([`IntentDisposition`]),
+    /// read in one transaction. An intent of any other grant is
+    /// [`IntentDisposition::Other`] (M01/M02 unchanged); an unreadable store is
+    /// [`IntentDisposition::Live`] (not processed now, kept: fail closed).
+    pub(super) async fn cleanup_intent_disposition(
+        &self,
+        intent: &heimdall_domain::revocation::CleanupIntent,
+    ) -> IntentDisposition {
+        use heimdall_contract::OperationState;
+        let preparing = self.is_preparing(&intent.operation);
+        let (gid, op) = (intent.grant.clone(), intent.operation.clone());
+        self.write(move |tx, _| {
+            if !grant_is_managed(tx, &gid)? {
+                return Ok(IntentDisposition::Other);
+            }
+            let Some(record) = tx.operation(&op)? else {
+                return Ok(IntentDisposition::Other);
+            };
+            let open = matches!(
+                record.state,
+                OperationState::Queued | OperationState::Running | OperationState::OutcomeUnknown
+            ) || super::continues_for_others(tx, &record)?;
+            if open
+                && (preparing
+                    || instances_of(tx, &gid)?.iter().any(|i| {
+                        matches!(
+                            i.state,
+                            CredentialState::Pending | CredentialState::Installed
+                        )
+                    }))
+            {
+                return Ok(IntentDisposition::Live);
+            }
+            Ok(if super::coalesced(&tx.stage_receipts(&op)?) {
+                IntentDisposition::Follower
+            } else {
+                IntentDisposition::Other
+            })
+        })
+        .await
+        .unwrap_or(IntentDisposition::Live)
+    }
+
+    /// ⟨§17.22 item 8⟩ A managed preparation whose attempt (or uncertain effect) could
+    /// not be reconciled at recovery: its key lived in the process that drove it, so
+    /// the effect can never be completed. The operation fails (`SERVICE_UNAVAILABLE`,
+    /// effect `partial`; the grant `PreparationFailed`) with its cleanup intent, which is
+    /// processed at once (the key, the instances, the binding endpoint and files; kept
+    /// when not all of it could be removed yet, for instance before the runtime wired
+    /// the effects).
+    ///
+    /// # Errors
+    /// A store failure.
+    pub(super) async fn fail_unrecoverable_preparation(
+        &self,
+        id: &heimdall_contract::ids::OperationId,
+        grant: &GrantId,
+    ) -> Result<super::Flow, OpError> {
+        let error = OpError::new(
+            Code::ServiceUnavailable,
+            "the managed credential's preparation could not be completed; nothing was activated",
+        )
+        .with_effect(heimdall_contract::EffectStatus::Partial);
+        if let Some(intent) = self.fail_managed_preparation(id, error, grant).await? {
+            self.process_cleanup_intent(intent, true).await;
+        }
+        Ok(super::Flow::Stop)
+    }
+
+    /// ⟨§17.22 item 6⟩ The cleanup of a follower's own uncommitted binding
+    /// ([`IntentDisposition::Follower`]): its endpoint and files of
+    /// [`crate::managed::driver::BINDING_GENERATION`] are removed (found on disk by
+    /// marker), and the intent is cleared once they are, or once the binding was
+    /// committed (its grant's lifecycle owns it then). The shared grant's key and
+    /// instances are never touched. Kept on any failure, or without the effects.
+    pub(super) async fn cleanup_follower_binding(
+        &self,
+        intent: &heimdall_domain::revocation::CleanupIntent,
+    ) {
+        let (gid, op) = (intent.grant.clone(), intent.operation.clone());
+        let version = intent.version;
+        let read = self
+            .write(move |tx, _| {
+                let minted = tx
+                    .recovery_intent(&op)?
+                    .and_then(|i| i.resolved)
+                    .and_then(|r| r.binding_id);
+                Ok(match minted {
+                    Some(b) if tx.binding(&b)?.is_none() => Some(b),
+                    _ => None,
+                })
+            })
+            .await;
+        let cleared = match read {
+            Err(_) => false,
+            Ok(None) => true,
+            Ok(Some(binding)) => self
+                .managed_wiring()
+                .and_then(|w| w.effects.clone())
+                .is_some_and(|effects| {
+                    effects
+                        .clear(&binding, crate::managed::driver::BINDING_GENERATION)
+                        .is_ok()
+                }),
+        };
+        if !cleared {
+            tracing::warn!(
+                "a follower's binding files could not be removed yet; its intent is kept"
+            );
+            return;
+        }
+        let op = intent.operation.clone();
+        let done = self
+            .write(move |tx, _| {
+                if tx
+                    .cleanup_intent(&gid, &op)?
+                    .is_some_and(|i| i.version == version)
+                {
+                    tx.clear_cleanup_intent(&gid, &op)?;
+                }
+                Ok(())
+            })
+            .await;
+        if done.is_err() {
+            tracing::warn!("a follower's cleanup intent could not be cleared; it is kept");
+        }
+    }
+
+    /// ⟨§17.22 item 6 (W4-R03); §17.21 item 1; §17.23 item 6⟩ Before the commit of a
+    /// coalesced or decision-joined follower of a `managed_certificate` grant: its
+    /// **own** binding (`binding`, minted at its resolve) is materialized against the
+    /// existing grant and key, so it signs: first, in one transaction, its cleanup
+    /// intent ([`IntentDisposition::Follower`]: the binding's endpoint and files only)
+    /// and the check that the grant has an `installed` credential instance; then
+    /// `materialize` with the explicit source
+    /// [`crate::ports::MaterializeSource::InstalledKeyOf`] the grant (the effects read
+    /// its live key and installed certificates; endpoint, files, then attached).
+    /// Returns the binding endpoint **the materialization created**
+    /// ([`crate::ports::MaterializedFiles::endpoint`]), which the follower's result
+    /// names; nothing is derived from the leader's locator.
+    ///
+    /// # Errors
+    /// The refusal to commit the follower (`SERVICE_UNAVAILABLE`, nothing of it
+    /// activated): no installed instance (the grant ended), no effects, the effects
+    /// refused (no live key in this process: a restart lost it), or the
+    /// materialization created no endpoint. Never `ACCESS_READY` for an unmaterialized
+    /// binding.
+    pub(super) async fn materialize_follower(
+        &self,
+        operation: &heimdall_contract::ids::OperationId,
+        grant: &GrantId,
+        binding: &heimdall_contract::ids::BindingId,
+    ) -> Result<heimdall_contract::provider::EndpointRef, OpError> {
+        let refusal = || {
+            OpError::new(
+                Code::ServiceUnavailable,
+                "this request's own binding could not be given the shared managed credential; nothing was activated for it",
+            )
+            .with_effect(heimdall_contract::EffectStatus::None)
+        };
+        let (gid, op) = (grant.clone(), operation.clone());
+        let now = self.clock().wall();
+        let installed = self
+            .write(move |tx, _| {
+                tx.record_cleanup_intent(&heimdall_domain::revocation::CleanupIntent {
+                    grant: gid.clone(),
+                    operation: op,
+                    adapter: None,
+                    effect_token: String::new(),
+                    confirmed: false,
+                    in_flight: false,
+                    version: 0,
+                    recorded_at: now,
+                })?;
+                if tx.grant(&gid)?.is_none() {
+                    return Ok(false);
+                }
+                Ok(instances_of(tx, &gid)?
+                    .into_iter()
+                    .any(|i| i.state == CredentialState::Installed))
+            })
+            .await?;
+        let Some(effects) = self
+            .managed_wiring()
+            .and_then(|w| w.effects.clone())
+            .filter(|_| installed)
+        else {
+            return Err(refusal());
+        };
+        let spec = crate::ports::MaterializeSpec {
+            generation: crate::managed::driver::BINDING_GENERATION,
+            source: crate::ports::MaterializeSource::InstalledKeyOf {
+                grant: grant.clone(),
+            },
+            environment_slots: false,
+        };
+        let files = effects.materialize(binding, &spec).map_err(|_| refusal())?;
+        files.endpoint.ok_or_else(refusal)
+    }
+}
+
+/// ⟨§17.22 item 6; §17.23 item 6⟩ A follower's result names its own binding endpoint,
+/// exactly as its materialization created it: the consumer's signing endpoint and
+/// every pair's endpoint.
+pub(super) fn name_follower_endpoint(
+    consumer: &mut heimdall_contract::request::ConsumerIntegration,
+    endpoint: &heimdall_contract::provider::EndpointRef,
+) {
+    consumer.signing_endpoint = Some(endpoint.locator.clone());
+    for p in &mut consumer.pairs {
+        if p.endpoint.is_some() {
+            p.endpoint = Some(endpoint.clone());
+        }
     }
 }
 
@@ -1127,8 +1651,7 @@ impl Operations {
                 binding,
                 &crate::ports::MaterializeSpec {
                     generation: crate::managed::driver::BINDING_GENERATION,
-                    public_key: String::new(),
-                    certificates: Vec::new(),
+                    source: crate::ports::MaterializeSource::SlotsOnly,
                     environment_slots: true,
                 },
             )

@@ -2388,11 +2388,21 @@ fn committed_record(
 /// `pending` when the committed P does not render it (a rollback, an apply that renders
 /// its existing-access block or no longer renders the alias). A block repair
 /// (`remove_duplicate_markers`, `move_include_to_top`) leaves P as it is, so it changes
-/// nothing here. A pair whose preference is not `managed_certificate` (`existing`, or
-/// none: every M02 pair) is never written. Store reads only for an M02 intent.
+/// nothing here. Store reads only for an M02 intent.
+///
+/// ⟨§17.22 item 16 (R2F-Q1)⟩ A stored preference that is `existing` is recorded
+/// `applied { generation }` when the committed P renders the pair's **existing-access**
+/// block: its alias is among the aliases the committed SSH item renders (`aliases`, P's
+/// as committed) and the plan did not render it as a managed certificate; otherwise
+/// (a rollback, an alias P no longer renders, a managed rendering) it is `pending`.
+/// **No row is ever created:** a pair without a stored preference (every M02 pair) is
+/// skipped. ⟨R2F-Q4⟩ A `manual_mode` plan (P written, the owner inserts the include
+/// block) is M02's journaled apply of P, so it counts as applied like any other apply;
+/// its manual-include diagnostic and the slot disclosure stay in the plan.
 fn record_managed_projection(
     tx: &mut Txn<'_>,
     intent: &SetupIntent,
+    aliases: &[String],
     generation: u64,
     at: Timestamp,
 ) -> heimdall_store::Result<()> {
@@ -2410,30 +2420,43 @@ fn record_managed_projection(
         | PreviewIntent::Repair {
             resolution: R::Rerender | R::ManualMode,
             ..
-        } => &intent.managed_pairs,
-        // A rollback removes P; any other intent renders no managed section.
-        _ => &none,
+        } => Some(&intent.managed_pairs),
+        // A rollback removes P; any other intent renders no section.
+        _ => None,
     };
-    let mut pairs: BTreeSet<AccessPair> = rendered.clone();
+    let managed = rendered.unwrap_or(&none);
+    let mut pairs: BTreeMap<AccessPair, Option<String>> =
+        managed.iter().map(|p| (p.clone(), None)).collect();
     for d in tx.destinations()? {
         if let DestinationDefinition::Managed { account, .. } = d.definition {
-            pairs.insert(AccessPair {
-                destination: d.id,
-                account,
-            });
+            pairs.insert(
+                AccessPair {
+                    destination: d.id,
+                    account,
+                },
+                Some(d.alias),
+            );
         }
     }
-    for pair in pairs {
+    for (pair, alias) in pairs {
         let Some(mut preference) = tx.pair_preference(&pair)? else {
             continue;
         };
-        if preference.mechanism != PreferredMechanism::ManagedCertificate {
-            continue;
-        }
-        let next = if rendered.contains(&pair) {
-            ProjectionStatus::Applied { generation }
-        } else {
-            ProjectionStatus::Pending
+        let next = match preference.mechanism {
+            PreferredMechanism::ManagedCertificate if managed.contains(&pair) => {
+                ProjectionStatus::Applied { generation }
+            }
+            PreferredMechanism::Existing
+                if rendered.is_some()
+                    && !managed.contains(&pair)
+                    && alias.is_some_and(|a| aliases.contains(&a)) =>
+            {
+                ProjectionStatus::Applied { generation }
+            }
+            PreferredMechanism::ManagedCertificate | PreferredMechanism::Existing => {
+                ProjectionStatus::Pending
+            }
+            _ => continue,
         };
         if preference.projection != next {
             preference.projection = next;
@@ -2497,7 +2520,13 @@ impl StageSink for StoreSink {
                 };
                 tx.commit_projection_item(op, &full, &receipt)?;
                 if commit.item == ProjectionItem::Ssh {
-                    record_managed_projection(tx, intent, commit.generation, now)?;
+                    let aliases = full
+                        .record
+                        .items
+                        .get(&ProjectionItem::Ssh)
+                        .map(|i| i.aliases.clone())
+                        .unwrap_or_default();
+                    record_managed_projection(tx, intent, &aliases, commit.generation, now)?;
                 }
                 Ok(())
             })

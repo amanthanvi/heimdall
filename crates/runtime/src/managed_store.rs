@@ -21,7 +21,11 @@
 //!   the listing of that generation removed, `clearing → free`; a slot whose pair had
 //!   no owned master gets its stable path cleared too), the binding files are removed
 //!   by generation, and the owned connections are closed through the connection
-//!   supervisor as the end requires.
+//!   supervisor as the end requires. ⟨round 3, §17.22 items 9–10⟩ A slot is freed
+//!   only after its binding's files and its mux path are gone (the `clearing` row
+//!   stays the obligation until then), every binding of the grant is found (a
+//!   released one included), and for a grant that has **not** ended only its released
+//!   bindings are cleaned (D10 item 2).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
@@ -375,8 +379,10 @@ impl StoreCleanup {
         }
     }
 
-    /// The bindings of `grant` the store knows (its references and the bindings of
-    /// its owned connections), with the slots each holds.
+    /// The bindings of `grant` the store knows (its references, the bindings of its
+    /// owned connections and ⟨§17.22 items 9–10⟩ every binding whose grant it is, a
+    /// released one included), with the slots each holds, and the control paths of
+    /// the grant's owned masters.
     fn bindings_and_slots(
         &self,
         grant: &GrantId,
@@ -394,6 +400,7 @@ impl StoreCleanup {
                 .filter_map(|c| c.control_path.clone())
                 .collect();
             bindings.extend(rows.into_iter().map(|c| c.binding));
+            bindings.extend(tx.bindings_of_grant(grant)?);
             let mut slots = Vec::new();
             for b in &bindings {
                 slots.extend(tx.slots_for_binding(b)?);
@@ -417,24 +424,69 @@ impl StoreCleanup {
         })
     }
 
-    /// One slot of `binding`, by its own store generation (U6-Q4).
-    async fn clear_one_slot(&self, slot: &StoreSlot, had_master: bool) -> Result<(), AdapterError> {
-        let Some(binding) = &slot.binding else {
-            return Ok(());
-        };
-        let generation = match &slot.state {
+    /// ⟨§17.22 item 10 (W4-R08)⟩ The **released** bindings of a live `grant` (D10
+    /// item 2: a released binding's slots clear while its grant lives on through
+    /// another reference), with the slots each still names, and the control paths of
+    /// the grant's owned masters.
+    fn released_bindings_and_slots(
+        &self,
+        grant: &GrantId,
+    ) -> heimdall_store::Result<(Vec<BindingId>, Vec<StoreSlot>, BTreeSet<String>)> {
+        self.sources.store.transaction(|tx| {
+            let mut bindings = Vec::new();
+            let mut slots = Vec::new();
+            for b in tx.bindings_of_grant(grant)? {
+                let released = tx
+                    .binding(&b)?
+                    .is_some_and(|r| r.state == heimdall_domain::binding::BindingState::Released);
+                if released {
+                    slots.extend(tx.slots_for_binding(&b)?);
+                    bindings.push(b);
+                }
+            }
+            let masters: BTreeSet<String> = tx
+                .owned_connections_for_grant(grant)?
+                .into_iter()
+                .filter(|c| c.kind == ConnectionKind::Master)
+                .filter_map(|c| c.control_path)
+                .collect();
+            Ok((bindings, slots, masters))
+        })
+    }
+
+    /// The store generation at which `binding`'s `slot` is to be cleared: `held` by
+    /// it, or `clearing`; `None` for a slot it no longer has (free, or held by
+    /// another binding now).
+    fn clearing_generation(binding: &BindingId, slot: &StoreSlot) -> Option<u64> {
+        if slot.binding.as_ref() != Some(binding) {
+            return None;
+        }
+        match &slot.state {
             SlotState::Held {
                 binding: holder,
                 generation,
-            } if holder == binding => *generation,
-            SlotState::Clearing { generation } => *generation,
-            _ => return Ok(()),
-        };
+            } if holder == binding => Some(*generation),
+            SlotState::Clearing { generation } => Some(*generation),
+            _ => None,
+        }
+    }
+
+    /// The first half of one slot's clear, by its own store generation (U6-Q4):
+    /// `held → clearing` committed, then the key unlisted and the files of that
+    /// generation removed. The slot stays `clearing`: it is freed only by
+    /// [`Self::finish_slot`], once the rest of its binding's generation-bound work is
+    /// done (§17.22 item 9).
+    fn begin_slot(
+        &self,
+        binding: &BindingId,
+        slot: &StoreSlot,
+        generation: u64,
+    ) -> Result<(), AdapterError> {
         let env = slot.environment.clone();
         let at = Timestamp::now();
-        let store = Arc::clone(&self.sources.store);
         let (pair, b) = (slot.pair.clone(), binding.clone());
-        store
+        self.sources
+            .store
             .transaction(|tx| match tx.slot(&env, &pair)? {
                 SlotState::Held { .. } => {
                     tx.release_slot(&env, &pair, &b, generation, at).map(|_| ())
@@ -443,19 +495,92 @@ impl StoreCleanup {
             })
             .map_err(|_| AdapterError::Unavailable("store".to_owned()))?;
         self.effects.clear_slot(binding, &slot.pair, generation)?;
-        store
-            .transaction(|tx| {
-                tx.slot_files_removed(&env, &pair, generation, at)
-                    .map(|_| ())
-            })
-            .map_err(|_| AdapterError::Unavailable("store".to_owned()))?;
+        Ok(())
+    }
+
+    /// The second half: the slot's stable mux path cleared when its pair had no
+    /// owned master, then `clearing → free` committed. Called only after the slot's
+    /// files and its binding's files are removed (§17.22 item 9): until this commits,
+    /// the `clearing` row keeps the obligation discoverable.
+    async fn finish_slot(
+        &self,
+        slot: &StoreSlot,
+        generation: u64,
+        had_master: bool,
+    ) -> Result<(), AdapterError> {
         if !had_master
             && let Some(c) = &self.connections
             && c.clear_slot_path(&slot.pair.destination).await.is_err()
         {
             return Err(AdapterError::Unavailable("slot_path".to_owned()));
         }
-        Ok(())
+        let env = slot.environment.clone();
+        let pair = slot.pair.clone();
+        let at = Timestamp::now();
+        self.sources
+            .store
+            .transaction(|tx| {
+                tx.slot_files_removed(&env, &pair, generation, at)
+                    .map(|_| ())
+            })
+            .map_err(|_| AdapterError::Unavailable("store".to_owned()))
+    }
+
+    /// Clean up each binding in `bindings` (and each holder named by `slots`):
+    /// every slot it holds or is clearing is cleared by its own generation, its
+    /// binding endpoints and files are removed by generation (found on disk by their
+    /// marker), and only then are its slots' mux paths cleared and the slots freed
+    /// (§17.22 item 9: freeing a slot never ends the obligation while the binding's
+    /// files or a mux path remain). `false` when anything failed (retried by the next
+    /// pass: the `clearing` row, or the grant's undestroyed instance, keeps it
+    /// discoverable).
+    async fn clean_bindings(
+        &self,
+        bindings: &[BindingId],
+        slots: &[StoreSlot],
+        masters: &BTreeSet<String>,
+    ) -> bool {
+        let mut all: BTreeSet<BindingId> = bindings.iter().cloned().collect();
+        all.extend(slots.iter().filter_map(|s| s.binding.clone()));
+        let mut ok = true;
+        for b in &all {
+            let mine: Vec<(&StoreSlot, u64)> = slots
+                .iter()
+                .filter_map(|s| Self::clearing_generation(b, s).map(|g| (s, g)))
+                .collect();
+            let mut done = true;
+            for (s, generation) in &mine {
+                if self.begin_slot(b, s, *generation).is_err() {
+                    done = false;
+                }
+            }
+            match files::binding_directories_of(self.effects.runtime_dir(), b) {
+                Ok(dirs) => {
+                    for (_, generation) in dirs {
+                        if self.effects.clear(b, generation).is_err() {
+                            done = false;
+                        }
+                    }
+                }
+                Err(_) => done = false,
+            }
+            if done {
+                for (s, generation) in &mine {
+                    let had_master = masters.iter().any(|p| {
+                        heimdall_localenv::projection::content::checked_mux_path(
+                            self.effects.runtime_dir(),
+                            &s.pair.destination,
+                        )
+                        .is_ok_and(|m| m.to_string_lossy() == p.as_str())
+                    });
+                    if self.finish_slot(s, *generation, had_master).await.is_err() {
+                        done = false;
+                    }
+                }
+            }
+            ok &= done;
+        }
+        ok
     }
 
     async fn clean(&self, grants: &[GrantId]) -> Result<(), AdapterError> {
@@ -479,37 +604,25 @@ impl StoreCleanup {
                     released.push(g.clone());
                 }
                 Some(_) => expired.push(g.clone()),
-                // A grant that has not ended is left alone.
-                None => continue,
+                // ⟨§17.22 item 10⟩ A grant that has not ended: only its released
+                // bindings (their slots, files and endpoints); nothing else of it.
+                None => {
+                    if state.is_some() {
+                        match self.released_bindings_and_slots(g) {
+                            Ok((bindings, slots, masters)) => {
+                                failed |= !self.clean_bindings(&bindings, &slots, &masters).await;
+                            }
+                            Err(_) => failed = true,
+                        }
+                    }
+                    continue;
+                }
             }
             let Ok((bindings, slots, masters)) = self.bindings_and_slots(g) else {
                 failed = true;
                 continue;
             };
-            for s in &slots {
-                let had_master = masters.iter().any(|p| {
-                    heimdall_localenv::projection::content::checked_mux_path(
-                        self.effects.runtime_dir(),
-                        &s.pair.destination,
-                    )
-                    .is_ok_and(|m| m.to_string_lossy() == p.as_str())
-                });
-                if self.clear_one_slot(s, had_master).await.is_err() {
-                    failed = true;
-                }
-            }
-            for b in &bindings {
-                match files::binding_directories_of(self.effects.runtime_dir(), b) {
-                    Ok(dirs) => {
-                        for (_, generation) in dirs {
-                            if self.effects.clear(b, generation).is_err() {
-                                failed = true;
-                            }
-                        }
-                    }
-                    Err(_) => failed = true,
-                }
-            }
+            failed |= !self.clean_bindings(&bindings, &slots, &masters).await;
         }
         if let Some(c) = &self.connections {
             for (set, which) in [(&revoked, 0u8), (&released, 1), (&expired, 2)] {
@@ -860,6 +973,7 @@ mod live_tests {
     use heimdall_app::ports::{CredentialAdapter, IssuanceRef, IssuerError};
     use heimdall_app::{Caller, OperationsConfig};
     use heimdall_contract::Code;
+    use heimdall_contract::doctor::AliasObservation;
     use heimdall_contract::ids::{
         AccountName, DestinationId, DeviceId, EnrollmentId, IdentityId, OperationId, PolicyId,
         ProfileId, RequestId, WorkId,
@@ -868,7 +982,9 @@ mod live_tests {
     use heimdall_contract::managed::{
         ClockMeasurement, ConnectionPolicy, IssuerIsolation, PreferredMechanism,
     };
-    use heimdall_contract::provider::EndpointRef;
+    use heimdall_contract::provider::{
+        EndpointRef, IdentitiesOnly, IdentitySelection, IdentitySelectionReport,
+    };
     use heimdall_contract::request::{
         EnsureData, EnsureRequest, InteractionMode, RequiredCapabilities, RevokeRequest, WaitMode,
     };
@@ -878,6 +994,7 @@ mod live_tests {
     use heimdall_credential::table::SignerTable;
     use heimdall_credential::vault::KeyVault;
     use heimdall_domain::catalog::{DestinationDefinition, DestinationRecord};
+    use heimdall_domain::enrollment::TargetEvaluation;
     use heimdall_domain::enrollment::{
         ApprovedHostKey, ApprovedTarget, EnrollmentEvidence, EnrollmentForm, EnrollmentState,
         ExistingAccessRecord, NoProxy, PairPreference, ProjectionStatus, RegistryCanonical,
@@ -900,6 +1017,13 @@ mod live_tests {
     use tokio_util::sync::CancellationToken;
 
     const HOUR: Duration = Duration::from_secs(3600);
+
+    /// ⟨R3-C1⟩ ADR-0008 §17.22 items 4, 9, 10 (`managed_store/live_tests/cleanup.rs`).
+    mod cleanup;
+    /// ⟨R3-C2⟩ ADR-0008 §17.22 items 5, 6, 8 (`managed_store/live_tests/pipeline.rs`).
+    mod pipeline;
+    /// ⟨X-M⟩ ADR-0008 §17.23 items 1 and 5 (`managed_store/live_tests/selection.rs`).
+    mod selection;
 
     fn t0() -> Timestamp {
         "2026-11-02T09:00:00Z".parse().unwrap()
@@ -1008,7 +1132,10 @@ mod live_tests {
         }
     }
 
-    fn seed(store: &Store, ca: &SecretCaKey) {
+    /// The fixture world over `pairs` (the profile `dev`, its standing policy, the
+    /// adopted existing identity, the issuer row, and per pair a managed destination,
+    /// a verified enrollment and the applied `managed_certificate` preference).
+    fn seed_pairs(store: &Store, ca: &SecretCaKey, seeded: &[AccessPair]) {
         let fp = ca.fingerprint().unwrap();
         let public = ca.public_openssh().unwrap();
         store
@@ -1026,7 +1153,7 @@ mod live_tests {
                     },
                 })?;
                 let scope = Scope {
-                    pairs: pairs().into_iter().collect(),
+                    pairs: seeded.iter().cloned().collect(),
                     capabilities: [Capability::SshAuthentication].into_iter().collect(),
                 };
                 tx.upsert_profile(&ProfileDefinition {
@@ -1064,7 +1191,7 @@ mod live_tests {
                     created_at: t0(),
                     retired_at: None,
                 })?;
-                for (i, p) in pairs().iter().enumerate() {
+                for (i, p) in seeded.iter().enumerate() {
                     // A managed destination (P renders the alias) whose identity is the
                     // pair's existing access (an adopted public-key file, never read).
                     tx.upsert_destination(&DestinationRecord {
@@ -1103,6 +1230,9 @@ mod live_tests {
         store: Arc<Store>,
         table: SignerTable,
         ca: Arc<SecretCaKey>,
+        /// ⟨X-M⟩ Further CAs ([`Live::add_ca`]): an entry reserved under one of them is
+        /// signed by it.
+        others: Arc<Mutex<Vec<Arc<SecretCaKey>>>>,
     }
 
     fn ready() -> IssuerStatusSnapshot {
@@ -1146,7 +1276,15 @@ mod live_tests {
                     .ok_or_else(refused)?
                     .public_key()
                     .map_err(|_| refused())?;
-                build_and_sign(&CertificateProfile::from_bounds(&e.bounds), &key, &self.ca)
+                let other = self
+                    .others
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .find(|c| c.fingerprint().ok().as_ref() == e.bounds.ca_fingerprint.as_ref())
+                    .cloned();
+                let ca = other.unwrap_or_else(|| self.ca.clone());
+                build_and_sign(&CertificateProfile::from_bounds(&e.bounds), &key, &ca)
                     .map_err(|_| refused())?
                     .to_openssh()
                     .map_err(|_| refused())
@@ -1203,8 +1341,10 @@ mod live_tests {
         }
     }
 
-    /// Fails the stage before `Commit` while armed: the crash point between the
-    /// materialization (inside the preparation) and the commit.
+    /// Fails the stage before `Commit` while armed: a crash point **after** the ensure
+    /// confirmation (the `Confirmed` receipt) and before the commit. ⟨R3-C2⟩ The
+    /// interval between the materialization and the confirmation is
+    /// `pipeline::crash_between_materialize_and_confirmation_leaves_no_endpoint_file_or_key`'s.
     #[derive(Default)]
     struct CrashBeforeCommit(AtomicBool);
 
@@ -1221,11 +1361,23 @@ mod live_tests {
         }
     }
 
+    /// ⟨R3-C2⟩ A one-shot hold of `prepare_from` (after the effect driver ran, before
+    /// the confirmation): when armed, the next call announces `reached` and waits for
+    /// `release` (never, for a crash: the test then drops the process's runtime).
+    #[derive(Default)]
+    struct Hold {
+        armed: AtomicBool,
+        reached: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+
     /// The real managed adapter, whose `prepare_from` refuses (after the effect
     /// driver ran) while `fail` is set: a failure between materialization and commit.
+    /// ⟨R3-C2⟩ It also waits at an armed [`Hold`].
     struct FailPrepare {
         inner: ManagedCertificateAdapter,
         fail: Arc<AtomicBool>,
+        hold: Arc<Hold>,
     }
 
     impl CredentialAdapter for FailPrepare {
@@ -1262,6 +1414,15 @@ mod live_tests {
         {
             if self.fail.load(Ordering::SeqCst) {
                 return Box::pin(async { Err(AdapterError::CapabilityUnavailable) });
+            }
+            if self.hold.armed.swap(false, Ordering::SeqCst) {
+                let hold = Arc::clone(&self.hold);
+                return Box::pin(async move {
+                    let released = hold.release.notified();
+                    hold.reached.notify_one();
+                    released.await;
+                    self.inner.prepare_from(req, sources).await
+                });
             }
             self.inner.prepare_from(req, sources)
         }
@@ -1319,10 +1480,179 @@ mod live_tests {
         clock: Arc<VirtualClock>,
         sync: Arc<ScriptedTimeSync>,
         ca: Arc<SecretCaKey>,
+        /// ⟨X-M, §17.23 items 1 and 5⟩ What the managed read sources of every process
+        /// see beside the store; empty by default (no observation, no evaluation, no
+        /// client: every pair `undetermined`, no evidence holds, as before).
+        feed: Arc<LiveFeed>,
+        /// ⟨X-M⟩ The CAs added by [`Live::add_ca`].
+        others: Arc<Mutex<Vec<Arc<SecretCaKey>>>>,
+    }
+
+    /// ⟨X-M, ADR-0008 §17.23 items 1 and 5⟩ The live harness's equivalent of the
+    /// runtime's managed read sources (`service.rs` `mod sources`): the D10 item 6
+    /// observation of each managed alias (the runtime's `Observing`: the projection
+    /// writer's `observe`), and the evidence comparison's inputs (the runtime's
+    /// `LateEvidenceFeed`: the target evaluator and the verifying client), set by a
+    /// test. Read through [`Observed`] and `prepare::WithEvidenceFeed`, exactly where
+    /// production reads them.
+    #[derive(Default)]
+    struct LiveFeed {
+        observations: Mutex<std::collections::HashMap<String, AliasObservation>>,
+        targets: Mutex<std::collections::HashMap<String, TargetEvaluation>>,
+        client: Mutex<Option<String>>,
+    }
+
+    impl LiveFeed {
+        /// `alias` classified `selection` (D10 item 6), as the projection writer's
+        /// static observation reports it.
+        fn observe(&self, alias: &str, selection: IdentitySelection) {
+            self.observations.lock().unwrap().insert(
+                alias.to_owned(),
+                AliasObservation {
+                    alias: alias.to_owned(),
+                    definition: heimdall_contract::doctor::AliasDefinition::Managed,
+                    behavior: Vec::new(),
+                    identity_selection: Some(IdentitySelectionReport {
+                        selection,
+                        entries: Vec::new(),
+                        identities_only: if selection == IdentitySelection::Exclusive {
+                            IdentitiesOnly::DeterminedYes
+                        } else {
+                            IdentitiesOnly::Undetermined
+                        },
+                    }),
+                },
+            );
+        }
+
+        /// The approved target of [`enrollment`] for `p` (what its alias evaluates to
+        /// while nothing changed).
+        fn approved(p: &AccessPair) -> TargetEvaluation {
+            TargetEvaluation {
+                hostname: format!("{}.example.invalid", p.destination.as_str()),
+                port: 22,
+                user: p.account.as_str().to_owned(),
+                proxy: heimdall_domain::enrollment::ProxyRoute::None,
+                determinism: heimdall_domain::enrollment::Determinism::Determined,
+                host_keys: vec![heimdall_domain::enrollment::RawHostKey {
+                    key_type: "ssh-ed25519".into(),
+                    key_b64: "AAAAC3NzaC1lZDI1NTE5AAAAIhostfixture".into(),
+                    fingerprint: "SHA256:hostfixture".into(),
+                    origin_display: "fixture".into(),
+                    revoked: false,
+                }],
+            }
+        }
+
+        /// Every pair of `ps` evaluates to its approved target, and the verifying
+        /// client is the evidence's: the seeded evidence holds.
+        fn evidence_holds(&self, ps: &[AccessPair]) {
+            let mut t = self.targets.lock().unwrap();
+            for p in ps {
+                t.insert(p.destination.as_str().to_owned(), Self::approved(p));
+            }
+            *self.client.lock().unwrap() = Some(EVIDENCE_CLIENT.to_owned());
+        }
+    }
+
+    /// The verifying client of the seeded evidence ([`enrollment`]).
+    const EVIDENCE_CLIENT: &str = "OpenSSH_10.5p1, LibreSSL 3.3.6";
+
+    impl heimdall_adapters::managed::prepare::EvidenceFeed for LiveFeed {
+        fn evaluate_target(&self, alias: &str) -> Option<TargetEvaluation> {
+            self.targets.lock().unwrap().get(alias).cloned()
+        }
+        fn client_version(&self) -> Option<String> {
+            self.client.lock().unwrap().clone()
+        }
+    }
+
+    /// [`StoreSources`] with [`LiveFeed`]'s observations (the runtime's `Observing`);
+    /// every other read is the store's.
+    struct Observed {
+        inner: StoreSources,
+        feed: Arc<LiveFeed>,
+    }
+
+    impl ManagedSourceRead for Observed {
+        fn enrollments(&self, pairs: &[AccessPair]) -> Vec<EnrollmentRecord> {
+            self.inner.enrollments(pairs)
+        }
+        fn issuing_cas(
+            &self,
+            pairs: &[AccessPair],
+        ) -> std::collections::BTreeMap<AccessPair, std::collections::BTreeSet<CaFingerprint>>
+        {
+            self.inner.issuing_cas(pairs)
+        }
+        fn slots(&self, pairs: &[AccessPair]) -> Vec<heimdall_app::ports::ManagedSlot> {
+            self.inner.slots(pairs)
+        }
+        fn claims(&self) -> Vec<heimdall_domain::claims::Claim> {
+            self.inner.claims()
+        }
+        fn issuer(&self) -> Option<IssuerStatusSnapshot> {
+            self.inner.issuer()
+        }
+        fn prepared(&self, pairs: &[AccessPair]) -> Option<heimdall_app::ports::ManagedPrepared> {
+            self.inner.prepared(pairs)
+        }
+        fn terms(
+            &self,
+            grant: &GrantId,
+        ) -> Option<heimdall_adapters::managed::prepare::GrantTerms> {
+            self.inner.terms(grant)
+        }
+        fn cascade(&self, grant: &GrantId) -> Vec<GrantId> {
+            self.inner.cascade(grant)
+        }
+        fn issuance_entries(&self, grants: &[GrantId]) -> Vec<IssuanceEntry> {
+            self.inner.issuance_entries(grants)
+        }
+        fn key_only_restore(&self) -> bool {
+            self.inner.key_only_restore()
+        }
+        fn recorded_outcome(
+            &self,
+            grant: &GrantId,
+            effect_token: &str,
+        ) -> Option<heimdall_app::ports::PrepareOutcome> {
+            self.inner.recorded_outcome(grant, effect_token)
+        }
+        fn owned_connections(
+            &self,
+            grants: &[GrantId],
+        ) -> Vec<heimdall_domain::managed::OwnedConnection> {
+            self.inner.owned_connections(grants)
+        }
+        fn observations(&self, aliases: &[String]) -> Vec<AliasObservation> {
+            let o = self.feed.observations.lock().unwrap();
+            aliases.iter().filter_map(|a| o.get(a).cloned()).collect()
+        }
+    }
+
+    /// ⟨R3-C2⟩ Wraps the effects a process wires for its driver.
+    type WrapEffects = Arc<dyn Fn(ManagedEffectsImpl) -> Arc<dyn ManagedEffects> + Send + Sync>;
+
+    /// ⟨R3-C2⟩ The test seams of one process ([`Live::process_opts`]).
+    #[derive(Default)]
+    struct Opts {
+        /// `prepare_from` refuses while set.
+        fail: Arc<AtomicBool>,
+        /// `prepare_from` waits at it once armed.
+        hold: Arc<Hold>,
+        /// Wraps the effects the driver uses (the wiring's), not the adapter's.
+        wrap: Option<WrapEffects>,
     }
 
     impl Live {
         fn new() -> Self {
+            Self::seeded(&pairs(), t0())
+        }
+
+        /// ⟨R3-C2⟩ A world over `pairs` (each seeded as in [`seed`]) whose clock starts
+        /// at `start`.
+        fn seeded(pairs: &[AccessPair], start: Timestamp) -> Self {
             let dir = tempfile::tempdir().unwrap();
             owner_only(&dir.path().join("state"));
             owner_only(&dir.path().join("run"));
@@ -1334,14 +1664,43 @@ mod live_tests {
                 .unwrap(),
             );
             let ca = Arc::new(SecretCaKey::generate().unwrap());
-            seed(&store, &ca);
+            seed_pairs(&store, &ca, pairs);
             Self {
                 dir,
                 store,
-                clock: VirtualClock::at(t0()),
+                clock: VirtualClock::at(start),
                 sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
                 ca,
+                feed: Arc::default(),
+                others: Arc::default(),
             }
+        }
+
+        /// ⟨X-M⟩ A further active CA, created after the seeded one (its issuer row; the
+        /// fixture issuer signs with it for an entry reserved under it). Returns its
+        /// fingerprint.
+        fn add_ca(&self) -> CaFingerprint {
+            let ca = Arc::new(SecretCaKey::generate().unwrap());
+            let fp = ca.fingerprint().unwrap();
+            let public = ca.public_openssh().unwrap();
+            self.store
+                .transaction(|tx| {
+                    tx.insert_issuer(&IssuerRecord {
+                        ca_fingerprint: fp.clone(),
+                        public_key: public.clone(),
+                        state: CaState::Active,
+                        store_kind: StoreKind::LinuxSecretService,
+                        backup_sha256: "cd".repeat(32),
+                        backup_created_at: t0(),
+                        restored_without_log: false,
+                        // Newer than every CA before it: the newest verified CA issues.
+                        created_at: Timestamp::from_second(t0().as_second() + 60).unwrap(),
+                        retired_at: None,
+                    })
+                })
+                .unwrap();
+            self.others.lock().unwrap().push(ca);
+            fp
         }
 
         fn run_dir(&self) -> std::path::PathBuf {
@@ -1353,6 +1712,18 @@ mod live_tests {
         }
 
         async fn process_with(&self, hook: Arc<dyn StageHook>, fail: Arc<AtomicBool>) -> Process {
+            self.process_opts(
+                hook,
+                Opts {
+                    fail,
+                    ..Opts::default()
+                },
+            )
+            .await
+        }
+
+        async fn process_opts(&self, hook: Arc<dyn StageHook>, opts: Opts) -> Process {
+            let Opts { fail, hold, wrap } = opts;
             let sources = StoreSources::new(self.store.clone(), env());
             let table = SignerTable::new(Arc::new(KeyVault::new()));
             let late = Arc::new(Late::default());
@@ -1368,9 +1739,19 @@ mod live_tests {
                 },
             )
             .with_slot_store(Arc::new(sources.clone()));
+            // ⟨X-M⟩ The adapter reads the store through the harness's equivalent of the
+            // runtime's `Observing` and evidence feed (empty unless a test sets them).
+            let read: Arc<dyn ManagedSourceRead> =
+                Arc::new(heimdall_adapters::managed::prepare::WithEvidenceFeed {
+                    inner: Arc::new(Observed {
+                        inner: sources.clone(),
+                        feed: self.feed.clone(),
+                    }),
+                    feed: self.feed.clone(),
+                });
             let adapter = ManagedCertificateAdapter::new(
                 "managed-1",
-                Arc::new(sources.clone()),
+                read,
                 Some(effects.clone()),
                 Some(layout.clone()),
             )
@@ -1388,6 +1769,7 @@ mod live_tests {
                 adapters: vec![Arc::new(FailPrepare {
                     inner: adapter,
                     fail,
+                    hold,
                 }) as Arc<dyn CredentialAdapter>],
                 stage_hook: hook,
                 limits: Limits::default(),
@@ -1411,10 +1793,15 @@ mod live_tests {
                 store: self.store.clone(),
                 table: table.clone(),
                 ca: self.ca.clone(),
+                others: self.others.clone(),
             });
             sources.set_issuer(issuer.clone());
+            let wired: Arc<dyn ManagedEffects> = match &wrap {
+                Some(w) => w(effects.clone()),
+                None => Arc::new(effects.clone()),
+            };
             ops.set_managed_wiring(ManagedWiring {
-                effects: Some(Arc::new(effects.clone())),
+                effects: Some(wired),
                 issuer: Some(issuer),
                 ..ManagedWiring::default()
             });
@@ -1640,13 +2027,16 @@ mod live_tests {
         assert!(intents.is_empty());
     }
 
-    /// §17.21 item 1: a crash between the materialization and the commit (the stage
-    /// before `Commit` fails; the process then dies: its endpoint stops without its
-    /// own cleanup) and a restart over the same store: recovery fails the operation
-    /// with a cleanup intent, and once the effects are wired the cleanup pass leaves no
-    /// endpoint, no binding file and no key; nothing is committed.
+    /// §17.21 item 1: a crash **after the ensure confirmation** and before the commit
+    /// (the stage before `Commit` fails; the process then dies: its endpoint stops
+    /// without its own cleanup) and a restart over the same store: recovery fails the
+    /// operation with a cleanup intent, and once the effects are wired the cleanup pass
+    /// leaves no endpoint, no binding file and no key; nothing is committed. ⟨R3-C2;
+    /// W4-R05⟩ Renamed from `crash_between_materialize_and_commit_…`, which named an
+    /// interval it did not cover; the materialize-to-confirmation crash is
+    /// `pipeline::crash_between_materialize_and_confirmation_leaves_no_endpoint_file_or_key`.
     #[tokio::test]
-    async fn crash_between_materialize_and_commit_leaves_no_endpoint_file_or_key() {
+    async fn crash_after_confirmation_before_commit_leaves_no_endpoint_file_or_key() {
         let w = Live::new();
         let hook = Arc::new(CrashBeforeCommit(AtomicBool::new(true)));
         let p = w.process(hook).await;

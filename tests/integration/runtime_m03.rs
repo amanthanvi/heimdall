@@ -18,12 +18,13 @@
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use heimdall_app::ensure::NoStageHook;
-use heimdall_app::operations::{CaStoreItemDeletion, Limits, OWNER_RECONCILE, RetirementResume};
+use heimdall_app::operations::{
+    AWAITING_OWNER_DELETION, Limits, OWNER_RECONCILE, RetirementResume,
+};
 use heimdall_app::ports::{
     AdapterDescriptor, CredentialAdapter, InteractionRequirement, IssuanceRef, IssuerError,
     IssuerPort, IssuerStatusSnapshot, LockContinuity, PrepareOutcome,
@@ -645,6 +646,8 @@ fn m03_decision_kinds() -> Vec<DecisionKind> {
             disclosures: vec![DisclosureKind::SameUserIssuerBoundary],
             ca_public_key: None,
             backup_created_at: None,
+            store_locator: None,
+            expected_store_locator: None,
         },
         DecisionKind::RetireIssuer {
             ca_fingerprint: ca(0),
@@ -2095,40 +2098,19 @@ impl IssuerPort for FakeIssuer {
     }
 }
 
-/// A scripted store-deletion step.
-struct FakeStoreItems {
-    fail: bool,
-    deletes: AtomicUsize,
-}
-
-impl CaStoreItemDeletion for FakeStoreItems {
-    fn delete_recorded(
-        &self,
-        _ca: &CaFingerprint,
-        _store: StoreKind,
-        _locator: &str,
-    ) -> Result<(), IssuerError> {
-        self.deletes.fetch_add(1, Ordering::SeqCst);
-        if self.fail {
-            Err(IssuerError::Unavailable("store locked".into()))
-        } else {
-            Ok(())
-        }
-    }
-}
-
 /// U0b row 23 (ADR-0008 D4 item 3): a CA in `retiring`, `unloaded` or `deleted`
 /// resumes its retirement at its next step, each step persisted only after its
 /// external effect was confirmed.
 ///
-/// * Production wiring at restart (no issuer child, no store-deletion step, wave
-///   0): `retiring` and `unloaded` stay where they are (never marked further
-///   without the effect), `deleted` completes to `retired`; every CA that is not
-///   `pending`/`active` is reported as not to be loaded.
-/// * With fakes: `retiring → unloaded → deleted → retired` (one unload, one
-///   deletion), `unloaded → deleted → retired`; a failed unload keeps `retiring`, a
-///   failed deletion keeps `unloaded`; `active` is untouched. A second call does
-///   nothing more (idempotent).
+/// * Production wiring at restart (no issuer child yet): `retiring` and `unloaded`
+///   stay where they are (never marked further without the effect), `deleted`
+///   completes to `retired`; every CA that is not `pending`/`active` is reported as
+///   not to be loaded.
+/// * With a fake issuer: `retiring → unloaded` (one unload), and there it stops.
+///   ⟨ADR-0008 §17.22 item 12; D3⟩ `unloaded` **never** moves here: the store item's
+///   deletion is the owner-present CLI's, confirmed on `issuer.retire` (the issuer
+///   integration tests cover that). A failed unload keeps `retiring`; `active` is
+///   untouched. A second call does nothing more (idempotent).
 #[tokio::test]
 async fn retirement_resumes_at_start_from_each_state() {
     // Production wiring through a restart.
@@ -2142,7 +2124,7 @@ async fn retirement_resumes_at_start_from_each_state() {
     assert_eq!(ca_state(&w, &retiring), CaState::Retiring);
     assert_eq!(ca_state(&w, &unloaded), CaState::Unloaded);
     assert_eq!(ca_state(&w, &deleted), CaState::Retired);
-    let r = w.ops.resume_ca_retirements(None, None).await.unwrap();
+    let r = w.ops.resume_ca_retirements(None).await.unwrap();
     assert_eq!(
         r.do_not_load,
         [retiring.clone(), unloaded.clone(), deleted.clone()]
@@ -2164,60 +2146,46 @@ async fn retirement_resumes_at_start_from_each_state() {
         ]
     );
 
-    // Fakes that confirm each step.
+    // A fake issuer that confirms each unload.
     let issuer = FakeIssuer {
         fail: false,
         unloads: Mutex::new(Vec::new()),
     };
-    let items = FakeStoreItems {
-        fail: false,
-        deletes: AtomicUsize::new(0),
-    };
-    let r: RetirementResume = w
-        .ops
-        .resume_ca_retirements(Some(&issuer), Some(&items))
-        .await
-        .unwrap();
+    let r: RetirementResume = w.ops.resume_ca_retirements(Some(&issuer)).await.unwrap();
     assert_eq!(
         r.advanced,
-        [
-            (retiring.clone(), CaState::Retiring, CaState::Unloaded),
-            (retiring.clone(), CaState::Unloaded, CaState::Deleted),
-            (retiring.clone(), CaState::Deleted, CaState::Retired),
-            (unloaded.clone(), CaState::Unloaded, CaState::Deleted),
-            (unloaded.clone(), CaState::Deleted, CaState::Retired),
-        ]
+        [(retiring.clone(), CaState::Retiring, CaState::Unloaded)]
     );
-    assert!(r.stalled.is_empty());
+    assert_eq!(
+        r.stalled,
+        [
+            (
+                retiring.clone(),
+                CaState::Unloaded,
+                AWAITING_OWNER_DELETION.to_owned()
+            ),
+            (
+                unloaded.clone(),
+                CaState::Unloaded,
+                AWAITING_OWNER_DELETION.to_owned()
+            ),
+        ],
+        "the store item's deletion waits for the owner-present CLI"
+    );
     assert_eq!(
         *issuer.unloads.lock().unwrap(),
         std::slice::from_ref(&retiring)
     );
-    assert_eq!(items.deletes.load(Ordering::SeqCst), 2);
-    for fp in [&retiring, &unloaded, &deleted] {
-        assert_eq!(ca_state(&w, fp), CaState::Retired, "{fp}");
-        assert!(
-            w.store
-                .transaction(|tx| tx.issuer(fp))
-                .unwrap()
-                .unwrap()
-                .retired_at
-                .is_some()
-        );
+    for fp in [&retiring, &unloaded] {
+        assert_eq!(ca_state(&w, fp), CaState::Unloaded, "{fp}");
     }
+    assert_eq!(ca_state(&w, &deleted), CaState::Retired);
     assert_eq!(ca_state(&w, &active), CaState::Active);
-    let again = w
-        .ops
-        .resume_ca_retirements(Some(&issuer), Some(&items))
-        .await
-        .unwrap();
-    assert!(
-        again.advanced.is_empty() && again.stalled.is_empty(),
-        "idempotent"
-    );
+    let again = w.ops.resume_ca_retirements(Some(&issuer)).await.unwrap();
+    assert!(again.advanced.is_empty(), "idempotent");
     assert_eq!(issuer.unloads.lock().unwrap().len(), 1);
 
-    // Failing steps keep the state.
+    // A failing unload keeps the state.
     let w = World::new().await;
     let retiring = seed_ca(&w, 4, CaState::Retiring);
     let unloaded = seed_ca(&w, 5, CaState::Unloaded);
@@ -2225,15 +2193,7 @@ async fn retirement_resumes_at_start_from_each_state() {
         fail: true,
         unloads: Mutex::new(Vec::new()),
     };
-    let items = FakeStoreItems {
-        fail: true,
-        deletes: AtomicUsize::new(0),
-    };
-    let r = w
-        .ops
-        .resume_ca_retirements(Some(&issuer), Some(&items))
-        .await
-        .unwrap();
+    let r = w.ops.resume_ca_retirements(Some(&issuer)).await.unwrap();
     assert!(r.advanced.is_empty());
     assert_eq!(ca_state(&w, &retiring), CaState::Retiring);
     assert_eq!(ca_state(&w, &unloaded), CaState::Unloaded);
@@ -3803,6 +3763,172 @@ mod wave4 {
         );
         drop((graceful, strict, closed));
     }
+
+    /// ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 3; W4-S03)⟩ Teardown without `stop`:
+    /// a dropped started service, and a start that fails after the issuer child started,
+    /// fence and stop the issuer lifecycle and break the reference cycles. Each child is
+    /// known only by its exact receipt (PID and start token, taken at spawn); a test that
+    /// fails ends that exact child after re-verifying its start token (never by name).
+    mod teardown_r3 {
+        use super::*;
+
+        /// The exact receipt of an issuer child this test started; on drop it ends that
+        /// child if (and only if) the same PID still has the same start token.
+        struct Receipt {
+            pid: u32,
+            token: String,
+        }
+
+        impl Drop for Receipt {
+            fn drop(&mut self) {
+                if process_start_time(self.pid).as_deref() == Some(self.token.as_str()) {
+                    let _ = std::process::Command::new("kill")
+                        .args(["-KILL", &self.pid.to_string()])
+                        .status();
+                }
+            }
+        }
+
+        /// Options whose start token also records every spawned child's exact receipt.
+        fn recording(rig: &Rig, seen: Arc<Mutex<Vec<(u32, String)>>>) -> ServiceOptions {
+            let mut o = rig.options(Arc::new(Mutex::new(Vec::new())));
+            if let Some(m) = o.managed.as_mut() {
+                m.issuer_start_token = Some(Arc::new(move |pid| {
+                    let token = process_start_time(pid);
+                    if let Some(t) = &token {
+                        seen.lock().unwrap().push((pid, t.clone()));
+                    }
+                    token
+                }));
+            }
+            o
+        }
+
+        fn receipts(seen: &Mutex<Vec<(u32, String)>>) -> Vec<Receipt> {
+            seen.lock()
+                .unwrap()
+                .iter()
+                .map(|(pid, token)| Receipt {
+                    pid: *pid,
+                    token: token.clone(),
+                })
+                .collect()
+        }
+
+        /// Wait (bounded) until `vault` no longer upgrades.
+        async fn released(vault: &std::sync::Weak<heimdall_credential::vault::KeyVault>) -> bool {
+            for _ in 0..200 {
+                if vault.upgrade().is_none() {
+                    return true;
+                }
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            false
+        }
+
+        /// A started managed service (a registered CA, so the issuer child runs and is
+        /// `ready`) is dropped before `run`, with every public strong handle (the vault,
+        /// the issuer client) dropped too: the child exits by itself within the bound,
+        /// and the vault is no longer retained by anything.
+        #[tokio::test]
+        async fn dropped_started_service_stops_issuer_and_releases_vault() {
+            let rig = Rig::new(true);
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let svc = Service::start_with(
+                rig.paths(),
+                Config::default(),
+                recording(&rig, seen.clone()),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            let issuer = svc.issuer().unwrap();
+            assert_eq!(issuer.state(), IssuerState::Ready);
+            let child = issuer.identity().unwrap();
+            let receipts = receipts(&seen);
+            assert_eq!(receipts.len(), 1, "one child spawned");
+            assert_eq!(receipts[0].pid, child.pid);
+            assert_eq!(
+                child.start_token.as_deref(),
+                Some(receipts[0].token.as_str())
+            );
+            let vault = {
+                let v = svc.vault().unwrap();
+                v.generate_ed25519().unwrap();
+                Arc::downgrade(&v)
+            };
+            drop(issuer);
+            drop(svc);
+            assert!(
+                gone(receipts[0].pid, &receipts[0].token).await,
+                "the issuer child exited without an explicit stop"
+            );
+            assert!(released(&vault).await, "the vault is not retained");
+            drop(receipts);
+        }
+
+        /// A start that fails **inside** the managed start, after the issuer child started
+        /// (the environment endpoint's path is held by a live listener of this test, so
+        /// its bind fails): the start returns the error, and the child exits by itself.
+        #[tokio::test]
+        async fn failed_start_after_issuer_unwinds_and_stops_it() {
+            let rig = Rig::new(true);
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let held = std::os::unix::net::UnixListener::bind(
+                rig.paths()
+                    .runtime_dir
+                    .join(heimdall_credential::endpoints::ENVIRONMENT_SOCKET),
+            )
+            .unwrap();
+            let r = Service::start_with(
+                rig.paths(),
+                Config::default(),
+                recording(&rig, seen.clone()),
+                CancellationToken::new(),
+            )
+            .await;
+            assert!(r.is_err(), "the environment endpoint cannot bind");
+            drop(r);
+            let receipts = receipts(&seen);
+            assert_eq!(receipts.len(), 1, "the issuer started before the failure");
+            assert!(
+                gone(receipts[0].pid, &receipts[0].token).await,
+                "the failed start stopped the issuer child"
+            );
+            drop(receipts);
+            drop(held);
+        }
+
+        /// A start that fails **after** the managed start returned (the control
+        /// endpoint's path is held by a live listener of this test): the managed runtime
+        /// unwinds through its drop, and the child exits by itself.
+        #[tokio::test]
+        async fn failed_start_after_managed_start_unwinds_and_stops_issuer() {
+            let rig = Rig::new(true);
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let held = std::os::unix::net::UnixListener::bind(
+                rig.paths().runtime_dir.join("control.sock"),
+            )
+            .unwrap();
+            let r = Service::start_with(
+                rig.paths(),
+                Config::default(),
+                recording(&rig, seen.clone()),
+                CancellationToken::new(),
+            )
+            .await;
+            assert!(r.is_err(), "the control endpoint cannot bind");
+            drop(r);
+            let receipts = receipts(&seen);
+            assert_eq!(receipts.len(), 1, "the issuer started before the failure");
+            assert!(
+                gone(receipts[0].pid, &receipts[0].token).await,
+                "the failed start stopped the issuer child"
+            );
+            drop(receipts);
+            drop(held);
+        }
+    }
 }
 
 /// U8-Q6 (ADR-0008 D8 item 2; additive): `inspect destinations` carries, for a managed
@@ -4402,7 +4528,7 @@ mod issuer_crash {
 
     use std::io::{Read as _, Write as _};
     use std::sync::RwLock;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use heimdall_adapters::managed::ManagedCertificateAdapter;
     use heimdall_adapters::managed::effects::{BindingEndpoints, ManagedEffectsImpl};
@@ -4996,12 +5122,12 @@ mod issuer_crash {
         // The crash.
         w.issuer.up.store(false, Ordering::SeqCst);
         p.ops.issuer_supervision_pass().await.unwrap();
-        let (state, reason) = w.grant(&g);
-        assert!(
-            state == GrantState::Active
-                || (state == GrantState::Degraded
-                    && reason.is_some_and(DegradedReason::permits_signing)),
-            "the grant keeps its signing authority: {state:?} {reason:?}"
+        // ⟨ADR-0008 §17.22 item 15 (R2E-Q2 (b))⟩ No grant-state change solely because
+        // the issuer is unavailable: the grant stays exactly `active`, no reason.
+        assert_eq!(
+            w.grant(&g),
+            (GrantState::Active, None),
+            "the grant's state is unchanged across the issuer's unavailability"
         );
         // An installed key still signs: a real request through the binding endpoint.
         let signature = sign_through(&endpoint, "deploy").await;
@@ -5131,6 +5257,153 @@ mod issuer_crash {
         assert_eq!(w.issuer.refused.load(Ordering::SeqCst), 5);
         p.shutdown.cancel();
         p.registry.stop_all();
+    }
+
+    /// ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 13; R2C-Q2)⟩ The `bind` result names the
+    /// binding's endpoint, read from the runtime registry for that exact live binding
+    /// (`OperationsDispatcher::with_binding_endpoints`, as `Service::run` wires it over
+    /// the late registry); absent from the registry, the result names none (`connect`
+    /// then refuses before launch: `connect_cmd`'s
+    /// `managed_connect_refuses_without_a_live_binding_endpoint`).
+    mod bind_endpoint_r3 {
+        use super::*;
+
+        use heimdall_contract::request::{BindForm, BindRequest, LaunchBinding, Request};
+
+        /// The runtime registry's live binding endpoints (the late registry's reading).
+        struct Live(EndpointRegistry);
+
+        impl heimdall_runtime::connections::BindingEndpoints for Live {
+            fn endpoint(&self, binding: &BindingId) -> Option<EndpointRef> {
+                self.0.binding_endpoint(binding).map(|(e, _)| e)
+            }
+        }
+
+        fn launch(binding: &BindingId, rid: &str) -> Request {
+            Request::Bind(BindRequest {
+                binding_id: binding.clone(),
+                form: BindForm::Launch(LaunchBinding {
+                    executable: "/usr/bin/ssh".into(),
+                    holder: None,
+                }),
+                request_id: RequestId::parse(rid).unwrap(),
+            })
+        }
+
+        fn dispatcher(p: &Process, clock: &Arc<VirtualClock>, live: bool) -> OperationsDispatcher {
+            let relay = EventRelay::spawn(&p.ops, CancellationToken::new());
+            let d = OperationsDispatcher::new(p.ops.clone(), relay, clock.clone());
+            if live {
+                d.with_binding_endpoints(Arc::new(Live(p.registry.clone())))
+            } else {
+                d
+            }
+        }
+
+        fn bound(env: &Envelope<serde_json::Value>) -> EnsureData {
+            assert_eq!(env.code, Code::AccessReady, "{:?}", env.data);
+            serde_json::from_value(env.data.clone()).unwrap()
+        }
+
+        #[tokio::test]
+        async fn managed_bind_result_names_live_binding_endpoint() {
+            let w = Rig::new();
+            let p = w.process().await;
+            let data = w
+                .ensure(&p, "bind-ep-1")
+                .await
+                .unwrap_or_else(|e| panic!("ensure: {} {:?} {}", e.code, e.reason, e.message));
+            let (live, generation) = p
+                .registry
+                .binding_endpoint(&data.binding_id)
+                .expect("the binding's live endpoint");
+            assert_eq!(
+                data.consumer.signing_endpoint.as_deref(),
+                Some(live.locator.as_str())
+            );
+            let caller = unattended(ClientRole::Owner);
+            // Wired: the bind result names exactly that live endpoint.
+            let env = dispatcher(&p, &w.clock, true)
+                .handle_as(&caller, launch(&data.binding_id, "bind-ep-a"))
+                .await;
+            let b = bound(&env);
+            assert_eq!(b.binding_id, data.binding_id);
+            assert_eq!(b.credential_mechanism, "managed_certificate");
+            assert_eq!(
+                b.consumer.signing_endpoint.as_deref(),
+                Some(live.locator.as_str()),
+                "the bind result names the binding's live endpoint"
+            );
+            // Unwired (no registry): no endpoint is named.
+            let env = dispatcher(&p, &w.clock, false)
+                .handle_as(&caller, launch(&data.binding_id, "bind-ep-b"))
+                .await;
+            assert_eq!(bound(&env).consumer.signing_endpoint, None);
+            // The endpoint leaves the registry: the next bind names none.
+            assert!(
+                p.registry
+                    .remove_binding_endpoint(&data.binding_id, generation.0)
+                    .unwrap()
+            );
+            assert!(p.registry.binding_endpoint(&data.binding_id).is_none());
+            let env = dispatcher(&p, &w.clock, true)
+                .handle_as(&caller, launch(&data.binding_id, "bind-ep-c"))
+                .await;
+            assert_eq!(
+                bound(&env).consumer.signing_endpoint,
+                None,
+                "absent from the registry: no endpoint"
+            );
+            p.registry.stop_all();
+            p.shutdown.cancel();
+        }
+
+        /// Any endpoint at all, for any binding (to show non-managed results ignore it).
+        struct Anything;
+
+        impl heimdall_runtime::connections::BindingEndpoints for Anything {
+            fn endpoint(&self, _binding: &BindingId) -> Option<EndpointRef> {
+                Some(EndpointRef {
+                    kind: heimdall_contract::provider::EndpointKind::UnixSocket,
+                    locator: "/fixture/b/0123456789abcdef/agent.sock".into(),
+                })
+            }
+        }
+
+        /// An existing-access bind result is unchanged by the wiring: byte-identical with
+        /// and without the registry, and it names no endpoint.
+        #[tokio::test]
+        async fn existing_access_bind_result_unchanged_by_endpoint_wiring() {
+            let w = World::new().await;
+            let data = w
+                .ops
+                .ensure(&unattended(ClientRole::Owner), ensure_req("ea-bind-1"))
+                .await
+                .unwrap()
+                .data;
+            assert_eq!(data.credential_mechanism, "fake_agent");
+            let req = |rid: &str| {
+                Request::Bind(BindRequest {
+                    binding_id: data.binding_id.clone(),
+                    form: BindForm::Materialize,
+                    request_id: RequestId::parse(rid).unwrap(),
+                })
+            };
+            let caller = unattended(ClientRole::Owner);
+            let plain = w.dispatcher().handle_as(&caller, req("ea-bind-a")).await;
+            let wired = w
+                .dispatcher()
+                .with_binding_endpoints(Arc::new(Anything))
+                .handle_as(&caller, req("ea-bind-a"))
+                .await;
+            assert_eq!(plain.code, Code::AccessReady, "{:?}", plain.data);
+            assert_eq!(
+                serde_json::to_string(&plain.data).unwrap(),
+                serde_json::to_string(&wired.data).unwrap(),
+                "existing-access bind results are unchanged"
+            );
+            assert!(plain.data["consumer"].get("signing_endpoint").is_none());
+        }
     }
 }
 
@@ -5448,7 +5721,9 @@ mod setup_switch {
     /// The commit of a `setup apply` whose plan renders `h1`'s managed section records
     /// `h1`'s preference `applied` at the committed SSH generation, issuing CAs and
     /// mechanism unchanged; `h2` (preference `existing`, rendered as existing access) is
-    /// not written, and a pair without a stored preference gets none.
+    /// ⟨§17.22 item 16, R2F-Q1⟩ recorded `existing`/`applied` at the same generation (its
+    /// existing-access rendering committed), and a pair without a stored preference gets
+    /// none.
     #[tokio::test]
     async fn setup_apply_managed_rendering_marks_only_that_pair_applied() {
         let existing = preference("h2", PreferredMechanism::Existing);
@@ -5465,7 +5740,14 @@ mod setup_switch {
         assert_eq!(h1.projection, ProjectionStatus::Applied { generation });
         assert_eq!(h1.mechanism, PreferredMechanism::ManagedCertificate);
         assert_eq!(h1.issuing_cas, [ca(7)].into_iter().collect());
-        assert_eq!(rig.pref("h2"), Some(existing), "h2 is not written");
+        assert_eq!(
+            rig.pref("h2"),
+            Some(PairPreference {
+                projection: ProjectionStatus::Applied { generation },
+                ..existing
+            }),
+            "h2's existing-access rendering is recorded applied"
+        );
         assert!(rig.p().contains("Host alpha"), "{}", rig.p());
         rig.stop().await;
 
@@ -5480,13 +5762,15 @@ mod setup_switch {
         rig.stop().await;
     }
 
-    /// A commit that renders the pair's existing-access block does not mark it applied,
-    /// and a commit that no longer renders its managed section returns it to `pending`:
-    /// a switch back to `existing` leaves the preference `existing`/`pending`; switching
-    /// to managed again and applying marks it applied at the new generation; a rollback
-    /// of the SSH item returns it to `pending` (P no longer renders it).
+    /// A commit that renders the pair's existing-access block never marks a managed
+    /// preference applied, and a commit that no longer renders its managed section
+    /// returns it to `pending`: a switch back to `existing` and its apply record the
+    /// preference `existing`/`applied` (⟨§17.22 item 16, R2F-Q1⟩: its rendering
+    /// committed); switching to managed again and applying marks it applied at the new
+    /// generation; a rollback of the SSH item returns it to `pending` (P no longer
+    /// renders it).
     #[tokio::test]
-    async fn setup_rollback_or_existing_rendering_never_marks_pair_applied() {
+    async fn setup_rollback_or_existing_rendering_never_marks_managed_applied() {
         let rig = Rig::start(&[preference("h1", PreferredMechanism::ManagedCertificate)]).await;
         rig.apply_ok(apply_intent(), "managed").await;
         assert!(matches!(
@@ -5497,10 +5781,14 @@ mod setup_switch {
         rig.set(&preference("h1", PreferredMechanism::Existing));
         let plan = rig.apply_ok(apply_intent(), "existing").await;
         assert!(!renders_managed(&plan, "h1"));
+        let generation = rig.ssh_generation();
         assert_eq!(
             rig.pref("h1"),
-            Some(preference("h1", PreferredMechanism::Existing)),
-            "an existing-access rendering marks nothing"
+            Some(PairPreference {
+                projection: ProjectionStatus::Applied { generation },
+                ..preference("h1", PreferredMechanism::Existing)
+            }),
+            "an existing-access rendering records the existing preference applied"
         );
         // Managed again: applied at the new generation.
         rig.set(&preference("h1", PreferredMechanism::ManagedCertificate));
@@ -5573,5 +5861,187 @@ mod setup_switch {
             "an existing preference is never marked"
         );
         rig.stop().await;
+    }
+
+    /// ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 16; R2F-Q1..Q4)⟩ The preference
+    /// metadata the SSH item's commit records.
+    mod r2f_r3 {
+        use super::*;
+
+        use heimdall_contract::catalog::CatalogRequest;
+
+        fn applied(p: PairPreference, generation: u64) -> PairPreference {
+            PairPreference {
+                projection: ProjectionStatus::Applied { generation },
+                ..p
+            }
+        }
+
+        /// Q1: the `existing` preference of a switched-back pair is recorded `applied`
+        /// when its existing-access rendering commits, and `pending` again when a
+        /// rollback removes P; no row is ever created for a pair without one (`h2`).
+        #[tokio::test]
+        async fn existing_preference_recorded_applied_when_its_rendering_commits() {
+            let rig = Rig::start(&[preference("h1", PreferredMechanism::ManagedCertificate)]).await;
+            rig.apply_ok(apply_intent(), "q1-managed").await;
+            let g1 = rig.ssh_generation();
+            assert_eq!(
+                rig.pref("h1"),
+                Some(applied(
+                    preference("h1", PreferredMechanism::ManagedCertificate),
+                    g1
+                ))
+            );
+            rig.set(&preference("h1", PreferredMechanism::Existing));
+            let plan = rig.apply_ok(apply_intent(), "q1-existing").await;
+            assert!(!renders_managed(&plan, "h1"));
+            let g2 = rig.ssh_generation();
+            assert!(g2 > g1);
+            assert_eq!(
+                rig.pref("h1"),
+                Some(applied(preference("h1", PreferredMechanism::Existing), g2)),
+                "existing/applied at the committed generation"
+            );
+            assert_eq!(rig.pref("h2"), None, "no row for a pair without one");
+            rig.apply_ok(
+                PreviewIntent::Rollback {
+                    keep_key_files: false,
+                    items: [ProjectionItem::Ssh].into_iter().collect(),
+                },
+                "q1-rollback",
+            )
+            .await;
+            assert_eq!(
+                rig.pref("h1"),
+                Some(preference("h1", PreferredMechanism::Existing)),
+                "a rollback returns it to pending"
+            );
+            assert_eq!(rig.pref("h2"), None);
+            rig.stop().await;
+        }
+
+        /// Q2: a toggle back to the already-rendered configuration (`prefer existing`
+        /// then `prefer managed` before any apply: P unchanged) and its apply still
+        /// commit a new SSH generation and record the preference `applied` there; P's
+        /// bytes are unchanged. An apply with nothing pending changes nothing (no
+        /// generation), so M02's no-op apply stays a no-op.
+        #[tokio::test]
+        async fn unchanged_apply_still_commits_generation_and_preference() {
+            let rig = Rig::start(&[preference("h1", PreferredMechanism::ManagedCertificate)]).await;
+            rig.apply_ok(apply_intent(), "q2-first").await;
+            let g1 = rig.ssh_generation();
+            let p1 = rig.p();
+            // Nothing pending: an unchanged apply plans and commits nothing.
+            let plan = rig.apply_ok(apply_intent(), "q2-noop").await;
+            assert!(plan.files.is_empty(), "{:?}", plan.files);
+            assert_eq!(rig.ssh_generation(), g1, "no generation without a change");
+            // The toggle back, as `destination prefer` writes it.
+            rig.set(&preference("h1", PreferredMechanism::Existing));
+            rig.set(&preference("h1", PreferredMechanism::ManagedCertificate));
+            let plan = rig.apply_ok(apply_intent(), "q2-toggle").await;
+            assert!(renders_managed(&plan, "h1"));
+            let g2 = rig.ssh_generation();
+            assert!(
+                g2 > g1,
+                "the unchanged rendering still committed: {g1} -> {g2}"
+            );
+            assert_eq!(rig.p(), p1, "P's bytes are unchanged");
+            assert_eq!(
+                rig.pref("h1"),
+                Some(applied(
+                    preference("h1", PreferredMechanism::ManagedCertificate),
+                    g2
+                )),
+                "the toggle back does not stay pending"
+            );
+            rig.stop().await;
+
+            // M02: no stored preference at all; the second apply changes nothing.
+            let rig = Rig::start(&[]).await;
+            rig.apply_ok(apply_intent(), "q2-m02-first").await;
+            let g = rig.ssh_generation();
+            let plan = rig.apply_ok(apply_intent(), "q2-m02-noop").await;
+            assert!(plan.files.is_empty(), "{:?}", plan.files);
+            assert_eq!(rig.ssh_generation(), g, "M02's no-op apply commits nothing");
+            assert_eq!((rig.pref("h1"), rig.pref("h2")), (None, None));
+            rig.stop().await;
+        }
+
+        /// Q3: removing a destination from the catalog returns its pair preference to
+        /// `pending` in the same transaction (mechanism and issuing CAs kept).
+        #[tokio::test]
+        async fn removed_destination_preference_returns_to_pending() {
+            let rig = Rig::start(&[preference("h1", PreferredMechanism::ManagedCertificate)]).await;
+            rig.apply_ok(apply_intent(), "q3-first").await;
+            assert!(matches!(
+                rig.pref("h1").unwrap().projection,
+                ProjectionStatus::Applied { .. }
+            ));
+            rig.svc
+                .operations()
+                .catalog(
+                    &attended(ClientRole::Owner),
+                    CatalogRequest::RemoveDestination {
+                        id: DestinationId::parse("h1").unwrap(),
+                        request_id: RequestId::parse("req_q3_remove").unwrap(),
+                    },
+                )
+                .await
+                .unwrap_or_else(|e| panic!("remove: {e:?}"));
+            assert!(
+                rig.svc
+                    .store()
+                    .transaction(|tx| tx.destination(&DestinationId::parse("h1").unwrap()))
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                rig.pref("h1"),
+                Some(preference("h1", PreferredMechanism::ManagedCertificate)),
+                "pending again, mechanism and CAs kept"
+            );
+            assert_eq!(rig.pref("h2"), None);
+            rig.stop().await;
+        }
+
+        /// Q4: a manual-mode apply (the user file is not manageable, so Heimdall writes P
+        /// and the owner inserts the include block) counts as applied for its journaled
+        /// P rendering; the plan keeps the manual-include diagnostic and the slot
+        /// disclosure.
+        #[tokio::test]
+        async fn manual_mode_apply_counts_as_applied_with_diagnostic() {
+            use std::os::unix::fs::PermissionsExt as _;
+            let rig = Rig::start(&[preference("h1", PreferredMechanism::ManagedCertificate)]).await;
+            // Group-writable: M02 classifies the user file `unmanageable_file` (manual).
+            std::fs::set_permissions(
+                rig.root.join("acct/.ssh/config"),
+                std::fs::Permissions::from_mode(0o664),
+            )
+            .unwrap();
+            let plan = rig.apply_ok(apply_intent(), "q4-manual").await;
+            assert_eq!(
+                plan.mode,
+                heimdall_contract::setup::SetupMode::Manual,
+                "{:?}",
+                plan.manual_reasons
+            );
+            assert!(
+                plan.manual_reasons.iter().any(|r| r == "unmanageable_file"),
+                "the manual-include diagnostic: {:?}",
+                plan.manual_reasons
+            );
+            assert!(renders_managed(&plan, "h1"), "the slot disclosure stays");
+            assert!(rig.p().contains("Host alpha"), "P written: {}", rig.p());
+            let generation = rig.ssh_generation();
+            assert_eq!(
+                rig.pref("h1"),
+                Some(applied(
+                    preference("h1", PreferredMechanism::ManagedCertificate),
+                    generation
+                )),
+                "manual mode counts as applied"
+            );
+            rig.stop().await;
+        }
     }
 }

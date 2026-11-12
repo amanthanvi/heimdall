@@ -223,6 +223,11 @@ const EXAMPLES: &[(&str, Kind)] = &[
     ("request.issuer.register-rotation.json", Kind::Request),
     ("request.issuer.unlock.json", Kind::Request),
     ("request.issuer.retire.json", Kind::Request),
+    // ⟨ADR-0008 §17.22 item 12⟩ The store-item report, the restore's compare-and-swap,
+    // the owner-present CLI's deletion confirmation.
+    ("request.issuer.register-report.json", Kind::Request),
+    ("request.issuer.register-restore.json", Kind::Request),
+    ("request.issuer.retire-confirm.json", Kind::Request),
     ("request.issuer.bundle.json", Kind::Request),
     ("request.enrollment.preview.json", Kind::Request),
     ("request.enrollment.apply.json", Kind::Request),
@@ -239,6 +244,7 @@ const EXAMPLES: &[(&str, Kind)] = &[
     ("revoke-data.managed.json", Kind::RevokeData),
     ("inspect.enrollments.json", Kind::EnrollmentsView),
     ("inspect.issuer.json", Kind::IssuerStatus),
+    ("inspect.issuer.awaiting-deletion.json", Kind::IssuerStatus),
     ("inspect.connections.json", Kind::ConnectionsView),
 ];
 

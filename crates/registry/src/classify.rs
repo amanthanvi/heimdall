@@ -26,6 +26,7 @@
 //! lock's holder record; both are used by [`crate::fence`] as well.
 
 use heimdall_contract::enrollment::RemoteStage;
+use heimdall_domain::projection::Sha256Hex;
 
 use crate::hm1::{self, ExitCode, Handshake, Hm1Key, Hm1Record};
 use crate::line::marker_lines;
@@ -389,28 +390,45 @@ impl Inspection {
         self.preimage().map(ImageDigest::of)
     }
 
-    /// ⟨wave 4, round 2⟩ This reading without the server owner's bytes (ADR-0008
-    /// §17.21 item 4): the content keeps only the lines containing `marker` (each with
-    /// its `\n`), so other keys' lines and comments are gone. The marker count, the
-    /// exact-line comparison and the lock read the same as on the full reading;
-    /// [`preimage`](Self::preimage) of the result is **not** the registry's (use
-    /// [`preimage_digest`](Self::preimage_digest) of the full reading for that).
+    /// ⟨wave 4, round 3⟩ The parsed facts of this reading's marker-bearing lines
+    /// against Heimdall's exact canonical `line` (ADR-0008 §17.22 item 2): how many
+    /// lines equal it byte for byte, how many other lines carry `marker` (an owner's
+    /// comment, an unrelated key, a damaged entry), their SHA-256 and a
+    /// classification. **Never their bytes.** `line` is ignored unless it carries
+    /// `marker`; without it every marker-bearing line is "other". `None` when there
+    /// is no content (not a regular file).
     #[must_use]
-    pub fn without_foreign_lines(&self, marker: &str) -> Inspection {
-        let content = self.content.as_ref().map(|c| {
-            let mut kept = Vec::new();
-            for l in crate::line::lines(c) {
-                if !marker.is_empty() && crate::line::contains(l, marker.as_bytes()) {
-                    kept.extend_from_slice(l);
-                    kept.push(b'\n');
-                }
-            }
-            kept
+    pub fn marker_facts(&self, marker: &str, line: Option<&str>) -> Option<MarkerFacts> {
+        let content = self.content.as_deref()?;
+        let line = line.filter(|l| {
+            !marker.is_empty() && crate::line::contains(l.as_bytes(), marker.as_bytes())
         });
-        Inspection {
-            content,
-            ..self.clone()
+        let (mut own, mut other) = (0u64, 0u64);
+        let mut others = Vec::new();
+        for l in crate::line::lines(content) {
+            if marker.is_empty() || !crate::line::contains(l, marker.as_bytes()) {
+                continue;
+            }
+            if line.is_some_and(|ours| l == ours.as_bytes()) {
+                own = own.saturating_add(1);
+            } else {
+                other = other.saturating_add(1);
+                others.extend_from_slice(l);
+                others.push(b'\n');
+            }
         }
+        let class = match (own, other) {
+            (_, 1..) => MarkerClass::Damaged,
+            (0, 0) => MarkerClass::Absent,
+            (1, 0) => MarkerClass::Exact,
+            _ => MarkerClass::Duplicated,
+        };
+        Some(MarkerFacts {
+            own_entries: own,
+            other_lines: other,
+            other_sha256: (other > 0).then(|| Sha256Hex::of(&others)),
+            class,
+        })
     }
 
     /// The holder record of a held lock.
@@ -421,6 +439,100 @@ impl Inspection {
             LockReading::None | LockReading::HeldForeign => None,
         }
     }
+}
+
+/// ⟨wave 4, round 3⟩ How a reading's marker-bearing lines classify against
+/// Heimdall's exact canonical line (ADR-0008 §17.22 item 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkerClass {
+    /// No line carries the marker.
+    Absent,
+    /// Exactly one line, the canonical one.
+    Exact,
+    /// The canonical line more than once, nothing else.
+    Duplicated,
+    /// Some marker-bearing line is not the canonical line.
+    Damaged,
+}
+
+impl MarkerClass {
+    /// The stored name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MarkerClass::Absent => "absent",
+            MarkerClass::Exact => "exact",
+            MarkerClass::Duplicated => "duplicated",
+            MarkerClass::Damaged => "damaged",
+        }
+    }
+}
+
+/// ⟨wave 4, round 3⟩ The parsed facts of a reading's marker-bearing lines
+/// ([`Inspection::marker_facts`]): counts, a classification and a digest, never
+/// the lines' bytes (ADR-0008 §17.22 item 2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkerFacts {
+    /// Lines equal to Heimdall's canonical line byte for byte.
+    pub own_entries: u64,
+    /// Other lines containing the marker.
+    pub other_lines: u64,
+    /// The SHA-256 over those other lines (each with its `\n`, in order), when any.
+    pub other_sha256: Option<Sha256Hex>,
+    /// The classification.
+    pub class: MarkerClass,
+}
+
+/// ⟨wave 4, round 3⟩ The stand-in for a marker-bearing line whose bytes were not
+/// recorded (ADR-0008 §17.22 item 2): it carries `marker` and is never Heimdall's
+/// canonical line (it is a comment), so a reading rebuilt with it counts and
+/// classifies as the full one did.
+#[must_use]
+pub fn unrecorded_marker_line(marker: &str) -> String {
+    format!("# heimdall: marker-bearing line not recorded {marker}")
+}
+
+/// ⟨wave 4, round 3⟩ A minimized reading's content rebuilt from its facts: the
+/// canonical `own_entry` `own_entries` times, then one
+/// [`unrecorded_marker_line`] per other marker-bearing line, each with its `\n`.
+/// `None` when the facts are inconsistent (an own entry count without the entry,
+/// an entry that is not a marker line, or counts that differ from `marker_lines`).
+#[must_use]
+pub fn minimized_content(
+    marker: &str,
+    own_entry: Option<&[u8]>,
+    own_entries: u64,
+    other_lines: u64,
+    marker_lines: u64,
+) -> Option<Vec<u8>> {
+    if own_entries.checked_add(other_lines)? != marker_lines {
+        return None;
+    }
+    let mut out = Vec::new();
+    if own_entries > 0 {
+        let entry = own_entry?;
+        if marker.is_empty()
+            || !crate::line::contains(entry, marker.as_bytes())
+            || entry.contains(&b'\n')
+        {
+            return None;
+        }
+        for _ in 0..own_entries {
+            out.extend_from_slice(entry);
+            out.push(b'\n');
+        }
+    }
+    if other_lines > 0 {
+        if marker.is_empty() {
+            return None;
+        }
+        let stand_in = unrecorded_marker_line(marker);
+        for _ in 0..other_lines {
+            out.extend_from_slice(stand_in.as_bytes());
+            out.push(b'\n');
+        }
+    }
+    Some(out)
 }
 
 // --- the step classification ---------------------------------------------------------
@@ -728,14 +840,18 @@ mod tests {
         assert!(HolderRecord::parse(&format!("{text}-x")).is_none());
     }
 
-    /// ⟨round 2⟩ §17.21 item 4: a minimized reading keeps only the marker's lines;
-    /// the marker count and the lock read as on the full reading, and the full
-    /// reading's digest is the registry's.
+    /// ⟨round 3⟩ §17.22 item 2: the marker facts count Heimdall's exact line apart
+    /// from every other marker-bearing line (an owner's comment, an unrelated key),
+    /// which is kept only as a count and a digest; the rebuilt content counts and
+    /// classifies as the full reading, and holds none of the foreign bytes.
     #[test]
-    fn without_foreign_lines_keeps_only_marker_lines() {
+    fn marker_facts_keep_no_foreign_marker_bytes() {
         let marker = "heimdall:enr_0123456789abcdef0123456789abcdef";
+        let ours = format!("cert-authority x {marker}");
+        let comment = format!("# owner-secret-note {marker}");
+        let key = format!("ssh-ed25519 AAAA owner-key-{marker}");
         let content =
-            format!("# owner comment\nssh-ed25519 AAAA foreign\ncert-authority x {marker}\n");
+            format!("# owner comment\n{comment}\nssh-ed25519 AAAA foreign\n{ours}\n{key}\n");
         let full = Inspection {
             path: b"/r".to_vec(),
             dir: DirState::Present,
@@ -747,22 +863,59 @@ mod tests {
             owner_self: None,
             content: Some(content.clone().into_bytes()),
             last_byte_newline: Some(true),
-            marker_lines: 1,
+            marker_lines: 3,
             lock: LockReading::None,
             remote_now: 1,
         };
-        let min = full.without_foreign_lines(marker);
+        let f = full.marker_facts(marker, Some(&ours)).unwrap();
         assert_eq!(
-            min.content.as_deref(),
-            Some(format!("cert-authority x {marker}\n").as_bytes())
+            (f.own_entries, f.other_lines, f.class),
+            (1, 2, MarkerClass::Damaged)
         );
-        assert_eq!(min.marker_lines, 1);
+        assert_eq!(
+            f.other_sha256,
+            Some(Sha256Hex::of(format!("{comment}\n{key}\n").as_bytes()))
+        );
+        let rebuilt = minimized_content(marker, Some(ours.as_bytes()), 1, 2, 3).unwrap();
+        let text = String::from_utf8(rebuilt.clone()).unwrap();
+        assert!(!text.contains("owner-secret-note") && !text.contains("owner-key-"));
+        assert_eq!(marker_lines(&rebuilt, marker), 3);
+        assert_eq!(text.lines().filter(|l| *l == ours).count(), 1);
+        // Without the canonical line every marker line is "other".
+        let f = full.marker_facts(marker, None).unwrap();
+        assert_eq!((f.own_entries, f.other_lines), (0, 3));
+        // Exact, duplicated, absent.
+        let one = Inspection {
+            content: Some(format!("{ours}\n").into_bytes()),
+            marker_lines: 1,
+            ..full.clone()
+        };
+        assert_eq!(
+            one.marker_facts(marker, Some(&ours)).unwrap().class,
+            MarkerClass::Exact
+        );
+        let two = Inspection {
+            content: Some(format!("{ours}\n{ours}\n").into_bytes()),
+            marker_lines: 2,
+            ..full.clone()
+        };
+        assert_eq!(
+            two.marker_facts(marker, Some(&ours)).unwrap().class,
+            MarkerClass::Duplicated
+        );
+        let none = full.marker_facts("", Some(&ours)).unwrap();
+        assert_eq!(
+            (none.own_entries, none.other_lines, none.class),
+            (0, 0, MarkerClass::Absent)
+        );
+        // Inconsistent facts rebuild nothing.
+        assert!(minimized_content(marker, None, 1, 0, 1).is_none());
+        assert!(minimized_content(marker, Some(ours.as_bytes()), 1, 0, 2).is_none());
+        assert!(minimized_content(marker, Some(b"no marker"), 1, 0, 1).is_none());
         assert_eq!(
             full.preimage_digest(),
             Some(ImageDigest::of(content.as_bytes()))
         );
-        let none = full.without_foreign_lines("");
-        assert_eq!(none.content.as_deref(), Some(&b""[..]));
     }
 
     /// ADR-0008 §17.17 item 6 (U5S-Q5): an append or remove exit 30 with

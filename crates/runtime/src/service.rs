@@ -62,6 +62,10 @@
 //! bound); `managed_reissue_pass`; then the control endpoint and `instance.json`
 //! ([`Service::start_steps`]). **Stop:** stop accepting; close the owned masters;
 //! zeroize the vault; shut the issuer down; remove the endpoints; clear the wiring.
+//! ⟨§17.22 item 3⟩ A started service dropped without `run`, and a start that fails after
+//! its first reference cycle, run the same teardown (`ManagedTeardown`): the issuer
+//! lifecycle is fenced and stopped and the `Operations` ↔ registry ↔ authority cycles are
+//! broken, so nothing keeps the child or the vault alive.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -414,7 +418,8 @@ impl Accept for heimdall_ipc::windows::Listener {
 
 /// A running service. Dropping it without [`Service::run`] closes its endpoints,
 /// removes its advertisement and releases the lock (in that order); it does not
-/// wait for in-flight work.
+/// wait for in-flight work. ⟨M03⟩ With the managed wiring it also zeroizes the vault,
+/// stops the issuer child and clears the wiring (`ManagedTeardown`).
 pub struct Service {
     // Field order is drop order: endpoints close first, the lock is released last.
     control: ControlListener,
@@ -655,7 +660,7 @@ impl Service {
             ))
         })?;
         let signing_endpoint = match &managed {
-            Some(m) => m.registry.environment().locator,
+            Some(m) => m.teardown.registry.environment().locator,
             None => endpoint_string(&endpoints.signing)?,
         };
         let info = InstanceInfo {
@@ -731,7 +736,10 @@ impl Service {
         let mut dispatcher = OperationsDispatcher::new(operations.clone(), relay, clock.clone())
             .with_service_control(shutdown.clone());
         if let Some(m) = &managed {
-            dispatcher = dispatcher.with_connections(Arc::clone(&m.connections));
+            let endpoints: Arc<dyn crate::connections::BindingEndpoints> = m.teardown.late.clone();
+            dispatcher = dispatcher
+                .with_connections(Arc::clone(&m.connections))
+                .with_binding_endpoints(endpoints);
         }
         let environment = operations.environment().clone();
         let mut tasks = JoinSet::new();
@@ -799,7 +807,7 @@ impl Service {
         // ⟨M03⟩ m03-plan U10's stop order (accepting already stopped above): close the
         // owned masters, zeroize the vault, shut the issuer down, remove the endpoints.
         if let Some(m) = managed {
-            m.stop(&operations).await;
+            m.stop().await;
         }
         drop(advertisement);
         drop(operations);
@@ -855,14 +863,16 @@ impl Service {
     #[doc(hidden)]
     #[must_use]
     pub fn vault(&self) -> Option<Arc<KeyVault>> {
-        self.managed.as_ref().map(|m| Arc::clone(&m.vault))
+        self.managed.as_ref().map(|m| Arc::clone(&m.teardown.vault))
     }
 
     /// ⟨M03⟩ The issuer child's client of the managed wiring (tests).
     #[doc(hidden)]
     #[must_use]
     pub fn issuer(&self) -> Option<ChildIssuer> {
-        self.managed.as_ref().and_then(|m| m.issuer.clone())
+        self.managed
+            .as_ref()
+            .and_then(|m| m.teardown.issuer.clone())
     }
 
     /// ⟨M03⟩ The connection control of the managed wiring (tests).
@@ -876,7 +886,7 @@ impl Service {
     #[doc(hidden)]
     #[must_use]
     pub fn endpoint_registry(&self) -> Option<EndpointRegistry> {
-        self.managed.as_ref().map(|m| m.registry.clone())
+        self.managed.as_ref().map(|m| m.teardown.registry.clone())
     }
 
     /// ⟨M03⟩ U9: the start-up refusal of a configured `revoke` floor whose source is
@@ -1667,10 +1677,12 @@ impl crate::connections::BindingEndpoints for LateRegistry {
 /// (`content::managed_slot_paths(<state_dir>, destination)`). A store failure refuses the
 /// preview, never rendering existing access instead.
 ///
-/// ⟨§17.21 item 9⟩ The control path: the slot's stable mux path
+/// ⟨§17.21 item 9; §17.22 item 14⟩ The control path: the slot's stable mux path
 /// (`content::checked_mux_path(<runtime_dir>, destination)`, D8 item 3) only when owned
-/// masters are enabled for the pair ([`pair_masters_enabled`]); otherwise `ControlPath
-/// none`. This source is read only by the setup preview, so the path reaches P only
+/// masters are enabled for the pair by the pair-level rendering rule
+/// ([`pair_masters_enabled`]: every standing policy covering the pair has
+/// `owned_masters`; none covering it means disabled); otherwise `ControlPath none`. Each
+/// master's own grant policy is still checked when it starts. This source is read only by the setup preview, so the path reaches P only
 /// through the `setup apply` of that preview (enabling masters is widening: it takes
 /// effect through an approved projection). On Windows (owned masters unavailable, M-F7)
 /// and for a path past the socket limit (`mux_path_too_long`): `ControlPath none`.
@@ -1682,13 +1694,16 @@ struct StorePairSource {
     runtime_dir: PathBuf,
 }
 
-/// ⟨§17.21 item 9⟩ Whether owned masters are enabled for `pair` in `environment`: D8
-/// item 1's fail-closed merge (`effective_connection_policy`, strictest wins) over every
-/// current standing policy that applies to the pair (its profile defined, its
-/// environments containing `environment`, its scope naming the pair) is
-/// `owned_masters`. No applicable policy: disabled (the default). A grant's own origin
-/// cannot enable it here: P is per pair, and each master is still started only for a
-/// grant whose own effective policy is `owned_masters` (U7's `start_context`).
+/// ⟨§17.21 item 9; ADR-0008 §17.22 item 14 (R2D-Q1, option (a))⟩ Whether owned masters
+/// are enabled for `pair` in `environment`. **A pair-level rendering rule:** P renders the
+/// pair's stable mux path only when **every** current standing policy covering the pair
+/// (its profile defined, its environments containing `environment`, its scope naming the
+/// pair) has `owned_masters`, which is D8 item 1's fail-closed merge
+/// (`effective_connection_policy`, strictest wins) over them. No applicable policy means
+/// disabled (the default). No grant's policy enters it (P is per pair and changes only
+/// through an approved setup transaction), and it decides only what P renders: each master
+/// is still started only for a grant whose **own** effective policy is `owned_masters`
+/// (U7's `start_context`), checked when that master starts.
 fn pair_masters_enabled(
     tx: &mut heimdall_store::Txn<'_>,
     environment: &EnvironmentId,
@@ -1760,6 +1775,26 @@ impl heimdall_localenv::projection::ManagedPairSource for StorePairSource {
             _ => Ok(None),
         }
     }
+
+    /// ⟨§17.22 item 16 (R2F-Q2)⟩ The pair's stored preference (either mechanism) is
+    /// `pending`; no stored preference (every M02 pair) is never pending.
+    fn projection_pending(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<bool, String> {
+        let pair = heimdall_domain::scope::AccessPair {
+            destination: alias.destination.clone(),
+            account: alias.account.clone(),
+        };
+        self.store
+            .transaction(|tx| tx.pair_preference(&pair))
+            .map(|p| {
+                p.is_some_and(|p| {
+                    p.projection == heimdall_domain::enrollment::ProjectionStatus::Pending
+                })
+            })
+            .map_err(|_| "the pair preference could not be read".to_owned())
+    }
 }
 
 /// ⟨M03 wave 4, round 2 (R2-F)⟩ The runtime's store-backed `ManagedPairSource`
@@ -1794,6 +1829,8 @@ struct ManagedParts {
     sources: StoreSources,
     install_view: Arc<sources::LateInstallView>,
     cleanup: Arc<sources::LateCleanup>,
+    /// ⟨R3-A, §17.22 item 7⟩ The evidence comparison's inputs, bound in `start`.
+    evidence: Arc<sources::LateEvidenceFeed>,
 }
 
 /// The store-backed sources of the managed adapter (`crate::managed_store`, U10-C):
@@ -1807,7 +1844,7 @@ mod sources {
 
     use heimdall_adapters::managed::EndCleanup;
     use heimdall_adapters::managed::effects::{GrantScopes, SlotStore};
-    use heimdall_adapters::managed::prepare::ManagedSourceRead;
+    use heimdall_adapters::managed::prepare::{EvidenceFeed, ManagedSourceRead};
     use heimdall_app::ports::AdapterError;
     use heimdall_contract::ids::GrantId;
     use heimdall_credential::table::{InstallRefusal, InstallView};
@@ -1816,14 +1853,43 @@ mod sources {
     use crate::managed_store::{OpsInstallView, StoreCleanup, StoreSources};
     use crate::supervisor::ManagedConnections;
 
+    /// The managed adapter's sources, with the evidence comparison's inputs from
+    /// `feed` (⟨§17.22 item 7⟩: the runtime's target evaluator and verifying client,
+    /// bound once they exist).
     pub(super) fn read(
         s: &StoreSources,
         writer: Option<Arc<dyn heimdall_app::ports::ProjectionWriter>>,
+        feed: Arc<LateEvidenceFeed>,
     ) -> Arc<dyn ManagedSourceRead> {
         Arc::new(Observing {
             inner: s.clone(),
             writer,
+            feed,
         })
+    }
+
+    /// ⟨§17.22 item 7⟩ The evidence comparison's inputs, bound after the runtime's
+    /// target evaluator and enrollment host exist (they are built with the managed
+    /// wiring, after the adapter): the same evaluator and client the enrollment driver
+    /// uses (`heimdall_adapters::managed::prepare::TargetAndClient`). Unset (no
+    /// wired projection, so no evaluator or client; or before binding): no
+    /// evaluation, so no evidence holds and every managed `destination_scope` is
+    /// `unknown` (fail closed).
+    #[derive(Default)]
+    pub(super) struct LateEvidenceFeed(RwLock<Option<Arc<dyn EvidenceFeed>>>);
+
+    impl LateEvidenceFeed {
+        /// Bind (or clear) the feed.
+        pub(super) fn set(&self, feed: Option<Arc<dyn EvidenceFeed>>) {
+            *self.0.write().unwrap_or_else(PoisonError::into_inner) = feed;
+        }
+
+        fn get(&self) -> Option<Arc<dyn EvidenceFeed>> {
+            self.0
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        }
     }
 
     /// ⟨§17.21 item 11⟩ `StoreSources` with D10 item 6's static observation of the
@@ -1834,6 +1900,7 @@ mod sources {
     struct Observing {
         inner: StoreSources,
         writer: Option<Arc<dyn heimdall_app::ports::ProjectionWriter>>,
+        feed: Arc<LateEvidenceFeed>,
     }
 
     impl ManagedSourceRead for Observing {
@@ -1926,6 +1993,17 @@ mod sources {
                 Ok(Some(record)) => writer.observe(&record, aliases),
                 _ => Vec::new(),
             }
+        }
+
+        fn evaluate_target(
+            &self,
+            alias: &str,
+        ) -> Option<heimdall_domain::enrollment::TargetEvaluation> {
+            self.feed.get()?.evaluate_target(alias)
+        }
+
+        fn client_version(&self) -> Option<String> {
+            self.feed.get()?.client_version()
         }
     }
 
@@ -2091,6 +2169,7 @@ impl ManagedParts {
             sources,
             install_view,
             cleanup: Arc::new(sources::LateCleanup::default()),
+            evidence: Arc::new(sources::LateEvidenceFeed::default()),
         })
     }
 
@@ -2102,7 +2181,7 @@ impl ManagedParts {
         Arc::new(
             ManagedCertificateAdapter::new(
                 "default",
-                sources::read(&self.sources, writer),
+                sources::read(&self.sources, writer, Arc::clone(&self.evidence)),
                 Some(self.effects.clone()),
                 Some(self.layout.clone()),
             )
@@ -2150,6 +2229,20 @@ impl ManagedParts {
             stop,
         )
         .with_verification_gates(ops.signing_gates().clone());
+        // ⟨§17.22 item 3, W4-S03⟩ From the first reference cycle on, a failed start
+        // unwinding (any `?` below) runs the full teardown: the guard owns every part
+        // that `Drop` must stop or clear, and the issuer joins it the moment it exists.
+        let mut teardown = ManagedTeardown {
+            ops: ops.clone(),
+            vault: Arc::clone(&self.vault),
+            registry: registry.clone(),
+            late: Arc::clone(&self.late),
+            install_view: Arc::clone(&self.install_view),
+            cleanup: Arc::clone(&self.cleanup),
+            issuer: None,
+            platform_lock: None,
+            stopped: false,
+        };
         self.late.set(registry.clone());
         // U2-Q2: the install view reads through the operations.
         self.install_view
@@ -2170,6 +2263,7 @@ impl ManagedParts {
             SessionLockWiring::Source(s) => (Some(s), None),
             SessionLockWiring::None => (None, None),
         };
+        teardown.platform_lock.clone_from(&platform_lock);
         if let Some(s) = &lock_source {
             ops.set_session_lock_source(Arc::clone(s));
         }
@@ -2228,6 +2322,7 @@ impl ManagedParts {
             .issuer_start_token
             .unwrap_or_else(|| Arc::new(crate::platform::process_start_time));
         let issuer = command.map(|c| ChildIssuer::new(ClientConfig::new(c, start_token)));
+        teardown.issuer.clone_from(&issuer);
         if let Some(i) = &issuer {
             self.sources.set_issuer(Arc::new(i.clone()));
         }
@@ -2283,6 +2378,16 @@ impl ManagedParts {
                     endpoints: vec![control_locator.clone(), registry.environment().locator],
                     windows: c.platform.is_windows(),
                 });
+            // ⟨R3-A, §17.22 item 7⟩ The managed sources' evidence comparison reads the
+            // same evaluator and client.
+            if let Some(target) = &target {
+                self.evidence.set(Some(Arc::new(
+                    heimdall_adapters::managed::prepare::TargetAndClient {
+                        target: Arc::clone(target),
+                        host: Arc::clone(&host),
+                    },
+                )));
+            }
             ops.set_enrollment_host(host);
         }
         let effects: Arc<dyn heimdall_app::ports::ManagedEffects> = Arc::new(self.effects.clone());
@@ -2351,15 +2456,9 @@ impl ManagedParts {
         steps.push(start_step::MANAGED_REISSUE_PASS);
 
         Ok(ManagedRuntime {
-            vault: self.vault,
-            registry,
-            late: self.late,
-            install_view: self.install_view,
-            cleanup: self.cleanup,
-            issuer,
+            teardown,
             connections,
             lock_source,
-            platform_lock,
             lock_passes: m.lock_passes,
             floor_refusal,
             steps,
@@ -2369,15 +2468,10 @@ impl ManagedParts {
 
 /// The running managed wiring (module docs).
 struct ManagedRuntime {
-    vault: Arc<KeyVault>,
-    registry: EndpointRegistry,
-    late: Arc<LateRegistry>,
-    install_view: Arc<sources::LateInstallView>,
-    cleanup: Arc<sources::LateCleanup>,
-    issuer: Option<ChildIssuer>,
+    /// What every end of this wiring undoes ([`ManagedTeardown`]).
+    teardown: ManagedTeardown,
     connections: Arc<ManagedConnections>,
     lock_source: Option<Arc<dyn SessionLockSource>>,
-    platform_lock: Option<Arc<PlatformSessionLockSource>>,
     lock_passes: LockPassConfig,
     floor_refusal: Option<heimdall_app::OpError>,
     steps: Vec<&'static str>,
@@ -2388,13 +2482,13 @@ impl ManagedRuntime {
     /// (the late-bound `StoreCleanup`; unset or after stop it refuses, so the slot rows
     /// stay the intent).
     fn end_cleanup(&self) -> Arc<dyn heimdall_adapters::managed::EndCleanup> {
-        self.cleanup.clone()
+        self.teardown.cleanup.clone()
     }
 
     /// m03-plan U10's stop order, after accepting stopped: close the owned masters,
-    /// zeroize the vault, shut the issuer down, remove the endpoints; then the M03
-    /// wiring is cleared (breaking the reference cycles).
-    async fn stop(self, ops: &Operations) {
+    /// zeroize the vault, shut the issuer down (awaited), remove the endpoints; then the
+    /// M03 wiring is cleared (breaking the reference cycles).
+    async fn stop(mut self) {
         let report = self.connections.shutdown().await;
         if !report.unverified.is_empty() || !report.failed.is_empty() {
             tracing::warn!(
@@ -2403,34 +2497,89 @@ impl ManagedRuntime {
                 "some owned masters were not closed at stop"
             );
         }
-        self.vault.destroy_all();
-        if let Some(i) = &self.issuer {
+        let t = &mut self.teardown;
+        t.vault.destroy_all();
+        if let Some(i) = t.issuer.take() {
             i.stop().await;
         }
-        self.registry.stop_all();
-        if let Some(p) = &self.platform_lock {
-            p.shutdown();
-        }
-        ops.set_managed_wiring(ManagedWiring::default());
-        self.late.clear();
-        self.install_view.set(None);
-        self.cleanup.set(None);
+        t.release();
+        t.stopped = true;
         tracing::info!("managed credentials stopped: vault zeroized, issuer stopped");
     }
 }
 
-impl Drop for ManagedRuntime {
-    /// A service dropped without `run` (or a failed start) still zeroizes its keys and
-    /// stops its endpoints; the issuer child ends with its client (`kill_on_drop`).
-    fn drop(&mut self) {
+/// ⟨ADR-0008 §17.22 item 3, W4-S03⟩ What every end of a started managed wiring undoes,
+/// whether `run` was entered or not: [`ManagedRuntime::stop`] (the ordinary stop), a
+/// dropped [`Service`], and a start that fails after its first reference cycle exists
+/// (the guard is built right after the endpoint registry, so any `?` of
+/// `ManagedParts::start` or of `Service::start_with` after it unwinds through `Drop`).
+///
+/// The cycles it breaks: `Operations → adapters → effects → LateRegistry →
+/// EndpointRegistry → SignatureAuthority (the Operations)`, `Operations →
+/// ManagedWiring → {issuer lifecycle, verification endpoints (the registry),
+/// connections (→ Operations)}`, the install view (`SignerTable → LateInstallView →
+/// OpsInstallView (the Operations)`) and the end-of-grant cleanup (`→ connections →
+/// Operations`). Without that, dropping every public handle left the issuer child alive
+/// with its CA loaded and the vault retained (the reviewer's probe).
+///
+/// On drop (unless the ordinary stop ran): the vault is zeroized; the issuer lifecycle
+/// is **fenced and stopped** (`ChildIssuer::stop`: the lifecycle is ended first, so no
+/// restart or reload of it spawns a child or loads a CA, then the child is asked to exit
+/// and ended through its own handle after `STOP_TIMEOUT`), spawned on the current tokio
+/// runtime because `Drop` cannot await (outside a runtime the client's last handle, freed
+/// once the cycles are broken, ends the child through `kill_on_drop`); the endpoints are
+/// stopped; the session-lock source is shut down; and the managed wiring, the late
+/// registry, the install view and the cleanup are cleared. The child is only ever ended
+/// through the exact handle that spawned it.
+struct ManagedTeardown {
+    ops: Operations,
+    vault: Arc<KeyVault>,
+    registry: EndpointRegistry,
+    late: Arc<LateRegistry>,
+    install_view: Arc<sources::LateInstallView>,
+    cleanup: Arc<sources::LateCleanup>,
+    issuer: Option<ChildIssuer>,
+    platform_lock: Option<Arc<PlatformSessionLockSource>>,
+    /// The ordinary stop ran to its end (its issuer stop was awaited).
+    stopped: bool,
+}
+
+impl ManagedTeardown {
+    /// The synchronous, idempotent part of every end: zeroize, stop the endpoints and
+    /// the lock source, and break the cycles.
+    fn release(&mut self) {
         self.vault.destroy_all();
         self.registry.stop_all();
         if let Some(p) = &self.platform_lock {
             p.shutdown();
         }
+        self.ops.set_managed_wiring(ManagedWiring::default());
         self.late.clear();
         self.install_view.set(None);
         self.cleanup.set(None);
+    }
+}
+
+impl Drop for ManagedTeardown {
+    fn drop(&mut self) {
+        if self.stopped {
+            return;
+        }
+        self.vault.destroy_all();
+        if let Some(issuer) = self.issuer.take() {
+            match tokio::runtime::Handle::try_current() {
+                Ok(rt) => {
+                    rt.spawn(async move { issuer.stop().await });
+                }
+                // No runtime to run the stop on: dropping this last handle (the cycles
+                // are broken below) ends the child through its own `kill_on_drop`.
+                Err(_) => drop(issuer),
+            }
+        }
+        self.release();
+        tracing::info!(
+            "managed credentials torn down without stop: vault zeroized, issuer stopping"
+        );
     }
 }
 

@@ -1881,6 +1881,13 @@
               "description": "OpenSSH one-line Ed25519 public key, no comment.",
               "type": "string"
             },
+            "expected_store_locator": {
+              "description": "⟨ADR-0008 §17.22 item 12⟩ A restore that wrote a new store item for a CA\nwhose record survives (D4 item 4, log intact; a re-registration of the\nknown CA): the locator it expects recorded now, compared and swapped for\n`store_locator` on approval (absent: none recorded). A mismatch refuses and\nchanges nothing. The displaced item is listed in `orphan_store_items`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "restored_without_log": {
               "description": "A key-only restore (ADR-0008 D4 item 4).",
               "type": "boolean"
@@ -1899,6 +1906,13 @@
             "store": {
               "description": "The store the key will live in.",
               "$ref": "#/$defs/StoreKind"
+            },
+            "store_locator": {
+              "description": "⟨ADR-0008 §17.22 item 12⟩ The ceremony's report of the K_ca store item it\nwrote: the exact `StoreItemRef` locator its `put` returned (D4 item 1 step\n6), bound to this CA, this installation and `store`. Sent again after the\nput with the same registration: it joins the pending `RegisterIssuer`\ndecision, which records it, and the approval records it with the CA.\nAbsent before the put (step 3).",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -1923,7 +1937,7 @@
           ]
         },
         {
-          "description": "Creates a `RetireIssuer` decision. kind `issuer.retire`.",
+          "description": "Creates a `RetireIssuer` decision. kind `issuer.retire`. On a CA whose\nretirement waits at `unloaded`, answers the issuer status, which names the\nstore item to delete ([`CaStatus::store_locator`]).",
           "type": "object",
           "properties": {
             "action": {
@@ -1933,6 +1947,13 @@
             "ca_fingerprint": {
               "description": "The CA to retire.",
               "$ref": "#/$defs/CaFingerprint"
+            },
+            "deleted_locator": {
+              "description": "⟨ADR-0008 §17.22 item 12⟩ The owner-present CLI's confirmation that it\ndeleted exactly this store item and a re-read found it absent (attended\nsessions only): the CA's recorded locator while it is `unloaded` (the\nrecord then reaches `retired`), or one of its displaced items listed in\n`orphan_store_items` (it leaves the list). Anything else is refused and\nchanges nothing. The runtime never deletes a store item itself (D3).",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [

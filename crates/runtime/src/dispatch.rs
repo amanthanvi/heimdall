@@ -177,6 +177,11 @@ pub struct OperationsDispatcher {
     /// ⟨M03⟩ wave 4: connection control for `Request::Connections` (`None`: an unwired
     /// runtime, which answers `driver_unavailable`).
     connections: Option<Arc<ManagedConnections>>,
+    /// ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 13; R2C-Q2)⟩ The runtime registry's
+    /// live binding endpoints, which a managed `bind` result names
+    /// ([`Self::with_binding_endpoints`]). `None`: no managed wiring, so no endpoint is
+    /// named.
+    binding_endpoints: Option<Arc<dyn crate::connections::BindingEndpoints>>,
 }
 
 impl std::fmt::Debug for OperationsDispatcher {
@@ -196,7 +201,42 @@ impl OperationsDispatcher {
             clock,
             stop: None,
             connections: None,
+            binding_endpoints: None,
         }
+    }
+
+    /// ⟨M03 wave 4, round 3 (ADR-0008 §17.22 item 13; R2C-Q2)⟩ Name the binding's
+    /// endpoint in a managed `bind` result: `consumer.signing_endpoint` is read from
+    /// `endpoints` (the runtime's endpoint registry) for **that exact** binding at the
+    /// moment the result is answered, and is absent when the registry has no live
+    /// endpoint for it, so `connect` refuses before launch (it never guesses one). The
+    /// stored operation result is unchanged (it keeps no live state); a replay of the
+    /// bind reads the registry again. Results of every other mechanism are returned as
+    /// the application answered them (existing access unchanged).
+    #[must_use]
+    pub fn with_binding_endpoints(
+        mut self,
+        endpoints: Arc<dyn crate::connections::BindingEndpoints>,
+    ) -> Self {
+        self.binding_endpoints = Some(endpoints);
+        self
+    }
+
+    /// The managed `bind` result with its live binding endpoint ([`Self::with_binding_endpoints`]).
+    fn bind_result(
+        &self,
+        result: OpResult<heimdall_contract::request::EnsureData>,
+    ) -> OpResult<heimdall_contract::request::EnsureData> {
+        result.map(|mut done| {
+            if done.data.credential_mechanism == heimdall_app::operations::MANAGED_CERTIFICATE {
+                done.data.consumer.signing_endpoint = self
+                    .binding_endpoints
+                    .as_ref()
+                    .and_then(|e| e.endpoint(&done.data.binding_id))
+                    .map(|e| e.locator);
+            }
+            done
+        })
     }
 
     /// ⟨M03⟩ wave 4 (U0b row 13, phase 2): route `Connections::{Close, Register}` to
@@ -251,7 +291,7 @@ impl OperationsDispatcher {
         match request {
             Request::Inspect(r) => render(ops.inspect(&caller, r).await),
             Request::Ensure(r) => render(ops.ensure(&caller, r).await),
-            Request::Bind(r) => render(ops.bind(&caller, r).await),
+            Request::Bind(r) => render(self.bind_result(ops.bind(&caller, r).await)),
             Request::Delegate(r) => render(ops.delegate(&caller, r).await),
             Request::Observe(r) => render(ops.observe(&caller, r).await),
             Request::Cancel(r) => render(ops.cancel(&caller, r).await),

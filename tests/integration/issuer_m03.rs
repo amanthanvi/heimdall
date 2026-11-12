@@ -23,7 +23,7 @@ use std::pin::Pin;
 use heimdall_app::ensure::NoStageHook;
 use heimdall_app::issuer::IssuerLifecycle;
 use heimdall_app::managed::{ManagedWiring, ReleaseRefusal, VerificationScope};
-use heimdall_app::operations::{CaStoreItemDeletion, Limits, VerificationRequest};
+use heimdall_app::operations::{AWAITING_OWNER_DELETION, Limits, VerificationRequest};
 use heimdall_app::ports::{
     IssuanceRef, IssuerError, IssuerPort, IssuerStatusSnapshot, SignRefusal, SignatureAuthority,
     SignatureRequestFacts, SignatureSubject, SignerEndpoint,
@@ -50,6 +50,7 @@ use heimdall_domain::enrollment::{
 };
 use heimdall_domain::environment::{EnvironmentKind, EnvironmentPermissions, EnvironmentRecord};
 use heimdall_domain::idempotency::{IdempotencyKey, IdempotencyRecord};
+use heimdall_domain::issuance::CaEvent;
 use heimdall_domain::operation::{
     EffectClass, EffectReceipt, OperationKind, OperationRecord, RecoveryIntent, RecoveryMetadata,
     StageReceipt, enrollment_stage,
@@ -58,7 +59,7 @@ use heimdall_domain::principal::{CallerContext, ClientRole, PrincipalRef};
 use heimdall_domain::scope::AccessPair;
 use heimdall_domain::time::{Clock, SyncStatus, TimePolicy};
 use heimdall_domain::verification::{VerificationPurpose, VerificationRefusal};
-use heimdall_issuer::retire::StoreItemDeletion;
+use heimdall_issuer::retire;
 use heimdall_issuer::store::{
     SecretStore, SecretStoreKind, StoreAvailability, StoreError as ScratchError, StoreItemRef,
 };
@@ -231,9 +232,6 @@ struct FakeIssuer {
     starts: AtomicUsize,
     reloads: AtomicUsize,
     unloads: Mutex<Vec<CaFingerprint>>,
-    /// ⟨§17.21 item 3⟩ The store-deletion port the lifecycle offers (`None`: none,
-    /// as in production today).
-    deletion: Mutex<Option<Arc<dyn CaStoreItemDeletion>>>,
 }
 
 impl FakeIssuer {
@@ -244,7 +242,6 @@ impl FakeIssuer {
             starts: AtomicUsize::new(0),
             reloads: AtomicUsize::new(0),
             unloads: Mutex::new(Vec::new()),
-            deletion: Mutex::new(None),
         })
     }
 }
@@ -331,10 +328,6 @@ impl IssuerLifecycle for FakeIssuer {
         Box::pin(async move {
             *self.state.lock().unwrap() = IssuerState::Unavailable;
         })
-    }
-
-    fn store_item_deletion(&self) -> Option<Arc<dyn CaStoreItemDeletion>> {
-        self.deletion.lock().unwrap().clone()
     }
 }
 
@@ -529,6 +522,7 @@ async fn issuer_requests_fail_closed_without_wiring() {
         register_req(1, None),
         IssuerRequest::Retire {
             ca_fingerprint: ca_fp(1),
+            deleted_locator: None,
         },
         IssuerRequest::Bundle {
             redact_hostnames: false,
@@ -665,6 +659,11 @@ async fn issuer_register_through_decision_approved() {
     assert_eq!(ca.public_key, ca_line(1));
     assert_eq!(ca.backup_sha256, digest(1));
     assert_eq!(ca.backup_created_at, t0());
+    assert_eq!(
+        w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))),
+        None,
+        "no store item was reported: none recorded"
+    );
     let env = w.tx(|tx| tx.environment(&env_id())).unwrap();
     assert!(env.permissions.managed_signing && env.permissions.issuer_access);
     assert!(
@@ -781,6 +780,8 @@ async fn issuer_register_refused_not_consumed_when_precheck_fails() {
                 disclosures: Vec::new(),
                 ca_public_key: None,
                 backup_created_at: None,
+                store_locator: None,
+                expected_store_locator: None,
             },
             generation,
             created_at: t0(),
@@ -856,6 +857,8 @@ async fn issuer_register_old_shape_decision_is_stale_not_consumed() {
                     disclosures: Vec::new(),
                     ca_public_key: key,
                     backup_created_at: at,
+                    store_locator: None,
+                    expected_store_locator: None,
                 },
                 generation,
                 created_at: t0(),
@@ -931,6 +934,7 @@ async fn ca_retirement_refused_until_every_enrollment_final_or_abandoned() {
                 &attended(),
                 IssuerRequest::Retire {
                     ca_fingerprint: ca_fp(n),
+                    deleted_locator: None,
                 },
             )
             .await
@@ -963,6 +967,7 @@ async fn ca_retirement_refused_until_every_enrollment_final_or_abandoned() {
             &attended(),
             IssuerRequest::Retire {
                 ca_fingerprint: ca_fp(1),
+                deleted_locator: None,
             },
         )
         .await
@@ -990,6 +995,7 @@ async fn ca_retirement_refused_until_every_enrollment_final_or_abandoned() {
             &attended(),
             IssuerRequest::Retire {
                 ca_fingerprint: ca_fp(60),
+                deleted_locator: None,
             },
         )
         .await
@@ -1000,8 +1006,8 @@ async fn ca_retirement_refused_until_every_enrollment_final_or_abandoned() {
 /// `RetireIssuer` through its decision: a denial leaves the CA `active`; an approval
 /// moves it to `retiring` in the decide transaction (new reservations refused
 /// `ca_retiring`), then the child is asked to unload it (`retiring → unloaded`). The
-/// store item's deletion needs this installation's recorded locator (§17.17 item 3;
-/// §17.21 item 3), and none is recorded here (nor a deletion port wired): the CA
+/// store item's deletion is the owner-present CLI's (§17.22 item 12), confirmed
+/// against this installation's recorded locator, and none is recorded here: the CA
 /// stays `unloaded`, and the supervision pass leaves it there (nothing deleted).
 #[tokio::test]
 async fn issuer_retire_through_decision_approve_and_deny() {
@@ -1015,6 +1021,7 @@ async fn issuer_retire_through_decision_approve_and_deny() {
     ));
     let retire = IssuerRequest::Retire {
         ca_fingerprint: ca_fp(1),
+        deleted_locator: None,
     };
     let d = decision_of(&w.issuer(&attended(), retire.clone()).await.unwrap_err());
     // Joined, not duplicated.
@@ -1044,9 +1051,32 @@ async fn issuer_retire_through_decision_approve_and_deny() {
         w.tx(|tx| tx.issuer(&ca_fp(1))).unwrap().state,
         CaState::Unloaded
     );
-    // Its retirement has begun: a second retire is refused, writing nothing.
+    // ⟨§17.22 item 12⟩ Its retirement waits at `unloaded`: a second retire answers
+    // the status (naming the store item to delete; none recorded here), writing
+    // nothing.
     let before = w.snapshot();
-    let e = w.issuer(&attended(), retire).await.unwrap_err();
+    let s: IssuerStatus =
+        serde_json::from_value(w.issuer(&attended(), retire).await.unwrap()).unwrap();
+    assert_eq!(s.cas[0].state, CaState::Unloaded);
+    assert_eq!(s.cas[0].store_locator, None);
+    assert_eq!(w.snapshot(), before);
+    // A CA still `retiring` refuses a second retire, writing nothing.
+    w.register_ca(2, CaState::Active);
+    w.tx(|tx| {
+        tx.set_issuer_state(&ca_fp(2), CaState::Active, CaEvent::RetireApproved, t0())
+            .map(|r| r.map(|_| ()).unwrap())
+    });
+    let before = w.snapshot();
+    let e = w
+        .issuer(
+            &attended(),
+            IssuerRequest::Retire {
+                ca_fingerprint: ca_fp(2),
+                deleted_locator: None,
+            },
+        )
+        .await
+        .unwrap_err();
     assert_eq!(e.code, Code::ConfigConflict);
     assert_eq!(w.snapshot(), before);
 }
@@ -1066,8 +1096,8 @@ fn owner_only_dir(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
 /// One OS store shared by two installations of the same OS user, over two testkit
 /// `ScratchSecretStore`s (`own`: this installation's, where `put` and `get` go;
 /// `other`: another installation's), labelled with the product kind the CA records
-/// register (`linux_secret_service`) so the production deletion port
-/// (`retire::StoreItemDeletion`, which refuses a test kind, S3) runs over real scratch
+/// register (`linux_secret_service`) so the owner-present CLI's deletion
+/// (`retire::delete_awaiting`, which refuses a test kind, S3) runs over real scratch
 /// files. Like a shared platform store, its `list` reports **both** installations'
 /// items and its `delete` deletes whichever item the exact locator names: only the
 /// exactness of the recorded locator keeps the other installation's item. No platform
@@ -1135,16 +1165,315 @@ fn issuer_record_for(key: &SecretCaKey, state: CaState) -> IssuerRecord {
     }
 }
 
-/// ⟨ADR-0008 §17.21 item 3; §17.17 item 3⟩ Retirement deletes **exactly the recorded
-/// store locator** and nothing else: CA K is in one shared store twice (this
-/// installation's item, whose `put` locator the runtime records, and another
-/// installation's item for the same CA under another locator, which the store also
-/// lists), and this installation also holds another CA's item. Approving the
-/// `RetireIssuer` decision unloads K, deletes the recorded item, confirms it absent and
-/// reaches `retired`; the other installation's item and the other CA's item survive
-/// and still read. A recorded locator is never re-pointed.
+/// `issuer.register` for a real generated key (`key`), optionally carrying the store
+/// item report (`store_locator`) and a restore's expected locator.
+fn register_key_req(
+    key: &SecretCaKey,
+    store_locator: Option<&str>,
+    expected_store_locator: Option<&str>,
+) -> IssuerRequest {
+    serde_json::from_value(serde_json::json!({
+        "action": "register",
+        "ca_public_key": key.public_openssh().unwrap(),
+        "store": "linux_secret_service",
+        "backup_sha256": digest(1),
+        "backup_created_at": t0(),
+        "store_locator": store_locator,
+        "expected_store_locator": expected_store_locator,
+    }))
+    .unwrap()
+}
+
+/// `issuer.register` of the synthetic CA `n` with a store item report and a
+/// restore's expected locator (and, for the refusals, a rotation or a key-only
+/// restore).
+fn register_report(
+    n: u8,
+    store_locator: Option<&str>,
+    expected_store_locator: Option<&str>,
+    rotation_of: Option<CaFingerprint>,
+    restored_without_log: bool,
+) -> IssuerRequest {
+    serde_json::from_value(serde_json::json!({
+        "action": "register",
+        "ca_public_key": ca_line(n),
+        "store": "linux_secret_service",
+        "backup_sha256": digest(n),
+        "backup_created_at": t0(),
+        "rotation_of": rotation_of,
+        "restored_without_log": restored_without_log,
+        "store_locator": store_locator,
+        "expected_store_locator": expected_store_locator,
+    }))
+    .unwrap()
+}
+
+fn confirm_deleted(ca: &CaFingerprint, locator: &str) -> IssuerRequest {
+    IssuerRequest::Retire {
+        ca_fingerprint: ca.clone(),
+        deleted_locator: Some(locator.to_owned()),
+    }
+}
+
+fn status_of(v: serde_json::Value) -> IssuerStatus {
+    serde_json::from_value(v).unwrap()
+}
+
+/// ⟨ADR-0008 §17.22 item 12 (R2B-Q1)⟩ The ceremony reports the K_ca store item on
+/// `issuer.register` after its put: the same registration with `store_locator` joins
+/// the pending `RegisterIssuer` decision and is recorded on it once (the same report
+/// again, or the registration without it, joins; another item is refused, writing
+/// nothing); the approval records the CA **with** that locator, and `issuer.status`
+/// names it. A malformed locator is refused before any record.
 #[tokio::test]
-async fn ca_retirement_deletes_exactly_the_recorded_store_locator() {
+async fn issuer_register_store_locator_report_recorded_with_approval() {
+    let w = World::new().await;
+    let d = decision_of(
+        &w.issuer(&attended(), register_req(1, None))
+            .await
+            .unwrap_err(),
+    );
+    let reported = register_report(1, Some("/org/fixture/item/1"), None, None, false);
+    assert_eq!(
+        decision_of(&w.issuer(&attended(), reported.clone()).await.unwrap_err()),
+        d,
+        "the report joins the pending registration"
+    );
+    let DecisionKind::RegisterIssuer { store_locator, .. } = &w.decision(&d).kind else {
+        panic!();
+    };
+    assert_eq!(store_locator.as_deref(), Some("/org/fixture/item/1"));
+    assert_eq!(
+        decision_of(&w.issuer(&attended(), reported).await.unwrap_err()),
+        d
+    );
+    assert_eq!(
+        decision_of(
+            &w.issuer(&attended(), register_req(1, None))
+                .await
+                .unwrap_err()
+        ),
+        d
+    );
+    let before = w.snapshot();
+    let e = w
+        .issuer(
+            &attended(),
+            register_report(1, Some("/org/fixture/item/2"), None, None, false),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+    for bad in ["", "line\nbreak"] {
+        let e = w
+            .issuer(
+                &attended(),
+                register_report(1, Some(bad), None, None, false),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::UsageError, "{bad:?}");
+    }
+    assert_eq!(w.snapshot(), before, "nothing written by a refused report");
+    assert_eq!(w.tx(|tx| tx.pending_decisions()).len(), 1, "one record");
+
+    w.decide(&d, Verdict::Approve).await.unwrap();
+    assert_eq!(
+        w.tx(|tx| tx.issuer(&ca_fp(1))).unwrap().state,
+        CaState::Active
+    );
+    assert_eq!(
+        w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))).as_deref(),
+        Some("/org/fixture/item/1"),
+        "recorded with the approval"
+    );
+    let s = status_of(w.issuer(&attended(), IssuerRequest::Status).await.unwrap());
+    assert_eq!(
+        s.cas[0].store_locator.as_deref(),
+        Some("/org/fixture/item/1")
+    );
+    assert!(s.orphan_store_items.is_empty());
+}
+
+/// The pending `RegisterIssuer` record of `d`, encoded as the store writes it, and
+/// the world's snapshot: what a refused report must leave byte-identical.
+fn pending_bytes(w: &World, d: &DecisionId) -> (String, String) {
+    (serde_json::to_string(&w.decision(d)).unwrap(), w.snapshot())
+}
+
+/// `req` (an `issuer.register` built by [`register_report`]) with `field` replaced.
+fn with_field(req: &IssuerRequest, field: &str, v: serde_json::Value) -> IssuerRequest {
+    let mut j = serde_json::to_value(req).unwrap();
+    j[field] = v;
+    serde_json::from_value(j).unwrap()
+}
+
+/// ⟨ADR-0008 §17.23 item 3 (R3B-Q2 (a))⟩ The store-item report (the second
+/// `issuer.register`, after the put) must repeat the pending registration's facts
+/// **exactly**: a report differing in any one fact (public key/fingerprint, store
+/// kind, backup digest, backup time, rotation, key-only restore, expected locator)
+/// is refused, creating no decision and leaving the pending one byte-identical —
+/// `CONFIG_CONFLICT` when a registration of that CA is pending with other facts,
+/// `DECISION_STALE` when none is (another key: a report never creates a
+/// registration), `CONFIG_CONFLICT` for an expected locator on an unregistered CA.
+/// The same refusals hold after the exact report attached its locator.
+#[tokio::test]
+async fn issuer_register_store_locator_report_must_repeat_every_fact() {
+    let w = World::new().await;
+    // The rotation variant needs an `active` CA to rotate (else NOT_FOUND first).
+    w.register_ca(2, CaState::Active);
+    let d = decision_of(
+        &w.issuer(&attended(), register_req(1, None))
+            .await
+            .unwrap_err(),
+    );
+    let report = register_report(1, Some("/org/fixture/item/1"), None, None, false);
+    let differing = [
+        (
+            "public key (another fingerprint)",
+            with_field(&report, "ca_public_key", serde_json::json!(ca_line(3))),
+            Code::DecisionStale,
+        ),
+        (
+            "store kind",
+            with_field(&report, "store", serde_json::json!("windows_dpapi")),
+            Code::ConfigConflict,
+        ),
+        (
+            "backup digest",
+            with_field(&report, "backup_sha256", serde_json::json!(digest(9))),
+            Code::ConfigConflict,
+        ),
+        (
+            "backup time",
+            with_field(
+                &report,
+                "backup_created_at",
+                serde_json::json!(shift(t0(), 1)),
+            ),
+            Code::ConfigConflict,
+        ),
+        (
+            "rotation",
+            register_report(1, Some("/org/fixture/item/1"), None, Some(ca_fp(2)), false),
+            Code::ConfigConflict,
+        ),
+        (
+            "key-only restore",
+            register_report(1, Some("/org/fixture/item/1"), None, None, true),
+            Code::ConfigConflict,
+        ),
+        (
+            "expected locator",
+            register_report(
+                1,
+                Some("/org/fixture/item/1"),
+                Some("/org/fixture/item/0"),
+                None,
+                false,
+            ),
+            Code::ConfigConflict,
+        ),
+    ];
+    let refuse_all = |phase: &'static str| {
+        let w = &w;
+        let d = &d;
+        let differing = &differing;
+        async move {
+            for (why, req, want) in differing {
+                let before = pending_bytes(w, d);
+                let e = w.issuer(&attended(), req.clone()).await.unwrap_err();
+                assert_eq!(e.code, *want, "{phase}: {why}: {e:?}");
+                assert_eq!(
+                    pending_bytes(w, d),
+                    before,
+                    "{phase}: {why}: nothing created or changed"
+                );
+                assert_eq!(w.tx(|tx| tx.pending_decisions()).len(), 1, "{phase}: {why}");
+            }
+        }
+    };
+    refuse_all("before the report").await;
+    let DecisionKind::RegisterIssuer { store_locator, .. } = &w.decision(&d).kind else {
+        panic!();
+    };
+    assert_eq!(*store_locator, None, "nothing attached by a refused report");
+
+    assert_eq!(
+        decision_of(&w.issuer(&attended(), report).await.unwrap_err()),
+        d,
+        "the exact report joins"
+    );
+    refuse_all("after the report").await;
+    w.decide(&d, Verdict::Approve).await.unwrap();
+    assert_eq!(
+        w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))).as_deref(),
+        Some("/org/fixture/item/1")
+    );
+    assert_eq!(
+        w.tx(|tx| tx.issuer(&ca_fp(3))),
+        None,
+        "no other CA registered"
+    );
+}
+
+/// ⟨ADR-0008 §17.23 item 3⟩ The report attaches the locator **once**: the same
+/// locator again is an idempotent answer naming the same decision with the record
+/// byte-identical; a second **different** locator is refused `CONFIG_CONFLICT`,
+/// leaving the record (and its first locator) byte-identical; the approval records
+/// the first locator.
+#[tokio::test]
+async fn issuer_register_store_locator_report_attaches_once() {
+    let w = World::new().await;
+    let d = decision_of(
+        &w.issuer(&attended(), register_req(1, None))
+            .await
+            .unwrap_err(),
+    );
+    let first = register_report(1, Some("/org/fixture/item/1"), None, None, false);
+    assert_eq!(
+        decision_of(&w.issuer(&attended(), first.clone()).await.unwrap_err()),
+        d
+    );
+    let attached = pending_bytes(&w, &d);
+    for n in 0..2 {
+        let e = w.issuer(&attended(), first.clone()).await.unwrap_err();
+        assert_eq!(e.code, Code::ApprovalRequired, "{n}: {e:?}");
+        assert_eq!(decision_of(&e), d, "{n}: idempotent");
+        assert_eq!(pending_bytes(&w, &d), attached, "{n}: unchanged");
+    }
+    let e = w
+        .issuer(
+            &attended(),
+            register_report(1, Some("/org/fixture/item/2"), None, None, false),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+    assert_eq!(
+        pending_bytes(&w, &d),
+        attached,
+        "the second locator wrote nothing"
+    );
+    w.decide(&d, Verdict::Approve).await.unwrap();
+    assert_eq!(
+        w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))).as_deref(),
+        Some("/org/fixture/item/1")
+    );
+}
+
+/// ⟨ADR-0008 §17.22 item 12 (R2B-Q2); D3⟩ Retirement with a real scratch store item:
+/// after the child unloads K the CA stops at `unloaded`, **awaiting the deletion of
+/// its recorded locator**, and nothing deletes it (the runtime holds no store
+/// handle, the child only reads): the item still exists and reads after the
+/// approval, the supervision pass and a resume. `issuer.status` and `retire` name the
+/// locator. A confirmation is refused, changing nothing, unattended, before the
+/// unload, and with another locator (the other installation's item of the same CA).
+/// The owner-present CLI's deletion (`retire::delete_awaiting`) deletes exactly that
+/// item; the confirmation with it reaches `retired` (once more: idempotent). The
+/// other installation's item survives.
+#[tokio::test]
+async fn ca_retirement_waits_unloaded_for_the_owner_deletion_confirmation() {
     let w = World::new().await;
     let scratch = tempfile::tempdir().unwrap();
     let a = Arc::new(SharedScratch {
@@ -1154,61 +1483,46 @@ async fn ca_retirement_deletes_exactly_the_recorded_store_locator() {
     let b = ScratchSecretStore::new(a.other.dir());
     let key = SecretCaKey::generate().unwrap();
     let fp = key.fingerprint().unwrap();
-    let other = SecretCaKey::generate().unwrap();
-    let other_fp = other.fingerprint().unwrap();
+    // The ceremony: register, put, report, approve.
+    let d = decision_of(
+        &w.issuer(&attended(), register_key_req(&key, None, None))
+            .await
+            .unwrap_err(),
+    );
     let a_item = a.put(&fp, &key).unwrap();
     let b_item = b.put(&fp, &key).unwrap();
-    a.put(&other_fp, &other).unwrap();
     assert_ne!(a_item.locator, b_item.locator);
     assert_eq!(
-        a.list()
-            .unwrap()
-            .iter()
-            .filter(|i| i.fingerprint == fp)
-            .count(),
-        2,
-        "the shared store lists both installations' items for the CA"
-    );
-    w.tx(|tx| tx.insert_issuer(&issuer_record_for(&key, CaState::Active)));
-
-    // The locator the ceremony's `put` reported, recorded once.
-    w.ops
-        .record_issuer_store_locator(&fp, &a_item.locator)
-        .await
-        .unwrap();
-    w.ops
-        .record_issuer_store_locator(&fp, &a_item.locator)
-        .await
-        .unwrap();
-    assert_eq!(
-        w.ops
-            .record_issuer_store_locator(&fp, &b_item.locator)
+        decision_of(
+            &w.issuer(
+                &attended(),
+                register_key_req(&key, Some(&a_item.locator), None)
+            )
             .await
             .unwrap_err()
-            .code,
-        Code::ConfigConflict,
-        "a recorded locator is never re-pointed"
+        ),
+        d
     );
-    assert_eq!(
-        w.ops
-            .record_issuer_store_locator(&ca_fp(60), &a_item.locator)
-            .await
-            .unwrap_err()
-            .code,
-        Code::NotFound
-    );
+    w.decide(&d, Verdict::Approve).await.unwrap();
     assert_eq!(
         w.tx(|tx| tx.issuer_store_locator(&fp)),
         Some(a_item.locator.clone())
     );
+    // Before the unload: refused, nothing changes.
+    let before = w.snapshot();
+    let e = w
+        .issuer(&attended(), confirm_deleted(&fp, &a_item.locator))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+    assert_eq!(w.snapshot(), before);
 
-    let port: Arc<dyn CaStoreItemDeletion> = Arc::new(StoreItemDeletion::new(a.clone()));
-    *w.issuer.deletion.lock().unwrap() = Some(port);
     let d = decision_of(
         &w.issuer(
             &attended(),
             IssuerRequest::Retire {
                 ca_fingerprint: fp.clone(),
+                deleted_locator: None,
             },
         )
         .await
@@ -1216,33 +1530,101 @@ async fn ca_retirement_deletes_exactly_the_recorded_store_locator() {
     );
     w.decide(&d, Verdict::Approve).await.unwrap();
     assert_eq!(*w.issuer.unloads.lock().unwrap(), vec![fp.clone()]);
+    assert_eq!(w.tx(|tx| tx.issuer(&fp)).unwrap().state, CaState::Unloaded);
+    w.ops.issuer_supervision_pass().await.unwrap();
+    let report = w
+        .ops
+        .resume_ca_retirements(Some(w.issuer.as_ref()))
+        .await
+        .unwrap();
+    assert_eq!(
+        report.stalled,
+        vec![(
+            fp.clone(),
+            CaState::Unloaded,
+            AWAITING_OWNER_DELETION.to_owned()
+        )]
+    );
+    assert_eq!(w.tx(|tx| tx.issuer(&fp)).unwrap().state, CaState::Unloaded);
+    assert!(
+        a.list().unwrap().contains(&a_item) && a.get(&fp).unwrap().same_key(&key),
+        "neither the runtime nor the child deleted the store item"
+    );
+    // The status, and `retire` itself, name the locator to delete.
+    for req in [
+        IssuerRequest::Status,
+        IssuerRequest::Retire {
+            ca_fingerprint: fp.clone(),
+            deleted_locator: None,
+        },
+    ] {
+        let s = status_of(w.issuer(&attended(), req).await.unwrap());
+        let c = s.cas.iter().find(|c| c.fingerprint == fp).unwrap();
+        assert_eq!(c.state, CaState::Unloaded);
+        assert_eq!(c.store_locator.as_deref(), Some(a_item.locator.as_str()));
+    }
+    // Unattended, another locator, a malformed one: refused, nothing changes.
+    let before = w.snapshot();
+    let e = w
+        .issuer(&unattended(), confirm_deleted(&fp, &a_item.locator))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::InteractionRequired);
+    let e = w
+        .issuer(&attended(), confirm_deleted(&fp, &b_item.locator))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+    let e = w
+        .issuer(&attended(), confirm_deleted(&ca_fp(60), &a_item.locator))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::NotFound);
+    let e = w
+        .issuer(&attended(), confirm_deleted(&fp, ""))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::UsageError);
+    assert_eq!(w.snapshot(), before);
+    assert_eq!(w.tx(|tx| tx.issuer(&fp)).unwrap().state, CaState::Unloaded);
+    assert!(a.list().unwrap().contains(&a_item), "still there");
+
+    // The owner-present CLI deletes exactly the named item, then confirms.
+    retire::delete_awaiting(
+        a.as_ref(),
+        &fp,
+        StoreKind::LinuxSecretService,
+        &a_item.locator,
+    )
+    .unwrap();
+    assert_eq!(a.get(&fp).err(), Some(ScratchError::NotFound));
+    assert_eq!(b.list().unwrap(), vec![b_item.clone()]);
+    let s = status_of(
+        w.issuer(&attended(), confirm_deleted(&fp, &a_item.locator))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        s.cas.iter().find(|c| c.fingerprint == fp).unwrap().state,
+        CaState::Retired
+    );
     let record = w.tx(|tx| tx.issuer(&fp)).unwrap();
     assert_eq!(record.state, CaState::Retired);
     assert!(record.retired_at.is_some());
-    assert_eq!(
-        w.tx(|tx| tx.issuer_store_locator(&fp)),
-        Some(a_item.locator.clone()),
-        "the record keeps its locator through the transitions"
+    w.issuer(&attended(), confirm_deleted(&fp, &a_item.locator))
+        .await
+        .unwrap();
+    assert_eq!(w.tx(|tx| tx.issuer(&fp)).unwrap().state, CaState::Retired);
+    assert!(
+        b.get(&fp).unwrap().same_key(&key),
+        "the other installation's item"
     );
-    // Exactly A's recorded item is gone.
-    assert_eq!(a.get(&fp).err(), Some(ScratchError::NotFound));
-    assert!(!a.list().unwrap().contains(&a_item));
-    // B's item for the same CA (another locator) and A's other CA survive.
-    assert_eq!(b.list().unwrap(), vec![b_item]);
-    assert!(b.get(&fp).unwrap().same_key(&key));
-    assert!(a.get(&other_fp).unwrap().same_key(&other));
-    assert_eq!(a.list().unwrap().len(), 2);
-    // Retired: nothing more to do.
-    w.ops.issuer_supervision_pass().await.unwrap();
-    assert_eq!(b.list().unwrap().len(), 1);
-    assert_eq!(a.list().unwrap().len(), 2);
 }
 
-/// ⟨ADR-0008 §17.21 item 3⟩ A CA record without a recorded store locator (written
-/// before the field, or never reported) stops at `unloaded`, reported
-/// `issuer_store_locator_unrecorded`, with **nothing deleted** and the deletion port
-/// never called, even with a port wired and the CA's item present. The same holds on
-/// every later pass. Nothing is guessed (no deletion by listing).
+/// ⟨ADR-0008 §17.21 item 3, kept by §17.22 item 12⟩ A CA record without a recorded
+/// store locator (written before the field, or approved without a report) stops at
+/// `unloaded`, reported `issuer_store_locator_unrecorded`, with **nothing deleted**;
+/// no locator can be confirmed for it (nothing names one). Nothing is guessed.
 #[tokio::test]
 async fn ca_retirement_without_recorded_locator_stops_unloaded_nothing_deleted() {
     let w = World::new().await;
@@ -1256,14 +1638,13 @@ async fn ca_retirement_without_recorded_locator_stops_unloaded_nothing_deleted()
     let item = a.put(&fp, &key).unwrap();
     w.tx(|tx| tx.insert_issuer(&issuer_record_for(&key, CaState::Active)));
     assert_eq!(w.tx(|tx| tx.issuer_store_locator(&fp)), None);
-    let port: Arc<dyn CaStoreItemDeletion> = Arc::new(StoreItemDeletion::new(a.clone()));
-    *w.issuer.deletion.lock().unwrap() = Some(port.clone());
 
     let d = decision_of(
         &w.issuer(
             &attended(),
             IssuerRequest::Retire {
                 ca_fingerprint: fp.clone(),
+                deleted_locator: None,
             },
         )
         .await
@@ -1274,7 +1655,7 @@ async fn ca_retirement_without_recorded_locator_stops_unloaded_nothing_deleted()
     assert_eq!(w.tx(|tx| tx.issuer(&fp)).unwrap().state, CaState::Unloaded);
     let report = w
         .ops
-        .resume_ca_retirements(Some(w.issuer.as_ref()), Some(port.as_ref()))
+        .resume_ca_retirements(Some(w.issuer.as_ref()))
         .await
         .unwrap();
     assert_eq!(
@@ -1288,18 +1669,191 @@ async fn ca_retirement_without_recorded_locator_stops_unloaded_nothing_deleted()
     assert!(report.advanced.is_empty());
     assert!(report.do_not_load.contains(&fp));
     w.ops.issuer_supervision_pass().await.unwrap();
+    let s = status_of(w.issuer(&attended(), IssuerRequest::Status).await.unwrap());
+    assert_eq!(s.cas[0].store_locator, None);
+    let before = w.snapshot();
+    let e = w
+        .issuer(&attended(), confirm_deleted(&fp, &item.locator))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict);
+    assert_eq!(w.snapshot(), before);
     assert_eq!(w.tx(|tx| tx.issuer(&fp)).unwrap().state, CaState::Unloaded);
     assert_eq!(a.list().unwrap(), vec![item], "nothing was deleted");
     assert!(a.get(&fp).unwrap().same_key(&key));
-    // A locator cannot be recorded once the retirement has begun.
-    assert_eq!(
-        w.ops
-            .record_issuer_store_locator(&fp, &a.list().unwrap()[0].locator)
+}
+
+/// ⟨ADR-0008 §17.22 item 12⟩ A log-intact restore that wrote a new store item
+/// re-registers the known CA with `store_locator` and `expected_store_locator`; its
+/// approval **compares and swaps** the recorded locator. Refused at the request,
+/// writing nothing: the wrong expected locator (and none, while one is recorded), the
+/// recorded item again, a rotation, a key-only restore, another backup, and an
+/// expected locator for an unknown CA. Refused at the approval, **not consumed**: a
+/// second restore decision whose expectation went stale. The displaced item is listed
+/// in `orphan_store_items` with its locator and leaves after its deletion
+/// confirmation (the same confirmation path; a second one is refused).
+#[tokio::test]
+async fn issuer_restore_store_locator_compare_and_swap_and_orphan_listing() {
+    let w = World::new().await;
+    // D4 item 1: the registration (step 3), then the put's report (after step 6).
+    let d = decision_of(
+        &w.issuer(&attended(), register_req(1, None))
             .await
-            .unwrap_err()
-            .code,
-        Code::ConfigConflict
+            .unwrap_err(),
     );
+    assert_eq!(
+        decision_of(
+            &w.issuer(
+                &attended(),
+                register_report(1, Some("old-1"), None, None, false),
+            )
+            .await
+            .unwrap_err(),
+        ),
+        d
+    );
+    w.decide(&d, Verdict::Approve).await.unwrap();
+    assert_eq!(
+        w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))).as_deref(),
+        Some("old-1")
+    );
+    let before = w.snapshot();
+    let mut other_backup = serde_json::to_value(register_report(
+        1,
+        Some("new-1"),
+        Some("old-1"),
+        None,
+        false,
+    ))
+    .unwrap();
+    other_backup["backup_sha256"] = serde_json::json!(digest(9));
+    for (why, req) in [
+        (
+            "wrong expected",
+            register_report(1, Some("new-1"), Some("wrong"), None, false),
+        ),
+        (
+            "none expected",
+            register_report(1, Some("new-1"), None, None, false),
+        ),
+        (
+            "already recorded",
+            register_report(1, Some("old-1"), Some("old-1"), None, false),
+        ),
+        (
+            "no report",
+            register_report(1, None, Some("old-1"), None, false),
+        ),
+        (
+            "rotation",
+            register_report(1, Some("new-1"), Some("old-1"), Some(ca_fp(2)), false),
+        ),
+        (
+            "key-only restore",
+            register_report(1, Some("new-1"), Some("old-1"), None, true),
+        ),
+        (
+            "other backup",
+            serde_json::from_value(other_backup).unwrap(),
+        ),
+        (
+            "unknown CA expecting one",
+            register_report(5, Some("new-5"), Some("old-5"), None, true),
+        ),
+    ] {
+        let e = w.issuer(&attended(), req).await.unwrap_err();
+        assert!(
+            matches!(e.code, Code::ConfigConflict | Code::NotFound),
+            "{why}: {e:?}"
+        );
+    }
+    assert_eq!(w.snapshot(), before, "nothing written by a refused restore");
+
+    let swap = register_report(1, Some("new-1"), Some("old-1"), None, false);
+    let d1 = decision_of(&w.issuer(&attended(), swap.clone()).await.unwrap_err());
+    assert_eq!(
+        decision_of(&w.issuer(&attended(), swap).await.unwrap_err()),
+        d1,
+        "joined"
+    );
+    // Another new item for the same pending restore: refused, writing nothing.
+    let before = w.snapshot();
+    let e = w
+        .issuer(
+            &attended(),
+            register_report(1, Some("new-2"), Some("old-1"), None, false),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict, "{e:?}");
+    assert_eq!(w.snapshot(), before);
+    assert_eq!(
+        w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))).as_deref(),
+        Some("old-1"),
+        "nothing executes on dispatch"
+    );
+    // The recorded locator moves before the approval (another restore's swap): the
+    // approval's compare-and-swap refuses, nothing consumed.
+    w.tx(|tx| tx.replace_issuer_store_locator(&ca_fp(1), Some("old-1"), "moved-1"));
+    let r = w.decide(&d1, Verdict::Approve).await;
+    assert_eq!(code(&r), Code::ConfigConflict, "the stale expectation");
+    assert_eq!(
+        w.decision(&d1).state,
+        DecisionState::Pending,
+        "not consumed"
+    );
+    assert_eq!(
+        w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))).as_deref(),
+        Some("moved-1")
+    );
+    let d3 = decision_of(
+        &w.issuer(
+            &attended(),
+            register_report(1, Some("new-1"), Some("moved-1"), None, false),
+        )
+        .await
+        .unwrap_err(),
+    );
+    w.decide(&d3, Verdict::Approve).await.unwrap();
+    assert_eq!(
+        w.tx(|tx| tx.issuer_store_locator(&ca_fp(1))).as_deref(),
+        Some("new-1")
+    );
+    let ca = w.tx(|tx| tx.issuer(&ca_fp(1))).unwrap();
+    assert_eq!(ca.state, CaState::Active, "the CA itself is unchanged");
+
+    let orphan = |l: &str| heimdall_contract::issuer::OrphanStoreItem {
+        fingerprint: Some(ca_fp(1)),
+        store: StoreKind::LinuxSecretService,
+        locator: Some(l.into()),
+    };
+    let s = status_of(w.issuer(&attended(), IssuerRequest::Status).await.unwrap());
+    assert_eq!(s.cas[0].store_locator.as_deref(), Some("new-1"));
+    assert_eq!(
+        s.orphan_store_items,
+        vec![orphan("old-1"), orphan("moved-1")]
+    );
+    let s = status_of(
+        w.issuer(&attended(), confirm_deleted(&ca_fp(1), "old-1"))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(s.orphan_store_items, vec![orphan("moved-1")]);
+    let s = status_of(
+        w.issuer(&attended(), confirm_deleted(&ca_fp(1), "moved-1"))
+            .await
+            .unwrap(),
+    );
+    assert!(s.orphan_store_items.is_empty(), "{s:?}");
+    assert_eq!(s.cas[0].state, CaState::Active);
+    assert_eq!(s.cas[0].store_locator.as_deref(), Some("new-1"));
+    let before = w.snapshot();
+    let e = w
+        .issuer(&attended(), confirm_deleted(&ca_fp(1), "old-1"))
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::ConfigConflict);
+    assert_eq!(w.snapshot(), before);
 }
 
 /// The retire precheck refuses an approval with nothing consumed when an enrollment
@@ -1314,6 +1868,7 @@ async fn issuer_retire_refused_not_consumed_when_precheck_fails() {
             &attended(),
             IssuerRequest::Retire {
                 ca_fingerprint: ca_fp(1),
+                deleted_locator: None,
             },
         )
         .await
@@ -1336,6 +1891,7 @@ async fn issuer_retire_refused_not_consumed_when_precheck_fails() {
             &attended(),
             IssuerRequest::Retire {
                 ca_fingerprint: ca_fp(1),
+                deleted_locator: None,
             },
         )
         .await

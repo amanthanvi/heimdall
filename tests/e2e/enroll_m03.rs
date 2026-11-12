@@ -16,6 +16,22 @@
 //!   (`TestSession`, an in-process agent holding a fresh K_verify that counts
 //!   signatures), the target evaluator (`TestTarget`, the sshd's route and host key,
 //!   which a test can change), and the [`EnrollmentHost`] over a scratch runtime dir.
+//!
+//! **Windows** (⟨W4-N01; ADR-0008 §17.22, §17.23 item 6⟩). The same flows run natively on
+//! Windows wherever nothing Unix-only is needed (the table in
+//! `.m03-wave4-r3b-worklog-W.md`): the client is the in-box `ssh.exe` (the verified
+//! client; its `-F <scratch config>` and fixture environment are added by the test's
+//! [`StepContainment`](heimdall_enroll::remote::StepContainment), the kill-on-close job a
+//! Windows step needs anyway, since there is no `/bin/sh` wrapper), the server is the
+//! harness's WSL fixture sshd (`HM_FIXTURE_SSHD_*`, adopted by `LoopbackSshd::start`),
+//! whose account-form registry is its enrollment registry on the WSL file system
+//! (`HM_FIXTURE_SSHD_REGISTRY` / `_REMOTE`; `heimdall_testkit::sshd` module docs), the
+//! existing access is a fixture agent on a fixture pipe, the verification endpoint
+//! (`TestSession`) is an owner-only pipe, and the managed endpoints use the Windows
+//! layout (`\\.\pipe\heimdall-<token>-b<tag>`). **A test that finds no fixture fails with
+//! that reason** (`World::with` panics; nothing returns early or is ignored). A test that
+//! truly cannot run on Windows stays `#[cfg(unix)]`, with a `Unix only:` comment naming
+//! the reason above it. The Windows-only tests are in `enroll_m03/windows.rs`.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -23,14 +39,24 @@
     clippy::print_stderr,
     clippy::too_many_lines
 )]
-#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
+#![cfg_attr(not(any(unix, windows)), allow(dead_code, unused_imports))]
+// Helpers only the Unix-gated tests use are compiled on Windows too.
+#![cfg_attr(windows, allow(dead_code))]
 
-#[cfg(unix)]
+/// ⟨W4-N01⟩ The Windows-only tests (the binding endpoint's pipe form).
+#[cfg(windows)]
+#[path = "enroll_m03/windows.rs"]
+mod windows;
+
+#[cfg(any(unix, windows))]
 mod fx {
     use std::collections::HashMap;
     use std::fs;
+    #[cfg(unix)]
     use std::io::{Read, Write};
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicUsize, Ordering};
@@ -91,13 +117,16 @@ mod fx {
     };
     use heimdall_testkit::ca::{TestCa, UserCertSpec};
     use heimdall_testkit::home::{ScratchHome, find_program};
-    use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig, current_account};
+    #[cfg(unix)]
+    use heimdall_testkit::sshd::current_account;
+    use heimdall_testkit::sshd::{LoopbackSshd, SshdConfig};
 
     // ⟨round 2, R2-E⟩ the managed legs: the production adapter, effects, signer table
     // and endpoint registry, and the runtime's store-backed sources (§17.21 item 1).
     use heimdall_adapters::managed::ManagedCertificateAdapter;
     use heimdall_adapters::managed::effects::{BindingEndpoints, ManagedEffectsImpl};
     use heimdall_adapters::managed::files::{SlotRoot, binding_files_for_endpoint};
+    use heimdall_adapters::managed::prepare::{EvidenceFeed, TargetAndClient, WithEvidenceFeed};
     use heimdall_app::ports::{CredentialAdapter, IssuanceTable, ManagedEffects, SignerEndpoint};
     use heimdall_contract::ids::{BindingId, PolicyId, ProfileId, WorkId};
     use heimdall_contract::request::{EnsureData, EnsureRequest, RequiredCapabilities};
@@ -157,6 +186,8 @@ mod fx {
         start: Instant,
         start_wall: Timestamp,
         offset_ms: AtomicI64,
+        /// ⟨W4-N01⟩ While set, the clock reads this `(wall, continuous)` ([`Self::hold`]).
+        held: Mutex<Option<(Timestamp, Duration)>>,
     }
 
     impl TestClock {
@@ -165,7 +196,33 @@ mod fx {
                 start: Instant::now(),
                 start_wall: Timestamp::now(),
                 offset_ms: AtomicI64::new(0),
+                held: Mutex::new(None),
             })
+        }
+
+        /// ⟨W4-N01⟩ Stop the clock at its current reading until [`Self::release`] (two
+        /// requests that must resolve the same instant, as a virtual clock gives them).
+        #[cfg_attr(not(windows), allow(dead_code))]
+        pub fn hold(&self) {
+            let now = (self.read_wall(), self.read_continuous());
+            *self.held.lock().unwrap() = Some(now);
+        }
+
+        /// Let the clock run again (from real time, as before the hold).
+        #[cfg_attr(not(windows), allow(dead_code))]
+        pub fn release(&self) {
+            *self.held.lock().unwrap() = None;
+        }
+
+        fn read_wall(&self) -> Timestamp {
+            let elapsed = i64::try_from(self.start.elapsed().as_millis()).unwrap();
+            let off = self.offset_ms.load(Ordering::SeqCst);
+            Timestamp::from_millisecond(self.start_wall.as_millisecond() + elapsed + off).unwrap()
+        }
+
+        fn read_continuous(&self) -> Duration {
+            let off = u64::try_from(self.offset_ms.load(Ordering::SeqCst)).unwrap_or(0);
+            self.start.elapsed() + Duration::from_secs(3600) + Duration::from_millis(off)
         }
 
         pub fn advance(&self, by: Duration) {
@@ -176,14 +233,17 @@ mod fx {
 
     impl Clock for TestClock {
         fn wall(&self) -> Timestamp {
-            let elapsed = i64::try_from(self.start.elapsed().as_millis()).unwrap();
-            let off = self.offset_ms.load(Ordering::SeqCst);
-            Timestamp::from_millisecond(self.start_wall.as_millisecond() + elapsed + off).unwrap()
+            match *self.held.lock().unwrap() {
+                Some((wall, _)) => wall,
+                None => self.read_wall(),
+            }
         }
 
         fn continuous(&self) -> Duration {
-            let off = u64::try_from(self.offset_ms.load(Ordering::SeqCst)).unwrap_or(0);
-            self.start.elapsed() + Duration::from_secs(3600) + Duration::from_millis(off)
+            match *self.held.lock().unwrap() {
+                Some((_, continuous)) => continuous,
+                None => self.read_continuous(),
+            }
         }
 
         fn boot_id(&self) -> BootId {
@@ -229,25 +289,80 @@ mod fx {
     pub struct TestHost {
         pub runtime: PathBuf,
         pub client: PathBuf,
+        /// ⟨W4-N01⟩ Windows: the scratch user configuration `ssh -G` reads (`-F`); on
+        /// Unix the client wrapper adds it (`None`).
+        pub config: Option<PathBuf>,
         pub version: Mutex<String>,
         pub agent_path: String,
         pub effective_calls: AtomicUsize,
     }
 
+    #[cfg(unix)]
     fn write_mode(path: &Path, text: &[u8], mode: u32) {
         let _ = fs::remove_file(path);
         fs::write(path, text).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
     }
 
+    /// Windows: the file, then Heimdall's owner-only DACL (`chmod 600`'s faithful form;
+    /// `heimdall_testkit::win`). `mode` is the Unix mode this stands for.
+    #[cfg(windows)]
+    fn write_mode(path: &Path, text: &[u8], mode: u32) {
+        let _ = mode;
+        let _ = fs::remove_file(path);
+        fs::write(path, text).unwrap();
+        heimdall_testkit::win::set_owner_only(path).unwrap();
+    }
+
+    #[cfg(unix)]
     pub fn owner_only_dir(path: &Path) {
         fs::create_dir_all(path).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
     }
 
+    /// Windows: the directory, then the owner-only directory DACL (`chmod 700`).
+    #[cfg(windows)]
+    pub fn owner_only_dir(path: &Path) {
+        fs::create_dir_all(path).unwrap();
+        heimdall_testkit::win::set_owner_only(path).unwrap();
+    }
+
+    /// A path as the enrollment port names it: absolute, `/` separators on Windows (as
+    /// the runtime's `slash_path`), unchanged on Unix.
+    pub fn port_path(p: &Path) -> String {
+        if cfg!(windows) {
+            p.to_string_lossy().replace('\\', "/")
+        } else {
+            p.display().to_string()
+        }
+    }
+
+    /// The existing-access agent's catalog endpoint: its socket (Unix) or pipe
+    /// (Windows), as the catalog records it.
+    pub fn agent_ref(locator: &str) -> EndpointRef {
+        EndpointRef {
+            kind: if cfg!(windows) {
+                EndpointKind::NamedPipe
+            } else {
+                EndpointKind::UnixSocket
+            },
+            locator: locator.to_owned(),
+        }
+    }
+
+    /// The agent-protocol locator of an endpoint the runtime named (a binding
+    /// endpoint): a socket path (Unix) or a pipe name (Windows).
+    pub fn agent_locator(locator: &str) -> heimdall_ipc::agent_client::AgentLocator {
+        if cfg!(windows) {
+            heimdall_ipc::agent_client::AgentLocator::NamedPipe(locator.to_owned())
+        } else {
+            heimdall_ipc::agent_client::AgentLocator::UnixSocket(PathBuf::from(locator))
+        }
+    }
+
     impl EnrollmentHost for TestHost {
         fn client(&self) -> Option<String> {
-            Some(self.client.display().to_string())
+            Some(port_path(&self.client))
         }
 
         fn client_version(&self) -> Option<String> {
@@ -259,10 +374,10 @@ mod fx {
             Some(GeneratedPaths {
                 trust: TrustPaths {
                     tag: tag.to_owned(),
-                    user_known_hosts: dir.join("known_hosts").display().to_string(),
-                    global_known_hosts: dir.join("global_known_hosts").display().to_string(),
+                    user_known_hosts: port_path(&dir.join("known_hosts")),
+                    global_known_hosts: port_path(&dir.join("global_known_hosts")),
                 },
-                identity_file: dir.join("identity.pub").display().to_string(),
+                identity_file: port_path(&dir.join("identity.pub")),
             })
         }
 
@@ -296,16 +411,24 @@ mod fx {
         }
 
         fn endpoint_valid(&self, endpoint: &str) -> bool {
-            endpoint == self.agent_path && Path::new(endpoint).exists()
+            // Windows: the rendered pipe (`//./pipe/<name>`) only. Probing a pipe's
+            // existence opens a client instance (an agent contact), which a passive check
+            // must not do; the fixture agent lives as long as the world.
+            endpoint == self.agent_path && (cfg!(windows) || Path::new(endpoint).exists())
         }
 
         fn heimdall_endpoints(&self) -> Vec<String> {
-            vec![self.runtime.display().to_string()]
+            vec![port_path(&self.runtime)]
         }
 
         fn effective_config(&self, step: &RemoteStep) -> Result<String, HostError> {
             self.effective_calls.fetch_add(1, Ordering::SeqCst);
-            let out = std::process::Command::new(&self.client)
+            let mut cmd = std::process::Command::new(&self.client);
+            // Windows: the scratch configuration the Unix client wrapper adds.
+            if let Some(config) = &self.config {
+                cmd.arg("-F").arg(config);
+            }
+            let out = cmd
                 .args(effective_config_args(step))
                 .stdin(std::process::Stdio::null())
                 .output()
@@ -389,6 +512,7 @@ mod fx {
         Some((s, &b[4 + len..]))
     }
 
+    #[cfg(unix)]
     fn serve(mut conn: UnixStream, s: &SessionShared) {
         let _ = conn.set_nonblocking(false);
         let _ = conn.set_read_timeout(Some(Duration::from_secs(30)));
@@ -463,6 +587,78 @@ mod fx {
         }
     }
 
+    /// ⟨W4-N01⟩ Windows: the verification endpoint's pipe server, on its own thread and
+    /// current-thread runtime: `heimdall_ipc::windows::Listener` (the reviewed listener:
+    /// first-instance flag, the owner-only DACL, a client identified as this user after
+    /// its first write), each connection served by [`respond`] until it closes. It stops
+    /// within a tick of `stop`; dropping the runtime closes every instance.
+    #[cfg(windows)]
+    fn serve_pipe(
+        name: String,
+        shared: Arc<SessionShared>,
+        stop: Arc<AtomicBool>,
+    ) -> JoinHandle<()> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let thread = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+                let sid = heimdall_ipc::windows::current_user_sid().unwrap();
+                let listener = match heimdall_ipc::windows::Listener::bind(
+                    &name,
+                    heimdall_ipc::EndpointKind::Signing,
+                    &sid,
+                ) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(format!("{:?}", e.kind())));
+                        return;
+                    }
+                };
+                let _ = ready_tx.send(Ok(()));
+                while !stop.load(Ordering::SeqCst) {
+                    let accepted =
+                        tokio::time::timeout(Duration::from_millis(20), listener.accept()).await;
+                    let Ok(Ok((mut conn, _peer))) = accepted else {
+                        continue;
+                    };
+                    let s = Arc::clone(&shared);
+                    tokio::spawn(async move {
+                        loop {
+                            let mut len = [0u8; 4];
+                            if conn.read_exact(&mut len).await.is_err() {
+                                return;
+                            }
+                            let n = u32::from_be_bytes(len) as usize;
+                            if n == 0 || n > 256 * 1024 {
+                                return;
+                            }
+                            let mut msg = vec![0u8; n];
+                            if conn.read_exact(&mut msg).await.is_err() {
+                                return;
+                            }
+                            let reply = respond(&msg, &s);
+                            let mut framed =
+                                u32::try_from(reply.len()).unwrap().to_be_bytes().to_vec();
+                            framed.extend_from_slice(&reply);
+                            if conn.write_all(&framed).await.is_err() {
+                                return;
+                            }
+                        }
+                    });
+                }
+            });
+        });
+        match ready_rx.recv() {
+            Ok(Ok(())) => thread,
+            Ok(Err(why)) => panic!("the verification pipe could not be bound: {why}"),
+            Err(_) => panic!("the verification pipe thread ended before binding"),
+        }
+    }
+
     /// The verification factory: one `TestSession` per call; `live` counts sessions
     /// not yet dropped, `created` every creation.
     pub struct TestEndpoints {
@@ -516,11 +712,6 @@ mod fx {
                     .unwrap()
                     .insert(public.clone(), key.clone());
                 let n = self.created.fetch_add(1, Ordering::SeqCst);
-                let dir = self.dir.join(format!("v{n}"));
-                owner_only_dir(&dir);
-                let path = dir.join("v.sock");
-                let listener = UnixListener::bind(&path).unwrap();
-                listener.set_nonblocking(true).unwrap();
                 let shared = Arc::new(SessionShared {
                     key,
                     certs: Mutex::new(Vec::new()),
@@ -528,26 +719,55 @@ mod fx {
                     binds: AtomicU32::new(0),
                 });
                 let stop = Arc::new(AtomicBool::new(false));
-                let (s2, stop2) = (Arc::clone(&shared), Arc::clone(&stop));
-                let thread = std::thread::spawn(move || {
-                    while !stop2.load(Ordering::SeqCst) {
-                        match listener.accept() {
-                            Ok((conn, _)) => {
-                                let s3 = Arc::clone(&s2);
-                                std::thread::spawn(move || serve(conn, &s3));
+                #[cfg(unix)]
+                let (thread, locator) = {
+                    let dir = self.dir.join(format!("v{n}"));
+                    owner_only_dir(&dir);
+                    let path = dir.join("v.sock");
+                    let listener = UnixListener::bind(&path).unwrap();
+                    listener.set_nonblocking(true).unwrap();
+                    let (s2, stop2) = (Arc::clone(&shared), Arc::clone(&stop));
+                    let thread = std::thread::spawn(move || {
+                        while !stop2.load(Ordering::SeqCst) {
+                            match listener.accept() {
+                                Ok((conn, _)) => {
+                                    let s3 = Arc::clone(&s2);
+                                    std::thread::spawn(move || serve(conn, &s3));
+                                }
+                                Err(_) => std::thread::sleep(Duration::from_millis(5)),
                             }
-                            Err(_) => std::thread::sleep(Duration::from_millis(5)),
                         }
-                    }
-                });
+                    });
+                    (
+                        thread,
+                        EndpointRef {
+                            kind: EndpointKind::UnixSocket,
+                            locator: path.display().to_string(),
+                        },
+                    )
+                };
+                // ⟨W4-N01⟩ Windows: a fixture pipe (`\\.\pipe\heimdall-hmtest-<random>-v<n>`,
+                // which the harness counts before and after the run).
+                #[cfg(windows)]
+                let (thread, locator) = {
+                    let name = format!(
+                        r"\\.\pipe\heimdall-hmtest-{}-v{n}",
+                        heimdall_testkit::agent::random_hex(8)
+                    );
+                    let thread = serve_pipe(name.clone(), Arc::clone(&shared), Arc::clone(&stop));
+                    (
+                        thread,
+                        EndpointRef {
+                            kind: EndpointKind::NamedPipe,
+                            locator: name,
+                        },
+                    )
+                };
                 self.live.fetch_add(1, Ordering::SeqCst);
                 Ok(Box::new(TestSession {
                     public,
                     fingerprint,
-                    locator: EndpointRef {
-                        kind: EndpointKind::UnixSocket,
-                        locator: path.display().to_string(),
-                    },
+                    locator,
                     shared,
                     stop,
                     thread: Some(thread),
@@ -749,12 +969,24 @@ mod fx {
         pub env: EnvironmentId,
         pub destination: DestinationId,
         pub account: AccountName,
+        /// The account-form registry as this process reaches it.
         pub registry: PathBuf,
+        /// ⟨W4-N01⟩ The same registry as the server's account names it (the spec's
+        /// `registry_path`; equal to `registry` for a local server).
+        pub registry_remote: String,
         pub existing: String,
         pub existing_key: FixtureKey,
         pub identity: IdentityId,
         /// ⟨R2-E⟩ The managed credential pieces ([`WorldOptions::managed`]).
         pub managed: Option<Managed>,
+        /// [`WorldOptions::default_window`].
+        pub default_window: Duration,
+        /// ⟨W4-N01⟩ The verified client's parsed version.
+        pub client_version: heimdall_enroll::trace::ClientVersion,
+        /// ⟨W4-N01⟩ Where the verifier dumps each attempt's raw trace
+        /// ([`WorldOptions::observe_trace`]).
+        #[cfg_attr(not(windows), allow(dead_code))]
+        pub trace_dump: Option<PathBuf>,
         pub home: ScratchHome,
     }
 
@@ -769,6 +1001,14 @@ mod fx {
         /// effects, signer table and endpoint registry ([`Managed`]); seed profile
         /// `dev` with a standing policy over this world's pair.
         pub managed: bool,
+        /// ⟨W4-N01⟩ `OperationsConfig::default_window` (the longest window a request
+        /// may ask for; one hour unless a test needs more).
+        pub default_window: Duration,
+        /// ⟨W4-N01⟩ An observation world: the verifier parses under the first recorded
+        /// row's label and dumps each attempt's raw trace ([`World::trace_dump`]), so a
+        /// client without a recorded row is observed, never verified (its report is no
+        /// evidence of a verification).
+        pub observe_trace: bool,
     }
 
     impl Default for WorldOptions {
@@ -780,6 +1020,8 @@ mod fx {
                 limits: Limits::default(),
                 registry_seed: Vec::new(),
                 managed: false,
+                default_window: Duration::from_secs(3600),
+                observe_trace: false,
             }
         }
     }
@@ -861,6 +1103,12 @@ mod fx {
         pub effects: ManagedEffectsImpl,
         pub run_dir: PathBuf,
         pub signs: Arc<SignLog>,
+        /// ⟨W4-N01⟩ The slot data directory and the endpoint layout, kept for a restart
+        /// of this runtime process ([`World::restart_managed`]).
+        #[cfg_attr(not(windows), allow(dead_code))]
+        pub data_dir: PathBuf,
+        #[cfg_attr(not(windows), allow(dead_code))]
+        pub layout: EndpointLayout,
         shutdown: CancellationToken,
     }
 
@@ -871,22 +1119,82 @@ mod fx {
         }
     }
 
+    /// The managed endpoints' layout: Unix sockets under the scratch runtime dir; ⟨W4-N01⟩
+    /// on Windows named pipes under a per-run installation token (`hmt<16 hex>`), so the
+    /// binding endpoint is `\\.\pipe\heimdall-hmt<…>-b<tag>`.
+    #[cfg(unix)]
+    pub fn managed_layout(run_dir: &Path) -> EndpointLayout {
+        EndpointLayout::unix(run_dir).expect("a Unix endpoint layout")
+    }
+
+    #[cfg(windows)]
+    pub fn managed_layout(run_dir: &Path) -> EndpointLayout {
+        let _ = run_dir;
+        let tag = heimdall_credential::endpoints::EndpointTag::generate().unwrap();
+        EndpointLayout::windows(&format!("hmt{tag}")).expect("a Windows endpoint layout")
+    }
+
+    /// The managed endpoints' owner: this uid (Unix), this user's SID (Windows).
+    #[cfg(unix)]
+    pub fn endpoint_owner() -> heimdall_ipc::endpoint::ExpectedOwner {
+        heimdall_ipc::endpoint::ExpectedOwner::Uid(heimdall_ipc::unix::current_uid())
+    }
+
+    #[cfg(windows)]
+    pub fn endpoint_owner() -> heimdall_ipc::endpoint::ExpectedOwner {
+        heimdall_ipc::endpoint::ExpectedOwner::Sid(
+            heimdall_ipc::windows::current_user_sid().expect("this user's SID"),
+        )
+    }
+
     /// The parts built before `Operations::start` (the adapter is a start input).
     struct ManagedParts {
         sources: StoreSources,
         table: SignerTable,
         late: Arc<LateRegistry>,
         layout: EndpointLayout,
+        data_dir: PathBuf,
         effects: ManagedEffectsImpl,
         adapter: Arc<dyn CredentialAdapter>,
+        feed: Arc<LateFeed>,
+    }
+
+    /// ⟨R3-A; ADR-0008 §17.22 item 7⟩ The managed adapter's evidence comparison
+    /// inputs, bound once the world's target evaluator and host exist (as the
+    /// runtime's `sources::LateEvidenceFeed` is): the same [`TestTarget`] and
+    /// [`TestHost`] the enrollment driver reads. Unset: no evaluation (fail closed).
+    #[derive(Default)]
+    pub struct LateFeed(Mutex<Option<Arc<dyn EvidenceFeed>>>);
+
+    impl EvidenceFeed for LateFeed {
+        fn evaluate_target(&self, alias: &str) -> Option<TargetEvaluation> {
+            let feed = self.0.lock().unwrap().clone()?;
+            feed.evaluate_target(alias)
+        }
+
+        fn client_version(&self) -> Option<String> {
+            let feed = self.0.lock().unwrap().clone()?;
+            feed.client_version()
+        }
     }
 
     impl ManagedParts {
         fn new(store: &Arc<Store>, env: &EnvironmentId, run_dir: &Path, data_dir: &Path) -> Self {
+            ManagedParts::with_layout(store, env, run_dir, data_dir, managed_layout(run_dir))
+        }
+
+        /// [`new`](Self::new) with an existing `layout` (a restarted process keeps its
+        /// installation's endpoint layout).
+        fn with_layout(
+            store: &Arc<Store>,
+            env: &EnvironmentId,
+            run_dir: &Path,
+            data_dir: &Path,
+            layout: EndpointLayout,
+        ) -> Self {
             let sources = StoreSources::new(Arc::clone(store), env.clone());
             let table = SignerTable::new(Arc::new(KeyVault::new()));
             let late = Arc::new(LateRegistry::default());
-            let layout = EndpointLayout::unix(run_dir).expect("a Unix endpoint layout");
             let effects = ManagedEffectsImpl::new(
                 table.clone(),
                 late.clone(),
@@ -898,9 +1206,13 @@ mod fx {
                 },
             )
             .with_slot_store(Arc::new(sources.clone()));
+            let feed = Arc::new(LateFeed::default());
             let adapter = ManagedCertificateAdapter::new(
                 "managed-e2e",
-                Arc::new(sources.clone()),
+                Arc::new(WithEvidenceFeed {
+                    inner: Arc::new(sources.clone()),
+                    feed: feed.clone(),
+                }),
                 Some(effects.clone()),
                 Some(layout.clone()),
             )
@@ -914,19 +1226,32 @@ mod fx {
                 table,
                 late,
                 layout,
+                data_dir: data_dir.to_path_buf(),
                 effects,
                 adapter: Arc::new(adapter),
+                feed,
             }
         }
 
         /// After `Operations::start`: the registry under `ops`, the install view, and
         /// the issuer's view of K_env.
-        fn finish(self, ops: &Operations, run_dir: &Path, issuer: &Arc<TestIssuer>) -> Managed {
+        fn finish(
+            self,
+            ops: &Operations,
+            run_dir: &Path,
+            issuer: &Arc<TestIssuer>,
+            target: &Arc<TestTarget>,
+            host: &Arc<TestHost>,
+        ) -> Managed {
+            *self.feed.0.lock().unwrap() = Some(Arc::new(TargetAndClient {
+                target: target.clone() as Arc<dyn TargetEvaluator>,
+                host: host.clone() as Arc<dyn EnrollmentHost>,
+            }));
             let shutdown = CancellationToken::new();
             let signs = Arc::new(SignLog::default());
             let registry = EndpointRegistry::new(
-                self.layout,
-                heimdall_ipc::endpoint::ExpectedOwner::Uid(heimdall_ipc::unix::current_uid()),
+                self.layout.clone(),
+                endpoint_owner(),
                 self.table.clone(),
                 Arc::new(ops.clone()),
                 SignerLimits::default(),
@@ -945,6 +1270,8 @@ mod fx {
                 effects: self.effects,
                 run_dir: run_dir.to_path_buf(),
                 signs,
+                data_dir: self.data_dir,
+                layout: self.layout,
                 shutdown,
             }
         }
@@ -1047,7 +1374,20 @@ mod fx {
         pub async fn with(o: WorldOptions) -> World {
             let home = ScratchHome::new();
             let existing_key = FixtureKey::generate();
+            #[cfg(unix)]
             let account_name = current_account().expect("the local account");
+            // ⟨W4-N01⟩ Windows: the harness's WSL fixture sshd, or a failure naming it
+            // (never a skip); its account is the WSL one (`HM_FIXTURE_SSHD_USER`).
+            #[cfg(windows)]
+            let account_name = {
+                assert!(
+                    std::env::var_os("HM_FIXTURE_SSHD_PORT").is_some(),
+                    "the Windows enrollment e2e tests need the harness fixture sshd \
+                     (HM_FIXTURE_SSHD_*; tests/native/m02/run-windows-local.ps1)"
+                );
+                std::env::var("HM_FIXTURE_SSHD_USER")
+                    .expect("the WSL harness sshd names its account (HM_FIXTURE_SSHD_USER)")
+            };
             let system = o.form == EnrollmentForm::System;
             let ca = TestCa::generate(home.scratch()).unwrap();
             let mut cfg = SshdConfig {
@@ -1063,10 +1403,27 @@ mod fx {
                     Some([(account_name.clone(), Vec::new())].into_iter().collect());
             }
             let sshd = LoopbackSshd::start(home.scratch(), cfg).unwrap_or_else(|e| panic!("{e}"));
+            #[cfg(windows)]
+            assert_eq!(
+                sshd.account(),
+                Some(account_name.as_str()),
+                "the adopted harness sshd authenticates the WSL account"
+            );
             let registry = sshd
                 .registry_path()
                 .expect("a local registry")
                 .to_path_buf();
+            // ⟨W4-N01⟩ The registry as the server's account names it (the spec's explicit
+            // `registry_path`): the same path for a local server; the WSL path of the
+            // harness's enrollment registry on Windows.
+            let registry_remote = sshd
+                .registry_remote_path()
+                .expect(
+                    "an account-form registry the server's account can name (on Windows the \
+                     harness's enrollment registry: HM_FIXTURE_SSHD_REGISTRY and \
+                     HM_FIXTURE_SSHD_REGISTRY_REMOTE)",
+                )
+                .to_owned();
             let agent = FakeAgent::start(
                 Endpoint::in_scratch(home.scratch(), "existing").unwrap(),
                 FakeAgentConfig {
@@ -1074,7 +1431,15 @@ mod fx {
                     mode: o.agent_mode,
                 },
             );
-            let agent_path = agent.endpoint().locator().to_string_lossy().into_owned();
+            // The catalog's locator (a socket path, or `\\.\pipe\<name>`), and the
+            // concrete endpoint the plan renders and the host re-validates (the same
+            // socket path, or `//./pipe/<name>`).
+            let agent_locator = agent.endpoint().locator().to_string_lossy().into_owned();
+            let agent_path = if cfg!(windows) {
+                agent_locator.replace('\\', "/")
+            } else {
+                agent_locator.clone()
+            };
             home.write_user_config(&format!(
                 "Host {ALIAS}\n  HostName 127.0.0.1\n  Port {}\n  User {account_name}\n",
                 sshd.port
@@ -1082,20 +1447,29 @@ mod fx {
             .unwrap();
             // The client wrapper: the system ssh with the scratch configuration and
             // environment only (the owner's ~/.ssh is never read).
-            let bin = home.scratch().subdir("bin").unwrap();
-            let client = bin.join("ssh");
-            write_mode(
-                &client,
-                format!(
-                    "#!/bin/sh\nHOME='{}'; export HOME\nSSH_AUTH_SOCK='{}'; export SSH_AUTH_SOCK\nunset SSH_ASKPASS SSH_ASKPASS_REQUIRE SSH_AGENT_PID DISPLAY\nexec '{}' -F '{}' \"$@\"\n",
-                    home.git_home.display(),
-                    home.decoy_agent().endpoint().locator().to_string_lossy(),
-                    system_ssh().display(),
-                    home.user_config.display(),
-                )
-                .as_bytes(),
-                0o700,
-            );
+            #[cfg(unix)]
+            let client = {
+                let bin = home.scratch().subdir("bin").unwrap();
+                let client = bin.join("ssh");
+                write_mode(
+                    &client,
+                    format!(
+                        "#!/bin/sh\nHOME='{}'; export HOME\nSSH_AUTH_SOCK='{}'; export SSH_AUTH_SOCK\nunset SSH_ASKPASS SSH_ASKPASS_REQUIRE SSH_AGENT_PID DISPLAY\nexec '{}' -F '{}' \"$@\"\n",
+                        home.git_home.display(),
+                        home.decoy_agent().endpoint().locator().to_string_lossy(),
+                        system_ssh().display(),
+                        home.user_config.display(),
+                    )
+                    .as_bytes(),
+                    0o700,
+                );
+                client
+            };
+            // ⟨W4-N01⟩ Windows: the in-box `ssh.exe` itself; the scratch configuration and
+            // environment are added where it is spawned ([`run_step`]'s containment,
+            // [`TestHost::effective_config`]).
+            #[cfg(windows)]
+            let client = system_ssh();
             let version_out = std::process::Command::new(system_ssh())
                 .arg("-V")
                 .output()
@@ -1138,10 +1512,7 @@ mod fx {
                         id: identity.clone(),
                         revision: 1,
                         source: IdentitySource::NativeAgent {
-                            endpoint: EndpointRef {
-                                kind: EndpointKind::UnixSocket,
-                                locator: agent_path.clone(),
-                            },
+                            endpoint: agent_ref(&agent_locator),
                         },
                         public_key: identity_public.clone(),
                         fingerprint: existing_key.fingerprint(),
@@ -1212,7 +1583,7 @@ mod fx {
                 adapters: parts.iter().map(|p| Arc::clone(&p.adapter)).collect(),
                 stage_hook: Arc::new(NoStageHook),
                 limits: o.limits,
-                default_window: Duration::from_secs(3600),
+                default_window: o.default_window,
                 projection,
             })
             .await
@@ -1233,6 +1604,7 @@ mod fx {
             let host = Arc::new(TestHost {
                 runtime: runtime.clone(),
                 client,
+                config: cfg!(windows).then(|| home.user_config.clone()),
                 version: Mutex::new(version),
                 agent_path: agent_path.clone(),
                 effective_calls: AtomicUsize::new(0),
@@ -1247,7 +1619,7 @@ mod fx {
                 table: Mutex::new(None),
                 grant_signed: AtomicUsize::new(0),
             });
-            let managed = parts.map(|p| p.finish(&ops, &runtime, &issuer));
+            let managed = parts.map(|p| p.finish(&ops, &runtime, &issuer, &target, &host));
             let vdir = home.scratch().subdir("vs").unwrap();
             owner_only_dir(&vdir);
             let endpoints = Arc::new(TestEndpoints {
@@ -1259,16 +1631,30 @@ mod fx {
                 store: Arc::clone(&store),
                 seen: Mutex::new(Vec::new()),
             });
-            let verifier = Arc::new(Verifier::with_client(
+            let client_version =
+                heimdall_enroll::trace::ClientVersion::parse(&host.version.lock().unwrap())
+                    .expect("a parsable client version");
+            // ⟨W4-N01⟩ An observation world parses under the first recorded row's label
+            // and dumps each attempt's raw trace (debug builds; `observe_trace`).
+            let (label, trace_dump) = if o.observe_trace {
+                let dump = home.scratch().subdir("trace-dump").unwrap();
+                (heimdall_enroll::trace::RECORDED[0].from, Some(dump))
+            } else {
+                (client_version, None)
+            };
+            let verifier = Verifier::with_client(
                 VerifierClient {
                     path: system_ssh(),
-                    version: heimdall_enroll::trace::ClientVersion::parse(
-                        &host.version.lock().unwrap(),
-                    )
-                    .expect("a parsable client version"),
+                    version: label,
                 },
                 runtime.clone(),
-            ));
+            );
+            #[cfg(debug_assertions)]
+            let verifier = match &trace_dump {
+                Some(dump) => verifier.with_test_trace_dump(dump),
+                None => verifier,
+            };
+            let verifier = Arc::new(verifier);
             let w = World {
                 ops,
                 store,
@@ -1284,14 +1670,38 @@ mod fx {
                 destination,
                 account,
                 registry,
+                registry_remote,
                 existing: existing_line,
                 existing_key,
                 identity,
                 managed,
+                default_window: o.default_window,
+                client_version,
+                trace_dump,
                 home,
             };
             w.wire();
             w
+        }
+
+        /// ⟨W4-N01⟩ A test that needs a conclusive verification (a pass, or a refusal with
+        /// its evidence) needs the verified client's recorded trace row
+        /// (`heimdall_enroll::trace::RECORDED`): without one every verification is
+        /// inconclusive by design. The in-box Windows client has none until it is
+        /// recorded from `enroll_m03/windows.rs`'s `windows_client_trace_row_observation`
+        /// lines, so on Windows such a test **fails** here with that reason (never a
+        /// pass, never a skip). Unix: no check (the macOS and devbox clients are
+        /// recorded; their runs are unchanged).
+        pub fn require_recorded_client(&self) {
+            if cfg!(windows) {
+                let v = self.client_version;
+                assert!(
+                    heimdall_enroll::trace::patterns_for(v.family, v).is_ok(),
+                    "{}: the verified client ({}) has no recorded trace row (heimdall_enroll::trace::RECORDED), so every verification is inconclusive until it is recorded from the `m03 observation: client_trace_row` lines of windows_client_trace_row_observation (not a pass)",
+                    heimdall_enroll::trace::UNRECORDED_FINDING,
+                    v
+                );
+            }
         }
 
         /// Wire the ports into the current `Operations`.
@@ -1336,6 +1746,42 @@ mod fx {
             self.wire();
         }
 
+        /// ⟨W4-N01⟩ A managed world's runtime restarts in the same boot: the first
+        /// process's endpoints stop (its signer table, with K_env, goes with it), and a
+        /// new process (an empty vault and signer table, a new endpoint registry over
+        /// the same layout, the production managed pieces again, `Operations::start`
+        /// over the same store) is wired in its place, as
+        /// `live_tests::pipeline::reissue_restores_…`'s second process.
+        #[cfg_attr(not(windows), allow(dead_code))]
+        pub async fn restart_managed(&mut self) {
+            let first = self.managed.take().expect("a managed world");
+            let (run_dir, data_dir, layout) = (
+                first.run_dir.clone(),
+                first.data_dir.clone(),
+                first.layout.clone(),
+            );
+            drop(first);
+            let parts =
+                ManagedParts::with_layout(&self.store, &self.env, &run_dir, &data_dir, layout);
+            self.ops = Operations::start(OperationsConfig {
+                store: Arc::clone(&self.store),
+                clock: self.clock.clone(),
+                time_sync: ScriptedTimeSync::new(SyncStatus::Synchronized),
+                time_policy: TimePolicy::default(),
+                environment: self.env.clone(),
+                adapters: vec![Arc::clone(&parts.adapter)],
+                stage_hook: Arc::new(NoStageHook),
+                limits: *self.ops.limits(),
+                default_window: self.default_window,
+                projection: None,
+            })
+            .await
+            .unwrap();
+            self.managed =
+                Some(parts.finish(&self.ops, &run_dir, &self.issuer, &self.target, &self.host));
+            self.wire();
+        }
+
         pub fn tx<R>(
             &self,
             f: impl FnOnce(&mut heimdall_store::Txn<'_>) -> heimdall_store::Result<R>,
@@ -1348,7 +1794,7 @@ mod fx {
                 destination: self.destination.clone(),
                 account: None,
                 form: EnrollmentForm::Account,
-                registry_path: Some(self.registry.display().to_string()),
+                registry_path: Some(self.registry_remote.clone()),
                 ca_fingerprint: None,
             }
         }
@@ -1475,7 +1921,7 @@ mod fx {
 
         /// Run `step` as the CLI does and report its result.
         pub async fn run_and_report(&self, op: &OperationId, step: &RemoteStep) -> StepRecorded {
-            let report = run_step(step).await;
+            let report = run_step(&self.home, step).await;
             let c = self
                 .result(op, &step.step_token, report.0, &report.1, &report.2)
                 .await
@@ -1616,11 +2062,11 @@ mod fx {
                 form,
                 marker,
                 registry: heimdall_contract::enrollment::RegistryRef {
-                    path_display: self.registry.display().to_string(),
+                    path_display: self.registry_remote.clone(),
                     resolved_by: heimdall_contract::enrollment::RegistryResolvedBy::Explicit,
                 },
                 registry_canonical: heimdall_contract::enrollment::RegistryCanonical {
-                    path: Some(self.registry.display().to_string()),
+                    path: Some(self.registry_remote.clone()),
                     resolved_by: heimdall_contract::enrollment::RegistryResolvedBy::Explicit,
                 },
                 line_sha256: heimdall_domain::projection::Sha256Hex::of(line.as_bytes())
@@ -1629,10 +2075,7 @@ mod fx {
                 target,
                 existing_access: heimdall_domain::enrollment::ExistingAccessRecord {
                     identity,
-                    endpoint: Some(EndpointRef {
-                        kind: EndpointKind::UnixSocket,
-                        locator: self.host.agent_path.clone(),
-                    }),
+                    endpoint: Some(agent_ref(&self.host.agent_path)),
                     public_key_file: None,
                 },
                 hold,
@@ -1682,8 +2125,7 @@ mod fx {
                     .as_str()
                     .to_owned(),
                 registry: heimdall_contract::enrollment::RegistryCanonical {
-                    path: (form == EnrollmentForm::Account)
-                        .then(|| self.registry.display().to_string()),
+                    path: (form == EnrollmentForm::Account).then(|| self.registry_remote.clone()),
                     resolved_by: if form == EnrollmentForm::Account {
                         heimdall_contract::enrollment::RegistryResolvedBy::Explicit
                     } else {
@@ -1796,7 +2238,7 @@ mod fx {
             };
             assert_eq!(step.stage, RemoteStage::Append);
             if ran {
-                let _ = run_step(&step).await;
+                let _ = run_step(&self.home, &step).await;
             }
             self.result(
                 op,
@@ -2068,6 +2510,7 @@ mod fx {
 
         /// Plant a holder-recording lock on this world's registry, as a writer that
         /// took it and never released it (D5 §6.3): `ln -s <record> <lock>`.
+        #[cfg(unix)]
         pub fn plant_lock(&self, token: &str, pid: u32, start_hex: &str, not_after: i64) {
             let record = format!("hm1-{token}-{pid}-{start_hex}-{}-{not_after}", boot_hex());
             std::os::unix::fs::symlink(&record, self.lock_path()).unwrap();
@@ -2396,6 +2839,16 @@ mod fx {
         /// runtime's observing source over a projected configuration (R2C-Q1's fix);
         /// this harness's `StoreSources` observes nothing (`undetermined`).
         pub async fn ensure_managed(&self, tag: &str) -> Result<EnsureData, OpError> {
+            self.ensure_managed_with(tag, RequiredCapabilities::default())
+                .await
+        }
+
+        /// [`ensure_managed`](Self::ensure_managed) with `required` minimums.
+        pub async fn ensure_managed_with(
+            &self,
+            tag: &str,
+            required: RequiredCapabilities,
+        ) -> Result<EnsureData, OpError> {
             self.ops
                 .ensure(
                     &unattended(),
@@ -2406,7 +2859,7 @@ mod fx {
                         environment: None,
                         work_id: WorkId::parse(&format!("w-{tag}")).unwrap(),
                         until: None,
-                        required_capabilities: RequiredCapabilities::default(),
+                        required_capabilities: required,
                         request_id: RequestId::parse(&format!("r-{tag}")).unwrap(),
                         interaction: InteractionMode::Interactive,
                         wait: WaitMode::Sync { timeout_ms: 30_000 },
@@ -2433,7 +2886,11 @@ mod fx {
             let files = binding_files_for_endpoint(
                 &self.managed().run_dir,
                 &EndpointRef {
-                    kind: EndpointKind::UnixSocket,
+                    kind: if cfg!(windows) {
+                        EndpointKind::NamedPipe
+                    } else {
+                        EndpointKind::UnixSocket
+                    },
                     locator: endpoint.clone(),
                 },
                 std::slice::from_ref(destination),
@@ -2465,11 +2922,22 @@ mod fx {
             if !known.lines().any(|l| l == host_key_line) {
                 fs::write(&self.home.known_hosts, format!("{known}{host_key_line}\n")).unwrap();
             }
+            #[cfg(unix)]
             let options = managed_identity_options(
                 &RenderPath::unix(Path::new(endpoint)).unwrap(),
                 &RenderPath::unix(key_pub).unwrap(),
                 &RenderPath::unix(cert).unwrap(),
                 PathStyle::Unix,
+                ManagedIdentityForm::select(None),
+            )
+            .unwrap();
+            // ⟨W4-N01⟩ Windows: the pipe as `//./pipe/<name>`, the files with `/`.
+            #[cfg(windows)]
+            let options = managed_identity_options(
+                &RenderPath::pipe(endpoint).unwrap(),
+                &RenderPath::windows(key_pub).unwrap(),
+                &RenderPath::windows(cert).unwrap(),
+                PathStyle::Windows,
                 ManagedIdentityForm::select(None),
             )
             .unwrap();
@@ -2531,8 +2999,18 @@ mod fx {
     }
 
     /// `(exit, stdout, stderr)` of a step run through the real runner.
-    pub async fn run_step(step: &RemoteStep) -> (i32, String, String) {
+    /// `home` is the world's scratch home: on Windows the step's client gets its
+    /// configuration and environment from it ([`ScratchClientJob`]); on Unix the client
+    /// wrapper already has them.
+    pub async fn run_step(home: &ScratchHome, step: &RemoteStep) -> (i32, String, String) {
         let s = step.clone();
+        #[cfg(unix)]
+        let runner = {
+            let _ = home;
+            SshStepRunner::new()
+        };
+        #[cfg(windows)]
+        let runner = SshStepRunner::new().with_containment(Box::new(ScratchClientJob::of(home)));
         tokio::task::spawn_blocking(move || {
             let tty = if s
                 .pins
@@ -2545,11 +3023,87 @@ mod fx {
             } else {
                 TtyMode::Batch
             };
-            let r = SshStepRunner::new().run(&s, tty).expect("the step runs");
+            let r = runner.run(&s, tty).expect("the step runs");
+            #[cfg(windows)]
+            assert!(
+                r.lifetime.contained,
+                "the step ran inside the kill-on-close job"
+            );
             (r.exit_status, r.stdout, r.stderr_excerpt)
         })
         .await
         .unwrap()
+    }
+
+    /// ⟨W4-N01⟩ The Windows step containment the CLI supplies
+    /// (`heimdall_localenv::sys::JobObject::kill_on_close`, as
+    /// `integration_enroll_verify`'s `cli_death_ends_ssh_step_process`), which also does
+    /// what the Unix client wrapper does: the in-box `ssh.exe` gets `-F <scratch config>`
+    /// before the step's own arguments (unchanged, in order), `SSH_AUTH_SOCK` the decoy
+    /// agent and `HOME` the scratch home, and no askpass or agent variable, so the owner's
+    /// configuration and agent are never read. The command is rebuilt for that (a
+    /// `Command`'s arguments cannot be prefixed): the same program, the step's arguments
+    /// and environment, and piped standard streams as the runner sets them.
+    #[cfg(windows)]
+    pub struct ScratchClientJob {
+        config: PathBuf,
+        decoy: std::ffi::OsString,
+        home: PathBuf,
+    }
+
+    #[cfg(windows)]
+    impl ScratchClientJob {
+        pub fn of(home: &ScratchHome) -> ScratchClientJob {
+            ScratchClientJob {
+                config: home.user_config.clone(),
+                decoy: home.decoy_agent().endpoint().locator(),
+                home: home.git_home.clone(),
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    impl heimdall_enroll::remote::StepContainment for ScratchClientJob {
+        fn spawn_contained(
+            &self,
+            command: &mut std::process::Command,
+        ) -> std::io::Result<heimdall_enroll::remote::Contained> {
+            use std::process::Stdio;
+            let mut cmd = std::process::Command::new(command.get_program());
+            cmd.arg("-F").arg(&self.config).args(command.get_args());
+            for (k, v) in command.get_envs() {
+                match v {
+                    Some(v) => cmd.env(k, v),
+                    None => cmd.env_remove(k),
+                };
+            }
+            cmd.env("SSH_AUTH_SOCK", &self.decoy)
+                .env("HOME", &self.home)
+                .env_remove("SSH_ASKPASS")
+                .env_remove("SSH_ASKPASS_REQUIRE")
+                .env_remove("SSH_AGENT_PID")
+                .env_remove("DISPLAY")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let job = heimdall_localenv::sys::JobObject::kill_on_close()
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            let mut child = cmd.spawn()?;
+            if let Err(e) = job.assign_child(&child) {
+                // Never leave an uncontained child running: it is ours, by its handle.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(std::io::Error::other(e.to_string()));
+            }
+            Ok(heimdall_enroll::remote::Contained {
+                child,
+                guard: Box::new(job),
+            })
+        }
+
+        fn ends_with_parent(&self) -> bool {
+            true
+        }
     }
 
     /// A second destination of a [`World`].
@@ -2592,7 +3146,9 @@ mod fx {
     /// A stand-in for a writer that took the registry lock and never let go: a
     /// `/bin/sleep` child of this test leading its own process group. A reaper
     /// thread waits on it (a dead holder is never a zombie that still looks alive),
-    /// and `Drop` stops it by its exact child handle.
+    /// and `Drop` stops it by its exact child handle. Unix only: the fence reads the
+    /// holder on the server's host, which is this host only for a local sshd.
+    #[cfg(unix)]
     pub struct Holder {
         pub pid: u32,
         child: Arc<Mutex<std::process::Child>>,
@@ -2601,6 +3157,7 @@ mod fx {
         reaper: Option<JoinHandle<()>>,
     }
 
+    #[cfg(unix)]
     impl Holder {
         pub fn start() -> Holder {
             use std::os::unix::process::CommandExt as _;
@@ -2663,6 +3220,7 @@ mod fx {
         }
     }
 
+    #[cfg(unix)]
     impl Drop for Holder {
         fn drop(&mut self) {
             self.stop.store(true, Ordering::SeqCst);
@@ -2699,11 +3257,11 @@ mod fx {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use fx::*;
 
 /// What the managed legs established (see [`managed_legs`]).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct ManagedLegs {
     data: heimdall_contract::request::EnsureData,
     files: (String, std::path::PathBuf, std::path::PathBuf),
@@ -2729,7 +3287,7 @@ struct ManagedLegs {
 ///    (key ID, serial, CA), the remote command's marker comes back, and the binding
 ///    endpoint's signer admitted (permit held) and signed exactly one request, with no
 ///    refusal.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 async fn managed_legs(w: &World, tag: &str) -> ManagedLegs {
     use heimdall_contract::managed::PreferredMechanism;
     use heimdall_credential::signer::SignStep;
@@ -2786,9 +3344,7 @@ async fn managed_legs(w: &World, tag: &str) -> ManagedLegs {
         "the ensure result names the binding endpoint"
     );
     let listed = heimdall_ipc::agent_client::list_identities(
-        &heimdall_ipc::agent_client::AgentLocator::UnixSocket(std::path::PathBuf::from(
-            &endpoint.locator,
-        )),
+        &agent_locator(&endpoint.locator),
         &heimdall_ipc::agent_client::ClientBounds::default(),
     )
     .await
@@ -2872,7 +3428,7 @@ async fn managed_legs(w: &World, tag: &str) -> ManagedLegs {
 /// ensure and ssh legs need none).
 /// The existing access (the agent) is not contacted by the managed legs; the decoy
 /// agent never.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_preview_apply_verify_setup_apply_ensure_ssh() {
     let w = World::with(WorldOptions {
@@ -2880,6 +3436,7 @@ async fn enroll_preview_apply_verify_setup_apply_ensure_ssh() {
         ..WorldOptions::default()
     })
     .await;
+    w.require_recorded_client();
     let spec = w.spec();
     let plan = w.preview(&spec).await;
     assert_eq!(plan.approved_target.port, w.sshd.port);
@@ -2976,6 +3533,7 @@ async fn enroll_preview_apply_verify_setup_apply_ensure_ssh() {
 /// signs nothing for it (the server refuses the certificate before asking for a
 /// signature). Then the same certificate is accepted
 /// by h1 again (the control: the refusal is h2's, not a broken binding).
+// Unix only: needs a second sshd (`add_destination`); the Windows harness serves one account-form server, leased once per thread.
 #[cfg(unix)]
 async fn assert_refused_on_other_host(
     w: &World,
@@ -3066,6 +3624,7 @@ async fn assert_refused_on_other_host(
 /// `cert-authority,principals="hm:<dest>:<account>"` line. The managed certificate
 /// ensured for (h1, account) logs in to h1 and is refused by h2 (no login, no
 /// signature released), while h1 keeps accepting it.
+// Unix only: needs a second sshd (`add_destination`); the Windows harness serves one account-form server, leased once per thread.
 #[cfg(unix)]
 #[tokio::test]
 async fn a10_narrow_certificate_refused_on_other_host_account_form() {
@@ -3112,6 +3671,7 @@ async fn a10_narrow_certificate_refused_on_other_host_account_form() {
 /// owner and verified as [`World::system_verified`] does. The managed certificate
 /// ensured for (h1, account) logs in to h1 and is refused by h2, while h1 keeps
 /// accepting it.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`); and needs a second sshd (`add_destination`); the Windows harness serves one account-form server, leased once per thread.
 #[cfg(unix)]
 #[tokio::test]
 async fn a10_narrow_certificate_refused_on_other_host_system_form() {
@@ -3157,7 +3717,7 @@ async fn a10_narrow_certificate_refused_on_other_host_system_form() {
 /// m03-plan U10 (D5 §6.10): an apply always needs the attended decision; an
 /// unattended caller gets `INTERACTION_REQUIRED` with the decision reference, and an
 /// unattended `Decide` is refused (nothing consumed).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_requires_attended_decision() {
     let w = World::new().await;
@@ -3197,7 +3757,7 @@ async fn enroll_requires_attended_decision() {
 
 /// m03-plan U10 (D5 §6.3 item 3): a result whose token is not the outstanding one is
 /// `REQUEST_CONFLICT` (`step_token_mismatch`), and nothing is recorded.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn step_result_with_wrong_token_refused_nothing_recorded() {
     let w = World::new().await;
@@ -3222,7 +3782,7 @@ async fn step_result_with_wrong_token_refused_nothing_recorded() {
 }
 
 /// m03-plan U10 (§17.1 item 6): at most one step is outstanding per enrollment.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn second_step_refused_while_one_outstanding() {
     let w = World::new().await;
@@ -3243,7 +3803,7 @@ async fn second_step_refused_while_one_outstanding() {
 /// m03-plan U10 (§17.1 item 2): the route is re-evaluated before every dispatch; a
 /// different host key (or port) after the approval refuses the step with
 /// `route_changed`, and no stage receipt is written.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn step_refused_when_route_changed_after_approval() {
     let w = World::new().await;
@@ -3269,7 +3829,7 @@ async fn step_refused_when_route_changed_after_approval() {
 /// m03-plan U10 (ADR-0006 §7): the same key with the same parameters replays the
 /// operation; with different parameters it is `REQUEST_CONFLICT`, and no second
 /// record is written.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_same_key_replays_different_params_conflict() {
     let w = World::new().await;
@@ -3314,7 +3874,7 @@ async fn enroll_same_key_replays_different_params_conflict() {
 /// m03-plan U10 (D5 §6.1): a second enrollment of the same pair under the same CA is
 /// `CONFIG_CONFLICT`, `already_enrolled`, before any write; an `abandoned` one is
 /// outside the rule (Q25).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_second_for_same_pair_and_ca_already_enrolled() {
     let w = World::new().await;
@@ -3359,7 +3919,7 @@ async fn enroll_second_for_same_pair_and_ca_already_enrolled() {
 
 /// m03-plan U10 (F13; D5 §6.1): an account whose existing access the catalog cannot
 /// drive (password only) is refused at preview, `existing_access_kind_unsupported`.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_password_only_account_refused_existing_access_kind_unsupported() {
     let w = World::with(WorldOptions {
@@ -3382,7 +3942,7 @@ async fn enroll_password_only_account_refused_existing_access_kind_unsupported()
 /// m03-plan U10 (D5 §6.10): non-interactive, a provider that needs interaction (a
 /// locked agent) fails the step before any write: the provider's code, and the record
 /// `failed_unwritten`.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_noninteractive_provider_interaction_refused_before_write() {
     let w = World::with(WorldOptions {
@@ -3408,7 +3968,7 @@ async fn enroll_noninteractive_provider_interaction_refused_before_write() {
 /// m03-plan U10 (D5 §6.3): the CLI killed during the append (ssh ended after the ready
 /// line, the outcome unknown) leaves the step `Uncertain`: the record and the
 /// operation `outcome_unknown`, `next: reconcile`.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn cli_killed_during_append_step_leaves_outcome_unknown() {
     let w = World::new().await;
@@ -3442,7 +4002,7 @@ async fn cli_killed_during_append_step_leaves_outcome_unknown() {
 
 /// m03-plan U10: a result that never arrives makes a mutating stage `Uncertain` after
 /// `enrollment_step_timeout`; a read stage is retryable (the pass clears it).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn step_result_timeout_marks_mutation_uncertain_and_read_retryable() {
     let w = World::new().await;
@@ -3488,10 +4048,11 @@ async fn step_result_timeout_marks_mutation_uncertain_and_read_retryable() {
 /// m03-plan U10 (D5 §6.4 "At restart"): an open enrollment operation is never driven
 /// at restart; it stays where it was and is reported (`owner_reconcile`), and the
 /// owner resumes it.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_restart_leaves_operation_unresolved_and_reported() {
     let mut w = World::new().await;
+    w.require_recorded_client();
     let op = w.approved(&w.spec(), "req_rs").await;
     let StepAnswer::Step { step } = w.step_answer(&op).await else {
         panic!("inspect");
@@ -3520,7 +4081,7 @@ async fn enroll_restart_leaves_operation_unresolved_and_reported() {
 
 /// m03-plan U10 (§17.4 item 9): the verification session is dropped on every exit
 /// path (here: a pass, and a run whose issuer is unavailable).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn verification_session_dropped_on_every_exit_path() {
     let w = World::new().await;
@@ -3561,6 +4122,7 @@ async fn verification_session_dropped_on_every_exit_path() {
 /// typed confirmation, no decision) moves it to `manual_removal_pending` with the lines
 /// to delete; once deleted, `enroll verify --absence` needs the positive certificate
 /// **refused** with full evidence before the record is `removed`.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_check() {
@@ -3675,6 +4237,7 @@ async fn enroll_system_form_manual_apply_verify_and_manual_removal_with_absence_
     );
 }
 
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 fn fs_clear(path: &std::path::Path) {
     std::fs::write(path, b"").unwrap();
@@ -3683,10 +4246,11 @@ fn fs_clear(path: &std::path::Path) {
 /// m03-plan U10 (D5 §6.7): an append whose result was lost but which landed: the
 /// reconcile's client-executed inspect finds exactly one exact line (`Applied`), and the
 /// record continues at E4 under the still-valid approval.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_reconcile_applied() {
     let w = World::new().await;
+    w.require_recorded_client();
     let op = w.approved(&w.spec(), "req_ra").await;
     w.uncertain_append(&op, true).await;
     assert_eq!(
@@ -3710,6 +4274,7 @@ async fn enroll_reconcile_applied() {
 }
 
 /// m03-plan U10 (D5 §6.7): an unreachable destination leaves the step unknown.
+// Unix only: it stops the server; the harness sshd is shared by the run and is not this test's to stop (`LoopbackSshd::stop` leaves a harness server running).
 #[cfg(unix)]
 #[tokio::test]
 async fn enroll_reconcile_unreachable() {
@@ -3730,11 +4295,12 @@ async fn enroll_reconcile_unreachable() {
 /// m03-plan U10 (D5 §6.2; §17.4 item 2): the owner abandons from `outcome_unknown`
 /// (keeping the `late_write` residual), from `remove_unknown`, and from
 /// `rollback_pending`; the record is `abandoned`, its open operation settled.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn abandon_from_outcome_unknown_remove_unknown_and_rollback_pending() {
     // outcome_unknown
     let w = World::new().await;
+    w.require_recorded_client();
     let op = w.approved(&w.spec(), "req_ab1").await;
     w.uncertain_append(&op, false).await;
     let id = w.records().pop().unwrap().id;
@@ -3766,6 +4332,8 @@ async fn abandon_from_outcome_unknown_remove_unknown_and_rollback_pending() {
     assert_eq!(e.code, Code::CapabilityUnavailable);
 
     // remove_unknown: a removal whose remove step's result was lost.
+    // One world at a time: a harness sshd is leased once per thread (Windows).
+    drop(w);
     let w = World::new().await;
     let op = w.approved(&w.spec(), "req_ab2").await;
     let _ = w.drive(&op).await;
@@ -3807,6 +4375,8 @@ async fn abandon_from_outcome_unknown_remove_unknown_and_rollback_pending() {
     assert_eq!(res.state, EnrollmentState::Abandoned);
 
     // rollback_pending (seeded: the initial verification's failure).
+    // One world at a time: a harness sshd is leased once per thread (Windows).
+    drop(w);
     let w = World::new().await;
     let seeded = w.seed(
         EnrollmentState::RollbackPending,
@@ -3831,11 +4401,12 @@ async fn abandon_from_outcome_unknown_remove_unknown_and_rollback_pending() {
 /// pair beside the first; the first's removal runs with every managed binding
 /// released and the issuer unavailable (maintenance never depends on the managed
 /// credential), removes exactly its own line and leaves the second.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn rotation_and_removal_with_every_managed_binding_released_and_issuer_unavailable() {
     use std::sync::atomic::Ordering;
     let w = World::new().await;
+    w.require_recorded_client();
     let op = w.approved(&w.spec(), "req_rot1").await;
     let _ = w.drive(&op).await;
     let first = w.records().pop().unwrap();
@@ -3875,6 +4446,7 @@ async fn rotation_and_removal_with_every_managed_binding_released_and_issuer_una
 
 /// m03-plan U10 (§17.4 item 12; B R2-18): a verified result discloses that ordinary
 /// `ssh <alias>` works only while a binding holds the slot.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn enrollment_result_next_discloses_slot_free() {
@@ -3897,6 +4469,7 @@ async fn enrollment_result_next_discloses_slot_free() {
 /// m03-plan U10 (D5 §6.5, F27): the supervisor re-verifies a `verified` pair before its
 /// evidence lapses (here `reverify_after` is shortened), non-interactively; freshness
 /// is renewed and nothing remote changes.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn supervisor_reverifies_before_freshness_lapses() {
@@ -3922,6 +4495,7 @@ async fn supervisor_reverifies_before_freshness_lapses() {
 
 /// m03-plan U10 (§17.4 item 11; B R2-09): a client change (not contrary evidence)
 /// triggers a prompt re-verification; an unchanged client does not.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn client_change_triggers_prompt_reverification() {
@@ -3945,6 +4519,7 @@ async fn client_change_triggers_prompt_reverification() {
 /// m03-plan U10 (§17.4 item 5; B R2-05 … evidence-based holds): a re-verification that
 /// finds the positive refused holds the record (evidence-based); after the owner
 /// fixes the server, `enroll verify` re-verifies it from `held` to `verified`.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn held_evidence_hold_reverifies_on_owner_request() {
@@ -3981,6 +4556,7 @@ async fn held_evidence_hold_reverifies_on_owner_request() {
 /// m03-plan U10 (§17.7 item 5): a target change's verification takes its pins from the
 /// operation's proposed target; a pass replaces the approved target atomically with the
 /// move to `verified`.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn target_change_pins_come_from_proposed_target() {
@@ -4032,7 +4608,7 @@ async fn target_change_pins_come_from_proposed_target() {
 /// (another installation's CA, marker and catalog destination ID) is removed from this
 /// device: the approved `RemoveEnrollment` admits it `planned → removing`, the removal
 /// sub-machine runs keyed by its marker, and only its line goes.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_removal_from_second_installation_with_different_catalog() {
     let w = World::new().await;
@@ -4060,7 +4636,7 @@ async fn foreign_removal_from_second_installation_with_different_catalog() {
 }
 
 /// m03-plan U10 (§17.7 item 4): the approval is the frozen `planned → removing` event.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_removal_approved_planned_to_removing() {
     let w = World::new().await;
@@ -4073,7 +4649,7 @@ async fn foreign_removal_approved_planned_to_removing() {
 }
 
 /// m03-plan U10 (§17.7 item 4): a denial withdraws the record; nothing remote happens.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_removal_denied_withdrawn_nothing_remote() {
     let w = World::new().await;
@@ -4089,7 +4665,7 @@ async fn foreign_removal_denied_withdrawn_nothing_remote() {
 
 /// m03-plan U10 (D4 item 5; F07): a redacted bundle and a descriptor whose line does
 /// not hash to its `line_sha256` are refused before anything is written.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_removal_refuses_redacted_bundle_and_line_hash_mismatch() {
     let w = World::new().await;
@@ -4108,7 +4684,7 @@ async fn foreign_removal_refuses_redacted_bundle_and_line_hash_mismatch() {
 
 /// m03-plan U10 (§17.4 item 10): the local alias must evaluate to the bundle's exact
 /// host name and port.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_removal_refuses_bundle_host_mismatch() {
     let w = World::new().await;
@@ -4125,7 +4701,7 @@ async fn foreign_removal_refuses_bundle_host_mismatch() {
 
 /// m03-plan U10 (§17.4 item 10; B R2-07): a lost reply of the foreign removal's remove
 /// step is reconciled by marker.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_removal_lost_reply_reconciled_by_marker() {
     let w = World::new().await;
@@ -4141,7 +4717,7 @@ async fn foreign_removal_lost_reply_reconciled_by_marker() {
         panic!("remove");
     };
     assert_eq!(step.stage, RemoteStage::Remove);
-    let _ = run_step(&step).await; // it really removed the line
+    let _ = run_step(&w.home, &step).await; // it really removed the line
     w.result(
         &rm,
         &step.step_token,
@@ -4167,7 +4743,7 @@ async fn foreign_removal_lost_reply_reconciled_by_marker() {
 /// m03-plan U10 (§17.7 item 4; Q28 default): a foreign system-form record takes the
 /// manual route (`planned → manual_removal_pending` on the typed confirmation); its
 /// absence check ends `ca_not_held`, so it is never reported removed.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_removal_system_form_manual_route_never_reported_removed() {
     let w = World::new().await;
@@ -4191,7 +4767,7 @@ async fn foreign_removal_system_form_manual_route_never_reported_removed() {
 
 /// m03-plan U10 (§17.10 item 2): a foreign system-form record can be abandoned from
 /// `manual_removal_pending`, keeping `pending_until_line_removed`.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_system_form_abandon_keeps_pending_until_line_removed() {
     let w = World::new().await;
@@ -4216,7 +4792,7 @@ async fn foreign_system_form_abandon_keeps_pending_until_line_removed() {
 
 /// m03-plan U10 (§17.10 item 2): once a `ca_not_held` result exists, cancelling the
 /// manual removal leaves it in `manual_removal_pending`, never `planned` or `withdrawn`.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_system_form_cancel_after_ca_not_held_never_planned_or_withdrawn() {
     let w = World::new().await;
@@ -4243,6 +4819,7 @@ async fn foreign_system_form_cancel_after_ca_not_held_never_planned_or_withdrawn
 
 /// m03-plan U10 (§17.4 item 5; A R2-05): cancelling a manual removal returns the
 /// record to the state it began from, with that state's evidence.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn manual_removal_cancel_returns_to_origin_state_and_evidence() {
@@ -4275,6 +4852,7 @@ async fn manual_removal_cancel_returns_to_origin_state_and_evidence() {
 /// m03-plan U10 (D5 §6.9): a system-form enrollment is never reported removed without
 /// its absence check; one whose lines are still installed stays in
 /// `manual_removal_pending`.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn system_form_never_reported_removed_without_absence_check() {
@@ -4307,6 +4885,7 @@ async fn system_form_never_reported_removed_without_absence_check() {
 /// m03-plan U10 (§17.4 item 5): cancelling a system-form enrollment from
 /// `manual_pending` keeps it listed (`manual_removal_pending`, origin `manual_pending`)
 /// until its absence is verified; then it is `withdrawn`.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn system_form_cancel_from_manual_pending_keeps_entry_until_absence_verified() {
@@ -4351,12 +4930,12 @@ async fn system_form_cancel_from_manual_pending_keeps_entry_until_absence_verifi
 
 /// Waits until the remote clock (this host's) is past the uncertain step's not-after
 /// (the step timeout is 1 s here, so the not-after is the inspect's reading + ~61 s).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 async fn past_not_after() {
     tokio::time::sleep(std::time::Duration::from_secs(64)).await;
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn short_steps() -> WorldOptions {
     WorldOptions {
         limits: heimdall_app::operations::Limits {
@@ -4370,7 +4949,7 @@ fn short_steps() -> WorldOptions {
 /// m03-plan U10 (D5 §6.7; Q7 as amended): the append never ran; once its not-after has
 /// passed (the old holder can no longer pass its own checks), an attended reconcile
 /// within the approval's validity redispatches it, and exactly one line results.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_reconcile_not_applied_within_validity() {
     let w = World::with(short_steps()).await;
@@ -4401,7 +4980,7 @@ async fn enroll_reconcile_not_applied_within_validity() {
 
 /// m03-plan U10 (F20): a reconcile that would redispatch an append needs an attended
 /// session; an unattended one leaves it uncertain.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn reconcile_redispatch_requires_attended_session() {
     let w = World::with(short_steps()).await;
@@ -4419,7 +4998,7 @@ async fn reconcile_redispatch_requires_attended_session() {
 
 /// m03-plan U10 (D5 §6.7): the line is absent after fencing but the approval lapsed:
 /// `DECISION_STALE`, `approval_lapsed`, and the record `withdrawn`.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_reconcile_approval_lapsed() {
     let w = World::with(short_steps()).await;
@@ -4436,7 +5015,7 @@ async fn enroll_reconcile_approval_lapsed() {
 
 /// m03-plan U10 (§17.4 item 2): an uncertain append left for `withdrawn` keeps the
 /// `late_write` residual (`possible_late_write`).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn uncertain_append_left_for_withdrawn_keeps_late_write_residual() {
     let w = World::with(short_steps()).await;
@@ -4454,7 +5033,7 @@ async fn uncertain_append_left_for_withdrawn_keeps_late_write_residual() {
 
 /// m03-plan U10 (D4 item 3; §6.2): a CA is retired only once every enrollment under it
 /// is final or `abandoned` (U10-B's retirement precondition over U10-A's records).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn ca_retirement_refused_until_every_enrollment_final_or_abandoned() {
     let w = World::new().await;
@@ -4463,6 +5042,7 @@ async fn ca_retirement_refused_until_every_enrollment_final_or_abandoned() {
     let id = w.records().pop().unwrap().id;
     let retire = heimdall_contract::issuer::IssuerRequest::Retire {
         ca_fingerprint: w.issuer.ca.fingerprint().clone(),
+        deleted_locator: None,
     };
     let e = w
         .ops
@@ -4485,7 +5065,7 @@ async fn ca_retirement_refused_until_every_enrollment_final_or_abandoned() {
 
 /// m03-plan U10 (Q25; §17.4 item 5): `abandoned` is outside the uniqueness rule: a new
 /// enrollment of the pair uses a new marker, and the abandoned record stays listed.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn reenroll_after_abandoned_uses_new_marker_old_residual_listed() {
     let w = World::new().await;
@@ -4521,7 +5101,7 @@ async fn reenroll_after_abandoned_uses_new_marker_old_residual_listed() {
 }
 
 /// A foreign record held for a damaged line (two marker lines).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 async fn held_foreign(w: &World, rid: &str) -> heimdall_contract::enrollment::ForeignRemovalTarget {
     let t = w.foreign(EnrollmentForm::Account);
     // A second line with the same marker: damaged.
@@ -4547,7 +5127,7 @@ async fn held_foreign(w: &World, rid: &str) -> heimdall_contract::enrollment::Fo
 /// lines) is recovered by a new `RemoveEnrollment` decision, ⟨round 2⟩ or abandoned:
 /// `abandoned`, `pending_until_line_removed`, the lines left as they are, nothing
 /// remote touched.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn foreign_removal_held_recovery_by_new_decision_or_abandon() {
     let w = World::new().await;
@@ -4561,6 +5141,8 @@ async fn foreign_removal_held_recovery_by_new_decision_or_abandon() {
     assert_eq!(records[0].state, EnrollmentState::Removing);
 
     // The abandon path.
+    // One world at a time: a harness sshd is leased once per thread (Windows).
+    drop(w);
     let w = World::new().await;
     let t = held_foreign(&w, "req_fha1").await;
     let before = w.registry_text();
@@ -4600,7 +5182,7 @@ async fn foreign_removal_held_recovery_by_new_decision_or_abandon() {
 // =====================================================================================
 
 /// A distinctive comment string of the server owner's (§17.21 item 4).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 const FOREIGN_COMMENT: &str = "hm-owner-note-q7zv-do-not-store";
 
 /// ADR-0008 §17.21 item 4: the journal never stores the inspected registry's foreign
@@ -4608,7 +5190,7 @@ const FOREIGN_COMMENT: &str = "hm-owner-note-q7zv-do-not-store";
 /// key's line with a comment and a comment line, no stored receipt of any operation
 /// and no operation result contains those bytes; the removal still removes exactly
 /// our line (its post-image comes from this runtime's memory of the reading).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn journal_never_stores_foreign_registry_bytes() {
     let other = FixtureKey::generate();
@@ -4622,6 +5204,7 @@ async fn journal_never_stores_foreign_registry_bytes() {
         ..WorldOptions::default()
     })
     .await;
+    w.require_recorded_client();
     assert!(w.registry_text().contains(FOREIGN_COMMENT));
     let op = w.approved(&w.spec(), "req_min").await;
     let r = w.drive(&op).await.unwrap_or_else(|e| panic!("{e:?}"));
@@ -4663,7 +5246,7 @@ async fn journal_never_stores_foreign_registry_bytes() {
 /// ADR-0008 §17.21 item 5, `enrollment.apply`'s initial verification: authorized only
 /// by an **approved `EnrollAccount` that names this operation**, and only at its own
 /// stage (the record `verifying` after a confirmed append, nothing outstanding).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn verification_authority_apply_initial_needs_its_own_approval_and_stage() {
     use heimdall_domain::verification::VerificationRefusal as R;
@@ -4806,20 +5389,33 @@ async fn verification_authority_apply_initial_needs_its_own_approval_and_stage()
     assert_eq!(w.reserve(&d, &q.id).await, Err(R::OperationNotVerifying));
 }
 
+/// The world of the verification-authority tests over **seeded** system-form records
+/// (forged operations and `reserve_verification` only; no step, no login): the system
+/// form's sshd on Unix, as before; ⟨W4-N01⟩ on Windows the harness's account-form server,
+/// since the harness cannot honour `TrustedUserCAKeys` and these tests never contact a
+/// server.
+#[cfg(any(unix, windows))]
+fn seeded_system_world_options() -> WorldOptions {
+    WorldOptions {
+        form: if cfg!(windows) {
+            EnrollmentForm::Account
+        } else {
+            EnrollmentForm::System
+        },
+        ..WorldOptions::default()
+    }
+}
+
 /// ADR-0008 §17.21 item 5, a target change's verification: authorized only by an
 /// **approved `ApproveTargetChange` naming this operation, this enrollment, the
 /// journal's proposed target and the record's approved target**, at its own stage
 /// (`reverifying` from `held`); a presence verification never borrows that stage.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn verification_authority_target_change_needs_its_own_decision_and_stage() {
     use heimdall_domain::decision::DecisionKind;
     use heimdall_domain::verification::VerificationRefusal as R;
-    let w = World::with(WorldOptions {
-        form: EnrollmentForm::System,
-        ..WorldOptions::default()
-    })
-    .await;
+    let w = World::with(seeded_system_world_options()).await;
     let mut old = w.served_target();
     let k = FixtureKey::generate().public_line_without_comment();
     old.host_key = raw_key("ssh-ed25519", k.split_whitespace().nth(1).unwrap()).approved();
@@ -4921,15 +5517,11 @@ async fn verification_authority_target_change_needs_its_own_decision_and_stage()
 /// ADR-0008 §17.21 item 5, the system form's absence check: only an `absence`
 /// verification of a **system-form** record at `removal_verifying` (beside its own
 /// manual removal operation); a presence verification never borrows that stage.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn verification_authority_system_absence_own_stage() {
     use heimdall_domain::verification::VerificationRefusal as R;
-    let w = World::with(WorldOptions {
-        form: EnrollmentForm::System,
-        ..WorldOptions::default()
-    })
-    .await;
+    let w = World::with(seeded_system_world_options()).await;
     let origin = heimdall_domain::enrollment::RemovalOrigin {
         state: EnrollmentState::Verified,
         evidence: None,
@@ -5046,6 +5638,7 @@ async fn verification_authority_system_absence_own_stage() {
 
 /// One reconcile round against our planted lock: the reconcile, its inspect, its
 /// `fence` (both real, through `SshStepRunner`); returns the fence's record.
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
 #[cfg(unix)]
 async fn reconcile_round(w: &World, op: &OperationId) -> StepRecorded {
     w.reconcile(&attended(), op, false).await.unwrap();
@@ -5064,6 +5657,7 @@ async fn reconcile_round(w: &World, op: &OperationId) -> StepRecorded {
 
 /// Enter a reconcile of `op` and plant this step's lock held by `holder` (its exact
 /// start identity, `not_after`); returns the reconcile's inspect step, not yet run.
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
 #[cfg(unix)]
 async fn reconcile_with_live_lock(
     w: &World,
@@ -5083,6 +5677,7 @@ async fn reconcile_with_live_lock(
 }
 
 /// The `enroll.fence` audit receipts of `op` (§17.10 item 4), as JSON.
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
 #[cfg(unix)]
 fn fence_audits(w: &World, op: &OperationId) -> Vec<serde_json::Value> {
     w.receipts(op)
@@ -5101,6 +5696,7 @@ fn fence_audits(w: &World, op: &OperationId) -> Vec<serde_json::Value> {
 /// real fence answers `unproven`, exit 44) is never unlocked, never signalled, and
 /// counts an attempt; after `holder_termination_attempts` (3) the record is `held`
 /// (`lock_holder_unresolved`). Nothing is ever redispatched.
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
 #[cfg(unix)]
 #[tokio::test]
 async fn fence_unproven_never_unlocks_and_counts_attempt() {
@@ -5152,6 +5748,7 @@ async fn fence_unproven_never_unlocks_and_counts_attempt() {
 /// audit, counts the attempt, and sends nothing further. The first fence is real
 /// (`alive`, past the holder's not-after); the terminating run's report is the CLI's
 /// (the real script reaching `unproven` after signals needs U5's pause hooks).
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
 #[cfg(unix)]
 #[tokio::test]
 async fn fence_audit_keeps_signals_sent_on_unproven() {
@@ -5217,6 +5814,7 @@ async fn fence_audit_keeps_signals_sent_on_unproven() {
 /// exact process group (real: TERM), proves it gone and removes the lock, inspects
 /// again, and only then redispatches the append (attended, approval valid): exactly
 /// one line, then `verified`.
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
 #[cfg(unix)]
 #[tokio::test]
 async fn reconcile_terminates_stale_holder_then_redispatches() {
@@ -5252,6 +5850,7 @@ async fn reconcile_terminates_stale_holder_then_redispatches() {
 }
 
 /// Three unproven reconciles: the record `held`, `lock_holder_unresolved`.
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
 #[cfg(unix)]
 async fn to_lock_holder_unresolved(w: &World, op: &OperationId, token: &str, holder: &Holder) {
     w.plant_lock(token, holder.pid, "00", remote_now() + 3600);
@@ -5270,6 +5869,7 @@ async fn to_lock_holder_unresolved(w: &World, op: &OperationId, token: &str, hol
 /// only classifies: refused while the lock is still there; once the owner removed it,
 /// no line gives `withdrawn` with the `late_write` residual and one exact line gives
 /// `applied_unverified`. Never a redispatch (no new append).
+// Unix only: the fence's holder is a local Unix process (`Holder`: `/bin/sleep`, its process group, its `ps`/`/proc` start identity) recorded in a symlink lock beside the registry; the harness server's host is WSL, not this process's.
 #[cfg(unix)]
 #[tokio::test]
 async fn reconcile_after_manual_recovery_classifies_without_redispatch() {
@@ -5351,11 +5951,12 @@ async fn reconcile_after_manual_recovery_classifies_without_redispatch() {
 /// lists every live grant holding a certificate under the removed CA for the pair (not
 /// one under another CA), and its approval degrades exactly those, `pair_unenrolled`,
 /// through the narrowing protocol; the removal then runs.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn enroll_remove_lists_affected_grants_and_degrades_them() {
     use heimdall_domain::decision::DecisionKind;
     let w = World::new().await;
+    w.require_recorded_client();
     let op = w.approved(&w.spec(), "req_rg").await;
     let r = w.drive(&op).await.unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(r.state, EnrollmentState::Verified);
@@ -5409,6 +6010,7 @@ async fn enroll_remove_lists_affected_grants_and_degrades_them() {
 /// A system-form world whose server trusts the CA for the pair, and a record held
 /// for a host-key change: its approved key is an old one, the server's is the one
 /// the evaluator now finds.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 fn held_host_key_world_record(
     w: &World,
@@ -5420,6 +6022,7 @@ fn held_host_key_world_record(
     held_host_key_world_record_with(w, state, |_| {})
 }
 
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 fn held_host_key_world_record_with(
     w: &World,
@@ -5446,6 +6049,7 @@ fn held_host_key_world_record_with(
     (record, old)
 }
 
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 fn system_world_options() -> WorldOptions {
     WorldOptions {
@@ -5459,6 +6063,7 @@ fn system_world_options() -> WorldOptions {
 /// `verified`: while its attempt runs the record is `reverifying` with the old
 /// approved target; after it, `verified` with the proposed one, its evidence and no
 /// hold. Never `verified` with the old target, nor the new target before a pass.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn target_change_pass_replaces_approved_target_atomically() {
@@ -5498,6 +6103,7 @@ async fn target_change_pass_replaces_approved_target_atomically() {
 /// inconclusive (the issuer unavailable), fails (the server refuses the positive
 /// certificate), or finds yet another key (the proposed one is not the server's)
 /// leaves the approved target unchanged and the record `held`, reason unchanged.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn target_change_failure_or_inconclusive_keeps_approved_target_and_held() {
@@ -5555,6 +6161,7 @@ async fn target_change_failure_or_inconclusive_keeps_approved_target_and_held() 
 /// re-verified by `enroll verify` nor by the supervisor; only `ApproveTargetChange`
 /// re-approves the target, and the decision shows the new key as a diff against the
 /// approved one (same `HostName`, `Port`, `User`). A denial changes nothing.
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`).
 #[cfg(unix)]
 #[tokio::test]
 async fn held_host_key_change_needs_target_reapproval_with_key_diff() {
@@ -5619,7 +6226,7 @@ async fn held_host_key_change_needs_target_reapproval_with_key_diff() {
 /// a host-key change carries the **freshly evaluated target** in its
 /// `RemoveEnrollment` (a diff against the approved one), and every removal step runs
 /// against it (with the approved target each would be refused `route_changed`).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn held_removal_with_freshly_evaluated_target() {
     use heimdall_domain::decision::DecisionKind;
@@ -5663,7 +6270,7 @@ async fn held_removal_with_freshly_evaluated_target() {
 }
 
 /// The 16-hex tag of an enrollment's generated files.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn heimdall_registry_tag(id: &heimdall_contract::ids::EnrollmentId) -> String {
     heimdall_app::enrollment::tag_of(id)
 }
@@ -5672,11 +6279,12 @@ fn heimdall_registry_tag(id: &heimdall_contract::ids::EnrollmentId) -> String {
 /// verification leaves the record `applied_unverified` under the **still-open**
 /// `enrollment.apply`; while its approval is valid `enroll verify` refuses and points
 /// at `enroll reconcile`, which retries the verification under that same operation.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn initial_verification_retry_under_open_apply_via_reconcile() {
     use std::sync::atomic::Ordering;
     let w = World::new().await;
+    w.require_recorded_client();
     let op = w.approved(&w.spec(), "req_iv").await;
     w.issuer.available.store(false, Ordering::SeqCst);
     let StepAnswer::Step { step } = w.step_answer(&op).await else {
@@ -5727,7 +6335,7 @@ async fn initial_verification_retry_under_open_apply_via_reconcile() {
 /// lapsed, the retry is `enroll verify` (the lapsed apply ends there), and a failure
 /// with refusal evidence then **holds** the record (no rollback under a lapsed
 /// approval); its removal needs `RemoveEnrollment`.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn initial_verification_failure_after_approval_lapsed_holds() {
     use std::sync::atomic::Ordering;
@@ -5739,6 +6347,7 @@ async fn initial_verification_failure_after_approval_lapsed_holds() {
         ..WorldOptions::default()
     })
     .await;
+    w.require_recorded_client();
     let op = w.approved(&w.spec(), "req_il").await;
     w.issuer.available.store(false, Ordering::SeqCst);
     let StepAnswer::Step { step } = w.step_answer(&op).await else {
@@ -5786,11 +6395,12 @@ async fn initial_verification_failure_after_approval_lapsed_holds() {
 /// m03-plan U10 ⟨r2⟩ (F05; D5 §6.4 E5, §6.6): a rotation's verified enrollment only adds
 /// its CA to the pair's issuing set. A pair already managed with its projection
 /// applied keeps the projection (no `setup_apply`); a first enrollment sets it pending.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test]
 async fn e5_rotation_keeps_projection_and_adds_issuing_ca() {
     use heimdall_domain::enrollment::ProjectionStatus;
     let w = World::new().await;
+    w.require_recorded_client();
     let pair = heimdall_domain::scope::AccessPair {
         destination: w.destination.clone(),
         account: w.account.clone(),
@@ -5843,6 +6453,7 @@ async fn e5_rotation_keeps_projection_and_adds_issuing_ca() {
 /// CAs issuing) and then retires CA1 there, removing exactly its line; the unreachable
 /// pair is refused before any write and keeps CA1 verified and issuing, its registry
 /// untouched. The existing access survives on both.
+// Unix only: needs a second sshd (`add_destination`); the Windows harness serves one account-form server, leased once per thread; and it stops the second server.
 #[cfg(unix)]
 #[tokio::test]
 async fn rotation_two_accounts_one_unreachable() {
@@ -5926,13 +6537,20 @@ async fn rotation_two_accounts_one_unreachable() {
     );
 }
 
-/// m03-plan U10 ⟨r2⟩ (Q11 as amended; D5 §6.5 freshness), **the host-key half**: a
+/// m03-plan U10 ⟨round 3⟩ (D5 §6.5; ADR-0008 §17.22 item 7, W4-R04 + R2A-Q1): a
 /// verified pair whose approved host key the evaluator no longer finds has its
-/// evidence invalidated at once (not at day 80): the supervisor re-verifies it with
-/// the approved pins, the server's other key holds it (`host_key_changed`), the grants
-/// under its CA for the pair are degraded, and the new key is never accepted
-/// automatically (a second pass does nothing; the approved target is unchanged).
-/// (The client half is `client_change_triggers_prompt_reverification`.)
+/// evidence invalidated **at the comparison** (an `ensure` before any pass reads
+/// `destination_scope: unknown`; `ensure_scope_minimum_refused_before_any_pass`), and
+/// a host-key change **never triggers a login**: the supervisor's pass records the
+/// mismatch from the evaluation alone (no verification session, no certificate, no
+/// `enroll.verify.started`, nothing accepted by the server), so the record is `held`
+/// (`host_key_changed`, not evidence-based), the grants under its CA for the pair are
+/// degraded, and the new key is never accepted automatically (a second pass does
+/// nothing; the approved target is unchanged; only an attended `ApproveTargetChange`
+/// verification can accept it). (The client half is
+/// `client_change_triggers_prompt_reverification` and
+/// `inconclusive_reverification_after_client_change_keeps_scope_unknown`.)
+// Unix only: the system form: the harness sshd cannot honour `TrustedUserCAKeys`/`AuthorizedPrincipalsFile` (`SshdUnavailable`) (`held_host_key_world_record_with` trusts the CA and writes the principals file).
 #[cfg(unix)]
 #[tokio::test]
 async fn evidence_invalidated_on_host_key_or_client_change() {
@@ -5975,8 +6593,43 @@ async fn evidence_invalidated_on_host_key_or_client_change() {
     *w.target.evaluation.lock().unwrap() = served;
     let grant = w.seed_grant_under(&ca, 3);
     assert_ne!(w.served_target().host_key, old.host_key);
+    let sessions = w
+        .endpoints
+        .created
+        .load(std::sync::atomic::Ordering::SeqCst);
+    let accepted = w.sshd.accepted_certificates().len();
+    let signed = w.issuer.signed.load(std::sync::atomic::Ordering::SeqCst);
     let done = w.ops.reverify_pass().await.unwrap();
     assert_eq!(done, vec![record.id.clone()], "invalidated at once");
+    // No login: no verification session, no certificate signed, nothing accepted, no
+    // attempt started.
+    assert_eq!(
+        w.endpoints
+            .created
+            .load(std::sync::atomic::Ordering::SeqCst),
+        sessions,
+        "no verification session"
+    );
+    assert_eq!(
+        w.issuer.signed.load(std::sync::atomic::Ordering::SeqCst),
+        signed,
+        "no verification certificate"
+    );
+    assert_eq!(w.sshd.accepted_certificates().len(), accepted, "no login");
+    let ops: Vec<OperationId> = w
+        .stored_operation_text()
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    assert!(!ops.is_empty(), "the pass opened the record's verification");
+    for o in &ops {
+        assert!(
+            !w.receipts(o)
+                .iter()
+                .any(|r| r.stage == heimdall_domain::operation::enrollment_stage::VERIFY_STARTED),
+            "no verification attempt started"
+        );
+    }
     let r = w.record(&record.id);
     assert_eq!(
         r.state,
@@ -6000,4 +6653,503 @@ async fn evidence_invalidated_on_host_key_or_client_change() {
         "never again by itself"
     );
     assert_eq!(w.record(&record.id).state, EnrollmentState::Held);
+    assert_eq!(
+        w.endpoints
+            .created
+            .load(std::sync::atomic::Ordering::SeqCst),
+        sessions,
+        "still no verification session"
+    );
+}
+
+// =====================================================================================
+// Round 3 (R3-A): ADR-0008 §17.22 items 1, 2 and 7
+// =====================================================================================
+
+/// The reason a mismatched descriptor is refused with (§17.22 item 1 names
+/// `descriptor_mismatch`, registered by the integrator as §17.22 item 1 names it).
+#[cfg(any(unix, windows))]
+const DESCRIPTOR_MISMATCH_REASON: &str = "descriptor_mismatch";
+
+/// `t` with its line hash recomputed from its own fields (the bundle's line).
+#[cfg(any(unix, windows))]
+fn rehashed(
+    mut t: heimdall_contract::enrollment::ForeignRemovalTarget,
+) -> heimdall_contract::enrollment::ForeignRemovalTarget {
+    let line = format!(
+        "cert-authority,principals=\"hm:{}:{}\" {} {}",
+        t.bundle_destination_id,
+        t.account.as_str(),
+        t.ca_public_key,
+        t.marker
+    );
+    t.line_sha256 = heimdall_domain::projection::Sha256Hex::of(line.as_bytes())
+        .as_str()
+        .to_owned();
+    t
+}
+
+/// ADR-0008 §17.22 item 1 (W4-S01, the security review's probe): a held foreign
+/// removal executes only the descriptor that was approved.
+/// 1. A's removal is held (a damaged line: two marker lines); the server owner then
+///    repairs A's line (drops the duplicate; bootstrap access kept).
+/// 2. Requests B with A's marker and host but another principal, another CA or
+///    another registry (each with a correctly recomputed line hash) are refused before
+///    anything is written: no operation, no decision, the held record unchanged.
+/// 3. A decision showing B for the held record (as a pre-fix runtime would have issued
+///    it) is refused at approval by the precheck (`DECISION_STALE`): nothing remote
+///    runs, A's line stays on the registry.
+/// 4. A's own descriptor is still approvable and removes exactly A's line.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn foreign_removal_held_reuse_needs_the_exact_descriptor() {
+    let w = World::new().await;
+    let a = held_foreign(&w, "req_fdm0").await;
+    let repaired: String = w
+        .registry_text()
+        .lines()
+        .filter(|l| !(l.contains(&a.marker) && l.ends_with(" x")))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    std::fs::write(&w.registry, &repaired).unwrap();
+    assert_eq!(w.marker_lines(), 1, "A's line repaired");
+    let a_line = repaired
+        .lines()
+        .find(|l| l.contains(&a.marker))
+        .unwrap()
+        .to_owned();
+    let held = w.foreign_records(&a.marker).pop().unwrap();
+    assert_eq!(held.state, EnrollmentState::Held);
+    let open_before = w.tx(|tx| tx.open_operations()).len();
+
+    let mut principal = a.clone();
+    principal.bundle_destination_id = "dst_elsewhere".to_owned();
+    let principal = rehashed(principal);
+    let mut ca = a.clone();
+    ca.ca_public_key = heimdall_testkit::ca::TestCa::generate(w.home.scratch())
+        .unwrap()
+        .public_line()
+        .to_owned();
+    let ca = rehashed(ca);
+    let mut registry = a.clone();
+    registry.registry.path = Some(format!("{}.b", w.registry_remote));
+    for (i, b) in [&principal, &ca, &registry].into_iter().enumerate() {
+        assert_ne!(b, &a);
+        let e = w
+            .remove_foreign(b, &format!("req_fdm_b{i}"))
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::CapabilityUnavailable, "{e:?}");
+        assert_eq!(
+            e.reason.as_deref(),
+            Some(DESCRIPTOR_MISMATCH_REASON),
+            "{e:?}"
+        );
+        assert!(e.message.contains("held removal"), "{e:?}");
+        assert!(e.operation_id.is_none(), "no operation written: {e:?}");
+        assert!(e.next.decision_ref.is_none(), "no decision: {e:?}");
+        let records = w.foreign_records(&a.marker);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, EnrollmentState::Held);
+        assert_eq!(records[0].target, a, "the held descriptor is unchanged");
+        assert_eq!(records[0].operation, held.operation);
+        assert!(w.tx(|tx| tx.pending_decisions()).is_empty());
+        assert_eq!(w.tx(|tx| tx.open_operations()).len(), open_before);
+        assert_eq!(w.registry_text(), repaired, "nothing remote ran");
+    }
+
+    // A's own descriptor is admitted; a decision showing B for the same operation is
+    // refused at approval.
+    let ea = w.remove_foreign(&a, "req_fdm_a").await.unwrap_err();
+    assert_eq!(ea.code, Code::ApprovalRequired, "{ea:?}");
+    let rm = ea.operation_id.clone().unwrap();
+    let da = heimdall_contract::ids::DecisionId::parse(ea.next.decision_ref.as_deref().unwrap())
+        .unwrap();
+    for (i, b) in [&principal, &ca, &registry].into_iter().enumerate() {
+        let mut forged = w.tx(|tx| tx.decision(&da)).unwrap();
+        forged.id = heimdall_contract::ids::DecisionId::from_random_bytes(rand16());
+        match &mut forged.kind {
+            heimdall_domain::decision::DecisionKind::RemoveEnrollment { target, .. } => {
+                *target = RemovalTarget::Foreign(b.clone());
+            }
+            k => panic!("unexpected decision {k:?}"),
+        }
+        w.tx(|tx| tx.insert_decision(&forged));
+        let e = w
+            .ops
+            .decide(
+                &attended(),
+                DecideRequest {
+                    decision_id: forged.id.clone(),
+                    verdict: Verdict::Approve,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(e.code, Code::DecisionStale, "variant {i}: {e:?}");
+        let f = w.foreign_records(&a.marker).pop().unwrap();
+        assert_eq!(f.state, EnrollmentState::Held, "variant {i}");
+        assert_eq!(f.target, a);
+        assert_eq!(w.op(&rm).state, OperationState::AwaitingApproval);
+        assert!(w.step(&rm).await.is_err(), "no remote step for B");
+        assert!(w.registry_text().contains(&a_line), "A's line stays");
+        assert_eq!(w.registry_text(), repaired, "nothing remote ran");
+    }
+    // A's own decision removes exactly A's line.
+    w.decide(&ea, Verdict::Approve).await.unwrap();
+    let res = w.drive(&rm).await.unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(res.state, EnrollmentState::Removed);
+    assert_eq!(w.marker_lines(), 0);
+}
+
+/// Standard base64 (tests only).
+#[cfg(any(unix, windows))]
+fn b64encode(b: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in b.chunks(3) {
+        let n = c
+            .iter()
+            .enumerate()
+            .fold(0u32, |acc, (i, x)| acc | (u32::from(*x) << (16 - 8 * i)));
+        for i in 0..4 {
+            if i <= c.len() {
+                out.push(char::from(
+                    A[usize::try_from((n >> (18 - 6 * i)) & 63).unwrap()],
+                ));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// Every way `needle`'s bytes could appear in stored text: as text, lower- and
+/// upper-case hex, and base64 at each of the three alignments (the complete
+/// quadruples only, so a needle inside a larger encoded blob is found too).
+#[cfg(any(unix, windows))]
+fn encodings(needle: &str) -> Vec<String> {
+    let b = needle.as_bytes();
+    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    let mut v = vec![needle.to_owned(), hex.clone(), hex.to_ascii_uppercase()];
+    for k in 0..3 {
+        let rest = &b[k..];
+        let whole = rest.len() / 3 * 3;
+        v.push(b64encode(&rest[..whole]));
+    }
+    v
+}
+
+/// Assert that no stored receipt or operation result of `w` holds any of `needles`
+/// in any encoding; returns how many operations were scanned.
+#[cfg(any(unix, windows))]
+fn assert_no_stored(w: &World, needles: &[&str]) -> usize {
+    let scanned = w.stored_operation_text();
+    for (o, text) in &scanned {
+        for needle in needles {
+            for enc in encodings(needle) {
+                assert!(
+                    !text.contains(&enc),
+                    "operation {o} stores foreign marker-line bytes ({needle:?} as {enc:?})"
+                );
+            }
+        }
+    }
+    scanned.len()
+}
+
+/// Distinctive strings of the server owner's marker-bearing lines (§17.22 item 2).
+#[cfg(any(unix, windows))]
+const MARKER_NOTE: &str = "hm-owner-marker-note-k3p9-never-stored";
+#[cfg(any(unix, windows))]
+const MARKER_KEY_NOTE: &str = "hm-owner-marker-key-w5r2";
+#[cfg(any(unix, windows))]
+const MARKER_DAMAGE: &str = "hm-appended-damage-z8q1";
+
+/// ADR-0008 §17.22 item 2 (W4-S02): the journal stores no foreign bytes, even on
+/// lines that carry the marker. Through the **real** inspect and `StepResult` path:
+/// 1. an enrollment whose registry gains, before its inspect, an owner's comment and
+///    an unrelated key whose comment carry the enrollment's marker;
+/// 2. a foreign removal whose registry holds its exact line, a damaged copy with
+///    appended data, an owner's comment and an unrelated key carrying its marker.
+///
+/// No stored receipt and no operation result holds those lines' bytes as text, hex
+/// or base64; the journal keeps parsed facts only (counts, the classification, a
+/// SHA-256) and Heimdall's exact canonical entry only when it matched.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn journal_never_stores_marker_bearing_foreign_lines() {
+    let other = FixtureKey::generate();
+    let other_b64 = other
+        .public_line_without_comment()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_owned();
+
+    // 1. The enrollment's inspect.
+    let w = World::new().await;
+    let op = w.approved(&w.spec(), "req_mb1").await;
+    let marker = w.records().pop().unwrap().marker;
+    w.sshd
+        .append_registry_line(&format!("# {MARKER_NOTE} {marker}"))
+        .unwrap();
+    w.sshd
+        .append_registry_line(&format!(
+            "{} {MARKER_KEY_NOTE}-{marker}",
+            other.public_line_without_comment()
+        ))
+        .unwrap();
+    let _ = w.drive(&op).await;
+    assert!(assert_no_stored(&w, &[MARKER_NOTE, MARKER_KEY_NOTE, &other_b64]) >= 1);
+    let i = w.journal(&op).inspection.expect("the inspect reading");
+    assert_eq!(i.reading.marker_lines, 2);
+    assert_eq!(i.reading.own_entries, Some(0));
+    assert_eq!(i.reading.own_entry_hex, None, "no canonical entry matched");
+    assert_eq!(i.reading.other_marker_lines, Some(2));
+    assert_eq!(i.reading.marker_class.as_deref(), Some("damaged"));
+    assert!(i.reading.other_marker_sha256.is_some());
+    assert!(
+        w.registry_text().contains(MARKER_NOTE),
+        "the owner's lines kept"
+    );
+
+    // 2. A foreign removal's inspect (held: the registry is damaged).
+    // One world at a time: a harness sshd is leased once per thread (Windows).
+    drop(w);
+    let w = World::new().await;
+    let t = w.foreign(EnrollmentForm::Account);
+    let ours = w
+        .registry_text()
+        .lines()
+        .find(|l| l.contains(&t.marker))
+        .unwrap()
+        .to_owned();
+    for extra in [
+        format!("{ours} {MARKER_DAMAGE}"),
+        format!("# {MARKER_NOTE} {}", t.marker),
+        format!(
+            "{} {MARKER_KEY_NOTE}-{}",
+            other.public_line_without_comment(),
+            t.marker
+        ),
+    ] {
+        w.sshd.append_registry_line(&extra).unwrap();
+    }
+    let before = w.registry_text();
+    let e = w.remove_foreign(&t, "req_mb2").await.unwrap_err();
+    let rm = e.operation_id.clone().unwrap();
+    w.decide(&e, Verdict::Approve).await.unwrap();
+    let _ = w.drive(&rm).await;
+    assert_eq!(
+        w.foreign_records(&t.marker).pop().unwrap().state,
+        EnrollmentState::Held
+    );
+    assert_eq!(
+        w.registry_text(),
+        before,
+        "nothing removed from a damaged registry"
+    );
+    assert!(
+        assert_no_stored(
+            &w,
+            &[MARKER_NOTE, MARKER_KEY_NOTE, MARKER_DAMAGE, &other_b64]
+        ) >= 1
+    );
+    let i = w.journal(&rm).inspection.expect("the inspect reading");
+    assert_eq!(i.reading.marker_lines, 4);
+    assert_eq!(i.reading.own_entries, Some(1));
+    let own_hex: String = ours.bytes().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(i.reading.own_entry_hex.as_deref(), Some(own_hex.as_str()));
+    assert_eq!(i.reading.other_marker_lines, Some(3));
+    assert_eq!(i.reading.marker_class.as_deref(), Some("damaged"));
+}
+
+/// A managed world's pair verified through the real flow (preview, the attended
+/// decision, inspect, append, the runtime's verification) with the managed
+/// projection applied through the real `setup` path; returns the record.
+#[cfg(any(unix, windows))]
+async fn managed_verified(w: &World, tag: &str) -> heimdall_domain::enrollment::EnrollmentRecord {
+    w.require_recorded_client();
+    let op = w.approved(&w.spec(), &format!("req_{tag}")).await;
+    let r = w.drive(&op).await.unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(r.state, EnrollmentState::Verified);
+    let (_, result, _) = w.setup_apply(tag).await;
+    assert_eq!(result["items"][0]["outcome"], "applied", "{result}");
+    let record = w.records().pop().unwrap();
+    assert!(record.evidence.is_some());
+    record
+}
+
+/// The minimum that needs the destination scope.
+#[cfg(any(unix, windows))]
+fn scope_minimum() -> heimdall_contract::request::RequiredCapabilities {
+    heimdall_contract::request::RequiredCapabilities {
+        destination_scope_at_least: Some(
+            heimdall_contract::request::DestinationScopeEnforcement::VerifiedServerPrincipals,
+        ),
+        ..heimdall_contract::request::RequiredCapabilities::default()
+    }
+}
+
+/// `ensure` with the scope minimum is refused, and without it reports
+/// `destination_scope: unknown`; the record is untouched (still `verified`, the same
+/// evidence: the comparison writes nothing).
+#[cfg(any(unix, windows))]
+async fn assert_scope_unknown(
+    w: &World,
+    record: &heimdall_domain::enrollment::EnrollmentRecord,
+    tag: &str,
+) {
+    use heimdall_contract::request::DestinationScopeEnforcement as S;
+    let e = w
+        .ensure_managed_with(&format!("{tag}-min"), scope_minimum())
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::CapabilityUnavailable, "{tag}: {e:?}");
+    let plain = w
+        .ensure_managed(&format!("{tag}-plain"))
+        .await
+        .unwrap_or_else(|e| panic!("{tag}: {e:?}"));
+    assert_eq!(plain.enforcement.destination_scope, S::Unknown, "{tag}");
+    let now = w.record(&record.id);
+    assert_eq!(
+        now.state,
+        EnrollmentState::Verified,
+        "{tag}: the state is not the judge"
+    );
+    assert_eq!(now.evidence, record.evidence, "{tag}: nothing written");
+}
+
+/// ADR-0008 §17.22 item 7 (W4-R04; D5 §6.5): through the real managed `ensure`
+/// pipeline, **before any re-verification pass**, the evidence is invalid at the
+/// comparison: after a host-key change (the alias evaluates to another key for the same
+/// route), after a client change, and for a certificate prepared under a different CA
+/// than the evidence's, the managed report of an `ensure` gives `destination_scope:
+/// unknown`, and an `ensure` whose minimum needs `verified_server_principals` is
+/// refused, while the record stays `verified` with its evidence. The control
+/// (approved target, same client, same CA) reports `verified_server_principals`,
+/// before and between the cases. (Through `ensure` a scope minimum is refused at
+/// resolution as well, whatever the evidence: the managed descriptor advertises
+/// `destination_scope: unknown`, R3A-Q2; the adapter's own refusal of the minimum is
+/// `integration_managed_adapter`'s `evidence_invalidated_at_the_comparison_before_any_pass`.)
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn ensure_scope_minimum_refused_before_any_pass() {
+    use heimdall_contract::request::DestinationScopeEnforcement as S;
+    let w = World::with(WorldOptions {
+        managed: true,
+        ..WorldOptions::default()
+    })
+    .await;
+    let record = managed_verified(&w, "scp").await;
+    let ok = w
+        .ensure_managed("scp-ctl")
+        .await
+        .unwrap_or_else(|e| panic!("control: {e:?}"));
+    assert_eq!(
+        ok.enforcement.destination_scope,
+        S::VerifiedServerPrincipals
+    );
+    // 1. A host-key change.
+    let served = w.target.evaluation.lock().unwrap().clone();
+    let other = FixtureKey::generate().public_line_without_comment();
+    w.target.evaluation.lock().unwrap().host_keys = vec![raw_key(
+        "ssh-ed25519",
+        other.split_whitespace().nth(1).unwrap(),
+    )];
+    assert_scope_unknown(&w, &record, "scp-hk").await;
+    *w.target.evaluation.lock().unwrap() = served;
+    let ok = w
+        .ensure_managed("scp-ctl2")
+        .await
+        .unwrap_or_else(|e| panic!("control 2: {e:?}"));
+    assert_eq!(
+        ok.enforcement.destination_scope,
+        S::VerifiedServerPrincipals
+    );
+    // 2. A client change.
+    let version = w.host.version.lock().unwrap().clone();
+    *w.host.version.lock().unwrap() = "OpenSSH_10.99p9, LibreSSL 3.3.6".to_owned();
+    assert_scope_unknown(&w, &record, "scp-cl").await;
+    *w.host.version.lock().unwrap() = version;
+    let ok = w
+        .ensure_managed("scp-ctl3")
+        .await
+        .unwrap_or_else(|e| panic!("control 3: {e:?}"));
+    assert_eq!(
+        ok.enforcement.destination_scope,
+        S::VerifiedServerPrincipals
+    );
+    // 3. A different CA: a newer CA verified for the pair without evidence of its own
+    // issues the certificate; the first CA's evidence is not this certificate's.
+    let ca2 = w.add_ca();
+    let pair = w.pair();
+    w.seed_with(
+        EnrollmentState::Verified,
+        EnrollmentForm::Account,
+        record.target.clone(),
+        None,
+        |r| {
+            r.ca_fingerprint = ca2.clone();
+            r.evidence = None;
+            r.verified_at = Some(Timestamp::now());
+        },
+    );
+    w.tx(|tx| tx.add_issuing_ca(&pair, &ca2, Timestamp::now()));
+    let e = w
+        .ensure_managed_with("scp-ca-min", scope_minimum())
+        .await
+        .unwrap_err();
+    assert_eq!(e.code, Code::CapabilityUnavailable, "{e:?}");
+    let plain = w
+        .ensure_managed("scp-ca-plain")
+        .await
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    let entries = w.tx(|tx| tx.issuance_entries(&plain.grant_id));
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.bounds.ca_fingerprint.as_ref() == Some(&ca2)),
+        "issued under the second CA: {entries:?}"
+    );
+    assert_eq!(plain.enforcement.destination_scope, S::Unknown);
+    assert_eq!(w.record(&record.id).evidence, record.evidence);
+}
+
+/// ADR-0008 §17.22 item 7 (§17.4 item 11): a client change prompts a re-verification;
+/// an **inconclusive** attempt (the issuer does not sign the verification certificate)
+/// keeps the evidence invalid: the record stays `verified` with its old evidence
+/// (never a renewed freshness), and an `ensure` still reports `unknown` and refuses a
+/// minimum that needs the scope.
+#[cfg(any(unix, windows))]
+#[tokio::test]
+async fn inconclusive_reverification_after_client_change_keeps_scope_unknown() {
+    let w = World::with(WorldOptions {
+        managed: true,
+        ..WorldOptions::default()
+    })
+    .await;
+    let record = managed_verified(&w, "inc").await;
+    *w.host.version.lock().unwrap() = "OpenSSH_10.99p9, LibreSSL 3.3.6".to_owned();
+    w.issuer
+        .available
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let done = w.ops.reverify_pass().await.unwrap();
+    assert_eq!(
+        done,
+        vec![record.id.clone()],
+        "the client change prompts it"
+    );
+    w.issuer
+        .available
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let r = w.record(&record.id);
+    assert_eq!(r.state, EnrollmentState::Verified, "inconclusive: not held");
+    assert_eq!(
+        r.evidence, record.evidence,
+        "the old freshness is not renewed"
+    );
+    assert_scope_unknown(&w, &record, "inc").await;
 }

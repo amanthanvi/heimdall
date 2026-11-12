@@ -261,9 +261,11 @@ impl From<&ImageDigest> for RegistryDigest {
 }
 
 /// The parsed facts of an `inspect` reading that the stage machine needs, **without
-/// the server owner's bytes** (§17.21 item 4): the registry's own metadata, the lock,
-/// and only the lines containing this enrollment's marker (Heimdall's own entries).
-/// Every other key's line and every comment is dropped before anything is stored.
+/// the server owner's bytes** (§17.21 item 4; ⟨round 3⟩ §17.22 item 2): the
+/// registry's own metadata, the lock, Heimdall's **exact canonical** entry (only when
+/// a line matches it byte for byte) and, for every other line carrying the marker (an
+/// owner's comment, an unrelated key, a damaged entry), parsed facts only: a count, a
+/// classification and a SHA-256. No other line's bytes are stored, in any encoding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoredReading {
     /// The resolved registry path (hex; the plan's path).
@@ -292,9 +294,24 @@ pub struct StoredReading {
     pub last_byte_newline: Option<bool>,
     /// Lines containing the marker.
     pub marker_lines: u64,
-    /// Those lines only, each with its `\n` (hex), for a regular file.
+    /// ⟨round 3⟩ The marker (Heimdall's own; rebuilds the reading's stand-ins).
+    #[serde(default)]
+    pub marker: String,
+    /// ⟨round 3⟩ Lines equal to Heimdall's canonical entry, for a regular file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub marker_entries_hex: Option<String>,
+    pub own_entries: Option<u64>,
+    /// ⟨round 3⟩ The canonical entry (hex, without `\n`), only when a line matched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own_entry_hex: Option<String>,
+    /// ⟨round 3⟩ Other lines carrying the marker: counted, never stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_marker_lines: Option<u64>,
+    /// ⟨round 3⟩ The SHA-256 over those other lines (each with its `\n`), when any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_marker_sha256: Option<String>,
+    /// ⟨round 3⟩ The classification (`absent`, `exact`, `duplicated`, `damaged`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker_class: Option<String>,
     /// The lock's holder record (Heimdall's own lock), when held with one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lock_holder: Option<String>,
@@ -304,41 +321,54 @@ pub struct StoredReading {
 }
 
 impl StoredReading {
-    /// The stored form of `full`, minimized to `marker`'s lines.
+    /// The stored form of `full`, minimized against `marker` and Heimdall's exact
+    /// canonical `line` (`None` when it cannot be rebuilt: every marker-bearing line
+    /// then counts as "other").
     #[must_use]
-    pub fn of(full: &Inspection, marker: &str) -> StoredReading {
-        let min = full.without_foreign_lines(marker);
+    pub fn of(full: &Inspection, marker: &str, line: Option<&str>) -> StoredReading {
+        let facts = full.marker_facts(marker, line);
         StoredReading {
-            path_hex: heimdall_registry::hm1::encode_hex(&min.path),
-            dir_present: min.dir == DirState::Present,
-            dir_mode: min.dir_mode,
-            dir_owner_self: min.dir_owner_self,
-            file: match min.file {
+            path_hex: heimdall_registry::hm1::encode_hex(&full.path),
+            dir_present: full.dir == DirState::Present,
+            dir_mode: full.dir_mode.clone(),
+            dir_owner_self: full.dir_owner_self,
+            file: match full.file {
                 FileKind::Regular => "regular",
                 FileKind::Absent => "absent",
                 FileKind::Symlink => "symlink",
                 _ => "other",
             }
             .to_owned(),
-            links: min.links,
-            mode: min.mode,
-            owner_self: min.owner_self,
-            last_byte_newline: min.last_byte_newline,
-            marker_lines: min.marker_lines,
-            marker_entries_hex: min
-                .content
-                .as_deref()
-                .map(heimdall_registry::hm1::encode_hex),
-            lock_holder: match &min.lock {
+            links: full.links,
+            mode: full.mode.clone(),
+            owner_self: full.owner_self,
+            last_byte_newline: full.last_byte_newline,
+            marker_lines: full.marker_lines,
+            marker: marker.to_owned(),
+            own_entries: facts.as_ref().map(|f| f.own_entries),
+            own_entry_hex: facts
+                .as_ref()
+                .filter(|f| f.own_entries > 0)
+                .and(line)
+                .map(|l| heimdall_registry::hm1::encode_hex(l.as_bytes())),
+            other_marker_lines: facts.as_ref().map(|f| f.other_lines),
+            other_marker_sha256: facts
+                .as_ref()
+                .and_then(|f| f.other_sha256.as_ref())
+                .map(|d| d.as_str().to_owned()),
+            marker_class: facts.as_ref().map(|f| f.class.as_str().to_owned()),
+            lock_holder: match &full.lock {
                 LockReading::Held(h) => Some(h.render()),
                 _ => None,
             },
-            lock_foreign: matches!(min.lock, LockReading::HeldForeign),
+            lock_foreign: matches!(full.lock, LockReading::HeldForeign),
         }
     }
 
-    /// The minimized reading (its `preimage()` holds Heimdall's lines only; module
-    /// docs of [`StoredReading`]). `None` when a stored field does not decode.
+    /// The minimized reading: its content is rebuilt from the facts (Heimdall's
+    /// canonical entry, and a stand-in per other marker line: module docs of
+    /// [`StoredReading`]). `None` when a stored field does not decode or the facts
+    /// are inconsistent.
     #[must_use]
     pub fn inspection(&self, remote_now: i64) -> Option<Inspection> {
         let lock = match (&self.lock_holder, self.lock_foreign) {
@@ -346,8 +376,22 @@ impl StoredReading {
             (None, true) => LockReading::HeldForeign,
             (None, false) => LockReading::None,
         };
-        let content = match &self.marker_entries_hex {
-            Some(h) => Some(heimdall_registry::hm1::decode_hex(h)?),
+        // A regular file's content is rebuilt from the facts: the canonical entry
+        // and one stand-in per other marker line (§17.22 item 2).
+        let content = match self.own_entries {
+            Some(own) => {
+                let entry = match &self.own_entry_hex {
+                    Some(h) => Some(heimdall_registry::hm1::decode_hex(h)?),
+                    None => None,
+                };
+                Some(heimdall_registry::classify::minimized_content(
+                    &self.marker,
+                    entry.as_deref(),
+                    own,
+                    self.other_marker_lines?,
+                    self.marker_lines,
+                )?)
+            }
             None => None,
         };
         Some(Inspection {
@@ -592,6 +636,64 @@ pub fn route_matches(approved: &ApprovedTarget, eval: &TargetEvaluation) -> bool
         && live.iter().all(|k| {
             k.key_type == approved.host_key.algorithm && k.key_b64 == approved.host_key.key
         })
+}
+
+/// The version token of a client version line: `OpenSSH_10.5p1, LibreSSL …` →
+/// `10.5p1` (the Verifier's evidence names the client as `<path> <family> <version>`).
+#[must_use]
+pub fn version_token(line: &str) -> &str {
+    let first = line.split([',', ' ']).next().unwrap_or("");
+    first.rsplit_once('_').map_or(first, |(_, v)| v).trim()
+}
+
+/// Whether `evidence_client` (an [`EnrollmentEvidence`](heimdall_domain::enrollment::EnrollmentEvidence)'s
+/// `client`: `<path> <family> <version>`, or a version line) names the client whose
+/// version line is `current` (§17.4 item 11): one of its words has the same
+/// [`version_token`]. `None` or an empty token: not established, so `false`.
+#[must_use]
+pub fn evidence_client_current(evidence_client: &str, current: Option<&str>) -> bool {
+    current.map(version_token).is_some_and(|v| {
+        !v.is_empty()
+            && evidence_client
+                .split_whitespace()
+                .any(|t| version_token(t) == v)
+    })
+}
+
+/// Whether `eval` finds the approved `HostName`, `Port` and `User`, directly and
+/// determined, but not exactly the approved host key: a host-key change (a route
+/// change is not one).
+#[must_use]
+pub fn host_key_changed(approved: &ApprovedTarget, eval: &TargetEvaluation) -> bool {
+    eval.determinism == Determinism::Determined
+        && eval.proxy == ProxyRoute::None
+        && eval.hostname == approved.hostname
+        && eval.port == approved.port
+        && eval.user == approved.user.as_str()
+        && !route_matches(approved, eval)
+}
+
+/// ⟨wave 4, round 3⟩ ADR-0008 §17.22 item 7 (D5 §6.5 freshness): the comparison
+/// `inspect` and `ensure` run when they touch a pair. A record's evidence still holds
+/// only when the evaluation of the pair's alias (`eval`) is exactly its approved
+/// target ([`route_matches`]: the same route and exactly the approved host key) and
+/// the evidence names the current client (`client_version`,
+/// [`evidence_client_current`]). Anything else, including no evaluation or no known
+/// client, invalidates the evidence **at once**, whatever the record's state and
+/// whatever a later network attempt finds. (The CA is compared where the certificate
+/// is known: the managed adapter's `pair_evidence`.) A record without evidence has
+/// none to hold.
+#[must_use]
+pub fn evidence_holds(
+    record: &EnrollmentRecord,
+    eval: Option<&TargetEvaluation>,
+    client_version: Option<&str>,
+) -> bool {
+    let Some(e) = &record.evidence else {
+        return false;
+    };
+    eval.is_some_and(|ev| route_matches(&record.target, ev))
+        && evidence_client_current(&e.client, client_version)
 }
 
 /// The proposed target of a held host-key change: the fresh evaluation, when it is

@@ -44,7 +44,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use heimdall_app::ports::{
-    AdapterError, KeyRegistration, ManagedEffects, MaterializeSpec, MaterializedFiles,
+    AdapterError, KeyRegistration, ManagedEffects, MaterializeSource, MaterializeSpec,
+    MaterializedCertificate, MaterializedFiles,
 };
 use heimdall_contract::Timestamp;
 use heimdall_contract::ids::{BindingId, DestinationId, GrantId, IssuanceId, ResourceId};
@@ -185,6 +186,14 @@ pub const BINDING_ENDPOINT_UNAVAILABLE: &str = "binding_endpoint_unavailable";
 /// ⟨§17.21 item 2⟩ The `AdapterError::Protocol` text of a slots-only `materialize`
 /// for a binding this instance did not materialize.
 pub const BINDING_NOT_MATERIALIZED: &str = "binding_not_materialized";
+/// ⟨§17.22 item 6; §17.23 item 6⟩ The `AdapterError::Protocol` text of a
+/// [`MaterializeSource::InstalledKeyOf`] `materialize` whose grant has no live K_env
+/// generated through this instance (a restart lost it, or the grant ended).
+pub const NO_LIVE_KEY: &str = "no_live_key";
+/// ⟨§17.23 item 6⟩ The `AdapterError::Protocol` text of a
+/// [`MaterializeSource::InstalledKeyOf`] `materialize` for a binding attached to
+/// another grant.
+pub const BINDING_GRANT_MISMATCH: &str = "binding_grant_mismatch";
 /// The `AdapterError::Unavailable` text when the table has no store view (U2-Q2).
 pub const INSTALL_VIEW_UNAVAILABLE: &str = "store_view_unavailable";
 /// The `AdapterError::Protocol` text when the store no longer shows the binding
@@ -222,9 +231,10 @@ struct State {
     validity: HashMap<(GrantId, AccessPair), InstalledValidity>,
     /// The files each binding's last materialization wrote.
     bindings: HashMap<BindingId, BindingFiles>,
-    /// ⟨§17.21 items 1–2⟩ Each binding materialized through this instance: its grant,
-    /// whether this instance created its endpoint, and the spec written (public
-    /// content only), which a slots-only `materialize` (the bind's slot claim) reuses.
+    /// ⟨§17.21 items 1–2⟩ Each binding materialized through this instance: its grant
+    /// and the generation written, for `clear_bindings_of` and the generation a
+    /// slots-only `materialize` reports (⟨§17.22 item 5⟩ which no longer needs it: it
+    /// rebuilds from the signer table and the stored scope).
     materialized: HashMap<BindingId, MaterializedBinding>,
 }
 
@@ -232,7 +242,8 @@ struct State {
 #[derive(Debug, Clone)]
 struct MaterializedBinding {
     grant: GrantId,
-    spec: MaterializeSpec,
+    /// The generation of its last materialization.
+    generation: u64,
 }
 
 /// One lock per slot (pair) of the environment (§17.20 item 1).
@@ -590,64 +601,97 @@ impl ManagedEffects for ManagedEffectsImpl {
         Ok(())
     }
 
-    /// ⟨§17.21 item 1⟩ D6 item 1 step 6. For a binding not yet attached, its grant is
-    /// the one whose K_env (generated through this instance and still live) is
-    /// `spec.public_key`; the binding endpoint is created at `spec.generation` through
-    /// [`BindingEndpoints`] when none runs, the files are written, and only **then** is
+    /// ⟨§17.21 item 1⟩ D6 item 1 step 6. ⟨§17.23 item 6⟩ The spec's
+    /// [`MaterializeSource`] names where the key and certificates come from; no other
+    /// field's value selects a form:
+    ///
+    /// * **`Fresh`** (a new activation): the key line and certificates carried. The
+    ///   grant is the binding's attached one, else the one whose live K_env
+    ///   (generated through this instance) is that key; the key must be that grant's
+    ///   live key (`public_key_mismatch`), one certificate per pair, at least one.
+    /// * **`InstalledKeyOf { grant }`** (a coalesced or decision-joined follower's own
+    ///   binding; a re-issue's restoration of the grant's consumers): the grant's live
+    ///   K_env, generated through this instance ([`NO_LIVE_KEY`] otherwise), and for
+    ///   each pair of its stored scope ([`GrantScopes`]) its installed certificate
+    ///   (`not_installed`). A binding attached to another grant is refused
+    ///   ([`BINDING_GRANT_MISMATCH`]).
+    ///
+    /// Either way the binding endpoint is created at `spec.generation` through
+    /// [`BindingEndpoints`] when none runs (reported in
+    /// [`MaterializedFiles::endpoint`]), the files are written, and only **then** is
     /// the binding attached in the signer table, so the endpoint lists the grant's
     /// certificates only once its files exist. A failure leaves nothing this call
     /// created (the endpoint it created is removed).
     ///
-    /// ⟨§17.21 item 2⟩ **A slots-only spec** (an empty `public_key`, no certificates,
-    /// `environment_slots`) asks for the environment slots of a binding this instance
-    /// already materialized: each of its pairs' slots is written at its own store
-    /// generation from the content recorded then (the bind's slot claim; the binding
-    /// files are not rewritten). Refused for a binding this instance did not
-    /// materialize (`binding_not_materialized`: a restart lost its key anyway).
+    /// ⟨§17.21 item 2; §17.22 item 5⟩ **`SlotsOnly`** (with `environment_slots`;
+    /// `empty_materialize_spec` without) asks for the environment slots of a binding
+    /// attached in this signer table: each of its grant's pairs' slots is written at its
+    /// own store generation from the grant's live key and installed certificates (the
+    /// bind's slot claim, a re-issue's restoration; the binding files are not
+    /// rewritten). Nothing in memory but the signer's state is needed: the pairs are
+    /// the grant's stored scope ([`GrantScopes`]), so this works in any process whose
+    /// signer holds the grant's key (after a re-issue too). Refused for a binding not
+    /// attached here (`binding_not_materialized`: no key of its grant lives here).
     fn materialize(
         &self,
         binding: &BindingId,
         spec: &MaterializeSpec,
     ) -> Result<MaterializedFiles, AdapterError> {
-        if spec.public_key.is_empty() && spec.certificates.is_empty() {
-            return self.materialize_slots_only(binding, spec);
-        }
         let attached = self.table.binding_grant(binding);
-        let grant = match &attached {
-            Some(g) => g.clone(),
-            None => self
-                .grant_of_key(&spec.public_key)
-                .ok_or_else(|| AdapterError::Protocol("binding_not_attached".to_owned()))?,
+        let (grant, public_key, certificates) = match &spec.source {
+            MaterializeSource::SlotsOnly => return self.materialize_slots_only(binding, spec),
+            MaterializeSource::Fresh {
+                public_key,
+                certificates,
+            } => {
+                let grant = match &attached {
+                    Some(g) => g.clone(),
+                    None => self
+                        .grant_of_key(public_key)
+                        .ok_or_else(|| AdapterError::Protocol("binding_not_attached".to_owned()))?,
+                };
+                let key = self
+                    .table
+                    .public_key(&grant)
+                    .ok_or_else(|| AdapterError::Protocol("no_key".to_owned()))?;
+                if key.openssh_line.trim_end() != public_key.trim_end() {
+                    return Err(AdapterError::Protocol("public_key_mismatch".to_owned()));
+                }
+                (grant, public_key.clone(), certificates.clone())
+            }
+            MaterializeSource::InstalledKeyOf { grant } => {
+                if attached.as_ref().is_some_and(|a| a != grant) {
+                    return Err(AdapterError::Protocol(BINDING_GRANT_MISMATCH.to_owned()));
+                }
+                let (public_key, certificates) = self.installed_content(grant)?;
+                (grant.clone(), public_key, certificates)
+            }
         };
-        let key = self
-            .table
-            .public_key(&grant)
-            .ok_or_else(|| AdapterError::Protocol("no_key".to_owned()))?;
-        if key.openssh_line.trim_end() != spec.public_key.trim_end() {
-            return Err(AdapterError::Protocol("public_key_mismatch".to_owned()));
+        if certificates.is_empty() {
+            return Err(AdapterError::Protocol("no_certificates".to_owned()));
         }
-        let dests: Vec<DestinationId> = spec
-            .certificates
+        let dests: Vec<DestinationId> = certificates
             .iter()
             .map(|c| c.pair.destination.clone())
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();
-        if dests.len() != spec.certificates.len() {
+        if dests.len() != certificates.len() {
             return Err(AdapterError::Protocol(
                 "one_certificate_per_pair".to_owned(),
             ));
         }
         // The endpoint first (it lists nothing until the binding is attached below).
         let created = if self.endpoints.binding_endpoint(binding).is_none() {
-            self.endpoints
-                .create_binding_endpoint(binding, spec.generation)?;
-            true
+            Some(
+                self.endpoints
+                    .create_binding_endpoint(binding, spec.generation)?,
+            )
         } else {
-            false
+            None
         };
         let undo = || {
-            if created {
+            if created.is_some() {
                 let _ = self
                     .endpoints
                     .remove_binding_endpoint(binding, spec.generation);
@@ -660,24 +704,19 @@ impl ManagedEffects for ManagedEffectsImpl {
                 return Err(e);
             }
         };
-        let certs: Vec<(DestinationId, String)> = spec
-            .certificates
+        let certs: Vec<(DestinationId, String)> = certificates
             .iter()
             .map(|c| (c.pair.destination.clone(), c.certificate.clone()))
             .collect();
-        let mut written = match files::write_binding_files(
-            &files,
-            binding,
-            spec.generation,
-            &spec.public_key,
-            &certs,
-        ) {
-            Ok(w) => w,
-            Err(e) => {
-                undo();
-                return Err(adapter_from_files(&e));
-            }
-        };
+        let mut written =
+            match files::write_binding_files(&files, binding, spec.generation, &public_key, &certs)
+            {
+                Ok(w) => w,
+                Err(e) => {
+                    undo();
+                    return Err(adapter_from_files(&e));
+                }
+            };
         // The files exist: now the endpoint lists the grant's certificates.
         if attached.is_none() {
             self.table.attach_binding(binding, &grant);
@@ -689,20 +728,19 @@ impl ManagedEffects for ManagedEffectsImpl {
                 binding.clone(),
                 MaterializedBinding {
                     grant,
-                    spec: MaterializeSpec {
-                        environment_slots: false,
-                        ..spec.clone()
-                    },
+                    generation: spec.generation,
                 },
             );
         }
         if spec.environment_slots {
-            written.extend(self.write_slots(binding, &spec.certificates)?);
+            let pairs: Vec<AccessPair> = certificates.iter().map(|c| c.pair.clone()).collect();
+            written.extend(self.write_slots(binding, &pairs)?);
         }
         Ok(MaterializedFiles {
             directory: files.directory,
             files: written,
             generation: spec.generation,
+            endpoint: created,
         })
     }
 
@@ -739,7 +777,7 @@ impl ManagedEffects for ManagedEffectsImpl {
         let mut s = self.lock();
         if s.materialized
             .get(binding)
-            .is_some_and(|m| m.spec.generation == generation)
+            .is_some_and(|m| m.generation == generation)
         {
             s.materialized.remove(binding);
             s.bindings.remove(binding);
@@ -767,18 +805,50 @@ impl ManagedEffectsImpl {
         })
     }
 
+    /// ⟨§17.23 item 6⟩ The content of [`MaterializeSource::InstalledKeyOf`] `grant`:
+    /// its live K_env's key line (generated through this instance) and, for each pair
+    /// of its stored scope, its installed certificate.
+    fn installed_content(
+        &self,
+        grant: &GrantId,
+    ) -> Result<(String, Vec<MaterializedCertificate>), AdapterError> {
+        let live = self.table.public_key(grant);
+        let generated_here = self
+            .lock()
+            .generated
+            .get(grant)
+            .map(|g| g.registration.fingerprint.clone());
+        let key = live
+            .filter(|k| generated_here.as_ref() == Some(&k.fingerprint))
+            .ok_or_else(|| AdapterError::Protocol(NO_LIVE_KEY.to_owned()))?;
+        let pairs = self
+            .scopes
+            .pairs(grant)
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| AdapterError::Unavailable(GRANT_SCOPE_UNAVAILABLE.to_owned()))?;
+        let certificates = pairs
+            .into_iter()
+            .map(|pair| {
+                self.certificate(grant, &pair)
+                    .map(|certificate| MaterializedCertificate { pair, certificate })
+                    .ok_or_else(|| AdapterError::Protocol("not_installed".to_owned()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((key.openssh_line, certificates))
+    }
+
     /// Each pair's environment slot for `binding`, at **its own** store generation
     /// (U6-Q4), re-validated under the slot's lock (§17.20 item 1).
     fn write_slots(
         &self,
         binding: &BindingId,
-        certificates: &[heimdall_app::ports::MaterializedCertificate],
+        pairs: &[AccessPair],
     ) -> Result<Vec<PathBuf>, AdapterError> {
         let mut written = Vec::new();
-        for c in certificates {
-            let lock = self.slot_lock(&c.pair);
+        for pair in pairs {
+            let lock = self.slot_lock(pair);
             let _slot = lock.lock().unwrap_or_else(PoisonError::into_inner);
-            let generation = match self.slot_store.slot(&self.slots.environment, &c.pair)? {
+            let generation = match self.slot_store.slot(&self.slots.environment, pair)? {
                 SlotState::Held {
                     binding: holder,
                     generation,
@@ -787,7 +857,7 @@ impl ManagedEffectsImpl {
             };
             written.extend(self.write_slot_locked(
                 binding,
-                &c.pair,
+                pair,
                 generation,
                 self.slot_store.as_ref(),
             )?);
@@ -795,7 +865,10 @@ impl ManagedEffectsImpl {
         Ok(written)
     }
 
-    /// ⟨§17.21 item 2⟩ The slots-only form of `materialize` (its docs).
+    /// ⟨§17.21 item 2; §17.22 item 5⟩ The slots-only form of `materialize` (its docs):
+    /// rebuilt from the signer table (the binding's grant, its key and installed
+    /// certificates) and the grant's stored scope, never from a record of an earlier
+    /// materialization.
     fn materialize_slots_only(
         &self,
         binding: &BindingId,
@@ -804,24 +877,40 @@ impl ManagedEffectsImpl {
         if !spec.environment_slots {
             return Err(AdapterError::Protocol("empty_materialize_spec".to_owned()));
         }
-        let (recorded, files) = {
+        let grant = self
+            .table
+            .binding_grant(binding)
+            .ok_or_else(|| AdapterError::Protocol(BINDING_NOT_MATERIALIZED.to_owned()))?;
+        let pairs = self
+            .scopes
+            .pairs(&grant)
+            .filter(|p| !p.is_empty())
+            .ok_or_else(|| AdapterError::Unavailable(GRANT_SCOPE_UNAVAILABLE.to_owned()))?;
+        let written = self.write_slots(binding, &pairs)?;
+        let recorded = {
             let s = self.lock();
-            (
-                s.materialized.get(binding).cloned(),
-                s.bindings.get(binding).cloned(),
-            )
+            s.bindings
+                .get(binding)
+                .map(|f| f.directory.clone())
+                .zip(s.materialized.get(binding).map(|m| m.generation))
         };
-        let (Some(recorded), Some(files)) = (recorded, files) else {
-            return Err(AdapterError::Protocol(BINDING_NOT_MATERIALIZED.to_owned()));
+        let (directory, generation) = match recorded {
+            Some(r) => r,
+            None => {
+                let dests: Vec<DestinationId> = pairs
+                    .iter()
+                    .map(|p| p.destination.clone())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                (self.files_for(binding, &dests)?.directory, spec.generation)
+            }
         };
-        if self.table.binding_grant(binding).as_ref() != Some(&recorded.grant) {
-            return Err(AdapterError::Protocol("binding_not_attached".to_owned()));
-        }
-        let written = self.write_slots(binding, &recorded.spec.certificates)?;
         Ok(MaterializedFiles {
-            directory: files.directory,
+            directory,
             files: written,
-            generation: recorded.spec.generation,
+            generation,
+            endpoint: None,
         })
     }
 
@@ -838,7 +927,7 @@ impl ManagedEffectsImpl {
             .materialized
             .iter()
             .filter(|(_, m)| grants.contains(&m.grant))
-            .map(|(b, m)| (b.clone(), m.spec.generation))
+            .map(|(b, m)| (b.clone(), m.generation))
             .collect();
         let mut first = None;
         for (b, g) in targets {

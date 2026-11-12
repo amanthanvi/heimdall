@@ -116,7 +116,10 @@ pub struct ManagedSectionSpec {
     pub cert_pub: PathBuf,
     /// `None`: `ControlPath none`. `Some`: the slot's stable mux path
     /// ([`content::managed_mux_path`]), only once owned masters are enabled and applied
-    /// (ADR-0008 D8 item 3).
+    /// (ADR-0008 D8 item 3). ⟨§17.22 item 14⟩ Enabled is a **pair-level rendering rule**:
+    /// every current standing policy covering the pair has `owned_masters` (no applicable
+    /// policy: disabled); each master's own grant policy is still checked when it starts
+    /// (the runtime's `pair_masters_enabled`).
     pub control_path: Option<PathBuf>,
 }
 
@@ -136,6 +139,25 @@ pub trait ManagedPairSource: Send + Sync {
         &self,
         alias: &heimdall_domain::projection::ManagedAliasSpec,
     ) -> Result<Option<ManagedSectionSpec>, String>;
+
+    /// ⟨ADR-0008 §17.22 item 16 (R2F-Q2)⟩ Whether `alias`'s pair has a **stored**
+    /// preference (either mechanism) whose projection is still `pending`. An apply whose
+    /// rendering of P is unchanged then still writes and commits P (same bytes, a new
+    /// generation), so the SSH item's commit records the preference metadata: a toggle
+    /// back to an already-rendered configuration does not stay `pending`. A pair without
+    /// a stored preference (every M02 pair) is never pending, so an M02 apply that changes
+    /// nothing still plans nothing. The default (a source that stores no preferences):
+    /// `false`.
+    ///
+    /// # Errors
+    /// The preference cannot be read: the preview is refused.
+    fn projection_pending(
+        &self,
+        alias: &heimdall_domain::projection::ManagedAliasSpec,
+    ) -> Result<bool, String> {
+        let _ = alias;
+        Ok(false)
+    }
 }
 
 /// Test-only switches of the writer (the defaults in production).

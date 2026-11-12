@@ -1,0 +1,27 @@
+{
+  "state": "ready",
+  "cas": [
+    {
+      "fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "state": "unloaded",
+      "store": "linux_secret_service",
+      "backup_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "backup_created_at": "2026-11-10T14:00:00Z",
+      "restored_without_log": false,
+      "enrollments": {
+        "verified": 0,
+        "pending": 0
+      },
+      "store_locator": "/org/freedesktop/secrets/collection/login/fixture2"
+    }
+  ],
+  "orphan_store_items": [
+    {
+      "fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "store": "linux_secret_service",
+      "locator": "/org/freedesktop/secrets/collection/login/fixture1"
+    }
+  ],
+  "issuer_isolation": "same_user_process",
+  "bundle_stale": false
+}

@@ -837,6 +837,33 @@ fn stale(msg: &str) -> OpError {
     OpError::new(Code::DecisionStale, msg)
 }
 
+/// ⟨§17.22 item 1⟩ Whether a held foreign record's descriptor is exactly the one a
+/// new request (or the decision showing it) names: every field of the
+/// [`ForeignRemovalTarget`](heimdall_contract::enrollment::ForeignRemovalTarget)
+/// (destination, account, CA, registry, line hash, marker, host, port, alias, form),
+/// never the marker alone.
+pub(super) fn same_foreign_descriptor(
+    held: &heimdall_contract::enrollment::ForeignRemovalTarget,
+    requested: &heimdall_contract::enrollment::ForeignRemovalTarget,
+) -> bool {
+    held == requested
+}
+
+/// ⟨§17.22 item 1⟩ The reason a held foreign record's reuse is refused for another
+/// descriptor: `descriptor_mismatch` (`CAPABILITY_UNAVAILABLE`), registered in
+/// `contract::envelope::reason::M03` as the ruling names it.
+pub(super) const DESCRIPTOR_MISMATCH: &str =
+    heimdall_contract::envelope::reason::DESCRIPTOR_MISMATCH;
+
+fn descriptor_mismatch() -> OpError {
+    refuse(
+        Code::CapabilityUnavailable,
+        DESCRIPTOR_MISMATCH,
+        "a held removal of this foreign enrollment names another descriptor; \
+         only the held descriptor can be approved",
+    )
+}
+
 /// `decisions_m03::precheck` for the enrollment kinds: the waiting operation is
 /// `awaiting_approval` with its kind, and the record is in the state the decision was
 /// issued for. Anything else is `DECISION_STALE` with nothing written.
@@ -865,12 +892,20 @@ pub(super) fn decision_precheck(
         )));
     }
     if let Some(fid) = journal.foreign.clone() {
-        // D4 item 5, §17.7 item 4: a foreign record is admitted `planned → removing`.
-        let ok = matches!(&d.kind, DecisionKind::RemoveEnrollment { .. })
-            && tx.foreign_removal(&fid)?.is_some_and(|f| {
-                matches!(f.state, EnrollmentState::Planned | EnrollmentState::Held)
-                    && f.target.form == EnrollmentForm::Account
-            });
+        // D4 item 5, §17.7 item 4: a foreign record is admitted `planned → removing`,
+        // and only for the descriptor the decision shows (§17.22 item 1).
+        let shown = match &d.kind {
+            DecisionKind::RemoveEnrollment {
+                target: RemovalTarget::Foreign(t),
+                ..
+            } => Some(t),
+            _ => None,
+        };
+        let ok = tx.foreign_removal(&fid)?.is_some_and(|f| {
+            matches!(f.state, EnrollmentState::Planned | EnrollmentState::Held)
+                && f.target.form == EnrollmentForm::Account
+                && shown.is_some_and(|t| same_foreign_descriptor(&f.target, t))
+        });
         if !ok {
             return Ok(Err(stale(
                 "the foreign removal is no longer in the state this decision was issued for",
@@ -1240,9 +1275,18 @@ impl Operations {
                     .into_iter()
                     .rev()
                     .find(|f| !f.state.is_final() && f.state != EnrollmentState::Abandoned);
-                // A held foreign record is recovered by a new decision (§17.7 item 4);
-                // any other live one refuses a second removal.
+                // A held foreign record is recovered by a new decision (§17.7 item 4)
+                // only for exactly the descriptor it holds (§17.22 item 1): a different
+                // destination, account, CA, registry or line hash refuses before
+                // anything is written. Any other live record refuses a second removal.
                 let held = match existing {
+                    Some(f)
+                        if f.state == EnrollmentState::Held
+                            && t.form == EnrollmentForm::Account
+                            && !same_foreign_descriptor(&f.target, &t) =>
+                    {
+                        return Ok(Err(descriptor_mismatch()));
+                    }
                     Some(f) if f.state == EnrollmentState::Held && t.form == EnrollmentForm::Account => Some(f),
                     Some(_) => {
                         return Ok(Err(refuse(

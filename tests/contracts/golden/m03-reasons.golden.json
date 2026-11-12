@@ -150,6 +150,10 @@
    "code": "CAPABILITY_UNAVAILABLE"
   },
   {
+   "reason": "descriptor_mismatch",
+   "code": "CAPABILITY_UNAVAILABLE"
+  },
+  {
    "reason": "registry_parent_absent",
    "code": "CAPABILITY_UNAVAILABLE"
   },

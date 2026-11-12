@@ -524,6 +524,100 @@ fn issuer_store_locator_recorded_once_and_kept_through_transitions() {
     .unwrap();
 }
 
+/// ⟨ADR-0008 §17.22 item 12⟩ A restore's compare-and-swap of the recorded store
+/// locator (`replace_issuer_store_locator`): refused, writing nothing, against the
+/// wrong expectation (or none while one is recorded), for a missing CA, a malformed
+/// locator, or a CA whose retirement began; the same locator is a no-op; a swap
+/// keeps the replaced locator displaced (`issuer_displaced_store_locators`) until
+/// `resolve_displaced_store_locator` removes it (once; any CA state). A CA with no
+/// recorded locator swaps against `None`. The `IssuerRecord` is unchanged, and the
+/// displaced list survives the state transitions.
+#[test]
+fn issuer_store_locator_compare_and_swap_keeps_displaced_items() {
+    let s = mem();
+    s.transaction(|tx| {
+        tx.insert_issuer(&issuer(1, CaState::Active))?;
+        tx.insert_issuer(&issuer(2, CaState::Active))?;
+        tx.set_issuer_store_locator(&ca(1), "old")?;
+        assert_eq!(
+            tx.issuer_displaced_store_locators(&ca(1))?,
+            Vec::<String>::new()
+        );
+        for (expected, new) in [(Some("wrong"), "new"), (None, "new")] {
+            let r = tx.replace_issuer_store_locator(&ca(1), expected, new);
+            assert!(is_conflict(&r), "{expected:?}: {r:?}");
+        }
+        assert!(is_missing(&tx.replace_issuer_store_locator(
+            &ca(9),
+            None,
+            "x"
+        )));
+        assert!(
+            tx.replace_issuer_store_locator(&ca(1), Some("old"), "a\nb")
+                .is_err()
+        );
+        tx.replace_issuer_store_locator(&ca(1), Some("old"), "old")?;
+        assert_eq!(tx.issuer_store_locator(&ca(1))?.as_deref(), Some("old"));
+        assert!(
+            tx.issuer_displaced_store_locators(&ca(1))?.is_empty(),
+            "no-op"
+        );
+
+        tx.replace_issuer_store_locator(&ca(1), Some("old"), "new")?;
+        assert_eq!(tx.issuer_store_locator(&ca(1))?.as_deref(), Some("new"));
+        assert_eq!(
+            tx.issuer_displaced_store_locators(&ca(1))?,
+            vec!["old".to_owned()]
+        );
+        assert_eq!(tx.issuer(&ca(1))?, Some(issuer(1, CaState::Active)));
+        // Back to a displaced item: it leaves the list, the replaced one joins it.
+        tx.replace_issuer_store_locator(&ca(1), Some("new"), "old")?;
+        assert_eq!(
+            tx.issuer_displaced_store_locators(&ca(1))?,
+            vec!["new".to_owned()]
+        );
+        tx.replace_issuer_store_locator(&ca(1), Some("old"), "newer")?;
+        assert_eq!(
+            tx.issuer_displaced_store_locators(&ca(1))?,
+            vec!["new".to_owned(), "old".to_owned()]
+        );
+        // None recorded: the swap expects none.
+        tx.replace_issuer_store_locator(&ca(2), None, "first")?;
+        assert_eq!(tx.issuer_store_locator(&ca(2))?.as_deref(), Some("first"));
+        assert!(tx.issuer_displaced_store_locators(&ca(2))?.is_empty());
+
+        // The displaced list is kept through the transitions; resolving works in any
+        // state, once, and only for a displaced locator of that CA.
+        tx.set_issuer_state(&ca(1), CaState::Active, CaEvent::RetireApproved, t0())?
+            .unwrap();
+        let late = tx.replace_issuer_store_locator(&ca(1), Some("newer"), "x");
+        assert!(is_conflict(&late), "{late:?}");
+        assert_eq!(
+            tx.issuer_displaced_store_locators(&ca(1))?,
+            vec!["new".to_owned(), "old".to_owned()]
+        );
+        assert!(
+            !tx.resolve_displaced_store_locator(&ca(1), "newer")?,
+            "recorded, not displaced"
+        );
+        assert!(
+            !tx.resolve_displaced_store_locator(&ca(2), "old")?,
+            "another CA's"
+        );
+        assert!(!tx.resolve_displaced_store_locator(&ca(9), "old")?);
+        assert!(tx.resolve_displaced_store_locator(&ca(1), "old")?);
+        assert!(!tx.resolve_displaced_store_locator(&ca(1), "old")?, "once");
+        assert_eq!(
+            tx.issuer_displaced_store_locators(&ca(1))?,
+            vec!["new".to_owned()]
+        );
+        assert_eq!(tx.issuer_store_locator(&ca(1))?.as_deref(), Some("newer"));
+        assert_eq!(tx.issuer(&ca(1))?.unwrap().state, CaState::Retiring);
+        Ok(())
+    })
+    .unwrap();
+}
+
 // --- enrollments -----------------------------------------------------------------------
 
 /// `insert_enrollment`: `planned` only, the marker is `heimdall:<id>`, and the CA must
@@ -2390,4 +2484,129 @@ fn enrollment_transition_cannot_downgrade_absence_history() {
         Ok(())
     })
     .unwrap();
+}
+
+/// ⟨ADR-0008 §17.23 item 3 (R3B-Q2 (a))⟩ The store-item report attaches the locator
+/// to a pending `RegisterIssuer` only when it repeats every recorded fact exactly
+/// (fingerprint, public key, store kind, backup digest and time, rotation, key-only
+/// restore, expected locator), and only once: a report differing in any one fact,
+/// or carrying a second different locator, is a conflict that leaves the decision
+/// byte-identical (the stored record, read back and encoded as the store writes it); the same
+/// locator again is a no-op; a report without a locator is refused.
+#[test]
+fn register_issuer_store_locator_report_repeats_every_fact() {
+    use heimdall_domain::decision::{DecisionKind, DecisionRecord, DecisionState};
+    use heimdall_domain::policy::AuthorityGeneration;
+    let s = mem();
+    let id = DecisionId::from_random_bytes([7; 16]);
+    let facts = |store_locator: Option<&str>| DecisionKind::RegisterIssuer {
+        ca_fingerprint: ca(1),
+        store: StoreKind::LinuxSecretService,
+        backup_sha256: "01".repeat(32),
+        rotation_of: None,
+        restored_without_log: false,
+        disclosures: Vec::new(),
+        ca_public_key: Some(issuer(1, CaState::Active).public_key),
+        backup_created_at: Some(t0()),
+        store_locator: store_locator.map(str::to_owned),
+        expected_store_locator: None,
+    };
+    s.transaction(|tx| {
+        tx.insert_decision(&DecisionRecord {
+            id: id.clone(),
+            kind: facts(None),
+            generation: AuthorityGeneration(1),
+            created_at: t0(),
+            expires_at: plus(t0(), 600),
+            state: DecisionState::Pending,
+            decided_at: None,
+        })
+    })
+    .unwrap();
+    let report = facts(Some("/org/fixture/item/1"));
+    let differing: Vec<(&str, DecisionKind)> = {
+        let with = |f: &dyn Fn(&mut DecisionKind)| {
+            let mut k = report.clone();
+            f(&mut k);
+            k
+        };
+        macro_rules! field {
+            ($name:ident = $v:expr) => {
+                with(&|k| {
+                    if let DecisionKind::RegisterIssuer { $name, .. } = k {
+                        *$name = $v;
+                    }
+                })
+            };
+        }
+        vec![
+            ("fingerprint", field!(ca_fingerprint = ca(2))),
+            ("store kind", field!(store = StoreKind::WindowsDpapi)),
+            ("backup digest", field!(backup_sha256 = "09".repeat(32))),
+            ("rotation", field!(rotation_of = Some(ca(3)))),
+            ("key-only restore", field!(restored_without_log = true)),
+            (
+                "public key",
+                field!(ca_public_key = Some(issuer(2, CaState::Active).public_key)),
+            ),
+            ("no public key", field!(ca_public_key = None)),
+            (
+                "backup time",
+                field!(backup_created_at = Some(plus(t0(), 1))),
+            ),
+            ("no backup time", field!(backup_created_at = None)),
+            (
+                "expected locator",
+                field!(expected_store_locator = Some("/org/fixture/item/0".into())),
+            ),
+        ]
+    };
+    let stored = |s: &Store| {
+        s.transaction(|tx| {
+            Ok(tx
+                .decision(&id)?
+                .map(|d| serde_json::to_string(&d).unwrap()))
+        })
+        .unwrap()
+        .unwrap()
+    };
+    let before = stored(&s);
+    for (why, k) in &differing {
+        let r = s.transaction(|tx| Ok(tx.attach_register_issuer_store_locator(&id, k)));
+        assert!(is_conflict(&r.unwrap()), "{why}");
+        assert_eq!(stored(&s), before, "{why}: the decision is unchanged");
+    }
+    let r = s.transaction(|tx| Ok(tx.attach_register_issuer_store_locator(&id, &facts(None))));
+    assert!(r.unwrap().is_err(), "a report carries its locator");
+    assert_eq!(stored(&s), before);
+
+    let attached = s
+        .transaction(|tx| tx.attach_register_issuer_store_locator(&id, &report))
+        .unwrap();
+    let DecisionKind::RegisterIssuer { store_locator, .. } = &attached.kind else {
+        panic!();
+    };
+    assert_eq!(store_locator.as_deref(), Some("/org/fixture/item/1"));
+    let after = stored(&s);
+    assert_ne!(after, before);
+    assert_eq!(
+        serde_json::to_string(&attached).unwrap(),
+        after,
+        "the returned record is the stored one"
+    );
+    let again = s
+        .transaction(|tx| tx.attach_register_issuer_store_locator(&id, &report))
+        .unwrap();
+    assert_eq!(serde_json::to_string(&again).unwrap(), after, "idempotent");
+    assert_eq!(stored(&s), after);
+    let r = s.transaction(|tx| {
+        Ok(tx.attach_register_issuer_store_locator(&id, &facts(Some("/org/fixture/item/2"))))
+    });
+    assert!(is_conflict(&r.unwrap()), "a second different locator");
+    assert_eq!(stored(&s), after);
+    for (why, k) in &differing {
+        let r = s.transaction(|tx| Ok(tx.attach_register_issuer_store_locator(&id, k)));
+        assert!(is_conflict(&r.unwrap()), "{why} (after the attach)");
+        assert_eq!(stored(&s), after, "{why}");
+    }
 }
