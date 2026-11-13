@@ -4463,6 +4463,37 @@ No review has run yet. These rulings complete the wave before its reviews.
    - A lock I/O failure stays without a reason.
 7. **Q-L5-13, accepted:** a restated recovery `purpose` is not compared. It lives only in the operation's journal receipt, which the store transaction cannot decode. Persisting it on the record later, as an additive field, would make it checkable.
 8. **Q-G8-2: a fence refusal during verification is an error, never a verification result.** `verify_operation` returns the fence refusal from `run_verification` instead of recording it as an inconclusive verification. A refusal says nothing about the remote, so it must not change the enrollment's evidence. It is believed unreachable now that the boundary holds admissions, and is fixed anyway. **The regression:** a forced fence refusal leaves the enrollment's evidence and state unchanged, and returns the refusal.
+9. **Q-I-R9-1: a re-verification refused by the fence resumes after the fence lifts.**
+   - The refusal of item 8 leaves the record `reverifying`, with its operation open and no verdict. Once the fence lifts, the re-verification pass resumes that open operation; it never does so while the fence is held. This is item 2's deferral rule, with no domain change.
+   - **The regression:** after a forced refusal, nothing is resumed while the fence is held. After it lifts, the operation is resumed once and reaches a verdict, and a later pass reserves nothing more.
+
+### 17.32 Orchestrator rulings on wave 5's second re-check (2026-11-13)
+
+**Source:** the second independent re-check, of `0cd94961..ccf23db5` (Codex): `tests/evidence/artifacts/review-m03-code/wave5-recheck2.md`. Verdict: fix first, with W5-D01 to W5-D05.
+- W5-C03, W5-C04 and W5-C05 are verified, and all five semantic reverts failed their regressions.
+- W5-C01 and W5-C02 remain incomplete on further paths.
+- W5-D05 duplicates §17.31 item 8, which round 9 built after the reviewed commit.
+
+1. **W5-D01: the purge's final comparison covers every recovery-relevant record, not a hand-picked part.**
+   - **What is compared:** the final inventory, read while holding `service.lock`, is compared with the inventory the owner confirmed, adjusted for the changes this uninstall itself made (its own retirements, deletions and confirmations). The comparison covers:
+     - every issuer CA with its state and store locator, and `orphan_store_items`;
+     - every enrollment with its state, residual and origin;
+     - every foreign removal;
+     - every open operation.
+   - **On any other difference,** including a CA, locator or record added or replaced by a runtime that started and stopped in between, uninstall refuses with `uninstall_inventory_changed` and deletes nothing.
+   - **The rule for later:** a recovery-relevant record kind added in future joins this comparison, and a test enumerates the kinds so that a new one cannot be missed silently.
+   - **The regression:** the re-check's probe. A replacement takes the lock, records a new CA and locator, and releases the lock. The purge then refuses.
+2. **W5-D02: every route that creates a reservation goes through the fence boundary.**
+   - Both callers of `reserve_entry` count, including the publication branch (`publish_issuance` after an authority-generation change). The admission is held through the store commit. A route that cannot take the admission refuses.
+   - **The regression:** the re-check's probe. A publication that would re-reserve under a held fence is refused, and nothing is persisted.
+3. **W5-D03: an admission lives as long as the write it admitted.**
+   - The admission is owned by whatever owns the store transaction, so it is released only when the transaction commits or rolls back. Cancelling the caller's future must not release it while an accepted write is queued or running. This applies to both reservation tables.
+   - **The regression:** the re-check's probe. A cancelled reservation's pending transaction finishes before a fence acquisition completes.
+4. **W5-D04: each operation's verification runs at most once at a time.**
+   - Initial verification is single-flight per operation, across a step result's follow-through, a reconcile, the deferred resume of §17.31 items 2 and 9, and the re-verification pass. The existing single-flight pattern or an atomic claim in the store will do.
+   - A concurrent caller observes the same outcome; it never starts a second verifier.
+   - **The regression:** the re-check's probe. Two concurrent resumes sign one verification pair (two certificates), not two pairs, and both callers see the same outcome.
+5. **W5-D05:** this is the same finding as §17.31 item 8, already built in round 9 together with item 9. **The regression:** `verification_fence_refusal_is_returned_and_changes_no_evidence`.
 
 ## 18. Consequences
 

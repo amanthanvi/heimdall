@@ -72,6 +72,10 @@ pub(crate) struct UninstallFence {
     /// ([`Operations::debug_pause_next_reservation`]).
     #[cfg(debug_assertions)]
     pause: Mutex<Option<ReservationPause>>,
+    /// ⟨debug builds only⟩ Refuse the next reservation as fenced
+    /// ([`Operations::debug_refuse_next_reservation`]).
+    #[cfg(debug_assertions)]
+    refuse_next: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, Default)]
@@ -288,10 +292,33 @@ impl Operations {
     /// the holder's scope); while the fence is being acquired it joins, and the
     /// acquisition waits for it.
     pub(crate) async fn fence_admit_reservation(&self) -> Result<FenceAdmission, OpError> {
+        #[cfg(debug_assertions)]
+        if self
+            .inner
+            .uninstall_fence
+            .refuse_next
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+        {
+            return Err(uninstall_in_progress());
+        }
         let admission = self.fence_admit(Admit::Reservation)?;
         #[cfg(debug_assertions)]
         self.debug_reservation_pause().await;
         Ok(admission)
+    }
+
+    /// ⟨debug builds only; tests; ADR-0008 §17.31 item 8⟩ Refuse the next certificate
+    /// reservation (grant or verification) as fenced (`uninstall_in_progress`), as if an
+    /// uninstall had taken the fence just before it: the only way to reach that refusal
+    /// now that every route into verification holds an admission. Release builds have
+    /// no such hook.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn debug_refuse_next_reservation(&self) {
+        self.inner
+            .uninstall_fence
+            .refuse_next
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// ⟨debug builds only; tests⟩ Pause the next certificate reservation (grant or

@@ -119,3 +119,9 @@ paths, user names, canaries and keys, and none were found.
 | `m03-wave5-r8-worklog-G8.md` | G8: the fence at the reservations, the supervisor passes and the deferred step-result follow-through (W5-C02) |
 | `m03-wave5-r8-worklog-L5.md` | L5: the shared post-removal finalization (W5-C03), the recovery-purpose analysis (item 4) |
 | `m03-wave5-r8-worklog-K4.md` | K4: retirement after a new-item restore (W5-C05) |
+
+## Round 9 (base `ccf23db5`; implements ADR-0008 §17.31 items 8–9)
+
+| File | What it is |
+|---|---|
+| `m03-wave5-r9-worklog-I.md` | One page: the fence refusal returned by `verify_operation` (item 8), the pass resuming its own verdict-less operation (item 9, Q-I-R9-1 ANSWERED), both regressions and revert proofs, and validation, including the `clippy-windows` stall |

@@ -327,3 +327,118 @@ async fn recheck_direct_issuer_request_refused_under_uninstall_fence() {
         Err(e) => assert!(!fence_refusal(&e), "refused after the lift: {e:?}"),
     }
 }
+
+/// ⟨ADR-0008 §17.31 item 8 (Q-G8-2); round 9⟩ A fence refusal at a verification's
+/// certificate reservation says nothing about the remote: `enroll verify` returns the
+/// refusal itself, and the enrollment's evidence, verdict and hold stay as they were (it
+/// is never recorded as an inconclusive verification). The refusal is forced with the
+/// debug-only `debug_refuse_next_reservation`: every public route into verification now
+/// holds an admission, so a real fence acquisition waits for it (the path is defence in
+/// depth). The record is left in the state its operation started (`reverifying`, the
+/// operation open; Q-I-R9-1 asks how it is resumed).
+// Unix only: the system form (as `supervisor_reverifies_before_freshness_lapses`).
+#[cfg(unix)]
+#[tokio::test]
+async fn verification_fence_refusal_is_returned_and_changes_no_evidence() {
+    let w = World::with(WorldOptions {
+        form: EnrollmentForm::System,
+        ..WorldOptions::default()
+    })
+    .await;
+    let (record, _) = w.system_verified().await;
+    let before = w.record(&record.id);
+    w.ops.debug_refuse_next_reservation();
+    let e = w
+        .ops
+        .enrollment_request(
+            &unattended(),
+            EnrollmentRequest::Verify {
+                enrollment_id: record.id.clone(),
+                request_id: RequestId::parse("req_r9_fence").unwrap(),
+                mode: VerifyMode::Presence,
+                wait: heimdall_contract::request::WaitMode::default(),
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(fence_refusal(&e), "the refusal is returned: {e:?}");
+    let after = w.record(&record.id);
+    assert_eq!(after.evidence, before.evidence, "evidence unchanged");
+    assert_eq!(after.verified_at, before.verified_at, "no verdict recorded");
+    assert_eq!(after.hold, before.hold, "no hold recorded");
+    assert!(
+        matches!(
+            after.state,
+            EnrollmentState::Verified | EnrollmentState::Reverifying
+        ),
+        "no verdict recorded: {:?}",
+        after.state
+    );
+}
+
+/// ⟨ADR-0008 §17.31 item 9 (Q-I-R9-1); round 9⟩ The re-verification pass's own operation
+/// left without a verdict by a fence refusal is resumed by the pass once the fence is
+/// lifted (never while it is held), exactly once, to a verdict: one verification
+/// reservation, the record `verified` with fresh evidence, and a later pass resumes
+/// nothing more.
+// Unix only: the system form (as `supervisor_reverifies_before_freshness_lapses`).
+#[cfg(unix)]
+#[tokio::test]
+async fn refused_reverification_is_resumed_once_after_the_fence_lifts() {
+    let w = World::with(WorldOptions {
+        form: EnrollmentForm::System,
+        limits: heimdall_app::operations::Limits {
+            reverify_after: std::time::Duration::from_secs(1),
+            ..heimdall_app::operations::Limits::default()
+        },
+        ..WorldOptions::default()
+    })
+    .await;
+    let (record, _) = w.system_verified().await;
+    let first = w.record(&record.id).verified_at;
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    // The pass's re-verification is refused at its reservation: no verdict.
+    w.ops.debug_refuse_next_reservation();
+    let done = w.ops.reverify_pass().await.unwrap();
+    assert!(!done.contains(&record.id), "refused, not done: {done:?}");
+    let r = w.record(&record.id);
+    assert_eq!(r.state, EnrollmentState::Reverifying, "no verdict");
+    assert_eq!(r.verified_at, first, "no evidence recorded");
+    let op = w
+        .tx(|tx| tx.open_operations())
+        .into_iter()
+        .find(|o| o.kind == heimdall_domain::operation::OperationKind::EnrollmentVerify)
+        .expect("the pass's operation stays open")
+        .id;
+    let entries = |w: &World| w.tx(|tx| tx.verification_entries(&op)).len();
+    assert_eq!(entries(&w), 0, "nothing reserved");
+    // While an uninstall holds the fence the pass resumes nothing.
+    w.ops.uninstall_fence_acquire(HOLDER).await.unwrap();
+    assert!(w.ops.reverify_pass().await.unwrap().is_empty());
+    assert_eq!(w.record(&record.id).state, EnrollmentState::Reverifying);
+    assert_eq!(entries(&w), 0);
+    assert!(!w.ops.uninstall_fence_release(HOLDER));
+    // Lifted: resumed exactly once, to a verdict.
+    let done = w.ops.reverify_pass().await.unwrap();
+    assert_eq!(done, vec![record.id.clone()], "resumed once");
+    let r = w.record(&record.id);
+    assert_eq!(r.state, EnrollmentState::Verified, "a verdict");
+    assert!(r.verified_at > first, "freshness renewed");
+    // One verification run: one reservation per purpose, none twice.
+    let purposes: Vec<String> = w
+        .tx(|tx| tx.verification_entries(&op))
+        .iter()
+        .map(|e| format!("{:?}", e.purpose))
+        .collect();
+    let distinct: std::collections::BTreeSet<&String> = purposes.iter().collect();
+    assert!(!purposes.is_empty(), "the resumed run reserved");
+    assert_eq!(distinct.len(), purposes.len(), "one run only: {purposes:?}");
+    let reserved = purposes.len();
+    assert!(
+        w.tx(|tx| tx.open_operations()).iter().all(|o| o.id != op),
+        "the operation settled"
+    );
+    // Nothing more to resume: a later pass reserves nothing for this operation.
+    let _ = w.ops.reverify_pass().await.unwrap();
+    assert_eq!(entries(&w), reserved, "never run twice");
+}

@@ -98,6 +98,10 @@ impl Operations {
         let observed = match observed {
             Ok(o) => o,
             Err(e) if e.code == Code::InternalError => return Err(e),
+            // ⟨ADR-0008 §17.31 item 8 (Q-G8-2)⟩ a fence refusal says nothing about the
+            // remote: it is returned, and the enrollment's evidence and state stay as
+            // they are (never recorded as an inconclusive verification).
+            Err(e) if is_fence_refusal(&e) => return Err(e),
             Err(_) => Observed {
                 outcome: VerificationOutcome::default(),
                 clock: None,
@@ -811,4 +815,11 @@ pub(super) fn verdict_error(v: VerificationVerdict) -> OpError {
     OpError::new(code, msg)
         .with_reason(why)
         .with_effect(EffectStatus::None)
+}
+
+/// ⟨ADR-0008 §17.31 item 8⟩ Whether `e` is the uninstall fence's refusal
+/// (`SERVICE_UNAVAILABLE`, `uninstall_in_progress`).
+fn is_fence_refusal(e: &OpError) -> bool {
+    e.code == Code::ServiceUnavailable
+        && e.reason.as_deref() == Some(heimdall_contract::envelope::reason::UNINSTALL_IN_PROGRESS)
 }
